@@ -1,114 +1,58 @@
-# reports.js
+const connectButton = document.getElementById("connect-iiko");
+const statusElement = document.getElementById("iiko-status");
+const salesCard = document.getElementById("sales-card");
+const loadSalesButton = document.getElementById("load-sales");
+const salesResult = document.getElementById("sales-result");
 
-```javascript
-const connectButton =
-    document.getElementById("connect-iiko");
-
-const statusElement =
-    document.getElementById("iiko-status");
-
-const salesCard =
-    document.getElementById("sales-card");
-
-const loadSalesButton =
-    document.getElementById("load-sales");
-
-const salesResult =
-    document.getElementById("sales-result");
-
-
-// Данные подключения храним только в памяти страницы
 let iikoConnection = null;
 
 
-// ========================================
+// ==========================================
 // ПОДКЛЮЧЕНИЕ К IIKO
-// ========================================
+// ==========================================
 
-connectButton.addEventListener("click", async () => {
-console.log("КНОПКА ПОДКЛЮЧЕНИЯ НАЖАТА");
+connectButton.addEventListener("click", async function () {
 
-    const ip =
-        document.getElementById("iiko-ip")
-            .value
-            .trim();
+    console.log("КНОПКА ПОДКЛЮЧЕНИЯ НАЖАТА");
 
-    const port =
-        document.getElementById("iiko-port")
-            .value
-            .trim();
-
-    const login =
-        document.getElementById("iiko-login")
-            .value
-            .trim();
-
-    const password =
-        document.getElementById("iiko-password")
-            .value;
-
-
-    // Проверяем поля
+    const ip = document.getElementById("iiko-ip").value.trim();
+    const port = document.getElementById("iiko-port").value.trim();
+    const login = document.getElementById("iiko-login").value.trim();
+    const password = document.getElementById("iiko-password").value;
 
     if (!ip || !port || !login || !password) {
-
-        statusElement.textContent =
-            "⚠️ Заполните все поля";
-
+        statusElement.textContent = "⚠️ Заполните все поля";
         return;
     }
 
-
-    // Блокируем кнопку
-
     connectButton.disabled = true;
-
-    connectButton.textContent =
-        "Подключение...";
-
-    statusElement.textContent =
-        "⏳ Подключаемся к iiko Server...";
-
+    connectButton.textContent = "Подключение...";
+    statusElement.textContent = "⏳ Подключаемся к iiko Server...";
 
     try {
 
-        const response =
-            await fetch(
-                "/api/iiko/connect",
-                {
-                    method: "POST",
+        const response = await fetch("/api/iiko/connect", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                ip: ip,
+                port: port,
+                login: login,
+                password: password
+            })
+        });
 
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
+        const data = await response.json();
 
-                    body: JSON.stringify({
-                        ip: ip,
-                        port: port,
-                        login: login,
-                        password: password
-                    })
-                }
-            );
+        console.log("Ответ connect:", data);
 
-
-        const data =
-            await response.json();
-
-
-        if (!response.ok ||
-            !data.success) {
-
+        if (!response.ok || !data.success) {
             throw new Error(
-                data.message ||
-                "Ошибка подключения"
+                data.message || "Ошибка подключения"
             );
         }
-
-
-        // Сохраняем данные подключения
-        // только в памяти браузера
 
         iikoConnection = {
             ip: ip,
@@ -117,240 +61,110 @@ console.log("КНОПКА ПОДКЛЮЧЕНИЯ НАЖАТА");
             password: password
         };
 
-
         statusElement.textContent =
             "🟢 iiko Server подключён";
 
-
-        // Показываем отчёты
-
-        salesCard.style.display =
-            "block";
-
+        salesCard.style.display = "block";
 
     } catch (error) {
 
-        console.error(
-            "iiko connection error:",
-            error
-        );
+        console.error("Ошибка подключения:", error);
 
         statusElement.textContent =
             "🔴 " + error.message;
 
-
     } finally {
 
         connectButton.disabled = false;
-
-        connectButton.textContent =
-            "Подключиться";
+        connectButton.textContent = "Подключиться";
     }
-
 });
 
 
+// ==========================================
+// ОТЧЁТ ПРОДАЖ
+// ==========================================
 
-// ========================================
-// ПОЛУЧЕНИЕ ОТЧЁТА ПО ПРОДАЖАМ
-// ========================================
+loadSalesButton.addEventListener("click", async function () {
 
-loadSalesButton.addEventListener(
-    "click",
-    async () => {
+    if (!iikoConnection) {
+        salesResult.textContent =
+            "⚠️ Сначала подключитесь к iiko Server";
+        return;
+    }
 
+    const from =
+        document.getElementById("report-from").value;
 
-        // Проверяем подключение
+    const to =
+        document.getElementById("report-to").value;
 
-        if (!iikoConnection) {
+    if (!from || !to) {
+        salesResult.textContent =
+            "⚠️ Выберите дату от и дату до";
+        return;
+    }
 
-            salesResult.innerHTML =
-                "⚠️ Сначала подключитесь к iiko Server";
+    if (from > to) {
+        salesResult.textContent =
+            "⚠️ Дата начала не может быть позже даты окончания";
+        return;
+    }
 
-            return;
+    loadSalesButton.disabled = true;
+    loadSalesButton.textContent = "Загрузка...";
+
+    salesResult.textContent =
+        "⏳ Получаем данные из iiko...";
+
+    try {
+
+        const response = await fetch("/api/iiko/sales", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                ip: iikoConnection.ip,
+                port: iikoConnection.port,
+                login: iikoConnection.login,
+                password: iikoConnection.password,
+                from: from,
+                to: to
+            })
+        });
+
+        const data = await response.json();
+
+        console.log("Ответ sales:", data);
+
+        if (!response.ok || !data.success) {
+            throw new Error(
+                data.message || "Ошибка получения отчёта"
+            );
         }
-
-
-        // Получаем даты
-
-        const from =
-            document.getElementById(
-                "report-from"
-            ).value;
-
-        const to =
-            document.getElementById(
-                "report-to"
-            ).value;
-
-
-        // Проверяем даты
-
-        if (!from || !to) {
-
-            salesResult.innerHTML =
-                "⚠️ Укажите дату от и дату до";
-
-            return;
-        }
-
-
-        if (from > to) {
-
-            salesResult.innerHTML =
-                "⚠️ Дата начала не может быть позже даты окончания";
-
-            return;
-        }
-
-
-        // Блокируем кнопку
-
-        loadSalesButton.disabled =
-            true;
-
-        loadSalesButton.textContent =
-            "Загрузка...";
 
         salesResult.innerHTML =
-            "⏳ Получаем данные из iiko...";
+            "<strong>✅ Отчёт получен</strong>";
 
+        const pre = document.createElement("pre");
 
-        try {
+        pre.textContent =
+            JSON.stringify(data.report, null, 2);
 
-            const response =
-                await fetch(
-                    "/api/iiko/sales",
-                    {
-                        method: "POST",
+        salesResult.appendChild(pre);
 
-                        headers: {
-                            "Content-Type":
-                                "application/json"
-                        },
+    } catch (error) {
 
-                        body: JSON.stringify({
-                            ip:
-                                iikoConnection.ip,
+        console.error("Ошибка отчёта:", error);
 
-                            port:
-                                iikoConnection.port,
+        salesResult.textContent =
+            "🔴 " + error.message;
 
-                            login:
-                                iikoConnection.login,
+    } finally {
 
-                            password:
-                                iikoConnection.password,
-
-                            from:
-                                from,
-
-                            to:
-                                to
-                        })
-                    }
-                );
-
-
-            const data =
-                await response.json();
-
-
-            if (!response.ok ||
-                !data.success) {
-
-                throw new Error(
-                    data.message ||
-                    "Ошибка получения отчёта"
-                );
-            }
-
-
-            console.log(
-                "iiko SALES:",
-                data.report
-            );
-
-
-            // Пока показываем настоящий
-            // ответ iiko API
-
-            salesResult.innerHTML = `
-                <div>
-                    <strong>
-                        ✅ Отчёт получен
-                    </strong>
-                </div>
-
-                <pre>${escapeHtml(
-                    JSON.stringify(
-                        data.report,
-                        null,
-                        2
-                    )
-                )}</pre>
-            `;
-
-
-        } catch (error) {
-
-            console.error(
-                "sales error:",
-                error
-            );
-
-            salesResult.innerHTML =
-                "🔴 " +
-                escapeHtml(
-                    error.message
-                );
-
-
-        } finally {
-
-            loadSalesButton.disabled =
-                false;
-
-            loadSalesButton.textContent =
-                "Получить отчёт";
-        }
-
+        loadSalesButton.disabled = false;
+        loadSalesButton.textContent =
+            "Получить отчёт";
     }
-);
-
-
-
-// ========================================
-// ЗАЩИТА HTML
-// ========================================
-
-function escapeHtml(value) {
-
-    return String(value)
-
-        .replaceAll(
-            "&",
-            "&amp;"
-        )
-
-        .replaceAll(
-            "<",
-            "&lt;"
-        )
-
-        .replaceAll(
-            ">",
-            "&gt;"
-        )
-
-        .replaceAll(
-            '"',
-            "&quot;"
-        )
-
-        .replaceAll(
-            "'",
-            "&#039;"
-        );
-}
-```
+});
