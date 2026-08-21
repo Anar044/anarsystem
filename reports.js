@@ -26,6 +26,7 @@ let iikoConnection = null;
 // ========================================
 
 connectButton.addEventListener("click", async () => {
+console.log("КНОПКА ПОДКЛЮЧЕНИЯ НАЖАТА");
 
     const ip =
         document.getElementById("iiko-ip")
