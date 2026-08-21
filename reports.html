@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Отчёты — Anar System</title>
+
+    <link rel="stylesheet" href="pages.css">
+</head>
+
+<body>
+
+    <main class="reports-page">
+
+        <div class="reports-container">
+
+            <h1>Отчёты</h1>
+
+            <div class="iiko-card">
+
+                <h2>Подключение iiko Server</h2>
+
+                <div class="form-group">
+                    <label for="iiko-ip">IP адрес / домен</label>
+                    <input
+                        id="iiko-ip"
+                        type="text"
+                        placeholder="123.123.123.123"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="iiko-port">Порт</label>
+                    <input
+                        id="iiko-port"
+                        type="number"
+                        placeholder="443"
+                        value="443"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="iiko-login">Логин</label>
+                    <input
+                        id="iiko-login"
+                        type="text"
+                        autocomplete="username"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="iiko-password">Пароль</label>
+                    <input
+                        id="iiko-password"
+                        type="password"
+                        autocomplete="current-password"
+                    >
+                </div>
+
+                <button id="connect-iiko">
+                    Подключиться
+                </button>
+
+                <div id="iiko-status" class="iiko-status">
+                    Не подключено
+                </div>
+
+            </div>
+
+        </div>
+
+    </main>
+
+    <script src="reports.js"></script>
+
+</body>
+</html>
