@@ -48,6 +48,7 @@
             padding: 30px;
             border-radius: 16px;
             background: #ffffff;
+
             box-shadow:
                 0 10px 30px rgba(0, 0, 0, 0.08);
 
@@ -59,6 +60,7 @@
         .iiko-card h2 {
             margin-top: 0;
             margin-bottom: 25px;
+
             color: #222 !important;
             opacity: 1 !important;
         }
@@ -75,6 +77,7 @@
 
         .form-group label {
             display: block;
+
             margin-bottom: 7px;
 
             font-weight: 600;
@@ -109,6 +112,42 @@
 
 
         /* ==========================================
+           REMEMBER LOGIN
+        ========================================== */
+
+        .remember-login {
+            margin: 15px 0 20px;
+
+            color: #222 !important;
+
+            opacity: 1 !important;
+        }
+
+
+        .remember-login label {
+            display: flex;
+
+            align-items: center;
+
+            gap: 8px;
+
+            cursor: pointer;
+
+            color: #222 !important;
+
+            opacity: 1 !important;
+        }
+
+
+        .remember-login input {
+            width: 18px;
+            height: 18px;
+
+            cursor: pointer;
+        }
+
+
+        /* ==========================================
            BUTTONS
         ========================================== */
 
@@ -120,19 +159,53 @@
             padding: 14px;
 
             border: 0;
+
             border-radius: 8px;
 
             cursor: pointer;
 
             font-size: 16px;
+
             font-weight: 600;
         }
 
 
         #connect-iiko:disabled,
         #load-sales:disabled {
+
             opacity: 0.6;
+
             cursor: wait;
+        }
+
+
+        /* ==========================================
+           CLEAR BUTTON
+        ========================================== */
+
+        #clear-iiko-data {
+
+            width: 100%;
+
+            padding: 11px;
+
+            border: 1px solid #ddd;
+
+            border-radius: 8px;
+
+            background: #fff;
+
+            color: #555;
+
+            cursor: pointer;
+
+            font-size: 14px;
+        }
+
+
+        #clear-iiko-data:hover {
+
+            background: #f5f5f5;
         }
 
 
@@ -153,6 +226,7 @@
             text-align: center;
 
             color: #222 !important;
+
             opacity: 1 !important;
         }
 
@@ -162,24 +236,30 @@
         ========================================== */
 
         #sales-card {
+
             margin-top: 30px;
 
             color: #222 !important;
+
             opacity: 1 !important;
         }
 
 
         #sales-card h2,
         #sales-card h3 {
+
             color: #222 !important;
+
             opacity: 1 !important;
         }
 
 
         #sales-result {
+
             margin-top: 25px;
 
             color: #222 !important;
+
             opacity: 1 !important;
         }
 
@@ -191,9 +271,11 @@
         .report-header {
 
             margin-top: 30px;
+
             margin-bottom: 20px;
 
             color: #222 !important;
+
             opacity: 1 !important;
         }
 
@@ -203,6 +285,7 @@
             margin: 0 0 8px 0;
 
             color: #222 !important;
+
             opacity: 1 !important;
         }
 
@@ -411,14 +494,6 @@
         }
 
 
-        #sales-card strong {
-
-            color: #222 !important;
-
-            opacity: 1 !important;
-        }
-
-
         /* ==========================================
            MOBILE
         ========================================== */
@@ -426,11 +501,14 @@
         @media (max-width: 700px) {
 
             .reports-page {
-                padding: 100px 15px 40px;
+
+                padding:
+                    100px 15px 40px;
             }
 
 
             .iiko-card {
+
                 padding: 20px;
             }
 
@@ -451,7 +529,8 @@
             .report-table th,
             .report-table td {
 
-                padding: 9px 7px;
+                padding:
+                    9px 7px;
             }
 
         }
@@ -470,7 +549,6 @@
 
 
     <main class="reports-page">
-
 
         <div class="reports-container">
 
@@ -554,8 +632,37 @@
                 </div>
 
 
+                <!-- REMEMBER -->
+
+                <div class="remember-login">
+
+                    <label>
+
+                        <input
+                            type="checkbox"
+                            id="remember-iiko"
+                        >
+
+                        <span>
+                            Запомнить данные для входа
+                        </span>
+
+                    </label>
+
+                </div>
+
+
                 <button id="connect-iiko">
                     Подключиться
+                </button>
+
+
+                <button
+                    type="button"
+                    id="clear-iiko-data"
+                    style="margin-top:10px;"
+                >
+                    Очистить сохранённые данные
                 </button>
 
 
@@ -627,12 +734,10 @@
 
         </div>
 
-
     </main>
 
 
     <script src="reports.js"></script>
-
 
 </body>
 
