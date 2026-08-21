@@ -51,7 +51,7 @@ export async function onRequestPost(context) {
             }, 400);
         }
 
-        const serverUrl = `https://${ip}:${port}`;
+        const serverUrl = `http://${ip}:${port}`;
 
         const passwordHash = await sha1(password);
 
