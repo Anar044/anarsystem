@@ -2,7 +2,6 @@
 // IIKO REPORTS
 // ==========================================
 
-
 const connectButton =
     document.getElementById("connect-iiko");
 
@@ -29,7 +28,7 @@ let iikoConnection = null;
 
 
 // ==========================================
-// STORAGE KEY
+// STORAGE
 // ==========================================
 
 const IIKO_STORAGE_KEY =
@@ -37,7 +36,7 @@ const IIKO_STORAGE_KEY =
 
 
 // ==========================================
-// ЗАГРУЗКА СОХРАНЁННЫХ ДАННЫХ
+// LOAD SAVED DATA
 // ==========================================
 
 function loadSavedIikoData() {
@@ -49,56 +48,37 @@ function loadSavedIikoData() {
                 IIKO_STORAGE_KEY
             );
 
-
         if (!saved) {
-
             return;
         }
-
 
         const data =
             JSON.parse(saved);
 
-
         document.getElementById(
             "iiko-ip"
-        ).value =
-            data.ip || "";
-
+        ).value = data.ip || "";
 
         document.getElementById(
             "iiko-port"
-        ).value =
-            data.port || "";
-
+        ).value = data.port || "";
 
         document.getElementById(
             "iiko-login"
-        ).value =
-            data.login || "";
-
+        ).value = data.login || "";
 
         document.getElementById(
             "iiko-password"
-        ).value =
-            data.password || "";
-
+        ).value = data.password || "";
 
         rememberIiko.checked = true;
-
-
-        console.log(
-            "Данные iiko загружены из браузера"
-        );
-
 
     } catch (error) {
 
         console.error(
-            "Ошибка загрузки сохранённых данных:",
+            "Ошибка загрузки данных:",
             error
         );
-
 
         localStorage.removeItem(
             IIKO_STORAGE_KEY
@@ -108,7 +88,7 @@ function loadSavedIikoData() {
 
 
 // ==========================================
-// СОХРАНЕНИЕ
+// SAVE DATA
 // ==========================================
 
 function saveIikoData() {
@@ -136,118 +116,84 @@ function saveIikoData() {
             ).value
     };
 
-
     localStorage.setItem(
         IIKO_STORAGE_KEY,
         JSON.stringify(data)
-    );
-
-
-    console.log(
-        "Данные iiko сохранены"
     );
 }
 
 
 // ==========================================
-// УДАЛЕНИЕ СОХРАНЁННЫХ ДАННЫХ
+// CLEAR DATA
 // ==========================================
 
 clearIikoData.addEventListener(
     "click",
     function () {
 
-
         localStorage.removeItem(
             IIKO_STORAGE_KEY
         );
-
 
         document.getElementById(
             "iiko-ip"
         ).value = "";
 
-
         document.getElementById(
             "iiko-port"
         ).value = "";
-
 
         document.getElementById(
             "iiko-login"
         ).value = "";
 
-
         document.getElementById(
             "iiko-password"
         ).value = "";
 
-
         rememberIiko.checked = false;
 
-
         iikoConnection = null;
-
 
         salesCard.style.display =
             "none";
 
-
         statusElement.textContent =
             "⚪ Данные удалены";
 
-
         salesResult.innerHTML = "";
-
-
-        console.log(
-            "Сохранённые данные iiko удалены"
-        );
     }
 );
 
 
 // ==========================================
-// ПОДКЛЮЧЕНИЕ К IIKO
+// CONNECT IIKO
 // ==========================================
 
 connectButton.addEventListener(
     "click",
     async function () {
 
-
-        console.log(
-            "КНОПКА ПОДКЛЮЧЕНИЯ НАЖАТА"
-        );
-
-
         const ip =
             document.getElementById(
                 "iiko-ip"
             ).value.trim();
-
 
         const port =
             document.getElementById(
                 "iiko-port"
             ).value.trim();
 
-
         const login =
             document.getElementById(
                 "iiko-login"
             ).value.trim();
-
 
         const password =
             document.getElementById(
                 "iiko-password"
             ).value;
 
-
-        // ======================================
-        // ПРОВЕРКА
-        // ======================================
 
         if (
             !ip ||
@@ -263,28 +209,16 @@ connectButton.addEventListener(
         }
 
 
-        // ======================================
-        // BUTTON
-        // ======================================
-
-        connectButton.disabled =
-            true;
-
+        connectButton.disabled = true;
 
         connectButton.textContent =
             "Подключение...";
-
 
         statusElement.textContent =
             "⏳ Подключаемся к iiko Server...";
 
 
         try {
-
-
-            // ==================================
-            // CONNECT API
-            // ==================================
 
             const response =
                 await fetch(
@@ -300,13 +234,10 @@ connectButton.addEventListener(
                         body:
                             JSON.stringify({
 
-                                ip: ip,
-
-                                port: port,
-
-                                login: login,
-
-                                password: password
+                                ip,
+                                port,
+                                login,
+                                password
 
                             })
                     }
@@ -323,10 +254,6 @@ connectButton.addEventListener(
             );
 
 
-            // ==================================
-            // ERROR
-            // ==================================
-
             if (
                 !response.ok ||
                 !data.success
@@ -338,10 +265,6 @@ connectButton.addEventListener(
                 );
             }
 
-
-            // ==================================
-            // SAVE
-            // ==================================
 
             if (
                 rememberIiko.checked
@@ -357,26 +280,15 @@ connectButton.addEventListener(
             }
 
 
-            // ==================================
-            // CONNECTION OBJECT
-            // ==================================
-
             iikoConnection = {
 
-                ip: ip,
-
-                port: port,
-
-                login: login,
-
-                password: password
+                ip,
+                port,
+                login,
+                password
 
             };
 
-
-            // ==================================
-            // SUCCESS
-            // ==================================
 
             statusElement.textContent =
                 "🟢 iiko Server подключён";
@@ -386,48 +298,353 @@ connectButton.addEventListener(
                 "block";
 
 
-        } catch (error) {
+            // Добавляем кнопку OLAP
+            addOlapButton();
 
+
+        } catch (error) {
 
             console.error(
                 "Ошибка подключения:",
                 error
             );
 
-
             statusElement.textContent =
                 "🔴 " +
                 error.message;
 
-
         } finally {
-
 
             connectButton.disabled =
                 false;
 
-
             connectButton.textContent =
                 "Подключиться";
-
         }
-
     }
 );
 
 
 // ==========================================
-// ПОЛУЧЕНИЕ ОТЧЁТА
+// ADD OLAP BUTTON
+// ==========================================
+
+function addOlapButton() {
+
+    if (
+        document.getElementById(
+            "check-olap"
+        )
+    ) {
+        return;
+    }
+
+
+    const button =
+        document.createElement(
+            "button"
+        );
+
+
+    button.id =
+        "check-olap";
+
+
+    button.type =
+        "button";
+
+
+    button.textContent =
+        "🔍 Проверить OLAP API";
+
+
+    button.style.width =
+        "100%";
+
+
+    button.style.padding =
+        "14px";
+
+
+    button.style.marginTop =
+        "15px";
+
+
+    button.style.border =
+        "1px solid #ddd";
+
+
+    button.style.borderRadius =
+        "8px";
+
+
+    button.style.background =
+        "#fff";
+
+
+    button.style.color =
+        "#222";
+
+
+    button.style.cursor =
+        "pointer";
+
+
+    salesCard.appendChild(
+        button
+    );
+
+
+    button.addEventListener(
+        "click",
+        checkOlap
+    );
+}
+
+
+// ==========================================
+// CHECK OLAP
+// ==========================================
+
+async function checkOlap() {
+
+    if (!iikoConnection) {
+
+        alert(
+            "Сначала подключитесь к iiko Server"
+        );
+
+        return;
+    }
+
+
+    const button =
+        document.getElementById(
+            "check-olap"
+        );
+
+
+    button.disabled = true;
+
+    button.textContent =
+        "⏳ Проверяем OLAP...";
+
+
+    const oldResult =
+        salesResult.innerHTML;
+
+
+    salesResult.innerHTML = `
+
+        <div style="
+            margin-top:20px;
+            padding:15px;
+            border-radius:8px;
+            background:#f5f5f5;
+            color:#222;
+        ">
+
+            ⏳ Отправляем запрос
+            в iiko OLAP API...
+
+        </div>
+
+    `;
+
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/iiko/olap",
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body:
+                        JSON.stringify({
+
+                            ip:
+                                iikoConnection.ip,
+
+                            port:
+                                iikoConnection.port,
+
+                            login:
+                                iikoConnection.login,
+
+                            password:
+                                iikoConnection.password
+
+                        })
+                }
+            );
+
+
+        const data =
+            await response.json();
+
+
+        console.log(
+            "OLAP RESPONSE:",
+            data
+        );
+
+
+        let resultHtml = "";
+
+
+        if (data.success) {
+
+            resultHtml += `
+
+                <div style="
+                    margin-top:20px;
+                    padding:15px;
+                    border-radius:8px;
+                    background:#e9f8ee;
+                    color:#176b32;
+                ">
+
+                    🟢 OLAP API работает
+
+                    <br><br>
+
+                    HTTP:
+
+                    <strong>
+                        ${data.iikoHttpStatus}
+                    </strong>
+
+                </div>
+
+            `;
+
+        } else {
+
+            resultHtml += `
+
+                <div style="
+                    margin-top:20px;
+                    padding:15px;
+                    border-radius:8px;
+                    background:#fff0f0;
+                    color:#b00000;
+                ">
+
+                    🔴 OLAP API вернул ошибку
+
+                    <br><br>
+
+                    HTTP:
+
+                    <strong>
+                        ${data.iikoHttpStatus || "-"}
+                    </strong>
+
+                    <br><br>
+
+                    ${escapeHtml(
+                        data.message || ""
+                    )}
+
+                </div>
+
+            `;
+        }
+
+
+        // ======================================
+        // RAW RESPONSE
+        // ======================================
+
+        resultHtml += `
+
+            <div style="
+                margin-top:15px;
+            ">
+
+                <h3>
+                    Ответ iiko:
+                </h3>
+
+                <pre style="
+                    white-space:pre-wrap;
+                    overflow:auto;
+                    padding:15px;
+                    border-radius:8px;
+                    background:#f5f5f5;
+                    color:#222;
+                    border:1px solid #ddd;
+                    font-size:13px;
+                    line-height:1.5;
+                ">${escapeHtml(
+                    JSON.stringify(
+                        data,
+                        null,
+                        2
+                    )
+                )}</pre>
+
+            </div>
+
+        `;
+
+
+        salesResult.innerHTML =
+            resultHtml;
+
+
+    } catch (error) {
+
+        console.error(
+            "OLAP ERROR:",
+            error
+        );
+
+
+        salesResult.innerHTML = `
+
+            <div style="
+                margin-top:20px;
+                padding:15px;
+                border-radius:8px;
+                background:#fff0f0;
+                color:#b00000;
+            ">
+
+                🔴 Ошибка:
+
+                ${escapeHtml(
+                    error.message
+                )}
+
+            </div>
+
+        `;
+
+
+    } finally {
+
+        button.disabled = false;
+
+        button.textContent =
+            "🔍 Проверить OLAP API";
+    }
+}
+
+
+// ==========================================
+// SALES REPORT
 // ==========================================
 
 loadSalesButton.addEventListener(
     "click",
     async function () {
-
-
-        // ======================================
-        // CONNECTION
-        // ======================================
 
         if (!iikoConnection) {
 
@@ -445,10 +662,6 @@ loadSalesButton.addEventListener(
             return;
         }
 
-
-        // ======================================
-        // DATES
-        // ======================================
 
         const from =
             document.getElementById(
@@ -496,13 +709,8 @@ loadSalesButton.addEventListener(
         }
 
 
-        // ======================================
-        // BUTTON
-        // ======================================
-
         loadSalesButton.disabled =
             true;
-
 
         loadSalesButton.textContent =
             "Загрузка...";
@@ -520,11 +728,6 @@ loadSalesButton.addEventListener(
 
 
         try {
-
-
-            // ==================================
-            // API
-            // ==================================
 
             const response =
                 await fetch(
@@ -573,10 +776,6 @@ loadSalesButton.addEventListener(
             );
 
 
-            // ==================================
-            // ERROR
-            // ==================================
-
             if (
                 !response.ok ||
                 !data.success
@@ -588,10 +787,6 @@ loadSalesButton.addEventListener(
                 );
             }
 
-
-            // ==================================
-            // REPORT
-            // ==================================
 
             const report =
                 data.report || {};
@@ -605,36 +800,26 @@ loadSalesButton.addEventListener(
                     : [];
 
 
-            // ==================================
-            // TOTALS
-            // ==================================
-
             let totalSales = 0;
 
             let totalOrders = 0;
 
 
             rows.forEach(
-                function (row) {
+                row => {
 
                     totalSales +=
                         Number(
                             row.DishSumInt || 0
                         );
 
-
                     totalOrders +=
                         Number(
                             row.UniqOrderId || 0
                         );
-
                 }
             );
 
-
-            // ==================================
-            // AVERAGE CHECK
-            // ==================================
 
             const averageCheck =
                 totalOrders > 0
@@ -642,10 +827,6 @@ loadSalesButton.addEventListener(
                       totalOrders
                     : 0;
 
-
-            // ==================================
-            // FORMATTERS
-            // ==================================
 
             const money =
                 new Intl.NumberFormat(
@@ -668,22 +849,17 @@ loadSalesButton.addEventListener(
             ) {
 
                 if (!dateString) {
-
                     return "-";
                 }
-
 
                 const parts =
                     dateString.split("-");
 
-
                 if (
                     parts.length !== 3
                 ) {
-
                     return dateString;
                 }
-
 
                 return (
                     parts[2] +
@@ -695,16 +871,7 @@ loadSalesButton.addEventListener(
             }
 
 
-            // ==================================
-            // REPORT HTML
-            // ==================================
-
-            let html = "";
-
-
-            // HEADER
-
-            html += `
+            let html = `
 
                 <div class="report-header">
 
@@ -715,31 +882,20 @@ loadSalesButton.addEventListener(
                     <div class="report-period">
 
                         ${formatDate(from)}
-
                         —
-
                         ${formatDate(to)}
 
                     </div>
 
                 </div>
 
-            `;
-
-
-            // CARDS
-
-            html += `
 
                 <div class="report-cards">
-
 
                     <div class="report-card">
 
                         <div class="report-card-title">
-
                             💰 Выручка
-
                         </div>
 
                         <div class="report-card-value">
@@ -756,9 +912,7 @@ loadSalesButton.addEventListener(
                     <div class="report-card">
 
                         <div class="report-card-title">
-
                             🧾 Заказы
-
                         </div>
 
                         <div class="report-card-value">
@@ -775,9 +929,7 @@ loadSalesButton.addEventListener(
                     <div class="report-card">
 
                         <div class="report-card-title">
-
                             💵 Средний чек
-
                         </div>
 
                         <div class="report-card-value">
@@ -790,29 +942,16 @@ loadSalesButton.addEventListener(
 
                     </div>
 
-
                 </div>
 
-            `;
-
-
-            // TABLE
-
-            html += `
 
                 <div class="report-table-wrapper">
 
-
                     <h3>
-
                         Продажи по дням
-
                     </h3>
 
-
-                    <table
-                        class="report-table"
-                    >
+                    <table class="report-table">
 
                         <thead>
 
@@ -838,15 +977,9 @@ loadSalesButton.addEventListener(
 
                         </thead>
 
-
                         <tbody>
-
             `;
 
-
-            // ==================================
-            // EMPTY
-            // ==================================
 
             if (
                 rows.length === 0
@@ -872,32 +1005,23 @@ loadSalesButton.addEventListener(
 
             } else {
 
-
-                // ==================================
-                // ROWS
-                // ==================================
-
                 rows.forEach(
-                    function (row) {
-
+                    row => {
 
                         const sales =
                             Number(
                                 row.DishSumInt || 0
                             );
 
-
                         const orders =
                             Number(
                                 row.UniqOrderId || 0
                             );
 
-
                         const average =
                             orders > 0
                                 ? sales / orders
                                 : 0;
-
 
                         const date =
                             row[
@@ -910,47 +1034,34 @@ loadSalesButton.addEventListener(
                             <tr>
 
                                 <td>
-
                                     ${formatDate(
                                         date
                                     )}
-
                                 </td>
 
-
                                 <td>
-
                                     ${money.format(
                                         sales
                                     )}
-
                                 </td>
 
-
                                 <td>
-
                                     ${number.format(
                                         orders
                                     )}
-
                                 </td>
 
-
                                 <td>
-
                                     ${money.format(
                                         average
                                     )}
-
                                 </td>
 
                             </tr>
 
                         `;
-
                     }
                 );
-
             }
 
 
@@ -965,16 +1076,11 @@ loadSalesButton.addEventListener(
             `;
 
 
-            // ==================================
-            // SHOW
-            // ==================================
-
             salesResult.innerHTML =
                 html;
 
 
         } catch (error) {
-
 
             console.error(
                 "Ошибка отчёта:",
@@ -996,17 +1102,13 @@ loadSalesButton.addEventListener(
 
             `;
 
-
         } finally {
-
 
             loadSalesButton.disabled =
                 false;
 
-
             loadSalesButton.textContent =
                 "Получить отчёт";
-
         }
 
     }
@@ -1014,7 +1116,7 @@ loadSalesButton.addEventListener(
 
 
 // ==========================================
-// HTML SECURITY
+// ESCAPE HTML
 // ==========================================
 
 function escapeHtml(value) {
