@@ -22,29 +22,23 @@ function jsonResponse(data, status = 200) {
 // ==========================================
 
 async function sha1(text) {
+    const data = new TextEncoder().encode(text);
 
-    const data =
-        new TextEncoder().encode(text);
+    const hash = await crypto.subtle.digest(
+        "SHA-1",
+        data
+    );
 
-    const hash =
-        await crypto.subtle.digest(
-            "SHA-1",
-            data
-        );
-
-    return Array.from(
-        new Uint8Array(hash)
-    )
-        .map(
-            byte =>
-                byte.toString(16).padStart(2, "0")
+    return Array.from(new Uint8Array(hash))
+        .map(byte =>
+            byte.toString(16).padStart(2, "0")
         )
         .join("");
 }
 
 
 // ==========================================
-// ПОЛУЧЕНИЕ TOKEN
+// ПОЛУЧЕНИЕ TOKEN IIKO
 // ==========================================
 
 async function getToken(
@@ -53,28 +47,22 @@ async function getToken(
     login,
     password
 ) {
+    const serverUrl = `http://${ip}:${port}`;
 
-    const serverUrl =
-        `http://${ip}:${port}`;
-
-    const passwordHash =
-        await sha1(password);
+    const passwordHash = await sha1(password);
 
     const authUrl =
         `${serverUrl}/resto/api/auth` +
         `?login=${encodeURIComponent(login)}` +
         `&pass=${passwordHash}`;
 
-    const response =
-        await fetch(authUrl);
+    const response = await fetch(authUrl);
 
-    const token =
-        (await response.text()).trim();
+    const token = (await response.text()).trim();
 
     if (!response.ok || !token) {
-
         throw new Error(
-            `Ошибка авторизации: HTTP ${response.status}`
+            `Ошибка авторизации iiko: HTTP ${response.status}`
         );
     }
 
@@ -90,7 +78,6 @@ async function getToken(
 // ==========================================
 
 export async function onRequestOptions() {
-
     return new Response(null, {
         status: 204,
         headers: corsHeaders()
@@ -99,16 +86,19 @@ export async function onRequestOptions() {
 
 
 // ==========================================
-// SALES
+// SALES REPORT
 // ==========================================
 
 export async function onRequestPost(context) {
 
     try {
 
-        const body =
-            await context.request.json();
+        const body = await context.request.json();
 
+
+        // ======================================
+        // ДАННЫЕ ПОДКЛЮЧЕНИЯ
+        // ======================================
 
         const ip =
             String(body.ip || "").trim();
@@ -122,12 +112,21 @@ export async function onRequestPost(context) {
         const password =
             String(body.password || "");
 
+
+        // ======================================
+        // ПЕРИОД
+        // ======================================
+
         const from =
             String(body.from || "").trim();
 
         const to =
             String(body.to || "").trim();
 
+
+        // ======================================
+        // ПРОВЕРКИ
+        // ======================================
 
         if (
             !ip ||
@@ -154,8 +153,6 @@ export async function onRequestPost(context) {
         }
 
 
-        // Проверяем даты
-
         if (from > to) {
 
             return jsonResponse({
@@ -165,6 +162,10 @@ export async function onRequestPost(context) {
             }, 400);
         }
 
+
+        // ======================================
+        // ПОДКЛЮЧАЕМСЯ К IIKO
+        // ======================================
 
         const {
             serverUrl,
@@ -178,7 +179,7 @@ export async function onRequestPost(context) {
 
 
         // ======================================
-        // IIKO OLAP
+        // URL OLAP
         // ======================================
 
         const reportUrl =
@@ -186,33 +187,13 @@ export async function onRequestPost(context) {
             `?key=${encodeURIComponent(token)}`;
 
 
-        /*
-         * ВАЖНО:
-         *
-         * Для DATE периода iiko ожидает
-         * отдельные границы периода.
-         *
-         * Поэтому:
-         *
-         * from = начало выбранного дня
-         * to   = начало следующего дня
-         *
-         * Например:
-         *
-         * 21.08 → 22.08
-         *
-         * Тогда выбран полностью 21 августа.
-         */
+        // ======================================
+        // СЛЕДУЮЩИЙ ДЕНЬ
+        // ======================================
 
-        const startDate =
-            new Date(
-                `${from}T00:00:00`
-            );
-
-        const endDate =
-            new Date(
-                `${to}T00:00:00`
-            );
+        const endDate = new Date(
+            `${to}T00:00:00`
+        );
 
         endDate.setDate(
             endDate.getDate() + 1
@@ -238,7 +219,7 @@ export async function onRequestPost(context) {
 
 
         // ======================================
-        // OLAP BODY
+        // OLAP QUERY
         // ======================================
 
         const reportBody = {
@@ -247,7 +228,9 @@ export async function onRequestPost(context) {
 
             buildSummary: true,
 
-            groupByRowFields: [],
+            groupByRowFields: [
+                "OpenDate.Typed"
+            ],
 
             aggregateFields: [
                 "DishSumInt",
@@ -265,18 +248,20 @@ export async function onRequestPost(context) {
                     from: from,
 
                     to: endDateString
-
                 }
-
             }
         };
 
 
         console.log(
-            "Отправляем OLAP:",
+            "IIKO OLAP REQUEST:",
             JSON.stringify(reportBody)
         );
 
+
+        // ======================================
+        // ЗАПРОС К IIKO
+        // ======================================
 
         const reportResponse =
             await fetch(
@@ -302,10 +287,14 @@ export async function onRequestPost(context) {
 
 
         console.log(
-            "iiko OLAP response:",
+            "IIKO OLAP RESPONSE:",
             text
         );
 
+
+        // ======================================
+        // ОШИБКА IIKO
+        // ======================================
 
         if (!reportResponse.ok) {
 
@@ -319,25 +308,32 @@ export async function onRequestPost(context) {
                 details:
                     text.substring(
                         0,
-                        2000
+                        3000
                     )
 
             }, 502);
         }
 
 
+        // ======================================
+        // JSON
+        // ======================================
+
         let data;
 
         try {
 
-            data =
-                JSON.parse(text);
+            data = JSON.parse(text);
 
         } catch {
 
             data = text;
         }
 
+
+        // ======================================
+        // ОТВЕТ
+        // ======================================
 
         return jsonResponse({
 
@@ -351,9 +347,10 @@ export async function onRequestPost(context) {
     } catch (error) {
 
         console.error(
-            "SALES ERROR:",
+            "IIKO SALES ERROR:",
             error
         );
+
 
         return jsonResponse({
 
