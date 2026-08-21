@@ -1,148 +1,454 @@
-const connectButton = document.getElementById("connect-iiko");
-const statusElement = document.getElementById("iiko-status");
-const salesCard = document.getElementById("sales-card");
-const loadSalesButton = document.getElementById("load-sales");
-const salesResult = document.getElementById("sales-result");
+// ==========================================
+// IIKO REPORTS
+// ==========================================
+
+
+const connectButton =
+    document.getElementById("connect-iiko");
+
+const statusElement =
+    document.getElementById("iiko-status");
+
+const salesCard =
+    document.getElementById("sales-card");
+
+const loadSalesButton =
+    document.getElementById("load-sales");
+
+const salesResult =
+    document.getElementById("sales-result");
+
+const rememberIiko =
+    document.getElementById("remember-iiko");
+
+const clearIikoData =
+    document.getElementById("clear-iiko-data");
+
 
 let iikoConnection = null;
+
+
+// ==========================================
+// STORAGE KEY
+// ==========================================
+
+const IIKO_STORAGE_KEY =
+    "iikoConnection";
+
+
+// ==========================================
+// ЗАГРУЗКА СОХРАНЁННЫХ ДАННЫХ
+// ==========================================
+
+function loadSavedIikoData() {
+
+    try {
+
+        const saved =
+            localStorage.getItem(
+                IIKO_STORAGE_KEY
+            );
+
+
+        if (!saved) {
+
+            return;
+        }
+
+
+        const data =
+            JSON.parse(saved);
+
+
+        document.getElementById(
+            "iiko-ip"
+        ).value =
+            data.ip || "";
+
+
+        document.getElementById(
+            "iiko-port"
+        ).value =
+            data.port || "";
+
+
+        document.getElementById(
+            "iiko-login"
+        ).value =
+            data.login || "";
+
+
+        document.getElementById(
+            "iiko-password"
+        ).value =
+            data.password || "";
+
+
+        rememberIiko.checked = true;
+
+
+        console.log(
+            "Данные iiko загружены из браузера"
+        );
+
+
+    } catch (error) {
+
+        console.error(
+            "Ошибка загрузки сохранённых данных:",
+            error
+        );
+
+
+        localStorage.removeItem(
+            IIKO_STORAGE_KEY
+        );
+    }
+}
+
+
+// ==========================================
+// СОХРАНЕНИЕ
+// ==========================================
+
+function saveIikoData() {
+
+    const data = {
+
+        ip:
+            document.getElementById(
+                "iiko-ip"
+            ).value.trim(),
+
+        port:
+            document.getElementById(
+                "iiko-port"
+            ).value.trim(),
+
+        login:
+            document.getElementById(
+                "iiko-login"
+            ).value.trim(),
+
+        password:
+            document.getElementById(
+                "iiko-password"
+            ).value
+    };
+
+
+    localStorage.setItem(
+        IIKO_STORAGE_KEY,
+        JSON.stringify(data)
+    );
+
+
+    console.log(
+        "Данные iiko сохранены"
+    );
+}
+
+
+// ==========================================
+// УДАЛЕНИЕ СОХРАНЁННЫХ ДАННЫХ
+// ==========================================
+
+clearIikoData.addEventListener(
+    "click",
+    function () {
+
+
+        localStorage.removeItem(
+            IIKO_STORAGE_KEY
+        );
+
+
+        document.getElementById(
+            "iiko-ip"
+        ).value = "";
+
+
+        document.getElementById(
+            "iiko-port"
+        ).value = "";
+
+
+        document.getElementById(
+            "iiko-login"
+        ).value = "";
+
+
+        document.getElementById(
+            "iiko-password"
+        ).value = "";
+
+
+        rememberIiko.checked = false;
+
+
+        iikoConnection = null;
+
+
+        salesCard.style.display =
+            "none";
+
+
+        statusElement.textContent =
+            "⚪ Данные удалены";
+
+
+        salesResult.innerHTML = "";
+
+
+        console.log(
+            "Сохранённые данные iiko удалены"
+        );
+    }
+);
 
 
 // ==========================================
 // ПОДКЛЮЧЕНИЕ К IIKO
 // ==========================================
 
-connectButton.addEventListener("click", async function () {
-
-    console.log("КНОПКА ПОДКЛЮЧЕНИЯ НАЖАТА");
-
-    const ip =
-        document.getElementById("iiko-ip").value.trim();
-
-    const port =
-        document.getElementById("iiko-port").value.trim();
-
-    const login =
-        document.getElementById("iiko-login").value.trim();
-
-    const password =
-        document.getElementById("iiko-password").value;
-
-
-    if (!ip || !port || !login || !password) {
-
-        statusElement.textContent =
-            "⚠️ Заполните все поля";
-
-        return;
-    }
-
-
-    connectButton.disabled = true;
-
-    connectButton.textContent =
-        "Подключение...";
-
-    statusElement.textContent =
-        "⏳ Подключаемся к iiko Server...";
-
-
-    try {
-
-        const response = await fetch(
-            "/api/iiko/connect",
-            {
-                method: "POST",
-
-                headers: {
-                    "Content-Type": "application/json"
-                },
-
-                body: JSON.stringify({
-                    ip: ip,
-                    port: port,
-                    login: login,
-                    password: password
-                })
-            }
-        );
-
-
-        const data =
-            await response.json();
+connectButton.addEventListener(
+    "click",
+    async function () {
 
 
         console.log(
-            "Ответ connect:",
-            data
+            "КНОПКА ПОДКЛЮЧЕНИЯ НАЖАТА"
         );
 
 
-        if (!response.ok || !data.success) {
+        const ip =
+            document.getElementById(
+                "iiko-ip"
+            ).value.trim();
 
-            throw new Error(
-                data.message ||
-                "Ошибка подключения"
-            );
+
+        const port =
+            document.getElementById(
+                "iiko-port"
+            ).value.trim();
+
+
+        const login =
+            document.getElementById(
+                "iiko-login"
+            ).value.trim();
+
+
+        const password =
+            document.getElementById(
+                "iiko-password"
+            ).value;
+
+
+        // ======================================
+        // ПРОВЕРКА
+        // ======================================
+
+        if (
+            !ip ||
+            !port ||
+            !login ||
+            !password
+        ) {
+
+            statusElement.textContent =
+                "⚠️ Заполните все поля";
+
+            return;
         }
 
 
-        iikoConnection = {
-            ip: ip,
-            port: port,
-            login: login,
-            password: password
-        };
+        // ======================================
+        // BUTTON
+        // ======================================
 
+        connectButton.disabled =
+            true;
 
-        statusElement.textContent =
-            "🟢 iiko Server подключён";
-
-
-        salesCard.style.display =
-            "block";
-
-
-    } catch (error) {
-
-        console.error(
-            "Ошибка подключения:",
-            error
-        );
-
-
-        statusElement.textContent =
-            "🔴 " + error.message;
-
-
-    } finally {
-
-        connectButton.disabled = false;
 
         connectButton.textContent =
-            "Подключиться";
-    }
+            "Подключение...";
 
-});
+
+        statusElement.textContent =
+            "⏳ Подключаемся к iiko Server...";
+
+
+        try {
+
+
+            // ==================================
+            // CONNECT API
+            // ==================================
+
+            const response =
+                await fetch(
+                    "/api/iiko/connect",
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json"
+                        },
+
+                        body:
+                            JSON.stringify({
+
+                                ip: ip,
+
+                                port: port,
+
+                                login: login,
+
+                                password: password
+
+                            })
+                    }
+                );
+
+
+            const data =
+                await response.json();
+
+
+            console.log(
+                "Ответ connect:",
+                data
+            );
+
+
+            // ==================================
+            // ERROR
+            // ==================================
+
+            if (
+                !response.ok ||
+                !data.success
+            ) {
+
+                throw new Error(
+                    data.message ||
+                    "Ошибка подключения"
+                );
+            }
+
+
+            // ==================================
+            // SAVE
+            // ==================================
+
+            if (
+                rememberIiko.checked
+            ) {
+
+                saveIikoData();
+
+            } else {
+
+                localStorage.removeItem(
+                    IIKO_STORAGE_KEY
+                );
+            }
+
+
+            // ==================================
+            // CONNECTION OBJECT
+            // ==================================
+
+            iikoConnection = {
+
+                ip: ip,
+
+                port: port,
+
+                login: login,
+
+                password: password
+
+            };
+
+
+            // ==================================
+            // SUCCESS
+            // ==================================
+
+            statusElement.textContent =
+                "🟢 iiko Server подключён";
+
+
+            salesCard.style.display =
+                "block";
+
+
+        } catch (error) {
+
+
+            console.error(
+                "Ошибка подключения:",
+                error
+            );
+
+
+            statusElement.textContent =
+                "🔴 " +
+                error.message;
+
+
+        } finally {
+
+
+            connectButton.disabled =
+                false;
+
+
+            connectButton.textContent =
+                "Подключиться";
+
+        }
+
+    }
+);
 
 
 // ==========================================
-// ОТЧЁТ ПРОДАЖ
+// ПОЛУЧЕНИЕ ОТЧЁТА
 // ==========================================
 
 loadSalesButton.addEventListener(
     "click",
     async function () {
 
+
+        // ======================================
+        // CONNECTION
+        // ======================================
+
         if (!iikoConnection) {
 
-            salesResult.innerHTML =
-                `<div class="report-error">
-                    ⚠️ Сначала подключитесь к iiko Server
-                </div>`;
+            salesResult.innerHTML = `
+
+                <div class="report-error">
+
+                    ⚠️ Сначала подключитесь
+                    к iiko Server
+
+                </div>
+
+            `;
 
             return;
         }
 
+
+        // ======================================
+        // DATES
+        // ======================================
 
         const from =
             document.getElementById(
@@ -158,10 +464,15 @@ loadSalesButton.addEventListener(
 
         if (!from || !to) {
 
-            salesResult.innerHTML =
-                `<div class="report-error">
+            salesResult.innerHTML = `
+
+                <div class="report-error">
+
                     ⚠️ Выберите период
-                </div>`;
+
+                </div>
+
+            `;
 
             return;
         }
@@ -169,28 +480,51 @@ loadSalesButton.addEventListener(
 
         if (from > to) {
 
-            salesResult.innerHTML =
-                `<div class="report-error">
-                    ⚠️ Дата начала не может быть позже даты окончания
-                </div>`;
+            salesResult.innerHTML = `
+
+                <div class="report-error">
+
+                    ⚠️ Дата начала
+                    не может быть позже
+                    даты окончания
+
+                </div>
+
+            `;
 
             return;
         }
 
 
-        loadSalesButton.disabled = true;
+        // ======================================
+        // BUTTON
+        // ======================================
+
+        loadSalesButton.disabled =
+            true;
+
 
         loadSalesButton.textContent =
             "Загрузка...";
 
 
-        salesResult.innerHTML =
-            `<div class="report-loading">
+        salesResult.innerHTML = `
+
+            <div class="report-loading">
+
                 ⏳ Получаем данные из iiko...
-            </div>`;
+
+            </div>
+
+        `;
 
 
         try {
+
+
+            // ==================================
+            // API
+            // ==================================
 
             const response =
                 await fetch(
@@ -203,27 +537,28 @@ loadSalesButton.addEventListener(
                                 "application/json"
                         },
 
-                        body: JSON.stringify({
+                        body:
+                            JSON.stringify({
 
-                            ip:
-                                iikoConnection.ip,
+                                ip:
+                                    iikoConnection.ip,
 
-                            port:
-                                iikoConnection.port,
+                                port:
+                                    iikoConnection.port,
 
-                            login:
-                                iikoConnection.login,
+                                login:
+                                    iikoConnection.login,
 
-                            password:
-                                iikoConnection.password,
+                                password:
+                                    iikoConnection.password,
 
-                            from:
-                                from,
+                                from:
+                                    from,
 
-                            to:
-                                to
+                                to:
+                                    to
 
-                        })
+                            })
                     }
                 );
 
@@ -238,8 +573,14 @@ loadSalesButton.addEventListener(
             );
 
 
-            if (!response.ok ||
-                !data.success) {
+            // ==================================
+            // ERROR
+            // ==================================
+
+            if (
+                !response.ok ||
+                !data.success
+            ) {
 
                 throw new Error(
                     data.message ||
@@ -249,7 +590,7 @@ loadSalesButton.addEventListener(
 
 
             // ==================================
-            // ДАННЫЕ IIKO
+            // REPORT
             // ==================================
 
             const report =
@@ -257,19 +598,15 @@ loadSalesButton.addEventListener(
 
 
             const rows =
-                Array.isArray(report.data)
+                Array.isArray(
+                    report.data
+                )
                     ? report.data
                     : [];
 
 
-            console.log(
-                "Строки отчёта:",
-                rows
-            );
-
-
             // ==================================
-            // ОБЩАЯ ВЫРУЧКА
+            // TOTALS
             // ==================================
 
             let totalSales = 0;
@@ -277,39 +614,37 @@ loadSalesButton.addEventListener(
             let totalOrders = 0;
 
 
-            rows.forEach(row => {
+            rows.forEach(
+                function (row) {
 
-                totalSales +=
-                    Number(
-                        row.DishSumInt || 0
-                    );
-
-
-                totalOrders +=
-                    Number(
-                        row.UniqOrderId || 0
-                    );
-
-            });
+                    totalSales +=
+                        Number(
+                            row.DishSumInt || 0
+                        );
 
 
-            // ==================================
-            // СРЕДНИЙ ЧЕК
-            // ==================================
+                    totalOrders +=
+                        Number(
+                            row.UniqOrderId || 0
+                        );
 
-            let averageCheck = 0;
-
-
-            if (totalOrders > 0) {
-
-                averageCheck =
-                    totalSales /
-                    totalOrders;
-            }
+                }
+            );
 
 
             // ==================================
-            // ФОРМАТИРОВАНИЕ
+            // AVERAGE CHECK
+            // ==================================
+
+            const averageCheck =
+                totalOrders > 0
+                    ? totalSales /
+                      totalOrders
+                    : 0;
+
+
+            // ==================================
+            // FORMATTERS
             // ==================================
 
             const money =
@@ -333,6 +668,7 @@ loadSalesButton.addEventListener(
             ) {
 
                 if (!dateString) {
+
                     return "-";
                 }
 
@@ -341,7 +677,10 @@ loadSalesButton.addEventListener(
                     dateString.split("-");
 
 
-                if (parts.length !== 3) {
+                if (
+                    parts.length !== 3
+                ) {
+
                     return dateString;
                 }
 
@@ -357,49 +696,58 @@ loadSalesButton.addEventListener(
 
 
             // ==================================
-            // HTML ОТЧЁТА
+            // REPORT HTML
             // ==================================
 
             let html = "";
 
 
+            // HEADER
+
             html += `
+
                 <div class="report-header">
 
-                    <div>
+                    <h2>
+                        📊 Отчёт о продажах
+                    </h2>
 
-                        <h2>
-                            📊 Отчёт о продажах
-                        </h2>
+                    <div class="report-period">
 
-                        <div class="report-period">
-                            ${formatDate(from)}
-                            —
-                            ${formatDate(to)}
-                        </div>
+                        ${formatDate(from)}
+
+                        —
+
+                        ${formatDate(to)}
 
                     </div>
 
                 </div>
+
             `;
 
 
-            // ==================================
-            // КАРТОЧКИ
-            // ==================================
+            // CARDS
 
             html += `
 
                 <div class="report-cards">
 
+
                     <div class="report-card">
 
                         <div class="report-card-title">
+
                             💰 Выручка
+
                         </div>
 
                         <div class="report-card-value">
-                            ${money.format(totalSales)}
+
+                            ${money.format(
+                                totalSales
+                            )}
+
                         </div>
 
                     </div>
@@ -408,11 +756,17 @@ loadSalesButton.addEventListener(
                     <div class="report-card">
 
                         <div class="report-card-title">
+
                             🧾 Заказы
+
                         </div>
 
                         <div class="report-card-value">
-                            ${number.format(totalOrders)}
+
+                            ${number.format(
+                                totalOrders
+                            )}
+
                         </div>
 
                     </div>
@@ -421,32 +775,44 @@ loadSalesButton.addEventListener(
                     <div class="report-card">
 
                         <div class="report-card-title">
+
                             💵 Средний чек
+
                         </div>
 
                         <div class="report-card-value">
-                            ${money.format(averageCheck)}
+
+                            ${money.format(
+                                averageCheck
+                            )}
+
                         </div>
 
                     </div>
+
 
                 </div>
+
             `;
 
 
-            // ==================================
-            // ТАБЛИЦА
-            // ==================================
+            // TABLE
 
             html += `
 
                 <div class="report-table-wrapper">
 
+
                     <h3>
+
                         Продажи по дням
+
                     </h3>
 
-                    <table class="report-table">
+
+                    <table
+                        class="report-table"
+                    >
 
                         <thead>
 
@@ -472,11 +838,19 @@ loadSalesButton.addEventListener(
 
                         </thead>
 
+
                         <tbody>
+
             `;
 
 
-            if (rows.length === 0) {
+            // ==================================
+            // EMPTY
+            // ==================================
+
+            if (
+                rows.length === 0
+            ) {
 
                 html += `
 
@@ -486,7 +860,10 @@ loadSalesButton.addEventListener(
                             colspan="4"
                             class="empty-report"
                         >
-                            Продаж за выбранный период нет
+
+                            Продаж за выбранный
+                            период нет
+
                         </td>
 
                     </tr>
@@ -495,59 +872,84 @@ loadSalesButton.addEventListener(
 
             } else {
 
-                rows.forEach(row => {
 
-                    const sales =
-                        Number(
-                            row.DishSumInt || 0
-                        );
+                // ==================================
+                // ROWS
+                // ==================================
 
-
-                    const orders =
-                        Number(
-                            row.UniqOrderId || 0
-                        );
+                rows.forEach(
+                    function (row) {
 
 
-                    const avg =
-                        orders > 0
-                            ? sales / orders
-                            : 0;
+                        const sales =
+                            Number(
+                                row.DishSumInt || 0
+                            );
 
 
-                    html += `
+                        const orders =
+                            Number(
+                                row.UniqOrderId || 0
+                            );
 
-                        <tr>
 
-                            <td>
-                                ${formatDate(
-                                    row["OpenDate.Typed"]
-                                )}
-                            </td>
+                        const average =
+                            orders > 0
+                                ? sales / orders
+                                : 0;
 
-                            <td>
-                                ${money.format(
-                                    sales
-                                )}
-                            </td>
 
-                            <td>
-                                ${number.format(
-                                    orders
-                                )}
-                            </td>
+                        const date =
+                            row[
+                                "OpenDate.Typed"
+                            ];
 
-                            <td>
-                                ${money.format(
-                                    avg
-                                )}
-                            </td>
 
-                        </tr>
+                        html += `
 
-                    `;
+                            <tr>
 
-                });
+                                <td>
+
+                                    ${formatDate(
+                                        date
+                                    )}
+
+                                </td>
+
+
+                                <td>
+
+                                    ${money.format(
+                                        sales
+                                    )}
+
+                                </td>
+
+
+                                <td>
+
+                                    ${number.format(
+                                        orders
+                                    )}
+
+                                </td>
+
+
+                                <td>
+
+                                    ${money.format(
+                                        average
+                                    )}
+
+                                </td>
+
+                            </tr>
+
+                        `;
+
+                    }
+                );
 
             }
 
@@ -564,7 +966,7 @@ loadSalesButton.addEventListener(
 
 
             // ==================================
-            // ПОКАЗЫВАЕМ ОТЧЁТ
+            // SHOW
             // ==================================
 
             salesResult.innerHTML =
@@ -572,6 +974,7 @@ loadSalesButton.addEventListener(
 
 
         } catch (error) {
+
 
             console.error(
                 "Ошибка отчёта:",
@@ -583,7 +986,9 @@ loadSalesButton.addEventListener(
 
                 <div class="report-error">
 
-                    🔴 ${escapeHtml(
+                    🔴
+
+                    ${escapeHtml(
                         error.message
                     )}
 
@@ -591,13 +996,17 @@ loadSalesButton.addEventListener(
 
             `;
 
+
         } finally {
+
 
             loadSalesButton.disabled =
                 false;
 
+
             loadSalesButton.textContent =
                 "Получить отчёт";
+
         }
 
     }
@@ -605,7 +1014,7 @@ loadSalesButton.addEventListener(
 
 
 // ==========================================
-// ЗАЩИТА HTML
+// HTML SECURITY
 // ==========================================
 
 function escapeHtml(value) {
@@ -637,3 +1046,10 @@ function escapeHtml(value) {
             "&#039;"
         );
 }
+
+
+// ==========================================
+// START
+// ==========================================
+
+loadSavedIikoData();
