@@ -19,7 +19,7 @@
         }
 
         .reports-container {
-            max-width: 700px;
+            max-width: 600px;
             margin: 0 auto;
         }
 
@@ -29,14 +29,12 @@
 
         .iiko-card {
             padding: 30px;
-            margin-bottom: 25px;
             border-radius: 16px;
             background: #fff;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
         }
 
         .iiko-card h2 {
-            margin-top: 0;
             margin-bottom: 25px;
         }
 
@@ -59,7 +57,8 @@
             font-size: 16px;
         }
 
-        button {
+        #connect-iiko,
+        #load-sales {
             width: 100%;
             padding: 14px;
             border: 0;
@@ -69,7 +68,8 @@
             font-weight: 600;
         }
 
-        button:disabled {
+        #connect-iiko:disabled,
+        #load-sales:disabled {
             opacity: 0.6;
             cursor: wait;
         }
@@ -80,6 +80,10 @@
             border-radius: 8px;
             background: #f5f5f5;
             text-align: center;
+        }
+
+        #sales-card {
+            margin-top: 30px;
         }
 
         #sales-result {
@@ -107,12 +111,14 @@
 
             <h1>Отчёты</h1>
 
-            <!-- Подключение iiko -->
+            <!-- ПОДКЛЮЧЕНИЕ IIKO -->
+
             <div class="iiko-card">
 
                 <h2>Подключение iiko Server</h2>
 
                 <div class="form-group">
+
                     <label for="iiko-ip">
                         IP адрес / домен
                     </label>
@@ -122,9 +128,12 @@
                         type="text"
                         placeholder="s01.smarthoreca.az"
                     >
+
                 </div>
 
+
                 <div class="form-group">
+
                     <label for="iiko-port">
                         Порт
                     </label>
@@ -132,12 +141,14 @@
                     <input
                         id="iiko-port"
                         type="number"
-                        placeholder="8080"
-                        value="8080"
+                        placeholder="Введите порт"
                     >
+
                 </div>
 
+
                 <div class="form-group">
+
                     <label for="iiko-login">
                         Логин
                     </label>
@@ -146,11 +157,14 @@
                         id="iiko-login"
                         type="text"
                         autocomplete="username"
-                        placeholder="Логин iiko"
+                        placeholder="Логин"
                     >
+
                 </div>
 
+
                 <div class="form-group">
+
                     <label for="iiko-password">
                         Пароль
                     </label>
@@ -159,29 +173,37 @@
                         id="iiko-password"
                         type="password"
                         autocomplete="current-password"
-                        placeholder="Пароль iiko"
+                        placeholder="Пароль"
                     >
+
                 </div>
+
 
                 <button id="connect-iiko">
                     Подключиться
                 </button>
 
-                <div id="iiko-status" class="iiko-status">
+
+                <div
+                    id="iiko-status"
+                    class="iiko-status"
+                >
                     ⚪ Не подключено
                 </div>
 
             </div>
 
 
-            <!-- Отчёт по продажам -->
+            <!-- ПРОДАЖИ -->
+
             <div
                 class="iiko-card"
                 id="sales-card"
-                style="display: none;"
+                style="display:none;"
             >
 
                 <h2>📊 Продажи</h2>
+
 
                 <div class="form-group">
 
@@ -196,6 +218,7 @@
 
                 </div>
 
+
                 <div class="form-group">
 
                     <label for="report-to">
@@ -209,9 +232,11 @@
 
                 </div>
 
+
                 <button id="load-sales">
                     Получить отчёт
                 </button>
+
 
                 <div id="sales-result"></div>
 
@@ -220,6 +245,7 @@
         </div>
 
     </main>
+
 
     <script src="reports.js"></script>
 
