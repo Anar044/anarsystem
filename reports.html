@@ -1,5 +1,9 @@
+# reports.html
+
+```html
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,9 +11,95 @@
     <title>Отчёты — Anar System</title>
 
     <link rel="stylesheet" href="pages.css">
+
+    <style>
+        .reports-page {
+            min-height: 80vh;
+            padding: 120px 20px 60px;
+        }
+
+        .reports-container {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .reports-container h1 {
+            margin-bottom: 30px;
+        }
+
+        .iiko-card {
+            padding: 30px;
+            margin-bottom: 25px;
+            border-radius: 16px;
+            background: #fff;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+        }
+
+        .iiko-card h2 {
+            margin-top: 0;
+            margin-bottom: 25px;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 7px;
+            font-weight: 600;
+        }
+
+        .form-group input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 13px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            border: 0;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
+        .iiko-status {
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 8px;
+            background: #f5f5f5;
+            text-align: center;
+        }
+
+        #sales-result {
+            margin-top: 25px;
+        }
+
+        #sales-result pre {
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+    </style>
 </head>
 
 <body>
+
+    <script src="nav.js"></script>
 
     <main class="reports-page">
 
@@ -17,44 +107,59 @@
 
             <h1>Отчёты</h1>
 
+            <!-- Подключение iiko -->
             <div class="iiko-card">
 
                 <h2>Подключение iiko Server</h2>
 
                 <div class="form-group">
-                    <label for="iiko-ip">IP адрес / домен</label>
+                    <label for="iiko-ip">
+                        IP адрес / домен
+                    </label>
+
                     <input
                         id="iiko-ip"
                         type="text"
-                        placeholder="123.123.123.123"
+                        placeholder="s01.smarthoreca.az"
                     >
                 </div>
 
                 <div class="form-group">
-                    <label for="iiko-port">Порт</label>
+                    <label for="iiko-port">
+                        Порт
+                    </label>
+
                     <input
                         id="iiko-port"
                         type="number"
-                        placeholder="443"
-                        value="443"
+                        placeholder="8080"
+                        value="8080"
                     >
                 </div>
 
                 <div class="form-group">
-                    <label for="iiko-login">Логин</label>
+                    <label for="iiko-login">
+                        Логин
+                    </label>
+
                     <input
                         id="iiko-login"
                         type="text"
                         autocomplete="username"
+                        placeholder="Логин iiko"
                     >
                 </div>
 
                 <div class="form-group">
-                    <label for="iiko-password">Пароль</label>
+                    <label for="iiko-password">
+                        Пароль
+                    </label>
+
                     <input
                         id="iiko-password"
                         type="password"
                         autocomplete="current-password"
+                        placeholder="Пароль iiko"
                     >
                 </div>
 
@@ -63,8 +168,52 @@
                 </button>
 
                 <div id="iiko-status" class="iiko-status">
-                    Не подключено
+                    ⚪ Не подключено
                 </div>
+
+            </div>
+
+
+            <!-- Отчёт по продажам -->
+            <div
+                class="iiko-card"
+                id="sales-card"
+                style="display: none;"
+            >
+
+                <h2>📊 Продажи</h2>
+
+                <div class="form-group">
+
+                    <label for="report-from">
+                        Дата от
+                    </label>
+
+                    <input
+                        id="report-from"
+                        type="date"
+                    >
+
+                </div>
+
+                <div class="form-group">
+
+                    <label for="report-to">
+                        Дата до
+                    </label>
+
+                    <input
+                        id="report-to"
+                        type="date"
+                    >
+
+                </div>
+
+                <button id="load-sales">
+                    Получить отчёт
+                </button>
+
+                <div id="sales-result"></div>
 
             </div>
 
@@ -75,4 +224,6 @@
     <script src="reports.js"></script>
 
 </body>
+
 </html>
+```
