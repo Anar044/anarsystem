@@ -2,14 +2,21 @@
 // ANAR SYSTEM — IIKO OLAP API
 // functions/api/iiko/olap.js
 //
-// Версия с подробным серверным логированием.
+// Диагностическая версия.
+//
+// Что делает:
+// 1. Авторизуется в iiko
+// 2. Загружает OLAP-поля
+// 3. Принимает настройки конструктора
+// 4. Отправляет OLAP-запрос в iiko
+// 5. При ошибке возвращает настоящий ответ iiko
+// 6. Создаёт requestId для диагностики
 //
 // ВАЖНО:
 // - пароль НЕ логируется
 // - token НЕ логируется
-// - полный OLAP request логируется
-// - полный ответ iiko при ошибке логируется
-// - каждому запросу присваивается requestId
+// - requestBody логируется
+// - rawResponse iiko возвращается клиенту
 // ============================================================
 
 
@@ -36,19 +43,30 @@ function corsHeaders() {
 
 function jsonResponse(
     data,
-    status = 200
+    status = 200,
+    requestId = null
 ) {
+    const headers = {
+        "Content-Type":
+            "application/json; charset=utf-8",
+
+        ...corsHeaders()
+    };
+
+    if (requestId) {
+        headers["X-OLAP-Request-ID"] =
+            requestId;
+    }
+
     return new Response(
-        JSON.stringify(data),
+        JSON.stringify(
+            data,
+            null,
+            2
+        ),
         {
             status,
-
-            headers: {
-                "Content-Type":
-                    "application/json; charset=utf-8",
-
-                ...corsHeaders()
-            }
+            headers
         }
     );
 }
@@ -61,14 +79,12 @@ function jsonResponse(
 function createRequestId() {
 
     try {
-
         if (
             typeof crypto !== "undefined" &&
             crypto.randomUUID
         ) {
             return crypto.randomUUID();
         }
-
     } catch (error) {
         // ignore
     }
@@ -84,7 +100,7 @@ function createRequestId() {
 
 
 // ============================================================
-// SAFE LOGGING
+// LOG
 // ============================================================
 
 function logInfo(
@@ -92,9 +108,7 @@ function logInfo(
     message,
     data = null
 ) {
-
     if (data === null) {
-
         console.log(
             `[OLAP][${requestId}] ${message}`
         );
@@ -114,9 +128,7 @@ function logError(
     message,
     data = null
 ) {
-
     if (data === null) {
-
         console.error(
             `[OLAP][${requestId}] ${message}`
         );
@@ -134,7 +146,7 @@ function logError(
 // ============================================================
 // SAFE CONNECTION INFO
 //
-// Пароль и token никогда сюда не попадают.
+// Пароль и token сюда НИКОГДА не передаются.
 // ============================================================
 
 function safeConnectionInfo({
@@ -142,11 +154,11 @@ function safeConnectionInfo({
     port,
     login
 }) {
-
     return {
         ip,
         port,
         login,
+
         serverUrl:
             `http://${ip}:${port}`
     };
@@ -175,11 +187,9 @@ async function sha1(text) {
         )
         .map(
             function (byte) {
-
                 return byte
                     .toString(16)
                     .padStart(2, "0");
-
             }
         )
         .join("");
@@ -215,7 +225,6 @@ async function getToken(
         !login ||
         !password
     ) {
-
         throw new Error(
             "Необходимо указать IP, порт, логин и пароль iiko"
         );
@@ -238,12 +247,16 @@ async function getToken(
         `&pass=${passwordHash}`;
 
 
+    // Никогда не выводим authUrl,
+    // потому что внутри находится hash пароля.
+
     logInfo(
         requestId,
         "AUTH REQUEST",
         {
-            url:
+            endpoint:
                 `${serverUrl}/resto/api/auth`,
+
             login
         }
     );
@@ -269,6 +282,7 @@ async function getToken(
             {
                 name:
                     error?.name,
+
                 message:
                     error?.message
             }
@@ -381,15 +395,13 @@ function normalizeColumns(
     if (
         Array.isArray(raw)
     ) {
-
         return raw;
     }
 
 
     if (
         raw &&
-        typeof raw ===
-            "object"
+        typeof raw === "object"
     ) {
 
         if (
@@ -397,7 +409,6 @@ function normalizeColumns(
                 raw.columns
             )
         ) {
-
             return raw.columns;
         }
 
@@ -407,7 +418,6 @@ function normalizeColumns(
                 raw.fields
             )
         ) {
-
             return raw.fields;
         }
 
@@ -417,7 +427,6 @@ function normalizeColumns(
                 raw.data
             )
         ) {
-
             return raw.data;
         }
 
@@ -455,7 +464,6 @@ function normalizeColumns(
                         id: key,
                         title: key
                     };
-
                 }
             );
     }
@@ -486,7 +494,7 @@ export async function onRequestOptions() {
 // ============================================================
 // GET
 //
-// Получение списка OLAP полей.
+// Получение OLAP-полей.
 //
 // /api/iiko/olap
 // ?mode=fields
@@ -525,15 +533,22 @@ export async function onRequestGet(
             ) || "fields";
 
 
+        const reportType =
+            (
+                url.searchParams.get(
+                    "reportType"
+                ) || "SALES"
+            )
+                .trim()
+                .toUpperCase();
+
+
         logInfo(
             requestId,
             "GET PARAMS",
             {
                 mode,
-                reportType:
-                    url.searchParams.get(
-                        "reportType"
-                    ) || "SALES"
+                reportType
             }
         );
 
@@ -551,7 +566,8 @@ export async function onRequestGet(
                     message:
                         "Неизвестный режим"
                 },
-                400
+                400,
+                requestId
             );
         }
 
@@ -584,16 +600,6 @@ export async function onRequestGet(
             url.searchParams.get(
                 "password"
             ) || "";
-
-
-        const reportType =
-            (
-                url.searchParams.get(
-                    "reportType"
-                ) || "SALES"
-            )
-                .trim()
-                .toUpperCase();
 
 
         if (
@@ -631,7 +637,8 @@ export async function onRequestGet(
                     message:
                         "Нужны IP, порт, логин и пароль iiko"
                 },
-                400
+                400,
+                requestId
             );
         }
 
@@ -672,10 +679,11 @@ export async function onRequestGet(
                 requestId,
 
                 message:
-                    error.message ||
+                    error?.message ||
                     "Ошибка OLAP"
             },
-            502
+            502,
+            requestId
         );
     }
 }
@@ -683,8 +691,6 @@ export async function onRequestGet(
 
 // ============================================================
 // GET FIELDS
-//
-// iiko endpoint:
 //
 // /resto/api/v2/reports/olap/columns
 // ============================================================
@@ -727,9 +733,13 @@ async function getFields({
         );
 
 
-    const url =
+    const endpoint =
         `${serverUrl}` +
-        `/resto/api/v2/reports/olap/columns` +
+        `/resto/api/v2/reports/olap/columns`;
+
+
+    const url =
+        endpoint +
         `?key=${encodeURIComponent(
             token
         )}` +
@@ -742,9 +752,7 @@ async function getFields({
         requestId,
         "IIKO COLUMNS REQUEST",
         {
-            endpoint:
-                `${serverUrl}/resto/api/v2/reports/olap/columns`,
-
+            endpoint,
             reportType
         }
     );
@@ -850,7 +858,8 @@ async function getFields({
                         30000
                     )
             },
-            502
+            502,
+            requestId
         );
     }
 
@@ -868,23 +877,22 @@ async function getFields({
             count:
                 fields.length,
 
-            firstFields:
+            fields:
                 fields
-                    .slice(0, 20)
+                    .slice(0, 30)
                     .map(
                         function (field) {
 
                             return {
-                                name:
-                                    field?.name,
-
                                 id:
                                     field?.id,
+
+                                name:
+                                    field?.name,
 
                                 title:
                                     field?.title
                             };
-
                         }
                     )
         }
@@ -913,6 +921,9 @@ async function getFields({
 
 // ============================================================
 // POST
+//
+// Построение OLAP-отчёта.
+//
 // ============================================================
 
 export async function onRequestPost(
@@ -949,13 +960,14 @@ export async function onRequestPost(
                     body.from,
 
                 to:
-                    body.to,
-
-                buildSummary:
-                    body.buildSummary
+                    body.to
             }
         );
 
+
+        // ========================================================
+        // CONNECTION
+        // ========================================================
 
         const ip =
             String(
@@ -1016,7 +1028,8 @@ export async function onRequestPost(
                     message:
                         "Заполните IP, порт, логин и пароль iiko"
                 },
-                400
+                400,
+                requestId
             );
         }
 
@@ -1054,7 +1067,7 @@ export async function onRequestPost(
 
 
         // ========================================================
-        // REPORT SETTINGS
+        // REPORT TYPE
         // ========================================================
 
         const reportType =
@@ -1140,7 +1153,7 @@ export async function onRequestPost(
 
 
         // ========================================================
-        // MEASURES
+        // AGGREGATES / MEASURES
         // ========================================================
 
         let aggregateFields = [];
@@ -1162,7 +1175,6 @@ export async function onRequestPost(
                                 typeof item ===
                                 "string"
                             ) {
-
                                 return item;
                             }
 
@@ -1176,13 +1188,13 @@ export async function onRequestPost(
                                 return (
                                     item.field ||
                                     item.name ||
+                                    item.id ||
                                     ""
                                 );
                             }
 
 
                             return "";
-
                         }
                     )
                     .filter(Boolean);
@@ -1202,7 +1214,6 @@ export async function onRequestPost(
                                 typeof item ===
                                 "string"
                             ) {
-
                                 return item;
                             }
 
@@ -1216,13 +1227,13 @@ export async function onRequestPost(
                                 return (
                                     item.field ||
                                     item.name ||
+                                    item.id ||
                                     ""
                                 );
                             }
 
 
                             return "";
-
                         }
                     )
                     .filter(Boolean);
@@ -1230,7 +1241,7 @@ export async function onRequestPost(
 
 
         // ========================================================
-        // DETAILED DEBUG OF SELECTED FIELDS
+        // BUILDER DEBUG
         // ========================================================
 
         logInfo(
@@ -1274,9 +1285,21 @@ export async function onRequestPost(
                     requestId,
 
                     message:
-                        "Перетащите хотя бы одно поле в конструктор"
+                        "Перетащите хотя бы одно поле в конструктор",
+
+                    debug: {
+                        rows:
+                            groupByRowFields,
+
+                        columns:
+                            groupByColFields,
+
+                        measures:
+                            aggregateFields
+                    }
                 },
-                400
+                400,
+                requestId
             );
         }
 
@@ -1321,7 +1344,7 @@ export async function onRequestPost(
 
 
         // ========================================================
-        // PERIOD FILTER
+        // PERIOD
         // ========================================================
 
         if (
@@ -1366,7 +1389,7 @@ export async function onRequestPost(
 
 
         // ========================================================
-        // IIKO OLAP REQUEST BODY
+        // IIKO REQUEST BODY
         // ========================================================
 
         const requestBody = {
@@ -1388,7 +1411,9 @@ export async function onRequestPost(
 
 
         // ========================================================
-        // SERVER DEBUG LOG
+        // LOG REQUEST
+        //
+        // Здесь будет видно ВСЁ, кроме пароля/token.
         // ========================================================
 
         logInfo(
@@ -1440,13 +1465,13 @@ export async function onRequestPost(
         // IIKO OLAP ENDPOINT
         // ========================================================
 
-        const olapEndpoint =
+        const endpoint =
             `${serverUrl}` +
             `/resto/api/v2/reports/olap`;
 
 
         const url =
-            olapEndpoint +
+            endpoint +
             `?key=${encodeURIComponent(
                 token
             )}`;
@@ -1456,11 +1481,8 @@ export async function onRequestPost(
             requestId,
             "IIKO OLAP REQUEST START",
             {
-                endpoint:
-                    olapEndpoint,
-
-                method:
-                    "POST"
+                endpoint,
+                method: "POST"
             }
         );
 
@@ -1519,44 +1541,18 @@ export async function onRequestPost(
                     endpoint:
                         "/resto/api/v2/reports/olap"
                 },
-                502
+                502,
+                requestId
             );
         }
 
 
         // ========================================================
-        // READ RESPONSE
+        // READ IIKO RESPONSE
         // ========================================================
 
         const text =
             await response.text();
-
-
-        // ========================================================
-        // RESPONSE HEADERS
-        // ========================================================
-
-        const responseHeaders = {};
-
-
-        try {
-
-            response.headers.forEach(
-                function (
-                    value,
-                    key
-                ) {
-
-                    responseHeaders[
-                        key
-                    ] = value;
-
-                }
-            );
-
-        } catch (error) {
-            // ignore
-        }
 
 
         // ========================================================
@@ -1578,7 +1574,7 @@ export async function onRequestPost(
 
 
         // ========================================================
-        // RESPONSE LOG
+        // RESPONSE DEBUG
         // ========================================================
 
         logInfo(
@@ -1587,6 +1583,9 @@ export async function onRequestPost(
             {
                 httpStatus:
                     response.status,
+
+                statusText:
+                    response.statusText,
 
                 ok:
                     response.ok,
@@ -1648,7 +1647,9 @@ export async function onRequestPost(
                             0,
                             30000
                         )
-                }
+                },
+                200,
+                requestId
             );
         }
 
@@ -1656,7 +1657,7 @@ export async function onRequestPost(
         // ========================================================
         // IIKO ERROR
         //
-        // ЗДЕСЬ МЫ ПОЛУЧИМ НАСТОЯЩУЮ ПРИЧИНУ 400
+        // ВОТ ЗДЕСЬ МЫ ПОЛУЧИМ НАСТОЯЩИЙ 400 ОТ IIKO.
         // ========================================================
 
         logError(
@@ -1669,10 +1670,7 @@ export async function onRequestPost(
                 statusText:
                     response.statusText,
 
-                endpoint:
-                    olapEndpoint,
-
-                responseHeaders,
+                endpoint,
 
                 responseBody:
                     text.slice(
@@ -1683,9 +1681,9 @@ export async function onRequestPost(
         );
 
 
-        // Отдельно логируем тело запроса,
-        // чтобы его можно было сравнить
-        // с требованиями iiko.
+        // ========================================================
+        // ОТДЕЛЬНО ЛОГИРУЕМ REQUEST BODY
+        // ========================================================
 
         logError(
             requestId,
@@ -1698,6 +1696,20 @@ export async function onRequestPost(
         );
 
 
+        // ========================================================
+        // ВОЗВРАЩАЕМ ПОЛНУЮ ДИАГНОСТИКУ В БРАУЗЕР
+        //
+        // Это главное изменение.
+        // Теперь reports.js сможет получить:
+        //
+        // requestId
+        // iikoHttpStatus
+        // request
+        // rawResponse
+        //
+        // даже если Cloudflare Logs не работают.
+        // ========================================================
+
         return jsonResponse(
             {
                 success: false,
@@ -1706,6 +1718,9 @@ export async function onRequestPost(
 
                 iikoHttpStatus:
                     response.status,
+
+                iikoStatusText:
+                    response.statusText,
 
                 endpoint:
                     "/resto/api/v2/reports/olap",
@@ -1724,7 +1739,8 @@ export async function onRequestPost(
 
                 report
             },
-            502
+            502,
+            requestId
         );
 
 
@@ -1756,7 +1772,8 @@ export async function onRequestPost(
                     error?.message ||
                     "Ошибка OLAP"
             },
-            502
+            502,
+            requestId
         );
     }
 }
