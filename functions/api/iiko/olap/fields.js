@@ -1,14 +1,27 @@
 // ============================================================
 // IIKO OLAP FIELDS
-// /api/iiko/olap/fields
+// Endpoint:
+// POST /api/iiko/olap/fields
+//
+// Получает список полей из:
+// /resto/api/v2/reports/olap/columns
 // ============================================================
 
+
 function corsHeaders() {
+
     return {
+
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type"
+
+        "Access-Control-Allow-Methods":
+            "POST, OPTIONS",
+
+        "Access-Control-Allow-Headers":
+            "Content-Type"
+
     };
+
 }
 
 
@@ -20,18 +33,28 @@ function jsonResponse(
     data,
     status = 200
 ) {
+
     return new Response(
+
         JSON.stringify(data),
+
         {
+
             status,
+
             headers: {
+
                 "Content-Type":
                     "application/json; charset=utf-8",
 
                 ...corsHeaders()
+
             }
+
         }
+
     );
+
 }
 
 
@@ -42,8 +65,8 @@ function jsonResponse(
 async function sha1(text) {
 
     const data =
-        new TextEncoder()
-            .encode(text);
+        new TextEncoder().encode(text);
+
 
     const hash =
         await crypto.subtle.digest(
@@ -51,10 +74,9 @@ async function sha1(text) {
             data
         );
 
+
     return Array
-        .from(
-            new Uint8Array(hash)
-        )
+        .from(new Uint8Array(hash))
         .map(
             byte =>
                 byte
@@ -62,11 +84,12 @@ async function sha1(text) {
                     .padStart(2, "0")
         )
         .join("");
+
 }
 
 
 // ============================================================
-// IIKO AUTH
+// GET IIKO TOKEN
 // ============================================================
 
 async function getToken(
@@ -79,13 +102,16 @@ async function getToken(
     const serverUrl =
         `http://${ip}:${port}`;
 
+
     const passwordHash =
         await sha1(password);
+
 
     const authUrl =
         `${serverUrl}/resto/api/auth` +
         `?login=${encodeURIComponent(login)}` +
         `&pass=${passwordHash}`;
+
 
     const response =
         await fetch(
@@ -94,6 +120,7 @@ async function getToken(
                 method: "GET"
             }
         );
+
 
     const token =
         (
@@ -107,15 +134,22 @@ async function getToken(
     ) {
 
         throw new Error(
+
             `Ошибка авторизации iiko: HTTP ${response.status}`
+
         );
+
     }
 
 
     return {
+
         serverUrl,
+
         token
+
     };
+
 }
 
 
@@ -126,14 +160,20 @@ async function getToken(
 export async function onRequestOptions() {
 
     return new Response(
+
         null,
+
         {
+
             status: 204,
 
             headers:
                 corsHeaders()
+
         }
+
     );
+
 }
 
 
@@ -148,7 +188,7 @@ export async function onRequestPost(
     try {
 
         // ----------------------------------------------------
-        // BODY
+        // READ REQUEST
         // ----------------------------------------------------
 
         const body =
@@ -195,15 +235,20 @@ export async function onRequestPost(
         ) {
 
             return jsonResponse(
+
                 {
+
                     success: false,
 
                     message:
                         "Заполните IP, порт, логин и пароль"
+
                 },
 
                 400
+
             );
+
         }
 
 
@@ -237,66 +282,60 @@ export async function onRequestPost(
 
 
         // ----------------------------------------------------
-        // IIKO OLAP COLUMNS URL
+        // IIKO COLUMNS URL
         // ----------------------------------------------------
 
         const columnsUrl =
+
             `${serverUrl}` +
             `/resto/api/v2/reports/olap/columns` +
             `?key=${encodeURIComponent(token)}` +
             `&reportType=${encodeURIComponent(reportType)}`;
 
 
-        console.log(
-            "IIKO OLAP COLUMNS:",
-            columnsUrl
-                .replace(
-                    token,
-                    "***"
-                )
-        );
-
-
         // ----------------------------------------------------
-        // REQUEST
+        // REQUEST IIKO
         // ----------------------------------------------------
 
         const response =
             await fetch(
+
                 columnsUrl,
+
                 {
+
                     method: "GET",
 
                     headers: {
+
                         "Accept":
                             "application/json"
+
                     }
+
                 }
+
             );
 
 
         // ----------------------------------------------------
-        // RESPONSE TEXT
+        // READ RESPONSE
         // ----------------------------------------------------
 
         const text =
             await response.text();
 
 
-        console.log(
-            "IIKO OLAP COLUMNS STATUS:",
-            response.status
-        );
-
-
         // ----------------------------------------------------
-        // ERROR
+        // IIKO ERROR
         // ----------------------------------------------------
 
         if (!response.ok) {
 
             return jsonResponse(
+
                 {
+
                     success: false,
 
                     message:
@@ -307,10 +346,13 @@ export async function onRequestPost(
 
                     details:
                         text
+
                 },
 
                 502
+
             );
+
         }
 
 
@@ -325,132 +367,74 @@ export async function onRequestPost(
             data =
                 JSON.parse(text);
 
-        } catch (error) {
+        }
+
+        catch (error) {
 
             return jsonResponse(
+
                 {
+
                     success: false,
 
                     message:
-                        "iiko вернул некорректный JSON",
+                        "iiko вернул не JSON",
 
                     details:
                         text
+
                 },
 
                 502
+
             );
+
         }
 
 
-        // ----------------------------------------------------
-        // EXTRACT FIELDS
-        // ----------------------------------------------------
+        // ====================================================
+        // IMPORTANT
+        //
+        // iiko OLAP columns обычно возвращает:
+        //
+        // {
+        //     "OpenDate.Typed": {
+        //         "name": "Учетный день",
+        //         "type": "DATE",
+        //         "aggregationAllowed": false,
+        //         "groupingAllowed": true,
+        //         "filteringAllowed": true
+        //     },
+        //
+        //     "DishSumInt": {
+        //         "name": "Сумма без скидки",
+        //         "type": "MONEY",
+        //         "aggregationAllowed": true,
+        //         "groupingAllowed": false,
+        //         "filteringAllowed": false
+        //     }
+        // }
+        //
+        // То есть это НЕ массив.
+        //
+        // ====================================================
+
 
         let fields = [];
 
 
-        /*
-         * В разных версиях iiko
-         * структура ответа может немного
-         * отличаться.
-         *
-         * Поддерживаем основные варианты.
-         */
-
+        // ----------------------------------------------------
+        // CASE 1
+        // ARRAY
+        // ----------------------------------------------------
 
         if (
             Array.isArray(data)
         ) {
 
             fields =
-                data;
-
-        } else if (
-            Array.isArray(
-                data.fields
-            )
-        ) {
-
-            fields =
-                data.fields;
-
-        } else if (
-            Array.isArray(
-                data.columns
-            )
-        ) {
-
-            fields =
-                data.columns;
-
-        } else if (
-            Array.isArray(
-                data.data
-            )
-        ) {
-
-            fields =
-                data.data;
-
-        } else if (
-            data.fields &&
-            typeof data.fields ===
-                "object"
-        ) {
-
-            /*
-             * Иногда fields может быть
-             * объектом.
-             */
-
-            if (
-                Array.isArray(
-                    data.fields.fields
-                )
-            ) {
-
-                fields =
-                    data.fields.fields;
-
-            } else {
-
-                const dimensions =
-                    Array.isArray(
-                        data.fields.dimensions
-                    )
-                        ? data.fields.dimensions
-                        : [];
-
-
-                const measures =
-                    Array.isArray(
-                        data.fields.measures
-                    )
-                        ? data.fields.measures
-                        : [];
-
-
-                fields = [
-                    ...dimensions,
-                    ...measures
-                ];
-            }
-        }
-
-
-        // ----------------------------------------------------
-        // NORMALIZE FIELDS
-        // ----------------------------------------------------
-
-        const normalizedFields =
-            fields
-                .map(
+                data.map(
                     (field, index) => {
-
-                        // ------------------------------------
-                        // STRING
-                        // ------------------------------------
 
                         if (
                             typeof field ===
@@ -458,6 +442,10 @@ export async function onRequestPost(
                         ) {
 
                             return {
+
+                                id:
+                                    field,
+
                                 name:
                                     field,
 
@@ -465,108 +453,461 @@ export async function onRequestPost(
                                     field,
 
                                 type:
-                                    "unknown",
+                                    "UNKNOWN",
 
                                 index
+
                             };
+
                         }
-
-
-                        // ------------------------------------
-                        // OBJECT
-                        // ------------------------------------
-
-                        if (
-                            !field ||
-                            typeof field !==
-                                "object"
-                        ) {
-
-                            return null;
-                        }
-
-
-                        const name =
-                            field.name ||
-                            field.field ||
-                            field.key ||
-                            field.code ||
-                            field.id ||
-                            "";
-
-
-                        const title =
-                            field.title ||
-                            field.caption ||
-                            field.label ||
-                            field.description ||
-                            name;
-
-
-                        const type =
-                            String(
-                                field.type ||
-                                field.dataType ||
-                                field.kind ||
-                                ""
-                            );
 
 
                         return {
 
                             ...field,
 
+                            id:
+                                field.id ||
+                                field.field ||
+                                field.key ||
+                                field.name ||
+                                `field_${index}`,
+
                             name:
-                                String(
-                                    name
-                                ),
+                                field.name ||
+                                field.title ||
+                                field.caption ||
+                                field.id ||
+                                `Field ${index}`,
 
                             title:
-                                String(
-                                    title
-                                ),
-
-                            type,
+                                field.title ||
+                                field.caption ||
+                                field.name ||
+                                field.id ||
+                                `Field ${index}`,
 
                             index
+
                         };
+
                     }
-                )
-                .filter(
-                    field =>
-                        field &&
-                        field.name
                 );
+
+        }
 
 
         // ----------------------------------------------------
-        // RESPONSE
+        // CASE 2
+        // { fields: [...] }
+        // ----------------------------------------------------
+
+        else if (
+            Array.isArray(
+                data.fields
+            )
+        ) {
+
+            fields =
+                data.fields.map(
+                    (field, index) => {
+
+                        if (
+                            typeof field ===
+                            "string"
+                        ) {
+
+                            return {
+
+                                id:
+                                    field,
+
+                                name:
+                                    field,
+
+                                title:
+                                    field,
+
+                                type:
+                                    "UNKNOWN",
+
+                                index
+
+                            };
+
+                        }
+
+
+                        return {
+
+                            ...field,
+
+                            id:
+                                field.id ||
+                                field.field ||
+                                field.key ||
+                                field.name ||
+                                `field_${index}`,
+
+                            name:
+                                field.name ||
+                                field.title ||
+                                field.caption ||
+                                field.id ||
+                                `Field ${index}`,
+
+                            title:
+                                field.title ||
+                                field.caption ||
+                                field.name ||
+                                field.id ||
+                                `Field ${index}`,
+
+                            index
+
+                        };
+
+                    }
+                );
+
+        }
+
+
+        // ----------------------------------------------------
+        // CASE 3
+        // { data: [...] }
+        // ----------------------------------------------------
+
+        else if (
+            Array.isArray(
+                data.data
+            )
+        ) {
+
+            fields =
+                data.data.map(
+                    (field, index) => {
+
+                        if (
+                            typeof field ===
+                            "string"
+                        ) {
+
+                            return {
+
+                                id:
+                                    field,
+
+                                name:
+                                    field,
+
+                                title:
+                                    field,
+
+                                type:
+                                    "UNKNOWN",
+
+                                index
+
+                            };
+
+                        }
+
+
+                        return {
+
+                            ...field,
+
+                            id:
+                                field.id ||
+                                field.field ||
+                                field.key ||
+                                field.name ||
+                                `field_${index}`,
+
+                            name:
+                                field.name ||
+                                field.title ||
+                                field.caption ||
+                                field.id ||
+                                `Field ${index}`,
+
+                            title:
+                                field.title ||
+                                field.caption ||
+                                field.name ||
+                                field.id ||
+                                `Field ${index}`,
+
+                            index
+
+                        };
+
+                    }
+                );
+
+        }
+
+
+        // ----------------------------------------------------
+        // CASE 4
+        //
+        // REAL IIKO FORMAT
+        //
+        // {
+        //   "OpenDate.Typed": {...},
+        //   "DishSumInt": {...}
+        // }
+        //
+        // ----------------------------------------------------
+
+        else if (
+            data &&
+            typeof data === "object"
+        ) {
+
+            fields =
+                Object.entries(data)
+                    .map(
+                        (
+                            [
+                                fieldId,
+                                fieldInfo
+                            ],
+                            index
+                        ) => {
+
+                            // ----------------------------
+                            // STRING
+                            // ----------------------------
+
+                            if (
+                                typeof fieldInfo ===
+                                "string"
+                            ) {
+
+                                return {
+
+                                    id:
+                                        fieldId,
+
+                                    name:
+                                        fieldInfo,
+
+                                    title:
+                                        fieldInfo,
+
+                                    type:
+                                        "UNKNOWN",
+
+                                    index
+
+                                };
+
+                            }
+
+
+                            // ----------------------------
+                            // OBJECT
+                            // ----------------------------
+
+                            if (
+                                fieldInfo &&
+                                typeof fieldInfo ===
+                                    "object"
+                            ) {
+
+                                return {
+
+                                    ...fieldInfo,
+
+                                    id:
+                                        fieldId,
+
+                                    name:
+                                        fieldInfo.name ||
+                                        fieldInfo.title ||
+                                        fieldInfo.caption ||
+                                        fieldId,
+
+                                    title:
+                                        fieldInfo.title ||
+                                        fieldInfo.caption ||
+                                        fieldInfo.name ||
+                                        fieldId,
+
+                                    type:
+                                        fieldInfo.type ||
+                                        fieldInfo.dataType ||
+                                        "UNKNOWN",
+
+                                    index
+
+                                };
+
+                            }
+
+
+                            return {
+
+                                id:
+                                    fieldId,
+
+                                name:
+                                    fieldId,
+
+                                title:
+                                    fieldId,
+
+                                type:
+                                    "UNKNOWN",
+
+                                index
+
+                            };
+
+                        }
+                    );
+
+        }
+
+
+        // ----------------------------------------------------
+        // REMOVE INVALID FIELDS
+        // ----------------------------------------------------
+
+        fields =
+            fields.filter(
+                field =>
+                    field &&
+                    field.id
+            );
+
+
+        // ----------------------------------------------------
+        // SORT
+        //
+        // Сначала поля, которые можно
+        // группировать, затем остальные.
+        // ----------------------------------------------------
+
+        fields.sort(
+            (a, b) => {
+
+                const aGroup =
+                    a.groupingAllowed
+                        ? 0
+                        : 1;
+
+                const bGroup =
+                    b.groupingAllowed
+                        ? 0
+                        : 1;
+
+                if (
+                    aGroup !==
+                    bGroup
+                ) {
+
+                    return (
+                        aGroup -
+                        bGroup
+                    );
+
+                }
+
+
+                return String(
+                    a.name || a.id
+                ).localeCompare(
+                    String(
+                        b.name || b.id
+                    ),
+                    "ru"
+                );
+
+            }
+        );
+
+
+        // ----------------------------------------------------
+        // DEBUG
+        // ----------------------------------------------------
+
+        console.log(
+            "IIKO OLAP FIELDS COUNT:",
+            fields.length
+        );
+
+
+        console.log(
+            "IIKO OLAP FIELDS:",
+            fields
+        );
+
+
+        // ----------------------------------------------------
+        // NO FIELDS
+        // ----------------------------------------------------
+
+        if (
+            fields.length === 0
+        ) {
+
+            return jsonResponse(
+
+                {
+
+                    success: false,
+
+                    message:
+                        "iiko вернул ответ, но поля OLAP не найдены",
+
+                    raw:
+                        data
+
+                },
+
+                502
+
+            );
+
+        }
+
+
+        // ----------------------------------------------------
+        // SUCCESS
         // ----------------------------------------------------
 
         return jsonResponse(
+
             {
+
                 success: true,
 
                 reportType,
 
                 count:
-                    normalizedFields.length,
+                    fields.length,
 
-                fields:
-                    normalizedFields,
+                fields,
 
                 /*
-                 * Оставляем оригинальный
-                 * ответ iiko для диагностики.
+                 * Оригинальный ответ iiko
+                 * оставляем для диагностики.
                  */
 
                 raw:
                     data
+
             }
+
         );
 
 
-    } catch (error) {
+    }
+
+    catch (error) {
 
         console.error(
             "IIKO OLAP FIELDS ERROR:",
@@ -575,15 +916,21 @@ export async function onRequestPost(
 
 
         return jsonResponse(
+
             {
+
                 success: false,
 
                 message:
                     error.message ||
-                    "Неизвестная ошибка OLAP fields"
+                    "Ошибка получения OLAP полей"
+
             },
 
             502
+
         );
+
     }
+
 }
