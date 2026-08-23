@@ -1,39 +1,44 @@
 // ============================================================
 // ANAR SYSTEM — IIKO OLAP API
 // functions/api/iiko/olap.js
-// DIAGNOSTIC VERSION
+//
+// Исправления:
+// 1. /columns поддерживает объект, массив и обёртки fields/columns.
+// 2. Техническое имя поля берётся из КЛЮЧА объекта iiko.
+// 3. Никаких искусственных 29 полей внутри backend.
+// 4. Ошибка iiko 400/500 больше НЕ превращается в HTTP 200.
+// 5. Frontend получает реальный iiko HTTP status + raw response.
+// 6. measures принимаются как строки или {field, aggregation}.
 // ============================================================
 
 function corsHeaders() {
     return {
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type"
     };
 }
 
 function jsonResponse(data, status = 200) {
-    return new Response(
-        JSON.stringify(data, null, 2),
-        {
-            status,
-            headers: {
-                "Content-Type": "application/json; charset=utf-8",
-                ...corsHeaders()
-            }
+    return new Response(JSON.stringify(data, null, 2), {
+        status,
+        headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            ...corsHeaders()
         }
-    );
+    });
 }
 
+function requestId() {
+    try {
+        if (crypto?.randomUUID) return crypto.randomUUID();
+    } catch (_) {}
 
-// ============================================================
-// SHA1
-// ============================================================
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 async function sha1(text) {
-
-    const data =
-        new TextEncoder().encode(text);
+    const data = new TextEncoder().encode(text);
 
     const hash =
         await crypto.subtle.digest(
@@ -53,16 +58,54 @@ async function sha1(text) {
         .join("");
 }
 
+function clean(value) {
+    return String(value ?? "").trim();
+}
+
+function credentials(body) {
+
+    const ip =
+        clean(body.ip);
+
+    const port =
+        clean(body.port);
+
+    const login =
+        clean(body.login);
+
+    const password =
+        String(body.password ?? "");
+
+    if (
+        !ip ||
+        !port ||
+        !login ||
+        !password
+    ) {
+        throw new Error(
+            "Заполните IP, порт, логин и пароль iiko"
+        );
+    }
+
+    return {
+        ip,
+        port,
+        login,
+        password
+    };
+}
+
 
 // ============================================================
 // AUTH
 // ============================================================
 
-async function getToken(
+async function authenticate(
     ip,
     port,
     login,
-    password
+    password,
+    rid
 ) {
 
     const serverUrl =
@@ -77,58 +120,573 @@ async function getToken(
         `&pass=${pass}`;
 
     console.log(
-        "IIKO AUTH:",
-        `${serverUrl}/resto/api/auth`
+        `[OLAP][${rid}] AUTH`,
+        serverUrl,
+        login
     );
 
-    const response =
-        await fetch(url);
+    let response;
 
-    const text =
-        await response.text();
+    try {
 
-    console.log(
-        "IIKO AUTH HTTP:",
-        response.status
-    );
+        response =
+            await fetch(
+                url,
+                {
+                    method: "GET"
+                }
+            );
 
-    console.log(
-        "IIKO AUTH RESPONSE:",
-        text.substring(0, 5000)
-    );
-
-    if (!response.ok) {
+    } catch (error) {
 
         throw new Error(
-            `AUTH HTTP ${response.status}: ${text}`
+            `Не удалось подключиться к iiko Server: ${error?.message || "fetch failed"}`
         );
     }
 
-    const token =
-        String(text || "").trim();
+    const text =
+        (
+            await response.text()
+        ).trim();
 
-    if (!token) {
+    console.log(
+        `[OLAP][${rid}] AUTH HTTP`,
+        response.status
+    );
+
+    if (
+        !response.ok ||
+        !text
+    ) {
 
         throw new Error(
-            "iiko не вернул token"
+            `Ошибка авторизации iiko: HTTP ${response.status}` +
+            (
+                text
+                    ? ` — ${text.slice(0, 1000)}`
+                    : ""
+            )
         );
     }
 
     return {
         serverUrl,
-        token
+        token: text
     };
 }
 
 
 // ============================================================
-// FIELDS
+// NORMALIZE FIELD
 // ============================================================
 
-async function getFields(
+function normalizeField(
+    technicalName,
+    meta,
+    index = 0,
+    forcedMeasure = false
+) {
+
+    if (
+        typeof meta === "string"
+    ) {
+
+        return {
+            name:
+                technicalName ||
+                meta,
+
+            title:
+                technicalName ||
+                meta,
+
+            type:
+                "unknown",
+
+            isMeasure:
+                forcedMeasure,
+
+            aggregationAllowed:
+                forcedMeasure,
+
+            groupingAllowed:
+                true,
+
+            filteringAllowed:
+                true,
+
+            tags:
+                [],
+
+            index
+        };
+    }
+
+    if (
+        !meta ||
+        typeof meta !== "object"
+    ) {
+        return null;
+    }
+
+    const name =
+        clean(
+            technicalName ||
+            meta.field ||
+            meta.key ||
+            meta.code ||
+            meta.id ||
+            meta.name
+        );
+
+    if (!name) {
+        return null;
+    }
+
+    const title =
+        clean(
+            meta.title ||
+            meta.caption ||
+            meta.label ||
+            meta.displayName ||
+            meta.name ||
+            name
+        );
+
+    const type =
+        clean(
+            meta.type ||
+            meta.dataType ||
+            meta.kind ||
+            meta.fieldType ||
+            "unknown"
+        );
+
+    const aggregationAllowed =
+        forcedMeasure ||
+        meta.aggregationAllowed === true ||
+        meta.allowAggregation === true ||
+        meta.canAggregate === true;
+
+    return {
+
+        ...meta,
+
+        name,
+
+        field:
+            name,
+
+        key:
+            name,
+
+        id:
+            name,
+
+        title,
+
+        type,
+
+        aggregationAllowed,
+
+        groupingAllowed:
+            meta.groupingAllowed !== false,
+
+        filteringAllowed:
+            meta.filteringAllowed !== false,
+
+        tags:
+            Array.isArray(meta.tags)
+                ? meta.tags
+                : [],
+
+        isMeasure:
+            meta.isMeasure === true ||
+            meta.measure === true ||
+            aggregationAllowed,
+
+        index
+    };
+}
+
+
+// ============================================================
+// NORMALIZE COLUMNS
+// ============================================================
+
+function normalizeColumns(raw) {
+
+    const result = [];
+
+    function add(
+        name,
+        meta,
+        forcedMeasure = false
+    ) {
+
+        const field =
+            normalizeField(
+                name,
+                meta,
+                result.length,
+                forcedMeasure
+            );
+
+        if (field) {
+            result.push(field);
+        }
+    }
+
+    if (!raw) {
+        return [];
+    }
+
+    // --------------------------------------------------------
+    // ARRAY
+    // --------------------------------------------------------
+
+    if (
+        Array.isArray(raw)
+    ) {
+
+        raw.forEach(
+            item => {
+
+                if (
+                    typeof item === "string"
+                ) {
+
+                    add(
+                        item,
+                        {
+                            name: item
+                        },
+                        false
+                    );
+
+                    return;
+                }
+
+                if (
+                    item &&
+                    typeof item === "object"
+                ) {
+
+                    add(
+                        item.field ||
+                        item.key ||
+                        item.code ||
+                        item.id ||
+                        item.technicalName,
+
+                        item,
+
+                        item.isMeasure === true ||
+                        item.measure === true ||
+                        item.aggregationAllowed === true
+                    );
+                }
+            }
+        );
+
+    }
+
+    // --------------------------------------------------------
+    // OBJECT
+    // --------------------------------------------------------
+
+    else if (
+        typeof raw === "object"
+    ) {
+
+        // ----------------------------------------------------
+        // { fields: [...] }
+        // ----------------------------------------------------
+
+        if (
+            Array.isArray(
+                raw.fields
+            )
+        ) {
+
+            raw.fields.forEach(
+                item => {
+
+                    if (
+                        typeof item === "string"
+                    ) {
+
+                        add(
+                            item,
+                            {
+                                name: item
+                            }
+                        );
+
+                    } else if (item) {
+
+                        add(
+                            item.field ||
+                            item.key ||
+                            item.code ||
+                            item.id ||
+                            item.technicalName,
+
+                            item,
+
+                            item.aggregationAllowed === true ||
+                            item.isMeasure === true
+                        );
+                    }
+                }
+            );
+        }
+
+        // ----------------------------------------------------
+        // { columns: [...] }
+        // ----------------------------------------------------
+
+        if (
+            Array.isArray(
+                raw.columns
+            )
+        ) {
+
+            raw.columns.forEach(
+                item => {
+
+                    if (
+                        typeof item === "string"
+                    ) {
+
+                        add(
+                            item,
+                            {
+                                name: item
+                            }
+                        );
+
+                    } else if (item) {
+
+                        add(
+                            item.field ||
+                            item.key ||
+                            item.code ||
+                            item.id ||
+                            item.technicalName,
+
+                            item,
+
+                            item.aggregationAllowed === true ||
+                            item.isMeasure === true
+                        );
+                    }
+                }
+            );
+        }
+
+        // ----------------------------------------------------
+        // dimensions
+        // ----------------------------------------------------
+
+        if (
+            Array.isArray(
+                raw.dimensions
+            )
+        ) {
+
+            raw.dimensions.forEach(
+                item => {
+
+                    if (
+                        typeof item === "string"
+                    ) {
+
+                        add(
+                            item,
+                            {
+                                name: item
+                            },
+                            false
+                        );
+
+                    } else if (item) {
+
+                        add(
+                            item.field ||
+                            item.key ||
+                            item.code ||
+                            item.id ||
+                            item.technicalName,
+
+                            item,
+
+                            false
+                        );
+                    }
+                }
+            );
+        }
+
+        // ----------------------------------------------------
+        // measures
+        // ----------------------------------------------------
+
+        if (
+            Array.isArray(
+                raw.measures
+            )
+        ) {
+
+            raw.measures.forEach(
+                item => {
+
+                    if (
+                        typeof item === "string"
+                    ) {
+
+                        add(
+                            item,
+                            {
+                                name: item
+                            },
+                            true
+                        );
+
+                    } else if (item) {
+
+                        add(
+                            item.field ||
+                            item.key ||
+                            item.code ||
+                            item.id ||
+                            item.technicalName,
+
+                            item,
+
+                            true
+                        );
+                    }
+                }
+            );
+        }
+
+        // ----------------------------------------------------
+        // ГЛАВНЫЙ ВАРИАНТ IIKO
+        //
+        // {
+        //   "CashRegisterName": {...},
+        //   "DishSumInt": {...}
+        // }
+        // ----------------------------------------------------
+
+        Object.entries(raw)
+            .forEach(
+                ([key, value]) => {
+
+                    if (
+                        [
+                            "fields",
+                            "columns",
+                            "dimensions",
+                            "measures",
+                            "data",
+                            "items"
+                        ].includes(key)
+                    ) {
+                        return;
+                    }
+
+                    if (
+                        !value ||
+                        typeof value !== "object" ||
+                        Array.isArray(value)
+                    ) {
+                        return;
+                    }
+
+                    add(
+                        key,
+                        value,
+                        value.aggregationAllowed === true ||
+                        value.isMeasure === true ||
+                        value.measure === true
+                    );
+                }
+            );
+    }
+
+    // --------------------------------------------------------
+    // DEDUPE
+    // --------------------------------------------------------
+
+    const map =
+        new Map();
+
+    result.forEach(
+        field => {
+
+            const key =
+                field.name.toLowerCase();
+
+            if (
+                !map.has(key)
+            ) {
+
+                map.set(
+                    key,
+                    field
+                );
+
+            } else {
+
+                const old =
+                    map.get(key);
+
+                map.set(
+                    key,
+                    {
+                        ...old,
+                        ...field,
+
+                        title:
+                            field.title ||
+                            old.title,
+
+                        isMeasure:
+                            old.isMeasure ||
+                            field.isMeasure,
+
+                        aggregationAllowed:
+                            old.aggregationAllowed ||
+                            field.aggregationAllowed
+                    }
+                );
+            }
+        }
+    );
+
+    return Array.from(
+        map.values()
+    )
+        .map(
+            (field, index) => ({
+                ...field,
+                index
+            })
+        );
+}
+
+
+// ============================================================
+// GET OLAP COLUMNS
+// ============================================================
+
+async function getOlapColumns(
     serverUrl,
     token,
-    reportType
+    reportType,
+    rid
 ) {
 
     const url =
@@ -136,97 +694,131 @@ async function getFields(
         `?key=${encodeURIComponent(token)}` +
         `&reportType=${encodeURIComponent(reportType)}`;
 
-    console.log(
-        "IIKO COLUMNS URL:",
-        url.replace(
-            /key=[^&]+/,
-            "key=***"
-        )
-    );
+    let response;
 
-    const response =
-        await fetch(
-            url,
-            {
-                method: "GET",
-                headers: {
-                    "Accept":
-                        "application/json"
+    try {
+
+        response =
+            await fetch(
+                url,
+                {
+                    method: "GET",
+
+                    headers: {
+                        Accept:
+                            "application/json"
+                    }
                 }
-            }
+            );
+
+    } catch (error) {
+
+        throw new Error(
+            `Ошибка соединения с iiko при получении OLAP-полей: ${error?.message || "fetch failed"}`
         );
+    }
 
     const text =
         await response.text();
 
     console.log(
-        "IIKO COLUMNS HTTP:",
-        response.status
+        `[OLAP][${rid}] COLUMNS HTTP`,
+        response.status,
+        "length",
+        text.length
     );
 
-    console.log(
-        "IIKO COLUMNS RESPONSE:",
-        text.substring(0, 10000)
-    );
-
-    if (!response.ok) {
-
-        return {
-            success: false,
-            status: response.status,
-            raw: text
-        };
-    }
-
-    let data;
+    let raw = null;
 
     try {
-        data = JSON.parse(text);
-    } catch {
-        data = text;
+
+        raw =
+            JSON.parse(text);
+
+    } catch (_) {
+
+        raw = null;
+    }
+
+    if (
+        !response.ok
+    ) {
+
+        throw new Error(
+            `iiko OLAP columns HTTP ${response.status}: ${text.slice(0, 5000)}`
+        );
+    }
+
+    if (!raw) {
+
+        throw new Error(
+            "iiko вернул некорректный JSON структуры OLAP"
+        );
+    }
+
+    const fields =
+        normalizeColumns(
+            raw
+        );
+
+    if (
+        !fields.length
+    ) {
+
+        throw new Error(
+            "iiko вернул 0 OLAP-полей. Проверьте reportType=SALES и права пользователя iiko."
+        );
     }
 
     return {
-        success: true,
-        status: response.status,
-        data
+        raw,
+        fields,
+        httpStatus:
+            response.status,
+        rawText:
+            text
     };
 }
 
 
 // ============================================================
-// GET ARRAY
+// ARRAY
 // ============================================================
 
-function arr(value) {
+function toArray(value) {
 
-    if (!Array.isArray(value)) {
+    if (
+        !Array.isArray(value)
+    ) {
         return [];
     }
 
     return value
-        .map(x => {
+        .map(
+            item => {
 
-            if (
-                typeof x === "string"
-            ) {
-                return x.trim();
+                if (
+                    typeof item === "string"
+                ) {
+                    return clean(item);
+                }
+
+                if (
+                    item &&
+                    typeof item === "object"
+                ) {
+
+                    return clean(
+                        item.field ||
+                        item.name ||
+                        item.key ||
+                        item.id
+                    );
+                }
+
+                return "";
             }
-
-            if (
-                x &&
-                typeof x === "object"
-            ) {
-                return String(
-                    x.field ||
-                    x.name ||
-                    x.key ||
-                    ""
-                ).trim();
-            }
-
-            return "";
-        })
+        )
         .filter(Boolean);
 }
 
@@ -238,73 +830,51 @@ function arr(value) {
 function buildRequest(body) {
 
     const reportType =
-        String(
+        clean(
             body.reportType ||
             "SALES"
         )
-            .trim()
             .toUpperCase();
 
-
     const rows =
-        arr(
-            body.groupByRowFields ||
+        toArray(
+            body.groupByRowFields ??
             body.rows
         );
 
-
-    const cols =
-        arr(
-            body.groupByColumnFields ||
-            body.groupByColFields ||
+    const columns =
+        toArray(
+            body.groupByColumnFields ??
+            body.groupByColFields ??
             body.columns
         );
 
-
-    let measures = [];
-
-
-    if (
+    const measures =
         Array.isArray(body.measures)
-    ) {
 
-        measures =
-            body.measures
-                .map(x => {
+            ? body.measures
+                .map(
+                    item => {
 
-                    if (
-                        typeof x === "string"
-                    ) {
-                        return x.trim();
+                        if (
+                            typeof item === "string"
+                        ) {
+                            return clean(item);
+                        }
+
+                        return clean(
+                            item?.field ||
+                            item?.name ||
+                            item?.key ||
+                            item?.id
+                        );
                     }
+                )
+                .filter(Boolean)
 
-                    if (
-                        x &&
-                        typeof x === "object"
-                    ) {
-                        return String(
-                            x.field ||
-                            x.name ||
-                            ""
-                        ).trim();
-                    }
-
-                    return "";
-                })
-                .filter(Boolean);
-
-    } else {
-
-        measures =
-            arr(
+            : toArray(
                 body.aggregateFields
             );
-    }
-
-
-    // ========================================================
-    // FILTERS
-    // ========================================================
 
     let filters = {};
 
@@ -322,10 +892,66 @@ function buildRequest(body) {
             );
     }
 
+    // --------------------------------------------------------
+    // ARRAY FILTERS
+    // --------------------------------------------------------
 
-    // ========================================================
-    // DATE
-    // ========================================================
+    if (
+        Array.isArray(body.filters)
+    ) {
+
+        for (
+            const item of body.filters
+        ) {
+
+            const field =
+                clean(
+                    item?.field ||
+                    item?.name ||
+                    item?.key
+                );
+
+            if (!field) {
+                continue;
+            }
+
+            if (
+                item.values &&
+                Array.isArray(
+                    item.values
+                )
+            ) {
+
+                filters[field] = {
+
+                    filterType:
+                        "Include",
+
+                    values:
+                        item.values
+                };
+
+            } else if (
+                item.value !== undefined &&
+                item.value !== ""
+            ) {
+
+                filters[field] = {
+
+                    filterType:
+                        "Include",
+
+                    values: [
+                        item.value
+                    ]
+                };
+            }
+        }
+    }
+
+    // --------------------------------------------------------
+    // DATE FILTER
+    // --------------------------------------------------------
 
     if (
         body.from ||
@@ -333,29 +959,47 @@ function buildRequest(body) {
     ) {
 
         const from =
-            body.from
-                ? `${body.from}T00:00:00.000`
-                : "";
+            clean(
+                body.from
+            )
+                .slice(0, 10);
 
         const to =
-            body.to
-                ? `${body.to}T23:59:59.999`
-                : "";
+            clean(
+                body.to ||
+                body.from
+            )
+                .slice(0, 10);
 
-        filters["OpenDate.Typed"] = {
-            filterType: "DateRange",
-            periodType: "CUSTOM",
-            from,
-            to,
-            includeLow: true,
-            includeHigh: true
-        };
+        if (
+            from &&
+            to
+        ) {
+
+            filters[
+                "OpenDate.Typed"
+            ] = {
+
+                filterType:
+                    "DateRange",
+
+                periodType:
+                    "CUSTOM",
+
+                from:
+                    `${from}T00:00:00.000`,
+
+                to:
+                    `${to}T23:59:59.999`,
+
+                includeLow:
+                    true,
+
+                includeHigh:
+                    true
+            };
+        }
     }
-
-
-    // ========================================================
-    // EXACT BODY
-    // ========================================================
 
     return {
 
@@ -368,7 +1012,7 @@ function buildRequest(body) {
             rows,
 
         groupByColFields:
-            cols,
+            columns,
 
         aggregateFields:
             measures,
@@ -379,44 +1023,45 @@ function buildRequest(body) {
 
 
 // ============================================================
-// OLAP QUERY
+// RUN QUERY
 // ============================================================
 
-async function query(
+async function runQuery(
     serverUrl,
     token,
-    body
+    body,
+    rid
 ) {
 
-    const requestBody =
-        buildRequest(body);
+    const request =
+        buildRequest(
+            body
+        );
 
+    if (
+        request.groupByRowFields.length === 0 &&
+        request.groupByColFields.length === 0 &&
+        request.aggregateFields.length === 0
+    ) {
 
-    console.log(
-        "============================================"
-    );
+        return {
 
-    console.log(
-        "IIKO OLAP REQUEST BODY"
-    );
+            success:
+                false,
 
-    console.log(
-        JSON.stringify(
-            requestBody,
-            null,
-            2
-        )
-    );
+            type:
+                "EMPTY_QUERY",
 
-    console.log(
-        "============================================"
-    );
+            message:
+                "Выберите хотя бы одно поле в Строки, Колонки или Показатели",
 
+            request
+        };
+    }
 
     const url =
         `${serverUrl}/resto/api/v2/reports/olap` +
         `?key=${encodeURIComponent(token)}`;
-
 
     let response;
 
@@ -429,114 +1074,195 @@ async function query(
                     method: "POST",
 
                     headers: {
+
                         "Content-Type":
                             "application/json",
 
-                        "Accept":
+                        Accept:
                             "application/json"
                     },
 
                     body:
                         JSON.stringify(
-                            requestBody
+                            request
                         )
                 }
             );
 
     } catch (error) {
 
-        console.error(
-            "FETCH ERROR:",
-            error
-        );
-
         return {
-            success: false,
+
+            success:
+                false,
 
             type:
                 "FETCH_ERROR",
 
             message:
-                error.message,
+                `Ошибка соединения с iiko OLAP: ${error?.message || "fetch failed"}`,
 
-            error:
-                String(error)
+            request
         };
     }
-
 
     const text =
         await response.text();
 
-
-    console.log(
-        "============================================"
-    );
-
-    console.log(
-        "IIKO OLAP RESPONSE"
-    );
-
-    console.log(
-        "HTTP:",
-        response.status
-    );
-
-    console.log(
-        text.substring(
-            0,
-            30000
-        )
-    );
-
-    console.log(
-        "============================================"
-    );
-
-
-    let parsed = null;
+    let report = null;
 
     try {
 
-        parsed =
-            JSON.parse(text);
+        report =
+            JSON.parse(
+                text
+            );
 
-    } catch {
+    } catch (_) {}
 
-        parsed = null;
+    console.log(
+        `[OLAP][${rid}] QUERY HTTP`,
+        response.status,
+        "length",
+        text.length
+    );
+
+    console.log(
+        `[OLAP][${rid}] QUERY REQUEST`,
+        JSON.stringify(request)
+    );
+
+    // --------------------------------------------------------
+    // REAL IIKO ERROR
+    // --------------------------------------------------------
+
+    if (
+        !response.ok
+    ) {
+
+        let detail = "";
+
+        if (
+            report &&
+            typeof report === "object"
+        ) {
+
+            detail =
+                report.message ||
+                report.error ||
+                report.description ||
+                "";
+        }
+
+        if (!detail) {
+            detail =
+                text.slice(
+                    0,
+                    5000
+                );
+        }
+
+        return {
+
+            success:
+                false,
+
+            type:
+                "IIKO_ERROR",
+
+            message:
+                `iiko OLAP HTTP ${response.status}` +
+                (
+                    detail
+                        ? `: ${detail}`
+                        : ""
+                ),
+
+            iikoHttpStatus:
+                response.status,
+
+            iikoStatusText:
+                response.statusText,
+
+            request,
+
+            report,
+
+            rawResponse:
+                text.slice(
+                    0,
+                    30000
+                )
+        };
     }
 
+    // --------------------------------------------------------
+    // HTTP 200 BUT ERROR INSIDE BODY
+    // --------------------------------------------------------
 
-    // ========================================================
-    // IMPORTANT:
-    // НЕ превращаем ошибку в исключение.
-    // Возвращаем реальный ответ iiko.
-    // ========================================================
+    const errorInsideBody =
+        report &&
+        typeof report === "object" &&
+        (
+            report.error === true ||
+            report.success === false ||
+            report.errorMessage ||
+            report.errorCode
+        );
+
+    if (
+        errorInsideBody
+    ) {
+
+        const detail =
+            report.message ||
+            report.errorMessage ||
+            report.errorCode ||
+            "iiko вернул ошибку внутри HTTP 200";
+
+        return {
+
+            success:
+                false,
+
+            type:
+                "IIKO_BODY_ERROR",
+
+            message:
+                `iiko OLAP HTTP 200: ${detail}`,
+
+            iikoHttpStatus:
+                response.status,
+
+            request,
+
+            report,
+
+            rawResponse:
+                text.slice(
+                    0,
+                    30000
+                )
+        };
+    }
 
     return {
 
         success:
-            response.ok,
+            true,
 
         type:
-            response.ok
-                ? "SUCCESS"
-                : "IIKO_ERROR",
+            "SUCCESS",
 
         iikoHttpStatus:
             response.status,
 
-        iikoStatusText:
-            response.statusText,
+        request,
 
-        request:
-            requestBody,
-
-        response:
-            parsed,
+        report,
 
         rawResponse:
-            text.substring(
+            text.slice(
                 0,
                 30000
             )
@@ -554,9 +1280,136 @@ export async function onRequestOptions() {
         null,
         {
             status: 204,
-            headers: corsHeaders()
+
+            headers:
+                corsHeaders()
         }
     );
+}
+
+
+// ============================================================
+// GET
+// ============================================================
+
+export async function onRequestGet(
+    context
+) {
+
+    const rid =
+        requestId();
+
+    try {
+
+        const url =
+            new URL(
+                context.request.url
+            );
+
+        const body = {
+
+            ip:
+                url.searchParams.get("ip") ||
+                "",
+
+            port:
+                url.searchParams.get("port") ||
+                "",
+
+            login:
+                url.searchParams.get("login") ||
+                "",
+
+            password:
+                url.searchParams.get("password") ||
+                "",
+
+            reportType:
+                url.searchParams.get("reportType") ||
+                "SALES"
+        };
+
+        const c =
+            credentials(
+                body
+            );
+
+        const auth =
+            await authenticate(
+                c.ip,
+                c.port,
+                c.login,
+                c.password,
+                rid
+            );
+
+        const result =
+            await getOlapColumns(
+                auth.serverUrl,
+                auth.token,
+                clean(
+                    body.reportType
+                ).toUpperCase(),
+                rid
+            );
+
+        return jsonResponse(
+            {
+
+                success:
+                    true,
+
+                action:
+                    "fields",
+
+                requestId:
+                    rid,
+
+                reportType:
+                    clean(
+                        body.reportType
+                    ).toUpperCase(),
+
+                count:
+                    result.fields.length,
+
+                fields:
+                    result.fields,
+
+                raw:
+                    result.raw
+
+            },
+            200
+        );
+
+    } catch (error) {
+
+        console.error(
+            `[OLAP][${rid}] GET ERROR`,
+            error
+        );
+
+        return jsonResponse(
+            {
+
+                success:
+                    false,
+
+                requestId:
+                    rid,
+
+                type:
+                    "FIELDS_ERROR",
+
+                message:
+                    error?.message ||
+                    "Ошибка OLAP fields"
+
+            },
+            502
+        );
+    }
 }
 
 
@@ -568,11 +1421,10 @@ export async function onRequestPost(
     context
 ) {
 
-    try {
+    const rid =
+        requestId();
 
-        // ====================================================
-        // BODY
-        // ====================================================
+    try {
 
         let body;
 
@@ -581,127 +1433,55 @@ export async function onRequestPost(
             body =
                 await context.request.json();
 
-        } catch {
+        } catch (_) {
 
             return jsonResponse(
                 {
-                    success: false,
-                    type: "INVALID_JSON",
+
+                    success:
+                        false,
+
+                    requestId:
+                        rid,
+
+                    type:
+                        "INVALID_JSON",
+
                     message:
                         "Request body не является JSON"
+
                 },
                 400
             );
         }
 
-
-        // ====================================================
-        // CREDENTIALS
-        // ====================================================
-
-        const ip =
-            String(
-                body.ip || ""
-            ).trim();
-
-        const port =
-            String(
-                body.port || ""
-            ).trim();
-
-        const login =
-            String(
-                body.login || ""
-            ).trim();
-
-        const password =
-            String(
-                body.password || ""
+        const c =
+            credentials(
+                body
             );
-
-
-        if (
-            !ip ||
-            !port ||
-            !login ||
-            !password
-        ) {
-
-            return jsonResponse(
-                {
-                    success: false,
-                    type: "CREDENTIALS",
-                    message:
-                        "Необходимо указать IP, порт, логин и пароль"
-                },
-                400
-            );
-        }
-
-
-        // ====================================================
-        // ACTION
-        // ====================================================
-
-        const action =
-            String(
-                body.action ||
-                "query"
-            )
-                .trim()
-                .toLowerCase();
-
 
         const reportType =
-            String(
+            clean(
                 body.reportType ||
                 "SALES"
             )
-                .trim()
                 .toUpperCase();
 
+        const action =
+            clean(
+                body.action ||
+                "query"
+            )
+                .toLowerCase();
 
-        // ====================================================
-        // AUTH
-        // ====================================================
-
-        let auth;
-
-        try {
-
-            auth =
-                await getToken(
-                    ip,
-                    port,
-                    login,
-                    password
-                );
-
-        } catch (error) {
-
-            return jsonResponse(
-                {
-                    success: false,
-
-                    type:
-                        "AUTH_ERROR",
-
-                    message:
-                        error.message,
-
-                    error:
-                        String(error)
-                },
-                502
+        const auth =
+            await authenticate(
+                c.ip,
+                c.port,
+                c.login,
+                c.password,
+                rid
             );
-        }
-
-
-        const {
-            serverUrl,
-            token
-        } = auth;
-
 
         // ====================================================
         // FIELDS
@@ -712,48 +1492,40 @@ export async function onRequestPost(
         ) {
 
             const result =
-                await getFields(
-                    serverUrl,
-                    token,
-                    reportType
+                await getOlapColumns(
+                    auth.serverUrl,
+                    auth.token,
+                    reportType,
+                    rid
                 );
-
 
             return jsonResponse(
                 {
+
                     success:
-                        result.success,
+                        true,
 
                     action:
                         "fields",
 
+                    requestId:
+                        rid,
+
                     reportType,
 
                     count:
-                        result.data &&
-                        typeof result.data === "object"
-                            ? Object.keys(
-                                result.data
-                            ).length
-                            : 0,
+                        result.fields.length,
 
                     fields:
-                        result.data,
+                        result.fields,
 
                     raw:
-                        result.raw ||
-                        null,
+                        result.raw
 
-                    iikoHttpStatus:
-                        result.status
                 },
-
-                result.success
-                    ? 200
-                    : 502
+                200
             );
         }
-
 
         // ====================================================
         // QUERY
@@ -764,26 +1536,46 @@ export async function onRequestPost(
         ) {
 
             const result =
-                await query(
-                    serverUrl,
-                    token,
-                    body
+                await runQuery(
+                    auth.serverUrl,
+                    auth.token,
+                    body,
+                    rid
                 );
 
-
-            // ==================================================
-            // КРИТИЧЕСКИ ВАЖНО:
+            // ВАЖНО:
+            // если iiko ответил 400,
+            // наружу тоже отдаём 400.
             //
-            // HTTP 400 iiko возвращаем как 200 нашей функции,
-            // чтобы frontend получил JSON с реальной ошибкой.
-            // ==================================================
+            // Больше не будет:
+            //
+            // "Ошибка OLAP HTTP 200"
+            //
+
+            const status =
+                result.success
+
+                    ? 200
+
+                    : Math.min(
+                        599,
+                        Math.max(
+                            400,
+                            Number(
+                                result.iikoHttpStatus
+                            ) || 502
+                        )
+                    );
 
             return jsonResponse(
-                result,
-                200
+                {
+                    ...result,
+                    requestId:
+                        rid
+                },
+                status
             );
         }
-
 
         // ====================================================
         // UNKNOWN
@@ -791,18 +1583,24 @@ export async function onRequestPost(
 
         return jsonResponse(
             {
-                success: false,
+
+                success:
+                    false,
+
+                requestId:
+                    rid,
 
                 type:
                     "UNKNOWN_ACTION",
 
                 message:
-                    `Неизвестное действие: ${action}`,
+                    `Неизвестное действие OLAP: ${action}`,
 
                 availableActions: [
                     "fields",
                     "query"
                 ]
+
             },
             400
         );
@@ -810,41 +1608,32 @@ export async function onRequestPost(
     } catch (error) {
 
         console.error(
-            "============================================"
-        );
-
-        console.error(
-            "UNEXPECTED OLAP ERROR"
-        );
-
-        console.error(
+            `[OLAP][${rid}] POST ERROR`,
             error
         );
 
-        console.error(
-            "============================================"
-        );
-
-
         return jsonResponse(
             {
-                success: false,
+
+                success:
+                    false,
+
+                requestId:
+                    rid,
 
                 type:
                     "FUNCTION_ERROR",
 
                 message:
-                    error.message ||
+                    error?.message ||
                     "Ошибка OLAP Function",
 
-                error:
-                    String(error),
-
                 stack:
-                    error.stack ||
+                    error?.stack ||
                     null
+
             },
-            500
+            502
         );
     }
 }
