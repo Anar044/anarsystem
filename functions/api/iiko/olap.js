@@ -1,20 +1,37 @@
 // ============================================================
 // ANAR SYSTEM
-// IIKO OLAP API
+// IIKO OLAP
 // functions/api/iiko/olap.js
 //
-// Полная версия с автоматическим сопоставлением:
+// ВАЖНО:
 //
-//     "Касса"
-//         ↓
-//     поле iiko из /columns
+// iiko /reports/olap/columns возвращает объект примерно такого
+// вида:
 //
-//     "Сумма со скидкой"
-//         ↓
-//     поле iiko из /columns
+// {
+//   "CashRegisterName": {
+//      "name": "Касса",
+//      ...
+//   },
 //
-// Благодаря этому frontend может работать с красивыми
-// названиями полей, а iiko получает технические ID.
+//   "DishDiscountSumInt": {
+//      "name": "Сумма со скидкой",
+//      ...
+//   }
+// }
+//
+// Техническое имя = КЛЮЧ объекта.
+// Красивое имя = поле "name".
+//
+// Поэтому:
+//     Касса
+//       ↓
+//     CashRegisterName
+//
+//     Сумма со скидкой
+//       ↓
+//     DishDiscountSumInt
+//
 // ============================================================
 
 
@@ -32,22 +49,33 @@ function corsHeaders() {
 
 
 // ============================================================
-// JSON RESPONSE
+// JSON
 // ============================================================
 
-function jsonResponse(data, status = 200, requestId = null) {
+function jsonResponse(
+    data,
+    status = 200,
+    requestId = ""
+) {
 
     const headers = {
-        "Content-Type": "application/json; charset=utf-8",
+        "Content-Type":
+            "application/json; charset=utf-8",
+
         ...corsHeaders()
     };
 
     if (requestId) {
-        headers["X-OLAP-Request-ID"] = requestId;
+        headers["X-OLAP-Request-ID"] =
+            requestId;
     }
 
     return new Response(
-        JSON.stringify(data, null, 2),
+        JSON.stringify(
+            data,
+            null,
+            2
+        ),
         {
             status,
             headers
@@ -80,7 +108,7 @@ function createRequestId() {
         "-" +
         Math.random()
             .toString(36)
-            .slice(2, 10)
+            .substring(2, 10)
     );
 }
 
@@ -89,9 +117,16 @@ function createRequestId() {
 // LOG
 // ============================================================
 
-function logInfo(requestId, message, data = null) {
+function log(
+    requestId,
+    message,
+    data
+) {
 
-    if (data === null) {
+    if (
+        typeof data ===
+        "undefined"
+    ) {
 
         console.log(
             `[OLAP][${requestId}] ${message}`
@@ -107,9 +142,16 @@ function logInfo(requestId, message, data = null) {
 }
 
 
-function logError(requestId, message, data = null) {
+function logError(
+    requestId,
+    message,
+    data
+) {
 
-    if (data === null) {
+    if (
+        typeof data ===
+        "undefined"
+    ) {
 
         console.error(
             `[OLAP][${requestId}] ${message}`
@@ -126,34 +168,15 @@ function logError(requestId, message, data = null) {
 
 
 // ============================================================
-// SAFE CONNECTION INFO
-// ============================================================
-
-function safeConnectionInfo({
-    ip,
-    port,
-    login
-}) {
-
-    return {
-        ip,
-        port,
-        login,
-
-        serverUrl:
-            `http://${ip}:${port}`
-    };
-}
-
-
-// ============================================================
-// SHA1
+// SHA-1
 // ============================================================
 
 async function sha1(text) {
 
     const bytes =
-        new TextEncoder().encode(text);
+        new TextEncoder().encode(
+            text
+        );
 
     const hash =
         await crypto.subtle.digest(
@@ -179,24 +202,13 @@ async function sha1(text) {
 // IIKO AUTH
 // ============================================================
 
-async function getToken(
+async function authenticate(
     ip,
     port,
     login,
     password,
     requestId
 ) {
-
-    logInfo(
-        requestId,
-        "AUTH START",
-        {
-            ip,
-            port,
-            login
-        }
-    );
-
 
     if (
         !ip ||
@@ -219,20 +231,29 @@ async function getToken(
         await sha1(password);
 
 
-    const authUrl =
+    const url =
         `${serverUrl}/resto/api/auth` +
         `?login=${encodeURIComponent(login)}` +
         `&pass=${passwordHash}`;
 
 
-    let response;
+    log(
+        requestId,
+        "AUTH REQUEST",
+        {
+            serverUrl,
+            login
+        }
+    );
 
+
+    let response;
 
     try {
 
         response =
             await fetch(
-                authUrl,
+                url,
                 {
                     method: "GET"
                 }
@@ -252,7 +273,11 @@ async function getToken(
             }
         );
 
-        throw error;
+        throw new Error(
+            `Не удалось подключиться к iiko Server: ${
+                error?.message || "fetch failed"
+            }`
+        );
     }
 
 
@@ -262,11 +287,11 @@ async function getToken(
         ).trim();
 
 
-    logInfo(
+    log(
         requestId,
         "AUTH RESPONSE",
         {
-            httpStatus:
+            status:
                 response.status,
 
             ok:
@@ -287,25 +312,21 @@ async function getToken(
             requestId,
             "AUTH FAILED",
             {
-                httpStatus:
+                status:
                     response.status,
 
-                responseBody:
-                    text.slice(0, 5000)
+                body:
+                    text.substring(
+                        0,
+                        5000
+                    )
             }
         );
-
 
         throw new Error(
             `Ошибка авторизации iiko: HTTP ${response.status}`
         );
     }
-
-
-    logInfo(
-        requestId,
-        "AUTH SUCCESS"
-    );
 
 
     return {
@@ -316,817 +337,32 @@ async function getToken(
 
 
 // ============================================================
-// DATE
+// IIKO COLUMNS
+//
+// ГЛАВНОЕ ИСПРАВЛЕНИЕ.
+//
+// Мы НЕ используем:
+//
+//     field.id
+//
+// потому что твой frontend уже получил:
+//
+//     id: "Касса"
+//
+// Но настоящий iiko field:
+//
+//     CashRegisterName
+//
+// находится в КЛЮЧЕ исходного объекта.
+//
 // ============================================================
 
-function normalizeDate(value, end = false) {
-
-    if (!value) {
-        return "";
-    }
-
-    const date =
-        String(value).slice(0, 10);
-
-    return (
-        date +
-        (
-            end
-                ? "T23:59:59.999"
-                : "T00:00:00.000"
-        )
-    );
-}
-
-
-// ============================================================
-// NORMALIZE COLUMNS
-//
-// iiko может вернуть:
-//
-// [
-//   {...},
-//   {...}
-// ]
-//
-// или:
-//
-// {
-//   columns: [...]
-// }
-//
-// или:
-//
-// {
-//   fields: [...]
-// }
-//
-// Поэтому здесь делаем максимально устойчивый разбор.
-// ============================================================
-
-function normalizeColumns(raw) {
-
-    if (Array.isArray(raw)) {
-        return raw;
-    }
-
-
-    if (
-        raw &&
-        typeof raw === "object"
-    ) {
-
-        if (
-            Array.isArray(raw.columns)
-        ) {
-            return raw.columns;
-        }
-
-
-        if (
-            Array.isArray(raw.fields)
-        ) {
-            return raw.fields;
-        }
-
-
-        if (
-            Array.isArray(raw.data)
-        ) {
-            return raw.data;
-        }
-
-
-        if (
-            Array.isArray(raw.items)
-        ) {
-            return raw.items;
-        }
-
-
-        if (
-            Array.isArray(raw.result)
-        ) {
-            return raw.result;
-        }
-
-
-        return Object
-            .entries(raw)
-            .map(
-                ([key, value]) => {
-
-                    if (
-                        value &&
-                        typeof value === "object"
-                    ) {
-
-                        return {
-                            ...value,
-
-                            id:
-                                value.id ||
-                                value.name ||
-                                key,
-
-                            name:
-                                value.name ||
-                                value.id ||
-                                key,
-
-                            title:
-                                value.title ||
-                                value.caption ||
-                                value.name ||
-                                key
-                        };
-                    }
-
-
-                    return {
-                        id: key,
-                        name: key,
-                        title: key
-                    };
-                }
-            );
-    }
-
-
-    return [];
-}
-
-
-// ============================================================
-// GET FIELD ID
-//
-// У разных версий iiko структура columns может отличаться.
-// Поэтому проверяем много возможных свойств.
-// ============================================================
-
-function getFieldId(field) {
-
-    if (
-        field === null ||
-        field === undefined
-    ) {
-        return "";
-    }
-
-
-    if (
-        typeof field === "string"
-    ) {
-        return field.trim();
-    }
-
-
-    if (
-        typeof field !== "object"
-    ) {
-        return "";
-    }
-
-
-    const candidates = [
-
-        field.id,
-
-        field.field,
-
-        field.fieldName,
-
-        field.name,
-
-        field.key,
-
-        field.code,
-
-        field.columnName,
-
-        field.identifier,
-
-        field.uniqueName,
-
-        field.path,
-
-        field.value
-
-    ];
-
-
-    for (
-        const candidate of candidates
-    ) {
-
-        if (
-            typeof candidate === "string" &&
-            candidate.trim()
-        ) {
-
-            return candidate.trim();
-        }
-    }
-
-
-    return "";
-}
-
-
-// ============================================================
-// GET FIELD TITLE
-//
-// Это красивое имя, которое видит пользователь.
-// ============================================================
-
-function getFieldTitle(field) {
-
-    if (
-        field === null ||
-        field === undefined
-    ) {
-        return "";
-    }
-
-
-    if (
-        typeof field === "string"
-    ) {
-        return field.trim();
-    }
-
-
-    if (
-        typeof field !== "object"
-    ) {
-        return "";
-    }
-
-
-    const candidates = [
-
-        field.title,
-
-        field.caption,
-
-        field.displayName,
-
-        field.label,
-
-        field.description,
-
-        field.name,
-
-        field.fieldName,
-
-        field.id
-
-    ];
-
-
-    for (
-        const candidate of candidates
-    ) {
-
-        if (
-            typeof candidate === "string" &&
-            candidate.trim()
-        ) {
-
-            return candidate.trim();
-        }
-    }
-
-
-    return "";
-}
-
-
-// ============================================================
-// NORMALIZE TEXT
-//
-// Используем для поиска:
-// "Касса"
-// " касса "
-// "КАССА"
-//
-// будут считаться одним названием.
-// ============================================================
-
-function normalizeText(value) {
-
-    return String(value || "")
-        .trim()
-        .replace(/\s+/g, " ")
-        .toLowerCase();
-}
-
-
-// ============================================================
-// FIELD ALIASES
-//
-// Некоторые поля iiko могут называться немного иначе.
-// Здесь можно постепенно добавлять алиасы.
-//
-// Важно:
-// сначала используется реальный /columns,
-// а aliases являются запасным механизмом.
-// ============================================================
-
-const FIELD_ALIASES = {
-
-    "касса": [
-        "Касса",
-        "CashRegister",
-        "CashRegisterName",
-        "CashRegister.Code",
-        "CashRegister.Name"
-    ],
-
-    "сумма со скидкой": [
-        "Сумма со скидкой",
-        "DishDiscountSumInt",
-        "DishDiscountSum",
-        "DiscountSum",
-        "DishSumInt"
-    ],
-
-    "сумма": [
-        "Сумма",
-        "DishSumInt",
-        "OrderSum",
-        "OrderSumInt"
-    ],
-
-    "блюдо": [
-        "Блюдо",
-        "DishName",
-        "Dish"
-    ],
-
-    "категория блюда": [
-        "Категория блюда",
-        "DishCategory",
-        "DishCategory.Name",
-        "DishCategoryName"
-    ],
-
-    "группа блюда": [
-        "Группа блюда",
-        "DishGroup",
-        "DishGroup.Name",
-        "DishGroupName"
-    ],
-
-    "официант": [
-        "Официант",
-        "Waiter",
-        "Waiter.Name",
-        "WaiterName"
-    ],
-
-    "организация": [
-        "Организация",
-        "Department",
-        "Department.Name",
-        "Organization"
-    ],
-
-    "номер заказа": [
-        "Номер заказа",
-        "OrderNumber",
-        "OrderNum",
-        "UniqOrderId"
-    ],
-
-    "дата": [
-        "Дата",
-        "OpenDate",
-        "OpenDate.Typed"
-    ],
-
-    "время": [
-        "Время",
-        "OpenTime",
-        "OpenDate.Typed"
-    ]
-};
-
-
-// ============================================================
-// FIND FIELD
-//
-// Главное место новой логики.
-//
-// Получаем:
-//     "Касса"
-//
-// и пытаемся найти:
-//     "CashRegister"
-//     или реальный ID из /columns.
-// ============================================================
-
-function findField(
-    requested,
-    columns
-) {
-
-    if (
-        !requested
-    ) {
-        return null;
-    }
-
-
-    const requestedText =
-        String(requested).trim();
-
-
-    if (
-        !requestedText
-    ) {
-        return null;
-    }
-
-
-    const normalizedRequested =
-        normalizeText(
-            requestedText
-        );
-
-
-    // ========================================================
-    // 1. Точное совпадение ID
-    // ========================================================
-
-    for (
-        const field of columns
-    ) {
-
-        const id =
-            getFieldId(field);
-
-
-        if (
-            normalizeText(id) ===
-            normalizedRequested
-        ) {
-
-            return {
-                requested:
-                    requestedText,
-
-                resolved:
-                    id,
-
-                title:
-                    getFieldTitle(field),
-
-                source:
-                    "id-exact"
-            };
-        }
-    }
-
-
-    // ========================================================
-    // 2. Точное совпадение title/name
-    // ========================================================
-
-    for (
-        const field of columns
-    ) {
-
-        const title =
-            getFieldTitle(field);
-
-
-        if (
-            normalizeText(title) ===
-            normalizedRequested
-        ) {
-
-            const id =
-                getFieldId(field);
-
-
-            if (id) {
-
-                return {
-                    requested:
-                        requestedText,
-
-                    resolved:
-                        id,
-
-                    title,
-
-                    source:
-                        "title-exact"
-                };
-            }
-        }
-    }
-
-
-    // ========================================================
-    // 3. Совпадение по aliases
-    // ========================================================
-
-    const aliases =
-        FIELD_ALIASES[
-            normalizedRequested
-        ] || [];
-
-
-    for (
-        const alias of aliases
-    ) {
-
-        const normalizedAlias =
-            normalizeText(alias);
-
-
-        // Сначала ID
-
-        for (
-            const field of columns
-        ) {
-
-            const id =
-                getFieldId(field);
-
-
-            if (
-                normalizeText(id) ===
-                normalizedAlias
-            ) {
-
-                return {
-                    requested:
-                        requestedText,
-
-                    resolved:
-                        id,
-
-                    title:
-                        getFieldTitle(field),
-
-                    source:
-                        "alias-id"
-                };
-            }
-        }
-
-
-        // Затем title
-
-        for (
-            const field of columns
-        ) {
-
-            const title =
-                getFieldTitle(field);
-
-
-            if (
-                normalizeText(title) ===
-                normalizedAlias
-            ) {
-
-                const id =
-                    getFieldId(field);
-
-
-                if (id) {
-
-                    return {
-                        requested:
-                            requestedText,
-
-                        resolved:
-                            id,
-
-                        title,
-
-                        source:
-                            "alias-title"
-                    };
-                }
-            }
-        }
-    }
-
-
-    // ========================================================
-    // 4. Частичное совпадение
-    //
-    // Например:
-    // "Касса" ↔ "Касса продажи"
-    // ========================================================
-
-    for (
-        const field of columns
-    ) {
-
-        const title =
-            normalizeText(
-                getFieldTitle(field)
-            );
-
-
-        const id =
-            normalizeText(
-                getFieldId(field)
-            );
-
-
-        if (
-            title &&
-            (
-                title.includes(
-                    normalizedRequested
-                ) ||
-                normalizedRequested.includes(
-                    title
-                )
-            )
-        ) {
-
-            const resolved =
-                getFieldId(field);
-
-
-            if (resolved) {
-
-                return {
-                    requested:
-                        requestedText,
-
-                    resolved,
-
-                    title:
-                        getFieldTitle(field),
-
-                    source:
-                        "title-partial"
-                };
-            }
-        }
-
-
-        if (
-            id &&
-            (
-                id.includes(
-                    normalizedRequested
-                ) ||
-                normalizedRequested.includes(
-                    id
-                )
-            )
-        ) {
-
-            const resolved =
-                getFieldId(field);
-
-
-            if (resolved) {
-
-                return {
-                    requested:
-                        requestedText,
-
-                    resolved,
-
-                    title:
-                        getFieldTitle(field),
-
-                    source:
-                        "id-partial"
-                };
-            }
-        }
-    }
-
-
-    return null;
-}
-
-
-// ============================================================
-// RESOLVE FIELD LIST
-// ============================================================
-
-function resolveFieldList(
-    requestedFields,
-    columns,
-    requestId,
-    fieldType
-) {
-
-    const resolved = [];
-    const unresolved = [];
-    const mapping = [];
-
-
-    for (
-        const requested of requestedFields
-    ) {
-
-        const result =
-            findField(
-                requested,
-                columns
-            );
-
-
-        if (
-            result &&
-            result.resolved
-        ) {
-
-            resolved.push(
-                result.resolved
-            );
-
-
-            mapping.push({
-                type:
-                    fieldType,
-
-                requested:
-                    result.requested,
-
-                resolved:
-                    result.resolved,
-
-                title:
-                    result.title,
-
-                source:
-                    result.source
-            });
-
-        } else {
-
-            unresolved.push(
-                String(requested)
-            );
-
-
-            mapping.push({
-                type:
-                    fieldType,
-
-                requested:
-                    String(requested),
-
-                resolved:
-                    null,
-
-                source:
-                    "NOT_FOUND"
-            });
-        }
-    }
-
-
-    logInfo(
-        requestId,
-        `FIELD RESOLUTION: ${fieldType}`,
-        {
-            requested:
-                requestedFields,
-
-            resolved,
-
-            unresolved
-        }
-    );
-
-
-    return {
-        resolved,
-        unresolved,
-        mapping
-    };
-}
-
-
-// ============================================================
-// FETCH IIKO COLUMNS
-//
-// Используется сервером автоматически перед построением
-// отчёта.
-// ============================================================
-
-async function fetchColumns({
+async function getIikoColumns(
     serverUrl,
     token,
     reportType,
     requestId
-}) {
+) {
 
     const endpoint =
         `${serverUrl}` +
@@ -1139,9 +375,9 @@ async function fetchColumns({
         `&reportType=${encodeURIComponent(reportType)}`;
 
 
-    logInfo(
+    log(
         requestId,
-        "IIKO COLUMNS REQUEST",
+        "COLUMNS REQUEST",
         {
             endpoint,
             reportType
@@ -1150,7 +386,6 @@ async function fetchColumns({
 
 
     let response;
-
 
     try {
 
@@ -1166,7 +401,7 @@ async function fetchColumns({
 
         logError(
             requestId,
-            "IIKO COLUMNS FETCH ERROR",
+            "COLUMNS FETCH ERROR",
             {
                 name:
                     error?.name,
@@ -1176,7 +411,11 @@ async function fetchColumns({
             }
         );
 
-        throw error;
+        throw new Error(
+            `Ошибка соединения с iiko при получении OLAP-полей: ${
+                error?.message || "fetch failed"
+            }`
+        );
     }
 
 
@@ -1184,15 +423,12 @@ async function fetchColumns({
         await response.text();
 
 
-    logInfo(
+    log(
         requestId,
-        "IIKO COLUMNS RESPONSE",
+        "COLUMNS RESPONSE",
         {
-            httpStatus:
+            status:
                 response.status,
-
-            ok:
-                response.ok,
 
             bodyLength:
                 text.length
@@ -1206,28 +442,26 @@ async function fetchColumns({
 
         logError(
             requestId,
-            "IIKO COLUMNS HTTP ERROR",
+            "COLUMNS HTTP ERROR",
             {
-                httpStatus:
+                status:
                     response.status,
 
-                responseBody:
-                    text.slice(
+                body:
+                    text.substring(
                         0,
                         30000
                     )
             }
         );
 
-
         throw new Error(
-            `Не удалось получить поля iiko: HTTP ${response.status}. ${text.slice(0, 1000)}`
+            `iiko OLAP columns вернул HTTP ${response.status}`
         );
     }
 
 
     let raw;
-
 
     try {
 
@@ -1238,16 +472,12 @@ async function fetchColumns({
 
         logError(
             requestId,
-            "IIKO COLUMNS INVALID JSON",
-            {
-                response:
-                    text.slice(
-                        0,
-                        10000
-                    )
-            }
+            "COLUMNS JSON ERROR",
+            text.substring(
+                0,
+                10000
+            )
         );
-
 
         throw new Error(
             "iiko вернул некорректный JSON со списком OLAP-полей"
@@ -1255,178 +485,754 @@ async function fetchColumns({
     }
 
 
-    const columns =
-        normalizeColumns(raw);
+    return raw;
+}
 
 
-    logInfo(
+// ============================================================
+// NORMALIZE COLUMNS
+//
+// Превращаем:
+//
+// {
+//   "CashRegisterName": {
+//      "name": "Касса"
+//   }
+// }
+//
+// в:
+//
+// {
+//   technicalName: "CashRegisterName",
+//   title: "Касса"
+// }
+//
+// ============================================================
+
+function normalizeColumns(raw) {
+
+    const result = [];
+
+
+    if (
+        !raw ||
+        typeof raw !== "object"
+    ) {
+
+        return result;
+    }
+
+
+    // --------------------------------------------------------
+    // Вариант 1:
+    //
+    // {
+    //   fields: [...]
+    // }
+    // --------------------------------------------------------
+
+    if (
+        Array.isArray(
+            raw.fields
+        )
+    ) {
+
+        raw.fields.forEach(
+            (field, index) => {
+
+                if (
+                    typeof field ===
+                    "string"
+                ) {
+
+                    result.push({
+                        technicalName:
+                            field,
+
+                        title:
+                            field,
+
+                        type:
+                            "unknown",
+
+                        aggregationAllowed:
+                            false,
+
+                        groupingAllowed:
+                            true,
+
+                        filteringAllowed:
+                            true,
+
+                        index
+                    });
+
+                    return;
+                }
+
+
+                if (
+                    field &&
+                    typeof field ===
+                    "object"
+                ) {
+
+                    const technicalName =
+                        field.field ||
+                        field.key ||
+                        field.code ||
+                        field.id ||
+                        field.name ||
+                        "";
+
+
+                    const title =
+                        field.title ||
+                        field.caption ||
+                        field.label ||
+                        field.name ||
+                        technicalName;
+
+
+                    if (
+                        technicalName
+                    ) {
+
+                        result.push({
+                            ...field,
+
+                            technicalName,
+
+                            title,
+
+                            index
+                        });
+                    }
+                }
+            }
+        );
+
+        return result;
+    }
+
+
+    // --------------------------------------------------------
+    // Вариант 2:
+    //
+    // {
+    //   dimensions: [],
+    //   measures: []
+    // }
+    // --------------------------------------------------------
+
+    if (
+        Array.isArray(
+            raw.dimensions
+        ) ||
+        Array.isArray(
+            raw.measures
+        )
+    ) {
+
+        const fields = [
+            ...(
+                Array.isArray(
+                    raw.dimensions
+                )
+                    ? raw.dimensions
+                    : []
+            ),
+
+            ...(
+                Array.isArray(
+                    raw.measures
+                )
+                    ? raw.measures
+                    : []
+            )
+        ];
+
+
+        fields.forEach(
+            (field, index) => {
+
+                if (
+                    typeof field ===
+                    "string"
+                ) {
+
+                    result.push({
+                        technicalName:
+                            field,
+
+                        title:
+                            field,
+
+                        type:
+                            "unknown",
+
+                        index
+                    });
+
+                    return;
+                }
+
+
+                if (
+                    field &&
+                    typeof field ===
+                    "object"
+                ) {
+
+                    const technicalName =
+                        field.field ||
+                        field.key ||
+                        field.code ||
+                        field.id ||
+                        field.name ||
+                        "";
+
+
+                    const title =
+                        field.title ||
+                        field.caption ||
+                        field.label ||
+                        field.name ||
+                        technicalName;
+
+
+                    if (
+                        technicalName
+                    ) {
+
+                        result.push({
+                            ...field,
+
+                            technicalName,
+
+                            title,
+
+                            index
+                        });
+                    }
+                }
+            }
+        );
+
+
+        return result;
+    }
+
+
+    // --------------------------------------------------------
+    // Вариант 3 — ГЛАВНЫЙ ДЛЯ ТВОЕГО IIKO
+    //
+    // {
+    //
+    //   "CashRegisterName": {
+    //      "name": "Касса"
+    //   },
+    //
+    //   "DishDiscountSumInt": {
+    //      "name": "Сумма со скидкой"
+    //   }
+    //
+    // }
+    //
+    // КЛЮЧ является настоящим technical field.
+    // --------------------------------------------------------
+
+    Object.entries(
+        raw
+    ).forEach(
+        (
+            [technicalName, field],
+            index
+        ) => {
+
+            if (
+                !field ||
+                typeof field !==
+                "object"
+            ) {
+
+                return;
+            }
+
+
+            const title =
+                field.name ||
+                field.title ||
+                field.caption ||
+                field.label ||
+                technicalName;
+
+
+            result.push({
+
+                // ==========================================
+                // Самое важное поле
+                // ==========================================
+
+                technicalName,
+
+
+                // ==========================================
+                // Красивое имя
+                // ==========================================
+
+                title,
+
+
+                // ==========================================
+                // Тип
+                // ==========================================
+
+                type:
+                    field.type ||
+                    "unknown",
+
+
+                // ==========================================
+                // Разрешения
+                // ==========================================
+
+                aggregationAllowed:
+                    Boolean(
+                        field.aggregationAllowed
+                    ),
+
+                groupingAllowed:
+                    Boolean(
+                        field.groupingAllowed
+                    ),
+
+                filteringAllowed:
+                    Boolean(
+                        field.filteringAllowed
+                    ),
+
+
+                tags:
+                    Array.isArray(
+                        field.tags
+                    )
+                        ? field.tags
+                        : [],
+
+
+                // Оставляем оригинал
+                // для диагностики.
+
+                original:
+                    field,
+
+
+                index
+            });
+        }
+    );
+
+
+    return result;
+}
+
+
+// ============================================================
+// FIND FIELD
+//
+// Пользователь отправил:
+//
+//     Касса
+//
+// Находим:
+//
+//     CashRegisterName
+//
+// ============================================================
+
+function resolveField(
+    requested,
+    columns
+) {
+
+    if (
+        requested === null ||
+        requested === undefined
+    ) {
+
+        return null;
+    }
+
+
+    const value =
+        String(
+            requested
+        ).trim();
+
+
+    if (!value) {
+        return null;
+    }
+
+
+    const normalized =
+        value
+            .toLowerCase()
+            .trim();
+
+
+    // ========================================================
+    // 1. Уже техническое имя
+    //
+    // Например frontend уже отправил:
+    //
+    // CashRegisterName
+    // ========================================================
+
+    const byTechnical =
+        columns.find(
+            field =>
+                String(
+                    field.technicalName
+                )
+                    .toLowerCase()
+                    .trim() ===
+                normalized
+        );
+
+
+    if (
+        byTechnical
+    ) {
+
+        return {
+            requested:
+                value,
+
+            resolved:
+                byTechnical.technicalName,
+
+            title:
+                byTechnical.title,
+
+            source:
+                "technical-name"
+        };
+    }
+
+
+    // ========================================================
+    // 2. Красивое имя
+    //
+    // Касса
+    // ↓
+    // CashRegisterName
+    // ========================================================
+
+    const byTitle =
+        columns.find(
+            field =>
+                String(
+                    field.title
+                )
+                    .toLowerCase()
+                    .trim() ===
+                normalized
+        );
+
+
+    if (
+        byTitle
+    ) {
+
+        return {
+            requested:
+                value,
+
+            resolved:
+                byTitle.technicalName,
+
+            title:
+                byTitle.title,
+
+            source:
+                "display-name"
+        };
+    }
+
+
+    // ========================================================
+    // 3. name внутри original
+    // ========================================================
+
+    const byOriginalName =
+        columns.find(
+            field =>
+                field.original &&
+                String(
+                    field.original.name ||
+                    ""
+                )
+                    .toLowerCase()
+                    .trim() ===
+                normalized
+        );
+
+
+    if (
+        byOriginalName
+    ) {
+
+        return {
+            requested:
+                value,
+
+            resolved:
+                byOriginalName.technicalName,
+
+            title:
+                byOriginalName.title,
+
+            source:
+                "original-name"
+        };
+    }
+
+
+    return null;
+}
+
+
+// ============================================================
+// RESOLVE FIELD ARRAY
+// ============================================================
+
+function resolveFieldArray(
+    fields,
+    columns,
+    requestId,
+    type
+) {
+
+    const input =
+        Array.isArray(fields)
+            ? fields
+            : [];
+
+
+    const resolved = [];
+    const mapping = [];
+    const unresolved = [];
+
+
+    input.forEach(
+        item => {
+
+            let requested = "";
+
+
+            if (
+                typeof item ===
+                "string"
+            ) {
+
+                requested =
+                    item;
+
+            } else if (
+                item &&
+                typeof item ===
+                "object"
+            ) {
+
+                requested =
+                    item.field ||
+                    item.name ||
+                    item.key ||
+                    item.id ||
+                    item.title ||
+                    "";
+            }
+
+
+            if (
+                !requested
+            ) {
+                return;
+            }
+
+
+            const result =
+                resolveField(
+                    requested,
+                    columns
+                );
+
+
+            if (
+                result
+            ) {
+
+                resolved.push(
+                    result.resolved
+                );
+
+
+                mapping.push({
+                    type,
+
+                    requested:
+                        result.requested,
+
+                    resolved:
+                        result.resolved,
+
+                    title:
+                        result.title,
+
+                    source:
+                        result.source
+                });
+
+            } else {
+
+                unresolved.push(
+                    String(
+                        requested
+                    )
+                );
+
+
+                mapping.push({
+                    type,
+
+                    requested:
+                        String(
+                            requested
+                        ),
+
+                    resolved:
+                        null,
+
+                    title:
+                        null,
+
+                    source:
+                        "NOT_FOUND"
+                });
+            }
+        }
+    );
+
+
+    log(
         requestId,
-        "IIKO COLUMNS NORMALIZED",
+        `FIELD MAPPING: ${type}`,
         {
-            count:
-                columns.length
+            resolved,
+            unresolved,
+            mapping
         }
     );
 
 
     return {
-        columns,
-        raw
+        resolved,
+        mapping,
+        unresolved
     };
 }
 
 
 // ============================================================
-// GET FIELDS
+// BUILD FILTERS
 // ============================================================
 
-async function getFields({
-    ip,
-    port,
-    login,
-    password,
-    reportType = "SALES",
-    requestId
-}) {
+function buildFilters(
+    body
+) {
 
-    logInfo(
-        requestId,
-        "GET FIELDS START",
-        {
-            reportType,
+    let filters = {};
 
-            connection:
-                safeConnectionInfo({
-                    ip,
-                    port,
-                    login
-                })
+
+    if (
+        body.filters &&
+        typeof body.filters ===
+            "object" &&
+        !Array.isArray(
+            body.filters
+        )
+    ) {
+
+        filters = {
+            ...body.filters
+        };
+    }
+
+
+    if (
+        body.from ||
+        body.to
+    ) {
+
+        const from =
+            String(
+                body.from || ""
+            ).slice(
+                0,
+                10
+            );
+
+
+        const to =
+            String(
+                body.to ||
+                body.from ||
+                ""
+            ).slice(
+                0,
+                10
+            );
+
+
+        if (
+            from &&
+            to
+        ) {
+
+            filters[
+                "OpenDate.Typed"
+            ] = {
+
+                filterType:
+                    "DateRange",
+
+                periodType:
+                    "CUSTOM",
+
+                from:
+                    `${from}T00:00:00.000`,
+
+                to:
+                    `${to}T23:59:59.999`,
+
+                includeLow:
+                    true,
+
+                includeHigh:
+                    true
+            };
         }
-    );
+    }
 
 
-    const {
-        serverUrl,
-        token
-    } =
-        await getToken(
-            ip,
-            port,
-            login,
-            password,
-            requestId
-        );
-
-
-    const {
-        columns,
-        raw
-    } =
-        await fetchColumns({
-            serverUrl,
-            token,
-            reportType,
-            requestId
-        });
-
-
-    const fields =
-        columns.map(
-            field => {
-
-                const id =
-                    getFieldId(field);
-
-                const title =
-                    getFieldTitle(field);
-
-
-                return {
-                    ...field,
-
-                    id,
-
-                    name:
-                        field.name ||
-                        title ||
-                        id,
-
-                    title:
-                        title ||
-                        id
-                };
-            }
-        );
-
-
-    logInfo(
-        requestId,
-        "FIELDS READY",
-        {
-            count:
-                fields.length,
-
-            preview:
-                fields
-                    .slice(0, 50)
-                    .map(
-                        field => ({
-                            id:
-                                field.id,
-
-                            name:
-                                field.name,
-
-                            title:
-                                field.title
-                        })
-                    )
-        }
-    );
-
-
-    return jsonResponse(
-        {
-            success: true,
-
-            requestId,
-
-            reportType,
-
-            count:
-                fields.length,
-
-            fields,
-
-            // Оставляем raw для диагностики.
-            // Frontend может его игнорировать.
-            raw
-        },
-        200,
-        requestId
-    );
+    return filters;
 }
 
 
 // ============================================================
-// OPTIONS
-// ============================================================
-
-export async function onRequestOptions() {
-
-    return new Response(
-        null,
-        {
-            status: 204,
-            headers:
-                corsHeaders()
-        }
-    );
-}
-
-
-// ============================================================
-// GET
+// GET /api/iiko/olap
 // ============================================================
 
 export async function onRequestGet(
@@ -1443,24 +1249,6 @@ export async function onRequestGet(
             new URL(
                 context.request.url
             );
-
-
-        const mode =
-            (
-                url.searchParams.get(
-                    "mode"
-                ) || "fields"
-            ).trim();
-
-
-        const reportType =
-            (
-                url.searchParams.get(
-                    "reportType"
-                ) || "SALES"
-            )
-                .trim()
-                .toUpperCase();
 
 
         const ip =
@@ -1493,41 +1281,15 @@ export async function onRequestGet(
             ) || "";
 
 
-        logInfo(
-            requestId,
-            "GET",
-            {
-                mode,
-                reportType,
-                hasIp:
-                    Boolean(ip),
-                hasPort:
-                    Boolean(port),
-                hasLogin:
-                    Boolean(login),
-                hasPassword:
-                    Boolean(password)
-            }
-        );
-
-
-        if (
-            mode !== "fields"
-        ) {
-
-            return jsonResponse(
-                {
-                    success: false,
-
-                    requestId,
-
-                    message:
-                        "Неизвестный режим"
-                },
-                400,
-                requestId
-            );
-        }
+        const reportType =
+            (
+                url.searchParams.get(
+                    "reportType"
+                ) ||
+                "SALES"
+            )
+                .trim()
+                .toUpperCase();
 
 
         if (
@@ -1544,7 +1306,7 @@ export async function onRequestGet(
                     requestId,
 
                     message:
-                        "Нужны IP, порт, логин и пароль iiko"
+                        "Необходимо указать IP, порт, логин и пароль iiko"
                 },
                 400,
                 requestId
@@ -1552,14 +1314,93 @@ export async function onRequestGet(
         }
 
 
-        return await getFields({
-            ip,
-            port,
-            login,
-            password,
-            reportType,
+        const {
+            serverUrl,
+            token
+        } =
+            await authenticate(
+                ip,
+                port,
+                login,
+                password,
+                requestId
+            );
+
+
+        const rawColumns =
+            await getIikoColumns(
+                serverUrl,
+                token,
+                reportType,
+                requestId
+            );
+
+
+        const columns =
+            normalizeColumns(
+                rawColumns
+            );
+
+
+        return jsonResponse(
+            {
+                success: true,
+
+                requestId,
+
+                reportType,
+
+                count:
+                    columns.length,
+
+                fields:
+                    columns.map(
+                        field => ({
+
+                            // ==================================
+                            // ВАЖНО:
+                            // name = техническое поле
+                            // title = красивое имя
+                            // ==================================
+
+                            name:
+                                field.technicalName,
+
+                            title:
+                                field.title,
+
+                            type:
+                                field.type,
+
+                            aggregationAllowed:
+                                field.aggregationAllowed,
+
+                            groupingAllowed:
+                                field.groupingAllowed,
+
+                            filteringAllowed:
+                                field.filteringAllowed,
+
+                            tags:
+                                field.tags,
+
+                            // Дополнительно
+                            // для совместимости
+
+                            field:
+                                field.technicalName,
+
+                            key:
+                                field.technicalName,
+
+                            id:
+                                field.technicalName
+                        })
+                    )
+            },
+            200,
             requestId
-        });
+        );
 
     } catch (error) {
 
@@ -1571,7 +1412,10 @@ export async function onRequestGet(
                     error?.name,
 
                 message:
-                    error?.message
+                    error?.message,
+
+                stack:
+                    error?.stack
             }
         );
 
@@ -1594,7 +1438,24 @@ export async function onRequestGet(
 
 
 // ============================================================
-// POST
+// OPTIONS
+// ============================================================
+
+export async function onRequestOptions() {
+
+    return new Response(
+        null,
+        {
+            status: 204,
+            headers:
+                corsHeaders()
+        }
+    );
+}
+
+
+// ============================================================
+// POST /api/iiko/olap
 // ============================================================
 
 export async function onRequestPost(
@@ -1605,16 +1466,17 @@ export async function onRequestPost(
         createRequestId();
 
 
-    logInfo(
-        requestId,
-        "POST START"
-    );
-
-
     try {
 
         const body =
             await context.request.json();
+
+
+        log(
+            requestId,
+            "OLAP POST BODY",
+            body
+        );
 
 
         // ======================================================
@@ -1681,201 +1543,6 @@ export async function onRequestPost(
 
 
         // ======================================================
-        // ACTION FIELDS
-        // ======================================================
-
-        if (
-            body.action === "fields"
-        ) {
-
-            return await getFields({
-                ip,
-                port,
-                login,
-                password,
-                reportType,
-                requestId
-            });
-        }
-
-
-        // ======================================================
-        // ROWS
-        // ======================================================
-
-        let groupByRowFields = [];
-
-
-        if (
-            Array.isArray(
-                body.groupByRowFields
-            )
-        ) {
-
-            groupByRowFields =
-                body.groupByRowFields
-                    .filter(Boolean)
-                    .map(String);
-
-        } else if (
-            Array.isArray(
-                body.rows
-            )
-        ) {
-
-            groupByRowFields =
-                body.rows
-                    .filter(Boolean)
-                    .map(String);
-        }
-
-
-        // ======================================================
-        // COLUMNS
-        // ======================================================
-
-        let groupByColFields = [];
-
-
-        if (
-            Array.isArray(
-                body.groupByColFields
-            )
-        ) {
-
-            groupByColFields =
-                body.groupByColFields
-                    .filter(Boolean)
-                    .map(String);
-
-        } else if (
-            Array.isArray(
-                body.groupByColumnFields
-            )
-        ) {
-
-            groupByColFields =
-                body.groupByColumnFields
-                    .filter(Boolean)
-                    .map(String);
-
-        } else if (
-            Array.isArray(
-                body.columns
-            )
-        ) {
-
-            groupByColFields =
-                body.columns
-                    .filter(Boolean)
-                    .map(String);
-        }
-
-
-        // ======================================================
-        // MEASURES
-        // ======================================================
-
-        let aggregateFields = [];
-
-
-        const measureSource =
-            Array.isArray(
-                body.aggregateFields
-            )
-                ? body.aggregateFields
-                : (
-                    Array.isArray(
-                        body.measures
-                    )
-                        ? body.measures
-                        : []
-                );
-
-
-        aggregateFields =
-            measureSource
-                .map(
-                    item => {
-
-                        if (
-                            typeof item ===
-                            "string"
-                        ) {
-                            return item;
-                        }
-
-
-                        if (
-                            item &&
-                            typeof item ===
-                            "object"
-                        ) {
-
-                            return (
-                                item.field ||
-                                item.name ||
-                                item.id ||
-                                item.title ||
-                                ""
-                            );
-                        }
-
-
-                        return "";
-                    }
-                )
-                .filter(Boolean);
-
-
-        // ======================================================
-        // LOG FRONTEND DATA
-        // ======================================================
-
-        logInfo(
-            requestId,
-            "FRONTEND OLAP FIELDS",
-            {
-                reportType,
-
-                rows:
-                    groupByRowFields,
-
-                columns:
-                    groupByColFields,
-
-                measures:
-                    aggregateFields
-            }
-        );
-
-
-        // ======================================================
-        // BASIC VALIDATION
-        // ======================================================
-
-        if (
-            !groupByRowFields.length &&
-            !groupByColFields.length &&
-            !aggregateFields.length
-        ) {
-
-            return jsonResponse(
-                {
-                    success: false,
-
-                    requestId,
-
-                    message:
-                        "Перетащите хотя бы одно поле в конструктор"
-                },
-                400,
-                requestId
-            );
-        }
-
-
-        // ======================================================
         // AUTH
         // ======================================================
 
@@ -1883,7 +1550,7 @@ export async function onRequestPost(
             serverUrl,
             token
         } =
-            await getToken(
+            await authenticate(
                 ip,
                 port,
                 login,
@@ -1893,31 +1560,27 @@ export async function onRequestPost(
 
 
         // ======================================================
-        // GET REAL IIKO FIELDS
-        //
-        // Вот здесь происходит главное исправление.
+        // GET REAL IIKO FIELD DEFINITIONS
         // ======================================================
 
-        const {
-            columns
-        } =
-            await fetchColumns({
+        const rawColumns =
+            await getIikoColumns(
                 serverUrl,
                 token,
                 reportType,
                 requestId
-            });
+            );
+
+
+        const columns =
+            normalizeColumns(
+                rawColumns
+            );
 
 
         if (
-            !columns.length
+            columns.length === 0
         ) {
-
-            logError(
-                requestId,
-                "NO IIKO COLUMNS"
-            );
-
 
             return jsonResponse(
                 {
@@ -1926,13 +1589,10 @@ export async function onRequestPost(
                     requestId,
 
                     message:
-                        "iiko не вернул OLAP-поля",
+                        "iiko не вернул ни одного OLAP-поля",
 
-                    iikoHttpStatus:
-                        200,
-
-                    fields:
-                        []
+                    rawColumns:
+                        rawColumns
                 },
                 502,
                 requestId
@@ -1940,39 +1600,111 @@ export async function onRequestPost(
         }
 
 
+        log(
+            requestId,
+            "IIKO FIELDS COUNT",
+            columns.length
+        );
+
+
         // ======================================================
-        // RESOLVE ROWS
+        // ROWS
+        //
+        // reports.js отправляет:
+        //
+        // rows: ["Касса"]
+        //
+        // Мы превращаем:
+        //
+        // "Касса"
+        // ↓
+        // "CashRegisterName"
+        // ======================================================
+
+        const rowsInput =
+            Array.isArray(
+                body.rows
+            )
+                ? body.rows
+                : (
+                    Array.isArray(
+                        body.groupByRowFields
+                    )
+                        ? body.groupByRowFields
+                        : []
+                );
+
+
+        // ======================================================
+        // COLUMNS
+        // ======================================================
+
+        const columnsInput =
+            Array.isArray(
+                body.columns
+            )
+                ? body.columns
+                : (
+                    Array.isArray(
+                        body.groupByColFields
+                    )
+                        ? body.groupByColFields
+                        : []
+                );
+
+
+        // ======================================================
+        // MEASURES
+        //
+        // reports.js отправляет:
+        //
+        // measures: [
+        //   {
+        //      field: "Сумма со скидкой",
+        //      aggregation: "SUM"
+        //   }
+        // ]
+        // ======================================================
+
+        const measuresInput =
+            Array.isArray(
+                body.measures
+            )
+                ? body.measures
+                : (
+                    Array.isArray(
+                        body.aggregateFields
+                    )
+                        ? body.aggregateFields
+                        : []
+                );
+
+
+        // ======================================================
+        // RESOLVE
         // ======================================================
 
         const resolvedRows =
-            resolveFieldList(
-                groupByRowFields,
+            resolveFieldArray(
+                rowsInput,
                 columns,
                 requestId,
                 "row"
             );
 
 
-        // ======================================================
-        // RESOLVE COLUMNS
-        // ======================================================
-
         const resolvedColumns =
-            resolveFieldList(
-                groupByColFields,
+            resolveFieldArray(
+                columnsInput,
                 columns,
                 requestId,
                 "column"
             );
 
 
-        // ======================================================
-        // RESOLVE MEASURES
-        // ======================================================
-
         const resolvedMeasures =
-            resolveFieldList(
-                aggregateFields,
+            resolveFieldArray(
+                measuresInput,
                 columns,
                 requestId,
                 "measure"
@@ -1980,7 +1712,7 @@ export async function onRequestPost(
 
 
         // ======================================================
-        // CHECK UNRESOLVED
+        // UNRESOLVED
         // ======================================================
 
         const unresolved = [
@@ -1996,16 +1728,8 @@ export async function onRequestPost(
 
             logError(
                 requestId,
-                "FIELD RESOLUTION FAILED",
-                {
-                    unresolved,
-
-                    mapping: [
-                        ...resolvedRows.mapping,
-                        ...resolvedColumns.mapping,
-                        ...resolvedMeasures.mapping
-                    ]
-                }
+                "UNRESOLVED FIELDS",
+                unresolved
             );
 
 
@@ -2016,36 +1740,34 @@ export async function onRequestPost(
                     requestId,
 
                     message:
-                        "Не удалось сопоставить некоторые OLAP-поля iiko",
+                        "Не удалось найти некоторые OLAP-поля iiko",
 
                     unresolved,
 
-                    mapping: [
-                        ...resolvedRows.mapping,
-                        ...resolvedColumns.mapping,
-                        ...resolvedMeasures.mapping
-                    ],
+                    mapping: {
+                        rows:
+                            resolvedRows.mapping,
+
+                        columns:
+                            resolvedColumns.mapping,
+
+                        measures:
+                            resolvedMeasures.mapping
+                    },
 
                     availableFields:
-                        columns
-                            .map(
-                                field => ({
-                                    id:
-                                        getFieldId(field),
+                        columns.map(
+                            field => ({
+                                name:
+                                    field.technicalName,
 
-                                    title:
-                                        getFieldTitle(field)
-                                })
-                            )
-                            .filter(
-                                field =>
-                                    field.id ||
-                                    field.title
-                            )
-                            .slice(
-                                0,
-                                500
-                            )
+                                title:
+                                    field.title,
+
+                                type:
+                                    field.type
+                            })
+                        )
                 },
                 400,
                 requestId
@@ -2057,77 +1779,17 @@ export async function onRequestPost(
         // FILTERS
         // ======================================================
 
-        let filters = {};
-
-
-        if (
-            body.filters &&
-            typeof body.filters === "object" &&
-            !Array.isArray(body.filters)
-        ) {
-
-            filters = {
-                ...body.filters
-            };
-        }
+        const filters =
+            buildFilters(
+                body
+            );
 
 
         // ======================================================
-        // PERIOD
+        // FINAL IIKO REQUEST
         // ======================================================
 
-        if (
-            body.from ||
-            body.to
-        ) {
-
-            const from =
-                normalizeDate(
-                    body.from
-                );
-
-
-            const to =
-                normalizeDate(
-                    body.to,
-                    true
-                );
-
-
-            filters[
-                "OpenDate.Typed"
-            ] = {
-
-                filterType:
-                    "DateRange",
-
-                periodType:
-                    "CUSTOM",
-
-                from,
-
-                to,
-
-                includeLow:
-                    true,
-
-                includeHigh:
-                    true
-            };
-        }
-
-
-        // ======================================================
-        // REAL IIKO REQUEST
-        //
-        // Здесь уже НЕТ:
-        //
-        // "Касса"
-        //
-        // Здесь будет реальный ID из /columns.
-        // ======================================================
-
-        const requestBody = {
+        const olapRequest = {
 
             reportType,
 
@@ -2148,34 +1810,14 @@ export async function onRequestPost(
 
 
         // ======================================================
-        // DEBUG MAPPING
+        // LOG FINAL REQUEST
         // ======================================================
 
-        logInfo(
+        log(
             requestId,
-            "FIELD MAPPING",
-            {
-                rows:
-                    resolvedRows.mapping,
-
-                columns:
-                    resolvedColumns.mapping,
-
-                measures:
-                    resolvedMeasures.mapping
-            }
-        );
-
-
-        // ======================================================
-        // DEBUG FINAL REQUEST
-        // ======================================================
-
-        logInfo(
-            requestId,
-            "FINAL IIKO OLAP REQUEST BODY",
+            "FINAL IIKO REQUEST",
             JSON.stringify(
-                requestBody,
+                olapRequest,
                 null,
                 2
             )
@@ -2183,7 +1825,7 @@ export async function onRequestPost(
 
 
         // ======================================================
-        // IIKO OLAP REQUEST
+        // IIKO OLAP
         // ======================================================
 
         const endpoint =
@@ -2214,7 +1856,7 @@ export async function onRequestPost(
 
                         body:
                             JSON.stringify(
-                                requestBody
+                                olapRequest
                             )
                     }
                 );
@@ -2229,10 +1871,7 @@ export async function onRequestPost(
                         error?.name,
 
                     message:
-                        error?.message,
-
-                    stack:
-                        error?.stack
+                        error?.message
                 }
             );
 
@@ -2244,11 +1883,13 @@ export async function onRequestPost(
                     requestId,
 
                     message:
-                        error?.message ||
-                        "Ошибка соединения с iiko",
+                        `Ошибка соединения с iiko OLAP: ${
+                            error?.message ||
+                            "fetch failed"
+                        }`,
 
                     request:
-                        requestBody
+                        olapRequest
                 },
                 502,
                 requestId
@@ -2257,7 +1898,7 @@ export async function onRequestPost(
 
 
         // ======================================================
-        // READ RESPONSE
+        // IIKO RESPONSE
         // ======================================================
 
         const text =
@@ -2270,7 +1911,9 @@ export async function onRequestPost(
         try {
 
             report =
-                JSON.parse(text);
+                JSON.parse(
+                    text
+                );
 
         } catch (error) {
 
@@ -2279,18 +1922,18 @@ export async function onRequestPost(
 
 
         // ======================================================
-        // IIKO SUCCESS
+        // SUCCESS
         // ======================================================
 
         if (
             response.ok
         ) {
 
-            logInfo(
+            log(
                 requestId,
                 "IIKO OLAP SUCCESS",
                 {
-                    httpStatus:
+                    status:
                         response.status,
 
                     responseLength:
@@ -2312,7 +1955,7 @@ export async function onRequestPost(
                         "/resto/api/v2/reports/olap",
 
                     request:
-                        requestBody,
+                        olapRequest,
 
                     mapping: {
                         rows:
@@ -2328,10 +1971,7 @@ export async function onRequestPost(
                     report,
 
                     rawResponse:
-                        text.slice(
-                            0,
-                            30000
-                        )
+                        text
                 },
                 200,
                 requestId
@@ -2345,31 +1985,20 @@ export async function onRequestPost(
 
         logError(
             requestId,
-            "IIKO OLAP HTTP ERROR",
+            "IIKO OLAP ERROR",
             {
-                httpStatus:
+                status:
                     response.status,
 
                 statusText:
                     response.statusText,
 
-                responseBody:
-                    text.slice(
+                response:
+                    text.substring(
                         0,
                         30000
                     )
             }
-        );
-
-
-        logError(
-            requestId,
-            "FAILED REQUEST BODY",
-            JSON.stringify(
-                requestBody,
-                null,
-                2
-            )
         );
 
 
@@ -2392,7 +2021,7 @@ export async function onRequestPost(
                     `iiko OLAP вернул HTTP ${response.status}`,
 
                 request:
-                    requestBody,
+                    olapRequest,
 
                 mapping: {
                     rows:
@@ -2406,10 +2035,7 @@ export async function onRequestPost(
                 },
 
                 rawResponse:
-                    text.slice(
-                        0,
-                        30000
-                    ),
+                    text,
 
                 report
             },
@@ -2417,12 +2043,11 @@ export async function onRequestPost(
             requestId
         );
 
-
     } catch (error) {
 
         logError(
             requestId,
-            "POST UNHANDLED ERROR",
+            "UNHANDLED OLAP ERROR",
             {
                 name:
                     error?.name,
@@ -2444,7 +2069,7 @@ export async function onRequestPost(
 
                 message:
                     error?.message ||
-                    "Ошибка OLAP"
+                    "Неизвестная ошибка OLAP"
             },
             502,
             requestId
