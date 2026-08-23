@@ -28,7 +28,7 @@
 
 
         .reports-container {
-            max-width: 900px;
+            max-width: 1100px;
             margin: 0 auto;
         }
 
@@ -363,6 +363,8 @@
 
             margin-top: 20px;
 
+            overflow-x: auto;
+
             color: #222 !important;
 
             opacity: 1 !important;
@@ -406,6 +408,8 @@
             color: #222 !important;
 
             opacity: 1 !important;
+
+            white-space: nowrap;
         }
 
 
@@ -495,6 +499,584 @@
 
 
         /* ==========================================
+           OLAP BUILDER
+        ========================================== */
+
+        #olap-builder {
+
+            margin-top: 30px;
+
+            padding: 30px;
+
+            border-radius: 16px;
+
+            background: #ffffff;
+
+            box-shadow:
+                0 10px 30px
+                rgba(0, 0, 0, 0.08);
+
+            color: #222 !important;
+
+            opacity: 1 !important;
+        }
+
+
+        #olap-builder * {
+
+            opacity: 1 !important;
+        }
+
+
+        .olap-builder h2 {
+
+            margin-top: 0;
+
+            margin-bottom: 8px;
+
+            color: #222 !important;
+        }
+
+
+        .olap-description {
+
+            margin-bottom: 25px;
+
+            color: #666 !important;
+
+            line-height: 1.5;
+        }
+
+
+        /* ==========================================
+           OLAP TOOLBAR
+        ========================================== */
+
+        .olap-toolbar {
+
+            display: flex;
+
+            align-items: end;
+
+            gap: 15px;
+
+            flex-wrap: wrap;
+
+            margin-bottom: 15px;
+        }
+
+
+        .olap-toolbar label {
+
+            flex: 1;
+
+            min-width: 220px;
+
+            color: #222 !important;
+
+            font-weight: 600;
+        }
+
+
+        .olap-toolbar select {
+
+            width: 100%;
+
+            box-sizing: border-box;
+
+            margin-top: 7px;
+
+            padding: 12px 14px;
+
+            border:
+                1px solid #ddd;
+
+            border-radius: 8px;
+
+            background: #fff;
+
+            color: #222;
+
+            font-size: 15px;
+        }
+
+
+        .olap-toolbar button {
+
+            padding: 12px 18px;
+
+            border:
+                1px solid #ddd;
+
+            border-radius: 8px;
+
+            background: #fff;
+
+            color: #222;
+
+            cursor: pointer;
+
+            font-size: 15px;
+
+            font-weight: 600;
+        }
+
+
+        .olap-toolbar button:hover {
+
+            background: #f5f5f5;
+        }
+
+
+        /* ==========================================
+           OLAP STATUS
+        ========================================== */
+
+        .olap-status {
+
+            margin:
+                15px 0 20px;
+
+            padding: 12px 15px;
+
+            border-radius: 8px;
+
+            background: #f5f5f5;
+
+            color: #333 !important;
+        }
+
+
+        /* ==========================================
+           OLAP GRID
+        ========================================== */
+
+        .olap-grid {
+
+            display: grid;
+
+            grid-template-columns:
+                minmax(300px, 1fr)
+                minmax(300px, 1fr);
+
+            gap: 20px;
+        }
+
+
+        .olap-panel {
+
+            padding: 20px;
+
+            border:
+                1px solid #e5e5e5;
+
+            border-radius: 12px;
+
+            background: #fafafa;
+        }
+
+
+        .olap-panel h3 {
+
+            margin:
+                0 0 12px;
+
+            color: #222 !important;
+
+            font-size: 17px;
+        }
+
+
+        /* ==========================================
+           SEARCH
+        ========================================== */
+
+        #olap-search {
+
+            width: 100%;
+
+            box-sizing: border-box;
+
+            padding: 12px 14px;
+
+            margin-bottom: 12px;
+
+            border:
+                1px solid #ddd;
+
+            border-radius: 8px;
+
+            background: #fff;
+
+            color: #222;
+
+            font-size: 15px;
+        }
+
+
+        #olap-search::placeholder {
+
+            color: #888;
+        }
+
+
+        /* ==========================================
+           AVAILABLE FIELDS
+        ========================================== */
+
+        .olap-fields {
+
+            display: flex;
+
+            flex-direction: column;
+
+            gap: 7px;
+
+            max-height: 480px;
+
+            overflow-y: auto;
+
+            padding-right: 3px;
+        }
+
+
+        .olap-field {
+
+            width: 100%;
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content:
+                space-between;
+
+            gap: 10px;
+
+            padding: 11px 12px;
+
+            border:
+                1px solid #ddd;
+
+            border-radius: 8px;
+
+            background: #fff;
+
+            color: #222;
+
+            text-align: left;
+
+            cursor: pointer;
+
+            transition:
+                background 0.15s,
+                border-color 0.15s;
+        }
+
+
+        .olap-field:hover {
+
+            background: #f0f0f0;
+
+            border-color: #bbb;
+        }
+
+
+        .olap-field > span:first-child {
+
+            display: flex;
+
+            flex-direction: column;
+
+            gap: 3px;
+
+            min-width: 0;
+        }
+
+
+        .olap-field strong {
+
+            color: #222 !important;
+
+            font-size: 14px;
+
+            font-weight: 600;
+        }
+
+
+        .olap-field small {
+
+            color: #888 !important;
+
+            font-size: 11px;
+
+            overflow:
+                hidden;
+
+            text-overflow:
+                ellipsis;
+
+            white-space: nowrap;
+        }
+
+
+        .olap-flags {
+
+            flex-shrink: 0;
+
+            color: #777 !important;
+
+            font-size: 12px;
+
+            font-weight: 700;
+        }
+
+
+        /* ==========================================
+           SELECTED FIELDS
+        ========================================== */
+
+        .olap-selected {
+
+            min-height: 55px;
+
+            margin-bottom: 25px;
+        }
+
+
+        .olap-selected-field {
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content:
+                space-between;
+
+            gap: 10px;
+
+            padding: 10px 12px;
+
+            margin-bottom: 7px;
+
+            border:
+                1px solid #ddd;
+
+            border-radius: 8px;
+
+            background: #fff;
+
+            color: #222 !important;
+        }
+
+
+        .olap-selected-field > span {
+
+            display: flex;
+
+            flex-direction: column;
+
+            gap: 3px;
+
+            min-width: 0;
+
+            color: #222 !important;
+        }
+
+
+        .olap-selected-field small {
+
+            color: #888 !important;
+
+            font-size: 11px;
+        }
+
+
+        .olap-selected-field button {
+
+            flex-shrink: 0;
+
+            width: 28px;
+
+            height: 28px;
+
+            border: 0;
+
+            border-radius: 6px;
+
+            background: #f2f2f2;
+
+            color: #666;
+
+            cursor: pointer;
+
+            font-size: 19px;
+
+            line-height: 1;
+        }
+
+
+        .olap-selected-field button:hover {
+
+            background: #e5e5e5;
+
+            color: #222;
+        }
+
+
+        /* ==========================================
+           EMPTY OLAP
+        ========================================== */
+
+        .olap-empty {
+
+            padding: 15px;
+
+            border-radius: 8px;
+
+            background: #fff;
+
+            color: #888 !important;
+
+            text-align: center;
+        }
+
+
+        /* ==========================================
+           PERIOD
+        ========================================== */
+
+        .olap-period {
+
+            margin-top: 20px;
+
+            padding: 20px;
+
+            border:
+                1px solid #e5e5e5;
+
+            border-radius: 12px;
+
+            background: #fafafa;
+        }
+
+
+        .olap-period h3 {
+
+            margin:
+                0 0 15px;
+
+            color: #222 !important;
+        }
+
+
+        .olap-period > div {
+
+            display: grid;
+
+            grid-template-columns:
+                1fr 1fr;
+
+            gap: 15px;
+        }
+
+
+        .olap-period label {
+
+            display: flex;
+
+            flex-direction: column;
+
+            color: #222 !important;
+
+            font-weight: 600;
+        }
+
+
+        .olap-period input {
+
+            width: 100%;
+
+            box-sizing: border-box;
+
+            margin-top: 7px;
+
+            padding: 12px 14px;
+
+            border:
+                1px solid #ddd;
+
+            border-radius: 8px;
+
+            background: #fff;
+
+            color: #222;
+
+            font-size: 15px;
+        }
+
+
+        /* ==========================================
+           RUN OLAP
+        ========================================== */
+
+        #olap-run {
+
+            width: 100%;
+
+            margin-top: 20px;
+
+            padding: 15px;
+
+            border: 0;
+
+            border-radius: 8px;
+
+            background: #222;
+
+            color: #fff;
+
+            cursor: pointer;
+
+            font-size: 16px;
+
+            font-weight: 700;
+        }
+
+
+        #olap-run:hover {
+
+            background: #333;
+        }
+
+
+        #olap-run:disabled {
+
+            opacity: 0.6 !important;
+
+            cursor: wait;
+        }
+
+
+        /* ==========================================
+           OLAP RESULT
+        ========================================== */
+
+        .olap-result {
+
+            margin-top: 25px;
+
+            color: #222 !important;
+        }
+
+
+        .olap-result .report-header {
+
+            margin-top: 0;
+        }
+
+
+        /* ==========================================
            MOBILE
         ========================================== */
 
@@ -504,6 +1086,12 @@
 
                 padding:
                     100px 15px 40px;
+            }
+
+
+            .reports-container {
+
+                max-width: 100%;
             }
 
 
@@ -533,6 +1121,46 @@
                     9px 7px;
             }
 
+
+            .olap-grid {
+
+                grid-template-columns:
+                    1fr;
+            }
+
+
+            .olap-period > div {
+
+                grid-template-columns:
+                    1fr;
+            }
+
+
+            .olap-toolbar {
+
+                flex-direction: column;
+
+                align-items: stretch;
+            }
+
+
+            .olap-toolbar label {
+
+                min-width: 100%;
+            }
+
+
+            .olap-toolbar button {
+
+                width: 100%;
+            }
+
+
+            #olap-builder {
+
+                padding: 20px;
+            }
+
         }
 
     </style>
@@ -543,10 +1171,16 @@
 <body>
 
 
-    <!-- NAVIGATION -->
+    <!-- ==========================================
+         NAVIGATION
+    ========================================== -->
 
     <script src="nav.js"></script>
 
+
+    <!-- ==========================================
+         PAGE
+    ========================================== -->
 
     <main class="reports-page">
 
@@ -732,12 +1366,23 @@
             </div>
 
 
+            <!--
+                OLAP КОНСТРУКТОР СОЗДАЁТСЯ
+                АВТОМАТИЧЕСКИ ИЗ reports.js
+            -->
+
+
         </div>
 
     </main>
 
 
+    <!-- ==========================================
+         REPORTS JS
+    ========================================== -->
+
     <script src="reports.js"></script>
+
 
 </body>
 
