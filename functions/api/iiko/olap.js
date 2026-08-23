@@ -6,40 +6,48 @@ function corsHeaders() {
     };
 }
 
-function jsonResponse(data, status = 200) {
-    return new Response(JSON.stringify(data), {
-        status,
-        headers: {
-            "Content-Type": "application/json; charset=utf-8",
-            ...corsHeaders()
+function jsonResponse(
+    data,
+    status = 200
+) {
+    return new Response(
+        JSON.stringify(data),
+        {
+            status,
+            headers: {
+                "Content-Type":
+                    "application/json; charset=utf-8",
+
+                ...corsHeaders()
+            }
         }
-    });
+    );
 }
 
-
-// ==========================================
-// SHA-1
-// ==========================================
-
 async function sha1(text) {
-    const data = new TextEncoder().encode(text);
 
-    const hash = await crypto.subtle.digest(
-        "SHA-1",
-        data
-    );
+    const data =
+        new TextEncoder()
+            .encode(text);
 
-    return Array.from(new Uint8Array(hash))
-        .map(byte =>
-            byte.toString(16).padStart(2, "0")
+    const hash =
+        await crypto.subtle
+            .digest(
+                "SHA-1",
+                data
+            );
+
+    return Array.from(
+        new Uint8Array(hash)
+    )
+        .map(
+            byte =>
+                byte
+                    .toString(16)
+                    .padStart(2, "0")
         )
         .join("");
 }
-
-
-// ==========================================
-// IIKO AUTH
-// ==========================================
 
 async function getToken(
     ip,
@@ -47,6 +55,7 @@ async function getToken(
     login,
     password
 ) {
+
     const serverUrl =
         `http://${ip}:${port}`;
 
@@ -62,9 +71,14 @@ async function getToken(
         await fetch(authUrl);
 
     const token =
-        (await response.text()).trim();
+        (
+            await response.text()
+        ).trim();
 
-    if (!response.ok || !token) {
+    if (
+        !response.ok ||
+        !token
+    ) {
         throw new Error(
             `Ошибка авторизации iiko: HTTP ${response.status}`
         );
@@ -76,24 +90,36 @@ async function getToken(
     };
 }
 
-
-// ==========================================
-// OPTIONS
-// ==========================================
-
 export async function onRequestOptions() {
-    return new Response(null, {
-        status: 204,
-        headers: corsHeaders()
-    });
+
+    return new Response(
+        null,
+        {
+            status: 204,
+            headers: corsHeaders()
+        }
+    );
 }
 
 
-// ==========================================
-// OLAP DIAGNOSTICS
-// ==========================================
+function normalizeDate(
+    value,
+    endOfDay = false
+) {
 
-export async function onRequestPost(context) {
+    if (!value) {
+        return "";
+    }
+
+    return endOfDay
+        ? `${value}T23:59:59.999`
+        : `${value}T00:00:00.000`;
+}
+
+
+export async function onRequestPost(
+    context
+) {
 
     try {
 
@@ -101,21 +127,25 @@ export async function onRequestPost(context) {
             await context.request.json();
 
 
-        // ======================================
-        // CONNECTION DATA
-        // ======================================
-
         const ip =
-            String(body.ip || "").trim();
+            String(
+                body.ip || ""
+            ).trim();
 
         const port =
-            String(body.port || "").trim();
+            String(
+                body.port || ""
+            ).trim();
 
         const login =
-            String(body.login || "").trim();
+            String(
+                body.login || ""
+            ).trim();
 
         const password =
-            String(body.password || "");
+            String(
+                body.password || ""
+            );
 
 
         if (
@@ -125,87 +155,154 @@ export async function onRequestPost(context) {
             !password
         ) {
 
-            return jsonResponse({
-                success: false,
-                message:
-                    "Заполните IP, порт, логин и пароль"
-            }, 400);
+            return jsonResponse(
+                {
+                    success: false,
+                    message:
+                        "Заполните IP, порт, логин и пароль"
+                },
+                400
+            );
         }
 
 
-        // ======================================
-        // LOGIN
-        // ======================================
+        const reportType =
+            String(
+                body.reportType ||
+                "SALES"
+            )
+                .trim()
+                .toUpperCase();
+
+
+        const groupByRowFields =
+            Array.isArray(
+                body.groupByRowFields
+            )
+                ? body.groupByRowFields
+                    .filter(Boolean)
+                : [];
+
+
+        const groupByColumnFields =
+            Array.isArray(
+                body.groupByColumnFields
+            )
+                ? body.groupByColumnFields
+                    .filter(Boolean)
+                : [];
+
+
+        const aggregateFields =
+            Array.isArray(
+                body.aggregateFields
+            )
+                ? body.aggregateFields
+                    .filter(Boolean)
+                : [];
+
+
+        if (
+            groupByRowFields.length === 0 &&
+            groupByColumnFields.length === 0 &&
+            aggregateFields.length === 0
+        ) {
+
+            return jsonResponse(
+                {
+                    success: false,
+                    message:
+                        "Выберите хотя бы одно поле"
+                },
+                400
+            );
+        }
+
 
         const {
             serverUrl,
             token
-        } = await getToken(
-            ip,
-            port,
-            login,
-            password
-        );
+        } =
+            await getToken(
+                ip,
+                port,
+                login,
+                password
+            );
 
 
-        // ======================================
-        // ПРОВЕРЯЕМ OLAP API
-        // ======================================
+        const filters = {
+            ...(body.filters &&
+            typeof body.filters === "object"
+                ? body.filters
+                : {})
+        };
+
+
+        /*
+         * Если выбраны даты,
+         * автоматически создаём фильтр
+         * по OpenDate.Typed.
+         */
+
+        if (
+            body.from ||
+            body.to
+        ) {
+
+            filters[
+                "OpenDate.Typed"
+            ] = {
+
+                filterType:
+                    "DateRange",
+
+                periodType:
+                    "CUSTOM",
+
+                from:
+                    normalizeDate(
+                        body.from
+                    ),
+
+                to:
+                    normalizeDate(
+                        body.to,
+                        true
+                    ),
+
+                includeLow:
+                    true,
+
+                includeHigh:
+                    true
+            };
+        }
+
+
+        const requestBody = {
+
+            reportType,
+
+            buildSummary:
+                body.buildSummary !== false,
+
+            groupByRowFields,
+
+            groupByColFields:
+                groupByColumnFields,
+
+            aggregateFields,
+
+            filters
+
+        };
+
 
         const url =
             `${serverUrl}/resto/api/v2/reports/olap` +
             `?key=${encodeURIComponent(token)}`;
 
-
-        /*
-         * Это диагностический запрос.
-         *
-         * Мы специально отправляем минимальный
-         * OLAP-запрос, чтобы увидеть, какие данные
-         * и структуру ответа возвращает именно
-         * твой iiko Server.
-         */
-
-        const requestBody = {
-
-            reportType: "SALES",
-
-            buildSummary: true,
-
-            groupByRowFields: [
-                "OpenDate.Typed"
-            ],
-
-            aggregateFields: [
-                "DishSumInt",
-                "UniqOrderId"
-            ],
-
-            filters: {
-
-                "OpenDate.Typed": {
-
-                    filterType: "DateRange",
-
-                    periodType: "CUSTOM",
-
-                    from: "2026-01-01",
-
-                    to: "2026-01-02"
-                }
-            }
-        };
-
-
-        console.log(
-            "IIKO OLAP DIAGNOSTIC REQUEST:",
-            JSON.stringify(requestBody)
-        );
-
-
-        // ======================================
-        // REQUEST
-        // ======================================
 
         const response =
             await fetch(
@@ -230,55 +327,48 @@ export async function onRequestPost(context) {
             await response.text();
 
 
-        console.log(
-            "IIKO OLAP DIAGNOSTIC RESPONSE:",
-            text
-        );
-
-
-        // ======================================
-        // RESPONSE
-        // ======================================
-
-        let parsed = null;
+        let report = null;
 
         try {
 
-            parsed =
+            report =
                 JSON.parse(text);
 
         } catch {
 
-            parsed = null;
+            report = null;
+
         }
 
 
-        return jsonResponse({
+        return jsonResponse(
+            {
 
-            success:
-                response.ok,
+                success:
+                    response.ok,
 
-            iikoHttpStatus:
-                response.status,
+                iikoHttpStatus:
+                    response.status,
 
-            endpoint:
-                "/resto/api/v2/reports/olap",
+                endpoint:
+                    "/resto/api/v2/reports/olap",
 
-            responseType:
-                parsed
-                    ? "JSON"
-                    : "TEXT",
+                request:
+                    requestBody,
 
-            report:
-                parsed,
+                report,
 
-            rawResponse:
-                text.substring(
-                    0,
-                    10000
-                )
+                rawResponse:
+                    text.substring(
+                        0,
+                        30000
+                    )
 
-        }, response.ok ? 200 : 502);
+            },
+            response.ok
+                ? 200
+                : 502
+        );
 
 
     } catch (error) {
@@ -288,15 +378,15 @@ export async function onRequestPost(context) {
             error
         );
 
+        return jsonResponse(
+            {
+                success: false,
 
-        return jsonResponse({
-
-            success: false,
-
-            message:
-                error.message ||
-                "Ошибка запроса OLAP"
-
-        }, 502);
+                message:
+                    error.message ||
+                    "Ошибка OLAP"
+            },
+            502
+        );
     }
 }
