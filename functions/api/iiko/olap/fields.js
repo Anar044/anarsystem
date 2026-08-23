@@ -1,98 +1,49 @@
-// ==========================================
+// ============================================================
 // IIKO OLAP FIELDS
-// GET REAL OLAP FIELDS FROM IIKO SERVER
-// ==========================================
-
-
-// ==========================================
-// CORS
-// ==========================================
+// /api/iiko/olap/fields
+// ============================================================
 
 function corsHeaders() {
-
     return {
-
         "Access-Control-Allow-Origin": "*",
-
-        "Access-Control-Allow-Methods":
-            "POST, OPTIONS",
-
-        "Access-Control-Allow-Headers":
-            "Content-Type"
-
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
     };
-
 }
 
 
-// ==========================================
+// ============================================================
 // JSON RESPONSE
-// ==========================================
+// ============================================================
 
 function jsonResponse(
     data,
     status = 200
 ) {
-
     return new Response(
-
-        JSON.stringify(
-            data
-        ),
-
+        JSON.stringify(data),
         {
             status,
-
             headers: {
-
                 "Content-Type":
                     "application/json; charset=utf-8",
 
                 ...corsHeaders()
-
             }
         }
-
     );
-
 }
 
 
-// ==========================================
-// OPTIONS
-// ==========================================
-
-export async function onRequestOptions() {
-
-    return new Response(
-
-        null,
-
-        {
-            status: 204,
-
-            headers:
-                corsHeaders()
-
-        }
-
-    );
-
-}
-
-
-// ==========================================
+// ============================================================
 // SHA1
-// ==========================================
+// ============================================================
 
-async function sha1(
-    text
-) {
+async function sha1(text) {
 
     const data =
         new TextEncoder()
             .encode(text);
-
 
     const hash =
         await crypto.subtle.digest(
@@ -100,58 +51,49 @@ async function sha1(
             data
         );
 
-
-    return Array.from(
-        new Uint8Array(hash)
-    )
+    return Array
+        .from(
+            new Uint8Array(hash)
+        )
         .map(
             byte =>
                 byte
                     .toString(16)
-                    .padStart(
-                        2,
-                        "0"
-                    )
+                    .padStart(2, "0")
         )
         .join("");
-
 }
 
 
-// ==========================================
-// GET IIKO TOKEN
-// ==========================================
+// ============================================================
+// IIKO AUTH
+// ============================================================
 
 async function getToken(
-
     ip,
     port,
     login,
     password
-
 ) {
 
     const serverUrl =
         `http://${ip}:${port}`;
 
-
     const passwordHash =
-        await sha1(
-            password
-        );
-
+        await sha1(password);
 
     const authUrl =
         `${serverUrl}/resto/api/auth` +
         `?login=${encodeURIComponent(login)}` +
         `&pass=${passwordHash}`;
 
-
     const response =
         await fetch(
-            authUrl
+            authUrl,
+            {
+                method: "GET"
+            }
         );
-
 
     const token =
         (
@@ -167,403 +109,37 @@ async function getToken(
         throw new Error(
             `Ошибка авторизации iiko: HTTP ${response.status}`
         );
-
     }
 
 
     return {
-
         serverUrl,
-
         token
-
     };
-
 }
 
 
-// ==========================================
-// EXTRACT FIELDS
-// ==========================================
-
-function extractFields(
-    data
-) {
-
-    let result = [];
-
-
-    /*
-       Вариант:
-
-       [
-         {
-           "name": "...",
-           "caption": "..."
-         }
-       ]
-    */
-
-    if (
-        Array.isArray(data)
-    ) {
-
-        result =
-            data;
-
-    }
-
-
-    /*
-       Вариант:
-
-       {
-           "columns": [...]
-       }
-    */
-
-    else if (
-        data &&
-        Array.isArray(
-            data.columns
-        )
-    ) {
-
-        result =
-            data.columns;
-
-    }
-
-
-    /*
-       Вариант:
-
-       {
-           "fields": [...]
-       }
-    */
-
-    else if (
-        data &&
-        Array.isArray(
-            data.fields
-        )
-    ) {
-
-        result =
-            data.fields;
-
-    }
-
-
-    /*
-       Вариант:
-
-       {
-           "data": [...]
-       }
-    */
-
-    else if (
-        data &&
-        Array.isArray(
-            data.data
-        )
-    ) {
-
-        result =
-            data.data;
-
-    }
-
-
-    /*
-       Если API вернул объект
-       с несколькими группами.
-    */
-
-    else if (
-        data &&
-        typeof data ===
-            "object"
-    ) {
-
-        Object.keys(
-            data
-        ).forEach(
-            key => {
-
-                if (
-                    Array.isArray(
-                        data[key]
-                    )
-                ) {
-
-                    result =
-                        result.concat(
-                            data[key]
-                        );
-
-                }
-
-            }
-        );
-
-    }
-
-
-    /*
-       Нормализация.
-    */
-
-    return result
-
-        .map(
-            (field, index) => {
-
-                /*
-                   Если поле строкой.
-                */
-
-                if (
-                    typeof field ===
-                    "string"
-                ) {
-
-                    return {
-
-                        name:
-                            field,
-
-                        title:
-                            field,
-
-                        type:
-                            "unknown",
-
-                        isMeasure:
-                            false,
-
-                        index
-
-                    };
-
-                }
-
-
-                /*
-                   Если объект.
-                */
-
-                const name =
-
-                    field.name ||
-
-                    field.field ||
-
-                    field.key ||
-
-                    field.code ||
-
-                    field.id ||
-
-                    field.column ||
-
-                    field.columnName ||
-
-                    "";
-
-
-                const title =
-
-                    field.caption ||
-
-                    field.title ||
-
-                    field.label ||
-
-                    field.displayName ||
-
-                    field.name ||
-
-                    name;
-
-
-                const type =
-
-                    String(
-
-                        field.type ||
-
-                        field.dataType ||
-
-                        field.kind ||
-
-                        ""
-
-                    );
-
-
-                const lowerType =
-                    type.toLowerCase();
-
-
-                /*
-                   Определяем числовые поля.
-                */
-
-                const isMeasure =
-
-                    Boolean(
-
-                        field.isMeasure ||
-
-                        field.measure ||
-
-                        field.is_metric ||
-
-                        lowerType.includes(
-                            "measure"
-                        ) ||
-
-                        lowerType.includes(
-                            "number"
-                        ) ||
-
-                        lowerType.includes(
-                            "numeric"
-                        ) ||
-
-                        lowerType.includes(
-                            "decimal"
-                        ) ||
-
-                        lowerType.includes(
-                            "double"
-                        ) ||
-
-                        lowerType.includes(
-                            "float"
-                        ) ||
-
-                        lowerType.includes(
-                            "integer"
-                        )
-
-                    );
-
-
-                return {
-
-                    ...field,
-
-                    name,
-
-                    title,
-
-                    type,
-
-                    isMeasure,
-
-                    index
-
-                };
-
-            }
-        )
-
-        .filter(
-            field =>
-                field.name
-        );
-
-}
-
-
-// ==========================================
-// GET OLAP COLUMNS
-// ==========================================
-
-async function getOlapColumns(
-
-    serverUrl,
-    token
-
-) {
-
-    /*
-       Основной endpoint
-       для получения колонок OLAP.
-    */
-
-    const url =
-        `${serverUrl}/resto/api/v2/reports/olap/columns` +
-        `?key=${encodeURIComponent(token)}` +
-        `&reportType=SALES`;
-
-
-    console.log(
-        "IIKO OLAP COLUMNS URL:",
-        url
+// ============================================================
+// OPTIONS
+// ============================================================
+
+export async function onRequestOptions() {
+
+    return new Response(
+        null,
+        {
+            status: 204,
+
+            headers:
+                corsHeaders()
+        }
     );
-
-
-    const response =
-        await fetch(
-            url,
-            {
-                method:
-                    "GET",
-
-                headers: {
-
-                    "Accept":
-                        "application/json"
-
-                }
-
-            }
-        );
-
-
-    const text =
-        await response.text();
-
-
-    let data = null;
-
-
-    try {
-
-        data =
-            JSON.parse(
-                text
-            );
-
-    } catch {
-
-        data =
-            null;
-
-    }
-
-
-    return {
-
-        response,
-
-        text,
-
-        data
-
-    };
-
 }
 
 
-// ==========================================
+// ============================================================
 // POST
-// ==========================================
+// ============================================================
 
 export async function onRequestPost(
     context
@@ -571,9 +147,17 @@ export async function onRequestPost(
 
     try {
 
+        // ----------------------------------------------------
+        // BODY
+        // ----------------------------------------------------
+
         const body =
             await context.request.json();
 
+
+        // ----------------------------------------------------
+        // CONNECTION DATA
+        // ----------------------------------------------------
 
         const ip =
             String(
@@ -599,18 +183,9 @@ export async function onRequestPost(
             );
 
 
-        const reportType =
-            String(
-                body.reportType ||
-                "SALES"
-            )
-                .trim()
-                .toUpperCase();
-
-
-        /*
-           Проверка данных.
-        */
+        // ----------------------------------------------------
+        // VALIDATION
+        // ----------------------------------------------------
 
         if (
             !ip ||
@@ -620,148 +195,374 @@ export async function onRequestPost(
         ) {
 
             return jsonResponse(
-
                 {
-
-                    success:
-                        false,
+                    success: false,
 
                     message:
                         "Заполните IP, порт, логин и пароль"
-
                 },
 
                 400
-
             );
-
         }
 
 
-        /*
-           Авторизация.
-        */
+        // ----------------------------------------------------
+        // REPORT TYPE
+        // ----------------------------------------------------
+
+        const reportType =
+            String(
+                body.reportType ||
+                "SALES"
+            )
+                .trim()
+                .toUpperCase();
+
+
+        // ----------------------------------------------------
+        // AUTH
+        // ----------------------------------------------------
 
         const {
-
             serverUrl,
-
             token
+        } =
+            await getToken(
+                ip,
+                port,
+                login,
+                password
+            );
 
-        } = await getToken(
 
-            ip,
-            port,
-            login,
-            password
+        // ----------------------------------------------------
+        // IIKO OLAP COLUMNS URL
+        // ----------------------------------------------------
 
+        const columnsUrl =
+            `${serverUrl}` +
+            `/resto/api/v2/reports/olap/columns` +
+            `?key=${encodeURIComponent(token)}` +
+            `&reportType=${encodeURIComponent(reportType)}`;
+
+
+        console.log(
+            "IIKO OLAP COLUMNS:",
+            columnsUrl
+                .replace(
+                    token,
+                    "***"
+                )
         );
 
 
-        /*
-           Получаем поля.
-        */
+        // ----------------------------------------------------
+        // REQUEST
+        // ----------------------------------------------------
 
-        const {
+        const response =
+            await fetch(
+                columnsUrl,
+                {
+                    method: "GET",
 
-            response,
+                    headers: {
+                        "Accept":
+                            "application/json"
+                    }
+                }
+            );
 
-            text,
 
-            data
+        // ----------------------------------------------------
+        // RESPONSE TEXT
+        // ----------------------------------------------------
 
-        } = await getOlapColumns(
+        const text =
+            await response.text();
 
-            serverUrl,
-            token
 
+        console.log(
+            "IIKO OLAP COLUMNS STATUS:",
+            response.status
         );
 
 
-        /*
-           Если iiko вернул ошибку.
-        */
+        // ----------------------------------------------------
+        // ERROR
+        // ----------------------------------------------------
 
-        if (
-            !response.ok
-        ) {
+        if (!response.ok) {
 
             return jsonResponse(
-
                 {
-
-                    success:
-                        false,
-
-                    iikoHttpStatus:
-                        response.status,
-
-                    endpoint:
-                        "/resto/api/v2/reports/olap/columns",
+                    success: false,
 
                     message:
-                        `iiko Server вернул HTTP ${response.status}`,
+                        `Ошибка получения OLAP полей: HTTP ${response.status}`,
 
-                    rawResponse:
-                        text.substring(
-                            0,
-                            30000
-                        )
+                    status:
+                        response.status,
 
+                    details:
+                        text
                 },
 
                 502
-
             );
-
         }
 
 
-        /*
-           Извлекаем поля.
-        */
+        // ----------------------------------------------------
+        // PARSE JSON
+        // ----------------------------------------------------
 
-        const fields =
-            extractFields(
-                data
+        let data;
+
+        try {
+
+            data =
+                JSON.parse(text);
+
+        } catch (error) {
+
+            return jsonResponse(
+                {
+                    success: false,
+
+                    message:
+                        "iiko вернул некорректный JSON",
+
+                    details:
+                        text
+                },
+
+                502
             );
+        }
+
+
+        // ----------------------------------------------------
+        // EXTRACT FIELDS
+        // ----------------------------------------------------
+
+        let fields = [];
 
 
         /*
-           Возвращаем результат
-           frontend.
-        */
+         * В разных версиях iiko
+         * структура ответа может немного
+         * отличаться.
+         *
+         * Поддерживаем основные варианты.
+         */
+
+
+        if (
+            Array.isArray(data)
+        ) {
+
+            fields =
+                data;
+
+        } else if (
+            Array.isArray(
+                data.fields
+            )
+        ) {
+
+            fields =
+                data.fields;
+
+        } else if (
+            Array.isArray(
+                data.columns
+            )
+        ) {
+
+            fields =
+                data.columns;
+
+        } else if (
+            Array.isArray(
+                data.data
+            )
+        ) {
+
+            fields =
+                data.data;
+
+        } else if (
+            data.fields &&
+            typeof data.fields ===
+                "object"
+        ) {
+
+            /*
+             * Иногда fields может быть
+             * объектом.
+             */
+
+            if (
+                Array.isArray(
+                    data.fields.fields
+                )
+            ) {
+
+                fields =
+                    data.fields.fields;
+
+            } else {
+
+                const dimensions =
+                    Array.isArray(
+                        data.fields.dimensions
+                    )
+                        ? data.fields.dimensions
+                        : [];
+
+
+                const measures =
+                    Array.isArray(
+                        data.fields.measures
+                    )
+                        ? data.fields.measures
+                        : [];
+
+
+                fields = [
+                    ...dimensions,
+                    ...measures
+                ];
+            }
+        }
+
+
+        // ----------------------------------------------------
+        // NORMALIZE FIELDS
+        // ----------------------------------------------------
+
+        const normalizedFields =
+            fields
+                .map(
+                    (field, index) => {
+
+                        // ------------------------------------
+                        // STRING
+                        // ------------------------------------
+
+                        if (
+                            typeof field ===
+                            "string"
+                        ) {
+
+                            return {
+                                name:
+                                    field,
+
+                                title:
+                                    field,
+
+                                type:
+                                    "unknown",
+
+                                index
+                            };
+                        }
+
+
+                        // ------------------------------------
+                        // OBJECT
+                        // ------------------------------------
+
+                        if (
+                            !field ||
+                            typeof field !==
+                                "object"
+                        ) {
+
+                            return null;
+                        }
+
+
+                        const name =
+                            field.name ||
+                            field.field ||
+                            field.key ||
+                            field.code ||
+                            field.id ||
+                            "";
+
+
+                        const title =
+                            field.title ||
+                            field.caption ||
+                            field.label ||
+                            field.description ||
+                            name;
+
+
+                        const type =
+                            String(
+                                field.type ||
+                                field.dataType ||
+                                field.kind ||
+                                ""
+                            );
+
+
+                        return {
+
+                            ...field,
+
+                            name:
+                                String(
+                                    name
+                                ),
+
+                            title:
+                                String(
+                                    title
+                                ),
+
+                            type,
+
+                            index
+                        };
+                    }
+                )
+                .filter(
+                    field =>
+                        field &&
+                        field.name
+                );
+
+
+        // ----------------------------------------------------
+        // RESPONSE
+        // ----------------------------------------------------
 
         return jsonResponse(
-
             {
-
-                success:
-                    true,
-
-                iikoHttpStatus:
-                    response.status,
-
-                endpoint:
-                    "/resto/api/v2/reports/olap/columns",
+                success: true,
 
                 reportType,
 
                 count:
-                    fields.length,
+                    normalizedFields.length,
 
-                fields,
+                fields:
+                    normalizedFields,
 
-                rawResponse:
-                    text.substring(
-                        0,
-                        30000
-                    )
+                /*
+                 * Оставляем оригинальный
+                 * ответ iiko для диагностики.
+                 */
 
-            },
-
-            200
-
+                raw:
+                    data
+            }
         );
 
 
@@ -774,22 +575,15 @@ export async function onRequestPost(
 
 
         return jsonResponse(
-
             {
-
-                success:
-                    false,
+                success: false,
 
                 message:
                     error.message ||
-                    "Ошибка получения полей OLAP"
-
+                    "Неизвестная ошибка OLAP fields"
             },
 
             502
-
         );
-
     }
-
 }
