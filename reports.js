@@ -426,25 +426,6 @@
             const data =
                 JSON.parse(saved);
 
-            // В новой версии подключение выполняется во вкладке
-            // «Настройки». Поэтому на странице OLAP нужно не только
-            // заполнить поля формы, но и восстановить активное
-            // соединение из localStorage.
-            if (
-                data &&
-                data.ip &&
-                data.port &&
-                data.login &&
-                data.password
-            ) {
-                iikoConnection = {
-                    ip: String(data.ip),
-                    port: String(data.port),
-                    login: String(data.login),
-                    password: String(data.password)
-                };
-            }
-
             const ip =
                 getElement("iiko-ip");
 
@@ -3784,37 +3765,6 @@
         renderOlapFilterEditor();
         bindOlapDropZones();
         renderSelectedOlapFields();
-
-        // Подключение теперь находится в «Настройки».
-        // Если данные были сохранены, сразу получаем реальный
-        // список OLAP-полей с iiko, не требуя повторной авторизации.
-        if (iikoConnection) {
-            loadOlapFields()
-                .then(() => {
-                    renderOlapFields();
-                    renderOlapFilterEditor();
-                    setOlapStatus(
-                        `🟢 Доступные поля OLAP: ${olapFields.length}`
-                    );
-                })
-                .catch(error => {
-                    console.error(
-                        "AUTO OLAP FIELDS ERROR:",
-                        error
-                    );
-
-                    olapFields =
-                        STANDARD_IIKO_FIELDS.map(
-                            normalizeOlapField
-                        );
-
-                    renderOlapFields();
-                    renderOlapFilterEditor();
-                    setOlapStatus(
-                        `⚠️ Не удалось получить структуру OLAP: ${error.message}`
-                    );
-                });
-        }
     }
 
 
