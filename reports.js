@@ -3129,30 +3129,64 @@
                 meta?.hiddenTechnicalFields || []
             );
 
-        // Все поля, определяющие одну видимую строку.
+        // --------------------------------------------------------
+        // КЛЮЧ ГРУППИРОВКИ БЛЮДА
         //
-        // ВАЖНО:
-        // Если "Блюдо" выбрано пользователем, мы добавляем DishCode
-        // как скрытое техническое поле. Оно НЕ показывается в таблице,
-        // но обязательно должно участвовать в ключе группировки.
+        // iiko реально возвращает:
+        //   DishName
+        //   DishCode
+        //
+        // Нельзя группировать блюдо только по DishName.
+        //
+        // Если пользователь выбрал "Блюдо", обязательно добавляем
+        // DishCode в ВНУТРЕННИЙ ключ группировки.
         //
         // Поэтому:
-        //   CashRegisterName + DishName + DishCode
+        //   cola / 00016 / 1
+        //   cola / 00016 / 10
+        //       -> одна строка, количество 11
         //
-        // а не только:
-        //   CashRegisterName + DishName
+        // Но:
+        //   SEZAR PIZZA / 00053 / 1
+        //   SEZAR PIZZA / 00054 / 1
+        //       -> две разные строки.
         //
-        // Благодаря этому два блюда с одинаковым названием, но разными
-        // кодами остаются разными, а одинаковый DishCode объединяется.
+        // DishCode НЕ выводится в таблицу.
+        // --------------------------------------------------------
+
         const groupingFields = [
             ...rowFields,
-            ...columnFields,
-            ...hiddenFields
-        ].filter(
-            (field, index, array) =>
-                field &&
-                array.indexOf(field) === index
-        );
+            ...columnFields
+        ];
+
+        const hasDishNameGrouping =
+            groupingFields.includes(
+                "DishName"
+            );
+
+        const hasDishCodeGrouping =
+            groupingFields.includes(
+                "DishCode"
+            );
+
+        const hasDishCodeInData =
+            rows.some(
+                row =>
+                    getOlapRowValue(
+                        row,
+                        "DishCode"
+                    ) !== undefined
+            );
+
+        if (
+            hasDishNameGrouping &&
+            !hasDishCodeGrouping &&
+            hasDishCodeInData
+        ) {
+            groupingFields.push(
+                "DishCode"
+            );
+        }
 
         const groups =
             new Map();
@@ -3536,6 +3570,18 @@
                 meta
             );
 
+        console.log(
+            "OLAP GROUP RESULT:",
+            {
+                rawRows: rawRows.length,
+                aggregatedRows: aggregated.rows.length,
+                groupingRows: meta.rows,
+                groupingColumns: meta.columns,
+                hiddenTechnicalFields:
+                    meta.hiddenTechnicalFields || []
+            }
+        );
+
         const visibleColumns = [];
 
         [
@@ -3593,12 +3639,29 @@
         const rowFields =
             meta.rows || [];
 
+        const hiddenTechnicalFieldSet =
+            new Set(
+                meta.hiddenTechnicalFields || []
+            );
+
+        // Для визуальной группировки используем только реальные
+        // видимые поля "Строки". Скрытый DishCode нужен только
+        // внутри aggregateOlapRows() для объединения одинаковых
+        // блюд по коду.
+        const visibleRowFields =
+            rowFields.filter(
+                field =>
+                    !hiddenTechnicalFieldSet.has(
+                        field
+                    )
+            );
+
         const measures =
             meta.measures || [];
 
         const groupFieldSet =
             new Set(
-                rowFields
+                visibleRowFields
             );
 
         const columnFields =
@@ -3689,10 +3752,10 @@
             row => {
 
                 const key =
-                    rowFields.length
+                    visibleRowFields.length
                         ? getOlapGroupKey(
                             row,
-                            rowFields
+                            visibleRowFields
                         )
                         : "__all__";
 
@@ -3742,7 +3805,6 @@
                                     visibleColumns.length,
                                     1
                                 )}"
-                                style="text-align:left;"
                             >
 
                                 <button
@@ -3865,13 +3927,16 @@
                 // ИТОГО ПО ГРУППЕ
                 // ------------------------------------------------
 
-                if (rowFields.length) {
+                if (visibleRowFields.length) {
 
                     const groupTotal =
                         aggregated.groupTotals.find(
                             item =>
                                 item.key ===
-                                group.key
+                                getOlapGroupKey(
+                                    group.rows[0],
+                                    visibleRowFields
+                                )
                         );
 
                     html += `
@@ -3894,7 +3959,7 @@
 
                             if (
                                 column ===
-                                rowFields[0]
+                                visibleRowFields[0]
                             ) {
 
                                 html += `
