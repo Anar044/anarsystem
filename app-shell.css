@@ -9,31 +9,3 @@ html[data-theme="dark"]{--bg:#0f1117;--surface:#171a22;--surface2:#1d212b;--text
 :root{--app-bg:#f5f7fb;--card:#fff;--text:#171a21;--muted:#697386;--border:#e5e7eb;--input:#fff;--soft:#f3f5f9;--accent:#6f6cff;}
 :root[data-theme="dark"]{--app-bg:#0f1117;--card:#181c24;--text:#f3f4f6;--muted:#9aa3b2;--border:#2b313d;--input:#12151c;--soft:#20252f;--accent:#8b7cff;}
 body{background:var(--app-bg);color:var(--text);}
-
-/* ============================================================
-   SH_REPORTS — CONTENT WIDTH NORMALIZATION
-   Keeps every page aligned with the application shell.
-   ============================================================ */
-
-.main {
-    min-width: 0;
-}
-
-.app-content {
-    width: 100%;
-    min-width: 0;
-}
-
-.topbar-left {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-}
-
-@media (max-width: 720px) {
-    .page,
-    .reports-page {
-        max-width: 100%;
-    }
-}
