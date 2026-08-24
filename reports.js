@@ -625,25 +625,14 @@
         }
 
 
-        // IMPORTANT:
-        // iiko can return a human-readable name in `name` and
-        // the real API field in `technicalName` / `field` / `key`.
-        // Technical identifiers MUST have priority.
         const name =
             String(
-                field.technicalName ||
-                field.technical_name ||
-                field.technicalField ||
-                field.technical_field ||
-                field.fieldName ||
-                field.field_name ||
-                field.apiName ||
-                field.api_name ||
+                field.name ||
                 field.field ||
                 field.key ||
+                field.technicalName ||
                 field.code ||
                 field.id ||
-                field.name ||
                 ""
             ).trim();
 
@@ -748,22 +737,13 @@
                 typeof field === "object"
             ) {
 
-                // IMPORTANT:
-                // Prefer the real technical field name over a display name.
                 name =
-                    field.technicalName ||
-                    field.technical_name ||
-                    field.technicalField ||
-                    field.technical_field ||
-                    field.fieldName ||
-                    field.field_name ||
-                    field.apiName ||
-                    field.api_name ||
+                    field.name ||
                     field.field ||
                     field.key ||
-                    field.code ||
                     field.id ||
-                    field.name ||
+                    field.code ||
+                    field.technicalName ||
                     fallbackName ||
                     "";
 
@@ -1053,130 +1033,59 @@
         fieldOrName
     ) {
 
-        // --------------------------------------------------------
-        // If an object is supplied, first try explicit technical
-        // identifiers. Do NOT blindly trust `name`, because in
-        // some iiko responses `name` is the human-readable title.
-        // --------------------------------------------------------
-
         if (
             fieldOrName &&
             typeof fieldOrName === "object"
         ) {
 
-            const technicalCandidates = [
-                fieldOrName.technicalName,
-                fieldOrName.technical_name,
-                fieldOrName.technicalField,
-                fieldOrName.technical_field,
-                fieldOrName.fieldName,
-                fieldOrName.field_name,
-                fieldOrName.apiName,
-                fieldOrName.api_name,
-                fieldOrName.field,
-                fieldOrName.key,
-                fieldOrName.code,
-                fieldOrName.id
-            ]
-                .map(value =>
-                    String(value ?? "").trim()
-                )
-                .filter(Boolean);
+            const directTechnicalName =
+                fieldOrName.technicalName ||
+                fieldOrName.field ||
+                fieldOrName.key ||
+                fieldOrName.code ||
+                fieldOrName.id;
 
 
-            for (const candidate of technicalCandidates) {
+            if (
+                directTechnicalName &&
+                typeof directTechnicalName === "string"
+            ) {
 
-                const exact =
-                    olapFields.find(
-                        field =>
-                            String(
-                                field.name || ""
-                            ).trim().toLowerCase() ===
-                            candidate.toLowerCase()
-                    );
+                const direct =
+                    directTechnicalName.trim();
 
-                if (exact) {
-                    return exact.name;
-                }
+                if (direct) {
 
-                const standardExact =
-                    STANDARD_IIKO_FIELDS.find(
-                        field =>
-                            String(
-                                field.name || ""
-                            ).trim().toLowerCase() ===
-                            candidate.toLowerCase()
-                    );
+                    const directField =
+                        olapFields.find(
+                            field =>
+                                String(
+                                    field.name || ""
+                                ) === direct
+                        );
 
-                if (standardExact) {
-                    return standardExact.name;
-                }
 
-                // A technical iiko field normally contains only
-                // Latin letters, digits, underscores and dots.
-                if (
-                    candidate.includes(".") ||
-                    /^[A-Za-z0-9_]+$/.test(candidate)
-                ) {
-                    return candidate;
+                    if (directField) {
+                        return directField.name;
+                    }
+
+
+                    // Если поле уже явно является техническим
+                    // именем — оставляем его.
+                    if (
+                        direct.includes(".") ||
+                        /^[A-Za-z0-9_]+$/.test(direct)
+                    ) {
+
+                        return direct;
+                    }
                 }
             }
 
-
-            // ----------------------------------------------------
-            // Then try human-readable fields against their title.
-            // ----------------------------------------------------
-
-            const displayCandidates = [
-                fieldOrName.title,
-                fieldOrName.caption,
-                fieldOrName.label,
-                fieldOrName.displayName,
-                fieldOrName.display_name,
-                fieldOrName.name
-            ]
-                .map(value =>
-                    String(value ?? "").trim()
-                )
-                .filter(Boolean);
-
-
-            for (const candidate of displayCandidates) {
-
-                const lower =
-                    candidate.toLowerCase();
-
-                const byTitle =
-                    olapFields.find(
-                        field =>
-                            String(
-                                field.title || ""
-                            ).trim().toLowerCase() === lower
-                    );
-
-                if (byTitle) {
-                    return byTitle.name;
-                }
-
-                const standard =
-                    STANDARD_IIKO_FIELDS.find(
-                        field =>
-                            String(
-                                field.title || ""
-                            ).trim().toLowerCase() === lower
-                    );
-
-                if (standard) {
-                    return standard.name;
-                }
-            }
 
             fieldOrName =
-                fieldOrName.title ||
-                fieldOrName.caption ||
-                fieldOrName.label ||
-                fieldOrName.displayName ||
                 fieldOrName.name ||
+                fieldOrName.title ||
                 "";
         }
 
@@ -1192,44 +1101,8 @@
         }
 
 
-        const lower =
-            value.toLowerCase();
-
-
         // --------------------------------------------------------
-        // GUARANTEED DISPLAY-NAME ALIASES
-        // --------------------------------------------------------
-
-        const aliases = {
-            "сумма со скидкой": "DishDiscountSumInt",
-            "сумма скидки": "DiscountSum",
-            "скидка": "DishDiscountSumInt",
-            "сумма": "DishSumInt",
-            "сумма после скидки": "DishSumAfterDiscount",
-            "количество": "DishAmountInt",
-            "блюдо": "DishName",
-            "название блюда": "DishName",
-            "категория блюда": "DishCategory",
-            "группа блюда": "DishGroup",
-            "дата открытия": "OpenDate.Typed",
-            "дата закрытия": "CloseDate.Typed",
-            "официант": "WaiterName",
-            "кассир": "CashierName",
-            "подразделение": "Department.Name",
-            "стол": "TableName",
-            "тип оплаты": "PaymentType.Name",
-            "тип заказа": "OrderType.Name",
-            "источник заказа": "OrderSource"
-        };
-
-
-        if (aliases[lower]) {
-            return aliases[lower];
-        }
-
-
-        // --------------------------------------------------------
-        // Exact technical field.
+        // Сначала точное совпадение технического имени
         // --------------------------------------------------------
 
         const exact =
@@ -1237,71 +1110,152 @@
                 field =>
                     String(
                         field.name || ""
-                    ).trim().toLowerCase() === lower
+                    ).trim() === value
             );
+
 
         if (exact) {
             return exact.name;
         }
 
 
-        const standardExact =
-            STANDARD_IIKO_FIELDS.find(
-                field =>
-                    String(
-                        field.name || ""
-                    ).trim().toLowerCase() === lower
-            );
-
-        if (standardExact) {
-            return standardExact.name;
-        }
-
-
         // --------------------------------------------------------
-        // Display title.
+        // Потом совпадение title
         // --------------------------------------------------------
+
+        const lower =
+            value.toLowerCase();
+
 
         const byTitle =
             olapFields.find(
                 field =>
                     String(
                         field.title || ""
-                    ).trim().toLowerCase() === lower
+                    )
+                        .trim()
+                        .toLowerCase() === lower
             );
 
+
         if (byTitle) {
+
+            console.warn(
+                "OLAP: display name converted to technical name:",
+                value,
+                "=>",
+                byTitle.name
+            );
+
+
             return byTitle.name;
         }
 
 
-        const standardByTitle =
+        // --------------------------------------------------------
+        // Дополнительные гарантированные стандартные поля
+        // --------------------------------------------------------
+
+        const standard =
             STANDARD_IIKO_FIELDS.find(
                 field =>
                     String(
                         field.title || ""
-                    ).trim().toLowerCase() === lower
+                    )
+                        .trim()
+                        .toLowerCase() === lower
             );
 
-        if (standardByTitle) {
-            return standardByTitle.name;
+
+        if (standard) {
+
+            console.warn(
+                "OLAP: standard display name converted:",
+                value,
+                "=>",
+                standard.name
+            );
+
+
+            return standard.name;
         }
 
 
-        // If it looks like a technical iiko identifier, preserve it.
+        // --------------------------------------------------------
+        // Важно:
+        // не отправляем русское display-name как техническое,
+        // если можем определить известное поле.
+        // --------------------------------------------------------
+
+        const aliases = {
+
+            "сумма со скидкой":
+                "DishDiscountSumInt",
+
+            "скидка":
+                "DishDiscountSumInt",
+
+            "сумма":
+                "DishSumInt",
+
+            "сумма после скидки":
+                "DishSumAfterDiscount",
+
+            "количество":
+                "DishAmountInt",
+
+            "блюдо":
+                "DishName",
+
+            "категория блюда":
+                "DishCategory",
+
+            "группа блюда":
+                "DishGroup",
+
+            "дата открытия":
+                "OpenDate.Typed",
+
+            "дата закрытия":
+                "CloseDate.Typed",
+
+            "официант":
+                "WaiterName",
+
+            "кассир":
+                "CashierName",
+
+            "подразделение":
+                "Department.Name",
+
+            "стол":
+                "TableName",
+
+            "тип оплаты":
+                "PaymentType.Name",
+
+            "тип заказа":
+                "OrderType.Name",
+
+            "источник заказа":
+                "OrderSource"
+        };
+
+
         if (
-            value.includes(".") ||
-            /^[A-Za-z0-9_]+$/.test(value)
+            aliases[lower]
         ) {
-            return value;
+
+            return aliases[lower];
         }
 
 
-        // Do not silently invent a technical name for an unknown
-        // human-readable value. Returning it lets the backend/iiko
-        // show the exact bad field instead of hiding the problem.
+        // Если значение уже выглядит как техническое поле,
+        // оставляем его без изменения.
+
         return value;
     }
+
 
     // ============================================================
     // FIELD LOOKUP
