@@ -4582,6 +4582,82 @@
         // автоматически — пользователь сам нажимает кнопку.
         // --------------------------------------------------------
 
+        // --------------------------------------------------------
+        // Восстанавливаем сохранённое подключение для OLAP.
+        // Это не меняет логику конструктора: если подключение
+        // сохранено в Настройках, просто загружаем реальные поля
+        // iiko вместо стандартных 29 полей.
+        // --------------------------------------------------------
+
+        try {
+
+            const saved =
+                localStorage.getItem(
+                    IIKO_STORAGE_KEY
+                );
+
+            if (saved) {
+
+                const data =
+                    JSON.parse(saved);
+
+                if (
+                    data &&
+                    data.ip &&
+                    data.port &&
+                    data.login &&
+                    data.password
+                ) {
+
+                    iikoConnection = {
+                        ip: data.ip,
+                        port: data.port,
+                        login: data.login,
+                        password: data.password
+                    };
+
+                    setOlapStatus(
+                        "⏳ Загружаем структуру OLAP..."
+                    );
+
+                    loadOlapFields()
+                        .then(function () {
+                            renderOlapFields();
+                            renderOlapFilterEditor();
+                            setOlapStatus(
+                                `🟢 Доступные поля OLAP: ${olapFields.length}`
+                            );
+                        })
+                        .catch(function (error) {
+                            console.error(
+                                "OLAP AUTO LOAD ERROR:",
+                                error
+                            );
+
+                            iikoConnection = null;
+
+                            olapFields =
+                                STANDARD_IIKO_FIELDS.map(
+                                    normalizeOlapField
+                                );
+
+                            renderOlapFields();
+
+                            setOlapStatus(
+                                `⚠️ Не удалось получить структуру OLAP. Используются стандартные поля iiko: ${olapFields.length}`
+                            );
+                        });
+                }
+            }
+
+        } catch (error) {
+            console.error(
+                "Ошибка восстановления подключения iiko:",
+                error
+            );
+        }
+
+
         const from =
             getElement(
                 "report-from"
