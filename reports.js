@@ -2642,7 +2642,7 @@
                 .filter(Boolean);
 
 
-        const technicalMeasures =
+        let technicalMeasures =
             olapMeasures
                 .map(
                     item => ({
@@ -2667,6 +2667,89 @@
                             item.field
                         )
                 );
+
+
+        // --------------------------------------------------------
+        // ЧИСЛОВЫЕ ПОЛЯ С АГРЕГАЦИЕЙ НЕ ДОЛЖНЫ ПОПАДАТЬ
+        // В groupByColumnFields.
+        //
+        // Если пользователь положил "Количество блюд" в Колонки,
+        // техническое поле DishAmountInt нельзя отправлять iiko
+        // как GROUP BY. Иначе iiko разделит:
+        //
+        //   cola  1
+        //   cola 10
+        //
+        // на две группы.
+        //
+        // Правильно:
+        //
+        //   groupByColumnFields:
+        //       DishName, DishCode
+        //
+        //   measures:
+        //       DishAmountInt (SUM)
+        //       DishDiscountSumInt (SUM)
+        //
+        // Поэтому известные агрегируемые поля автоматически
+        // переносим из колонок в показатели.
+        // --------------------------------------------------------
+
+        const columnMeasureFields = new Set(
+            [
+                "DishAmountInt",
+                "DishDiscountSumInt",
+                "DishSumInt",
+                "DishSumAfterDiscount",
+                "DishDiscountSumInt.withoutVAT",
+                "DishSumInt.withoutVAT",
+                "DishSumAfterDiscount.withoutVAT"
+            ]
+        );
+
+        const promotedColumnMeasures = [];
+
+        const filteredTechnicalColumns =
+            technicalColumns.filter(
+                field => {
+
+                    if (
+                        columnMeasureFields.has(
+                            field
+                        )
+                    ) {
+                        promotedColumnMeasures.push(
+                            field
+                        );
+                        return false;
+                    }
+
+                    return true;
+                }
+            );
+
+        technicalColumns.length = 0;
+        technicalColumns.push(
+            ...filteredTechnicalColumns
+        );
+
+        promotedColumnMeasures.forEach(
+            field => {
+
+                const alreadyMeasure =
+                    technicalMeasures.some(
+                        item =>
+                            item.field === field
+                    );
+
+                if (!alreadyMeasure) {
+                    technicalMeasures.push({
+                        field,
+                        aggregation: "SUM"
+                    });
+                }
+            }
+        );
 
 
         // --------------------------------------------------------
