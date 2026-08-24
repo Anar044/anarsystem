@@ -1,14 +1,6 @@
 // ============================================================
 // ANAR SYSTEM — IIKO OLAP API
 // functions/api/iiko/olap.js
-//
-// Исправления:
-// 1. /columns поддерживает объект, массив и обёртки fields/columns.
-// 2. Техническое имя поля берётся из КЛЮЧА объекта iiko.
-// 3. Никаких искусственных 29 полей внутри backend.
-// 4. Ошибка iiko 400/500 больше НЕ превращается в HTTP 200.
-// 5. Frontend получает реальный iiko HTTP status + raw response.
-// 6. measures принимаются как строки или {field, aggregation}.
 // ============================================================
 
 function corsHeaders() {
@@ -19,32 +11,72 @@ function corsHeaders() {
     };
 }
 
+
+// ============================================================
+// JSON RESPONSE
+// ============================================================
+
 function jsonResponse(data, status = 200) {
-    return new Response(JSON.stringify(data, null, 2), {
-        status,
-        headers: {
-            "Content-Type": "application/json; charset=utf-8",
-            ...corsHeaders()
+
+    return new Response(
+        JSON.stringify(data, null, 2),
+        {
+            status,
+
+            headers: {
+                "Content-Type":
+                    "application/json; charset=utf-8",
+
+                ...corsHeaders()
+            }
         }
-    });
+    );
 }
+
+
+// ============================================================
+// REQUEST ID
+// ============================================================
 
 function requestId() {
+
     try {
-        if (crypto?.randomUUID) return crypto.randomUUID();
+
+        if (
+            typeof crypto !== "undefined" &&
+            crypto.randomUUID
+        ) {
+            return crypto.randomUUID();
+        }
+
     } catch (_) {}
 
-    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    return (
+        Date.now().toString(36) +
+        "-" +
+        Math.random()
+            .toString(36)
+            .slice(2, 10)
+    );
 }
 
+
+// ============================================================
+// SHA1
+// ============================================================
+
 async function sha1(text) {
-    const data = new TextEncoder().encode(text);
+
+    const data =
+        new TextEncoder().encode(text);
+
 
     const hash =
         await crypto.subtle.digest(
             "SHA-1",
             data
         );
+
 
     return Array.from(
         new Uint8Array(hash)
@@ -58,9 +90,22 @@ async function sha1(text) {
         .join("");
 }
 
+
+// ============================================================
+// CLEAN
+// ============================================================
+
 function clean(value) {
-    return String(value ?? "").trim();
+
+    return String(
+        value ?? ""
+    ).trim();
 }
+
+
+// ============================================================
+// CREDENTIALS
+// ============================================================
 
 function credentials(body) {
 
@@ -74,7 +119,10 @@ function credentials(body) {
         clean(body.login);
 
     const password =
-        String(body.password ?? "");
+        String(
+            body.password ?? ""
+        );
+
 
     if (
         !ip ||
@@ -82,10 +130,12 @@ function credentials(body) {
         !login ||
         !password
     ) {
+
         throw new Error(
             "Заполните IP, порт, логин и пароль iiko"
         );
     }
+
 
     return {
         ip,
@@ -111,13 +161,16 @@ async function authenticate(
     const serverUrl =
         `http://${ip}:${port}`;
 
+
     const pass =
         await sha1(password);
+
 
     const url =
         `${serverUrl}/resto/api/auth` +
         `?login=${encodeURIComponent(login)}` +
         `&pass=${pass}`;
+
 
     console.log(
         `[OLAP][${rid}] AUTH`,
@@ -125,7 +178,9 @@ async function authenticate(
         login
     );
 
+
     let response;
+
 
     try {
 
@@ -140,19 +195,25 @@ async function authenticate(
     } catch (error) {
 
         throw new Error(
-            `Не удалось подключиться к iiko Server: ${error?.message || "fetch failed"}`
+            `Не удалось подключиться к iiko Server: ${
+                error?.message ||
+                "fetch failed"
+            }`
         );
     }
+
 
     const text =
         (
             await response.text()
         ).trim();
 
+
     console.log(
         `[OLAP][${rid}] AUTH HTTP`,
         response.status
     );
+
 
     if (
         !response.ok ||
@@ -160,7 +221,9 @@ async function authenticate(
     ) {
 
         throw new Error(
-            `Ошибка авторизации iiko: HTTP ${response.status}` +
+            `Ошибка авторизации iiko: HTTP ${
+                response.status
+            }` +
             (
                 text
                     ? ` — ${text.slice(0, 1000)}`
@@ -168,6 +231,7 @@ async function authenticate(
             )
         );
     }
+
 
     return {
         serverUrl,
@@ -191,17 +255,26 @@ function normalizeField(
         typeof meta === "string"
     ) {
 
+        const name =
+            clean(
+                technicalName ||
+                meta
+            );
+
+
         return {
-            name:
-                technicalName ||
-                meta,
 
-            title:
-                technicalName ||
-                meta,
+            name,
 
-            type:
-                "unknown",
+            field: name,
+
+            key: name,
+
+            id: name,
+
+            title: name,
+
+            type: "unknown",
 
             isMeasure:
                 forcedMeasure,
@@ -215,12 +288,13 @@ function normalizeField(
             filteringAllowed:
                 true,
 
-            tags:
-                [],
+            tags: [],
 
             index
+
         };
     }
+
 
     if (
         !meta ||
@@ -229,9 +303,12 @@ function normalizeField(
         return null;
     }
 
+
     const name =
         clean(
             technicalName ||
+            meta.technicalName ||
+            meta.technical_name ||
             meta.field ||
             meta.key ||
             meta.code ||
@@ -239,9 +316,11 @@ function normalizeField(
             meta.name
         );
 
+
     if (!name) {
         return null;
     }
+
 
     const title =
         clean(
@@ -249,24 +328,29 @@ function normalizeField(
             meta.caption ||
             meta.label ||
             meta.displayName ||
+            meta.display_name ||
             meta.name ||
             name
         );
+
 
     const type =
         clean(
             meta.type ||
             meta.dataType ||
+            meta.data_type ||
             meta.kind ||
             meta.fieldType ||
             "unknown"
         );
+
 
     const aggregationAllowed =
         forcedMeasure ||
         meta.aggregationAllowed === true ||
         meta.allowAggregation === true ||
         meta.canAggregate === true;
+
 
     return {
 
@@ -281,6 +365,9 @@ function normalizeField(
             name,
 
         id:
+            name,
+
+        technicalName:
             name,
 
         title,
@@ -306,6 +393,7 @@ function normalizeField(
             aggregationAllowed,
 
         index
+
     };
 }
 
@@ -317,6 +405,7 @@ function normalizeField(
 function normalizeColumns(raw) {
 
     const result = [];
+
 
     function add(
         name,
@@ -332,18 +421,21 @@ function normalizeColumns(raw) {
                 forcedMeasure
             );
 
+
         if (field) {
             result.push(field);
         }
     }
 
+
     if (!raw) {
         return [];
     }
 
-    // --------------------------------------------------------
+
+    // ----------------------------------------------------------
     // ARRAY
-    // --------------------------------------------------------
+    // ----------------------------------------------------------
 
     if (
         Array.isArray(raw)
@@ -367,17 +459,20 @@ function normalizeColumns(raw) {
                     return;
                 }
 
+
                 if (
                     item &&
                     typeof item === "object"
                 ) {
 
                     add(
+
+                        item.technicalName ||
                         item.field ||
                         item.key ||
                         item.code ||
                         item.id ||
-                        item.technicalName,
+                        item.name,
 
                         item,
 
@@ -388,25 +483,21 @@ function normalizeColumns(raw) {
                 }
             }
         );
-
     }
 
-    // --------------------------------------------------------
+
+    // ----------------------------------------------------------
     // OBJECT
-    // --------------------------------------------------------
+    // ----------------------------------------------------------
 
     else if (
         typeof raw === "object"
     ) {
 
-        // ----------------------------------------------------
-        // { fields: [...] }
-        // ----------------------------------------------------
+        // fields
 
         if (
-            Array.isArray(
-                raw.fields
-            )
+            Array.isArray(raw.fields)
         ) {
 
             raw.fields.forEach(
@@ -426,11 +517,13 @@ function normalizeColumns(raw) {
                     } else if (item) {
 
                         add(
+
+                            item.technicalName ||
                             item.field ||
                             item.key ||
                             item.code ||
                             item.id ||
-                            item.technicalName,
+                            item.name,
 
                             item,
 
@@ -442,14 +535,11 @@ function normalizeColumns(raw) {
             );
         }
 
-        // ----------------------------------------------------
-        // { columns: [...] }
-        // ----------------------------------------------------
+
+        // columns
 
         if (
-            Array.isArray(
-                raw.columns
-            )
+            Array.isArray(raw.columns)
         ) {
 
             raw.columns.forEach(
@@ -469,11 +559,13 @@ function normalizeColumns(raw) {
                     } else if (item) {
 
                         add(
+
+                            item.technicalName ||
                             item.field ||
                             item.key ||
                             item.code ||
                             item.id ||
-                            item.technicalName,
+                            item.name,
 
                             item,
 
@@ -485,14 +577,11 @@ function normalizeColumns(raw) {
             );
         }
 
-        // ----------------------------------------------------
+
         // dimensions
-        // ----------------------------------------------------
 
         if (
-            Array.isArray(
-                raw.dimensions
-            )
+            Array.isArray(raw.dimensions)
         ) {
 
             raw.dimensions.forEach(
@@ -513,11 +602,13 @@ function normalizeColumns(raw) {
                     } else if (item) {
 
                         add(
+
+                            item.technicalName ||
                             item.field ||
                             item.key ||
                             item.code ||
                             item.id ||
-                            item.technicalName,
+                            item.name,
 
                             item,
 
@@ -528,14 +619,11 @@ function normalizeColumns(raw) {
             );
         }
 
-        // ----------------------------------------------------
+
         // measures
-        // ----------------------------------------------------
 
         if (
-            Array.isArray(
-                raw.measures
-            )
+            Array.isArray(raw.measures)
         ) {
 
             raw.measures.forEach(
@@ -556,11 +644,13 @@ function normalizeColumns(raw) {
                     } else if (item) {
 
                         add(
+
+                            item.technicalName ||
                             item.field ||
                             item.key ||
                             item.code ||
                             item.id ||
-                            item.technicalName,
+                            item.name,
 
                             item,
 
@@ -571,14 +661,15 @@ function normalizeColumns(raw) {
             );
         }
 
-        // ----------------------------------------------------
-        // ГЛАВНЫЙ ВАРИАНТ IIKO
+
+        // ------------------------------------------------------
+        // MAIN IIKO FORMAT
         //
         // {
         //   "CashRegisterName": {...},
         //   "DishSumInt": {...}
         // }
-        // ----------------------------------------------------
+        // ------------------------------------------------------
 
         Object.entries(raw)
             .forEach(
@@ -597,6 +688,7 @@ function normalizeColumns(raw) {
                         return;
                     }
 
+
                     if (
                         !value ||
                         typeof value !== "object" ||
@@ -605,9 +697,11 @@ function normalizeColumns(raw) {
                         return;
                     }
 
+
                     add(
                         key,
                         value,
+
                         value.aggregationAllowed === true ||
                         value.isMeasure === true ||
                         value.measure === true
@@ -616,18 +710,21 @@ function normalizeColumns(raw) {
             );
     }
 
-    // --------------------------------------------------------
+
+    // ----------------------------------------------------------
     // DEDUPE
-    // --------------------------------------------------------
+    // ----------------------------------------------------------
 
     const map =
         new Map();
+
 
     result.forEach(
         field => {
 
             const key =
                 field.name.toLowerCase();
+
 
             if (
                 !map.has(key)
@@ -643,9 +740,11 @@ function normalizeColumns(raw) {
                 const old =
                     map.get(key);
 
+
                 map.set(
                     key,
                     {
+
                         ...old,
                         ...field,
 
@@ -660,11 +759,13 @@ function normalizeColumns(raw) {
                         aggregationAllowed:
                             old.aggregationAllowed ||
                             field.aggregationAllowed
+
                     }
                 );
             }
         }
     );
+
 
     return Array.from(
         map.values()
@@ -694,7 +795,9 @@ async function getOlapColumns(
         `?key=${encodeURIComponent(token)}` +
         `&reportType=${encodeURIComponent(reportType)}`;
 
+
     let response;
+
 
     try {
 
@@ -714,12 +817,17 @@ async function getOlapColumns(
     } catch (error) {
 
         throw new Error(
-            `Ошибка соединения с iiko при получении OLAP-полей: ${error?.message || "fetch failed"}`
+            `Ошибка соединения с iiko при получении OLAP-полей: ${
+                error?.message ||
+                "fetch failed"
+            }`
         );
     }
 
+
     const text =
         await response.text();
+
 
     console.log(
         `[OLAP][${rid}] COLUMNS HTTP`,
@@ -728,7 +836,9 @@ async function getOlapColumns(
         text.length
     );
 
+
     let raw = null;
+
 
     try {
 
@@ -740,14 +850,18 @@ async function getOlapColumns(
         raw = null;
     }
 
+
     if (
         !response.ok
     ) {
 
         throw new Error(
-            `iiko OLAP columns HTTP ${response.status}: ${text.slice(0, 5000)}`
+            `iiko OLAP columns HTTP ${
+                response.status
+            }: ${text.slice(0, 5000)}`
         );
     }
+
 
     if (!raw) {
 
@@ -756,10 +870,10 @@ async function getOlapColumns(
         );
     }
 
+
     const fields =
-        normalizeColumns(
-            raw
-        );
+        normalizeColumns(raw);
+
 
     if (
         !fields.length
@@ -770,19 +884,25 @@ async function getOlapColumns(
         );
     }
 
+
     return {
+
         raw,
+
         fields,
+
         httpStatus:
             response.status,
+
         rawText:
             text
+
     };
 }
 
 
 // ============================================================
-// ARRAY
+// TO ARRAY
 // ============================================================
 
 function toArray(value) {
@@ -793,6 +913,7 @@ function toArray(value) {
         return [];
     }
 
+
     return value
         .map(
             item => {
@@ -800,8 +921,10 @@ function toArray(value) {
                 if (
                     typeof item === "string"
                 ) {
+
                     return clean(item);
                 }
+
 
                 if (
                     item &&
@@ -809,17 +932,225 @@ function toArray(value) {
                 ) {
 
                     return clean(
+
+                        item.technicalName ||
                         item.field ||
                         item.name ||
                         item.key ||
+                        item.code ||
                         item.id
+
                     );
                 }
+
 
                 return "";
             }
         )
         .filter(Boolean);
+}
+
+
+// ============================================================
+// NORMALIZE FILTER OPERATOR
+// ============================================================
+
+function normalizeFilterOperator(
+    operator
+) {
+
+    const value =
+        clean(operator)
+            .toLowerCase();
+
+
+    if (
+        value === "exclude" ||
+        value === "not equal" ||
+        value === "notequal"
+    ) {
+
+        return "ExcludeValues";
+    }
+
+
+    if (
+        value === "includelist" ||
+        value === "includevalues" ||
+        value === "include_list"
+    ) {
+
+        return "IncludeValues";
+    }
+
+
+    if (
+        value === "excludelist" ||
+        value === "excludevalues" ||
+        value === "exclude_list"
+    ) {
+
+        return "ExcludeValues";
+    }
+
+
+    if (
+        value === "daterange" ||
+        value === "date_range"
+    ) {
+
+        return "DateRange";
+    }
+
+
+    return "IncludeValues";
+}
+
+
+// ============================================================
+// ADD ARRAY FILTER
+// ============================================================
+
+function addArrayFilter(
+    filters,
+    item
+) {
+
+    const field =
+        clean(
+            item?.field ||
+            item?.technicalName ||
+            item?.name ||
+            item?.key ||
+            item?.code ||
+            item?.id
+        );
+
+
+    if (!field) {
+        return;
+    }
+
+
+    const operator =
+        normalizeFilterOperator(
+            item?.operator
+        );
+
+
+    // ----------------------------------------------------------
+    // DATE RANGE
+    // ----------------------------------------------------------
+
+    if (
+        operator === "DateRange"
+    ) {
+
+        const from =
+            clean(
+                item?.from
+            ).slice(0, 10);
+
+
+        const to =
+            clean(
+                item?.to ||
+                item?.from
+            ).slice(0, 10);
+
+
+        if (
+            !from ||
+            !to
+        ) {
+            return;
+        }
+
+
+        filters[field] = {
+
+            filterType:
+                "DateRange",
+
+            periodType:
+                "CUSTOM",
+
+            // IMPORTANT:
+            // DATE ONLY.
+            // NO T00:00:00
+            // NO T23:59:59
+
+            from,
+
+            to,
+
+            includeLow:
+                true,
+
+            includeHigh:
+                true
+
+        };
+
+
+        return;
+    }
+
+
+    // ----------------------------------------------------------
+    // LIST
+    // ----------------------------------------------------------
+
+    if (
+        Array.isArray(
+            item?.values
+        )
+    ) {
+
+        filters[field] = {
+
+            filterType:
+                operator,
+
+            values:
+                item.values
+                    .map(
+                        value =>
+                            value
+                    )
+                    .filter(
+                        value =>
+                            value !== ""
+                    )
+
+        };
+
+
+        return;
+    }
+
+
+    // ----------------------------------------------------------
+    // SINGLE VALUE
+    // ----------------------------------------------------------
+
+    if (
+        item?.value !== undefined &&
+        item?.value !== null &&
+        item?.value !== ""
+    ) {
+
+        filters[field] = {
+
+            filterType:
+                operator,
+
+            values: [
+                item.value
+            ]
+
+        };
+    }
 }
 
 
@@ -833,14 +1164,15 @@ function buildRequest(body) {
         clean(
             body.reportType ||
             "SALES"
-        )
-            .toUpperCase();
+        ).toUpperCase();
+
 
     const rows =
         toArray(
             body.groupByRowFields ??
             body.rows
         );
+
 
     const columns =
         toArray(
@@ -849,8 +1181,11 @@ function buildRequest(body) {
             body.columns
         );
 
+
     const measures =
-        Array.isArray(body.measures)
+        Array.isArray(
+            body.measures
+        )
 
             ? body.measures
                 .map(
@@ -862,11 +1197,16 @@ function buildRequest(body) {
                             return clean(item);
                         }
 
+
                         return clean(
+
+                            item?.technicalName ||
                             item?.field ||
                             item?.name ||
                             item?.key ||
+                            item?.code ||
                             item?.id
+
                         );
                     }
                 )
@@ -876,7 +1216,15 @@ function buildRequest(body) {
                 body.aggregateFields
             );
 
+
+    // ----------------------------------------------------------
+    // FILTERS
+    // ----------------------------------------------------------
+
     let filters = {};
+
+
+    // Existing object filters
 
     if (
         body.filters &&
@@ -892,9 +1240,10 @@ function buildRequest(body) {
             );
     }
 
-    // --------------------------------------------------------
-    // ARRAY FILTERS
-    // --------------------------------------------------------
+
+    // ----------------------------------------------------------
+    // ARRAY FILTERS FROM FRONTEND
+    // ----------------------------------------------------------
 
     if (
         Array.isArray(body.filters)
@@ -904,54 +1253,21 @@ function buildRequest(body) {
             const item of body.filters
         ) {
 
-            const field =
-                clean(
-                    item?.field ||
-                    item?.name ||
-                    item?.key
-                );
-
-            if (!field) {
-                continue;
-            }
-
-            if (
-                item.values &&
-                Array.isArray(
-                    item.values
-                )
-            ) {
-
-                filters[field] = {
-
-                    filterType:
-                        "Include",
-
-                    values:
-                        item.values
-                };
-
-            } else if (
-                item.value !== undefined &&
-                item.value !== ""
-            ) {
-
-                filters[field] = {
-
-                    filterType:
-                        "Include",
-
-                    values: [
-                        item.value
-                    ]
-                };
-            }
+            addArrayFilter(
+                filters,
+                item
+            );
         }
     }
 
-    // --------------------------------------------------------
-    // DATE FILTER
-    // --------------------------------------------------------
+
+    // ----------------------------------------------------------
+    // MAIN REPORT PERIOD
+    //
+    // IMPORTANT:
+    // OpenDate.Typed is DATE.
+    // Send YYYY-MM-DD only.
+    // ----------------------------------------------------------
 
     if (
         body.from ||
@@ -961,15 +1277,15 @@ function buildRequest(body) {
         const from =
             clean(
                 body.from
-            )
-                .slice(0, 10);
+            ).slice(0, 10);
+
 
         const to =
             clean(
                 body.to ||
                 body.from
-            )
-                .slice(0, 10);
+            ).slice(0, 10);
+
 
         if (
             from &&
@@ -986,20 +1302,23 @@ function buildRequest(body) {
                 periodType:
                     "CUSTOM",
 
-                from:
-                    `${from}T00:00:00.000`,
+                // IMPORTANT:
+                // NO TIME HERE
 
-                to:
-                    `${to}T23:59:59.999`,
+                from,
+
+                to,
 
                 includeLow:
                     true,
 
                 includeHigh:
                     true
+
             };
         }
     }
+
 
     return {
 
@@ -1018,6 +1337,7 @@ function buildRequest(body) {
             measures,
 
         filters
+
     };
 }
 
@@ -1034,9 +1354,12 @@ async function runQuery(
 ) {
 
     const request =
-        buildRequest(
-            body
-        );
+        buildRequest(body);
+
+
+    // ----------------------------------------------------------
+    // EMPTY QUERY
+    // ----------------------------------------------------------
 
     if (
         request.groupByRowFields.length === 0 &&
@@ -1056,14 +1379,18 @@ async function runQuery(
                 "Выберите хотя бы одно поле в Строки, Колонки или Показатели",
 
             request
+
         };
     }
+
 
     const url =
         `${serverUrl}/resto/api/v2/reports/olap` +
         `?key=${encodeURIComponent(token)}`;
 
+
     let response;
+
 
     try {
 
@@ -1071,7 +1398,9 @@ async function runQuery(
             await fetch(
                 url,
                 {
-                    method: "POST",
+
+                    method:
+                        "POST",
 
                     headers: {
 
@@ -1080,12 +1409,14 @@ async function runQuery(
 
                         Accept:
                             "application/json"
+
                     },
 
                     body:
                         JSON.stringify(
                             request
                         )
+
                 }
             );
 
@@ -1100,25 +1431,36 @@ async function runQuery(
                 "FETCH_ERROR",
 
             message:
-                `Ошибка соединения с iiko OLAP: ${error?.message || "fetch failed"}`,
+                `Ошибка соединения с iiko OLAP: ${
+                    error?.message ||
+                    "fetch failed"
+                }`,
 
             request
+
         };
     }
+
 
     const text =
         await response.text();
 
-    let report = null;
+
+    let report =
+        null;
+
 
     try {
 
         report =
-            JSON.parse(
-                text
-            );
+            JSON.parse(text);
 
-    } catch (_) {}
+    } catch (_) {
+
+        report =
+            null;
+    }
+
 
     console.log(
         `[OLAP][${rid}] QUERY HTTP`,
@@ -1127,20 +1469,26 @@ async function runQuery(
         text.length
     );
 
+
     console.log(
         `[OLAP][${rid}] QUERY REQUEST`,
-        JSON.stringify(request)
+        JSON.stringify(
+            request
+        )
     );
 
-    // --------------------------------------------------------
+
+    // ----------------------------------------------------------
     // REAL IIKO ERROR
-    // --------------------------------------------------------
+    // ----------------------------------------------------------
 
     if (
         !response.ok
     ) {
 
-        let detail = "";
+        let detail =
+            "";
+
 
         if (
             report &&
@@ -1154,13 +1502,16 @@ async function runQuery(
                 "";
         }
 
+
         if (!detail) {
+
             detail =
                 text.slice(
                     0,
                     5000
                 );
         }
+
 
         return {
 
@@ -1171,7 +1522,9 @@ async function runQuery(
                 "IIKO_ERROR",
 
             message:
-                `iiko OLAP HTTP ${response.status}` +
+                `iiko OLAP HTTP ${
+                    response.status
+                }` +
                 (
                     detail
                         ? `: ${detail}`
@@ -1193,12 +1546,14 @@ async function runQuery(
                     0,
                     30000
                 )
+
         };
     }
 
-    // --------------------------------------------------------
+
+    // ----------------------------------------------------------
     // HTTP 200 BUT ERROR INSIDE BODY
-    // --------------------------------------------------------
+    // ----------------------------------------------------------
 
     const errorInsideBody =
         report &&
@@ -1210,6 +1565,7 @@ async function runQuery(
             report.errorCode
         );
 
+
     if (
         errorInsideBody
     ) {
@@ -1219,6 +1575,7 @@ async function runQuery(
             report.errorMessage ||
             report.errorCode ||
             "iiko вернул ошибку внутри HTTP 200";
+
 
         return {
 
@@ -1243,8 +1600,14 @@ async function runQuery(
                     0,
                     30000
                 )
+
         };
     }
+
+
+    // ----------------------------------------------------------
+    // SUCCESS
+    // ----------------------------------------------------------
 
     return {
 
@@ -1266,6 +1629,7 @@ async function runQuery(
                 0,
                 30000
             )
+
     };
 }
 
@@ -1279,10 +1643,13 @@ export async function onRequestOptions() {
     return new Response(
         null,
         {
-            status: 204,
+
+            status:
+                204,
 
             headers:
                 corsHeaders()
+
         }
     );
 }
@@ -1299,6 +1666,7 @@ export async function onRequestGet(
     const rid =
         requestId();
 
+
     try {
 
         const url =
@@ -1306,33 +1674,43 @@ export async function onRequestGet(
                 context.request.url
             );
 
+
         const body = {
 
             ip:
-                url.searchParams.get("ip") ||
-                "",
+                url.searchParams.get(
+                    "ip"
+                ) || "",
 
             port:
-                url.searchParams.get("port") ||
-                "",
+                url.searchParams.get(
+                    "port"
+                ) || "",
 
             login:
-                url.searchParams.get("login") ||
-                "",
+                url.searchParams.get(
+                    "login"
+                ) || "",
 
             password:
-                url.searchParams.get("password") ||
-                "",
+                url.searchParams.get(
+                    "password"
+                ) || "",
 
             reportType:
-                url.searchParams.get("reportType") ||
+                url.searchParams.get(
+                    "reportType"
+                ) ||
                 "SALES"
+
         };
+
 
         const c =
             credentials(
                 body
             );
+
 
         const auth =
             await authenticate(
@@ -1343,6 +1721,7 @@ export async function onRequestGet(
                 rid
             );
 
+
         const result =
             await getOlapColumns(
                 auth.serverUrl,
@@ -1352,6 +1731,7 @@ export async function onRequestGet(
                 ).toUpperCase(),
                 rid
             );
+
 
         return jsonResponse(
             {
@@ -1390,6 +1770,7 @@ export async function onRequestGet(
             error
         );
 
+
         return jsonResponse(
             {
 
@@ -1424,9 +1805,11 @@ export async function onRequestPost(
     const rid =
         requestId();
 
+
     try {
 
         let body;
+
 
         try {
 
@@ -1455,24 +1838,26 @@ export async function onRequestPost(
             );
         }
 
+
         const c =
             credentials(
                 body
             );
 
+
         const reportType =
             clean(
                 body.reportType ||
                 "SALES"
-            )
-                .toUpperCase();
+            ).toUpperCase();
+
 
         const action =
             clean(
                 body.action ||
                 "query"
-            )
-                .toLowerCase();
+            ).toLowerCase();
+
 
         const auth =
             await authenticate(
@@ -1483,9 +1868,10 @@ export async function onRequestPost(
                 rid
             );
 
-        // ====================================================
+
+        // ======================================================
         // FIELDS
-        // ====================================================
+        // ======================================================
 
         if (
             action === "fields"
@@ -1498,6 +1884,7 @@ export async function onRequestPost(
                     reportType,
                     rid
                 );
+
 
             return jsonResponse(
                 {
@@ -1527,9 +1914,10 @@ export async function onRequestPost(
             );
         }
 
-        // ====================================================
+
+        // ======================================================
         // QUERY
-        // ====================================================
+        // ======================================================
 
         if (
             action === "query"
@@ -1543,43 +1931,52 @@ export async function onRequestPost(
                     rid
                 );
 
-            // ВАЖНО:
-            // если iiko ответил 400,
-            // наружу тоже отдаём 400.
-            //
-            // Больше не будет:
-            //
-            // "Ошибка OLAP HTTP 200"
-            //
 
-            const status =
+            let status;
+
+
+            if (
                 result.success
+            ) {
 
-                    ? 200
+                status =
+                    200;
 
-                    : Math.min(
+            } else {
+
+                status =
+                    Math.min(
                         599,
+
                         Math.max(
                             400,
+
                             Number(
                                 result.iikoHttpStatus
                             ) || 502
                         )
                     );
+            }
+
 
             return jsonResponse(
                 {
+
                     ...result,
+
                     requestId:
                         rid
+
                 },
+
                 status
             );
         }
 
-        // ====================================================
-        // UNKNOWN
-        // ====================================================
+
+        // ======================================================
+        // UNKNOWN ACTION
+        // ======================================================
 
         return jsonResponse(
             {
@@ -1611,6 +2008,7 @@ export async function onRequestPost(
             `[OLAP][${rid}] POST ERROR`,
             error
         );
+
 
         return jsonResponse(
             {
