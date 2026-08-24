@@ -9,3 +9,6 @@ html[data-theme="dark"]{--bg:#0f1117;--surface:#171a22;--surface2:#1d212b;--text
 :root{--app-bg:#f5f7fb;--card:#fff;--text:#171a21;--muted:#697386;--border:#e5e7eb;--input:#fff;--soft:#f3f5f9;--accent:#6f6cff;}
 :root[data-theme="dark"]{--app-bg:#0f1117;--card:#181c24;--text:#f3f4f6;--muted:#9aa3b2;--border:#2b313d;--input:#12151c;--soft:#20252f;--accent:#8b7cff;}
 body{background:var(--app-bg);color:var(--text);}
+
+.user-chip{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:10px;padding:7px 10px;font-size:13px;font-weight:650;cursor:pointer;text-decoration:none}.user-avatar{width:25px;height:25px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--accent);color:#fff;font-size:12px;font-weight:800}.user-chip[data-auth-logout]{border:1px solid var(--line)}
+@media(max-width:720px){.user-chip{font-size:0;padding:7px}.user-chip .user-avatar{font-size:12px}}

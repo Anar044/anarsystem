@@ -25,7 +25,7 @@
 @media(max-width:700px){.settings-grid{grid-template-columns:1fr}.settings-page{padding:24px 16px 50px}}
 </style>
 </head>
-<body>
+<body data-protected="true">
 <div class="app-shell">
 <aside class="sidebar">
  <div class="brand">SH_<span>Reports</span></div>
@@ -43,7 +43,7 @@
  <button class="theme-btn" onclick="toggleSHTheme()" data-theme-label>🌙 Тёмная тема</button>
 </aside>
 <main class="main">
-<header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Настройки</span><div class="topbar-sub">Подключение к iiko Server</div></div><div class="top-actions"><a class="period-chip" href="index.html">← Обзор</a></div></header>
+<header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Настройки</span><div class="topbar-sub">Подключение к iiko Server</div></div><div class="top-actions"><span class="user-chip"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span></span><button class="icon-btn" data-auth-logout>Выйти</button><a class="period-chip" href="index.html">← Обзор</a></div></header>
 <section class="app-content settings-page">
  <div class="settings-card">
   <h1>Подключение к iiko Server</h1>
@@ -62,6 +62,9 @@
  </div>
 </section>
 </main></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script>
+<script src="auth.js"></script>
 <script src="app-shell.js"></script>
 <script src="reports.js"></script>
 </body></html>

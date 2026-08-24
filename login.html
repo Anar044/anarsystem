@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>SH_Reports — Вход</title>
+<link rel="stylesheet" href="auth.css">
+</head>
+<body data-auth-page="login">
+<div class="auth-page">
+ <div class="auth-theme"><button type="button" onclick="toggleSHTheme()" data-theme-label>🌙 Тёмная тема</button></div>
+ <div class="auth-wrap">
+  <div class="auth-brand">SH_<span>Reports</span></div>
+  <div class="auth-card">
+   <h1>Вход в SH_Reports</h1>
+   <p class="lead">Войдите, чтобы открыть аналитическую панель и OLAP-отчёты.</p>
+   <div id="auth-message" class="auth-message" hidden></div>
+   <form id="login-form" novalidate>
+    <div class="auth-field"><label for="login-email">Email</label><input id="login-email" type="email" autocomplete="email" placeholder="you@example.com" required></div>
+    <div class="auth-field"><label for="login-password">Пароль</label><input id="login-password" type="password" autocomplete="current-password" placeholder="Введите пароль" required></div>
+    <button class="auth-submit" type="submit">Войти</button>
+   </form>
+   <div class="auth-links"><a href="forgot-password.html">Забыли пароль?</a><a href="register.html">Создать аккаунт</a></div>
+   <div class="auth-note">Доступ к SH_Reports предоставляется только зарегистрированным пользователям.</div>
+  </div>
+ </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script>
+<script src="app-shell.js"></script>
+<script src="auth.js"></script>
+</body>
+</html>

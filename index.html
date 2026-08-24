@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>SH_Reports — Аналитика</title><link rel="stylesheet" href="app-shell.css"></head>
-<body>
+<body data-protected="true">
 <div class="app-shell">
 <aside class="sidebar">
  <div class="brand">SH_<span>Reports</span></div>
@@ -16,7 +16,7 @@
  <button class="theme-btn" onclick="toggleSHTheme()" data-theme-label>🌙 Тёмная тема</button>
 </aside>
 <main class="main">
- <header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Обзор</span><div class="topbar-sub">Аналитическая панель ресторана</div></div><div class="top-actions"><span class="period-chip">01.08.2026 — 24.08.2026</span><button class="icon-btn">↻ Обновить</button></div></header>
+ <header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Обзор</span><div class="topbar-sub">Аналитическая панель ресторана</div></div><div class="top-actions"><span class="period-chip">01.08.2026 — 24.08.2026</span><button class="icon-btn">↻ Обновить</button><button class="user-chip" data-auth-logout title="Выйти"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span> ↪</button></div></header>
  <section class="page app-content">
   <div class="page-head"><div><h1>Добро пожаловать в SH_Reports</h1><p>Все ключевые показатели бизнеса в одном месте.</p></div></div>
   <div class="kpis">
@@ -33,5 +33,8 @@
   <section class="grid-2" style="margin-top:16px"><div class="card panel"><div class="panel-title">Быстрые действия</div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:15px"><a class="period-chip" href="reports.html">📊 Открыть отчёты</a><a class="period-chip" href="reports.html#constructor">⌘ Открыть конструктор</a></div></div><div class="card panel"><div class="panel-title">Подключение</div><div class="panel-muted" style="margin-top:8px">iiko подключение и параметры отчётов находятся в разделе отчётов.</div></div></section>
  </section>
 </main></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script>
+<script src="auth.js"></script>
 <script src="app-shell.js"></script>
 </body></html>

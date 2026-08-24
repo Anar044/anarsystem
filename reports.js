@@ -2885,7 +2885,17 @@
     // INIT
     // ============================================================
 
-    function init() {
+    async function init() {
+
+        // Авторизация SH_Reports: OLAP и подключение доступны
+        // только после успешного входа пользователя.
+        if (window.SHAuth) {
+            const user = await window.SHAuth.getUser();
+            if (!user) {
+                return;
+            }
+            window.SH_CURRENT_USER = user;
+        }
 
         createOlapBuilder();
 

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>SH_Reports — Регистрация</title>
+<link rel="stylesheet" href="auth.css">
+</head>
+<body data-auth-page="register">
+<div class="auth-page">
+ <div class="auth-theme"><button type="button" onclick="toggleSHTheme()" data-theme-label>🌙 Тёмная тема</button></div>
+ <div class="auth-wrap">
+  <div class="auth-brand">SH_<span>Reports</span></div>
+  <div class="auth-card">
+   <h1>Создать аккаунт</h1>
+   <p class="lead">Заполните данные. После регистрации подтвердите email по ссылке из письма.</p>
+   <div id="auth-message" class="auth-message" hidden></div>
+   <form id="register-form" novalidate>
+    <div class="auth-grid">
+     <div class="auth-field"><label for="register-first-name">Имя</label><input id="register-first-name" type="text" autocomplete="given-name" placeholder="Имя" required></div>
+     <div class="auth-field"><label for="register-last-name">Фамилия</label><input id="register-last-name" type="text" autocomplete="family-name" placeholder="Фамилия" required></div>
+     <div class="auth-field full"><label for="register-email">Email</label><input id="register-email" type="email" autocomplete="email" placeholder="you@example.com" required></div>
+     <div class="auth-field full"><label for="register-phone">Номер телефона</label><input id="register-phone" type="tel" autocomplete="tel" placeholder="+994 XX XXX XX XX" required></div>
+     <div class="auth-field"><label for="register-password">Пароль</label><input id="register-password" type="password" autocomplete="new-password" placeholder="Минимум 8 символов" required></div>
+     <div class="auth-field"><label for="register-password2">Повторите пароль</label><input id="register-password2" type="password" autocomplete="new-password" placeholder="Повторите пароль" required></div>
+    </div>
+    <label class="auth-check"><input id="register-terms" type="checkbox"><span>Я согласен с условиями использования SH_Reports и обработкой данных, необходимых для работы аккаунта.</span></label>
+    <button class="auth-submit" type="submit">Зарегистрироваться</button>
+   </form>
+   <div class="auth-links"><a href="login.html">← Вернуться ко входу</a></div>
+  </div>
+ </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script>
+<script src="app-shell.js"></script>
+<script src="auth.js"></script>
+</body>
+</html>
