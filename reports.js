@@ -1579,6 +1579,54 @@
                 </div>
 
 
+                <div class="olap-filters-panel">
+
+                    <h3>Фильтры</h3>
+
+                    <div class="olap-filter-editor">
+
+                        <label>
+                            Поле
+                            <select id="olap-filter-field"></select>
+                        </label>
+
+                        <label>
+                            Условие
+                            <select id="olap-filter-operator">
+                                <option value="Include">Равно</option>
+                                <option value="Exclude">Не равно</option>
+                                <option value="IncludeList">В списке</option>
+                                <option value="ExcludeList">Не в списке</option>
+                                <option value="DateRange">Диапазон дат</option>
+                            </select>
+                        </label>
+
+                        <label id="olap-filter-value-label" class="olap-filter-value-wrap">
+                            Значение
+                            <input id="olap-filter-value" type="text" placeholder="Например: Ресторан №1">
+                        </label>
+
+                        <label id="olap-filter-from-label" class="olap-filter-date-wrap" style="display:none">
+                            От
+                            <input id="olap-filter-from" type="date">
+                        </label>
+
+                        <label id="olap-filter-to-label" class="olap-filter-date-wrap" style="display:none">
+                            До
+                            <input id="olap-filter-to" type="date">
+                        </label>
+
+                        <button type="button" id="olap-add-filter">+ Добавить фильтр</button>
+
+                    </div>
+
+                    <div id="olap-filters" class="olap-filters-list">
+                        <div class="olap-empty">Фильтры не заданы</div>
+                    </div>
+
+                </div>
+
+
                 <div class="olap-period">
 
                     <h3>
@@ -1980,40 +2028,210 @@
         index
     ) {
 
-        if (
-            type === "rows"
-        ) {
-
-            olapRows.splice(
-                index,
-                1
-            );
+        if (type === "rows") {
+            olapRows.splice(index, 1);
         }
 
-
-        if (
-            type === "columns"
-        ) {
-
-            olapColumns.splice(
-                index,
-                1
-            );
+        if (type === "columns") {
+            olapColumns.splice(index, 1);
         }
 
-
-        if (
-            type === "measures"
-        ) {
-
-            olapMeasures.splice(
-                index,
-                1
-            );
+        if (type === "measures") {
+            olapMeasures.splice(index, 1);
         }
-
 
         renderSelectedOlapFields();
+    }
+
+
+    // ============================================================
+    // OLAP FILTERS
+    // ============================================================
+
+    function getFilterableOlapFields() {
+
+        return olapFields.filter(
+            field => field && field.filteringAllowed !== false
+        );
+    }
+
+
+    function renderOlapFilterEditor() {
+
+        const select = getElement("olap-filter-field");
+
+        if (!select) {
+            return;
+        }
+
+        const current = select.value;
+
+        const fields = getFilterableOlapFields();
+
+        select.innerHTML = fields.length
+            ? fields.map(field => {
+                const name = resolveTechnicalOlapFieldName(field);
+                return `<option value="${escapeHtml(name)}">${escapeHtml(field.title || name)}</option>`;
+            }).join("")
+            : `<option value="">Нет доступных полей</option>`;
+
+        if (fields.some(field => resolveTechnicalOlapFieldName(field) === current)) {
+            select.value = current;
+        }
+
+        updateOlapFilterInputMode();
+    }
+
+
+    function updateOlapFilterInputMode() {
+
+        const operator = getElement("olap-filter-operator");
+        const valueLabel = getElement("olap-filter-value-label");
+        const fromLabel = getElement("olap-filter-from-label");
+        const toLabel = getElement("olap-filter-to-label");
+
+        const isDateRange = operator && operator.value === "DateRange";
+
+        if (valueLabel) {
+            valueLabel.style.display = isDateRange ? "none" : "block";
+        }
+
+        if (fromLabel) {
+            fromLabel.style.display = isDateRange ? "block" : "none";
+        }
+
+        if (toLabel) {
+            toLabel.style.display = isDateRange ? "block" : "none";
+        }
+
+        const value = getElement("olap-filter-value");
+
+        if (value) {
+            value.placeholder = operator &&
+                (operator.value === "IncludeList" || operator.value === "ExcludeList")
+                ? "Несколько значений через запятую"
+                : "Например: Ресторан №1";
+        }
+    }
+
+
+    function renderOlapFilters() {
+
+        const container = getElement("olap-filters");
+
+        if (!container) {
+            return;
+        }
+
+        if (!olapFilters.length) {
+            container.innerHTML = `<div class="olap-empty">Фильтры не заданы</div>`;
+            return;
+        }
+
+        container.innerHTML = olapFilters.map((filter, index) => {
+
+            const field = findOlapField(filter.field);
+            const title = field ? field.title : filter.field;
+            let condition = "Равно";
+            let value = filter.value || "";
+
+            if (filter.operator === "Exclude") condition = "Не равно";
+            if (filter.operator === "IncludeList") {
+                condition = "В списке";
+                value = (filter.values || []).join(", ");
+            }
+            if (filter.operator === "ExcludeList") {
+                condition = "Не в списке";
+                value = (filter.values || []).join(", ");
+            }
+            if (filter.operator === "DateRange") {
+                condition = "Диапазон";
+                value = `${filter.from || ""} — ${filter.to || ""}`;
+            }
+
+            return `
+                <div class="olap-filter-item">
+                    <div>
+                        <strong>${escapeHtml(title)}</strong>
+                        <small>${escapeHtml(condition)} • ${escapeHtml(value)}</small>
+                    </div>
+                    <button type="button" data-filter-index="${index}" title="Удалить">×</button>
+                </div>
+            `;
+        }).join("");
+
+        container.querySelectorAll("[data-filter-index]").forEach(button => {
+            button.addEventListener("click", () => {
+                const index = Number(button.dataset.filterIndex);
+                olapFilters.splice(index, 1);
+                renderOlapFilters();
+            });
+        });
+    }
+
+
+    function addOlapFilter() {
+
+        const fieldElement = getElement("olap-filter-field");
+        const operatorElement = getElement("olap-filter-operator");
+        const valueElement = getElement("olap-filter-value");
+        const fromElement = getElement("olap-filter-from");
+        const toElement = getElement("olap-filter-to");
+
+        const field = resolveTechnicalOlapFieldName(fieldElement ? fieldElement.value : "");
+        const operator = operatorElement ? operatorElement.value : "Include";
+
+        if (!field) {
+            throw new Error("Выберите поле для фильтра");
+        }
+
+        if (operator === "DateRange") {
+
+            const from = fromElement ? fromElement.value : "";
+            const to = toElement ? toElement.value : "";
+
+            if (!from || !to) {
+                throw new Error("Укажите обе даты фильтра");
+            }
+
+            if (from > to) {
+                throw new Error("Дата 'От' не может быть больше даты 'До'");
+            }
+
+            olapFilters.push({ field, operator, from, to });
+
+        } else {
+
+            const raw = valueElement ? valueElement.value.trim() : "";
+
+            if (!raw) {
+                throw new Error("Укажите значение фильтра");
+            }
+
+            const listMode = operator === "IncludeList" || operator === "ExcludeList";
+            const values = listMode
+                ? raw.split(/[,\n;]+/).map(value => value.trim()).filter(Boolean)
+                : [raw];
+
+            if (!values.length) {
+                throw new Error("Укажите хотя бы одно значение фильтра");
+            }
+
+            olapFilters.push({
+                field,
+                operator: listMode
+                    ? (operator === "IncludeList" ? "IncludeList" : "ExcludeList")
+                    : operator,
+                value: values[0],
+                values
+            });
+        }
+
+        if (valueElement) valueElement.value = "";
+        if (fromElement) fromElement.value = "";
+        if (toElement) toElement.value = "";
+
+        renderOlapFilters();
     }
 
 
@@ -2042,6 +2260,8 @@
             olapMeasures,
             "measures"
         );
+
+        renderOlapFilters();
     }
 
 
@@ -2372,6 +2592,12 @@
                 technicalMeasures,
 
 
+            filters:
+                olapFilters.map(filter => ({
+                    ...filter,
+                    field: resolveTechnicalOlapFieldName(filter.field)
+                })),
+
             from,
 
             to,
@@ -2679,6 +2905,7 @@
                         await loadOlapFields();
 
                         renderOlapFields();
+                        renderOlapFilterEditor();
 
                         setOlapStatus(
                             `🟢 Доступные поля OLAP: ${olapFields.length}`
@@ -2815,6 +3042,27 @@
         }
 
 
+        const filterOperator = getElement("olap-filter-operator");
+
+        if (filterOperator) {
+            filterOperator.addEventListener("change", updateOlapFilterInputMode);
+        }
+
+        const addFilterButton = getElement("olap-add-filter");
+
+        if (addFilterButton) {
+            addFilterButton.addEventListener("click", function () {
+                try {
+                    addOlapFilter();
+                } catch (error) {
+                    const result = getElement("olap-result");
+                    if (result) {
+                        result.innerHTML = `<div class="report-error">🔴 ${escapeHtml(error.message)}</div>`;
+                    }
+                }
+            });
+        }
+
         // --------------------------------------------------------
         // По умолчанию даты
         // --------------------------------------------------------
@@ -2845,7 +3093,7 @@
 
 
         renderOlapFields();
-
+        renderOlapFilterEditor();
         renderSelectedOlapFields();
     }
 
