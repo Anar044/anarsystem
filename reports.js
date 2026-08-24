@@ -3874,7 +3874,28 @@
         groups.forEach(
             (group, groupIndex) => {
 
-                if (rowFields.length) {
+                if (visibleRowFields.length) {
+
+                    const groupLabel =
+                        visibleRowFields
+                            .map(
+                                field =>
+                                    getOlapRowValue(
+                                        group.rows[0],
+                                        field
+                                    )
+                            )
+                            .filter(
+                                value =>
+                                    value !== null &&
+                                    value !== undefined &&
+                                    String(value).trim() !== ""
+                            )
+                            .join(" / ") ||
+                        "Без значения";
+
+                    const groupLabelField =
+                        visibleRowFields[0];
 
                     html += `
 
@@ -3882,45 +3903,49 @@
                             class="olap-group-row"
                             data-olap-group-index="${groupIndex}"
                         >
+                    `;
 
-                            <td
-                                colspan="${Math.max(
-                                    visibleColumns.length,
-                                    1
-                                )}"
-                            >
+                    visibleColumns.forEach(
+                        column => {
 
-                                <button
-                                    type="button"
-                                    class="olap-group-toggle"
-                                    data-olap-group-toggle="${groupIndex}"
-                                    aria-expanded="true"
-                                >
-                                    ▼
-                                </button>
+                            if (
+                                column ===
+                                groupLabelField
+                            ) {
 
-                                <strong>
-                                    ${escapeHtml(
-                                        rowFields
-                                            .map(
-                                                field =>
-                                                    getOlapRowValue(
-                                                        group.rows[0],
-                                                        field
-                                                    )
-                                            )
-                                            .filter(
-                                                value =>
-                                                    value !== null &&
-                                                    value !== undefined &&
-                                                    String(value).trim() !== ""
-                                            )
-                                            .join(" / ") ||
-                                        "Без значения"
-                                    )}
-                                </strong>
+                                html += `
 
-                            </td>
+                                    <td>
+
+                                        <button
+                                            type="button"
+                                            class="olap-group-toggle"
+                                            data-olap-group-toggle="${groupIndex}"
+                                            aria-expanded="true"
+                                        >
+                                            ▼
+                                        </button>
+
+                                        <strong>
+                                            ${escapeHtml(
+                                                groupLabel
+                                            )}
+                                        </strong>
+
+                                    </td>
+
+                                `;
+
+                            } else {
+
+                                html += `
+                                    <td></td>
+                                `;
+                            }
+                        }
+                    );
+
+                    html += `
 
                         </tr>
 
