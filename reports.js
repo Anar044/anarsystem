@@ -1036,164 +1036,20 @@
         fieldOrName
     ) {
 
-        if (
-            fieldOrName &&
-            typeof fieldOrName === "object"
-        ) {
+        // ========================================================
+        // ЕДИНСТВЕННОЕ ПРАВИЛО:
+        //
+        // В iiko всегда отправляем TECHNICAL NAME.
+        //
+        // Никогда не считаем русское display-name техническим
+        // именем, даже если оно случайно оказалось в field/name.
+        // ========================================================
 
-            const directTechnicalName =
-                fieldOrName.technicalName ||
-                fieldOrName.field ||
-                fieldOrName.key ||
-                fieldOrName.code ||
-                fieldOrName.id;
-
-
-            if (
-                directTechnicalName &&
-                typeof directTechnicalName === "string"
-            ) {
-
-                const direct =
-                    directTechnicalName.trim();
-
-                if (direct) {
-
-                    const directField =
-                        olapFields.find(
-                            field =>
-                                String(
-                                    field.name || ""
-                                ) === direct
-                        );
-
-
-                    if (directField) {
-                        return directField.name;
-                    }
-
-
-                    // Если поле уже явно является техническим
-                    // именем — оставляем его.
-                    if (
-                        direct.includes(".") ||
-                        /^[A-Za-z0-9_]+$/.test(direct)
-                    ) {
-
-                        return direct;
-                    }
-                }
-            }
-
-
-            // Если объект содержит field/technicalName, но это
-            // оказалось display-name (например "Сумма со скидкой"),
-            // НЕ теряем исходное значение. Ниже resolver должен
-            // обработать его через title / aliases.
-            fieldOrName =
-                fieldOrName.name ||
-                fieldOrName.title ||
-                directTechnicalName ||
-                "";
-        }
-
-
-        const value =
-            String(
-                fieldOrName || ""
-            ).trim();
-
-
-        if (!value) {
-            return "";
-        }
-
-
-        // --------------------------------------------------------
-        // Сначала точное совпадение технического имени
-        // --------------------------------------------------------
-
-        const exact =
-            olapFields.find(
-                field =>
-                    String(
-                        field.name || ""
-                    ).trim() === value
+        const hasCyrillic = value =>
+            /[А-Яа-яЁё]/.test(
+                String(value || "")
             );
 
-
-        if (exact) {
-            return exact.name;
-        }
-
-
-        // --------------------------------------------------------
-        // Потом совпадение title
-        // --------------------------------------------------------
-
-        const lower =
-            value.toLowerCase();
-
-
-        const byTitle =
-            olapFields.find(
-                field =>
-                    String(
-                        field.title || ""
-                    )
-                        .trim()
-                        .toLowerCase() === lower
-            );
-
-
-        if (byTitle) {
-
-            console.warn(
-                "OLAP: display name converted to technical name:",
-                value,
-                "=>",
-                byTitle.name
-            );
-
-
-            return byTitle.name;
-        }
-
-
-        // --------------------------------------------------------
-        // Дополнительные гарантированные стандартные поля
-        // --------------------------------------------------------
-
-        const standard =
-            STANDARD_IIKO_FIELDS.find(
-                field =>
-                    String(
-                        field.title || ""
-                    )
-                        .trim()
-                        .toLowerCase() === lower
-            );
-
-
-        if (standard) {
-
-            console.warn(
-                "OLAP: standard display name converted:",
-                value,
-                "=>",
-                standard.name
-            );
-
-
-            return standard.name;
-        }
-
-
-        // --------------------------------------------------------
-        // Важно:
-        // не отправляем русское display-name как техническое,
-        // если можем определить известное поле.
-        // --------------------------------------------------------
 
         const aliases = {
 
@@ -1210,6 +1066,9 @@
                 "DishSumAfterDiscount",
 
             "количество":
+                "DishAmountInt",
+
+            "количество блюд":
                 "DishAmountInt",
 
             "блюдо":
@@ -1246,40 +1105,243 @@
                 "OrderType.Name",
 
             "источник заказа":
-                "OrderSource"
+                "OrderSource",
+
+            "касса":
+                "CashRegisterName",
+
+            "номер чека":
+                "OrderNum"
         };
 
+
+        // --------------------------------------------------------
+        // Получаем возможные значения из объекта.
+        // Проверяем title/displayName тоже, потому что старое
+        // состояние конструктора могло сохранить display-name.
+        // --------------------------------------------------------
+
+        let candidates = [];
 
         if (
-            aliases[lower]
+            fieldOrName &&
+            typeof fieldOrName === "object"
         ) {
 
-            return aliases[lower];
+            candidates = [
+
+                fieldOrName.technicalName,
+
+                fieldOrName.field,
+
+                fieldOrName.name,
+
+                fieldOrName.key,
+
+                fieldOrName.code,
+
+                fieldOrName.id,
+
+                fieldOrName.title,
+
+                fieldOrName.caption,
+
+                fieldOrName.label,
+
+                fieldOrName.displayName
+            ];
+
+        } else {
+
+            candidates = [
+                fieldOrName
+            ];
         }
 
 
-        // Последняя страховка:
-        // если в состояние конструктора каким-либо образом попало
-        // русское display-name, никогда не отправляем его в iiko.
-        const normalizedAliases = {
-            "сумма со скидкой": "DishDiscountSumInt",
-            "скидка": "DishDiscountSumInt",
-            "сумма": "DishSumInt",
-            "сумма после скидки": "DishSumAfterDiscount",
-            "количество блюд": "DishAmountInt",
-            "количество": "DishAmountInt",
-            "блюдо": "DishName",
-            "номер чека": "OrderNum",
-            "касса": "CashRegisterName"
-        };
+        candidates = candidates
+            .map(value =>
+                String(
+                    value ?? ""
+                ).trim()
+            )
+            .filter(Boolean);
 
-        if (normalizedAliases[lower]) {
-            return normalizedAliases[lower];
+
+        // Убираем дубликаты, сохраняя порядок.
+        candidates = [
+            ...new Set(candidates)
+        ];
+
+
+        // --------------------------------------------------------
+        // 1. Сначала ищем настоящее техническое имя среди
+        //    загруженных OLAP-полей.
+        //
+        //    Русское название здесь НИКОГДА не принимаем.
+        // --------------------------------------------------------
+
+        for (
+            const candidate of candidates
+        ) {
+
+            if (
+                hasCyrillic(candidate)
+            ) {
+                continue;
+            }
+
+            const exact =
+                olapFields.find(
+                    field =>
+                        String(
+                            field.name || ""
+                        ).trim() === candidate
+                );
+
+            if (exact) {
+                return exact.name;
+            }
         }
 
-        // Если значение уже выглядит как техническое поле,
-        // оставляем его без изменения.
-        return value;
+
+        // --------------------------------------------------------
+        // 2. Если пришло display-name — ищем его по title.
+        // --------------------------------------------------------
+
+        for (
+            const candidate of candidates
+        ) {
+
+            const lower =
+                candidate.toLowerCase();
+
+            const byTitle =
+                olapFields.find(
+                    field =>
+                        String(
+                            field.title || ""
+                        )
+                            .trim()
+                            .toLowerCase() === lower &&
+                        !hasCyrillic(
+                            field.name
+                        )
+                );
+
+            if (byTitle) {
+
+                console.warn(
+                    "OLAP: display name converted:",
+                    candidate,
+                    "=>",
+                    byTitle.name
+                );
+
+                return byTitle.name;
+            }
+
+
+            const standard =
+                STANDARD_IIKO_FIELDS.find(
+                    field =>
+                        String(
+                            field.title || ""
+                        )
+                            .trim()
+                            .toLowerCase() === lower
+                );
+
+            if (standard) {
+
+                console.warn(
+                    "OLAP: standard display name converted:",
+                    candidate,
+                    "=>",
+                    standard.name
+                );
+
+                return standard.name;
+            }
+
+
+            // ----------------------------------------------------
+            // 3. Алиасы — последняя страховка для стандартных
+            //    русских названий.
+            // ----------------------------------------------------
+
+            if (
+                aliases[lower]
+            ) {
+
+                console.warn(
+                    "OLAP: alias converted:",
+                    candidate,
+                    "=>",
+                    aliases[lower]
+                );
+
+                return aliases[lower];
+            }
+        }
+
+
+        // --------------------------------------------------------
+        // 4. Если это не display-name, разрешаем уже техническое
+        //    имя, даже если его нет в текущем списке fields.
+        //
+        //    Это важно для новых полей iiko, которые появились
+        //    в API, но ещё не попали в стандартный список.
+        // --------------------------------------------------------
+
+        for (
+            const candidate of candidates
+        ) {
+
+            if (
+                hasCyrillic(candidate)
+            ) {
+                continue;
+            }
+
+            if (
+                candidate.includes(".") ||
+                /^[A-Za-z0-9_]+$/.test(candidate)
+            ) {
+                return candidate;
+            }
+        }
+
+
+        // --------------------------------------------------------
+        // 5. Неизвестное русское название НЕ возвращаем.
+        //
+        // Лучше остановить запрос с понятной ошибкой, чем
+        // отправить в iiko:
+        //
+        // Unknown OLAP field 'Сумма со скидкой'
+        // --------------------------------------------------------
+
+        if (
+            candidates.some(
+                candidate =>
+                    hasCyrillic(candidate)
+            )
+        ) {
+
+            throw new Error(
+                "Не удалось определить техническое имя OLAP-поля для: " +
+                candidates
+                    .filter(
+                        candidate =>
+                            hasCyrillic(candidate)
+                    )
+                    .join(", ")
+            );
+        }
+
+
+        return "";
     }
 
 
@@ -2788,36 +2850,6 @@
             "IIKO OLAP FRONTEND REQUEST:"
         );
 
-
-        const requestFieldNames = [
-            ...body.groupByRowFields,
-            ...body.groupByColumnFields,
-            ...body.measures.map(
-                item => item.field
-            ),
-            ...body.filters.map(
-                item => item.field
-            )
-        ];
-
-        const titleLeaks =
-            requestFieldNames.filter(
-                name =>
-                    typeof name === "string" &&
-                    /[А-Яа-яЁё]/.test(name)
-            );
-
-        if (titleLeaks.length) {
-            console.error(
-                "OLAP BLOCKED: display-names found in request:",
-                titleLeaks
-            );
-
-            throw new Error(
-                "В запрос iiko попало отображаемое название поля: " +
-                titleLeaks.join(", ")
-            );
-        }
 
         console.log(
             JSON.stringify(
