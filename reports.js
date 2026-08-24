@@ -2843,16 +2843,13 @@
                 "olap-result"
             );
 
-
         if (!container) {
             return;
         }
 
-
         const report =
             data.report ||
             {};
-
 
         const rows =
             Array.isArray(
@@ -2860,7 +2857,6 @@
             )
                 ? report.data
                 : [];
-
 
         if (!rows.length) {
 
@@ -2875,16 +2871,317 @@
             return;
         }
 
+        // ------------------------------------------------------------
+        // ВАЖНО:
+        // iiko может вернуть Object.keys(row) в другом порядке.
+        // Для отображения НЕ используем порядок ответа iiko.
+        //
+        // Сохраняем порядок конструктора:
+        // 1. Строки
+        // 2. Колонки
+        // 3. Показатели
+        // ------------------------------------------------------------
 
-        const first =
-            rows[0] || {};
+        const selectedGroups = [
+            ...(Array.isArray(olapRows) ? olapRows : []),
+            ...(Array.isArray(olapColumns) ? olapColumns : []),
+            ...(Array.isArray(olapMeasures) ? olapMeasures : [])
+        ];
 
+        const responseKeys = [
+            ...new Set(
+                rows.flatMap(
+                    row =>
+                        Object.keys(
+                            row || {}
+                        )
+                )
+            )
+        ];
 
-        const columns =
-            Object.keys(
-                first
+        function normalizeColumnText(value) {
+
+            return String(
+                value === null ||
+                value === undefined
+                    ? ""
+                    : value
+            )
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, " ");
+        }
+
+        function getSelectedTechnicalName(item) {
+
+            if (
+                item &&
+                typeof item === "object" &&
+                !Array.isArray(item)
+            ) {
+
+                // Для показателя объект имеет field.
+                if (item.field) {
+
+                    return resolveTechnicalOlapFieldName(
+                        item.field
+                    );
+                }
+            }
+
+            return resolveTechnicalOlapFieldName(
+                item
             );
+        }
 
+        function findReturnedColumnKey(
+            selectedItem
+        ) {
+
+            const technicalName =
+                getSelectedTechnicalName(
+                    selectedItem
+                );
+
+            if (!technicalName) {
+                return null;
+            }
+
+            // 1. Самый надёжный вариант:
+            // техническое имя совпадает с ключом ответа.
+            const exact =
+                responseKeys.find(
+                    key =>
+                        String(key) ===
+                        String(technicalName)
+                );
+
+            if (exact) {
+                return exact;
+            }
+
+            const field =
+                findOlapField(
+                    technicalName
+                );
+
+            const possibleNames = [
+                technicalName,
+                field &&
+                    field.name,
+                field &&
+                    field.field,
+                field &&
+                    field.key,
+                field &&
+                    field.code,
+                field &&
+                    field.title,
+                field &&
+                    field.caption,
+                field &&
+                    field.label,
+                field &&
+                    field.displayName
+            ]
+                .filter(Boolean)
+                .map(
+                    normalizeColumnText
+                );
+
+            // 2. Ищем совпадение по техническому имени,
+            // title/caption/label и другим известным именам.
+            const matched =
+                responseKeys.find(
+                    key =>
+                        possibleNames.includes(
+                            normalizeColumnText(
+                                key
+                            )
+                        )
+                );
+
+            if (matched) {
+                return matched;
+            }
+
+            // 3. Иногда iiko возвращает ключ с дополнительным
+            // текстом/агрегацией. Ищем техническое имя внутри ключа.
+            const containsTechnical =
+                responseKeys.find(
+                    key =>
+                        normalizeColumnText(
+                            key
+                        ).includes(
+                            normalizeColumnText(
+                                technicalName
+                            )
+                        )
+                );
+
+            if (containsTechnical) {
+                return containsTechnical;
+            }
+
+            return null;
+        }
+
+        const orderedColumns = [];
+        const usedKeys = new Set();
+
+        selectedGroups.forEach(
+            selectedItem => {
+
+                const key =
+                    findReturnedColumnKey(
+                        selectedItem
+                    );
+
+                if (
+                    key &&
+                    !usedKeys.has(key)
+                ) {
+
+                    orderedColumns.push(
+                        key
+                    );
+
+                    usedKeys.add(
+                        key
+                    );
+                }
+            }
+        );
+
+        // ------------------------------------------------------------
+        // Если iiko вернул дополнительное поле, которого нет среди
+        // выбранных полей, не теряем его.
+        // Добавляем его после полей конструктора.
+        // ------------------------------------------------------------
+
+        responseKeys.forEach(
+            key => {
+
+                if (
+                    !usedKeys.has(key)
+                ) {
+
+                    orderedColumns.push(
+                        key
+                    );
+
+                    usedKeys.add(
+                        key
+                    );
+                }
+            }
+        );
+
+        // ------------------------------------------------------------
+        // Определяем числовые колонки для строки ИТОГО.
+        // Суммируем только значения, которые действительно являются
+        // числами. Текстовые поля (Касса, Блюдо и т.п.) остаются пустыми.
+        // ------------------------------------------------------------
+
+        function numericValue(
+            value
+        ) {
+
+            if (
+                typeof value === "number" &&
+                Number.isFinite(value)
+            ) {
+                return value;
+            }
+
+            if (
+                typeof value !== "string"
+            ) {
+                return null;
+            }
+
+            const cleaned =
+                value
+                    .trim()
+                    .replace(/\s/g, "")
+                    .replace(",", ".");
+
+            if (!cleaned) {
+                return null;
+            }
+
+            const number =
+                Number(
+                    cleaned
+                );
+
+            return Number.isFinite(
+                number
+            )
+                ? number
+                : null;
+        }
+
+        const totals = {};
+
+        orderedColumns.forEach(
+            column => {
+
+                let sum = 0;
+                let hasNumericValue =
+                    false;
+
+                rows.forEach(
+                    row => {
+
+                        const number =
+                            numericValue(
+                                row
+                                    ? row[column]
+                                    : null
+                            );
+
+                        if (
+                            number !== null
+                        ) {
+
+                            sum += number;
+                            hasNumericValue =
+                                true;
+                        }
+                    }
+                );
+
+                if (
+                    hasNumericValue
+                ) {
+
+                    totals[column] =
+                        sum;
+                }
+            }
+        );
+
+        function formatTotal(
+            value
+        ) {
+
+            if (
+                Number.isInteger(
+                    value
+                )
+            ) {
+                return String(
+                    value
+                );
+            }
+
+            return String(
+                Number(
+                    value.toFixed(2)
+                )
+            );
+        }
 
         let html = `
 
@@ -2894,8 +3191,11 @@
                     📊 OLAP результат
                 </h2>
 
-            </div>
+                <span>
+                    ${rows.length} строк
+                </span>
 
+            </div>
 
             <div class="report-table-wrapper">
 
@@ -2907,15 +3207,13 @@
 
         `;
 
-
-        columns.forEach(
+        orderedColumns.forEach(
             column => {
 
                 const field =
                     findOlapField(
                         column
                     );
-
 
                 html += `
 
@@ -2931,7 +3229,6 @@
             }
         );
 
-
         html += `
 
                         </tr>
@@ -2942,7 +3239,6 @@
 
         `;
 
-
         rows.forEach(
             row => {
 
@@ -2950,19 +3246,22 @@
                     <tr>
                 `;
 
-
-                columns.forEach(
+                orderedColumns.forEach(
                     column => {
 
                         const value =
-                            row[column];
-
+                            row
+                                ? row[column]
+                                : "";
 
                         html += `
 
                             <td>
                                 ${escapeHtml(
-                                    value
+                                    value === null ||
+                                    value === undefined
+                                        ? ""
+                                        : value
                                 )}
                             </td>
 
@@ -2970,15 +3269,69 @@
                     }
                 );
 
-
                 html += `
                     </tr>
                 `;
             }
         );
 
+        // ------------------------------------------------------------
+        // ИТОГО
+        // ------------------------------------------------------------
 
         html += `
+                    <tr class="report-total-row">
+        `;
+
+        orderedColumns.forEach(
+            (column, index) => {
+
+                if (
+                    index === 0
+                ) {
+
+                    html += `
+                        <td>
+                            <strong>
+                                ИТОГО
+                            </strong>
+                        </td>
+                    `;
+
+                    return;
+                }
+
+                if (
+                    Object.prototype.hasOwnProperty.call(
+                        totals,
+                        column
+                    )
+                ) {
+
+                    html += `
+                        <td>
+                            <strong>
+                                ${escapeHtml(
+                                    formatTotal(
+                                        totals[column]
+                                    )
+                                )}
+                            </strong>
+                        </td>
+                    `;
+
+                } else {
+
+                    html += `
+                        <td></td>
+                    `;
+                }
+            }
+        );
+
+        html += `
+
+                    </tr>
 
                     </tbody>
 
@@ -2987,7 +3340,6 @@
             </div>
 
         `;
-
 
         container.innerHTML =
             html;
