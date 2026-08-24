@@ -1,0 +1,16 @@
+{
+  "purpose": "Restore baseline before saved-OLAP feature",
+  "preserved": [
+    "auth.js",
+    "auth-config.js",
+    "auth-callback.html",
+    "reports.js",
+    "olap.js"
+  ],
+  "removed_previous_feature_files": [
+    "SUPABASE_SAVED_REPORTS.sql",
+    "saved-reports.js",
+    "saved-reports.css"
+  ],
+  "note": "No iiko/OLAP logic was rewritten."
+}
