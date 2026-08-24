@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SH_Reports — Настройки</title>
+<link rel="stylesheet" href="app-shell.css">
+<link rel="stylesheet" href="pages.css">
+<style>
+.settings-page{padding:42px 24px 70px;max-width:900px;margin:0 auto;}
+.settings-card{background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);border-radius:20px;padding:30px;box-shadow:0 12px 30px rgba(15,23,42,.06);}
+.settings-card h1{margin:0 0 8px;color:var(--text,#171717);}
+.settings-card .lead{margin:0 0 28px;color:var(--muted,#6b7280);}
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+.form-group{margin-bottom:18px;}
+.form-group label{display:block;margin-bottom:7px;font-weight:600;color:var(--text,#171717);}
+.form-group input{width:100%;box-sizing:border-box;padding:13px 15px;border:1px solid var(--border,#ddd);border-radius:10px;font-size:15px;color:var(--text,#222);background:var(--input,#fff);}
+.remember-login{margin:4px 0 20px;color:var(--text,#222);}
+.remember-login label{display:flex;align-items:center;gap:9px;cursor:pointer;}
+#connect-iiko{width:100%;padding:14px;border:0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;background:var(--accent,#6f6cff);color:#fff;}
+#connect-iiko:disabled{opacity:.6;cursor:wait;}
+#clear-iiko-data{width:100%;padding:12px;border:1px solid var(--border,#ddd);border-radius:10px;background:transparent;color:var(--muted,#555);cursor:pointer;margin-top:10px;}
+.iiko-status{margin-top:20px;padding:13px;border-radius:10px;background:var(--soft,#f5f5f5);text-align:center;color:var(--text,#222);}
+.settings-note{margin-top:18px;padding:14px 16px;border-radius:12px;background:var(--soft,#f6f7fb);color:var(--muted,#667085);font-size:13px;line-height:1.5;}
+@media(max-width:700px){.settings-grid{grid-template-columns:1fr}.settings-page{padding:24px 16px 50px}}
+</style>
+</head>
+<body>
+<div class="app-shell">
+<aside class="sidebar">
+ <div class="brand">SH_<span>Reports</span></div>
+ <div class="nav-section">Аналитика</div>
+ <nav class="side-nav">
+  <a href="index.html"><span class="side-icon">◉</span>Обзор</a>
+  <a href="reports.html"><span class="side-icon">▥</span>OLAP Отчёты</a>
+  <a href="reports.html#constructor"><span class="side-icon">⌘</span>Конструктор</a>
+ </nav>
+ <div class="nav-section">Система</div>
+ <nav class="side-nav">
+  <a class="active" href="settings.html"><span class="side-icon">⚙</span>Настройки</a>
+ </nav>
+ <div class="sidebar-spacer"></div>
+ <button class="theme-btn" onclick="toggleSHTheme()" data-theme-label>🌙 Тёмная тема</button>
+</aside>
+<main class="main">
+<header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Настройки</span><div class="topbar-sub">Подключение к iiko Server</div></div><div class="top-actions"><a class="period-chip" href="index.html">← Обзор</a></div></header>
+<section class="app-content settings-page">
+ <div class="settings-card">
+  <h1>Подключение к iiko Server</h1>
+  <p class="lead">Настройте подключение один раз — OLAP Отчёты будут использовать сохранённые параметры.</p>
+  <div class="settings-grid">
+   <div class="form-group"><label for="iiko-ip">IP адрес / домен</label><input id="iiko-ip" type="text" placeholder="s01.smarthoreca.az"></div>
+   <div class="form-group"><label for="iiko-port">Порт</label><input id="iiko-port" type="number" placeholder="Введите порт"></div>
+   <div class="form-group"><label for="iiko-login">Логин</label><input id="iiko-login" type="text" autocomplete="username" placeholder="Логин"></div>
+   <div class="form-group"><label for="iiko-password">Пароль</label><input id="iiko-password" type="password" autocomplete="current-password" placeholder="Пароль"></div>
+  </div>
+  <div class="remember-login"><label><input type="checkbox" id="remember-iiko"><span>Запомнить данные для входа</span></label></div>
+  <button id="connect-iiko">Подключиться</button>
+  <button type="button" id="clear-iiko-data">Очистить сохранённые данные</button>
+  <div id="iiko-status" class="iiko-status">⚪ Не подключено</div>
+  <div class="settings-note">Данные подключения сохраняются в браузере только при включённой опции «Запомнить данные для входа».</div>
+ </div>
+</section>
+</main></div>
+<script src="app-shell.js"></script>
+<script src="reports.js"></script>
+</body></html>

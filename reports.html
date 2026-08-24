@@ -1177,14 +1177,15 @@
  <div class="nav-section">Аналитика</div>
  <nav class="side-nav">
   <a href="index.html"><span class="side-icon">◉</span>Обзор</a>
-  <a class="active" href="reports.html"><span class="side-icon">▥</span>Отчёты</a>
+  <a class="active" href="reports.html"><span class="side-icon">▥</span>OLAP Отчёты</a>
   <a href="reports.html#constructor"><span class="side-icon">⌘</span>Конструктор</a>
+  <a href="settings.html"><span class="side-icon">⚙</span>Настройки</a>
  </nav>
  <div class="sidebar-spacer"></div>
  <button class="theme-btn" onclick="toggleSHTheme()" data-theme-label>🌙 Тёмная тема</button>
 </aside>
 <main class="main">
-<header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Отчёты</span><div class="topbar-sub">iiko OLAP аналитика</div></div><div class="top-actions"><a class="period-chip" href="index.html">← Обзор</a></div></header>
+<header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Отчёты</span><div class="topbar-sub">Конструктор аналитических отчётов</div></div><div class="top-actions"><a class="period-chip" href="index.html">← Обзор</a></div></header>
 <div class="app-content">
 
 
@@ -1205,127 +1206,9 @@
 
 
             <h1>
-                Отчёты
+                OLAP Отчёты
             </h1>
 
-
-            <!-- ======================================
-                 IIKO CONNECTION
-            ======================================= -->
-
-            <div class="iiko-card">
-
-
-                <h2>
-                    Подключение iiko Server
-                </h2>
-
-
-                <div class="form-group">
-
-                    <label for="iiko-ip">
-                        IP адрес / домен
-                    </label>
-
-                    <input
-                        id="iiko-ip"
-                        type="text"
-                        placeholder="s01.smarthoreca.az"
-                    >
-
-                </div>
-
-
-                <div class="form-group">
-
-                    <label for="iiko-port">
-                        Порт
-                    </label>
-
-                    <input
-                        id="iiko-port"
-                        type="number"
-                        placeholder="Введите порт"
-                    >
-
-                </div>
-
-
-                <div class="form-group">
-
-                    <label for="iiko-login">
-                        Логин
-                    </label>
-
-                    <input
-                        id="iiko-login"
-                        type="text"
-                        autocomplete="username"
-                        placeholder="Логин"
-                    >
-
-                </div>
-
-
-                <div class="form-group">
-
-                    <label for="iiko-password">
-                        Пароль
-                    </label>
-
-                    <input
-                        id="iiko-password"
-                        type="password"
-                        autocomplete="current-password"
-                        placeholder="Пароль"
-                    >
-
-                </div>
-
-
-                <!-- REMEMBER -->
-
-                <div class="remember-login">
-
-                    <label>
-
-                        <input
-                            type="checkbox"
-                            id="remember-iiko"
-                        >
-
-                        <span>
-                            Запомнить данные для входа
-                        </span>
-
-                    </label>
-
-                </div>
-
-
-                <button id="connect-iiko">
-                    Подключиться
-                </button>
-
-
-                <button
-                    type="button"
-                    id="clear-iiko-data"
-                    style="margin-top:10px;"
-                >
-                    Очистить сохранённые данные
-                </button>
-
-
-                <div
-                    id="iiko-status"
-                    class="iiko-status"
-                >
-                    ⚪ Не подключено
-                </div>
-
-
-            </div>
 
 
             <!-- ======================================
