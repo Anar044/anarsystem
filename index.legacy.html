@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Anar System — решения для бизнеса</title>
+  <style>
+    :root { --bg:#0b1020; --card:#141b33; --line:#2b3760; --text:#f4f7ff; --muted:#aeb9d6; --accent:#6f8cff; --accent2:#3ee3b5; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Arial, sans-serif; color:var(--text); background:radial-gradient(circle at 85% 0%, #263c82 0, transparent 31%), var(--bg); }
+    .container { width:min(1100px, calc(100% - 40px)); margin:auto; }
+    header { position:sticky; top:0; z-index:10; padding:24px 0; border-bottom:1px solid rgba(255,255,255,.12); background:rgba(11,16,32,.94); backdrop-filter:blur(12px); }
+    nav { display:flex; justify-content:space-between; align-items:center; gap:20px; }
+    .logo { font-size:24px; font-weight:800; letter-spacing:.3px; } .logo span { color:var(--accent2); }
+    .nav-links { display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:18px; }
+    nav a { color:var(--muted); text-decoration:none; } nav a:hover { color:white; }
+    .hero { padding:90px 0 60px; max-width:760px; }
+    .tag { color:var(--accent2); font-weight:bold; text-transform:uppercase; letter-spacing:1.5px; }
+    h1 { font-size:clamp(40px, 7vw, 70px); margin:14px 0; line-height:1.03; } p { color:var(--muted); font-size:18px; line-height:1.65; }
+    .button { display:inline-block; margin-top:18px; padding:14px 20px; color:white; background:var(--accent); text-decoration:none; border-radius:10px; font-weight:bold; }
+    section { padding:60px 0; } h2 { font-size:32px; margin:0 0 26px; }
+    .plans { display:flex; gap:18px; overflow-x:auto; padding-bottom:8px; }
+    .plans .plan { flex:1 0 280px; }
+    .plan, .calculator { border:1px solid var(--line); background:rgba(20,27,51,.9); border-radius:16px; padding:26px; }
+    .plan.featured { border-color:var(--accent2); box-shadow:0 0 35px rgba(62,227,181,.12); }
+    .plan h3 { margin:0; font-size:23px; } .price { font-size:32px; font-weight:bold; color:var(--accent2); margin:18px 0 4px; }
+    .features { margin:18px 0 0; padding-left:20px; color:var(--muted); line-height:1.6; }
+    .features li { margin:8px 0; }
+    .calc-wrap { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+    .stats, .benefits { display:grid; grid-template-columns:repeat(3, 1fr); gap:18px; }
+    .stat, .benefit, .video-placeholder, .form-card { padding:25px; border:1px solid var(--line); background:rgba(20,27,51,.9); border-radius:16px; }
+    .stat strong { display:block; color:var(--accent2); font-size:36px; margin-bottom:7px; }
+    .benefit h3 { margin:0 0 10px; font-size:20px; }
+    .video-placeholder { min-height:280px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:linear-gradient(135deg,#172348,#10172d); }
+    .play { width:64px; height:64px; border-radius:50%; background:var(--accent2); color:#071520; display:grid; place-items:center; font-size:26px; margin-bottom:15px; }
+    .form-card { display:grid; grid-template-columns:1fr 1fr auto; gap:12px; align-items:end; }
+    .form-card label { margin:0 0 7px; } button { border:0; cursor:pointer; }
+    .notice { color:var(--accent2); min-height:22px; grid-column:1/-1; margin:0; font-size:14px; }
+    label { display:block; color:var(--muted); margin:16px 0 7px; font-size:15px; }
+    select, input { width:100%; padding:14px; font-size:16px; border:1px solid var(--line); border-radius:9px; background:#0e152b; color:white; }
+    .result { margin-top:24px; padding:20px; border-radius:12px; background:#0e152b; }
+    .result small { color:var(--muted); } .total { display:block; font-size:38px; color:var(--accent2); font-weight:bold; margin-top:6px; }
+    footer { padding:32px 0; border-top:1px solid rgba(255,255,255,.12); color:var(--muted); }
+    @media (max-width:700px) { nav { align-items:flex-start; } .nav-links { gap:10px 14px; } .calc-wrap, .stats, .benefits, .form-card { grid-template-columns:1fr; } .hero { padding-top:60px; } }
+  </style>
+</head>
+<body>
+  <header><div class="container"><nav><div class="logo">anar <span>system</span></div><div class="nav-links"><a href="solutions.html">Решения</a><a href="about.html">О нас</a><a href="customers.html">Клиенты</a><a href="support.html">Поддержка</a><a href="blog.html">Блог</a><a href="#calculator">Калькулятор цены</a></div></nav></div></header>
+  <main>
+    <section class="hero container">
+      <div class="tag">Автоматизация бизнеса</div>
+      <h1>Управляйте рестораном и продажами в одной системе.</h1>
+      <p>Anar System объединяет кассу, QR-меню, контроль заказов, аналитику и отчётность. Вы видите важные процессы и принимаете решения быстрее.</p>
+      <a class="button" href="#calculator">Рассчитать стоимость</a>
+    </section>
+    <section class="container"><div class="stats"><div class="stat"><strong>3</strong>готовых тарифа для бизнеса</div><div class="stat"><strong>1</strong>система для управления процессами</div><div class="stat"><strong>24/7</strong>доступ к данным и отчётам</div></div></section>
+    <section class="container" id="solutions">
+      <h2>Решения Anar System</h2>
+      <div class="benefits"><article class="benefit"><h3>Продажи и касса</h3><p>Контролируйте оплату, кассовые операции и выручку в одном месте.</p></article><article class="benefit"><h3>Кухня и заказы</h3><p>Передавайте заказы на кухню и следите за статусом их выполнения.</p></article><article class="benefit"><h3>Аналитика</h3><p>Получайте понятные отчёты для уверенного управления бизнесом.</p></article></div>
+    </section>
+    <section class="container" id="services">
+      <h2>Наши тарифы</h2>
+      <div class="plans">
+        <article class="plan"><h3>Start</h3><div class="price" id="start-price">49 AZN</div><p>Базовая версия.</p><ul class="features"><li>Кассовый модуль</li><li>QR-меню и QR-оплата</li><li>Контроль кухни и заказов</li><li>Базовые аналитические отчёты</li><li>Прямая сдача отчётности в налоговую</li><li>Telegram-бот, извещающий об опасных операциях</li><li>Собственное мобильное приложение с отчётами и данными</li><li>Настройка прав доступа в систему</li><li>Неограниченный период хранения данных</li></ul></article>
+        <article class="plan featured"><h3>Pro</h3><div class="price" id="pro-price">99 AZN</div><p>Выгодные пакетные цены.</p></article>
+        <article class="plan"><h3>Enterprise</h3><div class="price" id="enterprise-price">189 AZN</div><p>Корпоративная версия с пакетными ценами.</p></article>
+      </div>
+    </section>
+    <section class="container" id="calculator">
+      <h2>Калькулятор стоимости</h2>
+      <div class="calc-wrap">
+        <div class="calculator">
+          <label for="plan">Выберите версию</label>
+          <select id="plan"><option value="start">Start</option><option value="pro">Pro</option><option value="enterprise">Enterprise</option></select>
+          <label for="quantity">Количество лицензий</label>
+          <input id="quantity" type="number" min="1" max="5" value="1" />
+          <div class="result"><small id="description">Start: 49 AZN × 1 лицензия</small><span class="total" id="total">49 AZN</span></div>
+        </div>
+        <div><p>Цена обновляется автоматически после выбора тарифа или количества лицензий.</p><p>Для Pro доступны специальные цены на пакеты от одной до пяти лицензий.</p><a class="button" href="tel:+994504582808">Позвонить: +994 50 458 28 08</a></div>
+      </div>
+    </section>
+    <section class="container" id="about">
+      <h2>О компании Anar System</h2>
+      <p>Мы создаём решения, которые помогают управлять продажами, заказами и важными данными в одной системе.</p>
+      <h2>Посмотрите Anar System в работе</h2>
+      <div class="video-placeholder"><div class="play">▶</div><strong>Здесь будет ваше видео о продукте</strong><p>Пришлите ссылку на YouTube, файл MP4 или сценарий — я вставлю настоящее видео.</p></div>
+    </section>
+    <section class="container" id="customers">
+      <h2>Для тех, кто хочет управлять увереннее</h2>
+      <p>Здесь будут логотипы, фотографии и отзывы ваших клиентов.</p>
+      <div class="benefits"><article class="benefit"><h3>Рестораны и кафе</h3><p>Скорость работы с заказами, кассой и кухней.</p></article><article class="benefit"><h3>Сети заведений</h3><p>Единый контроль нескольких точек.</p></article><article class="benefit"><h3>Руководители</h3><p>Данные бизнеса всегда под рукой в мобильном приложении.</p></article></div>
+    </section>
+    <section class="container" id="support">
+      <h2>Запишитесь на демонстрацию</h2>
+      <p>Позвоните нам: <a href="tel:+994504582808">+994 50 458 28 08</a>, или оставьте заявку ниже.</p>
+      <form class="form-card" id="demo-form"><div><label for="name">Ваше имя</label><input id="name" required placeholder="Введите имя" /></div><div><label for="phone">Телефон</label><input id="phone" required placeholder="+994 00 000 00 00" /></div><button class="button" type="submit">Отправить заявку</button><p class="notice" id="notice"></p></form>
+    </section>
+    <section class="container" id="blog"><h2>Полезные материалы</h2><div class="benefits"><article class="benefit"><h3>Как ускорить работу кухни</h3><p>Будущая статья вашего блога.</p></article><article class="benefit"><h3>Как контролировать выручку</h3><p>Будущая статья вашего блога.</p></article><article class="benefit"><h3>Что даёт QR-меню</h3><p>Будущая статья вашего блога.</p></article></div></section>
+  </main>
+  <footer><div class="container">© 2026 Anar System · Телефон: +994 50 458 28 08</div></footer>
+  <script>
+    const prices = {
+      pro: {1:99, 2:189, 3:269, 4:349, 5:409},
+      enterprise: {1:189, 2:269, 3:349, 4:409, 5:489}
+    };
+    const plan = document.getElementById('plan'), quantity = document.getElementById('quantity');
+    const total = document.getElementById('total'), description = document.getElementById('description');
+    const startPrice = document.getElementById('start-price');
+    const proPrice = document.getElementById('pro-price');
+    const enterprisePrice = document.getElementById('enterprise-price');
+    function calculate() {
+      let count = Math.max(1, Math.min(5, Number(quantity.value) || 1));
+      let value, text;
+      startPrice.textContent = (49 * count) + ' AZN';
+      proPrice.textContent = prices.pro[count] + ' AZN';
+      enterprisePrice.textContent = prices.enterprise[count] + ' AZN';
+      if (plan.value === 'start') { value = 49 * count; text = 'Start: 49 AZN × ' + count + ' лиценз.'; }
+      else if (plan.value === 'pro') { value = prices.pro[count]; text = 'Pro: пакет для ' + count + ' лиценз.'; }
+      else { value = prices.enterprise[count]; text = 'Enterprise: пакет для ' + count + ' лиценз.'; }
+      quantity.value = count; total.textContent = value + ' AZN'; description.textContent = text;
+    }
+    plan.addEventListener('change', calculate); quantity.addEventListener('input', calculate); calculate();
+    document.getElementById('demo-form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      document.getElementById('notice').textContent = 'Спасибо! Ваша заявка принята. Мы свяжемся с вами.';
+      this.reset();
+    });
+  </script>
+  <script src="chat.js"></script>
+</body>
+</html>

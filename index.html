@@ -1,57 +1,36 @@
 <!doctype html>
-<html lang="ru" data-theme="light">
-<head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SH_Reports — Аналитическая панель</title>
-<link rel="stylesheet" href="dashboard.css">
-</head>
+<html lang="ru">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>SH_Reports — Аналитика</title><link rel="stylesheet" href="app-shell.css"></head>
 <body>
-<div class="shell">
-  <aside class="sidebar">
-    <a class="brand" href="index.html">SH_<b>Reports</b></a>
-    <div class="menu-title">Аналитика</div>
-    <nav class="menu">
-      <a class="active" href="index.html">◉ <span>Обзор</span></a>
-      <a href="reports.html">▥ <span>OLAP отчёты</span></a>
-      <a href="reports.html#olap-builder">⌘ <span>Конструктор</span></a>
-    </nav>
-    <div class="sidebar-bottom">
-      <div class="menu-title">Система</div>
-      <nav class="menu">
-        <a href="reports.html">⚙ <span>Подключение iiko</span></a>
-      </nav>
-    </div>
-  </aside>
-  <main class="main">
-    <header class="topbar">
-      <div class="topbar-left"><small>SH_Reports</small><strong>Аналитическая панель</strong></div>
-      <div class="top-actions"><span class="date">01.08.2026 — 24.08.2026</span><button class="icon-btn" id="themeToggle" title="Сменить тему">🌙</button></div>
-    </header>
-    <section class="content">
-      <div class="heading"><div><h1>Обзор</h1><p><span class="status-dot"></span>iiko подключён · данные готовы</p></div><a class="btn" href="reports.html">Открыть отчёты →</a></div>
-      <div class="kpis">
-        <div class="card kpi"><div class="kpi-label">Продажи</div><div class="kpi-value">242 ₼</div><div class="kpi-foot">За выбранный период</div></div>
-        <div class="card kpi"><div class="kpi-label">Количество блюд</div><div class="kpi-value">36</div><div class="kpi-foot">Проданные позиции</div></div>
-        <div class="card kpi"><div class="kpi-label">Чеков</div><div class="kpi-value">9</div><div class="kpi-foot">Уникальные заказы</div></div>
-        <div class="card kpi"><div class="kpi-label">Средний чек</div><div class="kpi-value">26.89 ₼</div><div class="kpi-foot">Продажи ÷ чеки</div></div>
-      </div>
-      <div class="grid-2">
-        <section class="card panel"><div class="panel-head"><h2>Продажи</h2><span>По дням</span></div><div class="chart" aria-label="График продаж"><div class="bar-wrap"><div class="bar" style="height:38%"></div><div class="bar-label">18</div></div><div class="bar-wrap"><div class="bar" style="height:52%"></div><div class="bar-label">19</div></div><div class="bar-wrap"><div class="bar" style="height:44%"></div><div class="bar-label">20</div></div><div class="bar-wrap"><div class="bar" style="height:68%"></div><div class="bar-label">21</div></div><div class="bar-wrap"><div class="bar" style="height:56%"></div><div class="bar-label">22</div></div><div class="bar-wrap"><div class="bar" style="height:82%"></div><div class="bar-label">23</div></div><div class="bar-wrap"><div class="bar" style="height:74%"></div><div class="bar-label">24</div></div></div></section>
-        <section class="card panel"><div class="panel-head"><h2>Топ блюд</h2><span>По сумме</span></div><div class="rank"><div><div class="rank-row"><span class="rank-num">01</span><span class="rank-name">salat</span><span class="rank-value">80 ₼</span></div><div class="progress"><i style="width:100%"></i></div></div><div><div class="rank-row"><span class="rank-num">02</span><span class="rank-name">kebab</span><span class="rank-value">48 ₼</span></div><div class="progress"><i style="width:60%"></i></div></div><div><div class="rank-row"><span class="rank-num">03</span><span class="rank-name">cola</span><span class="rank-value">24 ₼</span></div><div class="progress"><i style="width:30%"></i></div></div><div><div class="rank-row"><span class="rank-num">04</span><span class="rank-name">kartof qizartmasi</span><span class="rank-value">20 ₼</span></div><div class="progress"><i style="width:25%"></i></div></div></div></section>
-      </div>
-      <section class="card panel report"><div class="panel-head"><h2>Последний отчёт</h2><a href="reports.html">Открыть полный отчёт →</a></div><table class="report-table"><thead><tr><th>Касса</th><th>Блюдо</th><th>Количество</th><th>Сумма</th></tr></thead><tbody><tr class="group-row"><td colspan="4">▼ Demo kassa</td></tr><tr><td></td><td>salat</td><td>10</td><td>80 ₼</td></tr><tr><td></td><td>kebab</td><td>4</td><td>48 ₼</td></tr><tr><td></td><td>cola</td><td>11</td><td>24 ₼</td></tr><tr><td></td><td>kartof qizartmasi</td><td>2</td><td>20 ₼</td></tr><tr><td></td><td>dolma</td><td>1</td><td>15 ₼</td></tr><tr class="group-row"><td>Demo kassa всего</td><td></td><td>36</td><td>242 ₼</td></tr></tbody></table><div class="footer-note">Показан последний успешно сформированный OLAP-отчёт. Для новых параметров откройте конструктор.</div></section>
-    </section>
-  </main>
-</div>
-<script>
-(function(){
-  const root=document.documentElement, btn=document.getElementById('themeToggle');
-  const saved=localStorage.getItem('shReportsTheme');
-  const system=window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  function apply(theme){root.dataset.theme=theme;btn.textContent=theme==='dark'?'☀️':'🌙';btn.title=theme==='dark'?'Светлая тема':'Тёмная тема';localStorage.setItem('shReportsTheme',theme)}
-  apply(saved || (system?'dark':'light'));
-  btn.addEventListener('click',()=>apply(root.dataset.theme==='dark'?'light':'dark'));
-})();
-</script>
-</body>
-</html>
+<div class="app-shell">
+<aside class="sidebar">
+ <div class="brand">SH_<span>Reports</span></div>
+ <div class="nav-section">Аналитика</div>
+ <nav class="side-nav">
+  <a class="active" href="index.html"><span class="side-icon">◉</span>Обзор</a>
+  <a href="reports.html"><span class="side-icon">▥</span>Отчёты</a>
+  <a href="reports.html#constructor"><span class="side-icon">⌘</span>Конструктор</a>
+ </nav>
+ <div class="sidebar-spacer"></div>
+ <button class="theme-btn" onclick="toggleSHTheme()" data-theme-label>🌙 Тёмная тема</button>
+</aside>
+<main class="main">
+ <header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Обзор</span><div class="topbar-sub">Аналитическая панель ресторана</div></div><div class="top-actions"><span class="period-chip">01.08.2026 — 24.08.2026</span><button class="icon-btn">↻ Обновить</button></div></header>
+ <section class="page app-content">
+  <div class="page-head"><div><h1>Добро пожаловать в SH_Reports</h1><p>Все ключевые показатели бизнеса в одном месте.</p></div></div>
+  <div class="kpis">
+   <div class="card kpi"><div class="kpi-label">Продажи</div><div class="kpi-value">242 AZN</div><div class="kpi-note">За выбранный период</div></div>
+   <div class="card kpi"><div class="kpi-label">Количество блюд</div><div class="kpi-value">36</div><div class="kpi-note">Всего продано</div></div>
+   <div class="card kpi"><div class="kpi-label">Заказов</div><div class="kpi-value">9</div><div class="kpi-note">Уникальных заказов</div></div>
+   <div class="card kpi"><div class="kpi-label">Средний чек</div><div class="kpi-value">26.89 AZN</div><div class="kpi-note">Среднее значение</div></div>
+  </div>
+  <div class="grid-2">
+   <section class="card panel"><div class="panel-head"><div class="panel-title">Продажи по дням</div><div class="panel-muted">За период</div></div><div class="fake-chart"></div></section>
+   <section class="card panel"><div class="panel-head"><div class="panel-title">Топ блюд</div><div class="panel-muted">По сумме</div></div><div class="rank-list"><div class="rank"><span class="rank-num">1</span><span class="rank-name">cola</span><span class="rank-value">24 AZN</span></div><div class="rank"><span class="rank-num">2</span><span class="rank-name">kebab</span><span class="rank-value">48 AZN</span></div><div class="rank"><span class="rank-num">3</span><span class="rank-name">salat</span><span class="rank-value">80 AZN</span></div><div class="rank"><span class="rank-num">4</span><span class="rank-name">kartof qizartmasi</span><span class="rank-value">20 AZN</span></div></div></section>
+  </div>
+  <section class="card panel report-preview"><div class="panel-head"><div><div class="panel-title">Последний отчёт</div><div class="panel-muted">Быстрый просмотр данных</div></div><a class="period-chip" href="reports.html">Открыть отчёты →</a></div><div class="report-table-wrap"><table class="report-mini"><thead><tr><th>Касса</th><th>Блюдо</th><th>Количество</th><th>Сумма</th></tr></thead><tbody><tr class="group-row"><td>▼ Demo kassa</td><td colspan="3"></td></tr><tr><td></td><td>cola</td><td>12</td><td>24 AZN</td></tr><tr><td></td><td>kebab</td><td>4</td><td>48 AZN</td></tr><tr><td></td><td>salat</td><td>10</td><td>80 AZN</td></tr><tr><td></td><td>SEZAR PIZZA</td><td>2</td><td>20 AZN</td></tr></tbody></table></div></section>
+  <section class="grid-2" style="margin-top:16px"><div class="card panel"><div class="panel-title">Быстрые действия</div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:15px"><a class="period-chip" href="reports.html">📊 Открыть отчёты</a><a class="period-chip" href="reports.html#constructor">⌘ Открыть конструктор</a></div></div><div class="card panel"><div class="panel-title">Подключение</div><div class="panel-muted" style="margin-top:8px">iiko подключение и параметры отчётов находятся в разделе отчётов.</div></div></section>
+ </section>
+</main></div>
+<script src="app-shell.js"></script>
+</body></html>

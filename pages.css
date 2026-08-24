@@ -456,10 +456,3 @@ body {
   }
 
 }
-
-/* SH_Reports theme layer for legacy pages */
-:root{--sh-bg:#f4f5fa;--sh-surface:#fff;--sh-text:#171822;--sh-muted:#777b8a;--sh-line:#e8e8f0;--sh-accent:#7257e8}
-html[data-theme="dark"]{--sh-bg:#0f1016;--sh-surface:#181923;--sh-text:#f5f5f8;--sh-muted:#9a9baa;--sh-line:#292a37;--sh-accent:#9279ff}
-body{background:var(--sh-bg);color:var(--sh-text)}
-.legacy-nav{background:var(--sh-surface);border-bottom:1px solid var(--sh-line);padding:18px 28px;position:sticky;top:0;z-index:50}
-.legacy-nav nav{max-width:1400px;margin:auto;display:flex;align-items:center;gap:24px}.legacy-nav .logo{font-weight:800;font-size:21px;color:var(--sh-text)}.legacy-nav .logo span{color:var(--sh-accent)}.legacy-nav .links{display:flex;gap:20px;margin-left:auto}.legacy-nav .links a{color:var(--sh-muted)}.legacy-nav .links a:hover{color:var(--sh-accent)}.theme-toggle{border:1px solid var(--sh-line);background:var(--sh-surface);color:var(--sh-text);border-radius:9px;width:38px;height:38px;cursor:pointer}

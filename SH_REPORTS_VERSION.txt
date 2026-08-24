@@ -1,0 +1,3 @@
+SH_Reports Dashboard v1
+Unified shell + light/dark theme.
+OLAP logic preserved.
