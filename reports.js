@@ -57,6 +57,9 @@
 
     let olapFilters = [];
 
+    // Состояние свернутых групп результата.
+    const collapsedOlapGroups = new Set();
+
     // Текущее перетаскиваемое поле OLAP.
     let currentOlapDragData = null;
 
@@ -2906,154 +2909,589 @@
                 "olap-result"
             );
 
-
         if (!container) {
             return;
         }
 
-
         const report =
-            data.report ||
-            {};
-
+            data.report || {};
 
         const rows =
-            Array.isArray(
-                report.data
-            )
+            Array.isArray(report.data)
                 ? report.data
                 : [];
 
-
         if (!rows.length) {
-
             container.innerHTML = `
-
                 <div class="olap-empty">
                     OLAP не вернул строки
                 </div>
-
             `;
-
             return;
         }
 
+        // --------------------------------------------------------
+        // ВАЖНО:
+        // Порядок отображения берём из конструктора, а не из
+        // Object.keys(report.data[0]).
+        // Поэтому колонки больше не "переезжают".
+        // --------------------------------------------------------
 
-        const first =
-            rows[0] || {};
+        const rowFields =
+            olapRows
+                .map(field =>
+                    resolveTechnicalOlapFieldName(field)
+                )
+                .filter(Boolean);
 
+        const columnFields =
+            olapColumns
+                .map(field =>
+                    resolveTechnicalOlapFieldName(field)
+                )
+                .filter(Boolean);
 
-        const columns =
-            Object.keys(
-                first
+        const measureFields =
+            olapMeasures
+                .map(item => ({
+                    field: resolveTechnicalOlapFieldName(
+                        item ? item.field : ""
+                    ),
+                    aggregation:
+                        item && item.aggregation
+                            ? item.aggregation
+                            : "SUM"
+                }))
+                .filter(item => Boolean(item.field));
+
+        // Не показываем технический DishCode, если пользователь
+        // его сам не выбрал в Строках/Колонках.
+        const visibleColumnFields =
+            columnFields.filter(field =>
+                field !== "DishCode" &&
+                !measureFields.some(
+                    measure => measure.field === field
+                )
             );
 
+        const visibleRowFields =
+            rowFields.filter(field =>
+                field !== "DishCode" &&
+                !measureFields.some(
+                    measure => measure.field === field
+                )
+            );
 
-        let html = `
+        const visibleMeasureFields =
+            measureFields.map(item => item.field);
 
-            <div class="report-header">
+        const visibleFields = [
+            ...visibleRowFields,
+            ...visibleColumnFields,
+            ...visibleMeasureFields
+        ];
 
-                <h2>
-                    📊 OLAP результат
-                </h2>
+        // Если API вернул дополнительное поле, которое реально
+        // выбрано пользователем, но его нет в массиве выше — не
+        // теряем его. Это только fallback для совместимости.
+        if (!visibleFields.length) {
+            Object.keys(rows[0]).forEach(field => {
+                if (field !== "DishCode") {
+                    visibleFields.push(field);
+                }
+            });
+        }
 
-            </div>
+        const titleForField = field => {
+            const found =
+                findOlapField(field);
 
+            return found && found.title
+                ? found.title
+                : field;
+        };
 
-            <div class="report-table-wrapper">
+        const valueForField = (row, field) => {
+            if (!row) {
+                return "";
+            }
 
-                <table class="report-table">
+            if (
+                Object.prototype.hasOwnProperty.call(
+                    row,
+                    field
+                )
+            ) {
+                return row[field];
+            }
 
-                    <thead>
+            // Иногда backend может вернуть title вместо technical name.
+            const fieldObject =
+                findOlapField(field);
 
-                        <tr>
+            if (fieldObject) {
+                const title =
+                    String(fieldObject.title || "");
 
-        `;
+                if (
+                    title &&
+                    Object.prototype.hasOwnProperty.call(
+                        row,
+                        title
+                    )
+                ) {
+                    return row[title];
+                }
+            }
 
+            return "";
+        };
 
-        columns.forEach(
-            column => {
+        const normalizedGroupValue = value =>
+            String(
+                value === null || value === undefined
+                    ? ""
+                    : value
+            ).trim();
 
-                const field =
-                    findOlapField(
-                        column
+        const groupKeyForRow = row =>
+            visibleRowFields
+                .map(field =>
+                    normalizedGroupValue(
+                        valueForField(row, field)
+                    )
+                )
+                .join("\u001F");
+
+        const groups = [];
+        const groupMap = new Map();
+
+        rows.forEach(row => {
+            const key =
+                visibleRowFields.length
+                    ? groupKeyForRow(row)
+                    : "__all__";
+
+            let group =
+                groupMap.get(key);
+
+            if (!group) {
+                group = {
+                    key,
+                    rows: []
+                };
+
+                groupMap.set(key, group);
+                groups.push(group);
+            }
+
+            group.rows.push(row);
+        });
+
+        const formatValue = value => {
+            if (
+                value === null ||
+                value === undefined ||
+                value === ""
+            ) {
+                return "";
+            }
+
+            if (
+                typeof value === "number" &&
+                Number.isFinite(value)
+            ) {
+                return String(value);
+            }
+
+            return String(value);
+        };
+
+        const sumMeasure = (
+            groupRows,
+            field,
+            aggregation
+        ) => {
+            const values =
+                groupRows
+                    .map(row =>
+                        Number(
+                            valueForField(
+                                row,
+                                field
+                            )
+                        )
+                    )
+                    .filter(Number.isFinite);
+
+            if (!values.length) {
+                return "";
+            }
+
+            switch (
+                String(
+                    aggregation || "SUM"
+                ).toUpperCase()
+            ) {
+                case "AVG":
+                case "AVERAGE":
+                    return (
+                        values.reduce(
+                            (a, b) => a + b,
+                            0
+                        ) / values.length
                     );
 
+                case "MIN":
+                    return Math.min(...values);
 
-                html += `
+                case "MAX":
+                    return Math.max(...values);
 
-                    <th>
-                        ${escapeHtml(
-                            field
-                                ? field.title
-                                : column
-                        )}
-                    </th>
+                case "COUNT":
+                    return values.length;
 
-                `;
+                case "SUM":
+                default:
+                    return values.reduce(
+                        (a, b) => a + b,
+                        0
+                    );
             }
-        );
+        };
 
+        const grandTotals = {};
 
-        html += `
+        measureFields.forEach(measure => {
+            grandTotals[measure.field] =
+                sumMeasure(
+                    rows,
+                    measure.field,
+                    measure.aggregation
+                );
+        });
 
-                        </tr>
+        let html = `
+            <div class="report-header">
+                <h2>📊 OLAP результат</h2>
+            </div>
 
-                    </thead>
-
-                    <tbody>
-
+            <div class="report-table-wrapper">
+                <table class="report-table olap-grouped-report">
+                    <thead>
+                        <tr>
         `;
 
+        visibleFields.forEach(field => {
+            html += `
+                <th>
+                    ${escapeHtml(
+                        titleForField(field)
+                    )}
+                </th>
+            `;
+        });
 
-        rows.forEach(
-            row => {
+        html += `
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
 
+        groups.forEach(group => {
+            const collapsed =
+                collapsedOlapGroups.has(
+                    group.key
+                );
+
+            // ----------------------------------------------------
+            // Строка группы. Именно она отвечает за:
+            // ▼ Demo kassa
+            // ----------------------------------------------------
+            if (visibleRowFields.length) {
                 html += `
-                    <tr>
+                    <tr
+                        class="olap-group-row"
+                        data-olap-group="${escapeHtml(group.key)}"
+                    >
                 `;
 
+                visibleFields.forEach(
+                    (field, index) => {
+                        const isRowField =
+                            visibleRowFields.includes(
+                                field
+                            );
 
-                columns.forEach(
-                    column => {
+                        if (
+                            index === 0 &&
+                            isRowField
+                        ) {
+                            const groupLabel =
+                                visibleRowFields
+                                    .map(rowField =>
+                                        valueForField(
+                                            group.rows[0],
+                                            rowField
+                                        )
+                                    )
+                                    .filter(value =>
+                                        value !== null &&
+                                        value !== undefined &&
+                                        value !== ""
+                                    )
+                                    .join(" / ");
 
-                        const value =
-                            row[column];
+                            html += `
+                                <td
+                                    class="olap-group-label"
+                                    colspan="${visibleRowFields.length}"
+                                >
+                                    <button
+                                        type="button"
+                                        class="olap-group-toggle"
+                                        data-olap-toggle="${escapeHtml(group.key)}"
+                                        aria-expanded="${collapsed ? "false" : "true"}"
+                                    >
+                                        ${collapsed ? "▶" : "▼"}
+                                    </button>
+                                    <strong>
+                                        ${escapeHtml(
+                                            groupLabel
+                                        )}
+                                    </strong>
+                                </td>
+                            `;
 
+                            return;
+                        }
 
-                        html += `
+                        if (isRowField) {
+                            return;
+                        }
 
-                            <td>
-                                ${escapeHtml(
-                                    value
-                                )}
-                            </td>
-
-                        `;
+                        html += `<td></td>`;
                     }
                 );
 
-
-                html += `
-                    </tr>
-                `;
+                html += `</tr>`;
             }
-        );
 
+            if (!collapsed) {
+                group.rows.forEach(row => {
+                    html += `<tr class="olap-data-row">`;
+
+                    visibleFields.forEach(field => {
+                        const isRowField =
+                            visibleRowFields.includes(
+                                field
+                            );
+
+                        if (isRowField) {
+                            html += `<td></td>`;
+                            return;
+                        }
+
+                        html += `
+                            <td>
+                                ${escapeHtml(
+                                    formatValue(
+                                        valueForField(
+                                            row,
+                                            field
+                                        )
+                                    )
+                                )}
+                            </td>
+                        `;
+                    });
+
+                    html += `</tr>`;
+                });
+            }
+
+            // ----------------------------------------------------
+            // Итог конкретной группы / кассы.
+            // ----------------------------------------------------
+            if (visibleRowFields.length) {
+                html += `
+                    <tr class="olap-group-total">
+                `;
+
+                visibleFields.forEach(
+                    (field, index) => {
+                        if (index === 0) {
+                            html += `
+                                <td
+                                    colspan="${Math.max(
+                                        1,
+                                        visibleRowFields.length
+                                    )}"
+                                >
+                                    <strong>
+                                        ${escapeHtml(
+                                            visibleRowFields
+                                                .map(rowField =>
+                                                    valueForField(
+                                                        group.rows[0],
+                                                        rowField
+                                                    )
+                                                )
+                                                .filter(Boolean)
+                                                .join(" / ")
+                                        )} всего
+                                    </strong>
+                                </td>
+                            `;
+                            return;
+                        }
+
+                        if (
+                            visibleRowFields.includes(
+                                field
+                            )
+                        ) {
+                            return;
+                        }
+
+                        const measure =
+                            measureFields.find(
+                                item =>
+                                    item.field === field
+                            );
+
+                        if (measure) {
+                            html += `
+                                <td>
+                                    <strong>
+                                        ${escapeHtml(
+                                            formatValue(
+                                                sumMeasure(
+                                                    group.rows,
+                                                    measure.field,
+                                                    measure.aggregation
+                                                )
+                                            )
+                                        )}
+                                    </strong>
+                                </td>
+                            `;
+                        } else {
+                            html += `<td></td>`;
+                        }
+                    }
+                );
+
+                html += `</tr>`;
+            }
+        });
+
+        // --------------------------------------------------------
+        // Общий ИТОГО.
+        // --------------------------------------------------------
+        if (measureFields.length) {
+            html += `
+                <tr class="olap-grand-total">
+            `;
+
+            visibleFields.forEach(
+                (field, index) => {
+                    if (index === 0) {
+                        html += `
+                            <td
+                                colspan="${Math.max(
+                                    1,
+                                    visibleRowFields.length
+                                )}"
+                            >
+                                <strong>ИТОГО</strong>
+                            </td>
+                        `;
+                        return;
+                    }
+
+                    if (
+                        visibleRowFields.includes(
+                            field
+                        )
+                    ) {
+                        return;
+                    }
+
+                    const measure =
+                        measureFields.find(
+                            item =>
+                                item.field === field
+                        );
+
+                    if (measure) {
+                        html += `
+                            <td>
+                                <strong>
+                                    ${escapeHtml(
+                                        formatValue(
+                                            grandTotals[
+                                                measure.field
+                                            ]
+                                        )
+                                    )}
+                                </strong>
+                            </td>
+                        `;
+                    } else {
+                        html += `<td></td>`;
+                    }
+                }
+            );
+
+            html += `</tr>`;
+        }
 
         html += `
-
                     </tbody>
-
                 </table>
-
             </div>
-
         `;
 
+        container.innerHTML = html;
 
-        container.innerHTML =
-            html;
+        // --------------------------------------------------------
+        // Сворачивание групп.
+        // --------------------------------------------------------
+        container
+            .querySelectorAll(
+                "[data-olap-toggle]"
+            )
+            .forEach(button => {
+                button.addEventListener(
+                    "click",
+                    event => {
+                        event.preventDefault();
+                        event.stopPropagation();
+
+                        const key =
+                            button.dataset.olapToggle || "";
+
+                        if (
+                            collapsedOlapGroups.has(
+                                key
+                            )
+                        ) {
+                            collapsedOlapGroups.delete(
+                                key
+                            );
+                        } else {
+                            collapsedOlapGroups.add(
+                                key
+                            );
+                        }
+
+                        renderOlapResult(
+                            data
+                        );
+                    }
+                );
+            });
     }
 
 
