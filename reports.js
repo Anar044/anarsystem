@@ -1,225 +1,700 @@
+// ============================================================
+// ANAR SYSTEM — REPORTS + IIKO OLAP CONSTRUCTOR
+// reports.js
+// ============================================================
+
 (function () {
+
     "use strict";
 
     // ============================================================
-    // IIKO REPORTS / OLAP CONSTRUCTOR
+    // ELEMENTS
     // ============================================================
 
-    const $ = id => document.getElementById(id);
+    const connectButton =
+        document.getElementById("connect-iiko");
 
-    const STORAGE_KEY = "iikoConnection";
+    const statusElement =
+        document.getElementById("iiko-status");
+
+    const salesCard =
+        document.getElementById("sales-card");
+
+    const loadSalesButton =
+        document.getElementById("load-sales");
+
+    const salesResult =
+        document.getElementById("sales-result");
+
+    const rememberIiko =
+        document.getElementById("remember-iiko");
+
+    const clearIikoData =
+        document.getElementById("clear-iiko-data");
+
+
+    // ============================================================
+    // IIKO CONNECTION
+    // ============================================================
 
     let iikoConnection = null;
 
+    const IIKO_STORAGE_KEY =
+        "iikoConnection";
+
+
+    // ============================================================
+    // OLAP STATE
+    // ============================================================
+
     let olapFields = [];
+
     let olapRows = [];
+
     let olapColumns = [];
+
     let olapMeasures = [];
+
     let olapFilters = [];
 
-    let currentDrag = null;
+    // Текущее перетаскиваемое поле OLAP.
+    let currentOlapDragData = null;
+
+
+    // ============================================================
+    // STANDARD IIKO SALES OLAP FIELDS
+    // ============================================================
+
+    const STANDARD_IIKO_FIELDS = [
+
+        {
+            name: "OpenDate.Typed",
+            title: "Дата открытия",
+            type: "date",
+            isMeasure: false
+        },
+
+        {
+            name: "CloseDate.Typed",
+            title: "Дата закрытия",
+            type: "date",
+            isMeasure: false
+        },
+
+        {
+            name: "UniqOrderId",
+            title: "ID заказа",
+            type: "number",
+            isMeasure: true
+        },
+
+        {
+            name: "OrderNum",
+            title: "Номер заказа",
+            type: "number",
+            isMeasure: false
+        },
+
+        {
+            name: "DishName",
+            title: "Блюдо",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "DishId",
+            title: "ID блюда",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "DishCode",
+            title: "Код блюда",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "DishCategory",
+            title: "Категория блюда",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "DishGroup",
+            title: "Группа блюда",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "DishAmountInt",
+            title: "Количество",
+            type: "number",
+            isMeasure: true
+        },
+
+        {
+            name: "DishSumInt",
+            title: "Сумма",
+            type: "number",
+            isMeasure: true
+        },
+
+        {
+            name: "DishDiscountSumInt",
+            title: "Сумма со скидкой",
+            type: "number",
+            isMeasure: true
+        },
+
+        {
+            name: "DishSumAfterDiscount",
+            title: "Сумма после скидки",
+            type: "number",
+            isMeasure: true
+        },
+
+        {
+            name: "DishCost",
+            title: "Себестоимость",
+            type: "number",
+            isMeasure: true
+        },
+
+        {
+            name: "Department",
+            title: "Подразделение",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "Department.Id",
+            title: "ID подразделения",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "Department.Code",
+            title: "Код подразделения",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "Department.Name",
+            title: "Название подразделения",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "WaiterName",
+            title: "Официант",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "Waiter",
+            title: "Официант",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "CashierName",
+            title: "Кассир",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "PaymentType",
+            title: "Тип оплаты",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "PaymentType.Name",
+            title: "Название типа оплаты",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "TableName",
+            title: "Стол",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "GuestNum",
+            title: "Количество гостей",
+            type: "number",
+            isMeasure: true
+        },
+
+        {
+            name: "OrderType",
+            title: "Тип заказа",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "OrderType.Name",
+            title: "Название типа заказа",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "Delivery",
+            title: "Доставка",
+            type: "string",
+            isMeasure: false
+        },
+
+        {
+            name: "OrderSource",
+            title: "Источник заказа",
+            type: "string",
+            isMeasure: false
+        }
+
+    ];
 
 
     // ============================================================
     // HELPERS
     // ============================================================
 
-    function esc(value) {
-        return String(value ?? "").replace(/[&<>"']/g, char => ({
-            "&": "&amp;",
-            "<": "&lt;",
-            ">": "&gt;",
-            '"': "&quot;",
-            "'": "&#39;"
-        }[char]));
-    }
+    function escapeHtml(value) {
 
-
-    function today() {
-        const d = new Date();
-
-        return (
-            d.getFullYear() +
-            "-" +
-            String(d.getMonth() + 1).padStart(2, "0") +
-            "-" +
-            String(d.getDate()).padStart(2, "0")
-        );
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
     }
 
 
     async function safeJson(response) {
 
-        const text = await response.text();
+        const text =
+            await response.text();
 
         if (!text) {
             return {};
         }
 
         try {
-            return JSON.parse(text);
-        }
 
-        catch {
+            return JSON.parse(text);
+
+        } catch (error) {
+
             return {
+
                 success: false,
-                message: text || `HTTP ${response.status}`
+
+                message:
+                    text.slice(0, 2000),
+
+                rawText:
+                    text
+
             };
         }
     }
 
 
-    function setIikoStatus(text) {
+    function getElement(id) {
 
-        const element = $("iiko-status");
-
-        if (element) {
-            element.textContent = text;
-        }
+        return document.getElementById(id);
     }
 
 
-    function setOlapStatus(text) {
+    function todayString() {
 
-        const element = $("olap-status");
+        const date =
+            new Date();
 
-        if (element) {
-            element.textContent = text;
+        const yyyy =
+            date.getFullYear();
+
+        const mm =
+            String(
+                date.getMonth() + 1
+            ).padStart(2, "0");
+
+        const dd =
+            String(
+                date.getDate()
+            ).padStart(2, "0");
+
+        return `${yyyy}-${mm}-${dd}`;
+    }
+
+
+    function formatDate(value) {
+
+        if (!value) {
+            return "";
+        }
+
+        const parts =
+            String(value)
+                .slice(0, 10)
+                .split("-");
+
+        if (parts.length !== 3) {
+            return String(value);
+        }
+
+        return `${parts[2]}.${parts[1]}.${parts[0]}`;
+    }
+
+
+    function formatNumber(value) {
+
+        const number =
+            Number(value);
+
+        if (!Number.isFinite(number)) {
+            return escapeHtml(value);
+        }
+
+        return new Intl.NumberFormat(
+            "ru-RU",
+            {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 2
+            }
+        ).format(number);
+    }
+
+
+    function formatMoney(value) {
+
+        const number =
+            Number(value);
+
+        if (!Number.isFinite(number)) {
+            return "0,00";
+        }
+
+        return new Intl.NumberFormat(
+            "ru-RU",
+            {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }
+        ).format(number);
+    }
+
+
+    // ============================================================
+    // LOAD SAVED IIKO DATA
+    // ============================================================
+
+    function loadSavedIikoData() {
+
+        try {
+
+            const saved =
+                localStorage.getItem(
+                    IIKO_STORAGE_KEY
+                );
+
+            if (!saved) {
+                return;
+            }
+
+            const data =
+                JSON.parse(saved);
+
+            const ip =
+                getElement("iiko-ip");
+
+            const port =
+                getElement("iiko-port");
+
+            const login =
+                getElement("iiko-login");
+
+            const password =
+                getElement("iiko-password");
+
+
+            if (ip) {
+                ip.value =
+                    data.ip || "";
+            }
+
+            if (port) {
+                port.value =
+                    data.port || "";
+            }
+
+            if (login) {
+                login.value =
+                    data.login || "";
+            }
+
+            if (password) {
+                password.value =
+                    data.password || "";
+            }
+
+            if (rememberIiko) {
+                rememberIiko.checked =
+                    true;
+            }
+
+        } catch (error) {
+
+            console.error(
+                "Ошибка загрузки данных iiko:",
+                error
+            );
+
+            localStorage.removeItem(
+                IIKO_STORAGE_KEY
+            );
         }
     }
 
 
     // ============================================================
-    // FIELD NORMALIZATION
-    //
-    // IMPORTANT:
-    // iiko may return:
-    //
-    // title = "Сумма со скидкой"
-    // technicalName = "DishDiscountSumInt"
-    //
-    // We MUST keep both.
+    // CLEAR SAVED IIKO DATA
     // ============================================================
 
-    function normalizeField(field) {
+    function clearSavedIikoData() {
 
-        if (typeof field === "string") {
+        try {
 
-            const value = field.trim();
+            localStorage.removeItem(
+                IIKO_STORAGE_KEY
+            );
 
-            if (!value) {
+        } catch (error) {
+
+            console.error(
+                error
+            );
+        }
+
+
+        const ip =
+            getElement("iiko-ip");
+
+        const port =
+            getElement("iiko-port");
+
+        const login =
+            getElement("iiko-login");
+
+        const password =
+            getElement("iiko-password");
+
+
+        if (ip) {
+            ip.value = "";
+        }
+
+        if (port) {
+            port.value = "";
+        }
+
+        if (login) {
+            login.value = "";
+        }
+
+        if (password) {
+            password.value = "";
+        }
+
+        if (rememberIiko) {
+            rememberIiko.checked = false;
+        }
+
+
+        iikoConnection = null;
+
+
+        if (salesCard) {
+            salesCard.style.display = "none";
+        }
+
+
+        if (statusElement) {
+
+            statusElement.textContent =
+                "⚪ Не подключено";
+        }
+    }
+
+
+    // ============================================================
+    // STATUS
+    // ============================================================
+
+    function setIikoStatus(
+        text
+    ) {
+
+        if (!statusElement) {
+            return;
+        }
+
+        statusElement.textContent =
+            text;
+    }
+
+
+    // ============================================================
+    // NORMALIZE FIELD
+    // ============================================================
+
+    function normalizeOlapField(
+        field
+    ) {
+
+        if (!field) {
+            return null;
+        }
+
+
+        if (
+            typeof field === "string"
+        ) {
+
+            const name =
+                field.trim();
+
+            if (!name) {
                 return null;
             }
 
             return {
-                name: value,
-                technicalName: value,
-                title: value,
-                caption: value,
-                type: "",
-                isMeasure: false,
-                aggregationAllowed: false,
-                groupingAllowed: true,
-                filteringAllowed: true
+
+                name,
+
+                field:
+                    name,
+
+                key:
+                    name,
+
+                title:
+                    name,
+
+                type:
+                    "",
+
+                isMeasure:
+                    false,
+
+                aggregationAllowed:
+                    false,
+
+                groupingAllowed:
+                    true,
+
+                filteringAllowed:
+                    true
             };
         }
 
 
-        if (!field || typeof field !== "object") {
+        if (
+            typeof field !== "object"
+        ) {
+
             return null;
         }
 
 
-        // --------------------------------------------------------
-        // TECHNICAL NAME
-        // --------------------------------------------------------
+        // IMPORTANT:
+        // iiko can return a human-readable name in `name` and
+        // the real API field in `technicalName` / `field` / `key`.
+        // Technical identifiers MUST have priority.
+        const name =
+            String(
+                field.technicalName ||
+                field.technical_name ||
+                field.technicalField ||
+                field.technical_field ||
+                field.fieldName ||
+                field.field_name ||
+                field.apiName ||
+                field.api_name ||
+                field.field ||
+                field.key ||
+                field.code ||
+                field.id ||
+                field.name ||
+                ""
+            ).trim();
 
-        const technicalName = String(
-            field.technicalName ??
-            field.technical_name ??
-            field.TechnicalName ??
-            field.fieldName ??
-            field.field_name ??
-            field.field ??
-            field.key ??
-            field.code ??
-            field.id ??
-            field.name ??
-            ""
-        ).trim();
 
-
-        if (!technicalName) {
+        if (!name) {
             return null;
         }
 
 
-        // --------------------------------------------------------
-        // DISPLAY TITLE
-        // --------------------------------------------------------
-
-        const title = String(
-            field.title ??
-            field.caption ??
-            field.label ??
-            field.displayName ??
-            field.display_name ??
-            field.description ??
-            field.name ??
-            technicalName
-        ).trim();
-
-
-        // --------------------------------------------------------
-        // TYPE
-        // --------------------------------------------------------
-
-        const type = String(
-            field.type ??
-            field.dataType ??
-            field.data_type ??
-            field.kind ??
-            ""
-        ).trim();
-
-
-        // --------------------------------------------------------
-        // AGGREGATION
-        // --------------------------------------------------------
-
-        const aggregationAllowed =
-            field.aggregationAllowed === true ||
-            field.allowAggregation === true ||
-            field.canAggregate === true ||
-            field.isMeasure === true ||
-            field.measure === true;
-
-
-        const isMeasure =
-            field.isMeasure === true ||
-            field.measure === true ||
-            aggregationAllowed;
+        const title =
+            String(
+                field.title ||
+                field.caption ||
+                field.label ||
+                field.displayName ||
+                field.name ||
+                name
+            ).trim();
 
 
         return {
 
             ...field,
 
-            // technical name used in iiko request
-            name: technicalName,
+            name,
 
-            technicalName,
+            field:
+                name,
 
-            // human-readable name
+            key:
+                name,
+
             title,
 
-            caption: title,
+            type:
+                String(
+                    field.type ||
+                    field.dataType ||
+                    field.kind ||
+                    ""
+                ),
 
-            type,
+            isMeasure:
+                field.isMeasure === true ||
+                field.measure === true ||
+                field.aggregationAllowed === true,
 
-            isMeasure,
-
-            aggregationAllowed,
+            aggregationAllowed:
+                field.aggregationAllowed === true ||
+                field.allowAggregation === true ||
+                field.canAggregate === true,
 
             groupingAllowed:
                 field.groupingAllowed !== false,
@@ -231,209 +706,329 @@
 
 
     // ============================================================
-    // EXTRACT FIELDS
+    // EXTRACT OLAP FIELDS
     // ============================================================
 
-    function extractOlapFields(data) {
+    function extractOlapFields(
+        data
+    ) {
 
         const result = [];
 
-        const seen = new Set();
+        const seen =
+            new Set();
 
 
-        function add(value) {
-
-            const field =
-                normalizeField(value);
-
+        function addField(
+            field,
+            fallbackName = ""
+        ) {
 
             if (!field) {
                 return;
             }
 
 
-            const technical =
-                String(
+            let name = "";
+            let title = "";
+            let type = "";
+
+
+            if (
+                typeof field === "string"
+            ) {
+
+                name =
+                    field;
+
+                title =
+                    field;
+
+            } else if (
+                typeof field === "object"
+            ) {
+
+                // IMPORTANT:
+                // Prefer the real technical field name over a display name.
+                name =
                     field.technicalName ||
-                    field.name
+                    field.technical_name ||
+                    field.technicalField ||
+                    field.technical_field ||
+                    field.fieldName ||
+                    field.field_name ||
+                    field.apiName ||
+                    field.api_name ||
+                    field.field ||
+                    field.key ||
+                    field.code ||
+                    field.id ||
+                    field.name ||
+                    fallbackName ||
+                    "";
+
+                title =
+                    field.title ||
+                    field.caption ||
+                    field.label ||
+                    field.displayName ||
+                    field.name ||
+                    name;
+
+                type =
+                    field.type ||
+                    field.dataType ||
+                    field.kind ||
+                    "";
+            }
+
+
+            name =
+                String(
+                    name || ""
                 ).trim();
 
 
-            if (!technical) {
+            if (!name) {
                 return;
             }
 
 
             const key =
-                technical.toLowerCase();
+                name.toLowerCase();
 
 
-            if (seen.has(key)) {
+            if (
+                seen.has(key)
+            ) {
                 return;
             }
 
 
             seen.add(key);
 
-            result.push(field);
+
+            result.push({
+
+                ...(
+                    typeof field === "object"
+                        ? field
+                        : {}
+                ),
+
+                name,
+
+                field:
+                    name,
+
+                key:
+                    name,
+
+                title:
+                    String(
+                        title ||
+                        name
+                    ),
+
+                type:
+                    String(
+                        type ||
+                        ""
+                    ),
+
+                isMeasure:
+                    field &&
+                    typeof field === "object"
+                        ? (
+                            field.isMeasure === true ||
+                            field.measure === true ||
+                            field.aggregationAllowed === true
+                        )
+                        : false,
+
+                aggregationAllowed:
+                    field &&
+                    typeof field === "object"
+                        ? (
+                            field.aggregationAllowed === true ||
+                            field.allowAggregation === true ||
+                            field.canAggregate === true
+                        )
+                        : false,
+
+                groupingAllowed:
+                    field &&
+                    typeof field === "object"
+                        ? field.groupingAllowed !== false
+                        : true,
+
+                filteringAllowed:
+                    field &&
+                    typeof field === "object"
+                        ? field.filteringAllowed !== false
+                        : true
+            });
         }
 
 
-        function walk(value, depth = 0) {
+        function parseArray(
+            array
+        ) {
 
-            if (!value || depth > 7) {
+            if (!Array.isArray(array)) {
                 return;
             }
 
 
-            if (Array.isArray(value)) {
+            array.forEach(
+                item => {
 
-                value.forEach(item => {
+                    if (
+                        typeof item === "string"
+                    ) {
 
-                    const field =
-                        normalizeField(item);
+                        addField(
+                            item
+                        );
 
-
-                    if (field) {
-                        add(item);
+                        return;
                     }
 
-                    else {
-                        walk(
-                            item,
-                            depth + 1
+
+                    if (
+                        item &&
+                        typeof item === "object"
+                    ) {
+
+                        addField(
+                            item
                         );
                     }
+                }
+            );
+        }
 
-                });
 
+        function parseObject(
+            object
+        ) {
+
+            if (
+                !object ||
+                typeof object !== "object" ||
+                Array.isArray(object)
+            ) {
                 return;
             }
 
 
-            if (
-                typeof value !== "object"
-            ) {
-                return;
-            }
+            Object.entries(
+                object
+            ).forEach(
+                ([key, value]) => {
+
+                    if (
+                        [
+                            "fields",
+                            "columns",
+                            "items",
+                            "data",
+                            "dimensions",
+                            "measures",
+                            "fieldDefinitions"
+                        ].includes(key)
+                    ) {
+                        return;
+                    }
 
 
-            // ----------------------------------------------------
-            // Common containers
-            // ----------------------------------------------------
+                    if (
+                        value &&
+                        typeof value === "object" &&
+                        !Array.isArray(value)
+                    ) {
 
-            const containers = [
-                "fields",
-                "columns",
-                "items",
-                "dimensions",
-                "measures",
-                "fieldDefinitions",
-                "fielddefinitions",
-                "availableFields",
-                "available_fields"
-            ];
-
-
-            for (const key of containers) {
-
-                if (
-                    value[key] === undefined ||
-                    value[key] === null
-                ) {
-                    continue;
+                        addField(
+                            value,
+                            key
+                        );
+                    }
                 }
-
-
-                const child =
-                    value[key];
-
-
-                if (Array.isArray(child)) {
-
-                    child.forEach(add);
-                }
-
-                else if (
-                    typeof child === "object"
-                ) {
-
-                    Object.values(child)
-                        .forEach(add);
-                }
-            }
-
-
-            // ----------------------------------------------------
-            // Walk nested objects
-            // ----------------------------------------------------
-
-            for (
-                const [key, child]
-                of Object.entries(value)
-            ) {
-
-                if (
-                    containers.includes(key)
-                ) {
-                    continue;
-                }
-
-
-                const field =
-                    normalizeField(child);
-
-
-                if (field) {
-
-                    add(child);
-
-                    continue;
-                }
-
-
-                if (
-                    child &&
-                    typeof child === "object"
-                ) {
-
-                    walk(
-                        child,
-                        depth + 1
-                    );
-                }
-            }
+            );
         }
 
 
-        // First try known field containers
+        if (!data) {
+            return [];
+        }
 
-        if (data?.fields) {
+
+        if (
+            Array.isArray(
+                data.fields
+            )
+        ) {
+
+            parseArray(
+                data.fields
+            );
+
+        } else if (
+            data.fields &&
+            typeof data.fields === "object"
+        ) {
+
+            parseObject(
+                data.fields
+            );
+        }
+
+
+        if (
+            data.raw
+        ) {
 
             if (
-                Array.isArray(data.fields)
+                Array.isArray(
+                    data.raw
+                )
             ) {
 
-                data.fields.forEach(add);
-            }
+                parseArray(
+                    data.raw
+                );
 
-            else if (
-                typeof data.fields === "object"
+            } else if (
+                typeof data.raw === "object"
             ) {
 
-                Object.values(data.fields)
-                    .forEach(add);
+                parseObject(
+                    data.raw
+                );
             }
         }
 
 
-        if (data?.raw) {
-            walk(data.raw);
-        }
+        if (
+            !result.length
+        ) {
 
+            if (
+                Array.isArray(data)
+            ) {
 
-        if (!result.length) {
-            walk(data);
+                parseArray(
+                    data
+                );
+
+            } else if (
+                typeof data === "object"
+            ) {
+
+                parseObject(
+                    data
+                );
+            }
         }
 
 
@@ -442,164 +1037,313 @@
 
 
     // ============================================================
-    // FIND FIELD
+    // TECHNICAL FIELD RESOLVER
+    //
+    // ГЛАВНОЕ ИСПРАВЛЕНИЕ:
+    //
+    // "Сумма со скидкой"
+    //          ↓
+    // "DishDiscountSumInt"
+    //
+    // В iiko НЕЛЬЗЯ отправлять title.
+    // Нужно отправлять техническое name.
     // ============================================================
 
-    function findOlapField(value) {
+    function resolveTechnicalOlapFieldName(
+        fieldOrName
+    ) {
 
-        if (!value) {
-            return null;
+        // --------------------------------------------------------
+        // If an object is supplied, first try explicit technical
+        // identifiers. Do NOT blindly trust `name`, because in
+        // some iiko responses `name` is the human-readable title.
+        // --------------------------------------------------------
+
+        if (
+            fieldOrName &&
+            typeof fieldOrName === "object"
+        ) {
+
+            const technicalCandidates = [
+                fieldOrName.technicalName,
+                fieldOrName.technical_name,
+                fieldOrName.technicalField,
+                fieldOrName.technical_field,
+                fieldOrName.fieldName,
+                fieldOrName.field_name,
+                fieldOrName.apiName,
+                fieldOrName.api_name,
+                fieldOrName.field,
+                fieldOrName.key,
+                fieldOrName.code,
+                fieldOrName.id
+            ]
+                .map(value =>
+                    String(value ?? "").trim()
+                )
+                .filter(Boolean);
+
+
+            for (const candidate of technicalCandidates) {
+
+                const exact =
+                    olapFields.find(
+                        field =>
+                            String(
+                                field.name || ""
+                            ).trim().toLowerCase() ===
+                            candidate.toLowerCase()
+                    );
+
+                if (exact) {
+                    return exact.name;
+                }
+
+                const standardExact =
+                    STANDARD_IIKO_FIELDS.find(
+                        field =>
+                            String(
+                                field.name || ""
+                            ).trim().toLowerCase() ===
+                            candidate.toLowerCase()
+                    );
+
+                if (standardExact) {
+                    return standardExact.name;
+                }
+
+                // A technical iiko field normally contains only
+                // Latin letters, digits, underscores and dots.
+                if (
+                    candidate.includes(".") ||
+                    /^[A-Za-z0-9_]+$/.test(candidate)
+                ) {
+                    return candidate;
+                }
+            }
+
+
+            // ----------------------------------------------------
+            // Then try human-readable fields against their title.
+            // ----------------------------------------------------
+
+            const displayCandidates = [
+                fieldOrName.title,
+                fieldOrName.caption,
+                fieldOrName.label,
+                fieldOrName.displayName,
+                fieldOrName.display_name,
+                fieldOrName.name
+            ]
+                .map(value =>
+                    String(value ?? "").trim()
+                )
+                .filter(Boolean);
+
+
+            for (const candidate of displayCandidates) {
+
+                const lower =
+                    candidate.toLowerCase();
+
+                const byTitle =
+                    olapFields.find(
+                        field =>
+                            String(
+                                field.title || ""
+                            ).trim().toLowerCase() === lower
+                    );
+
+                if (byTitle) {
+                    return byTitle.name;
+                }
+
+                const standard =
+                    STANDARD_IIKO_FIELDS.find(
+                        field =>
+                            String(
+                                field.title || ""
+                            ).trim().toLowerCase() === lower
+                    );
+
+                if (standard) {
+                    return standard.name;
+                }
+            }
+
+            fieldOrName =
+                fieldOrName.title ||
+                fieldOrName.caption ||
+                fieldOrName.label ||
+                fieldOrName.displayName ||
+                fieldOrName.name ||
+                "";
         }
 
 
-        const search =
+        const value =
             String(
-                typeof value === "object"
-                    ? (
-                        value.technicalName ||
-                        value.name ||
-                        value.field ||
-                        value.key ||
-                        value.title ||
-                        ""
-                    )
-                    : value
+                fieldOrName || ""
             ).trim();
 
 
-        if (!search) {
+        if (!value) {
+            return "";
+        }
+
+
+        const lower =
+            value.toLowerCase();
+
+
+        // --------------------------------------------------------
+        // GUARANTEED DISPLAY-NAME ALIASES
+        // --------------------------------------------------------
+
+        const aliases = {
+            "сумма со скидкой": "DishDiscountSumInt",
+            "сумма скидки": "DiscountSum",
+            "скидка": "DishDiscountSumInt",
+            "сумма": "DishSumInt",
+            "сумма после скидки": "DishSumAfterDiscount",
+            "количество": "DishAmountInt",
+            "блюдо": "DishName",
+            "название блюда": "DishName",
+            "категория блюда": "DishCategory",
+            "группа блюда": "DishGroup",
+            "дата открытия": "OpenDate.Typed",
+            "дата закрытия": "CloseDate.Typed",
+            "официант": "WaiterName",
+            "кассир": "CashierName",
+            "подразделение": "Department.Name",
+            "стол": "TableName",
+            "тип оплаты": "PaymentType.Name",
+            "тип заказа": "OrderType.Name",
+            "источник заказа": "OrderSource"
+        };
+
+
+        if (aliases[lower]) {
+            return aliases[lower];
+        }
+
+
+        // --------------------------------------------------------
+        // Exact technical field.
+        // --------------------------------------------------------
+
+        const exact =
+            olapFields.find(
+                field =>
+                    String(
+                        field.name || ""
+                    ).trim().toLowerCase() === lower
+            );
+
+        if (exact) {
+            return exact.name;
+        }
+
+
+        const standardExact =
+            STANDARD_IIKO_FIELDS.find(
+                field =>
+                    String(
+                        field.name || ""
+                    ).trim().toLowerCase() === lower
+            );
+
+        if (standardExact) {
+            return standardExact.name;
+        }
+
+
+        // --------------------------------------------------------
+        // Display title.
+        // --------------------------------------------------------
+
+        const byTitle =
+            olapFields.find(
+                field =>
+                    String(
+                        field.title || ""
+                    ).trim().toLowerCase() === lower
+            );
+
+        if (byTitle) {
+            return byTitle.name;
+        }
+
+
+        const standardByTitle =
+            STANDARD_IIKO_FIELDS.find(
+                field =>
+                    String(
+                        field.title || ""
+                    ).trim().toLowerCase() === lower
+            );
+
+        if (standardByTitle) {
+            return standardByTitle.name;
+        }
+
+
+        // If it looks like a technical iiko identifier, preserve it.
+        if (
+            value.includes(".") ||
+            /^[A-Za-z0-9_]+$/.test(value)
+        ) {
+            return value;
+        }
+
+
+        // Do not silently invent a technical name for an unknown
+        // human-readable value. Returning it lets the backend/iiko
+        // show the exact bad field instead of hiding the problem.
+        return value;
+    }
+
+    // ============================================================
+    // FIELD LOOKUP
+    // ============================================================
+
+    function findOlapField(
+        fieldOrName
+    ) {
+
+        const technicalName =
+            resolveTechnicalOlapFieldName(
+                fieldOrName
+            );
+
+
+        if (!technicalName) {
             return null;
         }
 
 
-        // --------------------------------------------------------
-        // 1. Technical name exact
-        // --------------------------------------------------------
-
-        let field =
+        return (
             olapFields.find(
-                item =>
+                field =>
                     String(
-                        item.technicalName ||
-                        item.name ||
-                        ""
-                    ) === search
-            );
+                        field.name || ""
+                    ) === technicalName
+            ) ||
 
-
-        if (field) {
-            return field;
-        }
-
-
-        // --------------------------------------------------------
-        // 2. Technical name case insensitive
-        // --------------------------------------------------------
-
-        field =
-            olapFields.find(
-                item =>
+            STANDARD_IIKO_FIELDS.find(
+                field =>
                     String(
-                        item.technicalName ||
-                        item.name ||
-                        ""
-                    ).toLowerCase() ===
-                    search.toLowerCase()
-            );
+                        field.name || ""
+                    ) === technicalName
+            ) ||
 
-
-        if (field) {
-            return field;
-        }
-
-
-        // --------------------------------------------------------
-        // 3. Display title exact
-        // --------------------------------------------------------
-
-        field =
-            olapFields.find(
-                item =>
-                    String(
-                        item.title ||
-                        item.caption ||
-                        ""
-                    ) === search
-            );
-
-
-        if (field) {
-            return field;
-        }
-
-
-        // --------------------------------------------------------
-        // 4. Display title case insensitive
-        // --------------------------------------------------------
-
-        field =
-            olapFields.find(
-                item =>
-                    String(
-                        item.title ||
-                        item.caption ||
-                        ""
-                    ).toLowerCase() ===
-                    search.toLowerCase()
-            );
-
-
-        return field || null;
+            null
+        );
     }
 
 
     // ============================================================
-    // RESOLVE TECHNICAL NAME
-    //
-    // THIS IS THE IMPORTANT FIX.
-    // ============================================================
-
-    function resolveTechnicalField(value) {
-
-        const field =
-            findOlapField(value);
-
-
-        if (field) {
-
-            const technical =
-                field.technicalName ||
-                field.name ||
-                field.field ||
-                field.key ||
-                field.code;
-
-
-            if (technical) {
-                return String(
-                    technical
-                ).trim();
-            }
-        }
-
-
-        // If value itself is already technical
-        return String(
-            typeof value === "object"
-                ? (
-                    value.technicalName ||
-                    value.name ||
-                    value.field ||
-                    value.key ||
-                    ""
-                )
-                : value || ""
-        ).trim();
-    }
-
-
-    // ============================================================
-    // LOAD OLAP FIELDS
+    // API: LOAD OLAP FIELDS
     // ============================================================
 
     async function loadOlapFields() {
@@ -616,9 +1360,12 @@
             await fetch(
                 "/api/iiko/olap",
                 {
-                    method: "POST",
+
+                    method:
+                        "POST",
 
                     headers: {
+
                         "Content-Type":
                             "application/json",
 
@@ -629,9 +1376,11 @@
                     body:
                         JSON.stringify({
 
-                            action: "fields",
+                            action:
+                                "fields",
 
-                            reportType: "SALES",
+                            reportType:
+                                "SALES",
 
                             ip:
                                 iikoConnection.ip,
@@ -644,7 +1393,6 @@
 
                             password:
                                 iikoConnection.password
-
                         })
                 }
             );
@@ -656,43 +1404,49 @@
             );
 
 
+        console.log(
+            "OLAP FIELDS RESPONSE:",
+            data
+        );
+
+
         if (
             !response.ok ||
             data.success === false
         ) {
 
             throw new Error(
+
                 data.message ||
-                `OLAP fields HTTP ${response.status}`
+
+                `Ошибка OLAP fields HTTP ${response.status}`
             );
         }
 
 
-        olapFields =
-            extractOlapFields(data);
-
-
-        if (!olapFields.length) {
-
-            throw new Error(
-                "iiko не вернул список OLAP полей"
+        const extracted =
+            extractOlapFields(
+                data
             );
+
+
+        if (extracted.length) {
+
+            olapFields =
+                extracted;
+
+        } else {
+
+            olapFields =
+                STANDARD_IIKO_FIELDS.map(
+                    normalizeOlapField
+                );
         }
-
-
-        renderOlapFields();
-
-        renderFilterEditor();
-
-
-        setOlapStatus(
-            `🟢 Доступные поля OLAP: ${olapFields.length}`
-        );
 
 
         console.log(
-            "IIKO OLAP FIELDS:",
-            olapFields
+            "🟢 Доступные поля OLAP:",
+            olapFields.length
         );
 
 
@@ -701,13 +1455,15 @@
 
 
     // ============================================================
-    // CREATE BUILDER
+    // CREATE OLAP BUILDER
     // ============================================================
 
     function createOlapBuilder() {
 
         const existing =
-            $("olap-builder");
+            document.getElementById(
+                "olap-builder"
+            );
 
 
         if (existing) {
@@ -744,10 +1500,9 @@
                     Конструктор OLAP
                 </h2>
 
-
                 <div class="olap-description">
-                    Перетащите поле из списка слева
-                    в Строки, Колонки или Показатели.
+                    Перетащите поле из списка слева в Строки, Колонки или Показатели.
+                    В запрос iiko будут отправляться технические имена полей.
                 </div>
 
 
@@ -793,6 +1548,7 @@
 
 
                 <div class="olap-grid">
+
 
                     <div class="olap-panel">
 
@@ -872,130 +1628,53 @@
                 </div>
 
 
-                <!-- FILTERS -->
-
                 <div class="olap-filters-panel">
 
-                    <h3>
-                        Фильтры
-                    </h3>
-
+                    <h3>Фильтры</h3>
 
                     <div class="olap-filter-editor">
 
                         <label>
-
                             Поле
-
-                            <select
-                                id="olap-filter-field"
-                            ></select>
-
+                            <select id="olap-filter-field"></select>
                         </label>
-
 
                         <label>
-
                             Условие
-
-                            <select
-                                id="olap-filter-operator"
-                            >
-
-                                <option value="Include">
-                                    Равно
-                                </option>
-
-                                <option value="Exclude">
-                                    Не равно
-                                </option>
-
-                                <option value="IncludeList">
-                                    В списке
-                                </option>
-
-                                <option value="ExcludeList">
-                                    Не в списке
-                                </option>
-
-                                <option value="DateRange">
-                                    Диапазон дат
-                                </option>
-
+                            <select id="olap-filter-operator">
+                                <option value="Include">Равно</option>
+                                <option value="Exclude">Не равно</option>
+                                <option value="IncludeList">В списке</option>
+                                <option value="ExcludeList">Не в списке</option>
+                                <option value="DateRange">Диапазон дат</option>
                             </select>
-
                         </label>
 
-
-                        <label
-                            id="olap-filter-value-label"
-                        >
-
+                        <label id="olap-filter-value-label" class="olap-filter-value-wrap">
                             Значение
-
-                            <input
-                                id="olap-filter-value"
-                                type="text"
-                            >
-
+                            <input id="olap-filter-value" type="text" placeholder="Например: Ресторан №1">
                         </label>
 
-
-                        <label
-                            id="olap-filter-from-label"
-                            style="display:none"
-                        >
-
+                        <label id="olap-filter-from-label" class="olap-filter-date-wrap" style="display:none">
                             От
-
-                            <input
-                                id="olap-filter-from"
-                                type="date"
-                            >
-
+                            <input id="olap-filter-from" type="date">
                         </label>
 
-
-                        <label
-                            id="olap-filter-to-label"
-                            style="display:none"
-                        >
-
+                        <label id="olap-filter-to-label" class="olap-filter-date-wrap" style="display:none">
                             До
-
-                            <input
-                                id="olap-filter-to"
-                                type="date"
-                            >
-
+                            <input id="olap-filter-to" type="date">
                         </label>
 
-
-                        <button
-                            type="button"
-                            id="olap-add-filter"
-                        >
-                            + Добавить фильтр
-                        </button>
+                        <button type="button" id="olap-add-filter">+ Добавить фильтр</button>
 
                     </div>
 
-
-                    <div
-                        id="olap-filters"
-                        class="olap-filters-list"
-                    >
-
-                        <div class="olap-empty">
-                            Фильтры не заданы
-                        </div>
-
+                    <div id="olap-filters" class="olap-filters-list">
+                        <div class="olap-empty">Фильтры не заданы</div>
                     </div>
 
                 </div>
 
-
-                <!-- PERIOD -->
 
                 <div class="olap-period">
 
@@ -1065,13 +1744,36 @@
 
 
     // ============================================================
+    // OLAP STATUS
+    // ============================================================
+
+    function setOlapStatus(
+        text
+    ) {
+
+        const element =
+            getElement(
+                "olap-status"
+            );
+
+
+        if (element) {
+            element.textContent =
+                text;
+        }
+    }
+
+
+    // ============================================================
     // RENDER AVAILABLE FIELDS
     // ============================================================
 
     function renderOlapFields() {
 
         const container =
-            $("olap-fields");
+            getElement(
+                "olap-fields"
+            );
 
 
         if (!container) {
@@ -1079,13 +1781,18 @@
         }
 
 
+        const searchElement =
+            getElement(
+                "olap-search"
+            );
+
+
         const search =
-            (
-                $("olap-search")?.value ||
-                ""
-            )
-                .trim()
-                .toLowerCase();
+            searchElement
+                ? searchElement.value
+                    .trim()
+                    .toLowerCase()
+                : "";
 
 
         const filtered =
@@ -1097,25 +1804,23 @@
                     }
 
 
+                    const name =
+                        String(
+                            field.name || ""
+                        )
+                            .toLowerCase();
+
+
+                    const title =
+                        String(
+                            field.title || ""
+                        )
+                            .toLowerCase();
+
+
                     return (
-
-                        String(
-                            field.title ||
-                            ""
-                        )
-                            .toLowerCase()
-                            .includes(search)
-
-                        ||
-
-                        String(
-                            field.technicalName ||
-                            field.name ||
-                            ""
-                        )
-                            .toLowerCase()
-                            .includes(search)
-
+                        name.includes(search) ||
+                        title.includes(search)
                     );
                 }
             );
@@ -1136,8 +1841,19 @@
 
 
         container.innerHTML =
-            filtered
-                .map(field => {
+            filtered.map(
+                field => {
+
+                    const technicalName =
+                        resolveTechnicalOlapFieldName(
+                            field
+                        );
+
+
+                    const measure =
+                        field.isMeasure ||
+                        field.aggregationAllowed;
+
 
                     const flags = [];
 
@@ -1150,8 +1866,7 @@
 
 
                     if (
-                        field.aggregationAllowed ||
-                        field.isMeasure
+                        measure
                     ) {
                         flags.push("Σ");
                     }
@@ -1164,39 +1879,36 @@
                     }
 
 
-                    const technical =
-                        field.technicalName ||
-                        field.name;
-
-
                     return `
 
                         <button
                             type="button"
                             class="olap-field"
-                            draggable="true"
-                            data-field="${esc(technical)}"
+                            data-field="${escapeHtml(
+                                technicalName
+                            )}"
                         >
 
                             <span>
 
                                 <strong>
-                                    ${esc(
+                                    ${escapeHtml(
                                         field.title ||
-                                        technical
+                                        field.name
                                     )}
                                 </strong>
 
-
                                 <small>
-                                    ${esc(technical)}
+                                    ${escapeHtml(
+                                        technicalName
+                                    )}
                                 </small>
 
                             </span>
 
 
                             <span class="olap-flags">
-                                ${esc(
+                                ${escapeHtml(
                                     flags.join(" ")
                                 )}
                             </span>
@@ -1204,243 +1916,504 @@
                         </button>
 
                     `;
-                })
-                .join("");
+                }
+            )
+            .join("");
 
 
         container
-            .querySelectorAll(
-                ".olap-field"
-            )
+            .querySelectorAll(".olap-field")
             .forEach(button => {
+                button.setAttribute("draggable", "true");
 
-                button.addEventListener(
-                    "dragstart",
-                    event => {
+                button.addEventListener("dragstart", event => {
+                    const fieldName = button.dataset.field || "";
 
-                        currentDrag = {
+                    currentOlapDragData = {
+                        sourceType: "available",
+                        sourceIndex: -1,
+                        field: fieldName
+                    };
 
-                            source:
-                                "available",
+                    event.dataTransfer.effectAllowed = "copy";
+                    event.dataTransfer.setData(
+                        "application/x-anar-olap",
+                        JSON.stringify(currentOlapDragData)
+                    );
 
-                            field:
-                                button.dataset.field
+                    button.classList.add("olap-dragging");
+                });
 
-                        };
-
-
-                        event.dataTransfer
-                            .effectAllowed =
-                            "copy";
-
-
-                        event.dataTransfer
-                            .setData(
-                                "text/plain",
-                                button.dataset.field
-                            );
-                    }
-                );
-
+                button.addEventListener("dragend", () => {
+                    button.classList.remove("olap-dragging");
+                    currentOlapDragData = null;
+                    clearOlapDropHighlights();
+                });
             });
     }
 
 
     // ============================================================
-    // REMOVE FROM OTHER GROUPS
+    // ADD / MOVE OLAP FIELD
     // ============================================================
 
-    function removeFromOtherGroups(
-        fieldName,
-        keep
-    ) {
+    function removeFieldFromOtherGroups(fieldName, keepType) {
 
-        const name =
-            resolveTechnicalField(
-                fieldName
+        const technicalName =
+            resolveTechnicalOlapFieldName(fieldName);
+
+        if (!technicalName) {
+            return;
+        }
+
+        if (keepType !== "rows") {
+            olapRows = olapRows.filter(
+                field => resolveTechnicalOlapFieldName(field) !== technicalName
             );
-
-
-        if (keep !== "rows") {
-
-            olapRows =
-                olapRows.filter(
-                    field =>
-                        resolveTechnicalField(
-                            field
-                        ) !== name
-                );
         }
 
-
-        if (keep !== "columns") {
-
-            olapColumns =
-                olapColumns.filter(
-                    field =>
-                        resolveTechnicalField(
-                            field
-                        ) !== name
-                );
+        if (keepType !== "columns") {
+            olapColumns = olapColumns.filter(
+                field => resolveTechnicalOlapFieldName(field) !== technicalName
+            );
         }
 
-
-        if (keep !== "measures") {
-
-            olapMeasures =
-                olapMeasures.filter(
-                    item =>
-                        resolveTechnicalField(
-                            item.field
-                        ) !== name
-                );
+        if (keepType !== "measures") {
+            olapMeasures = olapMeasures.filter(
+                item => resolveTechnicalOlapFieldName(item.field) !== technicalName
+            );
         }
     }
 
 
-    // ============================================================
-    // ADD FIELD
-    // ============================================================
+    function addOlapRow(fieldName) {
 
-    function addOlapField(
-        type,
-        fieldName,
-        aggregation = "SUM"
-    ) {
+        const technicalName =
+            resolveTechnicalOlapFieldName(fieldName);
 
-        const name =
-            resolveTechnicalField(
-                fieldName
-            );
-
-
-        if (!name) {
+        if (!technicalName) {
             return;
         }
 
+        removeFieldFromOtherGroups(technicalName, "rows");
 
-        const field =
-            findOlapField(
-                fieldName
-            );
+        if (!olapRows.includes(technicalName)) {
+            olapRows.push(technicalName);
+        }
+
+        renderSelectedOlapFields();
+    }
 
 
-        if (
-            type === "measures" &&
-            field &&
-            field.aggregationAllowed === false &&
-            field.isMeasure !== true
-        ) {
+    function addOlapColumn(fieldName) {
 
-            setOlapStatus(
-                "⚠️ Это поле нельзя использовать как показатель"
-            );
+        const technicalName =
+            resolveTechnicalOlapFieldName(fieldName);
 
+        if (!technicalName) {
             return;
         }
 
+        removeFieldFromOtherGroups(technicalName, "columns");
 
-        removeFromOtherGroups(
-            name,
-            type
+        if (!olapColumns.includes(technicalName)) {
+            olapColumns.push(technicalName);
+        }
+
+        renderSelectedOlapFields();
+    }
+
+
+    function addOlapMeasure(fieldName, aggregation = "SUM") {
+
+        const technicalName =
+            resolveTechnicalOlapFieldName(fieldName);
+
+        if (!technicalName) {
+            return;
+        }
+
+        const field = findOlapField(technicalName);
+
+        if (field && field.aggregationAllowed === false && !field.isMeasure) {
+            return;
+        }
+
+        removeFieldFromOtherGroups(technicalName, "measures");
+
+        const exists = olapMeasures.some(
+            item => item.field === technicalName
         );
 
-
-        if (type === "rows") {
-
-            if (
-                !olapRows.some(
-                    item =>
-                        resolveTechnicalField(
-                            item
-                        ) === name
-                )
-            ) {
-
-                olapRows.push(name);
-            }
+        if (!exists) {
+            olapMeasures.push({
+                field: technicalName,
+                aggregation
+            });
         }
 
+        renderSelectedOlapFields();
+    }
 
-        if (type === "columns") {
 
-            if (
-                !olapColumns.some(
-                    item =>
-                        resolveTechnicalField(
-                            item
-                        ) === name
-                )
-            ) {
+    function getOlapDragData(event) {
 
-                olapColumns.push(name);
-            }
+        if (currentOlapDragData) {
+            return currentOlapDragData;
         }
 
+        try {
+            const raw = event && event.dataTransfer
+                ? event.dataTransfer.getData("application/x-anar-olap")
+                : "";
 
-        if (type === "measures") {
-
-            if (
-                !olapMeasures.some(
-                    item =>
-                        resolveTechnicalField(
-                            item.field
-                        ) === name
-                )
-            ) {
-
-                olapMeasures.push({
-
-                    field: name,
-
-                    aggregation:
-                        aggregation || "SUM"
-
-                });
+            if (raw) {
+                return JSON.parse(raw);
             }
+        } catch (error) {
+            console.warn("OLAP drag data error:", error);
         }
 
+        return null;
+    }
 
-        renderSelectedFields();
+
+    function clearOlapDropHighlights() {
+        document
+            .querySelectorAll("#olap-builder .olap-drop-active")
+            .forEach(element => element.classList.remove("olap-drop-active"));
+    }
+
+
+    function bindOlapDropZones() {
+
+        const zones = [
+            ["olap-rows", "rows"],
+            ["olap-columns", "columns"],
+            ["olap-measures", "measures"]
+        ];
+
+        zones.forEach(([elementId, targetType]) => {
+
+            const zone = getElement(elementId);
+
+            if (!zone || zone.dataset.olapDropBound === "1") {
+                return;
+            }
+
+            zone.dataset.olapDropBound = "1";
+
+            zone.addEventListener("dragover", event => {
+                const data = getOlapDragData(event);
+
+                if (!data || !data.field) {
+                    return;
+                }
+
+                const field = findOlapField(data.field);
+
+                if (targetType === "measures" && field && field.aggregationAllowed === false && !field.isMeasure) {
+                    event.dataTransfer.dropEffect = "none";
+                    return;
+                }
+
+                event.preventDefault();
+                event.dataTransfer.dropEffect = data.sourceType === "available" ? "copy" : "move";
+                zone.classList.add("olap-drop-active");
+            });
+
+            zone.addEventListener("dragleave", event => {
+                if (!zone.contains(event.relatedTarget)) {
+                    zone.classList.remove("olap-drop-active");
+                }
+            });
+
+            zone.addEventListener("drop", event => {
+                event.preventDefault();
+                clearOlapDropHighlights();
+
+                const data = getOlapDragData(event);
+
+                if (!data || !data.field) {
+                    return;
+                }
+
+                const field = findOlapField(data.field);
+
+                if (targetType === "measures" && field && field.aggregationAllowed === false && !field.isMeasure) {
+                    return;
+                }
+
+                if (targetType === "rows") {
+                    addOlapRow(data.field);
+                } else if (targetType === "columns") {
+                    addOlapColumn(data.field);
+                } else {
+                    addOlapMeasure(data.field, "SUM");
+                }
+
+                currentOlapDragData = null;
+            });
+        });
     }
 
 
     // ============================================================
-    // RENDER SELECTED FIELDS
+    // REMOVE FIELD
     // ============================================================
 
-    function renderSelectedFields() {
+    function removeOlapField(
+        type,
+        index
+    ) {
+
+        if (type === "rows") {
+            olapRows.splice(index, 1);
+        }
+
+        if (type === "columns") {
+            olapColumns.splice(index, 1);
+        }
+
+        if (type === "measures") {
+            olapMeasures.splice(index, 1);
+        }
+
+        renderSelectedOlapFields();
+    }
+
+
+    // ============================================================
+    // OLAP FILTERS
+    // ============================================================
+
+    function getFilterableOlapFields() {
+
+        return olapFields.filter(
+            field => field && field.filteringAllowed !== false
+        );
+    }
+
+
+    function renderOlapFilterEditor() {
+
+        const select = getElement("olap-filter-field");
+
+        if (!select) {
+            return;
+        }
+
+        const current = select.value;
+
+        const fields = getFilterableOlapFields();
+
+        select.innerHTML = fields.length
+            ? fields.map(field => {
+                const name = resolveTechnicalOlapFieldName(field);
+                return `<option value="${escapeHtml(name)}">${escapeHtml(field.title || name)}</option>`;
+            }).join("")
+            : `<option value="">Нет доступных полей</option>`;
+
+        if (fields.some(field => resolveTechnicalOlapFieldName(field) === current)) {
+            select.value = current;
+        }
+
+        updateOlapFilterInputMode();
+    }
+
+
+    function updateOlapFilterInputMode() {
+
+        const operator = getElement("olap-filter-operator");
+        const valueLabel = getElement("olap-filter-value-label");
+        const fromLabel = getElement("olap-filter-from-label");
+        const toLabel = getElement("olap-filter-to-label");
+
+        const isDateRange = operator && operator.value === "DateRange";
+
+        if (valueLabel) {
+            valueLabel.style.display = isDateRange ? "none" : "block";
+        }
+
+        if (fromLabel) {
+            fromLabel.style.display = isDateRange ? "block" : "none";
+        }
+
+        if (toLabel) {
+            toLabel.style.display = isDateRange ? "block" : "none";
+        }
+
+        const value = getElement("olap-filter-value");
+
+        if (value) {
+            value.placeholder = operator &&
+                (operator.value === "IncludeList" || operator.value === "ExcludeList")
+                ? "Несколько значений через запятую"
+                : "Например: Ресторан №1";
+        }
+    }
+
+
+    function renderOlapFilters() {
+
+        const container = getElement("olap-filters");
+
+        if (!container) {
+            return;
+        }
+
+        if (!olapFilters.length) {
+            container.innerHTML = `<div class="olap-empty">Фильтры не заданы</div>`;
+            return;
+        }
+
+        container.innerHTML = olapFilters.map((filter, index) => {
+
+            const field = findOlapField(filter.field);
+            const title = field ? field.title : filter.field;
+            let condition = "Равно";
+            let value = filter.value || "";
+
+            if (filter.operator === "Exclude") condition = "Не равно";
+            if (filter.operator === "IncludeList") {
+                condition = "В списке";
+                value = (filter.values || []).join(", ");
+            }
+            if (filter.operator === "ExcludeList") {
+                condition = "Не в списке";
+                value = (filter.values || []).join(", ");
+            }
+            if (filter.operator === "DateRange") {
+                condition = "Диапазон";
+                value = `${filter.from || ""} — ${filter.to || ""}`;
+            }
+
+            return `
+                <div class="olap-filter-item">
+                    <div>
+                        <strong>${escapeHtml(title)}</strong>
+                        <small>${escapeHtml(condition)} • ${escapeHtml(value)}</small>
+                    </div>
+                    <button type="button" data-filter-index="${index}" title="Удалить">×</button>
+                </div>
+            `;
+        }).join("");
+
+        container.querySelectorAll("[data-filter-index]").forEach(button => {
+            button.addEventListener("click", () => {
+                const index = Number(button.dataset.filterIndex);
+                olapFilters.splice(index, 1);
+                renderOlapFilters();
+            });
+        });
+    }
+
+
+    function addOlapFilter() {
+
+        const fieldElement = getElement("olap-filter-field");
+        const operatorElement = getElement("olap-filter-operator");
+        const valueElement = getElement("olap-filter-value");
+        const fromElement = getElement("olap-filter-from");
+        const toElement = getElement("olap-filter-to");
+
+        const field = resolveTechnicalOlapFieldName(fieldElement ? fieldElement.value : "");
+        const operator = operatorElement ? operatorElement.value : "Include";
+
+        if (!field) {
+            throw new Error("Выберите поле для фильтра");
+        }
+
+        if (operator === "DateRange") {
+
+            const from = fromElement ? fromElement.value : "";
+            const to = toElement ? toElement.value : "";
+
+            if (!from || !to) {
+                throw new Error("Укажите обе даты фильтра");
+            }
+
+            if (from > to) {
+                throw new Error("Дата 'От' не может быть больше даты 'До'");
+            }
+
+            olapFilters.push({ field, operator, from, to });
+
+        } else {
+
+            const raw = valueElement ? valueElement.value.trim() : "";
+
+            if (!raw) {
+                throw new Error("Укажите значение фильтра");
+            }
+
+            const listMode = operator === "IncludeList" || operator === "ExcludeList";
+            const values = listMode
+                ? raw.split(/[,\n;]+/).map(value => value.trim()).filter(Boolean)
+                : [raw];
+
+            if (!values.length) {
+                throw new Error("Укажите хотя бы одно значение фильтра");
+            }
+
+            olapFilters.push({
+                field,
+                operator: listMode
+                    ? (operator === "IncludeList" ? "IncludeList" : "ExcludeList")
+                    : operator,
+                value: values[0],
+                values
+            });
+        }
+
+        if (valueElement) valueElement.value = "";
+        if (fromElement) fromElement.value = "";
+        if (toElement) toElement.value = "";
+
+        renderOlapFilters();
+    }
+
+
+    // ============================================================
+    // RENDER SELECTED
+    // ============================================================
+
+    function renderSelectedOlapFields() {
 
         renderSelectedGroup(
             "olap-rows",
-            "rows",
-            olapRows
+            olapRows,
+            "rows"
         );
 
 
         renderSelectedGroup(
             "olap-columns",
-            "columns",
-            olapColumns
+            olapColumns,
+            "columns"
         );
 
 
         renderSelectedGroup(
             "olap-measures",
-            "measures",
-            olapMeasures
+            olapMeasures,
+            "measures"
         );
+
+        renderOlapFilters();
     }
 
 
     function renderSelectedGroup(
         elementId,
-        type,
-        values
+        values,
+        type
     ) {
 
         const container =
-            $(elementId);
+            getElement(
+                elementId
+            );
 
 
         if (!container) {
@@ -1458,814 +2431,167 @@
 
             `;
 
-            bindOlapDropZones();
-
             return;
         }
 
 
         container.innerHTML =
-            values
-                .map(
-                    (item, index) => {
+            values.map(
+                (value, index) => {
 
-                        const name =
-                            type === "measures"
-                                ? item.field
-                                : item;
+                    const technicalName =
+                        type === "measures"
 
-
-                        const field =
-                            findOlapField(
-                                name
-                            );
-
-
-                        return `
-
-                            <div
-                                class="olap-selected-field"
-                                draggable="true"
-                                data-type="${esc(type)}"
-                                data-index="${index}"
-                                data-field="${esc(name)}"
-                            >
-
-                                <span>
-
-                                    <strong>
-                                        ${esc(
-                                            field?.title ||
-                                            field?.caption ||
-                                            name
-                                        )}
-                                    </strong>
-
-
-                                    <small>
-
-                                        ${esc(
-                                            field?.technicalName ||
-                                            name
-                                        )}
-
-                                        ${
-                                            type ===
-                                            "measures"
-                                                ? ` • ${esc(
-                                                    item.aggregation ||
-                                                    "SUM"
-                                                )}`
-                                                : ""
-                                        }
-
-                                    </small>
-
-                                </span>
-
-
-                                <button
-                                    type="button"
-                                    data-remove="1"
-                                >
-                                    ×
-                                </button>
-
-                            </div>
-
-                        `;
-                    }
-                )
-                .join("");
-
-
-        container
-            .querySelectorAll(
-                ".olap-selected-field"
-            )
-            .forEach(element => {
-
-                element.addEventListener(
-                    "dragstart",
-                    event => {
-
-                        currentDrag = {
-
-                            source:
-                                element.dataset.type,
-
-                            index:
-                                Number(
-                                    element.dataset.index
-                                ),
-
-                            field:
-                                element.dataset.field
-
-                        };
-
-
-                        event.dataTransfer
-                            .effectAllowed =
-                            "move";
-
-
-                        event.dataTransfer
-                            .setData(
-                                "text/plain",
-                                element.dataset.field
-                            );
-                    }
-                );
-
-
-                const removeButton =
-                    element.querySelector(
-                        "[data-remove]"
-                    );
-
-
-                if (removeButton) {
-
-                    removeButton.onclick =
-                        () => {
-
-                            const index =
-                                Number(
-                                    element.dataset.index
-                                );
-
-
-                            if (
-                                type === "rows"
-                            ) {
-
-                                olapRows.splice(
-                                    index,
-                                    1
-                                );
-                            }
-
-
-                            if (
-                                type === "columns"
-                            ) {
-
-                                olapColumns.splice(
-                                    index,
-                                    1
-                                );
-                            }
-
-
-                            if (
-                                type === "measures"
-                            ) {
-
-                                olapMeasures.splice(
-                                    index,
-                                    1
-                                );
-                            }
-
-
-                            renderSelectedFields();
-                        };
-                }
-
-            });
-
-
-        bindOlapDropZones();
-    }
-
-
-    // ============================================================
-    // DRAG & DROP
-    // ============================================================
-
-    function bindOlapDropZones() {
-
-        const zones = [
-
-            [
-                "olap-rows",
-                "rows"
-            ],
-
-            [
-                "olap-columns",
-                "columns"
-            ],
-
-            [
-                "olap-measures",
-                "measures"
-            ]
-
-        ];
-
-
-        zones.forEach(
-            ([elementId, targetType]) => {
-
-                const zone =
-                    $(elementId);
-
-
-                if (!zone) {
-                    return;
-                }
-
-
-                if (
-                    zone.dataset.dropBound === "1"
-                ) {
-                    return;
-                }
-
-
-                zone.dataset.dropBound =
-                    "1";
-
-
-                zone.addEventListener(
-                    "dragover",
-                    event => {
-
-                        if (
-                            !currentDrag ||
-                            !currentDrag.field
-                        ) {
-                            return;
-                        }
-
-
-                        const field =
-                            findOlapField(
-                                currentDrag.field
-                            );
-
-
-                        if (
-                            targetType ===
-                                "measures" &&
-
-                            field &&
-
-                            field.aggregationAllowed ===
-                                false &&
-
-                            field.isMeasure !==
-                                true
-                        ) {
-
-                            return;
-                        }
-
-
-                        event.preventDefault();
-
-
-                        event.dataTransfer
-                            .dropEffect =
-                            currentDrag.source ===
-                            "available"
-                                ? "copy"
-                                : "move";
-
-
-                        zone.classList.add(
-                            "olap-drop-active"
-                        );
-                    }
-                );
-
-
-                zone.addEventListener(
-                    "dragleave",
-                    event => {
-
-                        if (
-                            !zone.contains(
-                                event.relatedTarget
+                            ? resolveTechnicalOlapFieldName(
+                                value.field
                             )
-                        ) {
 
-                            zone.classList.remove(
-                                "olap-drop-active"
-                            );
-                        }
-                    }
-                );
-
-
-                zone.addEventListener(
-                    "drop",
-                    event => {
-
-                        event.preventDefault();
-
-
-                        zone.classList.remove(
-                            "olap-drop-active"
-                        );
-
-
-                        if (
-                            !currentDrag ||
-                            !currentDrag.field
-                        ) {
-                            return;
-                        }
-
-
-                        const field =
-                            findOlapField(
-                                currentDrag.field
+                            : resolveTechnicalOlapFieldName(
+                                value
                             );
 
 
-                        if (
-                            targetType ===
-                                "measures" &&
-
-                            field &&
-
-                            field.aggregationAllowed ===
-                                false &&
-
-                            field.isMeasure !==
-                                true
-                        ) {
-
-                            currentDrag =
-                                null;
-
-                            return;
-                        }
-
-
-                        addOlapField(
-                            targetType,
-                            currentDrag.field,
-                            "SUM"
+                    const field =
+                        findOlapField(
+                            technicalName
                         );
 
 
-                        currentDrag =
-                            null;
-                    }
-                );
-            }
-        );
-    }
-
-
-    // ============================================================
-    // FILTER EDITOR
-    // ============================================================
-
-    function renderFilterEditor() {
-
-        const select =
-            $("olap-filter-field");
-
-
-        if (!select) {
-            return;
-        }
-
-
-        const available =
-            olapFields.filter(
-                field =>
-                    field.filteringAllowed !== false
-            );
-
-
-        select.innerHTML =
-            available
-                .map(
-                    field => {
-
-                        const technical =
-                            field.technicalName ||
-                            field.name;
-
-
-                        return `
-
-                            <option
-                                value="${esc(technical)}"
-                            >
-                                ${esc(
-                                    field.title ||
-                                    technical
-                                )}
-                            </option>
-
-                        `;
-                    }
-                )
-                .join("");
-
-
-        updateFilterInputMode();
-    }
-
-
-    function updateFilterInputMode() {
-
-        const operator =
-            $("olap-filter-operator")
-                ?.value;
-
-
-        const isDate =
-            operator === "DateRange";
-
-
-        const valueLabel =
-            $("olap-filter-value-label");
-
-
-        const fromLabel =
-            $("olap-filter-from-label");
-
-
-        const toLabel =
-            $("olap-filter-to-label");
-
-
-        if (valueLabel) {
-
-            valueLabel.style.display =
-                isDate
-                    ? "none"
-                    : "block";
-        }
-
-
-        if (fromLabel) {
-
-            fromLabel.style.display =
-                isDate
-                    ? "block"
-                    : "none";
-        }
-
-
-        if (toLabel) {
-
-            toLabel.style.display =
-                isDate
-                    ? "block"
-                    : "none";
-        }
-    }
-
-
-    // ============================================================
-    // ADD FILTER
-    // ============================================================
-
-    function addOlapFilter() {
-
-        const field =
-            $("olap-filter-field")
-                ?.value;
-
-
-        const operator =
-            $("olap-filter-operator")
-                ?.value ||
-            "Include";
-
-
-        if (!field) {
-
-            throw new Error(
-                "Выберите поле для фильтра"
-            );
-        }
-
-
-        if (
-            operator ===
-            "DateRange"
-        ) {
-
-            const from =
-                $("olap-filter-from")
-                    ?.value;
-
-
-            const to =
-                $("olap-filter-to")
-                    ?.value;
-
-
-            if (!from || !to) {
-
-                throw new Error(
-                    "Укажите обе даты фильтра"
-                );
-            }
-
-
-            if (from > to) {
-
-                throw new Error(
-                    "Неверный диапазон дат"
-                );
-            }
-
-
-            olapFilters.push({
-
-                field:
-                    resolveTechnicalField(
+                    const title =
                         field
-                    ),
-
-                operator,
-
-                from,
-
-                to
-
-            });
-        }
-
-
-        else {
-
-            const value =
-                (
-                    $("olap-filter-value")
-                        ?.value ||
-                    ""
-                ).trim();
-
-
-            if (!value) {
-
-                throw new Error(
-                    "Укажите значение фильтра"
-                );
-            }
-
-
-            if (
-                operator ===
-                    "IncludeList" ||
-
-                operator ===
-                    "ExcludeList"
-            ) {
-
-                const values =
-                    value
-                        .split(",")
-                        .map(
-                            item =>
-                                item.trim()
-                        )
-                        .filter(Boolean);
-
-
-                if (!values.length) {
-
-                    throw new Error(
-                        "Укажите значения"
-                    );
-                }
-
-
-                olapFilters.push({
-
-                    field:
-                        resolveTechnicalField(
-                            field
-                        ),
-
-                    operator,
-
-                    values
-
-                });
-            }
-
-
-            else {
-
-                olapFilters.push({
-
-                    field:
-                        resolveTechnicalField(
-                            field
-                        ),
-
-                    operator,
-
-                    value
-
-                });
-            }
-        }
-
-
-        const input =
-            $("olap-filter-value");
-
-
-        if (input) {
-            input.value = "";
-        }
-
-
-        renderOlapFilters();
-    }
-
-
-    // ============================================================
-    // RENDER FILTERS
-    // ============================================================
-
-    function renderOlapFilters() {
-
-        const container =
-            $("olap-filters");
-
-
-        if (!container) {
-            return;
-        }
-
-
-        if (!olapFilters.length) {
-
-            container.innerHTML = `
-
-                <div class="olap-empty">
-                    Фильтры не заданы
-                </div>
-
-            `;
-
-            return;
-        }
-
-
-        container.innerHTML =
-            olapFilters
-                .map(
-                    (filter, index) => {
-
-                        const field =
-                            findOlapField(
-                                filter.field
-                            );
-
-
-                        let operator =
-                            "Равно";
-
-
-                        let value =
-                            filter.value ||
-                            "";
-
-
-                        if (
-                            filter.operator ===
-                            "Exclude"
-                        ) {
-
-                            operator =
-                                "Не равно";
-                        }
-
-
-                        if (
-                            filter.operator ===
-                            "IncludeList"
-                        ) {
-
-                            operator =
-                                "В списке";
-
-
-                            value =
-                                (
-                                    filter.values ||
-                                    []
-                                ).join(", ");
-                        }
-
-
-                        if (
-                            filter.operator ===
-                            "ExcludeList"
-                        ) {
-
-                            operator =
-                                "Не в списке";
-
-
-                            value =
-                                (
-                                    filter.values ||
-                                    []
-                                ).join(", ");
-                        }
-
-
-                        if (
-                            filter.operator ===
-                            "DateRange"
-                        ) {
-
-                            operator =
-                                "Диапазон";
-
-
-                            value =
-                                `${filter.from} — ${filter.to}`;
-                        }
-
-
-                        return `
-
-                            <div
-                                class="olap-filter-item"
+                            ? field.title
+                            : technicalName;
+
+
+                    const aggregation =
+                        type === "measures"
+
+                            ? value.aggregation ||
+                                "SUM"
+
+                            : "";
+
+
+                    return `
+
+                        <div
+                            class="olap-selected-field"
+                            draggable="true"
+                            data-drag-type="${escapeHtml(type)}"
+                            data-drag-index="${index}"
+                        >
+
+                            <span>
+
+                                <strong>
+                                    ${escapeHtml(
+                                        title
+                                    )}
+                                </strong>
+
+                                <small>
+                                    ${escapeHtml(
+                                        technicalName
+                                    )}
+                                    ${
+                                        aggregation
+                                            ? " • " +
+                                              escapeHtml(
+                                                  aggregation
+                                              )
+                                            : ""
+                                    }
+                                </small>
+
+                            </span>
+
+
+                            <button
+                                type="button"
+                                data-type="${escapeHtml(
+                                    type
+                                )}"
+                                data-index="${index}"
                             >
+                                ×
+                            </button>
 
-                                <div>
+                        </div>
 
-                                    <strong>
-                                        ${esc(
-                                            field?.title ||
-                                            filter.field
-                                        )}
-                                    </strong>
-
-
-                                    <small>
-                                        ${esc(operator)}
-                                        •
-                                        ${esc(value)}
-                                    </small>
-
-                                </div>
+                    `;
+                }
+            )
+            .join("");
 
 
-                                <button
-                                    type="button"
-                                    data-filter-index="${index}"
-                                >
-                                    ×
-                                </button>
+        container
+            .querySelectorAll(".olap-selected-field[draggable=\"true\"]")
+            .forEach(item => {
+                item.addEventListener("dragstart", event => {
+                    const sourceType = item.dataset.dragType || type;
+                    const sourceIndex = Number(item.dataset.dragIndex);
+                    const sourceValue =
+                        sourceType === "measures"
+                            ? olapMeasures[sourceIndex]?.field
+                            : sourceType === "rows"
+                                ? olapRows[sourceIndex]
+                                : olapColumns[sourceIndex];
 
-                            </div>
-
-                        `;
+                    if (!sourceValue) {
+                        return;
                     }
-                )
-                .join("");
+
+                    currentOlapDragData = {
+                        sourceType,
+                        sourceIndex,
+                        field: sourceValue
+                    };
+
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData(
+                        "application/x-anar-olap",
+                        JSON.stringify(currentOlapDragData)
+                    );
+
+                    item.classList.add("olap-dragging");
+                });
+
+                item.addEventListener("dragend", () => {
+                    item.classList.remove("olap-dragging");
+                    currentOlapDragData = null;
+                    clearOlapDropHighlights();
+                });
+            });
 
 
         container
             .querySelectorAll(
-                "[data-filter-index]"
+                "button[data-index]"
             )
-            .forEach(button => {
+            .forEach(
+                button => {
 
-                button.onclick =
-                    () => {
+                    button.addEventListener(
+                        "click",
+                        function () {
 
-                        const index =
-                            Number(
-                                button.dataset
-                                    .filterIndex
+                            removeOlapField(
+
+                                this.dataset.type,
+
+                                Number(
+                                    this.dataset.index
+                                )
                             );
-
-
-                        olapFilters.splice(
-                            index,
-                            1
-                        );
-
-
-                        renderOlapFilters();
-                    };
-            });
+                        }
+                    );
+                }
+            );
     }
 
 
     // ============================================================
-    // CLEAR
+    // CLEAR OLAP
     // ============================================================
 
     function clearOlap() {
@@ -2278,127 +2604,144 @@
 
         olapFilters = [];
 
-
-        renderSelectedFields();
-
-        renderOlapFilters();
+        renderSelectedOlapFields();
 
 
         const result =
-            $("olap-result");
+            getElement(
+                "olap-result"
+            );
 
 
         if (result) {
             result.innerHTML = "";
         }
-
-
-        setOlapStatus(
-            `🟢 Доступные поля OLAP: ${olapFields.length}`
-        );
     }
 
 
     // ============================================================
-    // BUILD REQUEST
+    // OLAP QUERY
     // ============================================================
 
-    function buildOlapRequest() {
+    async function runOlap() {
+
+        if (!iikoConnection) {
+
+            throw new Error(
+                "Сначала подключитесь к iiko"
+            );
+        }
+
+
+        const fromElement =
+            getElement(
+                "olap-from"
+            );
+
+        const toElement =
+            getElement(
+                "olap-to"
+            );
+
 
         const from =
-            $("olap-from")
-                ?.value ||
-            "";
+            fromElement
+                ? fromElement.value
+                : "";
 
 
         const to =
-            $("olap-to")
-                ?.value ||
-            "";
-
-
-        if (
-            !olapRows.length &&
-            !olapColumns.length &&
-            !olapMeasures.length
-        ) {
-
-            throw new Error(
-                "Выберите хотя бы одно поле в Строки, Колонки или Показатели"
-            );
-        }
-
-
-        if (
-            from &&
-            to &&
-            from > to
-        ) {
-
-            throw new Error(
-                "Неверный период"
-            );
-        }
+            toElement
+                ? toElement.value
+                : "";
 
 
         // --------------------------------------------------------
-        // TECHNICAL NAMES
+        // КРИТИЧЕСКИ ВАЖНО:
+        // ещё раз переводим абсолютно ВСЕ поля
+        // в технические имена непосредственно перед fetch.
         // --------------------------------------------------------
 
-        const rowFields =
+        const technicalRows =
             olapRows
                 .map(
-                    resolveTechnicalField
-                )
-                .filter(Boolean);
-
-
-        const columnFields =
-            olapColumns
-                .map(
-                    resolveTechnicalField
-                )
-                .filter(Boolean);
-
-
-        const measures =
-            olapMeasures
-                .map(
-                    item =>
-                        resolveTechnicalField(
-                            item.field
+                    field =>
+                        resolveTechnicalOlapFieldName(
+                            field
                         )
                 )
                 .filter(Boolean);
 
 
-        const filters =
-            olapFilters
+        const technicalColumns =
+            olapColumns
                 .map(
-                    filter => {
-
-                        const result = {
-                            ...filter,
-
-                            field:
-                                resolveTechnicalField(
-                                    filter.field
-                                )
-                        };
+                    field =>
+                        resolveTechnicalOlapFieldName(
+                            field
+                        )
+                )
+                .filter(Boolean);
 
 
-                        return result;
-                    }
+        const technicalMeasures =
+            olapMeasures
+                .map(
+                    item => ({
+
+                        field:
+                            resolveTechnicalOlapFieldName(
+                                item
+                                    ? item.field
+                                    : ""
+                            ),
+
+                        aggregation:
+                            item &&
+                            item.aggregation
+                                ? item.aggregation
+                                : "SUM"
+                    })
                 )
                 .filter(
-                    filter =>
+                    item =>
                         Boolean(
-                            filter.field
+                            item.field
                         )
                 );
 
 
-        const request = {
+        console.log(
+            "OLAP TECHNICAL ROWS:",
+            technicalRows
+        );
+
+
+        console.log(
+            "OLAP TECHNICAL COLUMNS:",
+            technicalColumns
+        );
+
+
+        console.log(
+            "OLAP TECHNICAL MEASURES:",
+            technicalMeasures
+        );
+
+
+        if (
+            technicalRows.length === 0 &&
+            technicalColumns.length === 0 &&
+            technicalMeasures.length === 0
+        ) {
+
+            throw new Error(
+                "Выберите хотя бы одно поле"
+            );
+        }
+
+
+        const body = {
 
             action:
                 "query",
@@ -2420,23 +2763,26 @@
 
 
             groupByRowFields:
-                rowFields,
+                technicalRows,
 
 
             groupByColumnFields:
-                columnFields,
+                technicalColumns,
 
 
-            measures,
+            measures:
+                technicalMeasures,
 
 
-            filters,
-
+            filters:
+                olapFilters.map(filter => ({
+                    ...filter,
+                    field: resolveTechnicalOlapFieldName(filter.field)
+                })),
 
             from,
 
             to,
-
 
             buildSummary:
                 true
@@ -2444,195 +2790,89 @@
 
 
         console.log(
-            "================================"
+            "========================================"
         );
 
+
         console.log(
-            "IIKO OLAP FINAL REQUEST"
+            "IIKO OLAP FRONTEND REQUEST:"
         );
+
 
         console.log(
             JSON.stringify(
-                request,
+                body,
                 null,
                 2
             )
         );
 
+
         console.log(
-            "================================"
+            "========================================"
         );
 
 
-        return request;
-    }
+        const response =
+            await fetch(
+                "/api/iiko/olap",
+                {
 
+                    method:
+                        "POST",
 
-    // ============================================================
-    // RUN OLAP
-    // ============================================================
+                    headers: {
 
-    async function runOlap() {
+                        "Content-Type":
+                            "application/json",
 
-        const result =
-            $("olap-result");
+                        "Accept":
+                            "application/json"
+                    },
 
-
-        try {
-
-            if (!iikoConnection) {
-
-                throw new Error(
-                    "Сначала подключитесь к iiko"
-                );
-            }
-
-
-            const request =
-                buildOlapRequest();
-
-
-            if (result) {
-
-                result.innerHTML = `
-
-                    <div class="report-loading">
-                        ⏳ Получаем данные из iiko...
-                    </div>
-
-                `;
-            }
-
-
-            const response =
-                await fetch(
-                    "/api/iiko/olap",
-                    {
-
-                        method:
-                            "POST",
-
-                        headers: {
-
-                            "Content-Type":
-                                "application/json",
-
-                            "Accept":
-                                "application/json"
-
-                        },
-
-                        body:
-                            JSON.stringify(
-                                request
-                            )
-                    }
-                );
-
-
-            const data =
-                await safeJson(
-                    response
-                );
-
-
-            console.log(
-                "IIKO OLAP RESPONSE:",
-                data
+                    body:
+                        JSON.stringify(
+                            body
+                        )
+                }
             );
 
 
-            if (
-                !response.ok ||
-                data.success === false
-            ) {
-
-                throw new Error(
-                    data.message ||
-                    data.rawResponse ||
-                    `iiko OLAP HTTP ${response.status}`
-                );
-            }
+        const data =
+            await safeJson(
+                response
+            );
 
 
-            renderOlapResult(
-                data
+        console.log(
+            "IIKO OLAP RESPONSE:",
+            data
+        );
+
+
+        if (
+            !response.ok ||
+            data.success === false
+        ) {
+
+            const status =
+                data.iikoHttpStatus ||
+                response.status;
+
+
+            const message =
+                data.message ||
+                data.rawResponse ||
+                `iiko OLAP HTTP ${status}`;
+
+
+            throw new Error(
+                `iiko OLAP HTTP ${status}: ${message}`
             );
         }
 
 
-        catch (error) {
-
-            console.error(
-                "OLAP ERROR:",
-                error
-            );
-
-
-            if (!result) {
-                return;
-            }
-
-
-            let request = {};
-
-
-            try {
-
-                request =
-                    buildOlapRequest();
-
-            }
-
-            catch {
-
-                request = {
-
-                    groupByRowFields:
-                        olapRows,
-
-                    groupByColumnFields:
-                        olapColumns,
-
-                    measures:
-                        olapMeasures,
-
-                    filters:
-                        olapFilters
-                };
-            }
-
-
-            result.innerHTML = `
-
-                <div class="report-error">
-
-                    🔴 ${esc(
-                        error.message
-                    )}
-
-                </div>
-
-
-                <pre>${esc(
-                    JSON.stringify(
-                        {
-                            success:
-                                false,
-
-                            message:
-                                error.message,
-
-                            request
-
-                        },
-                        null,
-                        2
-                    )
-                )}</pre>
-
-            `;
-        }
+        return data;
     }
 
 
@@ -2640,108 +2880,41 @@
     // RENDER OLAP RESULT
     // ============================================================
 
-    function renderOlapResult(data) {
+    function renderOlapResult(
+        data
+    ) {
 
-        const result =
-            $("olap-result");
+        const container =
+            getElement(
+                "olap-result"
+            );
 
 
-        if (!result) {
+        if (!container) {
             return;
         }
 
 
         const report =
             data.report ||
-            data;
+            {};
 
 
-        let raw =
-            report.rawResponse ||
-            report.response ||
-            report.data ||
-            data.data ||
-            [];
-
-
-        if (
-            typeof raw === "string"
-        ) {
-
-            try {
-                raw =
-                    JSON.parse(raw);
-            }
-
-            catch {
-                // leave as string
-            }
-        }
-
-
-        let rowsData = [];
-
-
-        if (
-            Array.isArray(raw)
-        ) {
-
-            rowsData =
-                raw;
-        }
-
-
-        else if (
-            raw &&
+        const rows =
             Array.isArray(
-                raw.data
+                report.data
             )
-        ) {
-
-            rowsData =
-                raw.data;
-        }
+                ? report.data
+                : [];
 
 
-        else if (
-            raw &&
-            Array.isArray(
-                raw.rows
-            )
-        ) {
+        if (!rows.length) {
 
-            rowsData =
-                raw.rows;
-        }
-
-
-        if (!rowsData.length) {
-
-            result.innerHTML = `
-
-                <div class="report-header">
-
-                    <strong>
-                        Отчёт выполнен
-                    </strong>
-
-                </div>
-
+            container.innerHTML = `
 
                 <div class="olap-empty">
-
-                    iiko не вернул строки данных.
-
+                    OLAP не вернул строки
                 </div>
-
-
-                <pre>${esc(
-                    JSON.stringify(
-                        data,
-                        null,
-                        2
-                    )
-                )}</pre>
 
             `;
 
@@ -2749,92 +2922,109 @@
         }
 
 
-        const keys = [
-            ...new Set(
-                rowsData.flatMap(
-                    row =>
-                        Object.keys(
-                            row || {}
-                        )
-                )
-            )
-        ];
+        const first =
+            rows[0] || {};
 
 
-        result.innerHTML = `
+        const columns =
+            Object.keys(
+                first
+            );
+
+
+        let html = `
 
             <div class="report-header">
 
-                <strong>
-                    Результат OLAP
-                </strong>
-
-
-                <span>
-                    ${rowsData.length} строк
-                </span>
+                <h2>
+                    📊 OLAP результат
+                </h2>
 
             </div>
 
 
-            <div
-                class="report-table-wrapper"
-            >
+            <div class="report-table-wrapper">
 
-                <table
-                    class="report-table"
-                >
+                <table class="report-table">
 
                     <thead>
 
                         <tr>
 
-                            ${
-                                keys
-                                    .map(
-                                        key => `
-                                            <th>
-                                                ${esc(key)}
-                                            </th>
-                                        `
-                                    )
-                                    .join("")
-                            }
+        `;
+
+
+        columns.forEach(
+            column => {
+
+                const field =
+                    findOlapField(
+                        column
+                    );
+
+
+                html += `
+
+                    <th>
+                        ${escapeHtml(
+                            field
+                                ? field.title
+                                : column
+                        )}
+                    </th>
+
+                `;
+            }
+        );
+
+
+        html += `
 
                         </tr>
 
                     </thead>
 
-
                     <tbody>
 
-                        ${
-                            rowsData
-                                .map(
-                                    row => `
+        `;
 
-                                        <tr>
 
-                                            ${
-                                                keys
-                                                    .map(
-                                                        key => `
-                                                            <td>
-                                                                ${esc(
-                                                                    row?.[key]
-                                                                )}
-                                                            </td>
-                                                        `
-                                                    )
-                                                    .join("")
-                                            }
+        rows.forEach(
+            row => {
 
-                                        </tr>
+                html += `
+                    <tr>
+                `;
 
-                                    `
-                                )
-                                .join("")
-                        }
+
+                columns.forEach(
+                    column => {
+
+                        const value =
+                            row[column];
+
+
+                        html += `
+
+                            <td>
+                                ${escapeHtml(
+                                    value
+                                )}
+                            </td>
+
+                        `;
+                    }
+                );
+
+
+                html += `
+                    </tr>
+                `;
+            }
+        );
+
+
+        html += `
 
                     </tbody>
 
@@ -2843,6 +3033,251 @@
             </div>
 
         `;
+
+
+        container.innerHTML =
+            html;
+    }
+
+
+    // ============================================================
+    // BIND OLAP EVENTS
+    // ============================================================
+
+    function bindOlapEvents() {
+
+        const search =
+            getElement(
+                "olap-search"
+            );
+
+
+        if (search) {
+
+            search.addEventListener(
+                "input",
+                renderOlapFields
+            );
+        }
+
+
+        const refresh =
+            getElement(
+                "olap-refresh-fields"
+            );
+
+
+        if (refresh) {
+
+            refresh.addEventListener(
+                "click",
+                async function () {
+
+                    this.disabled =
+                        true;
+
+
+                    setOlapStatus(
+                        "⏳ Загружаем структуру OLAP..."
+                    );
+
+
+                    try {
+
+                        await loadOlapFields();
+
+                        renderOlapFields();
+                        renderOlapFilterEditor();
+
+                        setOlapStatus(
+                            `🟢 Доступные поля OLAP: ${olapFields.length}`
+                        );
+
+                    } catch (error) {
+
+                        console.error(
+                            "OLAP FIELDS ERROR:",
+                            error
+                        );
+
+
+                        // fallback
+                        olapFields =
+                            STANDARD_IIKO_FIELDS.map(
+                                normalizeOlapField
+                            );
+
+
+                        renderOlapFields();
+
+
+                        setOlapStatus(
+                            `⚠️ Не удалось получить структуру OLAP. Используются стандартные поля iiko: ${olapFields.length}`
+                        );
+
+                    } finally {
+
+                        this.disabled =
+                            false;
+                    }
+                }
+            );
+        }
+
+
+        const clear =
+            getElement(
+                "olap-clear"
+            );
+
+
+        if (clear) {
+
+            clear.addEventListener(
+                "click",
+                clearOlap
+            );
+        }
+
+
+        const run =
+            getElement(
+                "olap-run"
+            );
+
+
+        if (run) {
+
+            run.addEventListener(
+                "click",
+                async function () {
+
+                    this.disabled =
+                        true;
+
+
+                    this.textContent =
+                        "Выполнение...";
+
+
+                    const result =
+                        getElement(
+                            "olap-result"
+                        );
+
+
+                    if (result) {
+
+                        result.innerHTML = `
+
+                            <div class="report-loading">
+                                ⏳ Выполняем OLAP запрос...
+                            </div>
+
+                        `;
+                    }
+
+
+                    try {
+
+                        const data =
+                            await runOlap();
+
+
+                        renderOlapResult(
+                            data
+                        );
+
+                    } catch (error) {
+
+                        console.error(
+                            "OLAP ERROR:",
+                            error
+                        );
+
+
+                        if (result) {
+
+                            result.innerHTML = `
+
+                                <div class="report-error">
+
+                                    🔴 ${escapeHtml(
+                                        error.message
+                                    )}
+
+                                </div>
+
+                            `;
+                        }
+
+                    } finally {
+
+                        this.disabled =
+                            false;
+
+                        this.textContent =
+                            "Выполнить OLAP отчёт";
+                    }
+                }
+            );
+        }
+
+
+        const filterOperator = getElement("olap-filter-operator");
+
+        if (filterOperator) {
+            filterOperator.addEventListener("change", updateOlapFilterInputMode);
+        }
+
+        const addFilterButton = getElement("olap-add-filter");
+
+        if (addFilterButton) {
+            addFilterButton.addEventListener("click", function () {
+                try {
+                    addOlapFilter();
+                } catch (error) {
+                    const result = getElement("olap-result");
+                    if (result) {
+                        result.innerHTML = `<div class="report-error">🔴 ${escapeHtml(error.message)}</div>`;
+                    }
+                }
+            });
+        }
+
+        // --------------------------------------------------------
+        // По умолчанию даты
+        // --------------------------------------------------------
+
+        const from =
+            getElement(
+                "olap-from"
+            );
+
+        const to =
+            getElement(
+                "olap-to"
+            );
+
+
+        if (from && !from.value) {
+
+            from.value =
+                todayString();
+        }
+
+
+        if (to && !to.value) {
+
+            to.value =
+                todayString();
+        }
+
+
+        renderOlapFields();
+        renderOlapFilterEditor();
+        bindOlapDropZones();
+        renderSelectedOlapFields();
     }
 
 
@@ -2852,27 +3287,49 @@
 
     async function connectIiko() {
 
+        const ipElement =
+            getElement(
+                "iiko-ip"
+            );
+
+        const portElement =
+            getElement(
+                "iiko-port"
+            );
+
+        const loginElement =
+            getElement(
+                "iiko-login"
+            );
+
+        const passwordElement =
+            getElement(
+                "iiko-password"
+            );
+
+
         const ip =
-            $("iiko-ip")
-                ?.value
-                .trim();
+            ipElement
+                ? ipElement.value.trim()
+                : "";
 
 
         const port =
-            $("iiko-port")
-                ?.value
-                .trim();
+            portElement
+                ? portElement.value.trim()
+                : "";
 
 
         const login =
-            $("iiko-login")
-                ?.value
-                .trim();
+            loginElement
+                ? loginElement.value.trim()
+                : "";
 
 
         const password =
-            $("iiko-password")
-                ?.value;
+            passwordElement
+                ? passwordElement.value
+                : "";
 
 
         if (
@@ -2890,21 +3347,18 @@
         }
 
 
-        iikoConnection = {
+        if (connectButton) {
 
-            ip,
+            connectButton.disabled =
+                true;
 
-            port,
-
-            login,
-
-            password
-
-        };
+            connectButton.textContent =
+                "Подключение...";
+        }
 
 
         setIikoStatus(
-            "⏳ Подключение к iiko..."
+            "⏳ Подключаемся к iiko..."
         );
 
 
@@ -2925,7 +3379,6 @@
 
                             "Accept":
                                 "application/json"
-
                         },
 
                         body:
@@ -2944,7 +3397,6 @@
                                 login,
 
                                 password
-
                             })
                     }
                 );
@@ -2956,25 +3408,47 @@
                 );
 
 
+            console.log(
+                "IIKO CONNECTION RESPONSE:",
+                data
+            );
+
+
             if (
                 !response.ok ||
                 data.success === false
             ) {
 
                 throw new Error(
+
                     data.message ||
-                    `HTTP ${response.status}`
+
+                    `Ошибка подключения HTTP ${response.status}`
                 );
             }
 
 
+            iikoConnection = {
+
+                ip,
+
+                port,
+
+                login,
+
+                password
+            };
+
+
             if (
-                $("remember-iiko")
-                    ?.checked
+                rememberIiko &&
+                rememberIiko.checked
             ) {
 
                 localStorage.setItem(
-                    STORAGE_KEY,
+
+                    IIKO_STORAGE_KEY,
+
                     JSON.stringify(
                         iikoConnection
                     )
@@ -2982,66 +3456,64 @@
             }
 
 
-            if (
-                $("sales-card")
-            ) {
+            // ----------------------------------------------------
+            // OLAP fields
+            // ----------------------------------------------------
 
-                $("sales-card")
-                    .style
-                    .display =
-                    "block";
-            }
-
-
-            setIikoStatus(
-                "🟢 iiko подключён"
-            );
-
-
-            createOlapBuilder();
-
-
-            olapFields =
+            const extracted =
                 extractOlapFields(
                     data
                 );
 
 
-            if (
-                !olapFields.length
-            ) {
+            if (extracted.length) {
 
-                await loadOlapFields();
-            }
+                olapFields =
+                    extracted;
 
-            else {
+            } else {
 
-                renderOlapFields();
-
-                renderFilterEditor();
-
-
-                setOlapStatus(
-                    `🟢 Доступные поля OLAP: ${olapFields.length}`
-                );
+                olapFields =
+                    STANDARD_IIKO_FIELDS.map(
+                        normalizeOlapField
+                    );
             }
 
 
-            setDefaultPeriods();
-
-
-            console.log(
-                "NORMALIZED IIKO FIELDS:",
-                olapFields
+            setIikoStatus(
+                `🟢 Подключено к iiko. OLAP полей: ${olapFields.length}`
             );
-        }
 
 
-        catch (error) {
+            if (salesCard) {
+
+                salesCard.style.display =
+                    "block";
+            }
+
+
+            createOlapBuilder();
+
+            renderOlapFields();
+
+            renderSelectedOlapFields();
+
+
+            setOlapStatus(
+                `🟢 Доступные поля OLAP: ${olapFields.length}`
+            );
+
+
+        } catch (error) {
 
             console.error(
-                "IIKO CONNECT ERROR:",
+                "IIKO CONNECTION ERROR:",
                 error
+            );
+
+
+            setIikoStatus(
+                `🔴 ${error.message}`
             );
 
 
@@ -3049,133 +3521,17 @@
                 null;
 
 
-            setIikoStatus(
-                "🔴 " +
-                error.message
-            );
-        }
-    }
+        } finally {
 
+            if (connectButton) {
 
-    // ============================================================
-    // SAVED IIKO DATA
-    // ============================================================
+                connectButton.disabled =
+                    false;
 
-    function loadSavedIikoData() {
-
-        try {
-
-            const saved =
-                localStorage.getItem(
-                    STORAGE_KEY
-                );
-
-
-            if (!saved) {
-                return;
-            }
-
-
-            const data =
-                JSON.parse(
-                    saved
-                );
-
-
-            [
-                "ip",
-                "port",
-                "login",
-                "password"
-            ]
-                .forEach(
-                    key => {
-
-                        const element =
-                            $(
-                                `iiko-${key}`
-                            );
-
-
-                        if (
-                            element &&
-                            data[key] != null
-                        ) {
-
-                            element.value =
-                                data[key];
-                        }
-                    }
-                );
-
-
-            if (
-                $("remember-iiko")
-            ) {
-
-                $("remember-iiko")
-                    .checked =
-                    true;
+                connectButton.textContent =
+                    "Подключиться";
             }
         }
-
-
-        catch (error) {
-
-            console.warn(
-                "Cannot load saved iiko data",
-                error
-            );
-        }
-    }
-
-
-    function clearSavedIikoData() {
-
-        localStorage.removeItem(
-            STORAGE_KEY
-        );
-
-
-        [
-            "ip",
-            "port",
-            "login",
-            "password"
-        ]
-            .forEach(
-                key => {
-
-                    const element =
-                        $(
-                            `iiko-${key}`
-                        );
-
-
-                    if (element) {
-                        element.value = "";
-                    }
-                }
-            );
-
-
-        if (
-            $("remember-iiko")
-        ) {
-
-            $("remember-iiko")
-                .checked =
-                false;
-        }
-
-
-        iikoConnection =
-            null;
-
-
-        setIikoStatus(
-            "⚪ Сохранённые данные очищены"
-        );
     }
 
 
@@ -3183,250 +3539,391 @@
     // SALES REPORT
     // ============================================================
 
-    async function loadSalesReport() {
+    function setupSales() {
 
-        const result =
-            $("sales-result");
-
-
-        if (!iikoConnection) {
-
-            if (result) {
-
-                result.innerHTML = `
-
-                    <div class="report-error">
-                        ⚠️ Сначала подключитесь к iiko
-                    </div>
-
-                `;
-            }
-
+        if (!loadSalesButton) {
             return;
         }
 
 
-        const from =
-            $("report-from")
-                ?.value;
+        loadSalesButton.addEventListener(
+            "click",
+            async function () {
 
+                if (!iikoConnection) {
 
-        const to =
-            $("report-to")
-                ?.value;
+                    if (salesResult) {
 
+                        salesResult.innerHTML = `
 
-        if (
-            !from ||
-            !to ||
-            from > to
-        ) {
+                            <div class="report-error">
+                                ⚠️ Сначала подключитесь к iiko
+                            </div>
 
-            if (result) {
-
-                result.innerHTML = `
-
-                    <div class="report-error">
-                        ⚠️ Выберите правильный период
-                    </div>
-
-                `;
-            }
-
-            return;
-        }
-
-
-        if (result) {
-
-            result.innerHTML = `
-
-                <div class="report-loading">
-                    ⏳ Получаем данные из iiko...
-                </div>
-
-            `;
-        }
-
-
-        try {
-
-            const response =
-                await fetch(
-                    "/api/iiko/sales",
-                    {
-
-                        method:
-                            "POST",
-
-                        headers: {
-
-                            "Content-Type":
-                                "application/json"
-
-                        },
-
-                        body:
-                            JSON.stringify({
-
-                                ip:
-                                    iikoConnection.ip,
-
-                                port:
-                                    iikoConnection.port,
-
-                                login:
-                                    iikoConnection.login,
-
-                                password:
-                                    iikoConnection.password,
-
-                                from,
-
-                                to
-
-                            })
+                        `;
                     }
-                );
+
+                    return;
+                }
 
 
-            const data =
-                await safeJson(
-                    response
-                );
+                const fromElement =
+                    getElement(
+                        "report-from"
+                    );
 
 
-            if (
-                !response.ok ||
-                data.success === false
-            ) {
+                const toElement =
+                    getElement(
+                        "report-to"
+                    );
 
-                throw new Error(
-                    data.message ||
-                    "Ошибка получения продаж"
-                );
+
+                const from =
+                    fromElement
+                        ? fromElement.value
+                        : "";
+
+
+                const to =
+                    toElement
+                        ? toElement.value
+                        : "";
+
+
+                if (!from || !to) {
+
+                    if (salesResult) {
+
+                        salesResult.innerHTML = `
+
+                            <div class="report-error">
+                                ⚠️ Выберите период
+                            </div>
+
+                        `;
+                    }
+
+                    return;
+                }
+
+
+                if (from > to) {
+
+                    if (salesResult) {
+
+                        salesResult.innerHTML = `
+
+                            <div class="report-error">
+                                ⚠️ Неверный период
+                            </div>
+
+                        `;
+                    }
+
+                    return;
+                }
+
+
+                loadSalesButton.disabled =
+                    true;
+
+
+                loadSalesButton.textContent =
+                    "Загрузка...";
+
+
+                if (salesResult) {
+
+                    salesResult.innerHTML = `
+
+                        <div class="report-loading">
+                            ⏳ Получаем данные из iiko...
+                        </div>
+
+                    `;
+                }
+
+
+                try {
+
+                    const response =
+                        await fetch(
+                            "/api/iiko/sales",
+                            {
+
+                                method:
+                                    "POST",
+
+                                headers: {
+
+                                    "Content-Type":
+                                        "application/json"
+
+                                },
+
+                                body:
+                                    JSON.stringify({
+
+                                        ip:
+                                            iikoConnection.ip,
+
+                                        port:
+                                            iikoConnection.port,
+
+                                        login:
+                                            iikoConnection.login,
+
+                                        password:
+                                            iikoConnection.password,
+
+                                        from,
+
+                                        to
+
+                                    })
+                            }
+                        );
+
+
+                    const data =
+                        await safeJson(
+                            response
+                        );
+
+
+                    if (
+                        !response.ok ||
+                        data.success === false
+                    ) {
+
+                        throw new Error(
+
+                            data.message ||
+
+                            "Ошибка получения продаж"
+
+                        );
+                    }
+
+
+                    renderSalesReport(
+                        data,
+                        from,
+                        to
+                    );
+
+
+                } catch (error) {
+
+                    console.error(
+                        "SALES ERROR:",
+                        error
+                    );
+
+
+                    if (salesResult) {
+
+                        salesResult.innerHTML = `
+
+                            <div class="report-error">
+
+                                🔴 ${escapeHtml(
+                                    error.message
+                                )}
+
+                            </div>
+
+                        `;
+                    }
+
+
+                } finally {
+
+                    loadSalesButton.disabled =
+                        false;
+
+
+                    loadSalesButton.textContent =
+                        "Получить отчёт";
+                }
             }
-
-
-            renderSalesReport(
-                data
-            );
-        }
-
-
-        catch (error) {
-
-            if (result) {
-
-                result.innerHTML = `
-
-                    <div class="report-error">
-                        🔴 ${esc(
-                            error.message
-                        )}
-                    </div>
-
-                `;
-            }
-        }
+        );
     }
 
 
-    function renderSalesReport(data) {
+    // ============================================================
+    // SALES RESULT
+    // ============================================================
 
-        const result =
-            $("sales-result");
+    function renderSalesReport(
+        data,
+        from,
+        to
+    ) {
 
-
-        if (!result) {
+        if (!salesResult) {
             return;
         }
 
 
         const report =
             data.report ||
-            data;
+            {};
 
 
-        let raw =
-            report.rawResponse ||
-            report.data ||
-            data.data ||
-            [];
-
-
-        if (
-            raw &&
-            !Array.isArray(raw) &&
+        const rows =
             Array.isArray(
-                raw.data
+                report.data
             )
-        ) {
-
-            raw =
-                raw.data;
-        }
+                ? report.data
+                : [];
 
 
-        if (!Array.isArray(raw)) {
-            raw = [];
-        }
+        let totalSales =
+            0;
 
 
-        if (!raw.length) {
-
-            result.innerHTML = `
-
-                <pre>${esc(
-                    JSON.stringify(
-                        data,
-                        null,
-                        2
-                    )
-                )}</pre>
-
-            `;
-
-            return;
-        }
+        let totalOrders =
+            0;
 
 
-        const keys = [
+        rows.forEach(
+            function (row) {
 
-            ...new Set(
-                raw.flatMap(
-                    row =>
-                        Object.keys(
-                            row || {}
-                        )
-                )
-            )
-
-        ];
+                totalSales +=
+                    Number(
+                        row.DishSumInt ||
+                        0
+                    );
 
 
-        result.innerHTML = `
+                totalOrders +=
+                    Number(
+                        row.UniqOrderId ||
+                        0
+                    );
+            }
+        );
 
-            <div
-                class="report-table-wrapper"
-            >
 
-                <table
-                    class="report-table"
-                >
+        const averageCheck =
+            totalOrders
+
+                ? totalSales /
+                    totalOrders
+
+                : 0;
+
+
+        let html = `
+
+            <div class="report-header">
+
+                <h2>
+                    📊 Отчёт о продажах
+                </h2>
+
+
+                <div class="report-period">
+
+                    ${formatDate(from)}
+                    —
+                    ${formatDate(to)}
+
+                </div>
+
+            </div>
+
+
+            <div class="report-cards">
+
+
+                <div class="report-card">
+
+                    <div class="report-card-title">
+                        💰 Выручка
+                    </div>
+
+
+                    <div class="report-card-value">
+
+                        ${formatMoney(
+                            totalSales
+                        )}
+
+                    </div>
+
+                </div>
+
+
+                <div class="report-card">
+
+                    <div class="report-card-title">
+                        🧾 Заказы
+                    </div>
+
+
+                    <div class="report-card-value">
+
+                        ${formatNumber(
+                            totalOrders
+                        )}
+
+                    </div>
+
+                </div>
+
+
+                <div class="report-card">
+
+                    <div class="report-card-title">
+                        💵 Средний чек
+                    </div>
+
+
+                    <div class="report-card-value">
+
+                        ${formatMoney(
+                            averageCheck
+                        )}
+
+                    </div>
+
+                </div>
+
+
+            </div>
+
+
+            <div class="report-table-wrapper">
+
+                <h3>
+                    Продажи
+                </h3>
+
+
+                <table class="report-table">
 
                     <thead>
 
                         <tr>
 
-                            ${
-                                keys
-                                    .map(
-                                        key =>
-                                            `<th>${esc(key)}</th>`
-                                    )
-                                    .join("")
-                            }
+                            <th>
+                                Дата
+                            </th>
+
+                            <th>
+                                Выручка
+                            </th>
+
+                            <th>
+                                Заказы
+                            </th>
+
+                            <th>
+                                Средний чек
+                            </th>
 
                         </tr>
 
@@ -3435,28 +3932,113 @@
 
                     <tbody>
 
-                        ${
-                            raw
-                                .map(
-                                    row => `
+        `;
 
-                                        <tr>
 
-                                            ${
-                                                keys
-                                                    .map(
-                                                        key =>
-                                                            `<td>${esc(row?.[key])}</td>`
-                                                    )
-                                                    .join("")
-                                            }
+        if (!rows.length) {
 
-                                        </tr>
+            html += `
 
-                                    `
-                                )
-                                .join("")
-                        }
+                <tr>
+
+                    <td
+                        colspan="4"
+                        class="empty-report"
+                    >
+                        Продаж за выбранный период нет
+                    </td>
+
+                </tr>
+
+            `;
+
+        } else {
+
+            rows.forEach(
+                function (row) {
+
+                    const sales =
+                        Number(
+                            row.DishSumInt ||
+                            0
+                        );
+
+
+                    const orders =
+                        Number(
+                            row.UniqOrderId ||
+                            0
+                        );
+
+
+                    const average =
+                        orders
+                            ? sales /
+                                orders
+                            : 0;
+
+
+                    const date =
+                        row[
+                            "OpenDate.Typed"
+                        ] ||
+                        row.OpenDate ||
+                        "";
+
+
+                    html += `
+
+                        <tr>
+
+                            <td>
+
+                                ${formatDate(
+                                    String(
+                                        date
+                                    ).slice(
+                                        0,
+                                        10
+                                    )
+                                )}
+
+                            </td>
+
+
+                            <td>
+
+                                ${formatMoney(
+                                    sales
+                                )}
+
+                            </td>
+
+
+                            <td>
+
+                                ${formatNumber(
+                                    orders
+                                )}
+
+                            </td>
+
+
+                            <td>
+
+                                ${formatMoney(
+                                    average
+                                )}
+
+                            </td>
+
+                        </tr>
+
+                    `;
+                }
+            );
+        }
+
+
+        html += `
 
                     </tbody>
 
@@ -3465,155 +4047,10 @@
             </div>
 
         `;
-    }
 
 
-    // ============================================================
-    // DEFAULT PERIOD
-    // ============================================================
-
-    function setDefaultPeriods() {
-
-        const ids = [
-
-            "report-from",
-            "report-to",
-            "olap-from",
-            "olap-to"
-
-        ];
-
-
-        ids.forEach(
-            id => {
-
-                const element =
-                    $(id);
-
-
-                if (
-                    element &&
-                    !element.value
-                ) {
-
-                    element.value =
-                        today();
-                }
-            }
-        );
-    }
-
-
-    // ============================================================
-    // EVENTS
-    // ============================================================
-
-    function bindOlapEvents() {
-
-        const search =
-            $("olap-search");
-
-
-        if (search) {
-
-            search.addEventListener(
-                "input",
-                renderOlapFields
-            );
-        }
-
-
-        const refresh =
-            $("olap-refresh-fields");
-
-
-        if (refresh) {
-
-            refresh.onclick =
-                async () => {
-
-                    try {
-
-                        setOlapStatus(
-                            "⏳ Загружаем поля..."
-                        );
-
-
-                        await loadOlapFields();
-                    }
-
-
-                    catch (error) {
-
-                        setOlapStatus(
-                            "🔴 " +
-                            error.message
-                        );
-                    }
-                };
-        }
-
-
-        const clear =
-            $("olap-clear");
-
-
-        if (clear) {
-
-            clear.onclick =
-                clearOlap;
-        }
-
-
-        const operator =
-            $("olap-filter-operator");
-
-
-        if (operator) {
-
-            operator.onchange =
-                updateFilterInputMode;
-        }
-
-
-        const addFilter =
-            $("olap-add-filter");
-
-
-        if (addFilter) {
-
-            addFilter.onclick =
-                () => {
-
-                    try {
-
-                        addOlapFilter();
-                    }
-
-
-                    catch (error) {
-
-                        setOlapStatus(
-                            "🔴 " +
-                            error.message
-                        );
-                    }
-                };
-        }
-
-
-        const run =
-            $("olap-run");
-
-
-        if (run) {
-
-            run.onclick =
-                runOlap;
-        }
-
-
-        bindOlapDropZones();
+        salesResult.innerHTML =
+            html;
     }
 
 
@@ -3623,50 +4060,82 @@
 
     function init() {
 
-        createOlapBuilder();
-
         loadSavedIikoData();
 
-        setDefaultPeriods();
+        setupSales();
 
 
-        const connect =
-            $("connect-iiko");
+        if (connectButton) {
 
-
-        if (connect) {
-
-            connect.onclick =
-                connectIiko;
+            connectButton.addEventListener(
+                "click",
+                connectIiko
+            );
         }
 
 
-        const clear =
-            $("clear-iiko-data");
+        if (clearIikoData) {
 
-
-        if (clear) {
-
-            clear.onclick =
-                clearSavedIikoData;
+            clearIikoData.addEventListener(
+                "click",
+                clearSavedIikoData
+            );
         }
 
 
-        const sales =
-            $("load-sales");
+        // --------------------------------------------------------
+        // Конструктор создаём сразу.
+        // --------------------------------------------------------
+
+        createOlapBuilder();
 
 
-        if (sales) {
+        // --------------------------------------------------------
+        // Если сохранённые данные есть, НЕ подключаемся
+        // автоматически — пользователь сам нажимает кнопку.
+        // --------------------------------------------------------
 
-            sales.onclick =
-                loadSalesReport;
+        const from =
+            getElement(
+                "report-from"
+            );
+
+        const to =
+            getElement(
+                "report-to"
+            );
+
+
+        if (from && !from.value) {
+            from.value =
+                todayString();
+        }
+
+
+        if (to && !to.value) {
+            to.value =
+                todayString();
         }
     }
 
 
-    document.addEventListener(
-        "DOMContentLoaded",
-        init
-    );
+    // ============================================================
+    // START
+    // ============================================================
+
+    if (
+        document.readyState ===
+        "loading"
+    ) {
+
+        document.addEventListener(
+            "DOMContentLoaded",
+            init
+        );
+
+    } else {
+
+        init();
+    }
 
 })();
