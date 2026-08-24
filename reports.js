@@ -3116,26 +3116,130 @@
         }
 
         const rowFields =
-            meta?.rows || [];
+            Array.isArray(meta?.rows)
+                ? [...meta.rows]
+                : [];
 
         const columnFields =
-            meta?.columns || [];
+            Array.isArray(meta?.columns)
+                ? [...meta.columns]
+                : [];
 
         const measures =
-            meta?.measures || [];
+            Array.isArray(meta?.measures)
+                ? meta.measures
+                : [];
 
         const hiddenFields =
             new Set(
-                meta?.hiddenTechnicalFields || []
+                Array.isArray(
+                    meta?.hiddenTechnicalFields
+                )
+                    ? meta.hiddenTechnicalFields
+                    : []
             );
 
-        // Все поля, определяющие одну видимую строку.
-        // DishCode здесь остаётся намеренно: если DishName выбран,
-        // код различает два разных блюда с одинаковым названием.
-        const groupingFields = [
-            ...rowFields,
-            ...columnFields
-        ];
+        // --------------------------------------------------------
+        // КРИТИЧЕСКАЯ ЛОГИКА ГРУППИРОВКИ БЛЮД
+        //
+        // Название DishName НИКОГДА не является уникальным
+        // идентификатором блюда.
+        //
+        // Реальный ответ iiko содержит:
+        //
+        //   DishName
+        //   DishCode
+        //
+        // Поэтому, если пользователь выбрал "Блюдо", мы
+        // автоматически используем DishCode как скрытый ключ.
+        //
+        // Например:
+        //
+        //  00016 | cola | 1
+        //  00016 | cola | 10
+        //
+        // превращается в одну строку:
+        //
+        //  00016 | cola | 11
+        //
+        // Но:
+        //
+        //  00053 | SEZAR PIZZA | 1
+        //  00054 | SEZAR PIZZA | 1
+        //
+        // остаются двумя строками.
+        // --------------------------------------------------------
+
+        const groupingFields = [];
+
+        const addGroupingField =
+            field => {
+
+                if (!field) {
+                    return;
+                }
+
+                if (
+                    !groupingFields.includes(
+                        field
+                    )
+                ) {
+                    groupingFields.push(
+                        field
+                    );
+                }
+            };
+
+        rowFields.forEach(
+            addGroupingField
+        );
+
+        columnFields.forEach(
+            addGroupingField
+        );
+
+        const hasDishName =
+            groupingFields.some(
+                field =>
+                    String(
+                        field || ""
+                    )
+                        .trim()
+                        .toLowerCase() ===
+                    "dishname"
+            );
+
+        // Проверяем именно реальные ключи report.data.
+        // DishCode является приоритетным ключом для блюда.
+        const actualDishCodeField =
+            [
+                "DishCode",
+                "DishId",
+                "ProductCode",
+                "ProductId"
+            ].find(
+                candidate =>
+                    rows.some(
+                        row =>
+                            Object.prototype.hasOwnProperty.call(
+                                row || {},
+                                candidate
+                            )
+                    )
+            );
+
+        if (
+            hasDishName &&
+            actualDishCodeField
+        ) {
+            addGroupingField(
+                actualDishCodeField
+            );
+        }
+
+        // --------------------------------------------------------
+        // Группировка
+        // --------------------------------------------------------
 
         const groups =
             new Map();
@@ -3211,7 +3315,9 @@
 
                             group.values[
                                 measure.field
-                            ].push(number);
+                            ].push(
+                                number
+                            );
                         }
                     }
                 );
@@ -3263,6 +3369,7 @@
                                     ) /
                                       values.length
                                     : 0;
+
                         }
                         else if (
                             aggregation ===
@@ -3275,6 +3382,7 @@
                                         ...values
                                     )
                                     : 0;
+
                         }
                         else if (
                             aggregation ===
@@ -3287,12 +3395,11 @@
                                         ...values
                                     )
                                     : 0;
+
                         }
                         else {
+
                             // SUM и COUNT.
-                            // Для COUNT iiko уже возвращает число
-                            // в строке, поэтому при объединении
-                            // строк их тоже складываем.
                             result =
                                 group.sums[
                                     measure.field
@@ -3305,10 +3412,15 @@
                     }
                 );
 
-                // Скрытые поля не нужны в визуальном результате,
-                // но оставляем их внутри row для группировки.
+                // Скрытые технические поля остаются внутри
+                // строки для внутренних операций, но не должны
+                // попадать в визуальные колонки.
+                //
+                // DishCode здесь НЕ удаляем: он нужен для
+                // последующей проверки/группировки.
                 hiddenFields.forEach(
                     field => {
+
                         if (
                             !groupingFields.includes(
                                 field
@@ -3325,10 +3437,15 @@
             }
         );
 
+        // --------------------------------------------------------
+        // ОБЩИЙ ИТОГ
+        // --------------------------------------------------------
+
         const grandTotals = {};
 
         measures.forEach(
             measure => {
+
                 grandTotals[
                     measure.field
                 ] = 0;
@@ -3352,6 +3469,7 @@
                         if (
                             number !== null
                         ) {
+
                             grandTotals[
                                 measure.field
                             ] += number;
@@ -3361,9 +3479,15 @@
             }
         );
 
-        // Суммы по верхнему уровню Строк.
-        // Например, если Строки = Касса, получаем
-        // "Demo kassa всего".
+        // --------------------------------------------------------
+        // ИТОГИ ПО ВЕРХНЕМУ УРОВНЮ "СТРОКИ"
+        // Например:
+        //
+        // Строки = Касса
+        //
+        // Demo kassa всего
+        // --------------------------------------------------------
+
         const groupTotalsMap =
             new Map();
 
@@ -3389,6 +3513,7 @@
 
                         measures.forEach(
                             measure => {
+
                                 total[
                                     measure.field
                                 ] = 0;
@@ -3415,6 +3540,7 @@
                             if (
                                 number !== null
                             ) {
+
                                 total[
                                     measure.field
                                 ] += number;
@@ -3428,7 +3554,10 @@
         const groupTotals = [];
 
         groupTotalsMap.forEach(
-            (totals, key) => {
+            (
+                totals,
+                key
+            ) => {
 
                 const sample =
                     aggregatedRows.find(
@@ -3455,6 +3584,21 @@
                     totals
                 });
             }
+        );
+
+        console.log(
+            "OLAP GROUPING FIELDS:",
+            groupingFields
+        );
+
+        console.log(
+            "OLAP RAW ROWS:",
+            rows.length
+        );
+
+        console.log(
+            "OLAP AGGREGATED ROWS:",
+            aggregatedRows.length
         );
 
         return {
