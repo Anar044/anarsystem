@@ -25,12 +25,7 @@ async function sha1(text) {
 }
 
 function addTrace(trace, level, message, detail = "") {
-    trace.push({
-        level,
-        message,
-        detail,
-        at: new Date().toISOString()
-    });
+    trace.push({ level, message, detail, at: new Date().toISOString() });
 }
 
 function normalizeDepartments(payload) {
@@ -93,12 +88,7 @@ function parseDepartmentsXml(text) {
         const name = xmlAttribute(openingTag, "name") || xmlChild(block, "name");
         const code = xmlAttribute(openingTag, "code") || xmlChild(block, "code");
 
-        result.push({
-            id: String(id),
-            name: String(name || code || id),
-            code: String(code || ""),
-            type: "DEPARTMENT"
-        });
+        result.push({ id: String(id), name: String(name || code || id), code: String(code || ""), type: "DEPARTMENT" });
         seen.add(id);
     }
 
@@ -145,12 +135,7 @@ export async function onRequestPost(context) {
         const authBody = await readBody(authResponse);
         const token = authBody.text.trim();
 
-        addTrace(
-            trace,
-            authResponse.ok && token ? "ok" : "err",
-            "← ответ iiko /resto/api/auth",
-            `HTTP ${authResponse.status}\ncontent-type=${authBody.contentType}\nbytes=${authBody.bytes}\ntoken=${token ? `получен, длина ${token.length}` : "не получен"}`
-        );
+        addTrace(trace, authResponse.ok && token ? "ok" : "err", "← ответ iiko /resto/api/auth", `HTTP ${authResponse.status}\ncontent-type=${authBody.contentType}\nbytes=${authBody.bytes}\ntoken=${token ? `получен, длина ${token.length}` : "не получен"}`);
 
         if (!authResponse.ok || !token) {
             return jsonResponse({ success: false, message: `Ошибка авторизации iiko: HTTP ${authResponse.status}`, trace }, 502);
@@ -165,29 +150,46 @@ export async function onRequestPost(context) {
         });
         const departmentsBody = await readBody(departmentsResponse);
 
-        addTrace(
-            trace,
-            departmentsResponse.ok ? "ok" : "err",
-            "← ответ iiko /resto/api/corporation/departments/",
-            `HTTP ${departmentsResponse.status}\ncontent-type=${departmentsBody.contentType}\nbytes=${departmentsBody.bytes}`
-        );
+        addTrace(trace, departmentsResponse.ok ? "ok" : "err", "← ответ iiko /resto/api/corporation/departments/", `HTTP ${departmentsResponse.status}\ncontent-type=${departmentsBody.contentType}\nbytes=${departmentsBody.bytes}`);
 
         if (!departmentsResponse.ok) {
             return jsonResponse({ success: false, message: `Ошибка получения подразделений iiko: HTTP ${departmentsResponse.status}`, trace }, 502);
         }
 
+        // Show the exact response returned by iiko, with control characters escaped and a safe size limit.
+        // This is the key diagnostic when HTTP 200 contains no departments.
+        const rawPreview = departmentsBody.text
+            .slice(0, 2000)
+            .replace(/\r/g, "\\r")
+            .replace(/\n/g, "\\n")
+            .replace(/\t/g, "\\t");
+
+        addTrace(
+            trace,
+            "info",
+            "Сырой ответ iiko",
+            `length=${departmentsBody.text.length}\n${rawPreview || "<пустой ответ>"}`
+        );
+
         let departments = [];
         let format = "empty";
+        let jsonShape = "";
 
         if (departmentsBody.text) {
             try {
-                departments = normalizeDepartments(JSON.parse(departmentsBody.text));
+                const parsed = JSON.parse(departmentsBody.text);
                 format = "JSON";
+                jsonShape = Array.isArray(parsed)
+                    ? `array length=${parsed.length}`
+                    : `object keys=${Object.keys(parsed || {}).join(",")}`;
+                departments = normalizeDepartments(parsed);
             } catch {
                 departments = parseDepartmentsXml(departmentsBody.text);
                 format = "XML";
             }
         }
+
+        addTrace(trace, "info", "Структура JSON", jsonShape || "не JSON");
 
         addTrace(
             trace,
@@ -200,9 +202,7 @@ export async function onRequestPost(context) {
 
         return jsonResponse({
             success: true,
-            message: departments.length
-                ? `Найдено подразделений: ${departments.length}`
-                : "iiko подключён, но DEPARTMENT не найден в ответе",
+            message: departments.length ? `Найдено подразделений: ${departments.length}` : "iiko подключён, но DEPARTMENT не найден в ответе",
             departments,
             departmentIds: departments.map(item => item.id),
             trace
