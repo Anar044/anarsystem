@@ -1167,6 +1167,57 @@
 
     </style>
 
+
+<style id="sh-olap-layout-fix">
+/* SH_Reports OLAP visual layer — layout only, no OLAP logic changes */
+#olap-builder{
+  margin-top:24px !important;
+  padding:24px !important;
+  border:1px solid var(--line,#e5e7eb) !important;
+  border-radius:16px !important;
+  background:var(--surface,#fff) !important;
+  color:var(--text,#111827) !important;
+  box-shadow:var(--shadow,0 10px 30px rgba(0,0,0,.08)) !important;
+}
+#olap-builder h2,.olap-builder h2{margin:0 0 7px !important;color:var(--text,#111827) !important;font-size:24px !important;line-height:1.2}
+#olap-builder h3,.olap-panel h3,.olap-period h3{color:var(--text,#111827) !important}
+.olap-description{margin:0 0 18px !important;color:var(--muted,#64748b) !important;font-size:13px !important;line-height:1.5}
+.olap-toolbar{display:grid !important;grid-template-columns:minmax(0,1fr) auto auto !important;gap:10px !important;align-items:end !important;margin:0 0 14px !important;padding:14px !important;border:1px solid var(--line,#e2e8f0) !important;border-radius:12px !important;background:var(--surface2,#f8fafc) !important}
+.olap-toolbar label{min-width:0 !important;color:var(--muted,#475569) !important;font-size:12px !important;font-weight:700 !important}
+.olap-toolbar input,.olap-toolbar select{width:100% !important;box-sizing:border-box !important;margin-top:6px !important;min-height:42px !important;padding:10px 12px !important;border:1px solid var(--line,#dbe3ee) !important;border-radius:9px !important;background:var(--surface,#fff) !important;color:var(--text,#111827) !important}
+.olap-toolbar button{min-height:42px !important;padding:10px 14px !important;border:1px solid var(--line,#d7dfeb) !important;border-radius:9px !important;background:var(--surface,#fff) !important;color:var(--text,#111827) !important;font-weight:700 !important}
+.olap-status{margin:0 0 16px !important;padding:10px 12px !important;border:1px solid var(--line,#e2e8f0) !important;border-radius:10px !important;background:var(--surface2,#f8fafc) !important;color:var(--muted,#475569) !important;font-size:13px !important}
+.olap-grid{display:grid !important;grid-template-columns:minmax(280px,.9fr) minmax(360px,1.1fr) !important;gap:0 !important;border:1px solid var(--line,#e2e8f0) !important;border-radius:14px !important;overflow:hidden !important;background:var(--surface,#fff) !important}
+.olap-panel{min-width:0 !important;padding:18px !important;background:var(--surface,#fff) !important;color:var(--text,#111827) !important}
+.olap-panel:first-child{border-right:1px solid var(--line,#e2e8f0) !important}
+#olap-search{width:100% !important;box-sizing:border-box !important;margin:0 0 10px !important;min-height:40px !important;padding:9px 11px !important;border:1px solid var(--line,#dbe3ee) !important;border-radius:9px !important;background:var(--surface,#fff) !important;color:var(--text,#111827) !important}
+#olap-search::placeholder{color:var(--muted,#94a3b8) !important}
+.olap-fields{height:500px !important;max-height:500px !important;overflow-y:auto !important;padding:2px 7px 2px 0 !important;display:flex !important;flex-direction:column !important;gap:7px !important}
+.olap-field{width:100% !important;box-sizing:border-box !important;min-height:52px !important;margin:0 !important;padding:9px 11px !important;border:1px solid var(--line,#e2e8f0) !important;border-radius:9px !important;background:var(--surface,#fff) !important;color:var(--text,#111827) !important}
+.olap-field:hover{border-color:var(--accent,#7c68ee) !important;background:var(--accent-soft,#f5f3ff) !important}
+.olap-field strong,.olap-selected-field strong{color:var(--text,#111827) !important;font-size:13px !important}
+.olap-field small,.olap-selected-field small{color:var(--muted,#64748b) !important}
+.olap-flags{color:var(--muted,#64748b) !important}
+.olap-selected{min-height:66px !important;margin:0 0 18px !important;padding:8px !important;border:1px dashed var(--line,#cbd5e1) !important;border-radius:10px !important;background:var(--surface2,#f8fafc) !important}
+.olap-selected.olap-drop-active{border-color:var(--accent,#7c68ee) !important;background:var(--accent-soft,#f5f3ff) !important;box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--accent,#7c68ee) 18%,transparent) !important}
+.olap-selected-field{min-height:45px !important;margin:0 0 6px !important;padding:8px 10px !important;border:1px solid var(--line,#dbe3ee) !important;border-radius:8px !important;background:var(--surface,#fff) !important;color:var(--text,#111827) !important}
+.olap-selected-field:last-child{margin-bottom:0 !important}
+.olap-selected-field button{width:28px !important;height:28px !important;border:1px solid var(--line,#e2e8f0) !important;border-radius:7px !important;background:var(--surface2,#f8fafc) !important;color:var(--muted,#64748b) !important}
+.olap-empty{min-height:48px !important;padding:15px 10px !important;color:var(--muted,#94a3b8) !important}
+.olap-filters-panel{margin-top:16px !important;padding:16px !important;border:1px solid var(--line,#e2e8f0) !important;border-radius:12px !important;background:var(--surface,#fff) !important}
+.olap-filter-editor{display:grid !important;grid-template-columns:minmax(0,1.2fr) minmax(110px,.8fr) minmax(0,1.4fr) auto !important;gap:9px !important}
+.olap-filter-editor input,.olap-filter-editor select{background:var(--surface,#fff) !important;color:var(--text,#111827) !important;border-color:var(--line,#dbe3ee) !important}
+.olap-filter-item{background:var(--surface2,#f8fafc) !important;border-color:var(--line,#e2e8f0) !important;color:var(--text,#111827) !important}
+.olap-period{margin-top:16px !important;padding:16px !important;border:1px solid var(--line,#e2e8f0) !important;border-radius:12px !important;background:var(--surface,#fff) !important}
+.olap-period > div{display:grid !important;grid-template-columns:1fr 1fr !important;gap:12px !important}
+.olap-period label{color:var(--muted,#475569) !important;font-size:12px !important;font-weight:700 !important}
+.olap-period input{min-height:42px !important;background:var(--surface,#fff) !important;color:var(--text,#111827) !important;border-color:var(--line,#dbe3ee) !important}
+#olap-run{width:100% !important;margin-top:16px !important;min-height:46px !important;border:0 !important;border-radius:10px !important;background:var(--text,#222) !important;color:var(--surface,#fff) !important;font-weight:800 !important}
+.olap-result{margin-top:18px !important;color:var(--text,#111827) !important}
+@media(max-width:900px){.olap-toolbar{grid-template-columns:1fr !important}.olap-grid{grid-template-columns:1fr !important}.olap-panel:first-child{border-right:0 !important;border-bottom:1px solid var(--line,#e2e8f0) !important}.olap-fields{height:360px !important;max-height:360px !important}}
+@media(max-width:700px){#olap-builder{padding:16px !important}.olap-period > div,.olap-filter-editor{grid-template-columns:1fr !important}.olap-toolbar button{width:100% !important}}
+</style>
+
 </head>
 
 
