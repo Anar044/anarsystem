@@ -453,289 +453,97 @@
 
 
         builder.innerHTML = `
-
-            <div class="olap-builder">
-
-                <h2>Конструктор OLAP</h2>
-
-                <div class="olap-description">
-                    Перетащите поле из списка слева
-                    в Строки, Колонки или Показатели.
-                </div>
-
-
-                <div class="olap-toolbar">
-
-                    <label>
-                        Поиск поля
-
-                        <input
-                            id="olap-search"
-                            type="text"
-                            placeholder="Например: сумма, блюдо, официант..."
-                        >
-                    </label>
-
-
-                    <button
-                        type="button"
-                        id="olap-refresh-fields"
-                    >
-                        Обновить поля
-                    </button>
-
-
-                    <button
-                        type="button"
-                        id="olap-clear"
-                    >
-                        Очистить
-                    </button>
-
-                </div>
-
-
-                <div
-                    id="olap-status"
-                    class="olap-status"
-                >
-                    ⚪ Поля ещё не загружены
-                </div>
-
-
-                <div class="olap-grid">
-
-                    <div class="olap-panel">
-
-                        <h3>
-                            Доступные поля
-                        </h3>
-
-                        <div
-                            id="olap-fields"
-                            class="olap-fields"
-                        >
-                            <div class="olap-empty">
-                                Поля отсутствуют
-                            </div>
-                        </div>
-
-                    </div>
-
-
-                    <div class="olap-panel">
-
-                        <h3>
-                            Строки
-                        </h3>
-
-                        <div
-                            id="olap-rows"
-                            class="olap-selected"
-                        >
-                            <div class="olap-empty">
-                                Перетащите поле сюда
-                            </div>
-                        </div>
-
-
-                        <h3>
-                            Колонки
-                        </h3>
-
-                        <div
-                            id="olap-columns"
-                            class="olap-selected"
-                        >
-                            <div class="olap-empty">
-                                Перетащите поле сюда
-                            </div>
-                        </div>
-
-
-                        <h3>
-                            Показатели
-                        </h3>
-
-                        <div
-                            id="olap-measures"
-                            class="olap-selected"
-                        >
-                            <div class="olap-empty">
-                                Перетащите поле сюда
-                            </div>
-                        </div>
-
-                    </div>
-
-                </div>
-
-
-                <!-- FILTERS -->
-
-                <div class="olap-filters-panel">
-
-                    <h3>
-                        Фильтры
-                    </h3>
-
-
-                    <div class="olap-filter-editor">
-
-                        <label>
-                            Поле
-
-                            <select
-                                id="olap-filter-field"
-                            ></select>
-                        </label>
-
-
-                        <label>
-                            Условие
-
-                            <select
-                                id="olap-filter-operator"
-                            >
-
-                                <option value="Include">
-                                    Равно
-                                </option>
-
-                                <option value="Exclude">
-                                    Не равно
-                                </option>
-
-                                <option value="IncludeList">
-                                    В списке
-                                </option>
-
-                                <option value="ExcludeList">
-                                    Не в списке
-                                </option>
-
-                                <option value="DateRange">
-                                    Диапазон дат
-                                </option>
-
-                            </select>
-
-                        </label>
-
-
-                        <label id="olap-filter-value-label">
-
-                            Значение
-
-                            <input
-                                id="olap-filter-value"
-                                type="text"
-                            >
-
-                        </label>
-
-
-                        <label
-                            id="olap-filter-from-label"
-                            style="display:none"
-                        >
-
-                            От
-
-                            <input
-                                id="olap-filter-from"
-                                type="date"
-                            >
-
-                        </label>
-
-
-                        <label
-                            id="olap-filter-to-label"
-                            style="display:none"
-                        >
-
-                            До
-
-                            <input
-                                id="olap-filter-to"
-                                type="date"
-                            >
-
-                        </label>
-
-
-                        <button
-                            type="button"
-                            id="olap-add-filter"
-                        >
-                            + Добавить фильтр
-                        </button>
-
-                    </div>
-
-
-                    <div
-                        id="olap-filters"
-                        class="olap-filters-list"
-                    >
-                        <div class="olap-empty">
-                            Фильтры не заданы
-                        </div>
-                    </div>
-
-                </div>
-
-
-                <!-- PERIOD -->
-
-                <div class="olap-period">
-
-                    <h3>
-                        Период
-                    </h3>
-
+            <div class="olap-shell">
+                <div class="olap-report-head">
                     <div>
-
-                        <label>
-                            От
-
-                            <input
-                                id="olap-from"
-                                type="date"
-                            >
-                        </label>
-
-
-                        <label>
-                            До
-
-                            <input
-                                id="olap-to"
-                                type="date"
-                            >
-                        </label>
-
+                        <div class="olap-report-title">OLAP отчёт по продажам</div>
+                        <div class="olap-report-subtitle">Конструктор аналитических отчётов</div>
                     </div>
-
+                    <div class="olap-report-actions">
+                        <label class="olap-saved-wrap">
+                            <span>Сохранённые отчёты</span>
+                            <select id="olap-saved-reports">
+                                <option value="">Выберите отчёт...</option>
+                            </select>
+                        </label>
+                        <button type="button" id="olap-save-report" class="olap-icon-btn" title="Сохранить отчёт">💾</button>
+                        <label class="olap-date-wrap">
+                            <span>Период с</span>
+                            <input id="olap-from" type="date">
+                        </label>
+                        <label class="olap-date-wrap">
+                            <span>по</span>
+                            <input id="olap-to" type="date">
+                        </label>
+                        <button type="button" id="olap-run" class="olap-primary">↻ Обновить</button>
+                        <button type="button" id="olap-export" class="olap-excel">▣ Excel</button>
+                    </div>
                 </div>
 
+                <div id="olap-status" class="olap-status">🟢 Доступные поля OLAP: 0</div>
 
-                <button
-                    type="button"
-                    id="olap-run"
-                >
-                    Выполнить OLAP отчёт
-                </button>
+                <div class="olap-workspace">
+                    <aside class="olap-fields-card">
+                        <div class="olap-card-title">Доступные поля</div>
+                        <div class="olap-search-wrap">
+                            <input id="olap-search" type="text" placeholder="Поиск поля...">
+                            <span>⌕</span>
+                        </div>
+                        <div id="olap-fields" class="olap-fields">
+                            <div class="olap-empty">Поля отсутствуют</div>
+                        </div>
+                        <div class="olap-field-actions">
+                            <button type="button" id="olap-refresh-fields">⟳ Обновить поля</button>
+                            <button type="button" id="olap-clear">Очистить</button>
+                        </div>
+                    </aside>
 
+                    <section class="olap-main-card">
+                        <div class="olap-zones">
+                            <div class="olap-zone-card">
+                                <div class="olap-card-title">☷ &nbsp;Строки</div>
+                                <div id="olap-rows" class="olap-selected"><div class="olap-empty">Перетащите поле сюда</div></div>
+                            </div>
+                            <div class="olap-zone-card">
+                                <div class="olap-card-title">▦ &nbsp;Колонки</div>
+                                <div id="olap-columns" class="olap-selected"><div class="olap-empty">Перетащите поле сюда</div></div>
+                            </div>
+                            <div class="olap-zone-card">
+                                <div class="olap-card-title">Σ &nbsp;Показатели</div>
+                                <div id="olap-measures" class="olap-selected"><div class="olap-empty">Перетащите поле сюда</div></div>
+                            </div>
+                        </div>
 
-                <div
-                    id="olap-result"
-                    class="olap-result"
-                ></div>
+                        <div class="olap-filters-panel">
+                            <div class="olap-filter-head">
+                                <div class="olap-card-title">⚱ &nbsp;Фильтры</div>
+                                <button type="button" id="olap-add-filter">+ Добавить фильтр</button>
+                            </div>
+                            <div class="olap-filter-editor">
+                                <label>Поле<select id="olap-filter-field"></select></label>
+                                <label>Условие<select id="olap-filter-operator">
+                                    <option value="Include">Равно</option>
+                                    <option value="Exclude">Не равно</option>
+                                    <option value="IncludeList">В списке</option>
+                                    <option value="ExcludeList">Не в списке</option>
+                                    <option value="DateRange">Диапазон дат</option>
+                                </select></label>
+                                <label id="olap-filter-value-label">Значение<input id="olap-filter-value" type="text"></label>
+                                <label id="olap-filter-from-label" style="display:none">От<input id="olap-filter-from" type="date"></label>
+                                <label id="olap-filter-to-label" style="display:none">До<input id="olap-filter-to" type="date"></label>
+                            </div>
+                            <div id="olap-filters" class="olap-filters-list"><div class="olap-empty">Фильтры не заданы</div></div>
+                        </div>
 
+                        <section class="olap-result-card">
+                            <div class="olap-card-title">Результат отчёта</div>
+                            <div id="olap-result" class="olap-result">
+                                <div class="olap-result-empty"><div class="olap-result-icon">▦</div><strong>Отчёт ещё не сформирован</strong><span>Выберите поля, задайте период и нажмите «Обновить».</span></div>
+                            </div>
+                        </section>
+                    </section>
+                </div>
             </div>
-
         `;
 
 
@@ -2770,6 +2578,66 @@
     }
 
 
+
+    // ============================================================
+    // SAVED REPORTS (local browser storage, OLAP request unchanged)
+    // ============================================================
+    function savedReportsKey() {
+        const user = window.SH_CURRENT_USER || {};
+        return `SH_Reports.savedOlap.${user.id || user.email || "local"}`;
+    }
+
+    function getSavedReports() {
+        try { return JSON.parse(localStorage.getItem(savedReportsKey()) || "[]"); }
+        catch { return []; }
+    }
+
+    function renderSavedReports() {
+        const select = $("olap-saved-reports");
+        if (!select) return;
+        const current = select.value;
+        select.innerHTML = `<option value="">Выберите отчёт...</option>` +
+            getSavedReports().map((r, i) => `<option value="${i}">${esc(r.name)}</option>`).join("");
+        if ([...select.options].some(o => o.value === current)) select.value = current;
+    }
+
+    function saveCurrentOlapReport() {
+        const name = window.prompt("Название отчёта:", "Мой OLAP отчёт");
+        if (!name || !name.trim()) return;
+        const reports = getSavedReports();
+        reports.push({
+            name: name.trim(),
+            rows: [...olapRows], columns: [...olapColumns],
+            measures: olapMeasures.map(x => ({...x})),
+            filters: olapFilters.map(x => ({...x})),
+            createdAt: new Date().toISOString()
+        });
+        localStorage.setItem(savedReportsKey(), JSON.stringify(reports));
+        renderSavedReports();
+        const select = $("olap-saved-reports");
+        if (select) select.value = String(reports.length - 1);
+    }
+
+    function loadSavedOlapReport(index) {
+        if (index === "") return;
+        const report = getSavedReports()[Number(index)];
+        if (!report) return;
+        olapRows = [...(report.rows || [])];
+        olapColumns = [...(report.columns || [])];
+        olapMeasures = (report.measures || []).map(x => ({...x}));
+        olapFilters = (report.filters || []).map(x => ({...x}));
+        renderSelectedFields(); renderOlapFilters();
+    }
+
+    function exportOlapCsv() {
+        const table = $("olap-result")?.querySelector("table");
+        if (!table) { setOlapStatus("⚠️ Сначала сформируйте отчёт"); return; }
+        const rows = [...table.rows].map(row => [...row.cells].map(cell => `"${String(cell.innerText).replace(/"/g, '""')}"`).join(";"));
+        const blob = new Blob(["\\ufeff" + rows.join("\\n")], {type: "text/csv;charset=utf-8;"});
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "olap-report.csv"; a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+
     // ============================================================
     // EVENTS
     // ============================================================
@@ -2866,6 +2734,15 @@
                 };
         }
 
+
+        const saved = $("olap-saved-reports");
+        if (saved) saved.onchange = () => loadSavedOlapReport(saved.value);
+        const save = $("olap-save-report");
+        if (save) save.onclick = saveCurrentOlapReport;
+        const exportButton = $("olap-export");
+        if (exportButton) exportButton.onclick = exportOlapCsv;
+
+        renderSavedReports();
 
         const run =
             $("olap-run");

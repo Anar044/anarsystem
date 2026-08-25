@@ -386,3 +386,82 @@
         flex-direction: column;
     }
 }
+
+
+/* ==========================================================
+   SH_REPORTS OLAP — CLEAN FLAT DASHBOARD V5
+   Visual layer only; existing OLAP ids and handlers preserved.
+========================================================== */
+#olap-builder { margin: 0 !important; padding: 0 !important; border: 0 !important; background: transparent !important; box-shadow: none !important; font-family: inherit !important; }
+#olap-builder .olap-shell { width: 100%; background: #fff; border: 1px solid #e3e8ef; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 30px rgba(15,23,42,.05); color:#111827; }
+#olap-builder .olap-report-head { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:20px 24px; border-bottom:1px solid #e8edf3; background:#fff; }
+#olap-builder .olap-report-title { font-size:22px; font-weight:750; letter-spacing:-.02em; }
+#olap-builder .olap-report-subtitle { margin-top:4px; color:#718096; font-size:12px; }
+#olap-builder .olap-report-actions { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+#olap-builder .olap-report-actions label { display:flex; flex-direction:column; gap:5px; font-size:11px; font-weight:700; color:#64748b; min-width:140px; }
+#olap-builder .olap-report-actions input, #olap-builder .olap-report-actions select { height:40px; border:1px solid #d9e1eb; border-radius:9px; background:#fff; padding:0 11px; color:#111827; box-sizing:border-box; }
+#olap-builder .olap-report-actions .olap-saved-wrap { min-width:240px; }
+#olap-builder .olap-icon-btn, #olap-builder .olap-primary, #olap-builder .olap-excel { height:40px; border-radius:9px; border:1px solid #d9e1eb; padding:0 16px; cursor:pointer; font-weight:700; }
+#olap-builder .olap-icon-btn { width:44px; padding:0; background:#fff; }
+#olap-builder .olap-primary { background:#315bea; color:#fff; border-color:#315bea; }
+#olap-builder .olap-excel { background:#129447; color:#fff; border-color:#129447; }
+#olap-builder .olap-status { margin:0; padding:12px 24px; background:#f7fafc; border-bottom:1px solid #edf1f5; color:#4a627d; font-size:12px; }
+#olap-builder .olap-workspace { display:grid; grid-template-columns:320px minmax(0,1fr); gap:0; min-height:700px; }
+#olap-builder .olap-fields-card { border-right:1px solid #e5eaf0; padding:20px; display:flex; flex-direction:column; min-width:0; }
+#olap-builder .olap-main-card { padding:20px; min-width:0; }
+#olap-builder .olap-card-title { font-size:14px; font-weight:750; color:#172033; }
+#olap-builder .olap-search-wrap { position:relative; margin:12px 0; }
+#olap-builder .olap-search-wrap input { width:100%; height:40px; border:1px solid #d9e1eb; border-radius:9px; padding:0 34px 0 12px; box-sizing:border-box; }
+#olap-builder .olap-search-wrap span { position:absolute; right:12px; top:10px; color:#6b7b91; }
+#olap-builder .olap-fields { height:610px !important; overflow:auto; padding-right:4px; }
+#olap-builder .olap-field { min-height:52px; box-sizing:border-box; border:1px solid #e0e6ee; border-radius:9px; background:#fff; margin-bottom:7px; padding:9px 10px; }
+#olap-builder .olap-field:hover { border-color:#8ca8f6; background:#f7f9ff; }
+#olap-builder .olap-field-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+#olap-builder .olap-field-actions button { height:38px; border:1px solid #d9e1eb; background:#fff; border-radius:9px; cursor:pointer; font-weight:650; }
+#olap-builder .olap-zones { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+#olap-builder .olap-zone-card { border:1px solid #e1e7ee; border-radius:11px; padding:14px; min-width:0; }
+#olap-builder .olap-zone-card .olap-selected { margin-top:12px; min-height:84px; }
+#olap-builder .olap-selected { background:#fbfcfe; border:1px dashed #c9d4e2; border-radius:10px; padding:8px; }
+#olap-builder .olap-selected.olap-drop-active { border-color:#315bea; background:#f1f5ff; box-shadow:inset 0 0 0 2px #d9e3ff; }
+#olap-builder .olap-filters-panel { margin-top:12px; border:1px solid #e1e7ee; border-radius:11px; padding:14px; }
+#olap-builder .olap-filter-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+#olap-builder #olap-add-filter { border:1px solid #d9e1eb; background:#fff; border-radius:8px; padding:8px 12px; cursor:pointer; font-weight:650; }
+#olap-builder .olap-filter-editor { grid-template-columns:1.2fr .9fr 1.4fr !important; gap:10px; }
+#olap-builder .olap-filter-editor label { color:#65748a; }
+#olap-builder .olap-filter-editor input, #olap-builder .olap-filter-editor select { border-radius:8px; border:1px solid #d9e1eb; background:#fff; }
+#olap-builder .olap-result-card { margin-top:12px; border:1px solid #e1e7ee; border-radius:11px; padding:14px; min-height:390px; }
+#olap-builder .olap-result { min-height:340px; margin-top:12px; border:1px solid #edf1f5; border-radius:10px; background:#fff; }
+#olap-builder .olap-result-empty { min-height:330px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:#68788e; text-align:center; }
+#olap-builder .olap-result-empty strong { color:#172033; font-size:16px; }
+#olap-builder .olap-result-icon { width:58px; height:58px; display:grid; place-items:center; border-radius:14px; background:#f1f4f8; font-size:28px; color:#718096; }
+#olap-builder .report-table-wrapper { overflow:auto; }
+#olap-builder .report-table { width:100%; border-collapse:collapse; font-size:13px; }
+#olap-builder .report-table th { background:#f5f7fa; color:#4a5870; font-weight:750; text-align:left; padding:11px 12px; border-bottom:1px solid #dfe5ec; }
+#olap-builder .report-table td { padding:10px 12px; border-bottom:1px solid #edf1f5; }
+#olap-builder .report-header { display:flex; justify-content:space-between; padding:8px 0 12px; }
+@media (max-width: 1050px) { #olap-builder .olap-report-head { align-items:flex-start; flex-direction:column; } #olap-builder .olap-workspace { grid-template-columns:280px minmax(0,1fr); } }
+@media (max-width: 800px) { #olap-builder .olap-workspace { grid-template-columns:1fr; } #olap-builder .olap-fields-card { border-right:0; border-bottom:1px solid #e5eaf0; } #olap-builder .olap-fields { height:360px !important; } #olap-builder .olap-zones { grid-template-columns:1fr; } }
+
+html[data-theme="dark"] #olap-builder .olap-shell,
+html[data-theme="dark"] #olap-builder .olap-report-head,
+html[data-theme="dark"] #olap-builder .olap-fields-card,
+html[data-theme="dark"] #olap-builder .olap-main-card,
+html[data-theme="dark"] #olap-builder .olap-zone-card,
+html[data-theme="dark"] #olap-builder .olap-filters-panel,
+html[data-theme="dark"] #olap-builder .olap-result-card,
+html[data-theme="dark"] #olap-builder .olap-result { background:var(--card,#181c24) !important; color:var(--text,#f3f4f6); border-color:var(--border,#2b313d); }
+html[data-theme="dark"] #olap-builder .olap-report-subtitle,
+html[data-theme="dark"] #olap-builder .olap-status,
+html[data-theme="dark"] #olap-builder .olap-filter-editor label { color:var(--muted,#9aa3b2); }
+html[data-theme="dark"] #olap-builder .olap-status { background:var(--soft,#20252f); }
+html[data-theme="dark"] #olap-builder input,
+html[data-theme="dark"] #olap-builder select,
+html[data-theme="dark"] #olap-builder .olap-field,
+html[data-theme="dark"] #olap-builder .olap-selected,
+html[data-theme="dark"] #olap-builder .olap-selected-field,
+html[data-theme="dark"] #olap-builder button { background:var(--input,#12151c) !important; color:var(--text,#f3f4f6); border-color:var(--border,#2b313d); }
+html[data-theme="dark"] #olap-builder .olap-result-empty strong { color:var(--text,#f3f4f6); }
+html[data-theme="dark"] #olap-builder .report-table th { background:var(--soft,#20252f); color:var(--text,#f3f4f6); border-color:var(--border,#2b313d); }
+html[data-theme="dark"] #olap-builder .report-table td { border-color:var(--border,#2b313d); }
+html[data-theme="dark"] #olap-builder .olap-primary { background:#315bea !important; color:#fff !important; border-color:#315bea !important; }
+html[data-theme="dark"] #olap-builder .olap-excel { background:#129447 !important; color:#fff !important; border-color:#129447 !important; }
