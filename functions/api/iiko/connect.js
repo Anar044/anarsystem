@@ -50,6 +50,58 @@ async function getToken(ip, port, login, password) {
     };
 }
 
+async function getDepartments(serverUrl, token) {
+    const url =
+        `${serverUrl}/resto/api/corporation/departments/` +
+        `?key=${encodeURIComponent(token)}`;
+
+    const response = await fetch(url, {
+        method: "GET",
+        headers: {
+            "Accept": "application/json"
+        }
+    });
+
+    const text = (await response.text()).trim();
+
+    if (!response.ok) {
+        throw new Error(
+            `Ошибка получения подразделений iiko: HTTP ${response.status}`
+        );
+    }
+
+    let payload;
+
+    try {
+        payload = text ? JSON.parse(text) : [];
+    } catch {
+        throw new Error(
+            "iiko вернул некорректный ответ при получении подразделений"
+        );
+    }
+
+    const items = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.items)
+            ? payload.items
+            : Array.isArray(payload?.departments)
+                ? payload.departments
+                : [];
+
+    return items
+        .filter(item =>
+            String(item?.type || "").toUpperCase() === "DEPARTMENT"
+        )
+        .map(item => ({
+            id: String(item.id || ""),
+            parentId: item.parentId == null ? null : String(item.parentId),
+            code: item.code == null ? "" : String(item.code),
+            name: item.name == null ? "" : String(item.name),
+            type: String(item.type || "DEPARTMENT")
+        }))
+        .filter(item => item.id);
+}
+
 export async function onRequestOptions() {
     return new Response(null, {
         status: 204,
@@ -73,11 +125,17 @@ export async function onRequestPost(context) {
             }, 400);
         }
 
-        await getToken(ip, port, login, password);
+        const auth = await getToken(ip, port, login, password);
+        const departments = await getDepartments(
+            auth.serverUrl,
+            auth.token
+        );
 
         return jsonResponse({
             success: true,
-            message: "iiko Server подключён"
+            message: "iiko Server подключён",
+            departmentIds: departments.map(item => item.id),
+            departments
         });
 
     } catch (error) {
