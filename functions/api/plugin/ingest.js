@@ -1,3 +1,5 @@
+// ANAR plugin ingest endpoint. Deployment marker: 2026-08-25-supabase-secret
+
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
