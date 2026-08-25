@@ -553,3 +553,46 @@ html[data-theme="dark"] #olap-builder,
 html[data-theme="dark"] #olap-builder .olap-shell {
     background: var(--bg, #0f1117) !important;
 }
+
+
+/* SH_Reports OLAP v7 — full-width workspace only.
+   Do not change OLAP behavior, drag/drop, API or data logic. */
+#olap-builder {
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+#olap-builder .olap-builder {
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+#olap-builder .olap-builder__shell,
+#olap-builder .olap-workspace,
+#olap-builder .olap-content,
+#olap-builder .olap-main {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+#olap-builder .olap-page,
+#olap-builder .olap-container {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+#olap-builder .olap-builder__body {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+@media (min-width: 1200px) {
+  #olap-builder {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+}
