@@ -44,9 +44,9 @@ function validate(envelope) {
   return errors;
 }
 
-async function persistEvent(envelope) {
-  const url = globalThis.SUPABASE_URL || globalThis.SUPABASE_PROJECT_URL;
-  const key = globalThis.SUPABASE_SERVICE_ROLE_KEY || globalThis.SUPABASE_SERVICE_KEY;
+async function persistEvent(envelope, env) {
+  const url = env?.SUPABASE_URL || env?.SUPABASE_PROJECT_URL;
+  const key = env?.SUPABASE_SERVICE_ROLE_KEY || env?.SUPABASE_SERVICE_KEY;
   if (!url || !key) return { stored: false, reason: "Supabase server credentials are not configured" };
 
   const response = await fetch(`${url.replace(/\/$/, "")}/rest/v1/plugin_events`, {
@@ -91,7 +91,7 @@ export async function onRequestPost(context) {
     const errors = validate(envelope);
     if (errors.length) return jsonResponse({ success: false, accepted: false, errors }, 400);
 
-    const storage = await persistEvent(envelope);
+    const storage = await persistEvent(envelope, context.env);
     return jsonResponse({
       success: true,
       accepted: true,
