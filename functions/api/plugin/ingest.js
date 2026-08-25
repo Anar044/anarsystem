@@ -1,4 +1,4 @@
-// ANAR plugin ingest endpoint. Deployment marker: 2026-08-25-supabase-secret-v2
+// ANAR plugin ingest endpoint. Supports both Supabase secret and legacy service_role keys.
 
 function corsHeaders() {
   return {
@@ -51,13 +51,21 @@ async function persistEvent(envelope, env) {
   const key = env?.SUPABASE_SERVICE_ROLE_KEY || env?.SUPABASE_SERVICE_KEY;
   if (!url || !key) return { stored: false, reason: "Supabase server credentials are not configured" };
 
+  const headers = {
+    "apikey": key,
+    "Content-Type": "application/json",
+    "Prefer": "return=minimal,resolution=ignore-duplicates"
+  };
+
+  // New sb_secret_* keys are opaque and must NOT be sent as Bearer JWTs.
+  // Legacy service_role keys are JWTs and need Authorization to establish the service_role role.
+  if (!key.startsWith("sb_secret_")) {
+    headers["Authorization"] = `Bearer ${key}`;
+  }
+
   const response = await fetch(`${url.replace(/\/$/, "")}/rest/v1/plugin_events`, {
     method: "POST",
-    headers: {
-      "apikey": key,
-      "Content-Type": "application/json",
-      "Prefer": "return=minimal,resolution=ignore-duplicates"
-    },
+    headers,
     body: JSON.stringify({
       event_id: envelope.eventId,
       event_type: envelope.event,
