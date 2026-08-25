@@ -1,0 +1,1 @@
+V10: only pages.css was modified to remove the global max-width/centering from the reports page and its containers. No JavaScript or OLAP logic changed.

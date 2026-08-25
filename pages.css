@@ -450,3 +450,46 @@ body {
   }
 
 }
+
+/* ============================================================
+   SH_Reports OLAP V10 — page width fix
+   ONLY layout CSS. No JS, API, OLAP query or drag/drop logic.
+   ============================================================ */
+
+/* The report page itself was still capped by the global page rule. */
+main.reports-page,
+.reports-page {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 20px 24px 40px !important;
+  box-sizing: border-box !important;
+}
+
+/* The immediate report wrapper must also use the whole .main area. */
+main.main > .app-content,
+.main > .app-content {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.reports-page > .reports-container,
+.reports-container {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* Do not center the OLAP shell inside the page. */
+.reports-container > #olap-builder,
+#olap-builder {
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  box-sizing: border-box !important;
+}
+
