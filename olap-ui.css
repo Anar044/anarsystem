@@ -465,3 +465,91 @@ html[data-theme="dark"] #olap-builder .report-table th { background:var(--soft,#
 html[data-theme="dark"] #olap-builder .report-table td { border-color:var(--border,#2b313d); }
 html[data-theme="dark"] #olap-builder .olap-primary { background:#315bea !important; color:#fff !important; border-color:#315bea !important; }
 html[data-theme="dark"] #olap-builder .olap-excel { background:#129447 !important; color:#fff !important; border-color:#129447 !important; }
+
+
+/* ==========================================================
+   SH_REPORTS OLAP — FULL WORKSPACE V6
+   Removes the centered "window inside window" effect.
+   Visual-only overrides: OLAP logic/handlers untouched.
+========================================================== */
+html, body { background: #fff !important; }
+
+/* Let the reports page use the whole available content area. */
+.reports-container {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    background: #fff !important;
+}
+
+/* The OLAP builder itself is the page workspace — no nested card. */
+#olap-builder {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+#olap-builder .olap-shell {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+}
+
+#olap-builder .olap-report-head {
+    padding: 20px 32px !important;
+    border-bottom: 1px solid #e8edf3 !important;
+    border-radius: 0 !important;
+}
+
+#olap-builder .olap-status {
+    padding-left: 32px !important;
+    padding-right: 32px !important;
+}
+
+#olap-builder .olap-workspace {
+    grid-template-columns: 340px minmax(0, 1fr) !important;
+    min-height: calc(100vh - 220px) !important;
+}
+
+#olap-builder .olap-fields-card {
+    padding: 20px 22px !important;
+    border-right: 1px solid #e5eaf0 !important;
+}
+
+#olap-builder .olap-main-card {
+    padding: 20px 24px 28px !important;
+}
+
+#olap-builder .olap-result-card {
+    min-height: 430px !important;
+}
+
+#olap-builder .olap-result {
+    min-height: 380px !important;
+}
+
+/* Keep the workspace clean on large screens. */
+@media (min-width: 1200px) {
+    #olap-builder .olap-report-head {
+        padding-left: 32px !important;
+        padding-right: 32px !important;
+    }
+}
+
+html[data-theme="dark"] body,
+html[data-theme="dark"] .reports-container,
+html[data-theme="dark"] #olap-builder,
+html[data-theme="dark"] #olap-builder .olap-shell {
+    background: var(--bg, #0f1117) !important;
+}
