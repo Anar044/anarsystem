@@ -596,3 +596,43 @@ html[data-theme="dark"] #olap-builder .olap-shell {
     padding-right: 14px !important;
   }
 }
+
+
+/* SH_Reports OLAP v8
+   The empty margins come from the parent .reports-container,
+   not from #olap-builder itself. Expand the actual page workspace.
+   CSS ONLY — no OLAP/iiko/drag-drop logic changed. */
+
+.reports-container {
+    width: 100% !important;
+    max-width: none !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+    box-sizing: border-box !important;
+}
+
+.reports-container #olap-builder {
+    width: 100% !important;
+    max-width: none !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    box-sizing: border-box !important;
+}
+
+/* Remove the remaining artificial centered shell if the page
+   template applies one directly around the reports container. */
+main:has(.reports-container) .reports-container,
+.content:has(.reports-container) .reports-container,
+.page-content:has(.reports-container) .reports-container {
+    width: 100% !important;
+    max-width: none !important;
+}
+
+@media (min-width: 1000px) {
+    .reports-container {
+        padding-left: 10px !important;
+        padding-right: 10px !important;
+    }
+}
