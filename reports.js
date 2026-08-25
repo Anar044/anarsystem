@@ -1991,21 +1991,193 @@
     // RENDER OLAP RESULT
     // ============================================================
 
+    function getOlapDisplayTitle(fieldName) {
+
+        const field = findOlapField(fieldName);
+
+        return field?.title || String(fieldName || "");
+    }
+
+
+    function getSelectedResultFields() {
+
+        const rowFields = olapRows.map(resolveTechnicalField);
+        const columnFields = olapColumns.map(resolveTechnicalField);
+        const measureFields = olapMeasures.map(item =>
+            resolveTechnicalField(item.field)
+        );
+
+        return {
+            rowFields,
+            columnFields,
+            measureFields,
+            allFields: [
+                ...rowFields,
+                ...columnFields,
+                ...measureFields
+            ]
+        };
+    }
+
+
+    function getRowValue(row, field) {
+
+        if (!row) {
+            return "";
+        }
+
+        if (Object.prototype.hasOwnProperty.call(row, field)) {
+            return row[field];
+        }
+
+        const resolved = resolveTechnicalField(field);
+
+        if (Object.prototype.hasOwnProperty.call(row, resolved)) {
+            return row[resolved];
+        }
+
+        const sourceField = findOlapField(field);
+
+        if (sourceField) {
+            if (Object.prototype.hasOwnProperty.call(row, sourceField.name)) {
+                return row[sourceField.name];
+            }
+
+            if (Object.prototype.hasOwnProperty.call(row, sourceField.title)) {
+                return row[sourceField.title];
+            }
+        }
+
+        return "";
+    }
+
+
+    function isNumericValue(value) {
+
+        if (typeof value === "number") {
+            return Number.isFinite(value);
+        }
+
+        if (typeof value !== "string") {
+            return false;
+        }
+
+        const normalized = value
+            .trim()
+            .replace(/\s/g, "")
+            .replace(/,/g, ".");
+
+        return normalized !== "" && Number.isFinite(Number(normalized));
+    }
+
+
+    function numericValue(value) {
+
+        if (typeof value === "number") {
+            return Number.isFinite(value) ? value : 0;
+        }
+
+        const number = Number(
+            String(value ?? "")
+                .trim()
+                .replace(/\s/g, "")
+                .replace(/,/g, ".")
+        );
+
+        return Number.isFinite(number) ? number : 0;
+    }
+
+
+    function formatOlapNumber(value) {
+
+        if (typeof value === "number") {
+            return Number.isInteger(value)
+                ? String(value)
+                : String(Number(value.toFixed(4)));
+        }
+
+        return String(value ?? "");
+    }
+
+
+    function aggregateRows(rows, measureFields) {
+
+        const totals = {};
+
+        measureFields.forEach(field => {
+            let total = 0;
+            let hasNumeric = false;
+
+            rows.forEach(row => {
+                const value = getRowValue(row, field);
+
+                if (isNumericValue(value)) {
+                    total += numericValue(value);
+                    hasNumeric = true;
+                }
+            });
+
+            totals[field] = hasNumeric ? total : "";
+        });
+
+        return totals;
+    }
+
+
+    function buildOlapTree(rows, rowFields, level = 0) {
+
+        if (level >= rowFields.length) {
+            return rows.map(row => ({
+                type: "leaf",
+                row
+            }));
+        }
+
+        const field = rowFields[level];
+        const groups = [];
+        const map = new Map();
+
+        rows.forEach(row => {
+            const value = String(getRowValue(row, field) ?? "");
+            const key = value;
+
+            if (!map.has(key)) {
+                const group = {
+                    type: "group",
+                    level,
+                    field,
+                    value,
+                    rows: []
+                };
+
+                map.set(key, group);
+                groups.push(group);
+            }
+
+            map.get(key).rows.push(row);
+        });
+
+        groups.forEach(group => {
+            group.children = buildOlapTree(
+                group.rows,
+                rowFields,
+                level + 1
+            );
+        });
+
+        return groups;
+    }
+
+
     function renderOlapResult(data) {
 
-        const result =
-            $("olap-result");
-
+        const result = $("olap-result");
 
         if (!result) {
             return;
         }
 
-
-        const report =
-            data.report ||
-            data;
-
+        const report = data.report || data;
 
         let raw =
             report.rawResponse ||
@@ -2014,137 +2186,144 @@
             data.data ||
             [];
 
-
         let rowsData;
-
 
         if (Array.isArray(raw)) {
             rowsData = raw;
-        }
-
-        else if (
-            raw &&
-            Array.isArray(raw.data)
-        ) {
+        } else if (raw && Array.isArray(raw.data)) {
             rowsData = raw.data;
-        }
-
-        else {
+        } else {
             rowsData = [];
         }
 
-
         if (!rowsData.length) {
-
             result.innerHTML = `
-
                 <div class="report-header">
-                    <strong>
-                        Отчёт выполнен
-                    </strong>
+                    <strong>Отчёт выполнен</strong>
                 </div>
-
                 <div class="olap-empty">
                     iiko не вернул строки данных.
                 </div>
-
-                <pre>${esc(
-                    JSON.stringify(
-                        data,
-                        null,
-                        2
-                    )
-                )}</pre>
-
+                <pre>${esc(JSON.stringify(data, null, 2))}</pre>
             `;
-
             return;
         }
 
+        const selected = getSelectedResultFields();
+        const rowFields = selected.rowFields;
+        const columnFields = selected.columnFields;
+        const measureFields = selected.measureFields;
 
-        const keys =
-            [
-                ...new Set(
-                    rowsData.flatMap(
-                        row =>
-                            Object.keys(
-                                row || {}
-                            )
-                    )
-                )
-            ];
+        const visibleFields = selected.allFields.filter(
+            (field, index, array) => array.indexOf(field) === index
+        );
 
+        const titleFor = field => getOlapDisplayTitle(field);
 
-        result.innerHTML = `
+        const renderSimpleRows = rows => rows.map(row => `
+            <tr>
+                ${visibleFields.map(field => `
+                    <td>${esc(formatOlapNumber(getRowValue(row, field)))}</td>
+                `).join("")}
+            </tr>
+        `).join("");
 
-            <div class="report-header">
+        let body = "";
 
-                <strong>
-                    Результат OLAP
-                </strong>
+        if (rowFields.length) {
 
-                <span>
-                    ${rowsData.length} строк
-                </span>
+            const tree = buildOlapTree(rowsData, rowFields);
 
-            </div>
+            const renderTree = nodes => nodes.map(node => {
 
+                if (node.type === "leaf") {
+                    return `
+                        <tr class="olap-data-row">
+                            ${visibleFields.map(field => `
+                                <td>${esc(formatOlapNumber(getRowValue(node.row, field)))}</td>
+                            `).join("")}
+                        </tr>
+                    `;
+                }
 
-            <div class="report-table-wrapper">
+                const isLastLevel = node.level === rowFields.length - 1;
+                const children = renderTree(node.children || []);
 
-                <table class="report-table">
+                // A leaf-level group already represents the grouped iiko row.
+                // Do not duplicate it with another subtotal row.
+                if (isLastLevel) {
+                    return children;
+                }
 
-                    <thead>
+                const totals = aggregateRows(node.rows, measureFields);
 
-                        <tr>
-
-                            ${
-                                keys.map(
-                                    key => `
-                                        <th>
-                                            ${esc(key)}
-                                        </th>
-                                    `
-                                ).join("")
+                return `
+                    <tr class="olap-group-row olap-group-level-${node.level}">
+                        ${visibleFields.map((field, index) => {
+                            if (field === rowFields[node.level]) {
+                                return `<td><strong>${esc(node.value)}</strong></td>`;
                             }
 
-                        </tr>
+                            if (rowFields.indexOf(field) > node.level) {
+                                return `<td></td>`;
+                            }
 
-                    </thead>
+                            if (measureFields.includes(field)) {
+                                const total = totals[field];
+                                return `<td><strong>${esc(formatOlapNumber(total))}</strong></td>`;
+                            }
 
+                            return `<td></td>`;
+                        }).join("")}
+                    </tr>
+                    ${children}
+                `;
+            }).join("");
 
-                    <tbody>
+            body = renderTree(tree);
 
-                        ${
-                            rowsData.map(
-                                row => `
+        } else {
+            body = renderSimpleRows(rowsData);
+        }
 
-                                    <tr>
+        const grandTotals = aggregateRows(rowsData, measureFields);
 
-                                        ${
-                                            keys.map(
-                                                key => `
-                                                    <td>
-                                                        ${esc(
-                                                            row?.[key]
-                                                        )}
-                                                    </td>
-                                                `
-                                            ).join("")
-                                        }
+        body += `
+            <tr class="olap-total-row">
+                ${visibleFields.map(field => {
+                    if (field === rowFields[0] || (!rowFields.length && field === visibleFields[0])) {
+                        return `<td><strong>ИТОГО</strong></td>`;
+                    }
 
-                                    </tr>
+                    if (measureFields.includes(field)) {
+                        return `<td><strong>${esc(formatOlapNumber(grandTotals[field]))}</strong></td>`;
+                    }
 
-                                `
-                            ).join("")
-                        }
+                    return `<td></td>`;
+                }).join("")}
+            </tr>
+        `;
 
-                    </tbody>
-
-                </table>
-
+        result.innerHTML = `
+            <div class="report-header">
+                <strong>Результат OLAP</strong>
+                <span>${rowsData.length} строк</span>
             </div>
 
+            <div class="report-table-wrapper">
+                <table class="report-table">
+                    <thead>
+                        <tr>
+                            ${visibleFields.map(field => `
+                                <th>${esc(titleFor(field))}</th>
+                            `).join("")}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${body}
+                    </tbody>
+                </table>
+            </div>
         `;
     }
 
