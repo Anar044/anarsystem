@@ -18,7 +18,6 @@ const stringOrNull = value => value == null ? null : String(value);
 function normalizeEnvelope(body) {
   const source = body && typeof body === "object" ? body : {};
   const data = source.data && typeof source.data === "object" ? source.data : source;
-
   return {
     event: stringOrNull(source.event || source.eventType || source.type),
     eventId: stringOrNull(source.eventId || source.id),
@@ -40,7 +39,45 @@ function validate(envelope) {
   if (!envelope.departmentId) errors.push("departmentId is required");
   if (!envelope.event) errors.push("event is required");
   if (!envelope.data || typeof envelope.data !== "object") errors.push("data must be an object");
+  if (envelope.departmentId && !/^[0-9a-fA-F-]{36}$/.test(envelope.departmentId)) errors.push("departmentId must be a UUID");
+  if (envelope.timestamp && Number.isNaN(Date.parse(envelope.timestamp))) errors.push("timestamp is invalid");
   return errors;
+}
+
+async function persistEvent(envelope) {
+  const url = globalThis.SUPABASE_URL || globalThis.SUPABASE_PROJECT_URL;
+  const key = globalThis.SUPABASE_SERVICE_ROLE_KEY || globalThis.SUPABASE_SERVICE_KEY;
+  if (!url || !key) return { stored: false, reason: "Supabase server credentials are not configured" };
+
+  const response = await fetch(`${url.replace(/\/$/, "")}/rest/v1/plugin_events`, {
+    method: "POST",
+    headers: {
+      "apikey": key,
+      "Authorization": `Bearer ${key}`,
+      "Content-Type": "application/json",
+      "Prefer": "return=minimal,resolution=ignore-duplicates"
+    },
+    body: JSON.stringify({
+      event_id: envelope.eventId,
+      event_type: envelope.event,
+      event_timestamp: envelope.timestamp,
+      department_id: envelope.departmentId,
+      department_name: envelope.departmentName,
+      plugin_id: envelope.pluginId,
+      plugin_version: envelope.pluginVersion,
+      server_url: envelope.serverUrl,
+      currency_code: envelope.currencyCode,
+      group_id: envelope.groupId,
+      group_name: envelope.groupName,
+      payload: envelope.data
+    })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Supabase storage failed (${response.status}): ${text.slice(0, 300)}`);
+  }
+  return { stored: true };
 }
 
 export async function onRequestOptions() {
@@ -52,25 +89,18 @@ export async function onRequestPost(context) {
     const body = await context.request.json();
     const envelope = normalizeEnvelope(body);
     const errors = validate(envelope);
+    if (errors.length) return jsonResponse({ success: false, accepted: false, errors }, 400);
 
-    if (errors.length) {
-      return jsonResponse({ success: false, accepted: false, errors }, 400);
-    }
-
-    // Persistence will be connected after the real plugin payload is confirmed.
-    // For now this endpoint is intentionally a safe contract/validation layer.
+    const storage = await persistEvent(envelope);
     return jsonResponse({
       success: true,
       accepted: true,
-      stored: false,
-      message: "Plugin event accepted by API contract; persistence is not enabled yet",
-      routing: {
-        departmentId: envelope.departmentId,
-        event: envelope.event
-      },
-      normalized: envelope
-    }, 202);
+      stored: storage.stored,
+      storageReason: storage.reason || null,
+      routing: { departmentId: envelope.departmentId, event: envelope.event },
+      eventId: envelope.eventId
+    }, storage.stored ? 202 : 503);
   } catch (error) {
-    return jsonResponse({ success: false, accepted: false, errors: [error?.message || "Invalid JSON"] }, 400);
+    return jsonResponse({ success: false, accepted: false, errors: [error?.message || "Invalid request"] }, 400);
   }
 }
