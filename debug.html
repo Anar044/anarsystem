@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SH_Reports — Debug iiko</title>
+<link rel="stylesheet" href="app-shell.css">
+<style>
+.debug-page{padding:30px;max-width:1500px;margin:auto}.debug-head{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:20px}.debug-head h1{margin:0 0 5px;font-size:30px}.debug-head p{margin:0;color:var(--muted)}.debug-grid{display:grid;grid-template-columns:360px minmax(0,1fr);gap:16px}.debug-card{background:var(--surface);border:1px solid var(--line);border-radius:15px;box-shadow:var(--shadow);padding:20px}.debug-card h2{font-size:15px;margin:0 0 16px}.debug-form{display:grid;gap:13px}.debug-form label{font-size:12px;font-weight:700;color:var(--muted)}.debug-form input{width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--text)}.debug-actions{display:flex;gap:8px}.debug-btn{border:0;border-radius:9px;padding:11px 14px;font-weight:750;cursor:pointer;background:var(--accent);color:#fff}.debug-btn.secondary{background:var(--surface2);color:var(--text);border:1px solid var(--line)}.debug-note{margin-top:12px;color:var(--muted);font-size:12px;line-height:1.5}.trace{display:grid;gap:9px;max-height:650px;overflow:auto}.trace-item{border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:var(--surface2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}.trace-time{color:var(--muted);margin-right:10px}.trace-level{font-weight:800;margin-right:8px}.trace-level.ok{color:var(--success)}.trace-level.err{color:#d64545}.trace-level.info{color:var(--accent)}.trace-detail{margin-top:6px;color:var(--text);white-space:pre-wrap;word-break:break-word}.trace-empty{padding:40px;text-align:center;color:var(--muted)}.debug-result{margin-top:16px;padding:13px;border-radius:10px;background:var(--surface2);font-size:13px}.danger{color:#d64545}
+@media(max-width:900px){.debug-grid{grid-template-columns:1fr}.debug-page{padding:20px 16px}}
+</style>
+</head>
+<body data-protected="true">
+<div class="app-shell">
+<aside class="sidebar">
+ <div class="brand">SH_<span>Reports</span></div>
+ <div class="nav-section">Аналитика</div>
+ <nav class="side-nav">
+  <a href="index.html"><span class="side-icon">◉</span>Обзор</a>
+  <a href="reports.html"><span class="side-icon">▥</span>OLAP Отчёты</a>
+ </nav>
+ <div class="nav-section">Система</div>
+ <nav class="side-nav">
+  <a href="settings.html"><span class="side-icon">⚙</span>Настройки</a>
+  <a class="active" href="debug.html"><span class="side-icon">⌁</span>Debug iiko</a>
+ </nav>
+ <div class="sidebar-spacer"></div>
+ <button class="theme-btn" onclick="toggleSHTheme()" data-theme-label>🌙 Тёмная тема</button>
+</aside>
+<main class="main">
+<header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Debug iiko</span><div class="topbar-sub">Диагностика обмена с iiko Server</div></div><div class="top-actions"><span class="user-chip"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span></span><button class="icon-btn" data-auth-logout>Выйти</button><a class="period-chip" href="settings.html">← Настройки</a></div></header>
+<section class="app-content debug-page">
+ <div class="debug-head"><div><h1>Debug iiko</h1><p>Пошагово показывает, что отправляет наш сервер в iiko и что получает в ответ.</p></div></div>
+ <div class="debug-grid">
+  <div class="debug-card">
+   <h2>Подключение</h2>
+   <div class="debug-form">
+    <div><label for="debug-ip">IP адрес / домен</label><input id="debug-ip" type="text" placeholder="s01.smarthoreca.az"></div>
+    <div><label for="debug-port">Порт</label><input id="debug-port" type="number" placeholder="8453"></div>
+    <div><label for="debug-login">Логин</label><input id="debug-login" type="text" autocomplete="username"></div>
+    <div><label for="debug-password">Пароль</label><input id="debug-password" type="password" autocomplete="current-password"></div>
+    <div class="debug-actions"><button class="debug-btn" id="debug-run">Проверить</button><button class="debug-btn secondary" id="debug-clear">Очистить лог</button></div>
+   </div>
+   <div class="debug-note">Пароль и токен никогда не выводятся в лог. В лог попадают только адреса endpoint, HTTP-статусы, размеры ответов и безопасные диагностические данные.</div>
+   <div class="debug-result" id="debug-result">Ожидание проверки.</div>
+  </div>
+  <div class="debug-card">
+   <h2>Трассировка запроса</h2>
+   <div id="debug-trace" class="trace"><div class="trace-empty">Нажмите «Проверить».</div></div>
+  </div>
+ </div>
+</section>
+</main></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script>
+<script src="auth.js"></script>
+<script src="app-shell.js"></script>
+<script src="debug.js"></script>
+</body></html>
