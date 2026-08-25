@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru" data-theme="light">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SH_Reports — События плагина</title>
+<link rel="stylesheet" href="app-shell.css"><link rel="stylesheet" href="plugin-events.css">
+</head>
+<body data-protected="true">
+<div class="app-shell">
+<aside class="sidebar">
+  <div class="brand">SH_<span>Reports</span></div>
+  <div class="nav-section">Аналитика</div>
+  <nav class="side-nav">
+    <a href="index.html"><span class="side-icon">◉</span>Обзор</a>
+    <a href="reports.html"><span class="side-icon">▥</span>OLAP Отчёты</a>
+    <a class="active" href="plugin-events.html"><span class="side-icon">⇄</span>События плагина</a>
+    <a href="settings.html"><span class="side-icon">⚙</span>Настройки</a>
+  </nav>
+  <div class="sidebar-spacer"></div>
+  <button class="theme-btn" onclick="toggleSHTheme()" data-theme-label>🌙 Тёмная тема</button>
+</aside>
+<main class="main">
+<header class="topbar">
+  <div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">События плагина</span><div class="topbar-sub">Входящие данные от подключённых плагинов</div></div>
+  <div class="top-actions"><span id="live-status" class="live-pill"><i></i> Live</span><button id="refresh-events" class="icon-btn">↻ Обновить</button><button class="user-chip" data-auth-logout title="Выйти"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span> ↪</button></div>
+</header>
+<section class="page app-content">
+  <div class="page-head">
+    <div><h1>Поток событий</h1><p>Показываем последние события, которые получил SH_Reports.</p></div>
+    <div class="event-controls"><label>Обновление <select id="refresh-rate"><option value="0">Вручную</option><option value="3000" selected>Каждые 3 сек</option><option value="10000">Каждые 10 сек</option><option value="30000">Каждые 30 сек</option></select></label></div>
+  </div>
+  <div class="event-kpis">
+    <div class="card event-kpi"><span>Событий загружено</span><strong id="event-count">0</strong></div>
+    <div class="card event-kpi"><span>Последнее событие</span><strong id="last-event">—</strong></div>
+    <div class="card event-kpi"><span>Плагинов</span><strong id="plugin-count">0</strong></div>
+    <div class="card event-kpi"><span>Отделов</span><strong id="department-count">0</strong></div>
+  </div>
+  <section class="card panel filters">
+    <div class="filter-field"><label for="event-filter">Тип события</label><input id="event-filter" placeholder="например: test_connection"></div>
+    <div class="filter-field"><label for="plugin-filter">Plugin ID</label><input id="plugin-filter" placeholder="например: TEST-PLUGIN"></div>
+    <div class="filter-field"><label for="department-filter">Department ID</label><input id="department-filter" placeholder="UUID отдела"></div>
+    <button id="apply-filters" class="primary-btn">Применить</button><button id="clear-filters" class="secondary-btn">Сбросить</button>
+  </section>
+  <section class="card panel">
+    <div class="panel-head"><div><div class="panel-title">Последние события</div><div class="panel-muted" id="load-status">Загрузка…</div></div><span class="panel-muted">Максимум 200</span></div>
+    <div id="events-list" class="events-list"><div class="empty-note">Загрузка событий…</div></div>
+  </section>
+</section>
+</main></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="plugin-events.js"></script>
+</body></html>
