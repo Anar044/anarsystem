@@ -1,4 +1,4 @@
-// ANAR plugin ingest endpoint. Deployment marker: 2026-08-25-supabase-secret
+// ANAR plugin ingest endpoint. Deployment marker: 2026-08-25-supabase-secret-v2
 
 function corsHeaders() {
   return {
@@ -55,7 +55,6 @@ async function persistEvent(envelope, env) {
     method: "POST",
     headers: {
       "apikey": key,
-      "Authorization": `Bearer ${key}`,
       "Content-Type": "application/json",
       "Prefer": "return=minimal,resolution=ignore-duplicates"
     },
@@ -95,8 +94,8 @@ export async function onRequestPost(context) {
 
     const storage = await persistEvent(envelope, context.env);
     return jsonResponse({
-      success: true,
-      accepted: true,
+      success: storage.stored,
+      accepted: storage.stored,
       stored: storage.stored,
       storageReason: storage.reason || null,
       routing: { departmentId: envelope.departmentId, event: envelope.event },
