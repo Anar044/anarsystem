@@ -1799,21 +1799,260 @@
     // RENDER OLAP RESULT
     // ============================================================
 
+    function getOlapFieldTitle(name) {
+
+        const field =
+            findOlapField(name);
+
+        return field?.title || String(name || "");
+    }
+
+
+    function getOlapMeasureTitle(item) {
+
+        const field =
+            findOlapField(item?.field || item);
+
+        const title =
+            field?.title || item?.field || item || "";
+
+        const aggregation =
+            String(item?.aggregation || "SUM").toUpperCase();
+
+        if (aggregation === "SUM") {
+            return title;
+        }
+
+        const names = {
+            AVG: "Среднее",
+            MIN: "Минимум",
+            MAX: "Максимум",
+            COUNT: "Количество"
+        };
+
+        return `${names[aggregation] || aggregation}: ${title}`;
+    }
+
+
+    function olapValueKey(value) {
+
+        if (value === null || value === undefined) {
+            return "";
+        }
+
+        if (typeof value === "object") {
+            try {
+                return JSON.stringify(value);
+            }
+            catch (_) {
+                return String(value);
+            }
+        }
+
+        return String(value);
+    }
+
+
+    function aggregateOlapValue(current, value, aggregation) {
+
+        const op =
+            String(aggregation || "SUM").toUpperCase();
+
+        const n =
+            Number(value);
+
+        if (op === "COUNT") {
+            return (Number(current) || 0) + 1;
+        }
+
+        if (!Number.isFinite(n)) {
+            return current ?? value ?? "";
+        }
+
+        if (current === undefined || current === null || current === "") {
+            return n;
+        }
+
+        const c = Number(current);
+
+        if (!Number.isFinite(c)) {
+            return n;
+        }
+
+        if (op === "MIN") return Math.min(c, n);
+        if (op === "MAX") return Math.max(c, n);
+
+        // SUM is the default and is what the iiko sales OLAP uses here.
+        return c + n;
+    }
+
+
+    function formatOlapValue(value) {
+
+        if (value === null || value === undefined) {
+            return "";
+        }
+
+        if (typeof value === "number" && Number.isFinite(value)) {
+            return Number.isInteger(value)
+                ? String(value)
+                : String(Number(value.toFixed(2)));
+        }
+
+        return String(value);
+    }
+
+
+    function buildGroupedOlapResult(rowsData) {
+
+        const rowFields =
+            [...olapRows];
+
+        const columnFields =
+            [...olapColumns];
+
+        const measures =
+            [...olapMeasures];
+
+        const dimensions =
+            [...rowFields, ...columnFields];
+
+        // If the constructor has no dimensions, keep the raw result.
+        if (!dimensions.length) {
+            return {
+                displayRows: rowsData.map(row => ({
+                    kind: "data",
+                    row
+                })),
+                leafCount: rowsData.length
+            };
+        }
+
+        // The iiko response is intentionally kept untouched. We only build
+        // a presentation model here, so the request/data logic remains the same.
+        const groups = new Map();
+
+        rowsData.forEach((row, index) => {
+
+            const key =
+                dimensions
+                    .map(field => olapValueKey(row?.[field]))
+                    .join("\u001f");
+
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    first: row,
+                    values: {},
+                    order: index
+                });
+            }
+
+            const group = groups.get(key);
+
+            measures.forEach(measure => {
+                const field = measure.field;
+                group.values[field] =
+                    aggregateOlapValue(
+                        group.values[field],
+                        row?.[field],
+                        measure.aggregation
+                    );
+            });
+        });
+
+        const leafGroups =
+            [...groups.values()]
+                .sort((a, b) => a.order - b.order);
+
+        // Build the same visual structure as the classic iiko OLAP:
+        // parent row(s), child rows, then a subtotal for each top-level row group.
+        const displayRows = [];
+
+        if (!rowFields.length) {
+            leafGroups.forEach(group => {
+                displayRows.push({
+                    kind: "data",
+                    row: {
+                        ...group.first,
+                        ...group.values
+                    }
+                });
+            });
+
+            return {
+                displayRows,
+                leafCount: leafGroups.length
+            };
+        }
+
+        // With a single row field, group all leaf dimensions underneath it.
+        // With multiple row fields, subtotal the first row dimension.
+        const topField = rowFields[0];
+        const topGroups = new Map();
+
+        leafGroups.forEach(group => {
+            const key = olapValueKey(group.first?.[topField]);
+            if (!topGroups.has(key)) topGroups.set(key, []);
+            topGroups.get(key).push(group);
+        });
+
+        for (const [, items] of topGroups) {
+
+            items.forEach(group => {
+                displayRows.push({
+                    kind: "data",
+                    row: {
+                        ...group.first,
+                        ...group.values
+                    }
+                });
+            });
+
+            const subtotal = {};
+            subtotal[topField] = `${items[0]?.first?.[topField] ?? ""} всего`;
+
+            // Preserve the remaining dimension columns as blank on subtotal.
+            rowFields.slice(1).forEach(field => {
+                subtotal[field] = "";
+            });
+            columnFields.forEach(field => {
+                subtotal[field] = "";
+            });
+
+            measures.forEach(measure => {
+                let value;
+                items.forEach(group => {
+                    value = aggregateOlapValue(
+                        value,
+                        group.values[measure.field],
+                        measure.aggregation
+                    );
+                });
+                subtotal[measure.field] = value;
+            });
+
+            displayRows.push({
+                kind: "subtotal",
+                row: subtotal
+            });
+        }
+
+        return {
+            displayRows,
+            leafCount: leafGroups.length
+        };
+    }
+
+
     function renderOlapResult(data) {
 
         const result =
             $("olap-result");
 
-
-        if (!result) {
-            return;
-        }
-
+        if (!result) return;
 
         const report =
-            data.report ||
-            data;
-
+            data.report || data;
 
         let raw =
             report.rawResponse ||
@@ -1822,140 +2061,103 @@
             data.data ||
             [];
 
+        // rawResponse can be a JSON string returned by the iiko proxy.
+        if (typeof raw === "string") {
+            try {
+                raw = JSON.parse(raw);
+            }
+            catch (_) {
+                raw = [];
+            }
+        }
 
         let rowsData;
-
 
         if (Array.isArray(raw)) {
             rowsData = raw;
         }
-
-        else if (
-            raw &&
-            Array.isArray(raw.data)
-        ) {
+        else if (raw && Array.isArray(raw.data)) {
             rowsData = raw.data;
         }
-
         else {
             rowsData = [];
         }
 
-
         if (!rowsData.length) {
-
             result.innerHTML = `
-
                 <div class="report-header">
-                    <strong>
-                        Отчёт выполнен
-                    </strong>
+                    <strong>Отчёт выполнен</strong>
                 </div>
-
                 <div class="olap-empty">
                     iiko не вернул строки данных.
                 </div>
-
-                <pre>${esc(
-                    JSON.stringify(
-                        data,
-                        null,
-                        2
-                    )
-                )}</pre>
-
+                <pre>${esc(JSON.stringify(data, null, 2))}</pre>
             `;
-
             return;
         }
 
+        const grouped =
+            buildGroupedOlapResult(rowsData);
 
+        const displayRows =
+            grouped.displayRows;
+
+        // Column order follows the constructor, not the technical key order
+        // returned by iiko. This restores user-facing field names.
+        const columns = [
+            ...olapRows,
+            ...olapColumns,
+            ...olapMeasures.map(item => item.field)
+        ];
+
+        const uniqueColumns =
+            [...new Set(columns)];
+
+        // Fallback for reports where the constructor has no selected fields.
         const keys =
-            [
-                ...new Set(
-                    rowsData.flatMap(
-                        row =>
-                            Object.keys(
-                                row || {}
-                            )
+            uniqueColumns.length
+                ? uniqueColumns
+                : [
+                    ...new Set(
+                        rowsData.flatMap(row => Object.keys(row || {}))
                     )
-                )
-            ];
-
+                ];
 
         result.innerHTML = `
-
             <div class="report-header">
-
-                <strong>
-                    Результат OLAP
-                </strong>
-
-                <span>
-                    ${rowsData.length} строк
-                </span>
-
+                <strong>Результат OLAP</strong>
+                <span>${grouped.leafCount} строк</span>
             </div>
-
 
             <div class="report-table-wrapper">
-
                 <table class="report-table">
-
                     <thead>
-
                         <tr>
-
-                            ${
-                                keys.map(
-                                    key => `
-                                        <th>
-                                            ${esc(key)}
-                                        </th>
-                                    `
-                                ).join("")
-                            }
-
+                            ${keys.map(key => {
+                                const measure =
+                                    olapMeasures.find(item => item.field === key);
+                                const title = measure
+                                    ? getOlapMeasureTitle(measure)
+                                    : getOlapFieldTitle(key);
+                                return `<th>${esc(title)}</th>`;
+                            }).join("")}
                         </tr>
-
                     </thead>
-
-
                     <tbody>
-
-                        ${
-                            rowsData.map(
-                                row => `
-
-                                    <tr>
-
-                                        ${
-                                            keys.map(
-                                                key => `
-                                                    <td>
-                                                        ${esc(
-                                                            row?.[key]
-                                                        )}
-                                                    </td>
-                                                `
-                                            ).join("")
-                                        }
-
-                                    </tr>
-
-                                `
-                            ).join("")
-                        }
-
+                        ${displayRows.map(item => `
+                            <tr class="${item.kind === "subtotal" ? "olap-subtotal-row" : ""}">
+                                ${keys.map(key => `
+                                    <td>
+                                        ${esc(formatOlapValue(item.row?.[key]))}
+                                    </td>
+                                `).join("")}
+                            </tr>
+                        `).join("")}
                     </tbody>
-
                 </table>
-
             </div>
-
         `;
     }
-
 
     // ============================================================
     // CONNECT IIKO

@@ -636,3 +636,10 @@ main:has(.reports-container) .reports-container,
         padding-right: 10px !important;
     }
 }
+
+/* Grouped OLAP result subtotal */
+#olap-builder .report-table tr.olap-subtotal-row td {
+  font-weight: 700;
+  background: #f7f9fc;
+  border-top: 1px solid #cfd8e3;
+}
