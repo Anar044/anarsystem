@@ -18,7 +18,7 @@ function jsonResponse(data, status = 200) {
 
 async function getAuthenticatedUser(env, accessToken) {
   const url = env?.SUPABASE_URL || env?.SUPABASE_PROJECT_URL;
-  const key = env?.SUPABASE_PUBLISHABLE_KEY || env?.SUPABASE_ANON_KEY;
+  const key = env?.SUPABASE_PUBLISHABLE_KEY || env?.SUPABASE_ANON_KEY || env?.SUPABASE_SERVICE_ROLE_KEY || env?.SUPABASE_SERVICE_KEY;
   if (!url || !key || !accessToken) return null;
 
   const response = await fetch(`${url.replace(/\/$/, "")}/auth/v1/user`, {
