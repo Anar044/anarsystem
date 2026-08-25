@@ -21,8 +21,15 @@
 #connect-iiko:disabled{opacity:.6;cursor:wait;}
 #clear-iiko-data{width:100%;padding:12px;border:1px solid var(--border,#ddd);border-radius:10px;background:transparent;color:var(--muted,#555);cursor:pointer;margin-top:10px;}
 .iiko-status{margin-top:20px;padding:13px;border-radius:10px;background:var(--soft,#f5f5f5);text-align:center;color:var(--text,#222);}
+.iiko-identity{margin-top:14px;padding:16px;border:1px solid var(--border,#e5e7eb);border-radius:12px;background:var(--card,#fff);color:var(--text,#222);}
+.iiko-identity-title{font-weight:700;margin-bottom:10px;}
+.iiko-identity-list{display:grid;gap:8px;}
+.iiko-identity-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;padding:10px 12px;border-radius:9px;background:var(--soft,#f6f7fb);}
+.iiko-identity-name{font-weight:600;}
+.iiko-identity-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted,#667085);word-break:break-all;text-align:right;}
+.iiko-identity-empty{color:var(--muted,#667085);font-size:13px;line-height:1.5;}
 .settings-note{margin-top:18px;padding:14px 16px;border-radius:12px;background:var(--soft,#f6f7fb);color:var(--muted,#667085);font-size:13px;line-height:1.5;}
-@media(max-width:700px){.settings-grid{grid-template-columns:1fr}.settings-page{padding:24px 16px 50px}}
+@media(max-width:700px){.settings-grid{grid-template-columns:1fr}.settings-page{padding:24px 16px 50px}.iiko-identity-item{grid-template-columns:1fr}.iiko-identity-id{text-align:left}}
 </style>
 </head>
 <body data-protected="true">
@@ -57,6 +64,10 @@
   <button id="connect-iiko">Подключиться</button>
   <button type="button" id="clear-iiko-data">Очистить сохранённые данные</button>
   <div id="iiko-status" class="iiko-status">⚪ Не подключено</div>
+  <div id="iiko-identity" class="iiko-identity" hidden>
+   <div class="iiko-identity-title">Идентификатор iiko</div>
+   <div id="iiko-identity-list" class="iiko-identity-list"></div>
+  </div>
   <div class="settings-note">Данные подключения сохраняются в браузере только при включённой опции «Запомнить данные для входа».</div>
  </div>
 </section>
