@@ -19,9 +19,7 @@ function jsonResponse(data, status = 200) {
 async function sha1(text) {
     const data = new TextEncoder().encode(text);
     const hash = await crypto.subtle.digest("SHA-1", data);
-    return Array.from(new Uint8Array(hash))
-        .map(byte => byte.toString(16).padStart(2, "0"))
-        .join("");
+    return Array.from(new Uint8Array(hash)).map(byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function addTrace(trace, level, message, detail = "") {
@@ -39,15 +37,13 @@ function normalizeDepartments(payload) {
                     ? payload.corporateItems
                     : [];
 
-    return items
-        .filter(item => String(item?.type || "DEPARTMENT").toUpperCase() === "DEPARTMENT")
-        .map(item => ({
-            id: String(item.id || ""),
-            name: String(item.name || item.code || item.id || ""),
-            code: String(item.code || ""),
-            type: String(item.type || "DEPARTMENT")
-        }))
-        .filter(item => item.id);
+    return items.map(item => ({
+        id: String(item?.id || ""),
+        parentId: item?.parentId == null ? null : String(item.parentId),
+        code: String(item?.code || ""),
+        name: String(item?.name || item?.code || item?.id || ""),
+        type: String(item?.type || "")
+    })).filter(item => item.id);
 }
 
 function xmlDecode(value) {
@@ -60,11 +56,6 @@ function xmlDecode(value) {
         .trim();
 }
 
-function xmlAttribute(tag, name) {
-    const match = tag.match(new RegExp(`${name}\\s*=\\s*["']([^"']*)["']`, "i"));
-    return match ? xmlDecode(match[1]) : "";
-}
-
 function xmlChild(block, name) {
     const match = block.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`, "i"));
     return match ? xmlDecode(match[1].replace(/<[^>]+>/g, "")) : "";
@@ -72,24 +63,21 @@ function xmlChild(block, name) {
 
 function parseDepartmentsXml(text) {
     const result = [];
-    const seen = new Set();
-    const nodeRegex = /<(department|corporateItem|corporateItemDto|item|entity)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+    const nodeRegex = /<corporateItemDto\b[^>]*>([\s\S]*?)<\/corporateItemDto>/gi;
     let match;
 
     while ((match = nodeRegex.exec(text))) {
-        const openingTag = `<${match[1]} ${match[2]}>`;
-        const block = match[3] || "";
-        const type = xmlAttribute(openingTag, "type") || xmlChild(block, "type");
-        if (type && type.toUpperCase() !== "DEPARTMENT") continue;
-
-        const id = xmlAttribute(openingTag, "id") || xmlChild(block, "id");
-        if (!id || seen.has(id)) continue;
-
-        const name = xmlAttribute(openingTag, "name") || xmlChild(block, "name");
-        const code = xmlAttribute(openingTag, "code") || xmlChild(block, "code");
-
-        result.push({ id: String(id), name: String(name || code || id), code: String(code || ""), type: "DEPARTMENT" });
-        seen.add(id);
+        const block = match[1] || "";
+        const id = xmlChild(block, "id");
+        const type = xmlChild(block, "type");
+        if (!id) continue;
+        result.push({
+            id,
+            parentId: xmlChild(block, "parentId") || null,
+            code: xmlChild(block, "code"),
+            name: xmlChild(block, "name") || id,
+            type: type || "DEPARTMENT"
+        });
     }
 
     return result;
@@ -135,76 +123,61 @@ export async function onRequestPost(context) {
         const authBody = await readBody(authResponse);
         const token = authBody.text.trim();
 
-        addTrace(trace, authResponse.ok && token ? "ok" : "err", "← ответ iiko /resto/api/auth", `HTTP ${authResponse.status}\ncontent-type=${authBody.contentType}\nbytes=${authBody.bytes}\ntoken=${token ? `получен, длина ${token.length}` : "не получен"}`);
+        addTrace(trace, authResponse.ok && token ? "ok" : "err", "← ответ iiko /resto/api/auth",
+            `HTTP ${authResponse.status}\ncontent-type=${authBody.contentType}\nbytes=${authBody.bytes}\ntoken=${token ? `получен, длина ${token.length}` : "не получен"}`);
 
         if (!authResponse.ok || !token) {
             return jsonResponse({ success: false, message: `Ошибка авторизации iiko: HTTP ${authResponse.status}`, trace }, 502);
         }
 
         const departmentsUrl = `${serverUrl}/resto/api/corporation/departments/?key=${encodeURIComponent(token)}`;
-        addTrace(trace, "info", "→ iiko /resto/api/corporation/departments/", "method=GET\nkey=*** (токен скрыт)");
+        addTrace(trace, "info", "→ iiko /resto/api/corporation/departments/", "method=GET\nAccept=application/xml\nkey=*** (токен скрыт)");
 
+        // iikoServer's documented representation of this endpoint is XML.
+        // Request XML explicitly: some iiko versions return [{},{},{}] for JSON negotiation.
         const departmentsResponse = await fetch(departmentsUrl, {
             method: "GET",
-            headers: { "Accept": "application/json, application/xml, text/xml" }
+            headers: { "Accept": "application/xml, text/xml" }
         });
         const departmentsBody = await readBody(departmentsResponse);
 
-        addTrace(trace, departmentsResponse.ok ? "ok" : "err", "← ответ iiko /resto/api/corporation/departments/", `HTTP ${departmentsResponse.status}\ncontent-type=${departmentsBody.contentType}\nbytes=${departmentsBody.bytes}`);
+        addTrace(trace, departmentsResponse.ok ? "ok" : "err", "← ответ iiko /resto/api/corporation/departments/",
+            `HTTP ${departmentsResponse.status}\ncontent-type=${departmentsBody.contentType}\nbytes=${departmentsBody.bytes}`);
 
         if (!departmentsResponse.ok) {
             return jsonResponse({ success: false, message: `Ошибка получения подразделений iiko: HTTP ${departmentsResponse.status}`, trace }, 502);
         }
 
-        // Show the exact response returned by iiko, with control characters escaped and a safe size limit.
-        // This is the key diagnostic when HTTP 200 contains no departments.
-        const rawPreview = departmentsBody.text
-            .slice(0, 2000)
-            .replace(/\r/g, "\\r")
-            .replace(/\n/g, "\\n")
-            .replace(/\t/g, "\\t");
-
-        addTrace(
-            trace,
-            "info",
-            "Сырой ответ iiko",
-            `length=${departmentsBody.text.length}\n${rawPreview || "<пустой ответ>"}`
-        );
+        const preview = departmentsBody.text.slice(0, 3000);
+        addTrace(trace, "info", "Сырой ответ iiko", `length=${departmentsBody.text.length}\n${preview || "<пусто>"}`);
 
         let departments = [];
         let format = "empty";
-        let jsonShape = "";
-
         if (departmentsBody.text) {
             try {
-                const parsed = JSON.parse(departmentsBody.text);
+                const payload = JSON.parse(departmentsBody.text);
+                departments = normalizeDepartments(payload);
                 format = "JSON";
-                jsonShape = Array.isArray(parsed)
-                    ? `array length=${parsed.length}`
-                    : `object keys=${Object.keys(parsed || {}).join(",")}`;
-                departments = normalizeDepartments(parsed);
+                addTrace(trace, "info", "Структура JSON", Array.isArray(payload)
+                    ? `array length=${payload.length}`
+                    : `object keys=${Object.keys(payload || {}).join(", ")}`);
             } catch {
                 departments = parseDepartmentsXml(departmentsBody.text);
                 format = "XML";
             }
         }
 
-        addTrace(trace, "info", "Структура JSON", jsonShape || "не JSON");
-
-        addTrace(
-            trace,
-            departments.length ? "ok" : "err",
-            "Разбор ответа подразделений",
-            `format=${format}\nDEPARTMENT=${departments.length}\n${departments.slice(0, 5).map(item => `${item.name} | ${item.id}`).join("\n") || "DEPARTMENT не найден"}`
-        );
+        const onlyDepartments = departments.filter(item => item.type.toUpperCase() === "DEPARTMENT");
+        addTrace(trace, onlyDepartments.length ? "ok" : "err", "Разбор ответа подразделений",
+            `format=${format}\nitems=${departments.length}\nDEPARTMENT=${onlyDepartments.length}\n${onlyDepartments.slice(0, 10).map(item => `${item.name} | ${item.id}`).join("\n") || "DEPARTMENT не найден"}`);
 
         addTrace(trace, "ok", "Диагностика завершена", `duration=${Date.now() - started} ms`);
 
         return jsonResponse({
             success: true,
-            message: departments.length ? `Найдено подразделений: ${departments.length}` : "iiko подключён, но DEPARTMENT не найден в ответе",
-            departments,
-            departmentIds: departments.map(item => item.id),
+            message: onlyDepartments.length ? `Найдено подразделений: ${onlyDepartments.length}` : "iiko подключён, но DEPARTMENT не найден в ответе",
+            departments: onlyDepartments,
+            departmentIds: onlyDepartments.map(item => item.id),
             trace
         });
     } catch (error) {
