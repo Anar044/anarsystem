@@ -5,6 +5,19 @@ function json(data, status = 200) {
   });
 }
 
+function jwtRole(key) {
+  try {
+    if (!key.startsWith("eyJ")) return null;
+    const payload = key.split(".")[1];
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+    const claims = JSON.parse(atob(padded));
+    return claims?.role || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function onRequestGet(context) {
   const env = context.env || {};
   const key = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY || "";
@@ -13,6 +26,7 @@ export async function onRequestGet(context) {
     supabaseUrlConfigured: Boolean(env.SUPABASE_URL || env.SUPABASE_PROJECT_URL),
     supabaseKeyConfigured: Boolean(key),
     keyKind: kind,
+    keyRole: jwtRole(key),
     keyLength: key.length
   });
 }
