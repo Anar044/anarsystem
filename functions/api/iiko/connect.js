@@ -57,7 +57,7 @@ function parseDepartmentsXml(text) {
 
     // iiko Server normally returns <corporateItemDto> nodes.
     // Keep the other variants for compatibility with different versions.
-    const nodeRegex = /<(department|corporateItemDto|corporateItem|item|entity)\\b([^>]*)>([\\s\\S]*?)<\\/\\1>/gi;
+    const nodeRegex = /<(department|corporateItemDto|corporateItem|item|entity)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
     let match;
 
     while ((match = nodeRegex.exec(text))) {
