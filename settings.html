@@ -29,6 +29,7 @@
 .iiko-identity-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted,#667085);word-break:break-all;text-align:right;}
 .iiko-identity-empty{color:var(--muted,#667085);font-size:13px;line-height:1.5;}
 .settings-note{margin-top:18px;padding:14px 16px;border-radius:12px;background:var(--soft,#f6f7fb);color:var(--muted,#667085);font-size:13px;line-height:1.5;}
+.debug-link{display:flex;justify-content:center;align-items:center;margin-top:12px;padding:11px 14px;border:1px solid var(--border,#ddd);border-radius:10px;background:var(--soft,#f6f7fb);color:var(--text,#222);text-decoration:none;font-weight:650;font-size:13px;}
 @media(max-width:700px){.settings-grid{grid-template-columns:1fr}.settings-page{padding:24px 16px 50px}.iiko-identity-item{grid-template-columns:1fr}.iiko-identity-id{text-align:left}}
 </style>
 </head>
@@ -44,6 +45,7 @@
  <div class="nav-section">Система</div>
  <nav class="side-nav">
   <a class="active" href="settings.html"><span class="side-icon">⚙</span>Настройки</a>
+  <a href="debug.html"><span class="side-icon">⌁</span>Debug iiko</a>
  </nav>
  <div class="sidebar-spacer"></div>
  <button class="theme-btn" onclick="toggleSHTheme()" data-theme-label>🌙 Тёмная тема</button>
@@ -68,6 +70,7 @@
    <div class="iiko-identity-title">Идентификатор iiko</div>
    <div id="iiko-identity-list" class="iiko-identity-list"></div>
   </div>
+  <a class="debug-link" href="debug.html">⌁ Открыть Debug iiko — посмотреть обмен с сервером</a>
   <div class="settings-note">Данные подключения сохраняются в браузере только при включённой опции «Запомнить данные для входа».</div>
  </div>
 </section>
