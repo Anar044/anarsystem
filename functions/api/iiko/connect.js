@@ -55,16 +55,11 @@ function parseDepartmentsXml(text) {
     const result = [];
     const seen = new Set();
 
-    // iiko Server may return the corporate structure as XML. Different
-    // versions use slightly different item names, so support the common
-    // department/corporateItem/item forms and read both attributes and
-    // child elements.
-    const nodeRegex = /<(department|corporateItem|item|entity)\\b([^>]*)>([\\s\\S]*?)<\\/\\1>/gi;
+    const nodeRegex = /<(department|corporateItem|item|entity)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
     let match;
 
     while ((match = nodeRegex.exec(text))) {
         const openingTag = `<${match[1]} ${match[2]}>`;
-        const attributes = match[2] || "";
         const block = match[3] || "";
 
         const type =
@@ -123,10 +118,7 @@ function normalizeDepartmentsPayload(payload) {
                     : [];
 
     return items
-        .filter(item => {
-            const type = String(item?.type || "DEPARTMENT").toUpperCase();
-            return type === "DEPARTMENT";
-        })
+        .filter(item => String(item?.type || "DEPARTMENT").toUpperCase() === "DEPARTMENT")
         .map(item => ({
             id: String(item.id || ""),
             parentId: item.parentId == null ? null : String(item.parentId),
@@ -147,19 +139,13 @@ async function getToken(ip, port, login, password) {
         `&pass=${passwordHash}`;
 
     const response = await fetch(authUrl);
-
     const token = (await response.text()).trim();
 
     if (!response.ok || !token) {
-        throw new Error(
-            `Ошибка авторизации iiko: HTTP ${response.status}`
-        );
+        throw new Error(`Ошибка авторизации iiko: HTTP ${response.status}`);
     }
 
-    return {
-        serverUrl,
-        token
-    };
+    return { serverUrl, token };
 }
 
 async function getDepartments(serverUrl, token) {
@@ -177,20 +163,14 @@ async function getDepartments(serverUrl, token) {
     const text = (await response.text()).trim();
 
     if (!response.ok) {
-        throw new Error(
-            `Ошибка получения подразделений iiko: HTTP ${response.status}`
-        );
+        throw new Error(`Ошибка получения подразделений iiko: HTTP ${response.status}`);
     }
 
-    if (!text) {
-        return [];
-    }
+    if (!text) return [];
 
     try {
         return normalizeDepartmentsPayload(JSON.parse(text));
     } catch {
-        // iiko Server REST API can return the corporate structure as XML.
-        // Parse that response instead of treating it as an invalid payload.
         return parseDepartmentsXml(text);
     }
 }
@@ -219,10 +199,7 @@ export async function onRequestPost(context) {
         }
 
         const auth = await getToken(ip, port, login, password);
-        const departments = await getDepartments(
-            auth.serverUrl,
-            auth.token
-        );
+        const departments = await getDepartments(auth.serverUrl, auth.token);
 
         return jsonResponse({
             success: true,
