@@ -2,7 +2,6 @@
     "use strict";
 
     const IDENTITY_KEY = "iikoDepartmentIdentity";
-
     const $ = id => document.getElementById(id);
 
     function esc(value) {
@@ -25,7 +24,7 @@
         }
     }
 
-    function renderIdentity(departments, server) {
+    function renderIdentity(departments, organizations, server) {
         const card = $("iiko-identity");
         const list = $("iiko-identity-list");
 
@@ -33,32 +32,53 @@
 
         card.hidden = false;
 
-        if (!departments.length) {
-            list.innerHTML = `
-                <div class="iiko-identity-empty">
-                    iiko Server подключён, но подразделения типа DEPARTMENT не найдены.
-                </div>
-            `;
-            return;
-        }
+        const orgs = Array.isArray(organizations) ? organizations : [];
 
-        list.innerHTML = departments.map(item => `
-            <div class="iiko-identity-item">
-                <div class="iiko-identity-name">
-                    ${esc(item.name || item.code || "Подразделение")}
-                </div>
-                <div class="iiko-identity-id" title="ID подразделения">
-                    ${esc(item.id)}
-                </div>
-            </div>
-        `).join("");
+        let html = "";
 
         if (server?.ip && server?.port) {
-            list.insertAdjacentHTML(
-                "afterbegin",
-                `<div class="iiko-identity-empty">Сервер: ${esc(server.ip)}:${esc(server.port)}</div>`
-            );
+            html += `<div class="iiko-identity-empty">Сервер: ${esc(server.ip)}:${esc(server.port)}</div>`;
         }
+
+        if (orgs.length) {
+            html += orgs.map(org => `
+                <div class="iiko-identity-item">
+                    <div class="iiko-identity-name">
+                        Организация: ${esc(org.name || "Организация")}
+                    </div>
+                    <div class="iiko-identity-id" title="Настоящий Organization ID для API">
+                        Organization ID: ${esc(org.id)}
+                    </div>
+                    ${org.address ? `<div class="iiko-identity-id">${esc(org.address)}</div>` : ""}
+                </div>
+            `).join("");
+        } else {
+            html += `
+                <div class="iiko-identity-empty">
+                    Organization ID через /api/1/organizations не получен.
+                </div>
+            `;
+        }
+
+        if (departments.length) {
+            html += `
+                <div class="iiko-identity-empty" style="margin-top:8px">
+                    Подразделения iiko Server
+                </div>
+            `;
+            html += departments.map(item => `
+                <div class="iiko-identity-item">
+                    <div class="iiko-identity-name">
+                        ${esc(item.name || item.code || "Подразделение")}
+                    </div>
+                    <div class="iiko-identity-id" title="ID подразделения">
+                        Department ID: ${esc(item.id)}
+                    </div>
+                </div>
+            `).join("");
+        }
+
+        list.innerHTML = html;
     }
 
     function renderSavedIdentity() {
@@ -70,8 +90,11 @@
             const departments = Array.isArray(data.departments)
                 ? data.departments
                 : [];
+            const organizations = Array.isArray(data.organizations)
+                ? data.organizations
+                : [];
 
-            renderIdentity(departments, data.server);
+            renderIdentity(departments, organizations, data.server);
         } catch (error) {
             console.warn("Cannot load saved iiko identity", error);
         }
@@ -96,7 +119,7 @@
 
             if (card && list) {
                 card.hidden = false;
-                list.innerHTML = `<div class="iiko-identity-empty">Получаем идентификатор iiko Server...</div>`;
+                list.innerHTML = `<div class="iiko-identity-empty">Получаем Organization ID и подразделения iiko Server...</div>`;
             }
 
             try {
@@ -115,23 +138,24 @@
                     if (list) {
                         list.innerHTML = `
                             <div class="iiko-identity-empty">
-                                Не удалось получить идентификатор: ${esc(data.message || response.status)}
+                                Не удалось получить идентификаторы: ${esc(data.message || response.status)}
                             </div>
                         `;
                     }
-
-                    console.warn(
-                        "IIKO IDENTITY ERROR:",
-                        data.message || response.status
-                    );
+                    console.warn("IIKO IDENTITY ERROR:", data.message || response.status);
                     return;
                 }
 
                 const departments = Array.isArray(data.departments)
                     ? data.departments
                     : [];
+                const organizations = Array.isArray(data.organizations)
+                    ? data.organizations
+                    : [];
 
                 const identity = {
+                    organizationId: String(data.organizationId || organizations[0]?.id || ""),
+                    organizations,
                     departmentIds: Array.isArray(data.departmentIds)
                         ? data.departmentIds
                         : departments.map(item => item.id),
@@ -140,30 +164,21 @@
                     checkedAt: new Date().toISOString()
                 };
 
-                localStorage.setItem(
-                    IDENTITY_KEY,
-                    JSON.stringify(identity)
-                );
+                localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity));
 
-                renderIdentity(departments, identity.server);
+                renderIdentity(departments, organizations, identity.server);
 
-                console.info(
-                    "IIKO DEPARTMENT IDENTITY:",
-                    identity.departmentIds
-                );
+                console.info("IIKO ORGANIZATION ID:", identity.organizationId);
+                console.info("IIKO DEPARTMENT IDS:", identity.departmentIds);
             } catch (error) {
                 if (list) {
                     list.innerHTML = `
                         <div class="iiko-identity-empty">
-                            Ошибка получения идентификатора iiko Server.
+                            Ошибка получения идентификаторов iiko Server.
                         </div>
                     `;
                 }
-
-                console.warn(
-                    "IIKO IDENTITY REQUEST FAILED:",
-                    error
-                );
+                console.warn("IIKO IDENTITY REQUEST FAILED:", error);
             }
         });
     }
