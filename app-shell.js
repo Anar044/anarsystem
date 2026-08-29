@@ -13,8 +13,17 @@
  function loadReportsModern(){
    if(!location.pathname.endsWith('/reports.html')&&!location.pathname.endsWith('/reports'))return;
    document.body.classList.add('reports-modern');
-   if(document.getElementById('reports-modern-css'))return;
-   const link=document.createElement('link');link.id='reports-modern-css';link.rel='stylesheet';link.href='reports-modern.css?v=1';document.head.appendChild(link);
+   if(!document.getElementById('reports-modern-css')){const link=document.createElement('link');link.id='reports-modern-css';link.rel='stylesheet';link.href='reports-modern.css?v=2';document.head.appendChild(link);}
+   const sidebar=document.querySelector('.sidebar');
+   if(sidebar&&!sidebar.dataset.modernized){
+     const section=sidebar.querySelector('.nav-section');
+     const nav=sidebar.querySelector('.side-nav');
+     if(section)section.textContent='Основное';
+     if(nav)nav.innerHTML='<a href="index.html"><span class="side-icon">⌂</span>Dashboard</a><a class="active" href="reports.html"><span class="side-icon">▥</span>OLAP Отчёты</a><a href="plugin-control.html"><span class="side-icon">▣</span>Кассы</a><a href="plugin-events.html"><span class="side-icon">⇄</span>События плагина</a>';
+     const oldSpacer=sidebar.querySelector('.sidebar-spacer');
+     if(oldSpacer){oldSpacer.insertAdjacentHTML('beforebegin','<div class="nav-section reports-management-title" style="margin-top:22px">Управление</div><nav class="side-nav reports-management-nav"><a href="reports.html"><span class="side-icon">◒</span>Аналитика</a><a href="reports.html"><span class="side-icon">◇</span>Конструктор OLAP</a><a href="reports.html"><span class="side-icon">₼</span>Финансы</a><a href="settings.html"><span class="side-icon">⚙</span>Настройки</a></nav>');}
+     sidebar.dataset.modernized='1';
+   }
  }
  loadModernUI();
  document.addEventListener('DOMContentLoaded',()=>{
