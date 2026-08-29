@@ -54,7 +54,10 @@ function xmlChild(block, name) {
 function parseDepartmentsXml(text) {
     const result = [];
     const seen = new Set();
-    const nodeRegex = /<(department|corporateItemDto|corporateItem|item|entity)\\b([^>]*)>([\\s\\S]*?)<\\/\\1>/gi;
+
+    // Keep this regex as a real JavaScript regex literal.
+    // Do not double-escape the word-boundary or closing-tag slash.
+    const nodeRegex = /<(department|corporateItemDto|corporateItem|item|entity)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
     let match;
 
     while ((match = nodeRegex.exec(text))) {
