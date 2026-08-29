@@ -5,34 +5,21 @@
  function update(){document.querySelectorAll('[data-theme-label]').forEach(e=>e.textContent=root.dataset.theme==='dark'?'☀️ Светлая тема':'🌙 Тёмная тема');}
  function loadUnifiedUI(){
    if(document.getElementById('anarsystem-site-modern'))return;
-   const link=document.createElement('link');
-   link.id='anarsystem-site-modern';
-   link.rel='stylesheet';
-   link.href='site-modern.css?v=1';
-   document.head.appendChild(link);
+   const link=document.createElement('link');link.id='anarsystem-site-modern';link.rel='stylesheet';link.href='site-modern.css?v=2';document.head.appendChild(link);
  }
  function loadModernUI(){
-   if(document.body.classList.contains('horeca-dashboard')||document.body.classList.contains('reports-modern'))return;
    if(document.getElementById('anarsystem-modern-ui'))return;
    const link=document.createElement('link');link.id='anarsystem-modern-ui';link.rel='stylesheet';link.href='modern-ui.css?v=3';document.head.appendChild(link);
-   const v3=document.createElement('link');v3.id='anarsystem-modern-ui-v3';v3.rel='stylesheet';v3.href='modern-ui-v3.css?v=1';document.head.appendChild(v3);
+   if(!document.getElementById('anarsystem-modern-ui-v3')){const v3=document.createElement('link');v3.id='anarsystem-modern-ui-v3';v3.rel='stylesheet';v3.href='modern-ui-v3.css?v=2';document.head.appendChild(v3);}
  }
- function loadReportsModern(){
-   if(!location.pathname.endsWith('/reports.html')&&!location.pathname.endsWith('/reports'))return;
-   document.body.classList.add('reports-modern');
-   if(!document.getElementById('reports-modern-css')){const link=document.createElement('link');link.id='reports-modern-css';link.rel='stylesheet';link.href='reports-modern.css?v=3';document.head.appendChild(link);}
-   const sidebar=document.querySelector('.sidebar');
-   if(sidebar&&!sidebar.dataset.modernized){
-     const section=sidebar.querySelector('.nav-section');
-     const nav=sidebar.querySelector('.side-nav');
-     if(section)section.textContent='Основное';
-     if(nav)nav.innerHTML='<a href="index.html"><span class="side-icon">⌂</span>Dashboard</a><a class="active" href="reports.html"><span class="side-icon">▥</span>OLAP Отчёты</a><a href="plugin-control.html"><span class="side-icon">▣</span>Кассы</a><a href="plugin-events.html"><span class="side-icon">⇄</span>События плагина</a>';
-     const oldSpacer=sidebar.querySelector('.sidebar-spacer');
-     if(oldSpacer){oldSpacer.insertAdjacentHTML('beforebegin','<div class="nav-section reports-management-title" style="margin-top:22px">Управление</div><nav class="side-nav reports-management-nav"><a href="reports.html"><span class="side-icon">◒</span>Аналитика</a><a href="reports.html"><span class="side-icon">◇</span>Конструктор OLAP</a><a href="reports.html"><span class="side-icon">₼</span>Финансы</a><a href="settings.html"><span class="side-icon">⚙</span>Настройки</a></nav>');}
-     sidebar.dataset.modernized='1';
-   }
+ function currentPage(){const p=location.pathname.toLowerCase();if(p.endsWith('/reports')||p.endsWith('/reports.html'))return'reports.html';if(p.endsWith('/plugin-control')||p.endsWith('/plugin-control.html'))return'plugin-control.html';if(p.endsWith('/plugin-events')||p.endsWith('/plugin-events.html'))return'plugin-events.html';if(p.endsWith('/settings')||p.endsWith('/settings.html'))return'settings.html';if(p.endsWith('/debug')||p.endsWith('/debug.html'))return'debug.html';return'index.html';}
+ function buildUnifiedSidebar(){
+   const sidebar=document.querySelector('.sidebar');if(!sidebar||sidebar.dataset.unifiedSidebar==='1')return;
+   const page=currentPage();const active=x=>x===page?' class="active"':'';
+   sidebar.innerHTML=`<div class="brand"><span class="brand-mark">H</span><span class="brand-text">HorecaControl<small>Restaurant Analytics</small></span></div><div class="nav-section">Основное</div><nav class="side-nav"><a href="index.html"${active('index.html')}><span class="side-icon">⌂</span>Dashboard</a><a href="reports.html"${active('reports.html')}><span class="side-icon">▥</span>OLAP Отчёты</a><a href="plugin-control.html"${active('plugin-control.html')}><span class="side-icon">▣</span>Кассы</a><a href="plugin-events.html"${active('plugin-events.html')}><span class="side-icon">⇄</span>События плагина</a></nav><div class="nav-section unified-management">Управление</div><nav class="side-nav"><a href="reports.html"><span class="side-icon">⌁</span>Аналитика</a><a href="reports.html"><span class="side-icon">◇</span>Конструктор OLAP</a><a href="reports.html"><span class="side-icon">₼</span>Финансы</a><a href="settings.html"${active('settings.html')}><span class="side-icon">⚙</span>Настройки</a><a href="debug.html"${active('debug.html')}><span class="side-icon">⌁</span>Debug iiko</a></nav><div class="sidebar-spacer"></div><button class="theme-btn" onclick="toggleSHTheme()" data-theme-label>🌙 Светлая тема</button>`;
+   sidebar.dataset.unifiedSidebar='1';
  }
- loadUnifiedUI();
- loadModernUI();
- document.addEventListener('DOMContentLoaded',()=>{update();loadUnifiedUI();loadModernUI();loadReportsModern();const menu=document.querySelector('[data-mobile-menu]'),side=document.querySelector('.sidebar');if(menu&&side)menu.onclick=()=>side.classList.toggle('open');});
+ function loadReportsModern(){if(!location.pathname.endsWith('/reports.html')&&!location.pathname.endsWith('/reports'))return;document.body.classList.add('reports-modern');if(!document.getElementById('reports-modern-css')){const link=document.createElement('link');link.id='reports-modern-css';link.rel='stylesheet';link.href='reports-modern.css?v=3';document.head.appendChild(link);}}
+ loadUnifiedUI();loadModernUI();
+ document.addEventListener('DOMContentLoaded',()=>{update();loadUnifiedUI();loadModernUI();buildUnifiedSidebar();loadReportsModern();update();const menu=document.querySelector('[data-mobile-menu]'),side=document.querySelector('.sidebar');if(menu&&side)menu.onclick=()=>side.classList.toggle('open');});
 })();
