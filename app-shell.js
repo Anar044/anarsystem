@@ -1,9 +1,16 @@
 (function(){
  const root=document.documentElement;
  const saved=localStorage.getItem('shReportsTheme');
- root.dataset.theme=saved==='dark'?'dark':'light';
+ root.dataset.theme=saved==='light'?'light':'dark';
  function update(){document.querySelectorAll('[data-theme-label]').forEach(e=>e.textContent=root.dataset.theme==='dark'?'☀️ Светлая тема':'🌙 Тёмная тема');}
- window.toggleSHTheme=function(){const next=root.dataset.theme==='dark'?'light':'dark';root.dataset.theme=next;localStorage.setItem('shReportsTheme',next);update();};
+ function loadUnifiedUI(){
+   if(document.getElementById('anarsystem-site-modern'))return;
+   const link=document.createElement('link');
+   link.id='anarsystem-site-modern';
+   link.rel='stylesheet';
+   link.href='site-modern.css?v=1';
+   document.head.appendChild(link);
+ }
  function loadModernUI(){
    if(document.body.classList.contains('horeca-dashboard')||document.body.classList.contains('reports-modern'))return;
    if(document.getElementById('anarsystem-modern-ui'))return;
@@ -13,7 +20,7 @@
  function loadReportsModern(){
    if(!location.pathname.endsWith('/reports.html')&&!location.pathname.endsWith('/reports'))return;
    document.body.classList.add('reports-modern');
-   if(!document.getElementById('reports-modern-css')){const link=document.createElement('link');link.id='reports-modern-css';link.rel='stylesheet';link.href='reports-modern.css?v=2';document.head.appendChild(link);}
+   if(!document.getElementById('reports-modern-css')){const link=document.createElement('link');link.id='reports-modern-css';link.rel='stylesheet';link.href='reports-modern.css?v=3';document.head.appendChild(link);}
    const sidebar=document.querySelector('.sidebar');
    if(sidebar&&!sidebar.dataset.modernized){
      const section=sidebar.querySelector('.nav-section');
@@ -25,12 +32,7 @@
      sidebar.dataset.modernized='1';
    }
  }
+ loadUnifiedUI();
  loadModernUI();
- document.addEventListener('DOMContentLoaded',()=>{
-   update();
-   loadModernUI();
-   loadReportsModern();
-   const menu=document.querySelector('[data-mobile-menu]'),side=document.querySelector('.sidebar');
-   if(menu&&side)menu.onclick=()=>side.classList.toggle('open');
- });
+ document.addEventListener('DOMContentLoaded',()=>{update();loadUnifiedUI();loadModernUI();loadReportsModern();const menu=document.querySelector('[data-mobile-menu]'),side=document.querySelector('.sidebar');if(menu&&side)menu.onclick=()=>side.classList.toggle('open');});
 })();
