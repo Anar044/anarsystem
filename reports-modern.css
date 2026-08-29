@@ -1,0 +1,103 @@
+/* ==========================================================
+   HORECACONTROL MODERN THEME — OLAP REPORTS
+   Visual layer only. Does not change IDs, forms or report logic.
+========================================================== */
+body.reports-modern{--r-bg:#0b0f14;--r-panel:#111720;--r-panel2:#151d27;--r-border:#222c38;--r-text:#f5f7fa;--r-muted:#8994a3;--r-green:#42d392;--r-blue:#5b8cff;--r-radius:18px;background:var(--r-bg)!important;color:var(--r-text)!important}
+body.reports-modern .app-shell{background:var(--r-bg)!important;min-height:100vh}
+body.reports-modern .sidebar{position:fixed!important;inset:0 auto 0 0!important;width:248px!important;padding:22px 14px!important;background:#0d1219!important;border-right:1px solid var(--r-border)!important;color:#fff!important;z-index:50}
+body.reports-modern .brand{display:flex!important;align-items:center!important;gap:12px!important;padding:4px 12px 27px!important;color:#fff!important;font-size:17px!important;font-weight:800!important;letter-spacing:0!important}
+body.reports-modern .brand:before{display:none!important}
+body.reports-modern .brand:after{content:"Restaurant Analytics";position:absolute;margin:34px 0 0 52px;color:#8994a3;font-size:11px;font-weight:400}
+body.reports-modern .brand span{color:#fff!important}
+body.reports-modern .nav-section{color:#647080!important;font-size:10px!important;letter-spacing:1.3px!important;text-transform:uppercase!important;padding:0 12px 8px!important;margin:0!important}
+body.reports-modern .side-nav{display:grid!important;gap:5px!important}
+body.reports-modern .side-nav a{border:0!important;background:none!important;color:#8f9aaa!important;text-align:left!important;text-decoration:none!important;padding:11px 12px!important;border-radius:12px!important;display:flex!important;gap:12px!important;align-items:center!important;font-size:13px!important;transition:.18s!important}
+body.reports-modern .side-nav a:hover{background:#151c25!important;color:#fff!important}
+body.reports-modern .side-nav a.active{background:#18251f!important;color:#fff!important;box-shadow:inset 3px 0 var(--r-green)!important}
+body.reports-modern .side-icon{width:19px!important;text-align:center!important;color:inherit!important}
+body.reports-modern .theme-btn{background:#111821!important;border:1px solid var(--r-border)!important;color:#d9e3df!important;border-radius:10px!important}
+body.reports-modern .main{margin-left:248px!important;width:calc(100% - 248px)!important;min-height:100vh!important;background:var(--r-bg)!important}
+body.reports-modern .topbar{height:76px!important;border-bottom:1px solid var(--r-border)!important;background:rgba(11,15,20,.88)!important;backdrop-filter:blur(14px)!important;color:var(--r-text)!important;padding:0 30px!important;position:sticky!important;top:0!important;z-index:40!important}
+body.reports-modern .topbar-title{font-weight:700!important;font-size:18px!important;color:#fff!important}
+body.reports-modern .topbar-sub{font-size:12px!important;color:var(--r-muted)!important;margin-top:3px!important}
+body.reports-modern .top-actions{display:flex!important;gap:9px!important;align-items:center!important}
+body.reports-modern .period-chip,body.reports-modern .icon-btn{background:#121923!important;border:1px solid var(--r-border)!important;color:#fff!important;border-radius:10px!important;padding:9px 12px!important;text-decoration:none!important}
+body.reports-modern .mobile-menu{display:none}
+body.reports-modern .app-content{min-height:calc(100vh - 76px)!important;background:var(--r-bg)!important}
+body.reports-modern .reports-page{min-height:calc(100vh - 76px)!important;padding:28px 30px 45px!important;width:100%!important;background:var(--r-bg)!important}
+body.reports-modern .reports-container{width:100%!important;max-width:1540px!important;margin:0 auto!important}
+body.reports-modern .reports-container>h1{display:none!important}
+
+/* OLAP shell */
+body.reports-modern #olap-builder{margin:0!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--r-text)!important}
+body.reports-modern #olap-builder *{opacity:1!important}
+body.reports-modern .olap-shell{width:100%!important;color:var(--r-text)!important}
+body.reports-modern .olap-report-head{display:flex!important;justify-content:space-between!important;align-items:flex-end!important;gap:20px!important;margin-bottom:18px!important}
+body.reports-modern .olap-report-title{font-size:28px!important;line-height:1.15!important;font-weight:800!important;letter-spacing:-.8px!important;color:#fff!important}
+body.reports-modern .olap-report-subtitle{margin-top:6px!important;font-size:13px!important;color:var(--r-muted)!important}
+body.reports-modern .olap-report-actions{display:flex!important;align-items:flex-end!important;gap:8px!important;flex-wrap:wrap!important;justify-content:flex-end!important}
+body.reports-modern .olap-report-actions label{display:flex!important;flex-direction:column!important;gap:5px!important;color:var(--r-muted)!important;font-size:10px!important;font-weight:600!important}
+body.reports-modern .olap-report-actions input,body.reports-modern .olap-report-actions select{min-height:38px!important;background:#121923!important;border:1px solid var(--r-border)!important;border-radius:10px!important;color:#fff!important;padding:8px 10px!important;outline:none!important}
+body.reports-modern .olap-report-actions select{min-width:170px!important}
+body.reports-modern .olap-icon-btn,body.reports-modern .olap-primary,body.reports-modern .olap-excel{min-height:38px!important;border-radius:10px!important;padding:9px 13px!important;font-weight:700!important;cursor:pointer!important}
+body.reports-modern .olap-icon-btn{background:#121923!important;border:1px solid var(--r-border)!important;color:#fff!important}
+body.reports-modern .olap-primary{background:var(--r-green)!important;border:1px solid var(--r-green)!important;color:#06100b!important}
+body.reports-modern .olap-excel{background:#17231e!important;border:1px solid #245d3e!important;color:var(--r-green)!important}
+body.reports-modern .olap-status{margin:0 0 14px!important;padding:11px 13px!important;border:1px solid #245d3e!important;border-radius:10px!important;background:#10261b!important;color:var(--r-green)!important;font-size:12px!important}
+
+body.reports-modern .olap-workspace{display:grid!important;grid-template-columns:330px minmax(0,1fr)!important;gap:14px!important;align-items:start!important}
+body.reports-modern .olap-fields-card,body.reports-modern .olap-main-card{background:linear-gradient(145deg,#121922,#10161e)!important;border:1px solid var(--r-border)!important;border-radius:var(--r-radius)!important;color:var(--r-text)!important}
+body.reports-modern .olap-fields-card{padding:17px!important;position:sticky!important;top:94px!important}
+body.reports-modern .olap-main-card{padding:14px!important}
+body.reports-modern .olap-card-title{font-size:13px!important;font-weight:800!important;color:#fff!important;margin-bottom:10px!important}
+body.reports-modern .olap-search-wrap{position:relative!important;margin-bottom:10px!important}
+body.reports-modern #olap-search{width:100%!important;box-sizing:border-box!important;padding:10px 34px 10px 11px!important;background:#0f151d!important;border:1px solid var(--r-border)!important;border-radius:9px!important;color:#fff!important;font-size:12px!important;outline:none!important;margin:0!important}
+body.reports-modern .olap-search-wrap>span{position:absolute!important;right:11px!important;top:9px!important;color:var(--r-muted)!important}
+body.reports-modern .olap-fields{display:flex!important;flex-direction:column!important;gap:6px!important;max-height:510px!important;overflow-y:auto!important;padding-right:3px!important}
+body.reports-modern .olap-field{width:100%!important;display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important;padding:10px 11px!important;border:1px solid var(--r-border)!important;border-radius:9px!important;background:#111821!important;color:#fff!important;text-align:left!important;cursor:grab!important}
+body.reports-modern .olap-field:hover{background:#17221e!important;border-color:#2c4939!important}
+body.reports-modern .olap-field strong{font-size:12px!important;color:#fff!important;font-weight:650!important}
+body.reports-modern .olap-field small{font-size:9px!important;color:var(--r-muted)!important}
+body.reports-modern .olap-flags{font-size:10px!important;color:var(--r-green)!important}
+body.reports-modern .olap-empty{padding:14px!important;border:1px dashed var(--r-border)!important;border-radius:9px!important;background:#0f151d!important;color:var(--r-muted)!important;text-align:center!important;font-size:11px!important}
+body.reports-modern .olap-field-actions{display:flex!important;gap:7px!important;margin-top:10px!important}
+body.reports-modern .olap-field-actions button{flex:1!important;background:#121923!important;border:1px solid var(--r-border)!important;color:#fff!important;border-radius:9px!important;padding:9px!important;font-size:11px!important;cursor:pointer!important}
+
+body.reports-modern .olap-zones{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:10px!important;margin-bottom:10px!important}
+body.reports-modern .olap-zone-card{min-width:0!important;background:#101720!important;border:1px solid var(--r-border)!important;border-radius:12px!important;padding:13px!important}
+body.reports-modern .olap-selected{min-height:72px!important;margin:0!important}
+body.reports-modern .olap-selected-field{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;padding:9px 10px!important;margin-bottom:6px!important;border:1px solid #2b4437!important;border-radius:8px!important;background:#14221b!important;color:#fff!important}
+body.reports-modern .olap-selected-field>span{display:flex!important;flex-direction:column!important;gap:2px!important;min-width:0!important;color:#fff!important}
+body.reports-modern .olap-selected-field strong{font-size:11px!important;color:#fff!important}
+body.reports-modern .olap-selected-field small{font-size:9px!important;color:var(--r-muted)!important}
+body.reports-modern .olap-selected-field button{width:24px!important;height:24px!important;border:0!important;border-radius:7px!important;background:#1b2b23!important;color:#aab8b3!important;cursor:pointer!important}
+body.reports-modern .olap-drop-active{outline:2px solid var(--r-green)!important;background:#142a20!important}
+
+body.reports-modern .olap-filters-panel,body.reports-modern .olap-result-card{background:#101720!important;border:1px solid var(--r-border)!important;border-radius:12px!important;padding:14px!important;margin-top:10px!important;color:var(--r-text)!important}
+body.reports-modern .olap-filter-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important;margin-bottom:10px!important}
+body.reports-modern .olap-filter-head .olap-card-title{margin:0!important}
+body.reports-modern #olap-add-filter{background:#121923!important;border:1px solid var(--r-border)!important;color:#fff!important;border-radius:8px!important;padding:7px 10px!important;font-size:10px!important;font-weight:700!important;cursor:pointer!important}
+body.reports-modern .olap-filter-editor{display:grid!important;grid-template-columns:1fr 1fr 1.4fr!important;gap:9px!important}
+body.reports-modern .olap-filter-editor label{display:flex!important;flex-direction:column!important;gap:5px!important;color:var(--r-muted)!important;font-size:10px!important;font-weight:600!important}
+body.reports-modern .olap-filter-editor select,body.reports-modern .olap-filter-editor input{width:100%!important;box-sizing:border-box!important;background:#0f151d!important;border:1px solid var(--r-border)!important;border-radius:8px!important;color:#fff!important;padding:9px!important;font-size:11px!important;outline:none!important}
+body.reports-modern .olap-filters-list{margin-top:10px!important}
+body.reports-modern .olap-result-empty{min-height:170px!important;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:7px!important;color:var(--r-muted)!important;text-align:center!important}
+body.reports-modern .olap-result-empty strong{color:#fff!important;font-size:12px!important}
+body.reports-modern .olap-result-empty span{font-size:10px!important}
+body.reports-modern .olap-result-icon{width:38px!important;height:38px!important;border-radius:10px!important;display:grid!important;place-items:center!important;background:#17231e!important;color:var(--r-green)!important}
+body.reports-modern .olap-result{overflow:auto!important;color:#fff!important}
+body.reports-modern .olap-result table,body.reports-modern .report-table{width:100%!important;border-collapse:collapse!important;background:#111821!important;color:#fff!important}
+body.reports-modern .olap-result th,body.reports-modern .olap-result td,body.reports-modern .report-table th,body.reports-modern .report-table td{padding:10px 9px!important;border-bottom:1px solid var(--r-border)!important;background:#111821!important;color:#e9efec!important;font-size:11px!important;white-space:nowrap!important;text-align:left!important}
+body.reports-modern .olap-result th,body.reports-modern .report-table th{color:var(--r-muted)!important;font-weight:650!important;background:#0f151d!important}
+body.reports-modern .olap-result tr:hover td,body.reports-modern .report-table tr:hover td{background:#151f1b!important}
+body.reports-modern .olap-result .report-card,body.reports-modern .report-card{background:#121922!important;border:1px solid var(--r-border)!important;color:#fff!important}
+
+/* Hidden legacy sales block remains functional but visually consistent */
+body.reports-modern #sales-card{background:#111821!important;border:1px solid var(--r-border)!important;border-radius:18px!important;color:#fff!important;box-shadow:none!important;padding:18px!important}
+body.reports-modern #sales-card h2,body.reports-modern #sales-card h3,body.reports-modern #sales-card label{color:#fff!important}
+body.reports-modern #sales-card input{background:#0f151d!important;color:#fff!important;border-color:var(--r-border)!important}
+body.reports-modern #load-sales{background:var(--r-green)!important;color:#06100b!important}
+body.reports-modern #sales-result{color:#fff!important}
+
+@media(max-width:1050px){body.reports-modern .olap-workspace{grid-template-columns:1fr!important}body.reports-modern .olap-fields-card{position:static!important}body.reports-modern .olap-zones{grid-template-columns:1fr!important}body.reports-modern .olap-filter-editor{grid-template-columns:1fr 1fr!important}}
+@media(max-width:720px){body.reports-modern .sidebar{transform:translateX(-100%)!important;transition:transform .2s!important;width:260px!important}body.reports-modern .sidebar.open{transform:translateX(0)!important}body.reports-modern .main{margin-left:0!important;width:100%!important}body.reports-modern .mobile-menu{display:block!important}body.reports-modern .topbar{padding:0 16px!important}body.reports-modern .reports-page{padding:20px 16px 35px!important}body.reports-modern .olap-report-head{align-items:flex-start!important;flex-direction:column!important}body.reports-modern .olap-report-actions{width:100%!important;justify-content:flex-start!important}body.reports-modern .olap-report-actions label{flex:1!important;min-width:140px!important}body.reports-modern .olap-filter-editor{grid-template-columns:1fr!important}}
