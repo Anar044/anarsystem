@@ -2,7 +2,6 @@
   "use strict";
 
   const STORAGE_KEY = "iikoConnection";
-  const IDENTITY_KEY = "iikoDepartmentIdentity";
   const MENU_KEY = "horeca_qr_menu_v1";
   let syncing = false;
 
@@ -11,159 +10,95 @@
     catch { return null; }
   }
 
-  function saveConnection(connection){
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(connection)); } catch {}
-  }
-
-  function getSavedIdentity(){
-    try { return JSON.parse(localStorage.getItem(IDENTITY_KEY) || "null"); }
-    catch { return null; }
-  }
-
-  function pickOrganization(connection){
-    return String(
-      connection?.organizationId ||
-      connection?.organizationID ||
-      connection?.selectedOrganizationId ||
-      connection?.departmentId ||
-      connection?.departmentID ||
-      connection?.selectedDepartmentId ||
-      connection?.organization?.id ||
-      connection?.department?.id ||
-      connection?.departmentIds?.[0] ||
-      connection?.departments?.[0]?.id ||
-      ""
-    ).trim();
-  }
-
   function setStatus(text, ok=false){
     const el=document.getElementById("saveStatus");
-    if(el){ el.textContent=text; el.style.color=ok ? "#42d392" : "#ffb454"; }
+    if(el){
+      el.textContent=text;
+      el.style.color=ok ? "#42d392" : "#ffb454";
+    }
   }
 
   async function parseResponse(response){
     const text=await response.text();
     let data={};
-    try{ data=text?JSON.parse(text):{}; }
-    catch{ data={success:false,message:text||`HTTP ${response.status}`}; }
-    if(!response.ok || data.success===false) throw new Error(data.message || data.error || `HTTP ${response.status}`);
+    try{ data=text ? JSON.parse(text) : {}; }
+    catch{ data={success:false,message:text || `HTTP ${response.status}`}; }
+    if(!response.ok || data.success===false){
+      throw new Error(data.message || data.error || `HTTP ${response.status}`);
+    }
     return data;
   }
 
-  async function getOrganizationFromSavedIdentity(){
-    const identity=getSavedIdentity();
-    const ids=Array.isArray(identity?.departmentIds) ? identity.departmentIds.filter(Boolean) : [];
-    if(ids.length===1) return String(ids[0]).trim();
-    const selected=String(identity?.selectedDepartmentId || "").trim();
-    if(selected && ids.includes(selected)) return selected;
-    return "";
-  }
-
-  async function getOrganizationFromPlugin(){
-    try{
-      const response=await fetch("/api/plugin/status",{cache:"no-store"});
-      const data=await parseResponse(response);
-      const plugins=Array.isArray(data.plugins)?data.plugins:[];
-      if(!plugins.length) return "";
-      const connection=getConnection();
-      const sameServer=plugins.find(plugin=>connection?.ip && plugin?.serverUrl && String(plugin.serverUrl).includes(String(connection.ip)));
-      const plugin=sameServer || plugins[0];
-      return String(
-        plugin?.organizationId || plugin?.organizationID ||
-        plugin?.departmentId || plugin?.departmentID || ""
-      ).trim();
-    }catch(error){
-      console.warn("Cannot get organization from plugin status",error);
-      return "";
-    }
-  }
-
-  async function ensureOrganization(connection){
-    let id=pickOrganization(connection);
-    if(id) return {connection,id};
-
-    // 1. Reuse the identity already obtained on the Settings page.
-    id=await getOrganizationFromSavedIdentity();
-    if(id){
-      connection={...connection,organizationId:id,departmentId:id};
-      saveConnection(connection);
-      return {connection,id};
-    }
-
-    // 2. The connected cash-register plugin may already know the department ID.
-    id=await getOrganizationFromPlugin();
-    if(id){
-      connection={...connection,organizationId:id,departmentId:id};
-      saveConnection(connection);
-      return {connection,id};
-    }
-
-    // 3. Ask iiko Server directly as a final fallback.
-    setStatus("● Получаем идентификатор организации iiko...");
-    const response=await fetch("/api/iiko/connect",{
-      method:"POST",
-      headers:{"Content-Type":"application/json","Accept":"application/json"},
-      body:JSON.stringify(connection)
-    });
-    const data=await parseResponse(response);
-    const departments=Array.isArray(data.departments)?data.departments:[];
-    if(!departments.length){
-      throw new Error("iiko подключён, но ID организации не найден. Проверьте подключение кассы или идентификатор в Настройках.");
-    }
-    if(departments.length>1){
-      throw new Error(`iiko вернул несколько подразделений (${departments.length}). Сначала выберите нужную организацию в Настройках.`);
-    }
-
-    id=String(departments[0].id||"").trim();
-    if(!id) throw new Error("iiko не вернул ID организации.");
-    connection={...connection,organizationId:id,departmentId:id,departments};
-    saveConnection(connection);
-    return {connection,id};
-  }
-
-  function isForSale(product){
-    if(!product || product.isDeleted===true || product.deleted===true) return false;
-    if(product.isHidden===true || product.hidden===true) return false;
-    if(product.available===false || product.isAvailable===false) return false;
-    if(product.inStopList===true || product.isStopList===true || product.stopList===true) return false;
-    return true;
+  function isDish(product){
+    return product && product.deleted!==true && String(product.type||"").toUpperCase()==="DISH";
   }
 
   function mergeMenu(data){
     const old=JSON.parse(localStorage.getItem(MENU_KEY)||"null")||{categories:[],active:"",dishes:[]};
     const oldCategories=new Map((old.categories||[]).map(c=>[String(c.iikoId||c.id),c]));
     const oldDishes=new Map((old.dishes||[]).map(d=>[String(d.iikoId||d.id),d]));
+    const now=new Date().toISOString();
 
     const categories=(data.categories||[]).map((c,index)=>{
-      const iikoId=String(c.id);
+      const iikoId=String(c.iikoId||c.id);
       const previous=oldCategories.get(iikoId)||{};
-      return {...previous,id:`iiko-cat-${iikoId}`,iikoId,name:String(c.name||previous.name||"Без категории"),sortOrder:Number(c.sortOrder??previous.sortOrder??index)};
+      return {
+        ...previous,
+        id:`iiko-cat-${iikoId}`,
+        iikoId,
+        name:String(previous.name || c.name || "Без категории"),
+        sortOrder:Number(previous.sortOrder ?? c.sortOrder ?? index),
+        iikoSyncedAt:now
+      };
     });
 
     const categoryIds=new Set(categories.map(c=>c.iikoId));
     const dishes=[];
+
     for(const [index,p] of (data.products||[]).entries()){
-      if(!isForSale(p)) continue;
+      if(!isDish(p)) continue;
+
       const iikoId=String(p.id);
       const previous=oldDishes.get(iikoId)||{};
-      const categoryIikoId=String(p.categoryId||previous.iikoCategoryId||"ungrouped");
+      const categoryIikoId=String(p.categoryId||previous.iikoCategoryId||"root");
+
       if(!categoryIds.has(categoryIikoId)){
-        categories.push({id:`iiko-cat-${categoryIikoId}`,iikoId:categoryIikoId,name:"Без категории",sortOrder:999999});
+        categories.push({
+          id:`iiko-cat-${categoryIikoId}`,
+          iikoId:categoryIikoId,
+          name:categoryIikoId==="root" ? "Без категории" : "Группа iiko",
+          sortOrder:999999,
+          iikoSyncedAt:now
+        });
         categoryIds.add(categoryIikoId);
       }
+
       const price=p.price==null ? Number(previous.price||0) : Number(p.price);
+
       dishes.push({
-        ...previous,id:previous.id||`iiko-${iikoId}`,iikoId,iikoCategoryId:categoryIikoId,cat:`iiko-cat-${categoryIikoId}`,
-        name:String(p.name||previous.name||iikoId),price:Number.isFinite(price)?price:0,
-        desc:previous.desc || String(p.description||""),photo:previous.photo || p.image || null,
-        sizes:p.sizes||previous.sizes||[],sortOrder:Number(p.sortOrder??previous.sortOrder??index),iikoSyncedAt:new Date().toISOString()
+        ...previous,
+        id:previous.id || `iiko-${iikoId}`,
+        iikoId,
+        iikoCategoryId:categoryIikoId,
+        cat:`iiko-cat-${categoryIikoId}`,
+        name:String(p.name || previous.name || iikoId),
+        price:Number.isFinite(price) ? price : 0,
+        desc:previous.desc || String(p.description || ""),
+        photo:previous.photo || p.image || null,
+        code:String(p.code || previous.code || ""),
+        num:String(p.num || previous.num || ""),
+        defaultIncludedInMenu:Boolean(p.defaultIncludedInMenu),
+        sizes:p.sizes || previous.sizes || [],
+        sortOrder:Number(previous.sortOrder ?? p.sortOrder ?? index),
+        iikoSyncedAt:now
       });
     }
 
     categories.sort((a,b)=>a.sortOrder-b.sortOrder);
     dishes.sort((a,b)=>a.sortOrder-b.sortOrder);
+
     const active=categories.some(c=>String(c.id)===String(old.active)) ? old.active : (categories[0]?.id||"");
-    const next={categories,active,dishes,lastIikoSync:new Date().toISOString(),source:"iiko-external-menu"};
+    const next={...old,categories,active,dishes,lastIikoSync:now,source:"iiko-nomenclature"};
     localStorage.setItem(MENU_KEY,JSON.stringify(next));
     return next;
   }
@@ -186,32 +121,41 @@
     button.textContent="↻ Синхронизация...";
 
     try{
-      const prepared=await ensureOrganization(connection);
-      setStatus(`● Организация iiko: ${prepared.id}`);
-      await new Promise(resolve=>setTimeout(resolve,200));
-      setStatus("● Запрашиваем внешнее меню iiko...");
+      setStatus("● Подключаемся к iiko Server...");
 
-      const response=await fetch("/api/iiko/qr-menu",{
+      const old=JSON.parse(localStorage.getItem(MENU_KEY)||"null")||{categories:[]};
+      const categories=(old.categories||[]).map(c=>({
+        id:c.id,
+        iikoId:c.iikoId || c.id,
+        name:c.name
+      }));
+
+      setStatus("● Получаем номенклатуру iiko...");
+
+      const response=await fetch("/api/iiko/nomenclature",{
         method:"POST",
         headers:{"Content-Type":"application/json","Accept":"application/json"},
         body:JSON.stringify({
-          ip:prepared.connection.ip,port:prepared.connection.port,login:prepared.connection.login,password:prepared.connection.password,
-          organizationId:prepared.id,externalMenuId:prepared.connection.externalMenuId||""
+          ip:connection.ip,
+          port:connection.port,
+          login:connection.login,
+          password:connection.password,
+          categories
         })
       });
 
       const data=await parseResponse(response);
-      const products=(data.products||[]).filter(isForSale);
-      if(!products.length) throw new Error("iiko вернул внешнее меню без доступных для продажи блюд.");
+      const products=(data.products||[]).filter(isDish);
+      if(!products.length) throw new Error("iiko не вернул ни одного элемента типа DISH.");
 
       const result=mergeMenu({...data,products});
-      setStatus(`● Синхронизировано из iiko: ${result.dishes.length} блюд, ${result.categories.length} категорий`,true);
+      setStatus(`● iiko: ${result.dishes.length} блюд, ${result.categories.length} групп`,true);
       window.dispatchEvent(new CustomEvent("qr-menu-updated"));
       setTimeout(()=>location.reload(),150);
     }catch(error){
-      console.error("QR Menu iiko sync:",error);
+      console.error("QR Menu iiko nomenclature sync:",error);
       setStatus(`⚠ Ошибка iiko: ${error.message}`);
-      alert(`Не удалось загрузить меню iiko:\n\n${error.message}`);
+      alert(`Не удалось загрузить номенклатуру iiko:\n\n${error.message}`);
     }finally{
       syncing=false;
       button.disabled=false;
@@ -220,6 +164,10 @@
   }
 
   window.qrMenuSync=sync;
-  function install(){ const button=document.getElementById("syncBtn"); if(button) button.onclick=sync; }
-  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",install,{once:true}); else install();
+  function install(){
+    const button=document.getElementById("syncBtn");
+    if(button) button.onclick=sync;
+  }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",install,{once:true});
+  else install();
 })();
