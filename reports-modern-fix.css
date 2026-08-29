@@ -1,0 +1,76 @@
+/* OLAP FINAL VISUAL FIX — presentation only */
+body.reports-modern .sidebar .brand{
+  position:relative!important;
+  display:flex!important;
+  align-items:center!important;
+  gap:10px!important;
+  min-height:44px!important;
+  height:auto!important;
+  overflow:visible!important;
+}
+body.reports-modern .sidebar .brand .brand-mark{
+  position:static!important;
+  flex:0 0 34px!important;
+  width:34px!important;
+  height:34px!important;
+  display:grid!important;
+  place-items:center!important;
+  margin:0!important;
+  padding:0!important;
+  border-radius:10px!important;
+  background:#42d392!important;
+  color:#06100b!important;
+  font-size:17px!important;
+  font-weight:900!important;
+  line-height:1!important;
+}
+body.reports-modern .sidebar .brand .brand-text{
+  position:static!important;
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:center!important;
+  min-width:0!important;
+  margin:0!important;
+  padding:0!important;
+  color:#fff!important;
+  font-size:16px!important;
+  font-weight:800!important;
+  line-height:1.1!important;
+  white-space:nowrap!important;
+}
+body.reports-modern .sidebar .brand .brand-text small{
+  display:block!important;
+  margin-top:4px!important;
+  color:#8994a3!important;
+  font-size:9px!important;
+  font-weight:400!important;
+  line-height:1!important;
+}
+body.reports-modern .sidebar .brand:after{display:none!important}
+body.reports-modern .olap-report-head{position:relative!important;z-index:2!important}
+body.reports-modern .olap-report-actions{position:static!important;display:grid!important;grid-template-columns:minmax(190px,1.2fr) 42px 125px 125px!important;align-items:end!important;gap:8px!important}
+body.reports-modern .olap-report-actions label{min-width:0!important}
+body.reports-modern .olap-report-actions .olap-primary{grid-column:1 / -1!important;width:100%!important;min-height:40px!important;background:#42d392!important;border-color:#42d392!important;color:#06100b!important}
+body.reports-modern .olap-report-actions .olap-excel{grid-column:auto!important;min-height:40px!important}
+body.reports-modern .olap-report-actions button:not(.olap-primary):not(.olap-excel),
+body.reports-modern .olap-report-actions .olap-icon-btn{min-height:40px!important;background:#121923!important;border:1px solid #222c38!important;color:#fff!important}
+body.reports-modern .olap-report-actions input,
+body.reports-modern .olap-report-actions select{height:40px!important;min-height:40px!important;background:#121923!important;color:#fff!important;border-color:#222c38!important}
+body.reports-modern .olap-report-title{max-width:420px!important}
+body.reports-modern .olap-workspace{position:relative!important;z-index:1!important}
+body.reports-modern .olap-fields-card,
+body.reports-modern .olap-main-card,
+body.reports-modern .olap-zone-card,
+body.reports-modern .olap-filters-panel,
+body.reports-modern .olap-result-card{box-sizing:border-box!important}
+body.reports-modern .olap-field-actions button{background:#121923!important;color:#fff!important;border:1px solid #222c38!important}
+body.reports-modern a{ text-decoration:none!important }
+body.reports-modern .side-nav a{ text-decoration:none!important }
+@media(max-width:1050px){
+ body.reports-modern .olap-report-actions{grid-template-columns:1fr 42px 1fr 1fr!important}
+}
+@media(max-width:720px){
+ body.reports-modern .olap-report-actions{display:flex!important;flex-wrap:wrap!important}
+ body.reports-modern .olap-report-actions label{flex:1 1 140px!important}
+ body.reports-modern .olap-report-actions .olap-primary{flex:1 1 100%!important}
+}
