@@ -1,0 +1,9 @@
+/* Final unified sidebar fix — visual only */
+.side-nav a{display:flex!important;align-items:center!important;gap:11px!important;width:100%!important;box-sizing:border-box!important;text-decoration:none!important;white-space:nowrap!important;overflow:hidden!important}
+.side-nav a:visited{color:#8f9aaa!important;text-decoration:none!important}
+.side-nav a:hover,.side-nav a:focus{text-decoration:none!important}
+.side-nav a.active,.side-nav a.active:visited{color:#fff!important;text-decoration:none!important}
+.side-icon{display:inline-flex!important;align-items:center!important;justify-content:center!important;width:20px!important;min-width:20px!important;height:20px!important;color:#8f9aaa!important;text-decoration:none!important;font-size:13px!important}
+.side-nav a.active .side-icon{color:#42d392!important}
+.brand{display:flex!important;align-items:center!important;gap:10px!important;text-decoration:none!important}
+.sidebar{overflow-y:auto!important;overflow-x:hidden!important}
