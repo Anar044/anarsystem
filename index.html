@@ -16,7 +16,7 @@
 @media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}.grid,.grid3{grid-template-columns:1fr}}@media(max-width:760px){:root{--sidebar:0px}.sidebar{transform:translateX(-100%);transition:.2s;width:260px}.sidebar.open{transform:none}.main{margin-left:0}.mobile{display:block;background:#121923;color:#fff;border:1px solid var(--border);border-radius:9px;padding:8px}.topbar{padding:0 16px}.search{display:none}.content{padding:20px 16px}.pagehead{align-items:flex-start;flex-direction:column}.kpis{grid-template-columns:1fr}.actions .control{display:none}}
 </style>
 </head>
-<body data-protected="true">
+<body class="horeca-dashboard" data-protected="true">
 <div class="app">
 <aside class="sidebar" id="sidebar">
  <div class="brand"><div class="logo">H</div><div><b>HorecaControl</b><small>Restaurant Analytics</small></div></div>
@@ -34,50 +34,40 @@
   <a href="reports.html"><span class="ico">₼</span>Финансы</a>
   <a href="settings.html"><span class="ico">⚙</span>Настройки</a>
  </nav>
- <div class="sidebottom">
-  <div class="connection"><span class="dot"></span><small>iiko Server</small><b>Управление подключением</b></div>
-  <nav class="nav"><a href="settings.html"><span class="ico">↗</span>Подключение</a></nav>
- </div>
+ <div class="sidebottom"><div class="connection"><span class="dot"></span><small>iiko Server</small><b>Управление подключением</b></div><nav class="nav"><a href="settings.html"><span class="ico">↗</span>Подключение</a></nav></div>
 </aside>
 <main class="main">
-<header class="topbar">
- <div style="display:flex;gap:12px;align-items:center"><button class="mobile" id="mobileMenu">☰</button><div><div class="title">Dashboard</div><div class="crumb">HorecaControl / <span>Обзор ресторана</span></div></div></div>
- <div class="actions"><input class="search" placeholder="Поиск..."><button class="control">29 авг 2026 ▾</button><button class="avatar" data-auth-logout title="Выйти"><span data-auth-avatar>A</span></button></div>
-</header>
+<header class="topbar"><div style="display:flex;gap:12px;align-items:center"><button class="mobile" id="mobileMenu">☰</button><div><div class="title">Dashboard</div><div class="crumb">HorecaControl / <span>Обзор ресторана</span></div></div></div><div class="actions"><input class="search" placeholder="Поиск..."><button class="control">29 авг 2026 ▾</button><button class="avatar" data-auth-logout title="Выйти"><span data-auth-avatar>A</span></button></div></header>
 <section class="content">
- <div class="pagehead"><div><h1>Добрый вечер, Anar 👋</h1><p>Вот как сегодня работает ваш ресторан.</p></div><div class="period"><button>Сегодня</button><button class="active">7 дней</button><button>30 дней</button></div></div>
- <div class="kpis">
-  <div class="card"><div class="khead"><span>Выручка</span><span class="kicon">₼</span></div><div class="kvalue">18 420 ₼</div><div class="ksub"><span class="up">▲ 12.8%</span> vs прошлый период</div></div>
-  <div class="card"><div class="khead"><span>Количество чеков</span><span class="kicon">▤</span></div><div class="kvalue">1 284</div><div class="ksub"><span class="up">▲ 8.4%</span> vs прошлый период</div></div>
-  <div class="card"><div class="khead"><span>Средний чек</span><span class="kicon">⌁</span></div><div class="kvalue">14.35 ₼</div><div class="ksub"><span class="up">▲ 3.7%</span> vs прошлый период</div></div>
-  <div class="card"><div class="khead"><span>Валовая прибыль</span><span class="kicon">↗</span></div><div class="kvalue">6 930 ₼</div><div class="ksub"><span class="up">▲ 10.2%</span> vs прошлый период</div></div>
- </div>
- <div class="grid"><div class="card"><div class="ctitle"><h3>Выручка и продажи</h3><span>Последние 7 дней</span></div><div id="dashRevenue" class="chart"></div></div><div class="card"><div class="ctitle"><h3>Продажи по категориям</h3><span>Доля выручки</span></div><div id="dashCat" class="chart"></div></div></div>
- <div class="grid3"><div class="card"><div class="ctitle"><h3>Продажи по часам</h3><span>Сегодня</span></div><div id="dashHour" class="smallchart"></div></div><div class="card"><div class="ctitle"><h3>Способы оплаты</h3><span>1 284 чека</span></div><div id="dashPay" class="smallchart"></div></div><div class="card"><div class="ctitle"><h3>Автоанализ</h3><span>Сегодня</span></div><div class="insight"><b>Пиковое время</b><p>19:00–21:00 дают максимальную выручку.</p><div class="progress"><i style="width:87%"></i></div></div><div class="insight"><b>Средний чек</b><p>На 3.7% выше прошлого периода.</p><div class="progress"><i style="width:72%"></i></div></div><div class="insight"><b>Категория-лидер</b><p>Основные блюда — 42% продаж.</p><div class="progress"><i style="width:84%"></i></div></div></div></div>
- <div class="card"><div class="ctitle"><h3>Популярные блюда</h3><span>По количеству продаж</span></div><div class="tablewrap"><table><thead><tr><th>Блюдо</th><th>Категория</th><th>Продано</th><th>Выручка</th><th>Доля</th><th>Тренд</th></tr></thead><tbody>
-  <tr><td><div class="prod"><span class="pimg">🍽</span>Шашлык из телятины</div></td><td>Основные блюда</td><td>184</td><td>2 944 ₼</td><td>16.0%</td><td><span class="badge">▲ 18%</span></td></tr>
-  <tr><td><div class="prod"><span class="pimg">🍲</span>Паста Карбонара</div></td><td>Основные блюда</td><td>143</td><td>1 859 ₼</td><td>10.1%</td><td><span class="badge">▲ 11%</span></td></tr>
-  <tr><td><div class="prod"><span class="pimg">🥗</span>Цезарь с курицей</div></td><td>Салаты</td><td>121</td><td>1 573 ₼</td><td>8.5%</td><td><span class="badge">▲ 7%</span></td></tr>
-  <tr><td><div class="prod"><span class="pimg">🍕</span>Пицца Маргарита</div></td><td>Пицца</td><td>109</td><td>1 308 ₼</td><td>7.1%</td><td><span class="badge">▲ 4%</span></td></tr>
-  <tr><td><div class="prod"><span class="pimg">🥤</span>Лимонад</div></td><td>Напитки</td><td>97</td><td>873 ₼</td><td>4.7%</td><td><span class="badge">▲ 9%</span></td></tr>
- </tbody></table></div></div>
-</section>
-</main></div>
+<div class="pagehead"><div><h1>Добрый вечер, Anar 👋</h1><p>Вот как сегодня работает ваш ресторан.</p></div><div class="period"><button>Сегодня</button><button class="active">7 дней</button><button>30 дней</button></div></div>
+<div class="kpis">
+<div class="card"><div class="khead"><span>Выручка</span><span class="kicon">₼</span></div><div class="kvalue">18 420 ₼</div><div class="ksub"><span class="up">▲ 12.8%</span> vs прошлый период</div></div>
+<div class="card"><div class="khead"><span>Количество чеков</span><span class="kicon">▤</span></div><div class="kvalue">1 284</div><div class="ksub"><span class="up">▲ 8.4%</span> vs прошлый период</div></div>
+<div class="card"><div class="khead"><span>Средний чек</span><span class="kicon">⌁</span></div><div class="kvalue">14.35 ₼</div><div class="ksub"><span class="up">▲ 3.7%</span> vs прошлый период</div></div>
+<div class="card"><div class="khead"><span>Валовая прибыль</span><span class="kicon">↗</span></div><div class="kvalue">6 930 ₼</div><div class="ksub"><span class="up">▲ 10.2%</span> vs прошлый период</div></div>
+</div>
+<div class="grid"><div class="card"><div class="ctitle"><h3>Выручка и продажи</h3><span>Последние 7 дней</span></div><div id="dashRevenue" class="chart"></div></div><div class="card"><div class="ctitle"><h3>Продажи по категориям</h3><span>Доля выручки</span></div><div id="dashCat" class="chart"></div></div></div>
+<div class="grid3"><div class="card"><div class="ctitle"><h3>Продажи по часам</h3><span>Сегодня</span></div><div id="dashHour" class="smallchart"></div></div><div class="card"><div class="ctitle"><h3>Способы оплаты</h3><span>1 284 чека</span></div><div id="dashPay" class="smallchart"></div></div><div class="card"><div class="ctitle"><h3>Автоанализ</h3><span>Сегодня</span></div><div class="insight"><b>Пиковое время</b><p>19:00–21:00 дают максимальную выручку.</p><div class="progress"><i style="width:87%"></i></div></div><div class="insight"><b>Средний чек</b><p>На 3.7% выше прошлого периода.</p><div class="progress"><i style="width:72%"></i></div></div><div class="insight"><b>Категория-лидер</b><p>Основные блюда — 42% продаж.</p><div class="progress"><i style="width:84%"></i></div></div></div></div>
+<div class="card"><div class="ctitle"><h3>Популярные блюда</h3><span>По количеству продаж</span></div><div class="tablewrap"><table><thead><tr><th>Блюдо</th><th>Категория</th><th>Продано</th><th>Выручка</th><th>Доля</th><th>Тренд</th></tr></thead><tbody>
+<tr><td><div class="prod"><span class="pimg">🍽</span>Шашлык из телятины</div></td><td>Основные блюда</td><td>184</td><td>2 944 ₼</td><td>16.0%</td><td><span class="badge">▲ 18%</span></td></tr>
+<tr><td><div class="prod"><span class="pimg">🍲</span>Паста Карбонара</div></td><td>Основные блюда</td><td>143</td><td>1 859 ₼</td><td>10.1%</td><td><span class="badge">▲ 11%</span></td></tr>
+<tr><td><div class="prod"><span class="pimg">🥗</span>Цезарь с курицей</div></td><td>Салаты</td><td>121</td><td>1 573 ₼</td><td>8.5%</td><td><span class="badge">▲ 7%</span></td></tr>
+<tr><td><div class="prod"><span class="pimg">🍕</span>Пицца Маргарита</div></td><td>Пицца</td><td>109</td><td>1 308 ₼</td><td>7.1%</td><td><span class="badge">▲ 4%</span></td></tr>
+<tr><td><div class="prod"><span class="pimg">🥤</span>Лимонад</div></td><td>Напитки</td><td>97</td><td>873 ₼</td><td>4.7%</td><td><span class="badge">▲ 9%</span></td></tr>
+</tbody></table></div></div>
+</section></main></div>
 <script>
-const C={green:'#42d392',blue:'#5b8cff',orange:'#ffb454',red:'#ff6678',purple:'#9b7cff',muted:'#8994a3',grid:'#202a35'};
-const charts={};
+const C={green:'#42d392',blue:'#5b8cff',orange:'#ffb454',red:'#ff6678',purple:'#9b7cff',muted:'#8994a3',grid:'#202a35'};const charts={};
 function baseAxis(data){return{type:'category',data,axisLabel:{color:C.muted},axisLine:{lineStyle:{color:C.grid}},axisTick:{show:false}}}
 function lineSeries(name,data,color){return{name,type:'line',smooth:true,data,symbol:'circle',symbolSize:6,lineStyle:{width:3,color},itemStyle:{color},areaStyle:{opacity:.07}}}
 function chart(id,opt){setTimeout(()=>{const e=document.getElementById(id);if(!e)return;charts[id]=echarts.init(e);charts[id].setOption(opt)},0)}
 function resize(){Object.values(charts).forEach(c=>c.resize())}window.addEventListener('resize',resize);
 function dashboardCharts(){
- chart('dashRevenue',{tooltip:{trigger:'axis'},legend:{data:['Выручка','Чеки'],textStyle:{color:C.muted}},grid:{left:42,right:15,top:40,bottom:28},xAxis:baseAxis(['23 авг','24 авг','25 авг','26 авг','27 авг','28 авг','29 авг']),yAxis:{type:'value',axisLabel:{color:C.muted},splitLine:{lineStyle:{color:C.grid}}},series:[lineSeries('Выручка',[12400,14100,13200,16900,15100,17600,18420],C.green),{...lineSeries('Чеки',[810,920,870,1100,1010,1190,1284],C.blue)}]});
- chart('dashCat',{tooltip:{trigger:'item'},legend:{bottom:0,textStyle:{color:C.muted}},series:[{type:'pie',radius:['52%','75%'],label:{show:false},data:[{value:7740,name:'Основные блюда',itemStyle:{color:C.green}},{value:3860,name:'Напитки',itemStyle:{color:C.blue}},{value:2910,name:'Закуски',itemStyle:{color:C.orange}},{value:2180,name:'Десерты',itemStyle:{color:C.red}},{value:1730,name:'Другое',itemStyle:{color:C.purple}}]}]});
- chart('dashHour',{tooltip:{trigger:'axis'},grid:{left:36,right:10,top:15,bottom:28},xAxis:baseAxis(['10','11','12','13','14','15','16','17','18','19','20','21','22']),yAxis:{type:'value',axisLabel:{color:C.muted},splitLine:{lineStyle:{color:C.grid}}},series:[{type:'bar',data:[4,7,12,18,15,9,8,14,26,42,51,46,31],barMaxWidth:18,itemStyle:{color:C.green,borderRadius:[5,5,0,0]}}]});
- chart('dashPay',{tooltip:{trigger:'item'},series:[{type:'pie',radius:['45%','72%'],label:{color:'#cdd5df'},data:[{value:52,name:'Карта',itemStyle:{color:C.blue}},{value:34,name:'Наличные',itemStyle:{color:C.green}},{value:9,name:'Онлайн',itemStyle:{color:C.orange}},{value:5,name:'Другое',itemStyle:{color:C.red}}]}]});
-}
-const mobileMenu=document.getElementById('mobileMenu');if(mobileMenu)mobileMenu.onclick=()=>document.getElementById('sidebar').classList.toggle('open');
-dashboardCharts();
+chart('dashRevenue',{tooltip:{trigger:'axis'},legend:{data:['Выручка','Чеки'],textStyle:{color:C.muted}},grid:{left:42,right:15,top:40,bottom:28},xAxis:baseAxis(['23 авг','24 авг','25 авг','26 авг','27 авг','28 авг','29 авг']),yAxis:{type:'value',axisLabel:{color:C.muted},splitLine:{lineStyle:{color:C.grid}}},series:[lineSeries('Выручка',[12400,14100,13200,16900,15100,17600,18420],C.green),{...lineSeries('Чеки',[810,920,870,1100,1010,1190,1284],C.blue)}]});
+chart('dashCat',{tooltip:{trigger:'item'},legend:{bottom:0,textStyle:{color:C.muted}},series:[{type:'pie',radius:['52%','75%'],label:{show:false},data:[{value:7740,name:'Основные блюда',itemStyle:{color:C.green}},{value:3860,name:'Напитки',itemStyle:{color:C.blue}},{value:2910,name:'Закуски',itemStyle:{color:C.orange}},{value:2180,name:'Десерты',itemStyle:{color:C.red}},{value:1730,name:'Другое',itemStyle:{color:C.purple}}]}]});
+chart('dashHour',{tooltip:{trigger:'axis'},grid:{left:36,right:10,top:15,bottom:28},xAxis:baseAxis(['10','11','12','13','14','15','16','17','18','19','20','21','22']),yAxis:{type:'value',axisLabel:{color:C.muted},splitLine:{lineStyle:{color:C.grid}}},series:[{type:'bar',data:[4,7,12,18,15,9,8,14,26,42,51,46,31],barMaxWidth:18,itemStyle:{color:C.green,borderRadius:[5,5,0,0]}}]});
+chart('dashPay',{tooltip:{trigger:'item'},series:[{type:'pie',radius:['45%','72%'],label:{color:'#cdd5df'},data:[{value:52,name:'Карта',itemStyle:{color:C.blue}},{value:34,name:'Наличные',itemStyle:{color:C.green}},{value:9,name:'Онлайн',itemStyle:{color:C.orange}},{value:5,name:'Другое',itemStyle:{color:C.red}}]}]});}
+const mobileMenu=document.getElementById('mobileMenu');if(mobileMenu)mobileMenu.onclick=()=>document.getElementById('sidebar').classList.toggle('open');dashboardCharts();
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="auth-config.js"></script>
