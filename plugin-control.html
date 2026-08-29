@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ru" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SH_Reports — Кассы</title>
+<link rel="stylesheet" href="app-shell.css">
+<link rel="stylesheet" href="plugin-control.css">
+</head>
+<body data-protected="true">
+<div class="app-shell">
+<aside class="sidebar">
+  <div class="brand">SH_<span>Reports</span></div>
+  <div class="nav-section">Аналитика</div>
+  <nav class="side-nav">
+    <a href="index.html"><span class="side-icon">◉</span>Обзор</a>
+    <a href="reports.html"><span class="side-icon">▥</span>OLAP Отчёты</a>
+    <a class="active" href="plugin-control.html"><span class="side-icon">▣</span>Кассы</a>
+    <a href="plugin-events.html"><span class="side-icon">⇄</span>События плагина</a>
+    <a href="settings.html"><span class="side-icon">⚙</span>Настройки</a>
+  </nav>
+  <div class="sidebar-spacer"></div>
+  <button class="theme-btn" onclick="toggleSHTheme()" data-theme-label>🌙 Тёмная тема</button>
+</aside>
+
+<main class="main">
+<header class="topbar">
+  <div>
+    <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+    <span class="topbar-title">Кассы</span>
+    <div class="topbar-sub">Подключённые плагины и запрос данных из iiko</div>
+  </div>
+  <div class="top-actions">
+    <span id="connection-pill" class="status-pill offline">● Нет подключения</span>
+    <button id="refresh-status" class="icon-btn">↻ Обновить</button>
+    <button class="user-chip" data-auth-logout title="Выйти"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span> ↪</button>
+  </div>
+</header>
+
+<section class="page app-content">
+  <div class="page-head">
+    <div>
+      <h1>Управление кассами</h1>
+      <p>SH_Reports не хранит данные iiko. Запрос отправляется подключённому плагину в момент просмотра.</p>
+    </div>
+  </div>
+
+  <section class="card panel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">Подключённые кассы</div>
+        <div class="panel-muted" id="status-text">Проверяем подключение…</div>
+      </div>
+      <span class="panel-muted" id="checked-at">—</span>
+    </div>
+    <div id="plugins-list" class="plugins-list">
+      <div class="empty-note">Загрузка…</div>
+    </div>
+  </section>
+
+  <section class="card panel request-panel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">Запрос данных</div>
+        <div class="panel-muted">Выбери кассу и действие. Пока плагин не подключён, запросы не отправляются.</div>
+      </div>
+    </div>
+
+    <div class="request-grid">
+      <label>Касса
+        <select id="plugin-select" disabled>
+          <option value="">Нет подключённых касс</option>
+        </select>
+      </label>
+
+      <label>Действие
+        <select id="action-select">
+          <option value="get_sales">Продажи</option>
+          <option value="get_orders">Заказы</option>
+          <option value="get_payments">Оплаты</option>
+          <option value="get_products">Товары</option>
+          <option value="get_employees">Сотрудники</option>
+        </select>
+      </label>
+
+      <label>Дата с
+        <input id="date-from" type="date">
+      </label>
+
+      <label>Дата по
+        <input id="date-to" type="date">
+      </label>
+    </div>
+
+    <div class="request-actions">
+      <button id="send-request" class="primary-btn" disabled>▶ Запросить данные</button>
+      <span id="request-status" class="panel-muted"></span>
+    </div>
+  </section>
+
+  <section class="card panel result-panel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">Ответ плагина</div>
+        <div class="panel-muted">Здесь отображается только текущий ответ, без сохранения на VPS.</div>
+      </div>
+    </div>
+    <pre id="result-output" class="result-output">Ожидание запроса…</pre>
+  </section>
+</section>
+</main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script>
+<script src="auth.js"></script>
+<script src="app-shell.js"></script>
+<script src="plugin-control.js"></script>
+</body>
+</html>
