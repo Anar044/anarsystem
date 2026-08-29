@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>QR Menu</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f7f6;color:#152019;font-family:Inter,Arial,sans-serif}.wrap{max-width:760px;margin:auto;background:#fff;min-height:100vh}.hero{background:#10251d;color:#fff;padding:34px 22px 26px;text-align:center}.hero h1{margin:0;font-size:28px}.hero p{margin:7px 0 0;color:#a9bdb4;font-size:13px}.content{padding:20px}.cat{margin:22px 0 9px;font-size:19px;font-weight:800}.dish{display:flex;gap:12px;padding:13px 0;border-bottom:1px solid #e7ece9}.photo{width:82px;height:82px;border-radius:13px;background:#edf2ef;overflow:hidden;flex:none;display:grid;place-items:center;font-size:25px}.photo img{width:100%;height:100%;object-fit:cover}.info{min-width:0;flex:1}.name{font-size:15px;font-weight:800}.desc{font-size:12px;color:#68766f;line-height:1.45;margin-top:5px}.price{font-size:14px;font-weight:850;white-space:nowrap}.loading,.error{padding:50px 20px;text-align:center;color:#65736d}.error{color:#a13d3d}.badge{display:inline-block;margin-top:13px;padding:5px 9px;border:1px solid #345a4b;border-radius:99px;color:#b8d9cc;font-size:11px}@media(max-width:520px){.content{padding:16px}.photo{width:70px;height:70px}.hero{padding-top:28px}}
+</style>
+</head>
+<body><main class="wrap"><header class="hero"><h1 id="restaurant">QR Menu</h1><p>Цифровое меню ресторана</p><span class="badge" id="updated"></span></header><section class="content" id="content"><div class="loading">Загрузка меню…</div></section></main>
+<script>
+const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+async function load(){
+ const id=new URLSearchParams(location.search).get('id');
+ const content=document.getElementById('content');
+ if(!id){content.innerHTML='<div class="error">Ссылка на меню неполная.</div>';return;}
+ try{
+  const r=await fetch('/api/qr-menu/public/'+encodeURIComponent(id));
+  const d=await r.json();
+  if(!r.ok||!d.success) throw new Error(d.message||'Меню не найдено');
+  document.getElementById('restaurant').textContent=d.restaurantName||'QR Menu';
+  document.getElementById('updated').textContent='Обновлено '+new Date(d.updatedAt).toLocaleString('ru-RU');
+  const cats=d.menu?.categories||[], dishes=d.menu?.dishes||[];
+  const byCat=new Map(cats.map(c=>[String(c.id),c]));
+  const used=new Set();
+  let html='';
+  for(const c of cats){
+   const list=dishes.filter(x=>String(x.cat)===String(c.id));
+   if(!list.length) continue;
+   used.add(String(c.id));
+   html+='<h2 class="cat">'+esc(c.name)+'</h2>';
+   for(const x of list) html+='<article class="dish"><div class="photo">'+(x.photo?'<img src="'+esc(x.photo)+'">':'🍽️')+'</div><div class="info"><div class="name">'+esc(x.name)+'</div><div class="desc">'+esc(x.desc||'')+'</div></div><div class="price">'+Number(x.price||0).toFixed(2)+' ₼</div></article>';
+  }
+  const uncategorized=dishes.filter(x=>!used.has(String(x.cat)));
+  if(uncategorized.length){html+='<h2 class="cat">Меню</h2>';for(const x of uncategorized)html+='<article class="dish"><div class="photo">'+(x.photo?'<img src="'+esc(x.photo)+'">':'🍽️')+'</div><div class="info"><div class="name">'+esc(x.name)+'</div><div class="desc">'+esc(x.desc||'')+'</div></div><div class="price">'+Number(x.price||0).toFixed(2)+' ₼</div></article>';}
+  content.innerHTML=html||'<div class="loading">В меню пока нет блюд.</div>';
+ }catch(e){content.innerHTML='<div class="error">Не удалось загрузить меню.<br><br>'+esc(e.message)+'</div>';}
+}
+load();
+</script></body></html>
