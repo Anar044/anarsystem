@@ -54,31 +54,18 @@ function xmlChild(block, name) {
 function parseDepartmentsXml(text) {
     const result = [];
     const seen = new Set();
-
-    // iiko Server normally returns <corporateItemDto> nodes.
-    // Keep the other variants for compatibility with different versions.
-    const nodeRegex = /<(department|corporateItemDto|corporateItem|item|entity)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+    const nodeRegex = /<(department|corporateItemDto|corporateItem|item|entity)\\b([^>]*)>([\\s\\S]*?)<\\/\\1>/gi;
     let match;
 
     while ((match = nodeRegex.exec(text))) {
         const openingTag = `<${match[1]} ${match[2]}>`;
         const block = match[3] || "";
+        const type = xmlAttribute(openingTag, "type") || xmlChild(block, "type");
 
-        const type =
-            xmlAttribute(openingTag, "type") ||
-            xmlChild(block, "type");
+        if (type && type.toUpperCase() !== "DEPARTMENT") continue;
 
-        if (type && type.toUpperCase() !== "DEPARTMENT") {
-            continue;
-        }
-
-        const id =
-            xmlAttribute(openingTag, "id") ||
-            xmlChild(block, "id");
-
-        if (!id || seen.has(id)) {
-            continue;
-        }
+        const id = xmlAttribute(openingTag, "id") || xmlChild(block, "id");
+        if (!id || seen.has(id)) continue;
 
         const parentId =
             xmlAttribute(openingTag, "parentId") ||
@@ -86,13 +73,8 @@ function parseDepartmentsXml(text) {
             xmlChild(block, "parentId") ||
             xmlChild(block, "parentID");
 
-        const code =
-            xmlAttribute(openingTag, "code") ||
-            xmlChild(block, "code");
-
-        const name =
-            xmlAttribute(openingTag, "name") ||
-            xmlChild(block, "name");
+        const code = xmlAttribute(openingTag, "code") || xmlChild(block, "code");
+        const name = xmlAttribute(openingTag, "name") || xmlChild(block, "name");
 
         result.push({
             id: String(id),
@@ -125,10 +107,34 @@ function normalizeDepartmentsPayload(payload) {
             id: String(item.id || ""),
             parentId: item.parentId == null ? null : String(item.parentId),
             code: item.code == null ? "" : String(item.code),
-            name: item.name == null ? String(item.code || item.id || "Подразделение") : String(item.name),
+            name: item.name == null
+                ? String(item.code || item.id || "Подразделение")
+                : String(item.name),
             type: String(item.type || "DEPARTMENT")
         }))
         .filter(item => item.id);
+}
+
+function normalizeOrganizationsPayload(payload) {
+    const items = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.organizations)
+            ? payload.organizations
+            : Array.isArray(payload?.items)
+                ? payload.items
+                : [];
+
+    return items
+        .filter(item => item && item.id)
+        .map(item => ({
+            id: String(item.id),
+            name: String(item.name || item.organizationName || item.id),
+            code: item.code == null ? "" : String(item.code),
+            address: String(item.restaurantAddress || item.address || ""),
+            inn: String(item.inn || ""),
+            isDeleted: Boolean(item.isDeleted)
+        }))
+        .filter(item => !item.isDeleted);
 }
 
 async function getToken(ip, port, login, password) {
@@ -177,6 +183,39 @@ async function getDepartments(serverUrl, token) {
     }
 }
 
+async function getOrganizations(serverUrl, token) {
+    const url = `${serverUrl}/api/1/organizations?key=${encodeURIComponent(token)}`;
+
+    const response = await fetch(url, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        },
+        body: JSON.stringify({
+            returnAdditionalInfo: true,
+            includeDisabled: false
+        })
+    });
+
+    const text = (await response.text()).trim();
+
+    if (!response.ok) {
+        throw new Error(`Ошибка получения организаций iiko: HTTP ${response.status}${text ? ` — ${text.slice(0, 300)}` : ""}`);
+    }
+
+    if (!text) return [];
+
+    let payload;
+    try {
+        payload = JSON.parse(text);
+    } catch {
+        throw new Error("iiko /api/1/organizations вернул некорректный JSON");
+    }
+
+    return normalizeOrganizationsPayload(payload);
+}
+
 export async function onRequestOptions() {
     return new Response(null, {
         status: 204,
@@ -201,13 +240,23 @@ export async function onRequestPost(context) {
         }
 
         const auth = await getToken(ip, port, login, password);
-        const departments = await getDepartments(auth.serverUrl, auth.token);
+
+        const [departments, organizations] = await Promise.all([
+            getDepartments(auth.serverUrl, auth.token),
+            getOrganizations(auth.serverUrl, auth.token)
+        ]);
+
+        const organizationId = organizations.length === 1
+            ? organizations[0].id
+            : "";
 
         return jsonResponse({
             success: true,
-            message: departments.length
+            message: organizations.length
                 ? "iiko Server подключён"
-                : "iiko Server подключён, но подразделения не найдены",
+                : "iiko Server подключён, но организации для API не найдены",
+            organizationId,
+            organizations,
             departmentIds: departments.map(item => item.id),
             departments
         });
