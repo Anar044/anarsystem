@@ -73,18 +73,28 @@ function parseDepartmentsXml(text) {
 }
 
 function normalizeDepartmentsPayload(payload) {
-    const items = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload?.items)
-            ? payload.items
-            : Array.isArray(payload?.departments)
-                ? payload.departments
-                : Array.isArray(payload?.corporateItems)
-                    ? payload.corporateItems
-                    : [];
+    // Локальный iiko Server в разных версиях может возвращать
+    // подразделения под разными именами. Cloud API здесь не используется.
+    let items = [];
+
+    if (Array.isArray(payload)) {
+        items = payload;
+    } else if (Array.isArray(payload?.items)) {
+        items = payload.items;
+    } else if (Array.isArray(payload?.departments)) {
+        items = payload.departments;
+    } else if (Array.isArray(payload?.corporateItems)) {
+        items = payload.corporateItems;
+    } else if (Array.isArray(payload?.corporateItemDtoes)) {
+        items = payload.corporateItemDtoes;
+    } else if (Array.isArray(payload?.corporateItemDtos)) {
+        items = payload.corporateItemDtos;
+    } else if (Array.isArray(payload?.data)) {
+        items = payload.data;
+    }
 
     return items
-        .filter(item => String(item?.type || "DEPARTMENT").toUpperCase() === "DEPARTMENT")
+        .filter(item => String(item?.type || "").toUpperCase() === "DEPARTMENT")
         .map(item => ({
             id: String(item.id || ""),
             parentId: item.parentId == null ? null : String(item.parentId),
@@ -92,12 +102,13 @@ function normalizeDepartmentsPayload(payload) {
             name: item.name == null
                 ? String(item.code || item.id || "Подразделение")
                 : String(item.name),
-            type: String(item.type || "DEPARTMENT")
+            type: "DEPARTMENT"
         }))
         .filter(item => item.id);
 }
 
 async function getToken(ip, port, login, password) {
+    // ТОЛЬКО локальный iiko Server.
     const serverUrl = `http://${ip}:${port}`;
     const passwordHash = await sha1(password);
     const authUrl =
@@ -116,6 +127,7 @@ async function getToken(ip, port, login, password) {
 }
 
 async function getDepartments(serverUrl, token) {
+    // ТОЛЬКО локальный iiko Server API.
     const url =
         `${serverUrl}/resto/api/corporation/departments/` +
         `?key=${encodeURIComponent(token)}`;
@@ -135,11 +147,17 @@ async function getDepartments(serverUrl, token) {
 
     if (!text) return [];
 
+    // Основной вариант — JSON.
     try {
-        return normalizeDepartmentsPayload(JSON.parse(text));
+        const payload = JSON.parse(text);
+        const departments = normalizeDepartmentsPayload(payload);
+        if (departments.length) return departments;
     } catch {
-        return parseDepartmentsXml(text);
+        // Ответ не JSON — пробуем XML ниже.
     }
+
+    // Резервный вариант — XML.
+    return parseDepartmentsXml(text);
 }
 
 export async function onRequestOptions() {
@@ -171,13 +189,12 @@ export async function onRequestPost(context) {
         if (!departments.length) {
             return jsonResponse({
                 success: false,
-                message: "iiko Server подключён, но подразделения типа DEPARTMENT не найдены. Локальный iiko Server не использует Cloud API /api/1/organizations."
+                message: "iiko Server подключён, но подразделения типа DEPARTMENT не найдены в /resto/api/corporation/departments/"
             }, 502);
         }
 
-        // Для локального iiko Server идентификатор ресторана берём из
-        // DEPARTMENT. Это реальный ID торгового предприятия из
-        // /resto/api/corporation/departments/ и не требует Cloud API.
+        // Для локального iiko Server ID ресторана берём из DEPARTMENT.
+        // Cloud API /api/1/organizations НЕ используется.
         const organizations = departments.map(item => ({
             id: item.id,
             name: item.name,
@@ -186,8 +203,7 @@ export async function onRequestPost(context) {
             type: "DEPARTMENT"
         }));
 
-        // Сохраняем прежнее имя поля organizationId, чтобы не ломать
-        // существующий QR Menu и другие части интерфейса.
+        // Оставляем organizationId для совместимости с QR Menu.
         const organizationId = departments[0].id;
 
         return jsonResponse({
@@ -197,7 +213,7 @@ export async function onRequestPost(context) {
             organizations,
             departmentIds: departments.map(item => item.id),
             departments,
-            source: "iiko-server",
+            source: "iiko-server-local",
             identityType: "DEPARTMENT"
         });
 
