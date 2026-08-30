@@ -23,6 +23,12 @@ export async function onRequestPost({request,env}){
     const publicSlug=existing?.public_slug || crypto.randomUUID();
 
     await env.DB.prepare(`INSERT INTO qr_menus(id,organization_id,restaurant_name,public_slug,is_published,created_at,updated_at,published_at) VALUES(?1,?2,?3,?4,1,?5,?5,?5) ON CONFLICT(organization_id) DO UPDATE SET restaurant_name=excluded.restaurant_name,public_slug=excluded.public_slug,is_published=1,updated_at=excluded.updated_at,published_at=excluded.published_at`).bind(menuId,organizationId,restaurantName,publicSlug,now).run();
+
+    // Design is kept separately so the existing qr_menus schema stays untouched.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS qr_menu_settings (menu_id TEXT PRIMARY KEY, design_json TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL)`).run();
+    const design=menu.design&&typeof menu.design==='object'?menu.design:{};
+    await env.DB.prepare(`INSERT INTO qr_menu_settings(menu_id,design_json,updated_at) VALUES(?1,?2,?3) ON CONFLICT(menu_id) DO UPDATE SET design_json=excluded.design_json,updated_at=excluded.updated_at`).bind(menuId,JSON.stringify(design),now).run();
+
     await env.DB.prepare(`DELETE FROM qr_dishes WHERE menu_id=?1`).bind(menuId).run();
     await env.DB.prepare(`DELETE FROM qr_categories WHERE menu_id=?1`).bind(menuId).run();
 
