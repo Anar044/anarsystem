@@ -15,13 +15,12 @@ async function load(){
  const content=document.getElementById('content');
  if(!id){content.innerHTML='<div class="error">Ссылка на меню неполная.</div>';return;}
  try{
-  const r=await fetch('/api/qr-menu/public/'+encodeURIComponent(id));
+  const r=await fetch('/api/qr-menu/public?id='+encodeURIComponent(id));
   const d=await r.json();
   if(!r.ok||!d.success) throw new Error(d.message||'Меню не найдено');
   document.getElementById('restaurant').textContent=d.restaurantName||'QR Menu';
   document.getElementById('updated').textContent='Обновлено '+new Date(d.updatedAt).toLocaleString('ru-RU');
   const cats=d.menu?.categories||[], dishes=d.menu?.dishes||[];
-  const byCat=new Map(cats.map(c=>[String(c.id),c]));
   const used=new Set();
   let html='';
   for(const c of cats){
@@ -29,10 +28,10 @@ async function load(){
    if(!list.length) continue;
    used.add(String(c.id));
    html+='<h2 class="cat">'+esc(c.name)+'</h2>';
-   for(const x of list) html+='<article class="dish"><div class="photo">'+(x.photo?'<img src="'+esc(x.photo)+'">':'🍽️')+'</div><div class="info"><div class="name">'+esc(x.name)+'</div><div class="desc">'+esc(x.desc||'')+'</div></div><div class="price">'+Number(x.price||0).toFixed(2)+' ₼</div></article>';
+   for(const x of list) html+='<article class="dish"><div class="photo">'+(x.photo?'<img src="'+esc(x.photo)+'">':'🍽️')+'</div><div class="info"><div class="name">'+esc(x.name)+'</div><div class="desc">'+esc(x.desc||'')+'</div></div><div class="price">'+Number(x.price||0).toFixed(2)+' '+esc(x.currency||'AZN')+'</div></article>';
   }
   const uncategorized=dishes.filter(x=>!used.has(String(x.cat)));
-  if(uncategorized.length){html+='<h2 class="cat">Меню</h2>';for(const x of uncategorized)html+='<article class="dish"><div class="photo">'+(x.photo?'<img src="'+esc(x.photo)+'">':'🍽️')+'</div><div class="info"><div class="name">'+esc(x.name)+'</div><div class="desc">'+esc(x.desc||'')+'</div></div><div class="price">'+Number(x.price||0).toFixed(2)+' ₼</div></article>';}
+  if(uncategorized.length){html+='<h2 class="cat">Меню</h2>';for(const x of uncategorized)html+='<article class="dish"><div class="photo">'+(x.photo?'<img src="'+esc(x.photo)+'">':'🍽️')+'</div><div class="info"><div class="name">'+esc(x.name)+'</div><div class="desc">'+esc(x.desc||'')+'</div></div><div class="price">'+Number(x.price||0).toFixed(2)+' '+esc(x.currency||'AZN')+'</div></article>';}
   content.innerHTML=html||'<div class="loading">В меню пока нет блюд.</div>';
  }catch(e){content.innerHTML='<div class="error">Не удалось загрузить меню.<br><br>'+esc(e.message)+'</div>';}
 }
