@@ -43,7 +43,14 @@ function xmlChild(block, name) {
 function parseDepartmentsXml(text) {
     const result = [];
     const seen = new Set();
-    const nodeRegex = /<(department|corporateItemDto|corporateItem|item|entity)\\b[^>]*>([\\s\\S]*?)<\\/\\1>/gi;
+
+    // RegExp constructor is used deliberately so the escaping is unambiguous
+    // when this file is compiled by Cloudflare/esbuild.
+    const nodeRegex = new RegExp(
+        "<(department|corporateItemDto|corporateItem|item|entity)\\\\b[^>]*>([\\\\s\\\\S]*?)<\\\\/\\\\1>",
+        "gi"
+    );
+
     let match;
 
     while ((match = nodeRegex.exec(text))) {
