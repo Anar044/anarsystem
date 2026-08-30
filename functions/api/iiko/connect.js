@@ -19,7 +19,6 @@ function jsonResponse(data, status = 200) {
 async function sha1(text) {
     const data = new TextEncoder().encode(text);
     const hash = await crypto.subtle.digest("SHA-1", data);
-
     return Array.from(new Uint8Array(hash))
         .map(byte => byte.toString(16).padStart(2, "0"))
         .join("");
@@ -35,49 +34,30 @@ function xmlDecode(value) {
         .trim();
 }
 
-function xmlAttribute(tag, name) {
-    const match = tag.match(
-        new RegExp(`${name}\\s*=\\s*["']([^"']*)["']`, "i")
-    );
-
-    return match ? xmlDecode(match[1]) : "";
-}
-
 function xmlChild(block, name) {
     const match = block.match(
         new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`, "i")
     );
-
     return match ? xmlDecode(match[1].replace(/<[^>]+>/g, "")) : "";
 }
 
 function parseDepartmentsXml(text) {
     const result = [];
     const seen = new Set();
-
-    // Keep this regex as a real JavaScript regex literal.
-    // Do not double-escape the word-boundary or closing-tag slash.
     const nodeRegex = /<(department|corporateItemDto|corporateItem|item|entity)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
     let match;
 
     while ((match = nodeRegex.exec(text))) {
-        const openingTag = `<${match[1]} ${match[2]}>`;
         const block = match[3] || "";
-        const type = xmlAttribute(openingTag, "type") || xmlChild(block, "type");
-
+        const type = xmlChild(block, "type");
         if (type && type.toUpperCase() !== "DEPARTMENT") continue;
 
-        const id = xmlAttribute(openingTag, "id") || xmlChild(block, "id");
+        const id = xmlChild(block, "id");
         if (!id || seen.has(id)) continue;
 
-        const parentId =
-            xmlAttribute(openingTag, "parentId") ||
-            xmlAttribute(openingTag, "parentID") ||
-            xmlChild(block, "parentId") ||
-            xmlChild(block, "parentID");
-
-        const code = xmlAttribute(openingTag, "code") || xmlChild(block, "code");
-        const name = xmlAttribute(openingTag, "name") || xmlChild(block, "name");
+        const parentId = xmlChild(block, "parentId") || xmlChild(block, "parentID");
+        const code = xmlChild(block, "code");
+        const name = xmlChild(block, "name");
 
         result.push({
             id: String(id),
@@ -86,7 +66,6 @@ function parseDepartmentsXml(text) {
             name: String(name || code || id),
             type: "DEPARTMENT"
         });
-
         seen.add(id);
     }
 
@@ -118,32 +97,9 @@ function normalizeDepartmentsPayload(payload) {
         .filter(item => item.id);
 }
 
-function normalizeOrganizationsPayload(payload) {
-    const items = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload?.organizations)
-            ? payload.organizations
-            : Array.isArray(payload?.items)
-                ? payload.items
-                : [];
-
-    return items
-        .filter(item => item && item.id)
-        .map(item => ({
-            id: String(item.id),
-            name: String(item.name || item.organizationName || item.id),
-            code: item.code == null ? "" : String(item.code),
-            address: String(item.restaurantAddress || item.address || ""),
-            inn: String(item.inn || ""),
-            isDeleted: Boolean(item.isDeleted)
-        }))
-        .filter(item => !item.isDeleted);
-}
-
 async function getToken(ip, port, login, password) {
     const serverUrl = `http://${ip}:${port}`;
     const passwordHash = await sha1(password);
-
     const authUrl =
         `${serverUrl}/resto/api/auth` +
         `?login=${encodeURIComponent(login)}` +
@@ -153,7 +109,7 @@ async function getToken(ip, port, login, password) {
     const token = (await response.text()).trim();
 
     if (!response.ok || !token) {
-        throw new Error(`Ошибка авторизации iiko: HTTP ${response.status}`);
+        throw new Error(`Ошибка авторизации iiko Server: HTTP ${response.status}`);
     }
 
     return { serverUrl, token };
@@ -174,7 +130,7 @@ async function getDepartments(serverUrl, token) {
     const text = (await response.text()).trim();
 
     if (!response.ok) {
-        throw new Error(`Ошибка получения подразделений iiko: HTTP ${response.status}`);
+        throw new Error(`Ошибка получения подразделений iiko Server: HTTP ${response.status}`);
     }
 
     if (!text) return [];
@@ -184,39 +140,6 @@ async function getDepartments(serverUrl, token) {
     } catch {
         return parseDepartmentsXml(text);
     }
-}
-
-async function getOrganizations(serverUrl, token) {
-    const url = `${serverUrl}/api/1/organizations?key=${encodeURIComponent(token)}`;
-
-    const response = await fetch(url, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        },
-        body: JSON.stringify({
-            returnAdditionalInfo: true,
-            includeDisabled: false
-        })
-    });
-
-    const text = (await response.text()).trim();
-
-    if (!response.ok) {
-        throw new Error(`Ошибка получения организаций iiko: HTTP ${response.status}${text ? ` — ${text.slice(0, 300)}` : ""}`);
-    }
-
-    if (!text) return [];
-
-    let payload;
-    try {
-        payload = JSON.parse(text);
-    } catch {
-        throw new Error("iiko /api/1/organizations вернул некорректный JSON");
-    }
-
-    return normalizeOrganizationsPayload(payload);
 }
 
 export async function onRequestOptions() {
@@ -238,36 +161,50 @@ export async function onRequestPost(context) {
         if (!ip || !port || !login || !password) {
             return jsonResponse({
                 success: false,
-                message: "Заполните все поля"
+                message: "Заполните IP, порт, логин и пароль iiko Server"
             }, 400);
         }
 
         const auth = await getToken(ip, port, login, password);
+        const departments = await getDepartments(auth.serverUrl, auth.token);
 
-        const [departments, organizations] = await Promise.all([
-            getDepartments(auth.serverUrl, auth.token),
-            getOrganizations(auth.serverUrl, auth.token)
-        ]);
+        if (!departments.length) {
+            return jsonResponse({
+                success: false,
+                message: "iiko Server подключён, но подразделения типа DEPARTMENT не найдены. Локальный iiko Server не использует Cloud API /api/1/organizations."
+            }, 502);
+        }
 
-        const organizationId = organizations.length === 1
-            ? organizations[0].id
-            : "";
+        // Для локального iiko Server идентификатор ресторана берём из
+        // DEPARTMENT. Это реальный ID торгового предприятия из
+        // /resto/api/corporation/departments/ и не требует Cloud API.
+        const organizations = departments.map(item => ({
+            id: item.id,
+            name: item.name,
+            code: item.code,
+            address: "",
+            type: "DEPARTMENT"
+        }));
+
+        // Сохраняем прежнее имя поля organizationId, чтобы не ломать
+        // существующий QR Menu и другие части интерфейса.
+        const organizationId = departments[0].id;
 
         return jsonResponse({
             success: true,
-            message: organizations.length
-                ? "iiko Server подключён"
-                : "iiko Server подключён, но организации для API не найдены",
+            message: "iiko Server подключён. ID ресторана получен из локального DEPARTMENT.",
             organizationId,
             organizations,
             departmentIds: departments.map(item => item.id),
-            departments
+            departments,
+            source: "iiko-server",
+            identityType: "DEPARTMENT"
         });
 
     } catch (error) {
         return jsonResponse({
             success: false,
-            message: error.message
+            message: error?.message || "Ошибка подключения к iiko Server"
         }, 502);
     }
 }
