@@ -56,17 +56,11 @@ function asArray(payload) {
     return [];
 }
 
-function normalizeCategoryMap(value) {
-    if (!Array.isArray(value)) return new Map();
-
-    return new Map(
-        value
-            .filter(x => x && (x.iikoId || x.id))
-            .map(x => [
-                String(x.iikoId || x.id),
-                String(x.name || "Без категории")
-            ])
-    );
+function asGroupArray(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.items)) return payload.items;
+    if (Array.isArray(payload?.groups)) return payload.groups;
+    return [];
 }
 
 async function getProducts(serverUrl, token) {
@@ -76,9 +70,7 @@ async function getProducts(serverUrl, token) {
 
     const response = await fetch(url, {
         method: "GET",
-        headers: {
-            "Accept": "application/json"
-        }
+        headers: { "Accept": "application/json" }
     });
 
     const text = (await response.text()).trim();
@@ -101,7 +93,64 @@ async function getProducts(serverUrl, token) {
     }
 }
 
-function normalizeProducts(items, categoryMap) {
+// In iiko Server, item.parent is the UUID of a nomenclature group.
+// The group name must therefore come from /products/group/list,
+// not from a guessed/local category name.
+async function getGroups(serverUrl, token) {
+    const url =
+        `${serverUrl}/resto/api/v2/entities/products/group/list` +
+        `?includeDeleted=false&key=${encodeURIComponent(token)}`;
+
+    const response = await fetch(url, {
+        method: "GET",
+        headers: { "Accept": "application/json" }
+    });
+
+    const text = (await response.text()).trim();
+
+    if (!response.ok) {
+        throw new Error(
+            `iiko /entities/products/group/list: HTTP ${response.status}` +
+            `${text ? ` — ${text.slice(0, 500)}` : ""}`
+        );
+    }
+
+    if (!text) return [];
+
+    try {
+        return asGroupArray(JSON.parse(text));
+    } catch {
+        throw new Error(
+            "iiko /resto/api/v2/entities/products/group/list вернул некорректный JSON"
+        );
+    }
+}
+
+function buildGroupMap(groups) {
+    const map = new Map();
+
+    for (const group of groups) {
+        if (!group || group.deleted === true || !group.id) continue;
+
+        map.set(String(group.id), {
+            id: String(group.id),
+            name: String(group.name || "Без категории"),
+            parent: group.parent ? String(group.parent) : null,
+            position: toNumber(group.position)
+        });
+    }
+
+    return map;
+}
+
+function resolveGroupName(groupId, groupMap) {
+    if (!groupId || groupId === "root") return "Без категории";
+
+    const group = groupMap.get(String(groupId));
+    return group?.name || "Без категории";
+}
+
+function normalizeProducts(items, groupMap) {
     const products = [];
     const categories = new Map();
 
@@ -111,9 +160,7 @@ function normalizeProducts(items, categoryMap) {
         if (!item || item.deleted === true) continue;
         if (String(item.type || "").toUpperCase() !== "DISH") continue;
 
-        // IMPORTANT:
-        // QR Menu must contain only dishes that iiko marks as included
-        // in the menu/sale. Everything else is ignored.
+        // Only dishes currently included in iiko's menu.
         if (item.defaultIncludedInMenu !== true) continue;
 
         const id = String(item.id || "").trim();
@@ -124,16 +171,17 @@ function normalizeProducts(items, categoryMap) {
                 ? "root"
                 : String(item.parent);
 
-        const categoryName =
-            categoryMap.get(parentId) ||
-            (parentId === "root" ? "Без категории" : "Группа iiko");
+        const categoryName = resolveGroupName(parentId, groupMap);
 
         if (!categories.has(parentId)) {
+            const group = groupMap.get(parentId);
+
             categories.set(parentId, {
                 id: parentId,
                 iikoId: parentId,
                 name: categoryName,
-                sortOrder: parentId === "root" ? 999999 : categories.size
+                parentId: group?.parent || null,
+                sortOrder: group?.position ?? categories.size
             });
         }
 
@@ -142,6 +190,7 @@ function normalizeProducts(items, categoryMap) {
             name: String(item.name || id),
             description: String(item.description || ""),
             categoryId: parentId,
+            categoryName,
             price: toNumber(item.defaultSalePrice),
             defaultIncludedInMenu: true,
             deleted: false,
@@ -189,15 +238,22 @@ export async function onRequestPost(context) {
             }, 400);
         }
 
-        const categoryMap = normalizeCategoryMap(body.categories);
         const { serverUrl, token } = await auth(ip, port, login, password);
-        const rawProducts = await getProducts(serverUrl, token);
-        const normalized = normalizeProducts(rawProducts, categoryMap);
+        const [rawProducts, rawGroups] = await Promise.all([
+            getProducts(serverUrl, token),
+            getGroups(serverUrl, token)
+        ]);
+
+        const groupMap = buildGroupMap(rawGroups);
+        const normalized = normalizeProducts(rawProducts, groupMap);
 
         return jsonResponse({
             success: true,
             source: "iiko-local-server",
-            endpoint: "/resto/api/v2/entities/products/list",
+            endpoints: [
+                "/resto/api/v2/entities/products/list",
+                "/resto/api/v2/entities/products/group/list"
+            ],
             filter: "DISH + defaultIncludedInMenu=true",
             categoryCount: normalized.categories.length,
             productCount: normalized.products.length,
