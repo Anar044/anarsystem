@@ -44,7 +44,7 @@ function xmlChild(block, name) {
 function parseDepartmentsXml(text) {
     const result = [];
     const seen = new Set();
-    const nodeRegex = /<(department|corporateItemDto|corporateItem|item|entity)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+    const nodeRegex = /<(department|corporateItemDto|corporateItem|item|entity)\\b([^>]*)>([\\s\\S]*?)<\\/\\1>/gi;
     let match;
 
     while ((match = nodeRegex.exec(text))) {
@@ -73,8 +73,6 @@ function parseDepartmentsXml(text) {
 }
 
 function normalizeDepartmentsPayload(payload) {
-    // Локальный iiko Server в разных версиях может возвращать
-    // подразделения под разными именами. Cloud API здесь не используется.
     let items = [];
 
     if (Array.isArray(payload)) {
@@ -108,7 +106,7 @@ function normalizeDepartmentsPayload(payload) {
 }
 
 async function getToken(ip, port, login, password) {
-    // ТОЛЬКО локальный iiko Server.
+    // Только локальный iiko Server API.
     const serverUrl = `http://${ip}:${port}`;
     const passwordHash = await sha1(password);
     const authUrl =
@@ -127,37 +125,51 @@ async function getToken(ip, port, login, password) {
 }
 
 async function getDepartments(serverUrl, token) {
-    // ТОЛЬКО локальный iiko Server API.
     const url =
-        `${serverUrl}/resto/api/corporation/departments/` +
+        `${serverUrl}/resto/api/corporation/departments` +
         `?key=${encodeURIComponent(token)}`;
 
     const response = await fetch(url, {
         method: "GET",
         headers: {
-            "Accept": "application/json, application/xml, text/xml"
+            "Accept": "application/xml, text/xml, application/json"
         }
     });
 
     const text = (await response.text()).trim();
+    const contentType = response.headers.get("content-type") || "";
 
     if (!response.ok) {
         throw new Error(`Ошибка получения подразделений iiko Server: HTTP ${response.status}`);
     }
 
-    if (!text) return [];
+    if (!text) {
+        throw new Error("iiko Server вернул пустой ответ для /resto/api/corporation/departments");
+    }
 
-    // Основной вариант — JSON.
     try {
         const payload = JSON.parse(text);
         const departments = normalizeDepartmentsPayload(payload);
         if (departments.length) return departments;
     } catch {
-        // Ответ не JSON — пробуем XML ниже.
+        // Не JSON — ниже разбираем XML.
     }
 
-    // Резервный вариант — XML.
-    return parseDepartmentsXml(text);
+    const departments = parseDepartmentsXml(text);
+    if (departments.length) return departments;
+
+    // Временная диагностика: не скрываем фактический ответ iiko Server.
+    // Пароль и токен сюда не попадают.
+    const preview = text
+        .replace(/<password>[\\s\\S]*?<\\/password>/gi, "<password>***</password>")
+        .replace(/key=[^&\s"']+/gi, "key=***")
+        .slice(0, 2500);
+
+    throw new Error(
+        `iiko Server подключён, но DEPARTMENT не найден. ` +
+        `HTTP ${response.status}; Content-Type: ${contentType || "unknown"}; ` +
+        `ответ (${text.length} байт): ${preview}`
+    );
 }
 
 export async function onRequestOptions() {
@@ -186,15 +198,6 @@ export async function onRequestPost(context) {
         const auth = await getToken(ip, port, login, password);
         const departments = await getDepartments(auth.serverUrl, auth.token);
 
-        if (!departments.length) {
-            return jsonResponse({
-                success: false,
-                message: "iiko Server подключён, но подразделения типа DEPARTMENT не найдены в /resto/api/corporation/departments/"
-            }, 502);
-        }
-
-        // Для локального iiko Server ID ресторана берём из DEPARTMENT.
-        // Cloud API /api/1/organizations НЕ используется.
         const organizations = departments.map(item => ({
             id: item.id,
             name: item.name,
@@ -203,7 +206,6 @@ export async function onRequestPost(context) {
             type: "DEPARTMENT"
         }));
 
-        // Оставляем organizationId для совместимости с QR Menu.
         const organizationId = departments[0].id;
 
         return jsonResponse({
