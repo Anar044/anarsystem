@@ -16,20 +16,12 @@ export async function onRequestOptions() {
 export async function onRequestGet({ request, env }) {
   try {
     if (!env.DB) {
-      return json({
-        success: false,
-        message: "QR Menu DB binding DB не настроен."
-      }, 503);
+      return json({ success: false, message: "QR Menu DB binding DB не настроен." }, 503);
     }
 
-    // The public page calls /api/qr-menu/public?id=<slug>.
-    // Read the slug from the query string, not from the pathname.
     const url = new URL(request.url);
     const publicId = String(url.searchParams.get("id") || "").trim();
-
-    if (!publicId) {
-      return json({ success: false, message: "Не указан ID меню." }, 400);
-    }
+    if (!publicId) return json({ success: false, message: "Не указан ID меню." }, 400);
 
     const menu = await env.DB.prepare(`
       SELECT id, organization_id, restaurant_name, public_slug,
@@ -39,11 +31,14 @@ export async function onRequestGet({ request, env }) {
       LIMIT 1
     `).bind(publicId).first();
 
-    if (!menu) {
-      return json({
-        success: false,
-        message: "Опубликованное меню не найдено."
-      }, 404);
+    if (!menu) return json({ success: false, message: "Опубликованное меню не найдено." }, 404);
+
+    let design = {};
+    try {
+      const settings = await env.DB.prepare(`SELECT design_json FROM qr_menu_settings WHERE menu_id=?1 LIMIT 1`).bind(menu.id).first();
+      if (settings?.design_json) design = JSON.parse(settings.design_json) || {};
+    } catch (_) {
+      // Older menus may not have design settings yet.
     }
 
     const cats = await env.DB.prepare(`
@@ -69,6 +64,7 @@ export async function onRequestGet({ request, env }) {
       restaurantName: menu.restaurant_name,
       updatedAt: menu.updated_at,
       publishedAt: menu.published_at,
+      design,
       menu: {
         categories: (cats.results || []).map(c => ({
           id: c.id,
@@ -91,9 +87,6 @@ export async function onRequestGet({ request, env }) {
     });
   } catch (error) {
     console.error("QR Menu public API:", error);
-    return json({
-      success: false,
-      message: error?.message || "Ошибка загрузки меню."
-    }, 500);
+    return json({ success: false, message: error?.message || "Ошибка загрузки меню." }, 500);
   }
 }
