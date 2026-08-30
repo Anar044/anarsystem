@@ -160,18 +160,10 @@ async function getDepartments(serverUrl, token) {
     }
 }
 
-function isoDateDaysAgo(days) {
-    const date = new Date(Date.now() - days * 86400000);
-    return date.toISOString().slice(0, 23);
-}
-
-function localIsoNow() {
-    return new Date().toISOString().slice(0, 23);
-}
-
 async function getDepartmentsFromOlap(serverUrl, token) {
     // Fallback ONLY for local iiko Server identity.
-    // This does not change the main OLAP reports implementation.
+    // IMPORTANT: this query intentionally has NO DATE FILTER.
+    // Department ID is identity data and must not depend on a report period.
     const url =
         `${serverUrl}/resto/api/v2/reports/olap` +
         `?key=${encodeURIComponent(token)}`;
@@ -179,97 +171,97 @@ async function getDepartmentsFromOlap(serverUrl, token) {
     const baseBody = {
         reportType: "SALES",
         buildSummary: false,
-        aggregateFields: ["UniqOrderId"],
-        filters: {
-            "OpenDate.Typed": {
-                filterType: "DateRange",
-                periodType: "CUSTOM",
-                from: isoDateDaysAgo(90),
-                to: localIsoNow()
-            }
-        }
+        aggregateFields: ["UniqOrderId"]
     };
 
-    let response = await fetch(url, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        },
-        body: JSON.stringify({
+    const requests = [
+        {
             ...baseBody,
             groupByRowFields: ["Department.Id", "Department"]
-        })
-    });
+        },
+        {
+            ...baseBody,
+            groupByRowFields: ["Department.Id"]
+        }
+    ];
 
-    let text = (await response.text()).trim();
+    let lastError = "";
 
-    if (!response.ok) {
-        response = await fetch(url, {
+    for (const requestBody of requests) {
+        const response = await fetch(url, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 "Accept": "application/json"
             },
-            body: JSON.stringify({
-                ...baseBody,
-                groupByRowFields: ["Department.Id"]
-            })
+            body: JSON.stringify(requestBody)
         });
-        text = (await response.text()).trim();
+
+        const text = (await response.text()).trim();
+
+        if (!response.ok) {
+            lastError = `HTTP ${response.status}${text ? ` — ${text.slice(0, 800)}` : ""}`;
+            continue;
+        }
+
+        let payload;
+        try {
+            payload = JSON.parse(text || "{}");
+        } catch {
+            lastError = "iiko OLAP вернул некорректный JSON при определении Department ID";
+            continue;
+        }
+
+        const rows = Array.isArray(payload?.data)
+            ? payload.data
+            : Array.isArray(payload?.rows)
+                ? payload.rows
+                : [];
+
+        const departments = [];
+        const seen = new Set();
+
+        for (const row of rows) {
+            const id =
+                row?.["Department.Id"] ??
+                row?.DepartmentId ??
+                row?.departmentId ??
+                row?.["Department.id"];
+
+            if (id == null || String(id).trim() === "") continue;
+
+            const idString = String(id).trim();
+            if (seen.has(idString)) continue;
+
+            const name =
+                row?.Department ??
+                row?.["Department.Name"] ??
+                row?.DepartmentName ??
+                `Подразделение ${idString}`;
+
+            departments.push({
+                id: idString,
+                parentId: null,
+                code: "",
+                name: String(name),
+                type: "DEPARTMENT",
+                source: "iiko-server-olap"
+            });
+            seen.add(idString);
+        }
+
+        if (departments.length) {
+            return {
+                departments,
+                rawFormat: "olap",
+                rawPreview: JSON.stringify(payload).slice(0, 1600)
+            };
+        }
+
+        lastError = "OLAP успешно ответил, но Department.Id не найден в data";
     }
 
-    if (!response.ok) {
-        throw new Error(
-            `iiko OLAP Department.Id: HTTP ${response.status}${text ? ` — ${text.slice(0, 800)}` : ""}`
-        );
-    }
-
-    let payload;
-    try {
-        payload = JSON.parse(text || "{}");
-    } catch {
-        throw new Error("iiko OLAP вернул некорректный JSON при определении Department ID");
-    }
-
-    const rows = Array.isArray(payload?.data)
-        ? payload.data
-        : Array.isArray(payload?.rows)
-            ? payload.rows
-            : [];
-
-    const departments = [];
-    const seen = new Set();
-
-    for (const row of rows) {
-        const id = row?.["Department.Id"] ?? row?.DepartmentId ?? row?.departmentId;
-        if (id == null || String(id).trim() === "") continue;
-
-        const idString = String(id).trim();
-        if (seen.has(idString)) continue;
-
-        const name =
-            row?.Department ??
-            row?.["Department.Name"] ??
-            row?.DepartmentName ??
-            `Подразделение ${idString}`;
-
-        departments.push({
-            id: idString,
-            parentId: null,
-            code: "",
-            name: String(name),
-            type: "DEPARTMENT",
-            source: "iiko-server-olap"
-        });
-        seen.add(idString);
-    }
-
-    return {
-        departments,
-        rawFormat: "olap",
-        rawPreview: JSON.stringify(payload).slice(0, 1600)
-    };
+    throw new Error(`iiko OLAP Department.Id: ${lastError || "не удалось получить Department ID"}`);
 }
 
 export async function onRequestOptions() {
@@ -296,7 +288,18 @@ export async function onRequestPost(context) {
         }
 
         const auth = await getToken(ip, port, login, password);
-        let departmentResult = await getDepartments(auth.serverUrl, auth.token);
+
+        let departmentResult;
+        try {
+            departmentResult = await getDepartments(auth.serverUrl, auth.token);
+        } catch (classicError) {
+            departmentResult = {
+                departments: [],
+                rawFormat: "classic-error",
+                rawPreview: classicError?.message || ""
+            };
+        }
+
         let departments = departmentResult.departments;
 
         if (!departments.length) {
@@ -308,7 +311,7 @@ export async function onRequestPost(context) {
                     success: false,
                     message:
                         "iiko Server подключён, но не удалось получить реальный Department ID. " +
-                        `Classic departments: ${departmentResult.rawPreview || "[]"}. ` +
+                        `Classic: ${departmentResult.rawPreview || "нет данных"}. ` +
                         `OLAP: ${olapError?.message || "ошибка"}`
                 }, 502);
             }
@@ -319,7 +322,7 @@ export async function onRequestPost(context) {
                 success: false,
                 message:
                     "iiko Server подключён, но реальный Department ID не найден. " +
-                    "Проверьте, что в iiko есть продажи за последние 90 дней или доступен список подразделений.",
+                    "Проверьте список подразделений в iiko Server.",
                 source: departmentResult.rawFormat,
                 rawPreview: departmentResult.rawPreview
             }, 502);
