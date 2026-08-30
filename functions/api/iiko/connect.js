@@ -43,16 +43,12 @@ function xmlChild(block, name) {
 function parseDepartmentsXml(text) {
     const result = [];
     const seen = new Set();
-
-    // RegExp constructor is used deliberately so the escaping is unambiguous
-    // when this file is compiled by Cloudflare/esbuild.
     const nodeRegex = new RegExp(
-        "<(department|corporateItemDto|corporateItem|item|entity)\\\\b[^>]*>([\\\\s\\\\S]*?)<\\\\/\\\\1>",
+        "<(department|corporateItemDto|corporateItem|item|entity)\\b[^>]*>([\\s\\S]*?)<\\/\\1>",
         "gi"
     );
 
     let match;
-
     while ((match = nodeRegex.exec(text))) {
         const block = match[2] || "";
         const type = xmlChild(block, "type");
@@ -79,10 +75,9 @@ function normalizeDepartmentItem(item) {
 
     const rawType = item.type ?? item.Type ?? item.itemType ?? item.entityType ?? "DEPARTMENT";
     const type = String(rawType).toUpperCase();
-
     const id = item.id ?? item.Id ?? item.ID ?? item.uuid ?? item.UUID;
-    if (id == null || String(id).trim() === "") return null;
 
+    if (id == null || String(id).trim() === "") return null;
     if (type && type !== "DEPARTMENT") return null;
 
     return {
@@ -97,21 +92,13 @@ function normalizeDepartmentItem(item) {
 function normalizeDepartmentsPayload(payload) {
     let items = [];
 
-    if (Array.isArray(payload)) {
-        items = payload;
-    } else if (Array.isArray(payload?.items)) {
-        items = payload.items;
-    } else if (Array.isArray(payload?.departments)) {
-        items = payload.departments;
-    } else if (Array.isArray(payload?.corporateItems)) {
-        items = payload.corporateItems;
-    } else if (Array.isArray(payload?.corporateItemDtoes)) {
-        items = payload.corporateItemDtoes;
-    } else if (Array.isArray(payload?.corporateItemDtos)) {
-        items = payload.corporateItemDtos;
-    } else if (Array.isArray(payload?.data)) {
-        items = payload.data;
-    }
+    if (Array.isArray(payload)) items = payload;
+    else if (Array.isArray(payload?.items)) items = payload.items;
+    else if (Array.isArray(payload?.departments)) items = payload.departments;
+    else if (Array.isArray(payload?.corporateItems)) items = payload.corporateItems;
+    else if (Array.isArray(payload?.corporateItemDtoes)) items = payload.corporateItemDtoes;
+    else if (Array.isArray(payload?.corporateItemDtos)) items = payload.corporateItemDtos;
+    else if (Array.isArray(payload?.data)) items = payload.data;
 
     return items.map(normalizeDepartmentItem).filter(Boolean);
 }
@@ -136,7 +123,6 @@ async function getToken(ip, port, login, password) {
 }
 
 async function getDepartments(serverUrl, token) {
-    // ONLY local iiko Server API.
     const url =
         `${serverUrl}/resto/api/corporation/departments` +
         `?key=${encodeURIComponent(token)}`;
@@ -160,20 +146,129 @@ async function getDepartments(serverUrl, token) {
 
     try {
         const payload = JSON.parse(text);
-        const departments = normalizeDepartmentsPayload(payload);
         return {
-            departments,
+            departments: normalizeDepartmentsPayload(payload),
             rawFormat: "json",
             rawPreview: JSON.stringify(payload).slice(0, 1200)
         };
     } catch {
-        const departments = parseDepartmentsXml(text);
         return {
-            departments,
+            departments: parseDepartmentsXml(text),
             rawFormat: "xml",
             rawPreview: text.slice(0, 1200)
         };
     }
+}
+
+function isoDateDaysAgo(days) {
+    const date = new Date(Date.now() - days * 86400000);
+    return date.toISOString().slice(0, 10) + "T00:00:00.000";
+}
+
+async function getDepartmentsFromOlap(serverUrl, token) {
+    // Some local iiko Server installations return [] from
+    // /corporation/departments even though SALES OLAP exposes Department.Id.
+    // Use OLAP only as a fallback for the local server identity.
+    const url =
+        `${serverUrl}/resto/api/v2/reports/olap` +
+        `?key=${encodeURIComponent(token)}`;
+
+    const baseBody = {
+        reportType: "SALES",
+        buildSummary: false,
+        aggregateFields: ["UniqOrderId"],
+        filters: {
+            "OpenDate.Typed": {
+                filterType: "DateRange",
+                periodType: "CUSTOM",
+                from: isoDateDaysAgo(90),
+                to: new Date().toISOString()
+            }
+        }
+    };
+
+    let response = await fetch(url, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        },
+        body: JSON.stringify({
+            ...baseBody,
+            groupByRowFields: ["Department.Id", "Department"]
+        })
+    });
+
+    let text = (await response.text()).trim();
+
+    // Older/local versions may not expose the display-name field. Retry with
+    // the stable Department.Id field only.
+    if (!response.ok) {
+        response = await fetch(url, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            body: JSON.stringify({
+                ...baseBody,
+                groupByRowFields: ["Department.Id"]
+            })
+        });
+        text = (await response.text()).trim();
+    }
+
+    if (!response.ok) {
+        throw new Error(
+            `iiko OLAP Department.Id: HTTP ${response.status}${text ? ` — ${text.slice(0, 800)}` : ""}`
+        );
+    }
+
+    let payload;
+    try {
+        payload = JSON.parse(text || "{}");
+    } catch {
+        throw new Error("iiko OLAP вернул некорректный JSON при определении Department ID");
+    }
+
+    const rows = Array.isArray(payload?.data)
+        ? payload.data
+        : Array.isArray(payload?.rows)
+            ? payload.rows
+            : [];
+
+    const departments = [];
+    const seen = new Set();
+
+    for (const row of rows) {
+        const id = row?.["Department.Id"] ?? row?.DepartmentId ?? row?.departmentId;
+        if (id == null || String(id).trim() === "") continue;
+
+        const idString = String(id).trim();
+        if (seen.has(idString)) continue;
+
+        const name =
+            row?.Department ??
+            row?.["Department.Name"] ??
+            row?.DepartmentName ??
+            `Подразделение ${idString}`;
+
+        departments.push({
+            id: idString,
+            parentId: null,
+            code: "",
+            name: String(name),
+            type: "DEPARTMENT",
+            source: "iiko-server-olap"
+        });
+        seen.add(idString);
+    }
+
+    return {
+        departments,
+        rawFormat: "olap",
+        rawPreview: JSON.stringify(payload).slice(0, 1600)
+    };
 }
 
 export async function onRequestOptions() {
@@ -200,15 +295,35 @@ export async function onRequestPost(context) {
         }
 
         const auth = await getToken(ip, port, login, password);
-        const departmentResult = await getDepartments(auth.serverUrl, auth.token);
-        const departments = departmentResult.departments;
+        let departmentResult = await getDepartments(auth.serverUrl, auth.token);
+        let departments = departmentResult.departments;
+
+        // Important: do not invent an Organization ID. If the classic local
+        // departments endpoint is empty, obtain the real Department.Id from
+        // the local SALES OLAP API instead.
+        if (!departments.length) {
+            try {
+                departmentResult = await getDepartmentsFromOlap(auth.serverUrl, auth.token);
+                departments = departmentResult.departments;
+            } catch (olapError) {
+                return jsonResponse({
+                    success: false,
+                    message:
+                        "iiko Server подключён, но не удалось получить реальный Department ID. " +
+                        `Classic departments: ${departmentResult.rawPreview || "[]"}. ` +
+                        `OLAP: ${olapError?.message || "ошибка"}`
+                }, 502);
+            }
+        }
 
         if (!departments.length) {
             return jsonResponse({
                 success: false,
                 message:
-                    `iiko Server подключён, но API /resto/api/corporation/departments не вернул DEPARTMENT. ` +
-                    `Формат: ${departmentResult.rawFormat}. Ответ: ${departmentResult.rawPreview}`
+                    "iiko Server подключён, но реальный Department ID не найден. " +
+                    "Проверьте, что в iiko есть продажи за последние 90 дней или доступен список подразделений.",
+                source: departmentResult.rawFormat,
+                rawPreview: departmentResult.rawPreview
             }, 502);
         }
 
@@ -224,13 +339,14 @@ export async function onRequestPost(context) {
 
         return jsonResponse({
             success: true,
-            message: "iiko Server подключён. ID ресторана получен из локального DEPARTMENT.",
+            message: "iiko Server подключён. Реальный Department ID получен из локального iiko API.",
             organizationId,
             organizations,
             departmentIds: departments.map(item => item.id),
             departments,
             source: "iiko-server-local",
-            identityType: "DEPARTMENT"
+            identityType: "DEPARTMENT",
+            identitySource: departmentResult.rawFormat
         });
 
     } catch (error) {
