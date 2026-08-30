@@ -35,41 +35,59 @@ function xmlDecode(value) {
 }
 
 function xmlChild(block, name) {
-    const match = block.match(
-        new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`, "i")
-    );
+    const pattern = `<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`;
+    const match = block.match(new RegExp(pattern, "i"));
     return match ? xmlDecode(match[1].replace(/<[^>]+>/g, "")) : "";
 }
 
 function parseDepartmentsXml(text) {
     const result = [];
     const seen = new Set();
-    const nodeRegex = /<(department|corporateItemDto|corporateItem|item|entity)\\b([^>]*)>([\\s\\S]*?)<\\/\\1>/gi;
+    const nodeRegex = /<(department|corporateItemDto|corporateItem|item|entity)\\b[^>]*>([\\s\\S]*?)<\\/\\1>/gi;
     let match;
 
     while ((match = nodeRegex.exec(text))) {
-        const block = match[3] || "";
+        const block = match[2] || "";
         const type = xmlChild(block, "type");
         if (type && type.toUpperCase() !== "DEPARTMENT") continue;
 
         const id = xmlChild(block, "id");
         if (!id || seen.has(id)) continue;
 
-        const parentId = xmlChild(block, "parentId") || xmlChild(block, "parentID");
-        const code = xmlChild(block, "code");
-        const name = xmlChild(block, "name");
-
         result.push({
             id: String(id),
-            parentId: parentId ? String(parentId) : null,
-            code: String(code || ""),
-            name: String(name || code || id),
+            parentId: xmlChild(block, "parentId") || xmlChild(block, "parentID") || null,
+            code: xmlChild(block, "code"),
+            name: xmlChild(block, "name") || xmlChild(block, "code") || String(id),
             type: "DEPARTMENT"
         });
         seen.add(id);
     }
 
     return result;
+}
+
+function normalizeDepartmentItem(item) {
+    if (!item || typeof item !== "object") return null;
+
+    const rawType = item.type ?? item.Type ?? item.itemType ?? item.entityType ?? "DEPARTMENT";
+    const type = String(rawType).toUpperCase();
+
+    const id = item.id ?? item.Id ?? item.ID ?? item.uuid ?? item.UUID;
+    if (id == null || String(id).trim() === "") return null;
+
+    // Some local iiko Server responses wrap the corporate item and do not
+    // expose the type in the exact same property. We accept an explicit
+    // DEPARTMENT, or an item from a known department collection.
+    if (type && type !== "DEPARTMENT") return null;
+
+    return {
+        id: String(id),
+        parentId: item.parentId ?? item.parentID ?? item.ParentId ?? null,
+        code: String(item.code ?? item.Code ?? ""),
+        name: String(item.name ?? item.Name ?? item.code ?? item.Code ?? id),
+        type: "DEPARTMENT"
+    };
 }
 
 function normalizeDepartmentsPayload(payload) {
@@ -89,24 +107,15 @@ function normalizeDepartmentsPayload(payload) {
         items = payload.corporateItemDtos;
     } else if (Array.isArray(payload?.data)) {
         items = payload.data;
+    } else if (Array.isArray(payload?.corporateItems?.items)) {
+        items = payload.corporateItems.items;
     }
 
-    return items
-        .filter(item => String(item?.type || "").toUpperCase() === "DEPARTMENT")
-        .map(item => ({
-            id: String(item.id || ""),
-            parentId: item.parentId == null ? null : String(item.parentId),
-            code: item.code == null ? "" : String(item.code),
-            name: item.name == null
-                ? String(item.code || item.id || "Подразделение")
-                : String(item.name),
-            type: "DEPARTMENT"
-        }))
-        .filter(item => item.id);
+    return items.map(normalizeDepartmentItem).filter(Boolean);
 }
 
 async function getToken(ip, port, login, password) {
-    // Только локальный iiko Server API.
+    // ONLY local iiko Server. No iiko Cloud API.
     const serverUrl = `http://${ip}:${port}`;
     const passwordHash = await sha1(password);
     const authUrl =
@@ -125,6 +134,7 @@ async function getToken(ip, port, login, password) {
 }
 
 async function getDepartments(serverUrl, token) {
+    // ONLY local iiko Server API.
     const url =
         `${serverUrl}/resto/api/corporation/departments` +
         `?key=${encodeURIComponent(token)}`;
@@ -132,44 +142,36 @@ async function getDepartments(serverUrl, token) {
     const response = await fetch(url, {
         method: "GET",
         headers: {
-            "Accept": "application/xml, text/xml, application/json"
+            "Accept": "application/json, application/xml, text/xml"
         }
     });
 
     const text = (await response.text()).trim();
-    const contentType = response.headers.get("content-type") || "";
 
     if (!response.ok) {
-        throw new Error(`Ошибка получения подразделений iiko Server: HTTP ${response.status}`);
+        throw new Error(
+            `Ошибка получения подразделений iiko Server: HTTP ${response.status}${text ? ` — ${text.slice(0, 800)}` : ""}`
+        );
     }
 
-    if (!text) {
-        throw new Error("iiko Server вернул пустой ответ для /resto/api/corporation/departments");
-    }
+    if (!text) return { departments: [], rawFormat: "empty", rawPreview: "" };
 
     try {
         const payload = JSON.parse(text);
         const departments = normalizeDepartmentsPayload(payload);
-        if (departments.length) return departments;
+        return {
+            departments,
+            rawFormat: "json",
+            rawPreview: JSON.stringify(payload).slice(0, 1200)
+        };
     } catch {
-        // Не JSON — ниже разбираем XML.
+        const departments = parseDepartmentsXml(text);
+        return {
+            departments,
+            rawFormat: "xml",
+            rawPreview: text.slice(0, 1200)
+        };
     }
-
-    const departments = parseDepartmentsXml(text);
-    if (departments.length) return departments;
-
-    // Временная диагностика: не скрываем фактический ответ iiko Server.
-    // Пароль и токен сюда не попадают.
-    const preview = text
-        .replace(/<password>[\\s\\S]*?<\\/password>/gi, "<password>***</password>")
-        .replace(/key=[^&\s"']+/gi, "key=***")
-        .slice(0, 2500);
-
-    throw new Error(
-        `iiko Server подключён, но DEPARTMENT не найден. ` +
-        `HTTP ${response.status}; Content-Type: ${contentType || "unknown"}; ` +
-        `ответ (${text.length} байт): ${preview}`
-    );
 }
 
 export async function onRequestOptions() {
@@ -196,8 +198,20 @@ export async function onRequestPost(context) {
         }
 
         const auth = await getToken(ip, port, login, password);
-        const departments = await getDepartments(auth.serverUrl, auth.token);
+        const departmentResult = await getDepartments(auth.serverUrl, auth.token);
+        const departments = departmentResult.departments;
 
+        if (!departments.length) {
+            return jsonResponse({
+                success: false,
+                message:
+                    `iiko Server подключён, но API /resto/api/corporation/departments не вернул DEPARTMENT. ` +
+                    `Формат: ${departmentResult.rawFormat}. Ответ: ${departmentResult.rawPreview}`
+            }, 502);
+        }
+
+        // Local iiko Server: use DEPARTMENT.id as restaurant identity.
+        // No Cloud API /api/1/organizations is used anywhere here.
         const organizations = departments.map(item => ({
             id: item.id,
             name: item.name,
