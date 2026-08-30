@@ -51,26 +51,6 @@ function asGroupArray(payload) {
     return [];
 }
 
-async function getProducts(serverUrl, token) {
-    const url = `${serverUrl}/resto/api/v2/entities/products/list?includeDeleted=false&types=DISH&key=${encodeURIComponent(token)}`;
-    const response = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
-    const text = (await response.text()).trim();
-    if (!response.ok) throw new Error(`iiko /entities/products/list: HTTP ${response.status}${text ? ` — ${text.slice(0, 500)}` : ""}`);
-    if (!text) return [];
-    try { return asArray(JSON.parse(text)); }
-    catch { throw new Error("iiko /resto/api/v2/entities/products/list вернул некорректный JSON"); }
-}
-
-async function getGroups(serverUrl, token) {
-    const url = `${serverUrl}/resto/api/v2/entities/products/group/list?includeDeleted=false&key=${encodeURIComponent(token)}`;
-    const response = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
-    const text = (await response.text()).trim();
-    if (!response.ok) throw new Error(`iiko /entities/products/group/list: HTTP ${response.status}${text ? ` — ${text.slice(0, 500)}` : ""}`);
-    if (!text) return [];
-    try { return asGroupArray(JSON.parse(text)); }
-    catch { throw new Error("iiko /resto/api/v2/entities/products/group/list вернул некорректный JSON"); }
-}
-
 function buildGroupMap(groups) {
     const map = new Map();
     for (const group of groups) {
@@ -91,9 +71,6 @@ function resolveGroupName(groupId, groupMap) {
     return groupMap.get(String(groupId))?.name || "Без категории";
 }
 
-// iiko Server exposes the branches where an item is NOT available through
-// excludedSections. null/[] means the item is available everywhere.
-// We intentionally keep this rule server-local and do not call iiko Cloud.
 function hasSalePlace(item) {
     const excluded = item?.excludedSections;
     if (excluded == null) return true;
@@ -111,8 +88,6 @@ function normalizeProducts(items, groupMap) {
         if (!item || item.deleted === true) continue;
         if (String(item.type || "").toUpperCase() !== "DISH") continue;
         if (item.defaultIncludedInMenu !== true) continue;
-
-        // A dish with no sales place is not part of the QR Menu mirror.
         if (!hasSalePlace(item)) {
             skippedNoSalePlace += 1;
             continue;
@@ -160,12 +135,63 @@ function normalizeProducts(items, groupMap) {
     }
 
     products.sort((a, b) => a.sortOrder - b.sortOrder);
+    return { categories: Array.from(categories.values()), products, skippedNoSalePlace };
+}
 
-    return {
-        categories: Array.from(categories.values()),
-        products,
-        skippedNoSalePlace
-    };
+function arrayBufferToDataUrl(buffer, contentType) {
+    let binary = "";
+    const bytes = new Uint8Array(buffer);
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+    }
+    return `data:${contentType || "image/jpeg"};base64,${btoa(binary)}`;
+}
+
+async function fetchImageDataUrl(serverUrl, token, imageId) {
+    if (!imageId) return null;
+
+    const candidates = [
+        `${serverUrl}/resto/api/v2/images/${encodeURIComponent(imageId)}?key=${encodeURIComponent(token)}`,
+        `${serverUrl}/resto/api/v2/images/${encodeURIComponent(imageId)}/download?key=${encodeURIComponent(token)}`,
+        `${serverUrl}/resto/api/images/${encodeURIComponent(imageId)}?key=${encodeURIComponent(token)}`,
+        `${serverUrl}/resto/api/v2/entities/products/image/${encodeURIComponent(imageId)}?key=${encodeURIComponent(token)}`
+    ];
+
+    for (const url of candidates) {
+        try {
+            const response = await fetch(url, { headers: { Accept: "image/*,*/*;q=0.8" } });
+            const contentType = response.headers.get("content-type") || "";
+            if (!response.ok || !contentType.toLowerCase().startsWith("image/")) continue;
+            const buffer = await response.arrayBuffer();
+            if (!buffer.byteLength) continue;
+            return arrayBufferToDataUrl(buffer, contentType.split(";")[0] || "image/jpeg");
+        } catch (_) {
+            // Try the next image endpoint supported by the installed iiko build.
+        }
+    }
+
+    return null;
+}
+
+async function getProducts(serverUrl, token) {
+    const url = `${serverUrl}/resto/api/v2/entities/products/list?includeDeleted=false&types=DISH&key=${encodeURIComponent(token)}`;
+    const response = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+    const text = (await response.text()).trim();
+    if (!response.ok) throw new Error(`iiko /entities/products/list: HTTP ${response.status}${text ? ` — ${text.slice(0, 500)}` : ""}`);
+    if (!text) return [];
+    try { return asArray(JSON.parse(text)); }
+    catch { throw new Error("iiko /resto/api/v2/entities/products/list вернул некорректный JSON"); }
+}
+
+async function getGroups(serverUrl, token) {
+    const url = `${serverUrl}/resto/api/v2/entities/products/group/list?includeDeleted=false&key=${encodeURIComponent(token)}`;
+    const response = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+    const text = (await response.text()).trim();
+    if (!response.ok) throw new Error(`iiko /entities/products/group/list: HTTP ${response.status}${text ? ` — ${text.slice(0, 500)}` : ""}`);
+    if (!text) return [];
+    try { return asGroupArray(JSON.parse(text)); }
+    catch { throw new Error("iiko /resto/api/v2/entities/products/group/list вернул некорректный JSON"); }
 }
 
 export async function onRequestOptions() {
@@ -193,6 +219,24 @@ export async function onRequestPost(context) {
         const groupMap = buildGroupMap(rawGroups);
         const normalized = normalizeProducts(rawProducts, groupMap);
 
+        // iiko exposes the product picture as frontImageId. The previous QR sync
+        // copied only this UUID, so the public menu had nothing that an <img>
+        // element could actually display. Download the image server-side and
+        // send a compact data URL to the QR Menu publisher.
+        let imageCount = 0;
+        const imageLimit = 4;
+        for (let i = 0; i < normalized.products.length; i += imageLimit) {
+            const batch = normalized.products.slice(i, i + imageLimit);
+            await Promise.all(batch.map(async product => {
+                if (!product.frontImageId) return;
+                const originalImageId = product.frontImageId;
+                const dataUrl = await fetchImageDataUrl(serverUrl, token, originalImageId);
+                product.iikoImageId = originalImageId;
+                product.photo = dataUrl || "";
+                if (dataUrl) imageCount += 1;
+            }));
+        }
+
         return jsonResponse({
             success: true,
             source: "iiko-local-server",
@@ -204,6 +248,7 @@ export async function onRequestPost(context) {
             filter: "DISH + defaultIncludedInMenu=true + sale place available",
             categoryCount: normalized.categories.length,
             productCount: normalized.products.length,
+            imageCount,
             skippedNoSalePlace: normalized.skippedNoSalePlace,
             categories: normalized.categories,
             products: normalized.products
