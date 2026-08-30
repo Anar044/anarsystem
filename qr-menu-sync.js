@@ -54,6 +54,9 @@
     );
     const now = new Date().toISOString();
 
+    // iiko is the source of truth for iiko categories.
+    // Never keep an old placeholder such as "Группа iiko" when iiko
+    // returned the real group name.
     const categories = (data.categories || []).map((c,index) => {
       const iikoId = String(c.iikoId || c.id);
       const previous = oldCategories.get(iikoId) || {};
@@ -61,8 +64,10 @@
         ...previous,
         id:`iiko-cat-${iikoId}`,
         iikoId,
-        name:String(previous.name || c.name || "Без категории"),
-        sortOrder:Number(previous.sortOrder ?? c.sortOrder ?? index),
+        name:String(c.name || previous.name || "Без категории"),
+        parentId:c.parentId ?? previous.parentId ?? null,
+        sortOrder:Number(c.sortOrder ?? previous.sortOrder ?? index),
+        source:"iiko",
         iikoSyncedAt:now
       };
     });
@@ -73,7 +78,7 @@
     for(const [index,p] of (data.products || []).entries()){
       if(!isDish(p)) continue;
 
-      const iikoId = String(p.id);
+      const iikoId = String(p.iikoId || p.id);
       const previous = oldDishes.get(iikoId) || {};
       const categoryIikoId = String(
         p.categoryId || previous.iikoCategoryId || "root"
@@ -83,8 +88,10 @@
         categories.push({
           id:`iiko-cat-${categoryIikoId}`,
           iikoId:categoryIikoId,
-          name:categoryIikoId === "root" ? "Без категории" : "Группа iiko",
+          name:String(p.categoryName || "Без категории"),
+          parentId:null,
           sortOrder:999999,
+          source:"iiko",
           iikoSyncedAt:now
         });
         categoryIds.add(categoryIikoId);
@@ -98,15 +105,18 @@
         iikoId,
         iikoCategoryId:categoryIikoId,
         cat:`iiko-cat-${categoryIikoId}`,
-        name:String(p.name || previous.name || iikoId),
+        source:"iiko",
+        name:String(p.name || iikoId),
         price:Number.isFinite(price) ? price : 0,
-        desc:previous.desc || String(p.description || ""),
-        photo:previous.photo || p.image || null,
-        code:String(p.code || previous.code || ""),
-        num:String(p.num || previous.num || ""),
+        desc:String(p.description ?? previous.desc ?? ""),
+        photo:previous.photo || p.image || p.frontImageId || null,
+        code:String(p.code || ""),
+        num:String(p.num || ""),
         defaultIncludedInMenu:Boolean(p.defaultIncludedInMenu),
+        salePlaceAvailable:p.salePlaceAvailable !== false,
+        excludedSections:Array.isArray(p.excludedSections) ? p.excludedSections : null,
         sizes:p.sizes || previous.sizes || [],
-        sortOrder:Number(previous.sortOrder ?? p.sortOrder ?? index),
+        sortOrder:Number(p.sortOrder ?? previous.sortOrder ?? index),
         iikoSyncedAt:now
       });
     }
@@ -161,7 +171,7 @@
 
       setStatus("● Получаем номенклатуру iiko...");
 
-      const response = await fetch("/api/iiko/nomenclature",{
+      const response = await fetch("/api/iiko/qr-menu",{
         method:"POST",
         headers:{
           "Content-Type":"application/json",
@@ -180,7 +190,7 @@
       const products = (data.products || []).filter(isDish);
 
       if(!products.length){
-        throw new Error("iiko не вернул ни одного элемента типа DISH.");
+        throw new Error("iiko не вернул ни одного доступного элемента типа DISH.");
       }
 
       const result = mergeMenu({...data, products});
@@ -190,7 +200,7 @@
     }catch(error){
       console.error("QR Menu iiko nomenclature sync:", error);
       setStatus(`⚠ Ошибка iiko: ${error.message}`);
-      alert(`Не удалось загрузить номенклатуру iiko:\n\n${error.message}`);
+      alert(`Не удалось загрузить меню iiko:\n\n${error.message}`);
     }finally{
       syncing = false;
       button.disabled = false;
@@ -198,10 +208,6 @@
     }
   }
 
-  // ВАЖНО: этот файл отвечает только за синхронизацию с iiko.
-  // Кнопку publishBtn здесь намеренно НЕ перехватываем.
-  // Публикацией занимается qr-menu-publish.js, который получает
-  // Organization ID из iikoDepartmentIdentity.
   window.qrMenuSync = sync;
 
   function install(){
