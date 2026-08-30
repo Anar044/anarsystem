@@ -24,7 +24,6 @@ export async function onRequestPost({request,env}){
 
     await env.DB.prepare(`INSERT INTO qr_menus(id,organization_id,restaurant_name,public_slug,is_published,created_at,updated_at,published_at) VALUES(?1,?2,?3,?4,1,?5,?5,?5) ON CONFLICT(organization_id) DO UPDATE SET restaurant_name=excluded.restaurant_name,public_slug=excluded.public_slug,is_published=1,updated_at=excluded.updated_at,published_at=excluded.published_at`).bind(menuId,organizationId,restaurantName,publicSlug,now).run();
 
-    // Design is kept separately so the existing qr_menus schema stays untouched.
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS qr_menu_settings (menu_id TEXT PRIMARY KEY, design_json TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL)`).run();
     const design=menu.design&&typeof menu.design==='object'?menu.design:{};
     await env.DB.prepare(`INSERT INTO qr_menu_settings(menu_id,design_json,updated_at) VALUES(?1,?2,?3) ON CONFLICT(menu_id) DO UPDATE SET design_json=excluded.design_json,updated_at=excluded.updated_at`).bind(menuId,JSON.stringify(design),now).run();
@@ -43,16 +42,21 @@ export async function onRequestPost({request,env}){
       await env.DB.prepare(`INSERT INTO qr_categories(id,menu_id,name,sort_order) VALUES(?1,?2,?3,?4)`).bind(c.id,menuId,c.name,c.sortOrder).run();
     }
 
+    let photoCount=0;
     for(const [i,d] of menu.dishes.entries()){
       if(!d||!d.name) continue;
       const originalCat=String(d.cat||d.iikoCategoryId||"");
       const categoryId=categoryMap.get(originalCat)||null;
       const dishId=`${menuId}:dish:${String(d.iikoId||d.id||i)}`;
-      await env.DB.prepare(`INSERT INTO qr_dishes(id,menu_id,category_id,iiko_id,name,description,composition,price,currency,photo_url,sort_order,is_available,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,1,?12,?12)`).bind(dishId,menuId,categoryId,String(d.iikoId||d.id||""),String(d.name),String(d.desc||d.description||""),String(d.composition||d.desc||""),Number(d.price||0),String(d.currency||"AZN"),String(d.photo||d.photo_url||""),Number(d.sortOrder??i),now).run();
+      const imageCandidate=String(d.photo||d.photo_url||"").trim();
+      const frontImageCandidate=String(d.frontImageId||"").trim();
+      const photoUrl=imageCandidate || (frontImageCandidate.startsWith("data:image/") ? frontImageCandidate : "");
+      if(photoUrl) photoCount += 1;
+      await env.DB.prepare(`INSERT INTO qr_dishes(id,menu_id,category_id,iiko_id,name,description,composition,price,currency,photo_url,sort_order,is_available,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,1,?12,?12)`).bind(dishId,menuId,categoryId,String(d.iikoId||d.id||""),String(d.name),String(d.desc||d.description||""),String(d.composition||d.desc||""),Number(d.price||0),String(d.currency||"AZN"),photoUrl,Number(d.sortOrder??i),now).run();
     }
 
     const origin=new URL(request.url).origin;
     const publicUrl=`${origin}/menu.html?id=${encodeURIComponent(publicSlug)}`;
-    return json({success:true,publicId:publicSlug,publicUrl,organizationId,updatedAt:now});
+    return json({success:true,publicId:publicSlug,publicUrl,organizationId,updatedAt:now,photoCount});
   }catch(error){ return json({success:false,message:error?.message||"Ошибка публикации QR Menu"},500); }
 }
