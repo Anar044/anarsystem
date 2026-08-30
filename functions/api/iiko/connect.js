@@ -162,13 +162,16 @@ async function getDepartments(serverUrl, token) {
 
 function isoDateDaysAgo(days) {
     const date = new Date(Date.now() - days * 86400000);
-    return date.toISOString().slice(0, 10) + "T00:00:00.000";
+    return date.toISOString().slice(0, 23);
+}
+
+function localIsoNow() {
+    return new Date().toISOString().slice(0, 23);
 }
 
 async function getDepartmentsFromOlap(serverUrl, token) {
-    // Some local iiko Server installations return [] from
-    // /corporation/departments even though SALES OLAP exposes Department.Id.
-    // Use OLAP only as a fallback for the local server identity.
+    // Fallback ONLY for local iiko Server identity.
+    // This does not change the main OLAP reports implementation.
     const url =
         `${serverUrl}/resto/api/v2/reports/olap` +
         `?key=${encodeURIComponent(token)}`;
@@ -182,7 +185,7 @@ async function getDepartmentsFromOlap(serverUrl, token) {
                 filterType: "DateRange",
                 periodType: "CUSTOM",
                 from: isoDateDaysAgo(90),
-                to: new Date().toISOString()
+                to: localIsoNow()
             }
         }
     };
@@ -201,8 +204,6 @@ async function getDepartmentsFromOlap(serverUrl, token) {
 
     let text = (await response.text()).trim();
 
-    // Older/local versions may not expose the display-name field. Retry with
-    // the stable Department.Id field only.
     if (!response.ok) {
         response = await fetch(url, {
             method: "POST",
@@ -298,9 +299,6 @@ export async function onRequestPost(context) {
         let departmentResult = await getDepartments(auth.serverUrl, auth.token);
         let departments = departmentResult.departments;
 
-        // Important: do not invent an Organization ID. If the classic local
-        // departments endpoint is empty, obtain the real Department.Id from
-        // the local SALES OLAP API instead.
         if (!departments.length) {
             try {
                 departmentResult = await getDepartmentsFromOlap(auth.serverUrl, auth.token);
