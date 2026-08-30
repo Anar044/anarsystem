@@ -76,9 +76,6 @@ function normalizeDepartmentItem(item) {
     const id = item.id ?? item.Id ?? item.ID ?? item.uuid ?? item.UUID;
     if (id == null || String(id).trim() === "") return null;
 
-    // Some local iiko Server responses wrap the corporate item and do not
-    // expose the type in the exact same property. We accept an explicit
-    // DEPARTMENT, or an item from a known department collection.
     if (type && type !== "DEPARTMENT") return null;
 
     return {
@@ -107,8 +104,6 @@ function normalizeDepartmentsPayload(payload) {
         items = payload.corporateItemDtos;
     } else if (Array.isArray(payload?.data)) {
         items = payload.data;
-    } else if (Array.isArray(payload?.corporateItems?.items)) {
-        items = payload.corporateItems.items;
     }
 
     return items.map(normalizeDepartmentItem).filter(Boolean);
@@ -210,8 +205,6 @@ export async function onRequestPost(context) {
             }, 502);
         }
 
-        // Local iiko Server: use DEPARTMENT.id as restaurant identity.
-        // No Cloud API /api/1/organizations is used anywhere here.
         const organizations = departments.map(item => ({
             id: item.id,
             name: item.name,
