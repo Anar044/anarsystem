@@ -166,11 +166,8 @@ async function fetchImageDataUrl(serverUrl, token, imageId) {
             const buffer = await response.arrayBuffer();
             if (!buffer.byteLength) continue;
             return arrayBufferToDataUrl(buffer, contentType.split(";")[0] || "image/jpeg");
-        } catch (_) {
-            // Try the next image endpoint supported by the installed iiko build.
-        }
+        } catch (_) {}
     }
-
     return null;
 }
 
@@ -219,10 +216,6 @@ export async function onRequestPost(context) {
         const groupMap = buildGroupMap(rawGroups);
         const normalized = normalizeProducts(rawProducts, groupMap);
 
-        // iiko exposes the product picture as frontImageId. The previous QR sync
-        // copied only this UUID, so the public menu had nothing that an <img>
-        // element could actually display. Download the image server-side and
-        // send a compact data URL to the QR Menu publisher.
         let imageCount = 0;
         const imageLimit = 4;
         for (let i = 0; i < normalized.products.length; i += imageLimit) {
@@ -232,8 +225,14 @@ export async function onRequestPost(context) {
                 const originalImageId = product.frontImageId;
                 const dataUrl = await fetchImageDataUrl(serverUrl, token, originalImageId);
                 product.iikoImageId = originalImageId;
-                product.photo = dataUrl || "";
-                if (dataUrl) imageCount += 1;
+                if (dataUrl) {
+                    // Keep the original UUID separately, but place the actual
+                    // image in frontImageId because the existing QR Menu UI
+                    // already carries this property through to publishing.
+                    product.frontImageId = dataUrl;
+                    product.photo = dataUrl;
+                    imageCount += 1;
+                }
             }));
         }
 
