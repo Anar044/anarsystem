@@ -24,6 +24,11 @@
         }
     }
 
+    function setStatus(text) {
+        const element = $("iiko-status");
+        if (element) element.textContent = text;
+    }
+
     function renderIdentity(departments, organizations, server) {
         const card = $("iiko-identity");
         const list = $("iiko-identity-list");
@@ -33,6 +38,7 @@
         card.hidden = false;
 
         const orgs = Array.isArray(organizations) ? organizations : [];
+        const deps = Array.isArray(departments) ? departments : [];
 
         let html = "";
 
@@ -52,21 +58,15 @@
                     ${org.address ? `<div class="iiko-identity-id">${esc(org.address)}</div>` : ""}
                 </div>
             `).join("");
-        } else {
-            html += `
-                <div class="iiko-identity-empty">
-                    Organization ID через /api/1/organizations не получен.
-                </div>
-            `;
         }
 
-        if (departments.length) {
+        if (deps.length) {
             html += `
                 <div class="iiko-identity-empty" style="margin-top:8px">
                     Подразделения iiko Server
                 </div>
             `;
-            html += departments.map(item => `
+            html += deps.map(item => `
                 <div class="iiko-identity-item">
                     <div class="iiko-identity-name">
                         ${esc(item.name || item.code || "Подразделение")}
@@ -76,6 +76,14 @@
                     </div>
                 </div>
             `).join("");
+        }
+
+        if (!orgs.length && !deps.length) {
+            html += `
+                <div class="iiko-identity-empty">
+                    Идентификатор iiko Server не получен.
+                </div>
+            `;
         }
 
         list.innerHTML = html;
@@ -100,87 +108,139 @@
         }
     }
 
+    async function handleIdentityConnection(event) {
+        // This handler is intentionally in CAPTURE phase.
+        // settings.html also loads reports.js for OLAP compatibility, but
+        // reports.js must not run its old connection handler on this page.
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        const ip = $("iiko-ip")?.value.trim();
+        const port = $("iiko-port")?.value.trim();
+        const login = $("iiko-login")?.value.trim();
+        const password = $("iiko-password")?.value || "";
+        const remember = $("remember-iiko")?.checked === true;
+
+        if (!ip || !port || !login || !password) {
+            setStatus("🟠 Заполните IP, порт, логин и пароль");
+            return;
+        }
+
+        const button = $("connect-iiko");
+        if (button) button.disabled = true;
+        setStatus("🟡 Подключение к локальному iiko Server...");
+
+        const card = $("iiko-identity");
+        const list = $("iiko-identity-list");
+
+        if (card && list) {
+            card.hidden = false;
+            list.innerHTML = `<div class="iiko-identity-empty">Получаем Department ID из локального iiko Server...</div>`;
+        }
+
+        try {
+            const response = await fetch("/api/iiko/connect", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                body: JSON.stringify({ ip, port, login, password })
+            });
+
+            const data = await safeJson(response);
+
+            if (!response.ok || data.success === false) {
+                setStatus(`🔴 HTTP ${response.status}`);
+                if (list) {
+                    list.innerHTML = `
+                        <div class="iiko-identity-empty">
+                            Ошибка подключения: ${esc(data.message || `HTTP ${response.status}`)}
+                        </div>
+                    `;
+                }
+                console.warn("IIKO IDENTITY ERROR:", data.message || response.status);
+                return;
+            }
+
+            const departments = Array.isArray(data.departments)
+                ? data.departments
+                : [];
+            const organizations = Array.isArray(data.organizations)
+                ? data.organizations
+                : [];
+
+            const organizationId = String(
+                data.organizationId ||
+                organizations[0]?.id ||
+                departments[0]?.id ||
+                ""
+            );
+
+            const identity = {
+                organizationId,
+                organizations,
+                departmentIds: Array.isArray(data.departmentIds)
+                    ? data.departmentIds
+                    : departments.map(item => item.id),
+                departments,
+                server: { ip, port },
+                checkedAt: new Date().toISOString()
+            };
+
+            localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity));
+
+            // Keep the existing reports.js connection contract intact.
+            const connection = {
+                ip,
+                port,
+                login,
+                password,
+                organizationId,
+                departmentIds: identity.departmentIds,
+                departments,
+                organizations,
+                connectedAt: identity.checkedAt
+            };
+
+            if (remember) {
+                localStorage.setItem("iikoConnection", JSON.stringify(connection));
+            } else {
+                localStorage.removeItem("iikoConnection");
+            }
+
+            renderIdentity(departments, organizations, identity.server);
+            setStatus(
+                organizationId
+                    ? `🟢 iiko Server подключён • Department ID: ${organizationId}`
+                    : "🟢 iiko Server подключён"
+            );
+
+            console.info("IIKO ORGANIZATION ID:", organizationId);
+            console.info("IIKO DEPARTMENT IDS:", identity.departmentIds);
+        } catch (error) {
+            setStatus("🔴 Ошибка соединения");
+            if (list) {
+                list.innerHTML = `
+                    <div class="iiko-identity-empty">
+                        Ошибка соединения с локальным iiko Server: ${esc(error?.message || error)}
+                    </div>
+                `;
+            }
+            console.warn("IIKO IDENTITY REQUEST FAILED:", error);
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
+
     function bindIdentityLookup() {
         const button = $("connect-iiko");
         if (!button || button.dataset.identityBound === "1") return;
 
         button.dataset.identityBound = "1";
-
-        button.addEventListener("click", async () => {
-            const ip = $("iiko-ip")?.value.trim();
-            const port = $("iiko-port")?.value.trim();
-            const login = $("iiko-login")?.value.trim();
-            const password = $("iiko-password")?.value || "";
-
-            if (!ip || !port || !login || !password) return;
-
-            const card = $("iiko-identity");
-            const list = $("iiko-identity-list");
-
-            if (card && list) {
-                card.hidden = false;
-                list.innerHTML = `<div class="iiko-identity-empty">Получаем Organization ID и подразделения iiko Server...</div>`;
-            }
-
-            try {
-                const response = await fetch("/api/iiko/connect", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Accept": "application/json"
-                    },
-                    body: JSON.stringify({ ip, port, login, password })
-                });
-
-                const data = await safeJson(response);
-
-                if (!response.ok || data.success === false) {
-                    if (list) {
-                        list.innerHTML = `
-                            <div class="iiko-identity-empty">
-                                Не удалось получить идентификаторы: ${esc(data.message || response.status)}
-                            </div>
-                        `;
-                    }
-                    console.warn("IIKO IDENTITY ERROR:", data.message || response.status);
-                    return;
-                }
-
-                const departments = Array.isArray(data.departments)
-                    ? data.departments
-                    : [];
-                const organizations = Array.isArray(data.organizations)
-                    ? data.organizations
-                    : [];
-
-                const identity = {
-                    organizationId: String(data.organizationId || organizations[0]?.id || ""),
-                    organizations,
-                    departmentIds: Array.isArray(data.departmentIds)
-                        ? data.departmentIds
-                        : departments.map(item => item.id),
-                    departments,
-                    server: { ip, port },
-                    checkedAt: new Date().toISOString()
-                };
-
-                localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity));
-
-                renderIdentity(departments, organizations, identity.server);
-
-                console.info("IIKO ORGANIZATION ID:", identity.organizationId);
-                console.info("IIKO DEPARTMENT IDS:", identity.departmentIds);
-            } catch (error) {
-                if (list) {
-                    list.innerHTML = `
-                        <div class="iiko-identity-empty">
-                            Ошибка получения идентификаторов iiko Server.
-                        </div>
-                    `;
-                }
-                console.warn("IIKO IDENTITY REQUEST FAILED:", error);
-            }
-        });
+        // Capture phase prevents the legacy reports.js click handler from
+        // making a second /api/iiko/olap request and overwriting the status.
+        button.addEventListener("click", handleIdentityConnection, true);
     }
 
     if (document.readyState === "loading") {
