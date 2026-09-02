@@ -388,6 +388,15 @@ function scheduleDateRefresh() {
   }, 500);
 }
 
+function clearPreviousResultForAction() {
+  const action = actionSelect.value;
+  resultTitle.textContent = ACTION_NAMES[action] || "Результат";
+  resultSubtitle.textContent = ACTION_SUBTITLES[action] || "Данные получаются непосредственно от подключённого плагина.";
+  resultSummary.innerHTML = '<div class="empty-note">Запрашиваем новые данные с кассы…</div>';
+  resultOutput.textContent = "Ожидание нового ответа…";
+  requestStatus.textContent = "Подготавливаем новый запрос…";
+}
+
 dateFrom.value = todayISO();
 dateTo.value = todayISO();
 
@@ -395,6 +404,7 @@ actionSelect.addEventListener("change", () => {
   const needsDates = ["get_sales","get_orders","get_payments"].includes(actionSelect.value);
   dateFrom.disabled = !needsDates;
   dateTo.disabled = !needsDates;
+  clearPreviousResultForAction();
   if (pluginSelect.value) sendPluginRequest({ silent:false });
 });
 
@@ -405,7 +415,10 @@ refreshButton.addEventListener("click", async () => {
   await sendPluginRequest({ silent:false });
 });
 sendButton.addEventListener("click", () => sendPluginRequest({ silent:false }));
-pluginSelect.addEventListener("change", () => sendPluginRequest({ silent:false }));
+pluginSelect.addEventListener("change", () => {
+  clearPreviousResultForAction();
+  sendPluginRequest({ silent:false });
+});
 autoRefresh.addEventListener("change", () => {
   restartAutoRefresh();
   if (autoRefresh.checked && pluginSelect.value) sendPluginRequest({ silent:true });
