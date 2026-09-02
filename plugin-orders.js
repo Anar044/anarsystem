@@ -78,21 +78,46 @@
     });
   }
 
-  function findRows(value, depth = 0) {
-    if (depth > 6 || value == null) return null;
-    if (Array.isArray(value)) return value.filter(item => item && typeof item === "object");
-    if (typeof value !== "object") return null;
-    for (const key of ["items","rows","orders","data","result","records","report"]) {
-      if (value[key] !== undefined) {
-        const found = findRows(value[key], depth + 1);
-        if (found && found.length) return found;
-      }
+  // The plugin response can contain several arrays (for example orders plus
+  // technical/detail arrays). Pick the array whose objects look most like
+  // orders, instead of stopping at the first non-empty array.
+  function collectArrays(value, out = [], depth = 0) {
+    if (depth > 8 || value == null) return out;
+    if (Array.isArray(value)) {
+      const objects = value.filter(item => item && typeof item === "object" && !Array.isArray(item));
+      if (objects.length) out.push(objects);
+      objects.forEach(item => collectArrays(item, out, depth + 1));
+      return out;
     }
-    for (const child of Object.values(value)) {
-      const found = findRows(child, depth + 1);
-      if (found && found.length) return found;
-    }
-    return null;
+    if (typeof value !== "object") return out;
+    Object.values(value).forEach(child => collectArrays(child, out, depth + 1));
+    return out;
+  }
+
+  function orderArrayScore(rows) {
+    const keys = [
+      "orderNum", "orderNumber", "orderNo", "orderId", "table", "tableName",
+      "waiter", "waiterName", "cashier", "revenue", "orderSum", "isClosed",
+      "closed", "status", "orderStatus", "orderState", "openTime", "closeTime"
+    ];
+    return rows.reduce((score, row) => {
+      const lower = Object.keys(row).map(key => key.toLowerCase());
+      return score + keys.filter(key => lower.includes(key.toLowerCase())).length;
+    }, 0);
+  }
+
+  function findRows(value) {
+    const arrays = collectArrays(value);
+    if (!arrays.length) return null;
+
+    arrays.sort((a, b) => {
+      const scoreA = orderArrayScore(a);
+      const scoreB = orderArrayScore(b);
+      if (scoreA !== scoreB) return scoreB - scoreA;
+      return b.length - a.length;
+    });
+
+    return arrays[0];
   }
 
   function tryRenderOrders() {
