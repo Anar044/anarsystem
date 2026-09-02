@@ -1,4 +1,4 @@
-const VPS_API = "http://68.233.120.197";
+const VPS_API = "http://68-233-120-197.nip.io";
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -29,7 +29,9 @@ export async function onRequestGet() {
       return jsonResponse({
         success: false,
         error: "VPS returned invalid JSON",
-        status: response.status
+        status: response.status,
+        contentType: response.headers.get("content-type") || "",
+        raw: text.slice(0, 500)
       }, 502);
     }
 
