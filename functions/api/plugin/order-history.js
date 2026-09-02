@@ -13,7 +13,7 @@ function jsonResponse(data, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
       ...corsHeaders()
     }
   });
@@ -26,29 +26,35 @@ export async function onRequestOptions() {
 export async function onRequestGet(context) {
   try {
     const incoming = new URL(context.request.url);
-    const target = new URL(`${VPS_API}/api/plugin/order-history`);
+    const orderNum = incoming.searchParams.get("orderNum");
+    const pluginId = incoming.searchParams.get("pluginId");
 
-    incoming.searchParams.forEach((value, key) => {
-      target.searchParams.set(key, value);
-    });
+    if (!orderNum) {
+      return jsonResponse({ success: false, error: "orderNum is required" }, 400);
+    }
+
+    const target = new URL(`${VPS_API}/api/plugin/order-history`);
+    target.searchParams.set("orderNum", orderNum);
+    if (pluginId) target.searchParams.set("pluginId", pluginId);
 
     const response = await fetch(target.toString(), {
       method: "GET",
-      headers: { "Accept": "application/json" }
+      headers: { Accept: "application/json" },
+      redirect: "follow"
     });
 
-    const text = await response.text();
+    const body = await response.text();
+    const contentType = response.headers.get("content-type") || "";
 
     let data;
     try {
-      data = JSON.parse(text);
-    } catch {
+      data = JSON.parse(body);
+    } catch (_) {
       return jsonResponse({
         success: false,
-        error: "VPS returned invalid JSON",
-        status: response.status,
-        contentType: response.headers.get("content-type") || "",
-        raw: text.slice(0, 500)
+        error: `VPS returned non-JSON response (HTTP ${response.status})`,
+        contentType,
+        raw: body.slice(0, 500)
       }, 502);
     }
 
