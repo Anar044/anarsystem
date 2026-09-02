@@ -1,0 +1,169 @@
+name: Fix shift summary calculation
+on: [push]
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replace shift summary script
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('plugin-control.html')
+          s = p.read_text()
+          start = s.find('<script>\n(() => {\n  const closedEl = document.getElementById("shift-closed-sum");')
+          if start < 0:
+              start = s.find('<script>\n(() => {\n  const closedEl=document.getElementById("shift-closed-sum")')
+          if start < 0:
+              raise SystemExit('shift summary script start not found')
+          end = s.find('</script>', start)
+          if end < 0:
+              raise SystemExit('shift summary script end not found')
+          end += len('</script>')
+          replacement = r'''<script>
+(() => {
+  const closedEl = document.getElementById("shift-closed-sum");
+  const openEl = document.getElementById("shift-open-sum");
+  const expectedEl = document.getElementById("shift-expected-sum");
+  const statusEl = document.getElementById("shift-summary-status");
+  if (!closedEl || !openEl || !expectedEl) return;
+
+  const money = value => Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+  const text = value => String(value ?? "").toLowerCase();
+
+  function first(value) {
+    if (value == null || value === "") return null;
+    if (typeof value !== "object") return value;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = first(item);
+        if (found != null && found !== "") return found;
+      }
+      return null;
+    }
+    for (const key of ["name", "title", "value", "number", "code", "id"]) {
+      const found = first(value[key]);
+      if (found != null && found !== "") return found;
+    }
+    return null;
+  }
+
+  function deep(value, names, depth = 0) {
+    if (value == null || typeof value !== "object" || depth > 12) return null;
+    const wanted = names.map(x => String(x).toLowerCase());
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = deep(item, names, depth + 1);
+        if (found != null && found !== "") return found;
+      }
+      return null;
+    }
+    for (const [key, child] of Object.entries(value)) {
+      if (wanted.includes(key.toLowerCase()) && child != null && child !== "") return child;
+    }
+    for (const child of Object.values(value)) {
+      const found = deep(child, names, depth + 1);
+      if (found != null && found !== "") return found;
+    }
+    return null;
+  }
+
+  function number(value) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (value == null) return NaN;
+    const normalized = String(value)
+      .replace(/\s/g, "")
+      .replace(/[^0-9,.-]/g, "")
+      .replace(/,(?=.*[,])/g, "")
+      .replace(",", ".");
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }
+
+  function rowsOf(value, depth = 0) {
+    if (value == null || depth > 12) return null;
+    if (Array.isArray(value)) {
+      const rows = value.filter(item => item && typeof item === "object");
+      return rows.length ? rows : null;
+    }
+    if (typeof value !== "object") return null;
+    for (const key of ["orders", "items", "rows", "data", "result", "records", "report"]) {
+      if (value[key] !== undefined) {
+        const rows = rowsOf(value[key], depth + 1);
+        if (rows?.length) return rows;
+      }
+    }
+    for (const child of Object.values(value)) {
+      const rows = rowsOf(child, depth + 1);
+      if (rows?.length) return rows;
+    }
+    return null;
+  }
+
+  function update() {
+    fetch("/api/plugin/data", { cache: "no-store" })
+      .then(response => response.json())
+      .then(state => {
+        const plugin = state?.plugins?.[0];
+        if (!plugin?.pluginId) throw new Error("Касса не подключена");
+        return fetch("/api/plugin/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({ action: "get_orders", pluginId: plugin.pluginId, params: {} })
+        });
+      })
+      .then(response => response.json().then(data => ({ response, data })))
+      .then(({ response, data }) => {
+        if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`);
+        let payload = data.data;
+        if (typeof payload === "string") {
+          try { payload = JSON.parse(payload); } catch (_) {}
+        }
+        const rows = rowsOf(payload) || [];
+        let closed = 0;
+        let open = 0;
+        let closedCount = 0;
+        let openCount = 0;
+
+        for (const row of rows) {
+          const amount = number(first(deep(row, ["revenue", "resultSum", "orderExpectedRevenue", "orderSum", "sum", "total", "amount"])));
+          if (!Number.isFinite(amount)) continue;
+          const status = text(first(deep(row, ["orderStatus", "status", "state", "orderState", "statusName"])));
+          const closeTime = deep(row, ["closeTime", "orderCloseTime", "closedAt", "closingTime"]);
+          const isClosed = /(closed|close|completed|complete|paid|закрыт|закрыто|оплачен|заверш)/.test(status) || !!closeTime;
+          if (isClosed) {
+            closed += amount;
+            closedCount++;
+          } else {
+            open += amount;
+            openCount++;
+          }
+        }
+
+        closedEl.textContent = money(closed);
+        openEl.textContent = money(open);
+        expectedEl.textContent = money(closed + open);
+        statusEl.textContent = `По всем заказам · ${closedCount} закрытых / ${openCount} открытых`;
+      })
+      .catch(error => {
+        statusEl.textContent = error.message === "Касса не подключена" ? "Касса не подключена" : "Не удалось обновить";
+      });
+  }
+
+  update();
+  setInterval(update, 10000);
+})();
+</script>'''
+          p.write_text(s[:start] + replacement + s[end:])
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add plugin-control.html
+          git diff --cached --quiet && exit 0
+          git commit -m "Keep shift summary independent from selected report"
+          git push
