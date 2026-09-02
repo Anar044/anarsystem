@@ -1,0 +1,69 @@
+name: Fix plugin control compatibility
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-plugin-control.yml'
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch plugin-control.js
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('plugin-control.js')
+          s = p.read_text()
+          old = '''function renderLiveData(plugin) {
+  if (!plugin) { resetLiveData(); return; }
+  const data = plugin.payload || {};
+  const currency = plugin.currencyCode || data.currencyCode || "";
+  liveFields.event.textContent = plugin.eventType || "—";
+  liveFields.revenue.textContent = formatMoney(data.revenue, currency);
+  liveFields.order.textContent = formatValue(data.orderNum);
+  liveFields.table.textContent = formatValue(data.tables || data.table);
+  liveFields.floor.textContent = formatValue(data.floor);
+  liveFields.waiter.textContent = formatValue(data.waiter);
+  liveFields.cashier.textContent = formatValue(data.cashier);
+  liveFields.openTime.textContent = formatDateTime(data.openTime);
+  liveFields.closeTime.textContent = formatDateTime(data.closeTime);
+  liveFields.updateTime.textContent = formatDateTime(data.updateTime);
+  liveFields.lastEvent.textContent = formatDateTime(plugin.lastEventAt);
+  overviewActivity.textContent = formatShortTime(plugin.lastEventAt);
+  overviewEvent.textContent = plugin.eventType || "Событие не определено";
+}'''
+          new = '''function renderLiveData(plugin) {
+  if (!plugin) { resetLiveData(); return; }
+  const data = plugin.payload || {};
+  const currency = plugin.currencyCode || data.currencyCode || "";
+  const setLive = (key, value) => {
+    if (liveFields[key]) liveFields[key].textContent = value;
+  };
+  setLive("event", plugin.eventType || "—");
+  setLive("revenue", formatMoney(data.revenue, currency));
+  setLive("order", formatValue(data.orderNum));
+  setLive("table", formatValue(data.tables || data.table));
+  setLive("floor", formatValue(data.floor));
+  setLive("waiter", formatValue(data.waiter));
+  setLive("cashier", formatValue(data.cashier));
+  setLive("openTime", formatDateTime(data.openTime));
+  setLive("closeTime", formatDateTime(data.closeTime));
+  setLive("updateTime", formatDateTime(data.updateTime));
+  setLive("lastEvent", formatDateTime(plugin.lastEventAt));
+  overviewActivity.textContent = formatShortTime(plugin.lastEventAt);
+  overviewEvent.textContent = plugin.eventType || "Событие не определено";
+}'''
+          if old not in s:
+              raise SystemExit('renderLiveData block not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add plugin-control.js
+          git commit -m "Fix plugin control after hiding live panel"
+          git rm .github/workflows/fix-plugin-control.yml
+          git commit -m "Remove temporary plugin control fix workflow"
+          git push
