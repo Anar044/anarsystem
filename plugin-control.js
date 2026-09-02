@@ -1,4 +1,5 @@
 const API_BASE = "/api/plugin";
+const DATA_ENDPOINT = "http://68.233.120.197/api/plugin/data";
 
 const pluginsList = document.getElementById("plugins-list");
 const pluginSelect = document.getElementById("plugin-select");
@@ -32,6 +33,26 @@ function setConnectionState(online, text) {
   statusText.textContent = text;
 }
 
+function normalizePluginData(item) {
+  const event = item?.data || {};
+  const payload = event.data || event;
+  return {
+    pluginId: item?.pluginId || "",
+    pluginName: item?.pluginName || "",
+    departmentId: item?.departmentId || "",
+    departmentName: item?.departmentName || "",
+    groupId: item?.groupId || "",
+    groupName: item?.groupName || "",
+    version: item?.version || "",
+    lastEventAt: item?.lastEventAt || "",
+    serverUrl: item?.serverUrl || "",
+    currencyCode: payload?.currencyCode || item?.currencyCode || "",
+    eventType: event?.pluginEventType || "",
+    eventUuid: event?.uuid || "",
+    payload
+  };
+}
+
 function renderPlugins(plugins) {
   pluginSelect.innerHTML = "";
 
@@ -40,6 +61,7 @@ function renderPlugins(plugins) {
     sendButton.disabled = true;
     pluginSelect.innerHTML = "<option value=\"\">Нет подключённых касс</option>";
     pluginsList.innerHTML = '<div class="empty-note">Сейчас ни один плагин не подключён.</div>';
+    resultOutput.textContent = "Плагин пока не передал данные.";
     return;
   }
 
@@ -48,9 +70,8 @@ function renderPlugins(plugins) {
 
   plugins.forEach((plugin, index) => {
     const option = document.createElement("option");
-    option.value = plugin.pluginId || plugin.socketId || "";
+    option.value = plugin.pluginId || "";
     option.textContent = plugin.pluginName || plugin.pluginId || `Касса ${index + 1}`;
-    option.dataset.socketId = plugin.socketId || "";
     pluginSelect.appendChild(option);
   });
 
@@ -67,26 +88,49 @@ function renderPlugins(plugins) {
         <div class="meta-box"><div class="meta-label">Отдел</div><div class="meta-value">${escapeHtml(plugin.departmentName || plugin.departmentId || "—")}</div></div>
         <div class="meta-box"><div class="meta-label">Группа</div><div class="meta-value">${escapeHtml(plugin.groupName || plugin.groupId || "—")}</div></div>
         <div class="meta-box"><div class="meta-label">Версия</div><div class="meta-value">${escapeHtml(plugin.version || "—")}</div></div>
-        <div class="meta-box"><div class="meta-label">Валюта</div><div class="meta-value">${escapeHtml(plugin.currencyCode || "—")}</div></div>
-        <div class="meta-box"><div class="meta-label">Server URL</div><div class="meta-value">${escapeHtml(plugin.serverUrl || "—")}</div></div>
-        <div class="meta-box"><div class="meta-label">Последняя активность</div><div class="meta-value">${escapeHtml(plugin.lastEventAt || plugin.connectedAt || "—")}</div></div>
+        <div class="meta-box"><div class="meta-label">Последняя активность</div><div class="meta-value">${escapeHtml(plugin.lastEventAt || "—")}</div></div>
+        <div class="meta-box"><div class="meta-label">Последнее событие</div><div class="meta-value">${escapeHtml(plugin.eventType || "—")}</div></div>
+        <div class="meta-box"><div class="meta-label">Заказ / событие</div><div class="meta-value">${escapeHtml(plugin.payload?.orderNum ?? "—")}</div></div>
       </div>
     </div>
   `).join("");
+
+  const selected = plugins.find(p => p.pluginId === pluginSelect.value) || plugins[0];
+  if (selected) renderPluginData(selected);
+}
+
+function renderPluginData(plugin) {
+  if (!plugin) return;
+
+  const event = {
+    pluginId: plugin.pluginId,
+    pluginName: plugin.pluginName,
+    departmentId: plugin.departmentId,
+    departmentName: plugin.departmentName,
+    groupId: plugin.groupId,
+    groupName: plugin.groupName,
+    version: plugin.version,
+    lastEventAt: plugin.lastEventAt,
+    eventType: plugin.eventType,
+    eventUuid: plugin.eventUuid,
+    data: plugin.payload
+  };
+
+  resultOutput.textContent = JSON.stringify(event, null, 2);
 }
 
 async function loadStatus() {
-  setConnectionState(false, "Проверяем подключение…");
+  setConnectionState(false, "Получаем данные от плагина…");
 
   try {
-    const response = await fetch(`${API_BASE}/status`, { cache: "no-store" });
+    const response = await fetch(DATA_ENDPOINT, { cache: "no-store" });
     const data = await response.json();
 
     if (!response.ok || !data.success) {
       throw new Error(data.error || data.message || `HTTP ${response.status}`);
     }
 
-    const plugins = Array.isArray(data.plugins) ? data.plugins : [];
+    const plugins = Array.isArray(data.plugins) ? data.plugins.map(normalizePluginData) : [];
     renderPlugins(plugins);
 
     const online = plugins.length > 0;
@@ -94,21 +138,19 @@ async function loadStatus() {
       online,
       online ? `${plugins.length} подключён${plugins.length === 1 ? "ная касса" : "ных касс"}` : "Подключённых касс нет"
     );
-    checkedAt.textContent = new Date().toLocaleTimeString();
+    checkedAt.textContent = new Date().toLocaleTimeString("ru-RU");
   } catch (error) {
     renderPlugins([]);
-    setConnectionState(false, `Ошибка получения статуса: ${error.message}`);
-    checkedAt.textContent = new Date().toLocaleTimeString();
+    setConnectionState(false, `Ошибка получения данных: ${error.message}`);
+    checkedAt.textContent = new Date().toLocaleTimeString("ru-RU");
   }
 }
 
 async function sendPluginRequest() {
-  const selected = pluginSelect.options[pluginSelect.selectedIndex];
   const pluginId = pluginSelect.value;
-  const socketId = selected?.dataset.socketId || null;
   const action = actionSelect.value;
 
-  if (!pluginId && !socketId) {
+  if (!pluginId) {
     requestStatus.textContent = "Выбери подключённую кассу.";
     return;
   }
@@ -125,7 +167,7 @@ async function sendPluginRequest() {
     const response = await fetch(`${API_BASE}/request`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, pluginId, socketId, params })
+      body: JSON.stringify({ action, pluginId, params })
     });
 
     const data = await response.json();
@@ -137,6 +179,7 @@ async function sendPluginRequest() {
     }
 
     requestStatus.textContent = `Ответ получен: ${action}`;
+    setTimeout(loadStatus, 300);
   } catch (error) {
     requestStatus.textContent = `Ошибка: ${error.message}`;
     resultOutput.textContent = error.stack || error.message;
@@ -150,6 +193,13 @@ dateTo.value = todayISO();
 
 refreshButton.addEventListener("click", loadStatus);
 sendButton.addEventListener("click", sendPluginRequest);
+pluginSelect.addEventListener("change", () => {
+  const selectedId = pluginSelect.value;
+  loadStatus().then(() => {
+    const option = [...pluginSelect.options].find(item => item.value === selectedId);
+    if (option) pluginSelect.value = selectedId;
+  });
+});
 
 actionSelect.addEventListener("change", () => {
   const needsDates = actionSelect.value === "get_sales" || actionSelect.value === "get_orders" || actionSelect.value === "get_payments";
