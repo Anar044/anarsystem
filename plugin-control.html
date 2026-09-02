@@ -63,17 +63,20 @@
     <div id="plugins-list" class="plugins-list"><div class="empty-note">Загрузка…</div></div>
   </section>
 
-  <section class="card panel live-panel">
-    <div class="panel-head live-head"><div><div class="section-kicker">LIVE EVENT</div><div class="panel-title">Онлайн-данные кассы</div><div class="panel-muted">Последнее полезное событие от подключённого плагина.</div></div><div class="live-status"><span class="pulse-dot"></span><span id="live-event">—</span></div></div>
-    <div class="live-kpis">
-      <div class="live-kpi hero-kpi"><span>Выручка</span><strong id="live-revenue">—</strong><small>по последнему событию</small></div>
-      <div class="live-kpi"><span>Заказ</span><strong id="live-order">—</strong><small>номер заказа</small></div>
-      <div class="live-kpi"><span>Стол</span><strong id="live-table">—</strong><small>место обслуживания</small></div>
-      <div class="live-kpi"><span>Зал</span><strong id="live-floor">—</strong><small>зона</small></div>
-      <div class="live-kpi"><span>Официант</span><strong id="live-waiter">—</strong><small>ответственный</small></div>
-      <div class="live-kpi"><span>Кассир</span><strong id="live-cashier">—</strong><small>оператор</small></div>
+  <section class="card panel shift-summary-panel">
+    <div class="panel-head">
+      <div>
+        <div class="section-kicker">SHIFT SUMMARY</div>
+        <div class="panel-title">Выручка текущей смены</div>
+        <div class="panel-muted">Закрытые и открытые заказы с подключённой кассы.</div>
+      </div>
+      <div class="shift-live-status"><span class="pulse-dot"></span><span id="shift-summary-status">Обновляется автоматически</span></div>
     </div>
-    <div class="live-details"><div><span>Открытие</span><b id="live-open-time">—</b></div><div><span>Закрытие</span><b id="live-close-time">—</b></div><div><span>Обновление</span><b id="live-update-time">—</b></div><div><span>Последняя активность</span><b id="live-last-event">—</b></div></div>
+    <div class="shift-summary-grid">
+      <div class="shift-summary-card closed"><span>Закрытые заказы</span><strong id="shift-closed-sum">—</strong><small>сумма оплаченных/закрытых заказов</small></div>
+      <div class="shift-summary-card open"><span>Открытые заказы</span><strong id="shift-open-sum">—</strong><small>текущая сумма открытых заказов</small></div>
+      <div class="shift-summary-card expected"><span>Ожидаемая выручка</span><strong id="shift-expected-sum">—</strong><small>закрытые + открытые заказы</small></div>
+    </div>
   </section>
 
   <section class="card panel request-panel">
@@ -102,5 +105,20 @@
 <script src="plugin-control.js"></script>
 <script src="plugin-orders.js"></script>
 <script src="plugin-order-history-v2.js"></script>
+
+<script>
+(() => {
+  const closedEl=document.getElementById("shift-closed-sum"),openEl=document.getElementById("shift-open-sum"),expectedEl=document.getElementById("shift-expected-sum"),statusEl=document.getElementById("shift-summary-status");
+  if(!closedEl||!openEl||!expectedEl)return;
+  const money=v=>Number(v||0).toLocaleString("ru-RU",{maximumFractionDigits:2});
+  const text=v=>String(v??"").toLowerCase();
+  const first=v=>{if(v==null||v==="")return null;if(typeof v!=="object")return v;if(Array.isArray(v)){for(const x of v){const y=first(x);if(y!=null&&y!=="")return y;}return null;}for(const k of ["name","title","value","number","code","id"]){const y=first(v[k]);if(y!=null&&y!=="")return y;}return null;};
+  const deep=(v,names,d=0)=>{if(v==null||typeof v!=="object"||d>12)return null;const wanted=names.map(x=>String(x).toLowerCase());if(Array.isArray(v)){for(const x of v){const y=deep(x,names,d+1);if(y!=null&&y!=="")return y;}return null;}for(const [k,x] of Object.entries(v))if(wanted.includes(k.toLowerCase())&&x!=null&&x!=="")return x;for(const x of Object.values(v)){const y=deep(x,names,d+1);if(y!=null&&y!=="")return y;}return null;};
+  const num=v=>{if(typeof v==="number"&&Number.isFinite(v))return v;if(typeof v!=="string")return NaN;const x=Number(v.replace(/[^0-9,.-]/g,"").replace(",","."));return Number.isFinite(x)?x:NaN;};
+  const rowsOf=(v,d=0)=>{if(v==null||d>10)return null;if(Array.isArray(v)){const r=v.filter(x=>x&&typeof x==="object");return r.length?r:null;}if(typeof v!=="object")return null;for(const k of ["orders","items","rows","data","result","records","report"]){if(v[k]!==undefined){const r=rowsOf(v[k],d+1);if(r?.length)return r;}}for(const x of Object.values(v)){const r=rowsOf(x,d+1);if(r?.length)return r;}return null;};
+  async function update(){try{const sr=await fetch("/api/plugin/data",{cache:"no-store"}),sj=await sr.json(),plugin=sj?.plugins?.[0];if(!plugin?.pluginId){closedEl.textContent=openEl.textContent=expectedEl.textContent="—";statusEl.textContent="Касса не подключена";return;}const r=await fetch("/api/plugin/request",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({action:"get_orders",pluginId:plugin.pluginId,params:{}})}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.error||`HTTP ${r.status}`);const rows=rowsOf(j.data)||[];let closed=0,open=0;for(const row of rows){const value=num(first(deep(row,["revenue","resultSum","orderExpectedRevenue","orderSum","sum","total","amount"])));if(!Number.isFinite(value))continue;const status=text(first(deep(row,["orderStatus","status","state","orderState","statusName"]))),close=deep(row,["closeTime","orderCloseTime","closedAt","closingTime"]),isClosed=/(closed|close|completed|complete|paid|закрыт|закрыто|оплачен|заверш)/.test(status)||!!close;if(isClosed)closed+=value;else open+=value;}closedEl.textContent=money(closed);openEl.textContent=money(open);expectedEl.textContent=money(closed+open);statusEl.textContent=`Обновлено ${new Date().toLocaleTimeString("ru-RU")}`;}catch(e){statusEl.textContent="Не удалось обновить";}}
+  update();setInterval(update,10000);
+})();
+</script>
 </body>
 </html>
