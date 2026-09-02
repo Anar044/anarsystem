@@ -5,23 +5,21 @@
   if (!actionSelect || !resultSummary || !resultOutput) return;
 
   const style = document.createElement("style");
-  style.textContent = `.orders-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:14px}.order-stat{appearance:none;border:1px solid var(--line);border-radius:14px;background:var(--surface2);padding:13px 15px;text-align:left;color:inherit;cursor:pointer;transition:.16s}.order-stat:hover,.order-stat.active{border-color:var(--pc-green);background:var(--pc-green-soft);transform:translateY(-1px)}.order-stat span{display:block;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.07em}.order-stat strong{display:block;font-size:22px;margin-top:4px}.order-stat.open strong{color:var(--pc-green)}.order-stat.closed strong{color:var(--pc-red,#ff6b6b)}.orders-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:4px 0 10px}.orders-toolbar strong{font-size:12px}.orders-toolbar span{display:block;color:var(--muted);font-size:10px;margin-top:3px}.orders-live{display:flex!important;align-items:center;gap:6px;color:var(--pc-green)!important}.orders-live i{width:6px;height:6px;border-radius:50%;background:var(--pc-green);display:inline-block}.order-state{display:inline-flex;align-items:center;padding:5px 8px;border-radius:999px;font-size:9px;font-weight:850}.order-state.open{background:var(--pc-green-soft);color:var(--pc-green)}.order-state.closed{background:rgba(255,107,107,.1);color:var(--pc-red,#ff6b6b)}.order-state.unknown{background:var(--surface2);color:var(--muted)}.orders-table td{vertical-align:middle}.orders-table tr[hidden]{display:none}.orders-pay strong{color:var(--pc-green)}@media(max-width:900px){.orders-stats{grid-template-columns:1fr 1fr 1fr}}@media(max-width:800px){.orders-toolbar{align-items:flex-start;flex-direction:column}}@media(max-width:500px){.orders-stats{grid-template-columns:1fr 1fr}.orders-table{min-width:980px}}`;
+  style.textContent = `.orders-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:14px}.order-stat{appearance:none;border:1px solid var(--line);border-radius:14px;background:var(--surface2);padding:13px 15px;text-align:left;color:inherit;cursor:pointer}.order-stat:hover,.order-stat.active{border-color:var(--pc-green);background:var(--pc-green-soft)}.order-stat span{display:block;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.07em}.order-stat strong{display:block;font-size:22px;margin-top:4px}.order-stat.open strong{color:var(--pc-green)}.order-stat.closed strong{color:var(--pc-red,#ff6b6b)}.orders-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:4px 0 10px}.orders-toolbar strong{font-size:12px}.orders-toolbar span{display:block;color:var(--muted);font-size:10px;margin-top:3px}.orders-live{display:flex!important;align-items:center;gap:6px;color:var(--pc-green)!important}.orders-live i{width:6px;height:6px;border-radius:50%;background:var(--pc-green);display:inline-block}.order-state{display:inline-flex;align-items:center;padding:5px 8px;border-radius:999px;font-size:9px;font-weight:850}.order-state.open{background:var(--pc-green-soft);color:var(--pc-green)}.order-state.closed{background:rgba(255,107,107,.1);color:var(--pc-red,#ff6b6b)}.order-state.unknown{background:var(--surface2);color:var(--muted)}.orders-table td{vertical-align:middle}.orders-table tr[hidden]{display:none}.orders-pay strong{color:var(--pc-green)}@media(max-width:900px){.orders-stats{grid-template-columns:1fr 1fr 1fr}}@media(max-width:800px){.orders-toolbar{align-items:flex-start;flex-direction:column}}@media(max-width:500px){.orders-stats{grid-template-columns:1fr 1fr}.orders-table{min-width:980px}}`;
   document.head.appendChild(style);
 
   const escapeHtml = value => String(value ?? "")
     .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 
-  const keyOf = (row, names) => {
+  function keyOf(row, names) {
     const entries = Object.entries(row || {});
     for (const name of names) {
       const hit = entries.find(([key]) => key.toLowerCase() === name.toLowerCase());
       if (hit && hit[1] !== null && hit[1] !== undefined && hit[1] !== "") return hit[1];
     }
     return null;
-  };
-
-  const text = value => String(value ?? "").toLowerCase();
+  }
 
   function firstText(value) {
     if (value === null || value === undefined || value === "") return null;
@@ -31,7 +29,7 @@
       return null;
     }
     if (typeof value === "object") {
-      for (const key of ["name", "title", "value", "number", "code", "id"]) {
+      for (const key of ["name", "title", "value", "number", "code"]) {
         const v = firstText(value[key]);
         if (v !== null) return v;
       }
@@ -39,38 +37,56 @@
     return null;
   }
 
-  function field(row, names) { return firstText(keyOf(row, names)); }
+  const field = (row, names) => firstText(keyOf(row, names));
+  const text = value => String(value ?? "").toLowerCase();
 
   function orderState(row) {
+    const status = field(row, ["OrderStatus", "status", "state", "orderState", "statusName"]);
+    const s = text(status);
+    if (/(closed|close|completed|complete|paid|закрыт|закрыто|оплачен|заверш|deleted|удал)/.test(s)) return "closed";
+    if (/(new|bill|open|opened|active|новый|пречек|открыт|открыто|актив)/.test(s)) return "open";
     const closedFlag = keyOf(row, ["isClosed", "closed", "isClosedOrder"]);
     if (closedFlag === true || text(closedFlag) === "true") return "closed";
     if (closedFlag === false || text(closedFlag) === "false") return "open";
-    const status = field(row, ["orderStatus", "status", "state", "orderState", "statusName"]);
-    const s = text(status);
-    if (/(closed|close|completed|complete|paid|закрыт|закрыто|оплачен|заверш)/.test(s)) return "closed";
-    if (/(open|opened|active|открыт|открыто|актив)/.test(s)) return "open";
-    const closeTime = keyOf(row, ["orderCloseTime", "closeTime", "closedAt", "closingTime", "closeDate"]);
-    const openTime = keyOf(row, ["orderOpenDate", "openTime", "openedAt", "openingTime", "openDate"]);
-    if (closeTime) return "closed";
-    if (openTime) return "open";
+    if (keyOf(row, ["CloseTime", "closeTime", "closedAt", "closingTime", "closeDate"])) return "closed";
+    if (keyOf(row, ["OpenTime", "openTime", "openedAt", "openingTime", "openDate"])) return "open";
     return "unknown";
   }
 
-  function orderNumber(row, index) { return field(row, ["orderNum", "orderNumber", "orderNo", "number", "num"]) ?? index + 1; }
+  function paymentText(row) {
+    const direct = field(row, ["paymentType", "paymentTypeName", "paymentMethod", "paymentName", "payType", "payTypeName"]);
+    if (direct) return direct;
+    const payments = keyOf(row, ["Payments", "payments", "payment"]);
+    if (!Array.isArray(payments)) return null;
+    const result = [];
+    for (const p of payments) {
+      if (!p || typeof p !== "object") continue;
+      const name = firstText(p.name ?? p.Name);
+      const type = text(p.type ?? p.Type);
+      let value = name;
+      if (!value) value = /cash|налич/.test(type) ? "Наличные" : /card|карта|банков/.test(type) ? "Карта" : firstText(p.value ?? p.Value);
+      if (value && !result.includes(String(value))) result.push(String(value));
+    }
+    return result.length ? result.join(", ") : null;
+  }
+
+  function orderNumber(row, index) {
+    return field(row, ["OrderNum", "orderNum", "orderNumber", "orderNo", "number", "num"]) ?? index + 1;
+  }
 
   function renderOrderRows(rows) {
     return rows.slice(0, 200).map((row, index) => {
       const state = orderState(row);
       const number = orderNumber(row, index);
-      const tables = field(row, ["orderTables", "table", "tables", "tableName"]);
-      const floor = field(row, ["floor", "floorName", "orderFloor", "restaurantSection"]);
-      const waiter = field(row, ["waiter", "waiterName", "orderWaiter", "employee", "employeeName", "waiterFullName"]);
-      const cashier = field(row, ["cashier", "cashierName", "orderCashier", "cashierFullName"]);
-      const amount = field(row, ["orderExpectedRevenue", "revenue", "sum", "total", "amount", "orderSum"]);
-      const opened = field(row, ["orderOpenDate", "openTime", "openedAt", "openingTime", "createdAt"]);
-      const bill = field(row, ["orderBillTime", "billTime", "precheckTime", "precheckAt"]);
-      const closed = field(row, ["orderCloseTime", "closeTime", "closedAt", "closingTime", "closedDate"]);
-      const payment = field(row, ["paymentType", "paymentTypeName", "paymentMethod", "paymentName", "payType", "payTypeName"]);
+      const tables = field(row, ["Tables", "orderTables", "table", "tables", "tableName"]);
+      const floor = field(row, ["Floor", "floor", "floorName", "orderFloor", "restaurantSection"]);
+      const waiter = field(row, ["Waiter", "waiter", "waiterName", "orderWaiter", "employee", "employeeName", "waiterFullName"]);
+      const cashier = field(row, ["Cashier", "cashier", "cashierName", "orderCashier", "cashierFullName"]);
+      const amount = field(row, ["Revenue", "orderExpectedRevenue", "revenue", "sum", "total", "amount", "orderSum"]);
+      const opened = field(row, ["OpenTime", "orderOpenDate", "openTime", "openedAt", "openingTime", "createdAt"]);
+      const bill = field(row, ["BillTime", "orderBillTime", "billTime", "precheckTime", "precheckAt"]);
+      const closed = field(row, ["CloseTime", "orderCloseTime", "closeTime", "closedAt", "closingTime", "closedDate"]);
+      const payment = paymentText(row);
       const status = state === "closed" ? "Закрыт" : state === "open" ? "Открыт" : "Не определён";
       return `<tr data-order-state="${state}"><td><strong>#${escapeHtml(number)}</strong></td><td><span class="order-state ${state}">${status}</span></td><td>${escapeHtml(tables ?? "—")}</td><td>${escapeHtml(floor ?? "—")}</td><td>${escapeHtml(waiter ?? "—")}</td><td>${escapeHtml(cashier ?? "—")}</td><td>${escapeHtml(amount ?? "—")}</td><td>${escapeHtml(opened ?? "—")}</td><td>${escapeHtml(bill ?? "—")}</td><td>${escapeHtml(closed ?? "—")}</td><td class="orders-pay">${payment ? `<strong>${escapeHtml(payment)}</strong>` : "—"}</td></tr>`;
     }).join("");
@@ -81,9 +97,9 @@
     const open = states.filter(s => s === "open").length;
     const closed = states.filter(s => s === "closed").length;
     const unknown = states.filter(s => s === "unknown").length;
-    const payments = rows.map(row => text(field(row, ["paymentType", "paymentTypeName", "paymentMethod", "paymentName", "payType", "payTypeName"])));
-    const cash = payments.filter(s => /(cash|налич|касса)/.test(s)).length;
-    const card = payments.filter(s => /(card|банков|карта|terminal|терминал)/.test(s)).length;
+    const payments = rows.map(paymentText).filter(Boolean).map(text);
+    const cash = payments.filter(s => /cash|налич/.test(s)).length;
+    const card = payments.filter(s => /card|банков|карта|terminal|терминал/.test(s)).length;
 
     resultSummary.innerHTML = `<div class="orders-dashboard"><div class="orders-stats"><button type="button" class="order-stat active" data-order-filter="all"><span>Все заказы</span><strong>${rows.length}</strong></button><button type="button" class="order-stat open" data-order-filter="open"><span>Открытые</span><strong>${open}</strong></button><button type="button" class="order-stat closed" data-order-filter="closed"><span>Закрытые</span><strong>${closed}</strong></button>${unknown ? `<button type="button" class="order-stat unknown" data-order-filter="unknown"><span>Без статуса</span><strong>${unknown}</strong></button>` : ""}<button type="button" class="order-stat"><span>Оплата</span><strong>${cash + card ? `${cash}/${card}` : "—"}</strong></button></div><div class="orders-toolbar"><div><strong>Заказы текущей смены</strong><span>${rows.length} записей · оплата: ${cash} наличные / ${card} карта</span></div><span class="orders-live"><i></i> обновляется автоматически</span></div><div class="data-table-wrap orders-table-wrap"><table class="data-table orders-table"><thead><tr><th>Заказ</th><th>Статус</th><th>Стол</th><th>Зал</th><th>Официант</th><th>Кассир</th><th>Сумма</th><th>Открыт</th><th>Пречек</th><th>Закрыт</th><th>Оплата</th></tr></thead><tbody id="orders-table-body">${renderOrderRows(rows)}</tbody></table></div>${rows.length > 200 ? `<div class="table-note">Показаны первые 200 заказов.</div>` : ""}</div>`;
 
@@ -95,6 +111,19 @@
         resultSummary.querySelectorAll("#orders-table-body tr").forEach(row => { row.hidden = filter !== "all" && row.dataset.orderState !== filter; });
       });
     });
+  }
+
+  function findOrdersDetails(value, depth = 0) {
+    if (!value || typeof value !== "object" || depth > 8) return null;
+    if (Array.isArray(value)) return null;
+    for (const [key, child] of Object.entries(value)) {
+      if (/^orders?details?$/i.test(key) && Array.isArray(child) && child.length) return child.filter(Boolean);
+      if (child && typeof child === "object") {
+        const found = findOrdersDetails(child, depth + 1);
+        if (found && found.length) return found;
+      }
+    }
+    return null;
   }
 
   function collectArrays(value, out = [], depth = 0) {
@@ -110,15 +139,17 @@
     return out;
   }
 
-  function orderArrayScore(rows) {
-    const keys = ["orderNum","orderOpenDate","orderBillTime","orderCloseTime","orderExpectedRevenue","orderStatus","orderTables","table","waiter","cashier","paymentType"];
+  function orderScore(rows) {
+    const keys = ["OrderNum","OrderStatus","Tables","Floor","Waiter","Cashier","OpenTime","BillTime","CloseTime","Revenue","Payments"];
     return rows.reduce((score, row) => score + keys.filter(key => Object.keys(row).some(k => k.toLowerCase() === key.toLowerCase())).length, 0);
   }
 
   function findRows(value) {
+    const exact = findOrdersDetails(value);
+    if (exact) return exact;
     const arrays = collectArrays(value);
     if (!arrays.length) return null;
-    arrays.sort((a,b) => { const sa=orderArrayScore(a), sb=orderArrayScore(b); return sb-sa || b.length-a.length; });
+    arrays.sort((a, b) => orderScore(b) - orderScore(a) || b.length - a.length);
     return arrays[0];
   }
 
@@ -127,7 +158,11 @@
     try {
       const response = JSON.parse(resultOutput.textContent || "{}");
       if (!response.success) return;
-      const rows = findRows(response.data);
+      let data = response.data;
+      if (typeof data === "string") {
+        try { data = JSON.parse(data); } catch (_) {}
+      }
+      const rows = findRows(data);
       if (rows && rows.length) renderOrders(rows);
     } catch (_) {}
   }
