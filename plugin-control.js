@@ -1,5 +1,5 @@
 const API_BASE = "/api/plugin";
-const DATA_ENDPOINT = "http://68.233.120.197/api/plugin/data";
+const DATA_ENDPOINT = "/api/plugin/data";
 
 const pluginsList = document.getElementById("plugins-list");
 const pluginSelect = document.getElementById("plugin-select");
