@@ -1,4 +1,4 @@
-const VPS_API = "http://68.233.120.197";
+const VPS_API = "http://68-233-120-197.nip.io";
 
 function corsHeaders() {
   return {
@@ -56,6 +56,7 @@ export async function onRequestPost(context) {
         success: false,
         error: "VPS returned invalid JSON",
         status: response.status,
+        contentType: response.headers.get("content-type") || "",
         raw: text.slice(0, 500)
       }, 502);
     }
