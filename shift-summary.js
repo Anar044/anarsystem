@@ -3,8 +3,7 @@
   const openEl = document.getElementById("shift-open-sum");
   const expectedEl = document.getElementById("shift-expected-sum");
   const statusEl = document.getElementById("shift-summary-status");
-  const pluginSelect = document.getElementById("plugin-select");
-  if (!closedEl || !openEl || !expectedEl || !pluginSelect) return;
+  if (!closedEl || !openEl || !expectedEl) return;
 
   const API = "/api/plugin/request";
   const REFRESH_MS = 10000;
@@ -14,7 +13,7 @@
 
   function firstText(value) {
     if (value == null || value === "") return null;
-    if (["string", "number", "boolean"].includes(typeof value)) return value;
+    if (typeof value !== "object") return value;
     if (Array.isArray(value)) {
       for (const item of value) { const v = firstText(item); if (v != null && v !== "") return v; }
       return null;
@@ -27,7 +26,7 @@
   }
 
   function deepFind(value, names, depth = 0) {
-    if (value == null || typeof value !== "object" || depth > 12) return null;
+    if (value == null || typeof value !== "object" || depth > 15) return null;
     const wanted = names.map(x => String(x).toLowerCase());
     if (Array.isArray(value)) {
       for (const item of value) { const found = deepFind(item, names, depth + 1); if (found != null && found !== "") return found; }
@@ -43,45 +42,62 @@
     return null;
   }
 
-  function findOrderArrays(value, out = [], depth = 0) {
-    if (value == null || typeof value !== "object" || depth > 12) return out;
-    if (Array.isArray(value)) {
-      const objects = value.filter(x => x && typeof x === "object" && !Array.isArray(x));
-      if (objects.length) {
-        const score = objects.reduce((sum, row) => {
-          const keys = Object.keys(row).map(k => k.toLowerCase());
-          return sum + ["ordernum", "orderstatus", "orderexpectedrevenue", "revenue", "resultsum", "ordersum"].filter(k => keys.includes(k)).length;
-        }, 0);
-        if (score > 0) out.push({ rows: objects, score });
-      }
-      for (const item of value) findOrderArrays(item, out, depth + 1);
-      return out;
-    }
-    for (const child of Object.values(value)) findOrderArrays(child, out, depth + 1);
-    return out;
-  }
-
   function parseAmount(row) {
     const raw = firstText(deepFind(row, ["orderExpectedRevenue", "revenue", "resultSum", "orderSum", "sum", "total", "amount"]));
     if (raw == null) return NaN;
-    const n = Number(String(raw).replace(/\s/g, "").replace(/[^0-9,.-]/g, "").replace(",", "."));
+    if (typeof raw === "number") return Number.isFinite(raw) ? raw : NaN;
+    const n = Number(String(raw).replace(/\s/g, "").replace(/[^0-9,.-]/g, "").replace(/,(?=.*[,])/g, "").replace(",", "."));
     return Number.isFinite(n) ? n : NaN;
+  }
+
+  function orderNumber(row) {
+    return firstText(deepFind(row, ["orderNum", "orderNumber", "orderNo", "number", "num"]));
   }
 
   function isClosed(row) {
     const status = String(firstText(deepFind(row, ["orderStatus", "status", "state", "orderState", "statusName"])) ?? "").toLowerCase();
-    if (/(closed|close|completed|complete|paid|закрыт|закрыто|оплачен|заверш)/.test(status)) return true;
+    if (/(closed|close|completed|complete|paid|закрыт|закрыто|оплачен|заверш|deleted|удал)/.test(status)) return true;
     if (/(open|opened|active|new|новый|открыт|открыто|актив)/.test(status)) return false;
-    const closed = deepFind(row, ["isClosed", "closed", "isClosedOrder"]);
-    if (closed === true || String(closed).toLowerCase() === "true") return true;
-    if (closed === false || String(closed).toLowerCase() === "false") return false;
+    const flag = deepFind(row, ["isClosed", "closed", "isClosedOrder"]);
+    if (flag === true || String(flag).toLowerCase() === "true") return true;
+    if (flag === false || String(flag).toLowerCase() === "false") return false;
     return !!deepFind(row, ["closeTime", "orderCloseTime", "closedAt", "closingTime"]);
   }
 
-  function extractRows(data) {
-    const arrays = findOrderArrays(data);
-    arrays.sort((a, b) => b.score - a.score || b.rows.length - a.rows.length);
-    return arrays[0]?.rows || [];
+  function collectOrderObjects(value, out = [], depth = 0) {
+    if (value == null || typeof value !== "object" || depth > 15) return out;
+    if (Array.isArray(value)) {
+      for (const item of value) collectOrderObjects(item, out, depth + 1);
+      return out;
+    }
+    const num = orderNumber(value);
+    const amount = parseAmount(value);
+    if (num != null && Number.isFinite(amount)) out.push(value);
+    for (const child of Object.values(value)) collectOrderObjects(child, out, depth + 1);
+    return out;
+  }
+
+  function buildOrders(payload) {
+    let data = payload;
+    if (typeof data === "string") {
+      try { data = JSON.parse(data); } catch (_) {}
+    }
+    const all = collectOrderObjects(data);
+    const byNumber = new Map();
+    for (const row of all) {
+      const key = String(orderNumber(row));
+      const existing = byNumber.get(key);
+      if (!existing) {
+        byNumber.set(key, row);
+        continue;
+      }
+      const existingAmount = parseAmount(existing);
+      const amount = parseAmount(row);
+      const existingClosed = isClosed(existing);
+      const currentClosed = isClosed(row);
+      if ((!existingClosed && currentClosed) || (existingAmount === 0 && amount !== 0)) byNumber.set(key, row);
+    }
+    return [...byNumber.values()];
   }
 
   function render(closed, open, closedCount, openCount) {
@@ -92,7 +108,7 @@
   }
 
   async function refresh() {
-    const pluginId = pluginSelect.value;
+    const pluginId = document.querySelector("#plugin-select")?.value;
     if (!pluginId || inFlight) return;
     inFlight = true;
     try {
@@ -104,7 +120,7 @@
       });
       const json = await response.json();
       if (!response.ok || !json.success) throw new Error(json.error || json.message || `HTTP ${response.status}`);
-      const rows = extractRows(json.data);
+      const rows = buildOrders(json.data);
       let closed = 0, open = 0, closedCount = 0, openCount = 0;
       for (const row of rows) {
         const amount = parseAmount(row);
@@ -114,7 +130,7 @@
       }
       render(closed, open, closedCount, openCount);
     } catch (error) {
-      statusEl.textContent = `Не удалось обновить: ${error.message}`;
+      statusEl.textContent = "Не удалось обновить";
     } finally {
       inFlight = false;
     }
@@ -122,5 +138,4 @@
 
   refresh();
   setInterval(refresh, REFRESH_MS);
-  pluginSelect.addEventListener("change", refresh);
 })();
