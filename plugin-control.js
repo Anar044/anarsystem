@@ -39,6 +39,14 @@ const ACTION_NAMES = {
   get_employees: "Сотрудники"
 };
 
+const ACTION_SUBTITLES = {
+  get_sales: "Сводка продаж, полученная непосредственно от подключённой кассы.",
+  get_orders: "Текущие заказы, полученные непосредственно от подключённой кассы.",
+  get_payments: "Сводка оплат по данным подключённой кассы.",
+  get_products: "Топ товаров по выручке по данным подключённой кассы.",
+  get_employees: "Сводка по официантам по данным подключённой кассы."
+};
+
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -134,6 +142,7 @@ function renderLiveData(plugin) {
 }
 
 function renderPlugins(plugins) {
+  const previousPluginId = pluginSelect.value;
   pluginSelect.innerHTML = "";
 
   if (!plugins.length) {
@@ -154,6 +163,10 @@ function renderPlugins(plugins) {
     option.textContent = plugin.pluginName || plugin.pluginId || `Касса ${index + 1}`;
     pluginSelect.appendChild(option);
   });
+
+  if (plugins.some(p => p.pluginId === previousPluginId)) {
+    pluginSelect.value = previousPluginId;
+  }
 
   pluginsList.innerHTML = plugins.map((plugin) => `
     <div class="plugin-card">
@@ -183,11 +196,11 @@ function renderPlugins(plugins) {
 }
 
 function findRows(value, depth = 0) {
-  if (depth > 5 || value === null || value === undefined) return null;
+  if (depth > 6 || value === null || value === undefined) return null;
   if (Array.isArray(value)) return value.filter(item => item && typeof item === "object");
   if (typeof value !== "object") return null;
 
-  const preferredKeys = ["items", "rows", "data", "orders", "sales", "payments", "products", "employees", "result", "records"];
+  const preferredKeys = ["items", "rows", "data", "orders", "sales", "payments", "products", "employees", "result", "records", "report"];
   for (const key of preferredKeys) {
     if (value[key] !== undefined) {
       const rows = findRows(value[key], depth + 1);
@@ -205,9 +218,9 @@ function findRows(value, depth = 0) {
 
 function collectColumns(rows) {
   const keys = [];
-  rows.slice(0, 50).forEach(row => {
+  rows.slice(0, 100).forEach(row => {
     Object.keys(row).forEach(key => {
-      if (!keys.includes(key) && keys.length < 10) keys.push(key);
+      if (!keys.includes(key) && keys.length < 12) keys.push(key);
     });
   });
   return keys;
@@ -223,57 +236,104 @@ function renderTable(rows) {
   `).join("");
 
   return `
+    <div class="result-table-title"><span>Детализация</span><b>${rows.length} строк</b></div>
     <div class="data-table-wrap">
       <table class="data-table">
         <thead><tr>${head}</tr></thead>
         <tbody>${body}</tbody>
       </table>
     </div>
+    ${rows.length > 100 ? '<div class="table-note">Показаны первые 100 строк. Полный ответ доступен ниже в техническом блоке.</div>' : ''}
+  `;
+}
+
+function primitiveEntries(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.entries(value).filter(([, item]) =>
+    item === null || ["string", "number", "boolean"].includes(typeof item)
+  );
+}
+
+function renderStatsFromObject(value, limit = 8) {
+  const entries = primitiveEntries(value).slice(0, limit);
+  if (!entries.length) return "";
+
+  return `<div class="result-headline">${entries.map(([key, value]) => `
+    <div class="result-stat">
+      <span>${escapeHtml(key)}</span>
+      <strong>${typeof value === "number" ? escapeHtml(formatMoney(value)) : escapeHtml(formatValue(value))}</strong>
+    </div>
+  `).join("")}</div>`;
+}
+
+function renderNumericChart(rows) {
+  if (!Array.isArray(rows) || rows.length < 2) return "";
+
+  const candidates = collectColumns(rows).map(column => {
+    const values = rows.map(row => Number(row[column])).filter(Number.isFinite);
+    return { column, values };
+  }).filter(item => item.values.length >= 2);
+
+  if (!candidates.length) return "";
+
+  const candidate = candidates.sort((a, b) => b.values.length - a.values.length)[0];
+  const max = Math.max(...candidate.values.map(Math.abs), 1);
+  const labelColumn = collectColumns(rows).find(column =>
+    column !== candidate.column && rows.some(row => typeof row[column] === "string" && row[column])
+  );
+
+  const bars = rows.slice(0, 10).map(row => {
+    const value = Number(row[candidate.column]);
+    if (!Number.isFinite(value)) return "";
+    const width = Math.max(3, Math.round((Math.abs(value) / max) * 100));
+    const label = labelColumn ? formatValue(row[labelColumn]) : candidate.column;
+    return `<div class="chart-row"><div class="chart-label" title="${escapeHtml(label)}">${escapeHtml(label)}</div><div class="chart-track"><div class="chart-bar" style="width:${width}%"></div></div><div class="chart-value">${escapeHtml(formatMoney(value))}</div></div>`;
+  }).join("");
+
+  return `
+    <div class="mini-chart">
+      <div class="mini-chart-head"><span>Визуализация</span><b>${escapeHtml(candidate.column)}</b></div>
+      ${bars}
+    </div>
   `;
 }
 
 function renderRequestResult(data, action) {
   resultTitle.textContent = ACTION_NAMES[action] || "Результат";
-  resultSubtitle.textContent = "Данные получены непосредственно от подключённого плагина.";
+  resultSubtitle.textContent = ACTION_SUBTITLES[action] || "Данные получены непосредственно от подключённого плагина.";
 
   const rows = findRows(data);
-  const stats = [];
-
-  if (Array.isArray(data)) stats.push(["Записей", data.length]);
-  if (rows) stats.push(["Строк", rows.length]);
+  let html = "";
 
   if (data && typeof data === "object" && !Array.isArray(data)) {
     const summary = data.summary;
     if (summary && typeof summary === "object" && !Array.isArray(summary)) {
-      Object.entries(summary).slice(0, 4).forEach(([key, value]) => {
-        if (["number", "string"].includes(typeof value)) stats.push([key, formatValue(value)]);
-      });
+      html += renderStatsFromObject(summary, 8);
     }
   }
 
-  const statsHtml = stats.length
-    ? `<div class="result-headline">${stats.map(([label, value]) => `<div class="result-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>`
-    : "";
+  if (Array.isArray(data)) {
+    html += `<div class="result-headline"><div class="result-stat"><span>Записей</span><strong>${data.length}</strong></div></div>`;
+  } else if (rows) {
+    html += `<div class="result-headline"><div class="result-stat"><span>Строк</span><strong>${rows.length}</strong></div></div>`;
+  }
 
   if (rows && rows.length) {
-    resultSummary.innerHTML = statsHtml + renderTable(rows);
-    return;
-  }
-
-  if (data && typeof data === "object") {
-    const entries = Object.entries(data).filter(([, value]) => typeof value !== "object").slice(0, 12);
+    html += renderNumericChart(rows);
+    html += renderTable(rows);
+  } else if (data && typeof data === "object") {
+    const entries = primitiveEntries(data).slice(0, 12);
     if (entries.length) {
-      resultSummary.innerHTML = statsHtml + `<div class="result-headline">${entries.map(([key, value]) => `<div class="result-stat"><span>${escapeHtml(key)}</span><strong>${escapeHtml(formatValue(value))}</strong></div>`).join("")}</div>`;
-      return;
+      html += `<div class="result-headline">${entries.map(([key, value]) => `
+        <div class="result-stat"><span>${escapeHtml(key)}</span><strong>${typeof value === "number" ? escapeHtml(formatMoney(value)) : escapeHtml(formatValue(value))}</strong></div>
+      `).join("")}</div>`;
     }
   }
 
-  resultSummary.innerHTML = statsHtml || '<div class="empty-note">Плагин вернул пустой результат.</div>';
+  resultSummary.innerHTML = html || '<div class="empty-note">Плагин вернул пустой результат.</div>';
 }
 
 async function loadStatus() {
-  setConnectionState(false, "Получаем данные от плагина…");
-
   try {
     const response = await fetch(DATA_ENDPOINT, { cache: "no-store" });
     const data = await response.json();
@@ -359,3 +419,6 @@ actionSelect.addEventListener("change", () => {
 
 actionSelect.dispatchEvent(new Event("change"));
 loadStatus();
+
+// Live panel refresh: data remains only in RAM on the VPS.
+setInterval(loadStatus, 5000);
