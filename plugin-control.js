@@ -139,3 +139,125 @@ autoRefresh.addEventListener("change",()=>{restartAutoRefresh();if(autoRefresh.c
 
 async function init(){ const needs=["get_sales","get_orders","get_payments"].includes(actionSelect.value);dateFrom.disabled=!needs;dateTo.disabled=!needs;updateCountdownLabel();await loadStatus();if(pluginSelect.value)await sendPluginRequest({silent:true});restartAutoRefresh();setInterval(loadStatus,STATUS_REFRESH_MS); }
 init();
+
+// SHIFT SUMMARY: always independent from the selected report (Продажи / Заказы / Оплаты / ...)
+(() => {
+  const closedEl = document.getElementById("shift-closed-sum");
+  const openEl = document.getElementById("shift-open-sum");
+  const expectedEl = document.getElementById("shift-expected-sum");
+  const statusEl = document.getElementById("shift-summary-status");
+  if (!closedEl || !openEl || !expectedEl) return;
+
+  const money = value => Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+  const text = value => String(value ?? "").toLowerCase();
+
+  const first = value => {
+    if (value == null || value === "") return null;
+    if (typeof value !== "object") return value;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = first(item);
+        if (found != null && found !== "") return found;
+      }
+      return null;
+    }
+    for (const key of ["name", "title", "value", "number", "code", "id"]) {
+      const found = first(value[key]);
+      if (found != null && found !== "") return found;
+    }
+    return null;
+  };
+
+  const deep = (value, names, depth = 0) => {
+    if (value == null || typeof value !== "object" || depth > 12) return null;
+    const wanted = names.map(x => String(x).toLowerCase());
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = deep(item, names, depth + 1);
+        if (found != null && found !== "") return found;
+      }
+      return null;
+    }
+    for (const [key, child] of Object.entries(value)) {
+      if (wanted.includes(key.toLowerCase()) && child != null && child !== "") return child;
+    }
+    for (const child of Object.values(value)) {
+      const found = deep(child, names, depth + 1);
+      if (found != null && found !== "") return found;
+    }
+    return null;
+  };
+
+  const parseNumber = value => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (value == null) return NaN;
+    const normalized = String(value).replace(/\s/g, "").replace(/[^0-9,.-]/g, "").replace(/,(?=.*[,])/g, "").replace(",", ".");
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  };
+
+  const rowsOf = (value, depth = 0) => {
+    if (value == null || depth > 12) return null;
+    if (Array.isArray(value)) {
+      const rows = value.filter(item => item && typeof item === "object");
+      return rows.length ? rows : null;
+    }
+    if (typeof value !== "object") return null;
+    for (const key of ["orders", "items", "rows", "data", "result", "records", "report"]) {
+      if (value[key] !== undefined) {
+        const rows = rowsOf(value[key], depth + 1);
+        if (rows?.length) return rows;
+      }
+    }
+    for (const child of Object.values(value)) {
+      const rows = rowsOf(child, depth + 1);
+      if (rows?.length) return rows;
+    }
+    return null;
+  };
+
+  async function updateShiftSummary() {
+    try {
+      const stateResponse = await fetch("/api/plugin/data", { cache: "no-store" });
+      const state = await stateResponse.json();
+      const plugin = state?.plugins?.[0];
+      if (!plugin?.pluginId) throw new Error("Касса не подключена");
+
+      const response = await fetch("/api/plugin/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ action: "get_orders", pluginId: plugin.pluginId, params: {} })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || `HTTP ${response.status}`);
+
+      let payload = result.data;
+      if (typeof payload === "string") {
+        try { payload = JSON.parse(payload); } catch (_) {}
+      }
+      const rows = rowsOf(payload) || [];
+      let closed = 0, open = 0, closedCount = 0, openCount = 0;
+
+      for (const row of rows) {
+        const amount = parseNumber(first(deep(row, ["revenue", "resultSum", "orderExpectedRevenue", "orderSum", "sum", "total", "amount"])));
+        if (!Number.isFinite(amount)) continue;
+        const status = text(first(deep(row, ["orderStatus", "status", "state", "orderState", "statusName"])));
+        const closeTime = deep(row, ["closeTime", "orderCloseTime", "closedAt", "closingTime"]);
+        const isClosed = /(closed|close|completed|complete|paid|закрыт|закрыто|оплачен|заверш)/.test(status) || !!closeTime;
+        if (isClosed) { closed += amount; closedCount++; }
+        else { open += amount; openCount++; }
+      }
+
+      closedEl.textContent = money(closed);
+      openEl.textContent = money(open);
+      expectedEl.textContent = money(closed + open);
+      statusEl.textContent = `По всем заказам · ${closedCount} закрытых / ${openCount} открытых`;
+    } catch (error) {
+      statusEl.textContent = error.message === "Касса не подключена" ? "Касса не подключена" : "Не удалось обновить";
+    }
+  }
+
+  updateShiftSummary();
+  setInterval(updateShiftSummary, 10000);
+})();
