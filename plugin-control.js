@@ -394,7 +394,6 @@ async function sendPluginRequest() {
 
     renderRequestResult(data.data, action);
     requestStatus.textContent = `Ответ получен: ${ACTION_NAMES[action] || action}`;
-    setTimeout(loadStatus, 300);
   } catch (error) {
     requestStatus.textContent = `Ошибка: ${error.message}`;
     resultSummary.innerHTML = `<div class="empty-note">Ошибка запроса: ${escapeHtml(error.message)}</div>`;
@@ -402,6 +401,11 @@ async function sendPluginRequest() {
   } finally {
     sendButton.disabled = !pluginSelect.value;
   }
+}
+
+async function autoRefreshReport() {
+  if (!pluginSelect.value || sendButton.disabled) return;
+  await sendPluginRequest();
 }
 
 dateFrom.value = todayISO();
@@ -422,3 +426,6 @@ loadStatus();
 
 // Live panel refresh: data remains only in RAM on the VPS.
 setInterval(loadStatus, 5000);
+
+// Automatically refresh the selected report every 10 seconds.
+setInterval(autoRefreshReport, 10000);
