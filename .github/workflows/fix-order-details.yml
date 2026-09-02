@@ -1,0 +1,88 @@
+name: Fix order details enrichment
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-order-details.yml'
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch plugin-orders.js
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('plugin-orders.js')
+          s = p.read_text()
+          old = '''  function tryRenderOrders(){if(actionSelect.value!=="get_orders")return;try{const response=JSON.parse(resultOutput.textContent||"{}");if(!response.success)return;let data=response.data;if(typeof data==="string"){try{data=JSON.parse(data);}catch(_){}}const rows=findRows(data);if(rows?.length)renderOrders(rows);}catch(_){} }\n  const observer=new MutationObserver(tryRenderOrders);observer.observe(resultOutput,{childList:true,characterData:true,subtree:true});actionSelect.addEventListener("change",()=>setTimeout(tryRenderOrders,250));setInterval(tryRenderOrders,1000);'''
+          new = '''  let enrichedOrderKey="";
+  let enrichingOrderKey="";
+  function mergeOrderDetail(row,detail){
+    if(!row||!detail||typeof detail!=="object")return;
+    const source=detail.data&&typeof detail.data==="object"?detail.data:detail;
+    const read=(names)=>{
+      const wanted=names.map(x=>String(x).toLowerCase());
+      function walk(value,depth){
+        if(value===null||value===undefined||typeof value!=="object"||depth>12)return null;
+        if(Array.isArray(value)){for(const item of value){const v=walk(item,depth+1);if(v!==null&&v!==undefined&&v!=="")return v;}return null;}
+        for(const [key,value] of Object.entries(value))if(wanted.includes(String(key).toLowerCase())&&value!==null&&value!==undefined&&value!=="")return value;
+        for(const value of Object.values(value)){const v=walk(value,depth+1);if(v!==null&&v!==undefined&&v!=="")return v;}
+        return null;
+      }
+      return walk(source,0);
+    };
+    const set=(key,names)=>{const v=read(names);if(v!==null&&v!==undefined&&v!=="")row[key]=v;};
+    set("Tables",["tables","orderTables","table","tableName"]);
+    set("Floor",["floor","floorName","restaurantSection","section","hall"]);
+    set("Waiter",["waiter","waiterName","waiterFullName","orderWaiter","employee","employeeName","employeeFullName"]);
+    set("Cashier",["cashier","cashierName","cashierFullName","orderCashier"]);
+    set("Revenue",["revenue","resultSum","orderSum","sum","total"]);
+    set("OpenTime",["openTime","orderOpenDate","openedAt","openingTime"]);
+    set("BillTime",["billTime","orderBillTime","precheckTime","precheckAt"]);
+    set("CloseTime",["closeTime","orderCloseTime","closedAt","closingTime"]);
+    set("Payments",["payments","payment","paymentType","paymentTypeName","paymentMethod","paymentName","payType","payTypeName"]);
+  }
+  async function enrichOrderRows(rows){
+    if(!rows?.length)return;
+    const key=rows.map((row,index)=>String(orderNumber(row,index))).join(",");
+    if(key===enrichedOrderKey||key===enrichingOrderKey)return;
+    enrichingOrderKey=key;
+    try{
+      const {pluginId}=selectedPluginQuery();
+      await Promise.all(rows.slice(0,200).map(async(row,index)=>{
+        const number=orderNumber(row,index);
+        if(number===null||number===undefined||number==="")return;
+        try{
+          const response=await fetch("/api/plugin/request",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({action:"get_order",pluginId,params:{orderNum:number}})});
+          const json=await response.json();
+          if(response.ok&&json.success)mergeOrderDetail(row,json.data);
+        }catch(_){}
+      }));
+      enrichedOrderKey=key;
+      renderOrders(rows);
+    }finally{
+      enrichingOrderKey="";
+    }
+  }
+  function tryRenderOrders(){if(actionSelect.value!=="get_orders")return;try{const response=JSON.parse(resultOutput.textContent||"{}");if(!response.success)return;let data=response.data;if(typeof data==="string"){try{data=JSON.parse(data);}catch(_){}}const rows=findRows(data);if(rows?.length){renderOrders(rows);enrichOrderRows(rows);}}catch(_){} }
+  const observer=new MutationObserver(tryRenderOrders);observer.observe(resultOutput,{childList:true,characterData:true,subtree:true});actionSelect.addEventListener("change",()=>{enrichedOrderKey="";enrichingOrderKey="";setTimeout(tryRenderOrders,250);});setInterval(tryRenderOrders,1000);'''
+          if old not in s:
+              raise SystemExit('target block not found')
+          s=s.replace(old,new,1)
+          p.write_text(s)
+          PY
+
+      - name: Commit patch and remove workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add plugin-orders.js
+          git commit -m "Enrich order table with full order details"
+          git rm .github/workflows/fix-order-details.yml
+          git commit -m "Remove temporary order details workflow"
+          git push
