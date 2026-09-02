@@ -28,7 +28,7 @@
   <div>
     <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
     <span class="topbar-title">Кассы</span>
-    <div class="topbar-sub">Подключённые плагины и запрос данных из iiko</div>
+    <div class="topbar-sub">Подключённые плагины и данные из iiko</div>
   </div>
   <div class="top-actions">
     <span id="connection-pill" class="status-pill offline">● Нет подключения</span>
@@ -41,7 +41,7 @@
   <div class="page-head">
     <div>
       <h1>Управление кассами</h1>
-      <p>SH_Reports не хранит данные iiko. Запрос отправляется подключённому плагину в момент просмотра.</p>
+      <p>Данные поступают от подключённого плагина через VPS. На странице ничего не сохраняется.</p>
     </div>
   </div>
 
@@ -58,11 +58,37 @@
     </div>
   </section>
 
+  <section class="card panel live-panel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">Онлайн-данные кассы</div>
+        <div class="panel-muted">Последний пакет, который сейчас пришёл от плагина.</div>
+      </div>
+      <span id="live-event" class="event-badge">—</span>
+    </div>
+
+    <div class="live-kpis">
+      <div class="live-kpi"><span>Выручка</span><strong id="live-revenue">—</strong></div>
+      <div class="live-kpi"><span>Заказ</span><strong id="live-order">—</strong></div>
+      <div class="live-kpi"><span>Стол</span><strong id="live-table">—</strong></div>
+      <div class="live-kpi"><span>Зал</span><strong id="live-floor">—</strong></div>
+      <div class="live-kpi"><span>Официант</span><strong id="live-waiter">—</strong></div>
+      <div class="live-kpi"><span>Кассир</span><strong id="live-cashier">—</strong></div>
+    </div>
+
+    <div class="live-details">
+      <div><span>Открытие</span><b id="live-open-time">—</b></div>
+      <div><span>Закрытие</span><b id="live-close-time">—</b></div>
+      <div><span>Обновление</span><b id="live-update-time">—</b></div>
+      <div><span>Последняя активность</span><b id="live-last-event">—</b></div>
+    </div>
+  </section>
+
   <section class="card panel request-panel">
     <div class="panel-head">
       <div>
         <div class="panel-title">Запрос данных</div>
-        <div class="panel-muted">Выбери кассу и действие. Пока плагин не подключён, запросы не отправляются.</div>
+        <div class="panel-muted">Выбери кассу, тип данных и период. Запрос отправляется прямо подключённому плагину.</div>
       </div>
     </div>
 
@@ -73,7 +99,7 @@
         </select>
       </label>
 
-      <label>Действие
+      <label>Данные
         <select id="action-select">
           <option value="get_sales">Продажи</option>
           <option value="get_orders">Заказы</option>
@@ -93,7 +119,7 @@
     </div>
 
     <div class="request-actions">
-      <button id="send-request" class="primary-btn" disabled>▶ Запросить данные</button>
+      <button id="send-request" class="primary-btn" disabled>▶ Получить данные</button>
       <span id="request-status" class="panel-muted"></span>
     </div>
   </section>
@@ -101,11 +127,17 @@
   <section class="card panel result-panel">
     <div class="panel-head">
       <div>
-        <div class="panel-title">Ответ плагина</div>
-        <div class="panel-muted">Здесь отображается только текущий ответ, без сохранения на VPS.</div>
+        <div class="panel-title" id="result-title">Результат</div>
+        <div class="panel-muted" id="result-subtitle">Здесь будут отображаться полученные данные в удобном виде.</div>
       </div>
     </div>
-    <pre id="result-output" class="result-output">Ожидание запроса…</pre>
+    <div id="result-summary" class="result-summary">
+      <div class="empty-note">Выбери тип данных и нажми «Получить данные».</div>
+    </div>
+    <details class="raw-details">
+      <summary>Показать технический ответ</summary>
+      <pre id="result-output" class="result-output">Ожидание запроса…</pre>
+    </details>
   </section>
 </section>
 </main>
