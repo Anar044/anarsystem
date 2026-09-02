@@ -1,6 +1,7 @@
 name: Fix order details enrichment
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - '.github/workflows/fix-order-details.yml'
@@ -13,7 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Patch order renderer
-        shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
