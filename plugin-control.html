@@ -52,48 +52,19 @@
   </div>
 
   <section class="overview-grid" aria-label="Сводка состояния">
-    <div class="overview-card accent-card">
-      <div class="overview-icon">◉</div>
-      <div><span>Кассы онлайн</span><strong id="overview-online">—</strong><small id="overview-online-text">Проверяем подключение…</small></div>
-    </div>
-    <div class="overview-card">
-      <div class="overview-icon">↯</div>
-      <div><span>Последняя активность</span><strong id="overview-activity">—</strong><small id="overview-event">Ожидание события</small></div>
-    </div>
-    <div class="overview-card">
-      <div class="overview-icon">▥</div>
-      <div><span>Текущий отчёт</span><strong id="overview-report">Продажи</strong><small id="overview-report-status">Автоматически обновляется</small></div>
-    </div>
-    <div class="overview-card">
-      <div class="overview-icon">✓</div>
-      <div><span>Синхронизация</span><strong id="overview-sync">—</strong><small id="overview-sync-text">—</small></div>
-    </div>
+    <div class="overview-card accent-card"><div class="overview-icon">◉</div><div><span>Кассы онлайн</span><strong id="overview-online">—</strong><small id="overview-online-text">Проверяем подключение…</small></div></div>
+    <div class="overview-card"><div class="overview-icon">↯</div><div><span>Последняя активность</span><strong id="overview-activity">—</strong><small id="overview-event">Ожидание события</small></div></div>
+    <div class="overview-card"><div class="overview-icon">▥</div><div><span>Текущий отчёт</span><strong id="overview-report">Продажи</strong><small id="overview-report-status">Автоматически обновляется</small></div></div>
+    <div class="overview-card"><div class="overview-icon">✓</div><div><span>Синхронизация</span><strong id="overview-sync">—</strong><small id="overview-sync-text">—</small></div></div>
   </section>
 
   <section class="card panel connected-panel">
-    <div class="panel-head">
-      <div>
-        <div class="section-kicker">CONNECTION</div>
-        <div class="panel-title">Подключённые кассы</div>
-        <div class="panel-muted" id="status-text">Проверяем подключение…</div>
-      </div>
-      <span class="panel-muted" id="checked-at">—</span>
-    </div>
-    <div id="plugins-list" class="plugins-list">
-      <div class="empty-note">Загрузка…</div>
-    </div>
+    <div class="panel-head"><div><div class="section-kicker">CONNECTION</div><div class="panel-title">Подключённые кассы</div><div class="panel-muted" id="status-text">Проверяем подключение…</div></div><span class="panel-muted" id="checked-at">—</span></div>
+    <div id="plugins-list" class="plugins-list"><div class="empty-note">Загрузка…</div></div>
   </section>
 
   <section class="card panel live-panel">
-    <div class="panel-head live-head">
-      <div>
-        <div class="section-kicker">LIVE EVENT</div>
-        <div class="panel-title">Онлайн-данные кассы</div>
-        <div class="panel-muted">Последнее полезное событие от подключённого плагина.</div>
-      </div>
-      <div class="live-status"><span class="pulse-dot"></span><span id="live-event">—</span></div>
-    </div>
-
+    <div class="panel-head live-head"><div><div class="section-kicker">LIVE EVENT</div><div class="panel-title">Онлайн-данные кассы</div><div class="panel-muted">Последнее полезное событие от подключённого плагина.</div></div><div class="live-status"><span class="pulse-dot"></span><span id="live-event">—</span></div></div>
     <div class="live-kpis">
       <div class="live-kpi hero-kpi"><span>Выручка</span><strong id="live-revenue">—</strong><small>по последнему событию</small></div>
       <div class="live-kpi"><span>Заказ</span><strong id="live-order">—</strong><small>номер заказа</small></div>
@@ -102,77 +73,33 @@
       <div class="live-kpi"><span>Официант</span><strong id="live-waiter">—</strong><small>ответственный</small></div>
       <div class="live-kpi"><span>Кассир</span><strong id="live-cashier">—</strong><small>оператор</small></div>
     </div>
-
-    <div class="live-details">
-      <div><span>Открытие</span><b id="live-open-time">—</b></div>
-      <div><span>Закрытие</span><b id="live-close-time">—</b></div>
-      <div><span>Обновление</span><b id="live-update-time">—</b></div>
-      <div><span>Последняя активность</span><b id="live-last-event">—</b></div>
-    </div>
+    <div class="live-details"><div><span>Открытие</span><b id="live-open-time">—</b></div><div><span>Закрытие</span><b id="live-close-time">—</b></div><div><span>Обновление</span><b id="live-update-time">—</b></div><div><span>Последняя активность</span><b id="live-last-event">—</b></div></div>
   </section>
 
   <section class="card panel request-panel">
-    <div class="panel-head request-head">
-      <div>
-        <div class="section-kicker">REPORT CENTER</div>
-        <div class="panel-title">Отчёт с кассы</div>
-        <div class="panel-muted">Выбери нужные данные. Страница сама будет запрашивать их с выбранным интервалом.</div>
-      </div>
-      <label class="switch-wrap" title="Автоматически обновлять отчёт">
-        <input id="auto-refresh" type="checkbox" checked>
-        <span class="switch"></span>
-        <span>Авто</span>
-      </label>
-    </div>
-
+    <div class="panel-head request-head"><div><div class="section-kicker">REPORT CENTER</div><div class="panel-title">Отчёт с кассы</div><div class="panel-muted">Выбери нужные данные. Страница сама будет запрашивать их с выбранным интервалом.</div></div><label class="switch-wrap" title="Автоматически обновлять отчёт"><input id="auto-refresh" type="checkbox" checked><span class="switch"></span><span>Авто</span></label></div>
     <div class="request-grid">
-      <label>Касса
-        <select id="plugin-select" disabled><option value="">Нет подключённых касс</option></select>
-      </label>
-      <label>Данные
-        <select id="action-select">
-          <option value="get_sales">Продажи</option>
-          <option value="get_orders">Заказы</option>
-          <option value="get_payments">Оплаты</option>
-          <option value="get_products">Товары</option>
-          <option value="get_employees">Сотрудники</option>
-        </select>
-      </label>
+      <label>Касса<select id="plugin-select" disabled><option value="">Нет подключённых касс</option></select></label>
+      <label>Данные<select id="action-select"><option value="get_sales">Продажи</option><option value="get_orders">Заказы</option><option value="get_payments">Оплаты</option><option value="get_products">Товары</option><option value="get_employees">Сотрудники</option></select></label>
       <label>Дата с<input id="date-from" type="date"></label>
       <label>Дата по<input id="date-to" type="date"></label>
     </div>
-
-    <div class="request-actions">
-      <button id="send-request" class="primary-btn" disabled><span>↻</span> Обновить сейчас</button>
-      <div class="request-status-box"><span class="request-status-dot"></span><span id="request-status">Готово к запросу</span></div>
-    </div>
+    <div class="request-actions"><button id="send-request" class="primary-btn" disabled><span>↻</span> Обновить сейчас</button><div class="request-status-box"><span class="request-status-dot"></span><span id="request-status">Готово к запросу</span></div></div>
   </section>
 
   <section class="card panel result-panel">
-    <div class="panel-head">
-      <div>
-        <div class="section-kicker">RESULT</div>
-        <div class="panel-title" id="result-title">Результат</div>
-        <div class="panel-muted" id="result-subtitle">Здесь будут отображаться полученные данные в удобном виде.</div>
-      </div>
-      <div class="result-live-label"><span></span> LIVE</div>
-    </div>
-    <div id="result-summary" class="result-summary">
-      <div class="empty-note">Данные появятся автоматически после подключения кассы.</div>
-    </div>
-    <details class="raw-details">
-      <summary>Показать технический ответ</summary>
-      <pre id="result-output" class="result-output">Ожидание запроса…</pre>
-    </details>
+    <div class="panel-head"><div><div class="section-kicker">RESULT</div><div class="panel-title" id="result-title">Результат</div><div class="panel-muted" id="result-subtitle">Здесь будут отображаться полученные данные в удобном виде.</div></div><div class="result-live-label"><span></span> LIVE</div></div>
+    <div id="result-summary" class="result-summary"><div class="empty-note">Данные появятся автоматически после подключения кассы.</div></div>
+    <details class="raw-details"><summary>Показать технический ответ</summary><pre id="result-output" class="result-output">Ожидание запроса…</pre></details>
   </section>
 </section>
 </main>
 </div>
-
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="auth-config.js"></script>
 <script src="auth.js"></script>
 <script src="app-shell.js"></script>
 <script src="plugin-control.js"></script>
+<script src="plugin-orders.js"></script>
 </body>
 </html>
