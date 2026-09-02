@@ -1,8 +1,5 @@
 name: Fix shift summary calculation
-on:
-  push:
-    paths:
-      - '.github/workflows/fix-shift-summary.yml'
+on: [push]
 jobs:
   patch:
     runs-on: ubuntu-latest
