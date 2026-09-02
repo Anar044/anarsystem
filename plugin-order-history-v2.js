@@ -95,7 +95,7 @@
   function formatDate(value) {
     if (!value) return "—";
     const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString("ru-RU");
+    return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString("ru-RU", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
   }
 
   function orderField(order, names) { return first(get(order, names)); }
@@ -132,18 +132,9 @@
 
   async function requestFullOrder(number) {
     const pluginId = pluginQuery();
-    const body = {
-      action: "get_order",
-      params: { orderNum: Number(number) || number }
-    };
+    const body = { action: "get_order", params: { orderNum: Number(number) || number } };
     if (pluginId) body.pluginId = pluginId;
-
-    const response = await fetch("/api/plugin/request", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify(body)
-    });
+    const response = await fetch("/api/plugin/request", { method:"POST", headers:{"Content-Type":"application/json","Accept":"application/json"}, cache:"no-store", body:JSON.stringify(body) });
     const json = await response.json();
     if (!response.ok || !json.success) throw new Error(json.error || `HTTP ${response.status}`);
     return json.data || null;
@@ -158,6 +149,56 @@
     return Array.isArray(json.history) ? json.history : [];
   }
 
+  function historyDetails(history) {
+    const result = {};
+    for (const event of history || []) {
+      const data = event?.data || {};
+      for (const [target, names] of Object.entries({
+        tables:["tables","Tables","orderTables","OrderTables","table","Table"],
+        floor:["floor","Floor","floorName","FloorName","restaurantSection","RestaurantSection"],
+        waiter:["waiter","Waiter","waiterName","WaiterName","employee","Employee","employeeName","EmployeeName","waiterFullName","WaiterFullName"],
+        cashier:["cashier","Cashier","cashierName","CashierName","cashierFullName","CashierFullName"],
+        revenue:["revenue","Revenue","resultSum","ResultSum","orderSum","OrderSum"],
+        openTime:["openTime","OpenTime","orderOpenDate","OrderOpenDate"],
+        billTime:["billTime","BillTime","orderBillTime","OrderBillTime"],
+        closeTime:["closeTime","CloseTime","orderCloseDate","OrderCloseDate","orderCloseTime","OrderCloseTime"]
+      })) {
+        const value = get(data, names);
+        if (value !== null && value !== undefined && value !== "") result[target] = value;
+      }
+    }
+    return result;
+  }
+
+  function applyTableHistory(row, history) {
+    const details = historyDetails(history);
+    const cells = row.querySelectorAll("td");
+    const values = [details.tables, details.floor, details.waiter, details.cashier, details.revenue, details.openTime, details.billTime, details.closeTime];
+    const indexes = [2,3,4,5,6,7,8,9];
+    indexes.forEach((index, i) => {
+      if (values[i] !== undefined && values[i] !== null && values[i] !== "") {
+        cells[index].textContent = i >= 5 ? formatDate(values[i]) : String(first(values[i]) ?? values[i]);
+      }
+    });
+  }
+
+  async function enrichOrdersTable() {
+    const rows = Array.from(document.querySelectorAll("#orders-table-body tr.order-click"));
+    for (const row of rows) {
+      if (row.dataset.historyV2 === "loading" || row.dataset.historyV2 === "done") continue;
+      const number = row.dataset.orderNumber;
+      if (!number) continue;
+      row.dataset.historyV2 = "loading";
+      try {
+        const history = await requestHistory(number);
+        applyTableHistory(row, history);
+        row.dataset.historyV2 = "done";
+      } catch (_) {
+        row.dataset.historyV2 = "error";
+      }
+    }
+  }
+
   async function openV2(number, sourceOrder) {
     const modal = document.createElement("div");
     modal.className = "order-modal";
@@ -166,7 +207,6 @@
     modal.querySelector(".order-modal-close").addEventListener("click", () => modal.remove());
     modal.addEventListener("click", e => { if (e.target === modal) modal.remove(); });
 
-    // Сначала показываем данные строки, затем заменяем их полными данными заказа из плагина.
     setDetail(modal,"v2-table",orderField(sourceOrder,["tables","Tables","orderTables"]));
     setDetail(modal,"v2-floor",orderField(sourceOrder,["floor","Floor"]));
     setDetail(modal,"v2-waiter",orderField(sourceOrder,["waiter","Waiter"]));
@@ -174,7 +214,7 @@
     setDetail(modal,"v2-revenue",orderField(sourceOrder,["revenue","Revenue","orderExpectedRevenue"]));
     setDetail(modal,"v2-open",formatDate(orderField(sourceOrder,["openTime","OpenTime","orderOpenDate"])));
     setDetail(modal,"v2-bill",formatDate(orderField(sourceOrder,["billTime","BillTime","orderBillTime"])));
-    setDetail(modal,"v2-close",formatDate(orderField(sourceOrder,["closeTime","CloseTime","orderCloseTime"])));
+    setDetail(modal,"v2-close",formatDate(orderField(sourceOrder,["closeTime","CloseTime","orderCloseDate","orderCloseTime"])));
 
     const historyPromise = requestHistory(number).then(history => {
       const slot = modal.querySelector("#history-v2-events");
@@ -183,12 +223,21 @@
         return;
       }
       history.sort((a,b) => new Date(eventTime(a) || 0) - new Date(eventTime(b) || 0));
+      const details = historyDetails(history);
+      setDetail(modal,"v2-table",details.tables ?? orderField(sourceOrder,["tables","Tables","orderTables"]));
+      setDetail(modal,"v2-floor",details.floor ?? orderField(sourceOrder,["floor","Floor"]));
+      setDetail(modal,"v2-waiter",details.waiter ?? orderField(sourceOrder,["waiter","Waiter"]));
+      setDetail(modal,"v2-cashier",details.cashier ?? orderField(sourceOrder,["cashier","Cashier"]));
+      setDetail(modal,"v2-revenue",details.revenue ?? orderField(sourceOrder,["revenue","Revenue","orderExpectedRevenue"]));
+      setDetail(modal,"v2-open",formatDate(details.openTime ?? orderField(sourceOrder,["openTime","OpenTime","orderOpenDate"])));
+      setDetail(modal,"v2-bill",formatDate(details.billTime ?? orderField(sourceOrder,["billTime","BillTime","orderBillTime"])));
+      setDetail(modal,"v2-close",formatDate(details.closeTime ?? orderField(sourceOrder,["closeTime","CloseTime","orderCloseTime"])));
       slot.className = "order-timeline";
       slot.innerHTML = history.map(event => {
         const data = event.data || {};
         const desc = eventDescription(data);
-        const details = compactData(data);
-        return `<div class="timeline-item"><div class="timeline-event"><div class="timeline-time">${escapeHtml(eventTime(event) ? formatDate(eventTime(event)) : "—")}</div><div class="timeline-title">${escapeHtml(eventTitle(event.pluginEventType))}</div>${desc ? `<div class="timeline-meta">${escapeHtml(desc)}</div>` : ""}<details class="timeline-details"><summary>Показать данные события</summary><div class="timeline-data">${escapeHtml(JSON.stringify(details,null,2))}</div></details></div></div>`;
+        const compact = compactData(data);
+        return `<div class="timeline-item"><div class="timeline-event"><div class="timeline-time">${escapeHtml(eventTime(event) ? formatDate(eventTime(event)) : "—")}</div><div class="timeline-title">${escapeHtml(eventTitle(event.pluginEventType))}</div>${desc ? `<div class="timeline-meta">${escapeHtml(desc)}</div>` : ""}<details class="timeline-details"><summary>Показать данные события</summary><div class="timeline-data">${escapeHtml(JSON.stringify(compact,null,2))}</div></details></div></div>`;
       }).join("");
     }).catch(error => {
       modal.querySelector("#history-v2-events").innerHTML = `<div class="history-v2-error">Не удалось загрузить историю: ${escapeHtml(error.message)}</div>`;
@@ -203,7 +252,7 @@
       setDetail(modal,"v2-revenue",orderField(order,["revenue","Revenue"]));
       setDetail(modal,"v2-open",formatDate(orderField(order,["openTime","OpenTime"])));
       setDetail(modal,"v2-bill",formatDate(orderField(order,["billTime","BillTime"])));
-      setDetail(modal,"v2-close",formatDate(orderField(order,["closeTime","CloseTime"])));
+      setDetail(modal,"v2-close",formatDate(orderField(order,["closeTime","CloseTime","orderCloseDate","orderCloseTime"])));
       renderComposition(modal.querySelector("#history-v2-items"), order);
     }).catch(error => {
       modal.querySelector("#history-v2-items").innerHTML = `<div class="history-v2-error">Не удалось получить актуальный состав заказа: ${escapeHtml(error.message)}</div><div class="history-v2-note">История событий продолжает загружаться отдельно.</div>`;
@@ -212,7 +261,6 @@
     await Promise.allSettled([historyPromise, orderPromise]);
   }
 
-  // Перехватываем только открытие заказа. Остальная логика plugin-orders.js не меняется.
   document.addEventListener("click", event => {
     const row = event.target.closest?.("tr.order-click");
     if (!row) return;
@@ -234,4 +282,8 @@
     event.stopPropagation();
     openV2(number, order);
   }, true);
+
+  const tableObserver = new MutationObserver(() => enrichOrdersTable());
+  tableObserver.observe(document.body, { childList:true, subtree:true });
+  setTimeout(enrichOrdersTable, 250);
 })();
