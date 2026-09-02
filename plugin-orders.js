@@ -17,7 +17,26 @@
 
   const escapeHtml=value=>String(value??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
   const text=value=>String(value??"").toLowerCase();
-  function keyOf(row,names){const entries=Object.entries(row||{});for(const name of names){const hit=entries.find(([key])=>key.toLowerCase()===name.toLowerCase());if(hit&&hit[1]!==null&&hit[1]!==undefined&&hit[1]!=="")return hit[1];}return null;}
+  function keyOf(row,names){
+    const wanted=names.map(name=>String(name).toLowerCase());
+    function walk(value,depth){
+      if(value===null||value===undefined||typeof value!=="object"||depth>12)return null;
+      if(Array.isArray(value)){
+        for(const item of value){const found=walk(item,depth+1);if(found!==null&&found!==undefined&&found!=="")return found;}
+        return null;
+      }
+      const entries=Object.entries(value);
+      for(const [key,val] of entries){
+        if(wanted.includes(String(key).toLowerCase())&&val!==null&&val!==undefined&&val!=="")return val;
+      }
+      for(const [,child] of entries){
+        const found=walk(child,depth+1);
+        if(found!==null&&found!==undefined&&found!=="")return found;
+      }
+      return null;
+    }
+    return walk(row,0);
+  }
   function firstText(value){if(value===null||value===undefined||value==="")return null;if(typeof value==="string"||typeof value==="number"||typeof value==="boolean")return value;if(Array.isArray(value)){for(const item of value){const v=firstText(item);if(v!==null)return v;}return null;}if(typeof value==="object")for(const key of ["name","title","value","number","code","id"]){const v=firstText(value[key]);if(v!==null)return v;}return null;}
   const field=(row,names)=>firstText(keyOf(row,names));
   const orderNumber=(row,index)=>field(row,["OrderNum","orderNum","orderNumber","orderNo","number","num"])??index+1;
