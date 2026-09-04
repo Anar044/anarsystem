@@ -4,9 +4,19 @@
  root.dataset.theme=saved==='light'?'light':'dark';
  root.style.background='#0b1017';
 
- /* One visual layer: horeca-modern.css is loaded before the page is revealed. */
- function reveal(){
-   document.documentElement.classList.add('hc-ready');
+ /* One visual layer: remove legacy visual layers before revealing the page. */
+ function reveal(){requestAnimationFrame(()=>root.classList.add('hc-ready'));}
+
+ function removeLegacyLayers(){
+   const legacy=['pages.css','olap-ui.css','site-modern.css','dashboard.css','dashboard-modern.css','modern-ui.css','modern-ui-v3.css','reports-modern.css','reports-modern-fix.css','site-modern-fix.css'];
+   document.querySelectorAll('link[rel="stylesheet"]').forEach(link=>{
+     const href=(link.getAttribute('href')||'').toLowerCase();
+     if(legacy.some(name=>href.includes(name))) link.remove();
+   });
+   const path=location.pathname.toLowerCase();
+   if(path.endsWith('/settings')||path.endsWith('/settings.html')||path.endsWith('/reports')||path.endsWith('/reports.html')){
+     document.querySelectorAll('head > style').forEach(style=>style.remove());
+   }
  }
 
  function loadHorecaModern(){
@@ -19,7 +29,7 @@
    const link=document.createElement('link');
    link.id='anarsystem-horeca-modern';
    link.rel='stylesheet';
-   link.href='horeca-modern.css?v=8';
+   link.href='horeca-modern.css?v=9';
    link.onload=reveal;
    link.onerror=reveal;
    document.head.appendChild(link);
@@ -38,9 +48,11 @@
    if(!document.getElementById('qr-menu-sync-script')){const s=document.createElement('script');s.id='qr-menu-sync-script';s.src='qr-menu-sync.js?v=3';s.onload=loadPublish;document.body.appendChild(s);}else loadPublish();
  }
 
+ removeLegacyLayers();
  loadHorecaModern();
  if(document.readyState!=='loading')buildUnifiedSidebar();
  document.addEventListener('DOMContentLoaded',()=>{
+   removeLegacyLayers();
    update();
    loadHorecaModern();
    buildUnifiedSidebar();
@@ -48,6 +60,5 @@
    update();
    const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');
    if(menu&&side)menu.onclick=()=>side.classList.toggle('open');
-   reveal();
  });
 })();
