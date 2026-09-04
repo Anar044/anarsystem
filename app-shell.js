@@ -4,8 +4,14 @@
  root.dataset.theme=saved==='light'?'light':'dark';
  root.style.background='#0b1017';
 
- /* One visual layer: remove legacy visual layers before revealing the page. */
- function reveal(){requestAnimationFrame(()=>root.classList.add('hc-ready'));}
+ /* Bootstrap only: after the master stylesheet is ready, legacy layers are removed and the bootstrap sheet is detached. */
+ function reveal(){
+   document.querySelectorAll('link[rel="stylesheet"]').forEach(link=>{
+     const href=(link.getAttribute('href')||'').toLowerCase();
+     if(href.includes('app-shell.css')) link.remove();
+   });
+   requestAnimationFrame(()=>root.classList.add('hc-ready'));
+ }
 
  function removeLegacyLayers(){
    const legacy=['pages.css','olap-ui.css','site-modern.css','dashboard.css','dashboard-modern.css','modern-ui.css','modern-ui-v3.css','reports-modern.css','reports-modern-fix.css','site-modern-fix.css'];
@@ -29,7 +35,7 @@
    const link=document.createElement('link');
    link.id='anarsystem-horeca-modern';
    link.rel='stylesheet';
-   link.href='horeca-modern.css?v=9';
+   link.href='horeca-modern.css?v=10';
    link.onload=reveal;
    link.onerror=reveal;
    document.head.appendChild(link);
