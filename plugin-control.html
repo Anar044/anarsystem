@@ -50,13 +50,6 @@
     </div>
   </div>
 
-  <section class="overview-grid" aria-label="Сводка состояния">
-    <div class="overview-card accent-card"><div class="overview-icon">◉</div><div><span>Кассы онлайн</span><strong id="overview-online">—</strong><small id="overview-online-text">Проверяем подключение…</small></div></div>
-    <div class="overview-card"><div class="overview-icon">↯</div><div><span>Последняя активность</span><strong id="overview-activity">—</strong><small id="overview-event">Ожидание события</small></div></div>
-    <div class="overview-card"><div class="overview-icon">▥</div><div><span>Текущий отчёт</span><strong id="overview-report">Продажи</strong><small id="overview-report-status">Автоматически обновляется</small></div></div>
-    <div class="overview-card"><div class="overview-icon">✓</div><div><span>Синхронизация</span><strong id="overview-sync">—</strong><small id="overview-sync-text">—</small></div></div>
-  </section>
-
   <section class="card panel connected-panel">
     <div class="panel-head"><div><div class="section-kicker">CONNECTION</div><div class="panel-title">Подключённые кассы</div><div class="panel-muted" id="status-text">Проверяем подключение…</div></div><span class="panel-muted" id="checked-at">—</span></div>
     <div id="plugins-list" class="plugins-list"><div class="empty-note">Загрузка…</div></div>
@@ -91,6 +84,14 @@
 
   <section class="card panel result-panel">
     <div class="panel-head"><div><div class="section-kicker">RESULT</div><div class="panel-title" id="result-title">Результат</div><div class="panel-muted" id="result-subtitle">Здесь будут отображаться полученные данные в удобном виде.</div></div><div class="result-live-label"><span></span> LIVE</div></div>
+
+    <div class="cash-overview-grid" aria-label="Состояние кассы">
+      <div class="overview-card accent-card"><div class="overview-icon">◉</div><div><span>Кассы онлайн</span><strong id="overview-online">—</strong><small id="overview-online-text">Проверяем подключение…</small></div></div>
+      <div class="overview-card"><div class="overview-icon">↯</div><div><span>Последняя активность</span><strong id="overview-activity">—</strong><small id="overview-event">Ожидание события</small></div></div>
+      <div class="overview-card"><div class="overview-icon">▥</div><div><span>Текущий отчёт</span><strong id="overview-report">Продажи</strong><small id="overview-report-status">Автоматически обновляется</small></div></div>
+      <div class="overview-card"><div class="overview-icon">✓</div><div><span>Синхронизация</span><strong id="overview-sync">—</strong><small id="overview-sync-text">—</small></div></div>
+    </div>
+
     <div id="result-summary" class="result-summary"><div class="empty-note">Данные появятся автоматически после подключения кассы.</div></div>
     <details class="raw-details"><summary>Показать технический ответ</summary><pre id="result-output" class="result-output">Ожидание запроса…</pre></details>
   </section>
@@ -143,73 +144,16 @@
 .cash-metric.warning .cash-metric-value{color:#ffb454!important}
 .cash-metric.neutral .cash-metric-value{color:#dce5ec!important}
 .cash-table-source{display:none!important}
-@media(max-width:1100px){.cash-metrics{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
-@media(max-width:800px){.cash-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
-@media(max-width:520px){.cash-metrics{grid-template-columns:1fr!important}}
+.cash-overview-grid{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:10px!important;margin:0 0 16px!important}
+.cash-overview-grid .overview-card{min-width:0!important;min-height:78px!important;padding:12px 14px!important;border:1px solid #24313e!important;border-radius:12px!important;background:linear-gradient(145deg,#141e28,#101820)!important;display:flex!important;align-items:center!important;gap:11px!important;box-shadow:none!important}
+.cash-overview-grid .overview-card.accent-card{border-color:#284536!important;background:linear-gradient(145deg,#14251f,#101a17)!important}
+.cash-overview-grid .overview-icon{width:32px!important;height:32px!important;min-width:32px!important;border-radius:9px!important;display:grid!important;place-items:center!important;background:#17222d!important;color:#42d392!important;border:1px solid #263543!important;font-size:14px!important}
+.cash-overview-grid .overview-card>div:last-child{min-width:0!important}
+.cash-overview-grid .overview-card span{display:block!important;font-size:9px!important;color:#84919f!important;text-transform:uppercase!important;letter-spacing:.045em!important;font-weight:800!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.cash-overview-grid .overview-card strong{display:block!important;margin-top:4px!important;font-size:17px!important;line-height:1.1!important;color:#f4f7fa!important;font-weight:850!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;font-variant-numeric:tabular-nums!important}
+.cash-overview-grid .overview-card small{display:block!important;margin-top:4px!important;font-size:8px!important;color:#687687!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.cash-overview-grid .accent-card strong{color:#42d392!important}
+@media(max-width:1100px){.cash-metrics{grid-template-columns:repeat(3,minmax(0,1fr))!important}.cash-overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:800px){.cash-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}.cash-overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:520px){.cash-metrics{grid-template-columns:1fr!important}.cash-overview-grid{grid-template-columns:1fr!important}}
 </style>
-
-<script>
-(() => {
-  const LABELS = {
-    restaurantSections:"Секции ресторана", openOrders:"Открытые заказы", closedOrders:"Закрытые заказы",
-    expectedRevenueMoneySum:"Ожидаемая выручка", openOrdersMoneySum:"Выручка открытых заказов", closedOrdersMoneySum:"Выручка закрытых заказов",
-    activeTables:"Занятые столы", inactiveTables:"Свободные столы", banquetsToday:"Банкеты сегодня", banquetsWeek:"Банкеты за неделю", banquetsMonth:"Банкеты за месяц",
-    workload:"Загрузка", numberOfGuest:"Количество гостей", orderCount:"Количество заказов", discountSum:"Скидки", discountMoneySum:"Сумма скидок",
-    revenue:"Выручка", total:"Итого", amount:"Сумма", sum:"Сумма", payments:"Оплаты", products:"Товары", employees:"Сотрудники"
-  };
-  const HUMAN = key => LABELS[key] || String(key).replace(/([a-z])([A-Z])/g,"$1 $2").replace(/_/g," ").replace(/^./,s=>s.toUpperCase());
-  const parseValue = value => {
-    if (typeof value !== "string") return value;
-    const t=value.trim();
-    if ((t.startsWith("{")&&t.endsWith("}"))||(t.startsWith("[")&&t.endsWith("]"))) { try{return JSON.parse(t)}catch(_){} }
-    return value;
-  };
-  const clean = value => {
-    const parsed=parseValue(value);
-    if (parsed && typeof parsed === "object") {
-      const parts=[];
-      const order=parsed.openOrders, closed=parsed.closedOrders, expected=parsed.expectedRevenueMoneySum;
-      if(order!=null)parts.push(`Открытые: ${order}`);
-      if(closed!=null)parts.push(`Закрытые: ${closed}`);
-      if(expected!=null)parts.push(`Ожидаемо: ${expected}`);
-      return parts.length?parts.join(" · "):"Данные секций";
-    }
-    return value==null||value===""?"—":String(value);
-  };
-  const kind = (key,value) => {
-    const k=String(key).toLowerCase();
-    if(k.includes("revenue")||k.includes("sum")||k.includes("money")||k.includes("amount")||k==="total"||k==="revenue")return"money";
-    if(k.includes("order"))return"order";
-    if(k.includes("banquet")||k.includes("workload"))return"warning";
-    return"neutral";
-  };
-  function decorate(table){
-    if(!table || table.dataset.cashDecorated==="1")return;
-    const rows=table.querySelectorAll("tbody tr");
-    const headers=[...table.querySelectorAll("thead th")].map(x=>x.textContent.trim());
-    if(!headers.length || !rows.length)return;
-    const values=[...rows[0].querySelectorAll("td")].map(x=>x.textContent.trim());
-    if(!values.length)return;
-    const grid=document.createElement("div");
-    grid.className="cash-metrics";
-    headers.forEach((header,i)=>{
-      if(i>=values.length)return;
-      const value=clean(values[i]);
-      const card=document.createElement("div");
-      card.className=`cash-metric ${kind(header,value)}`;
-      card.innerHTML=`<div class="cash-metric-label">${HUMAN(header)}</div><div class="cash-metric-value"></div><div class="cash-metric-type">Данные с кассы</div>`;
-      card.querySelector(".cash-metric-value").textContent=value;
-      grid.appendChild(card);
-    });
-    const wrap=table.closest(".data-table-wrap");
-    if(wrap){wrap.classList.add("cash-table-source");wrap.parentNode.insertBefore(grid,wrap);}
-    table.dataset.cashDecorated="1";
-  }
-  const scan=()=>document.querySelectorAll("#result-summary .data-table").forEach(decorate);
-  const observer=new MutationObserver(scan);
-  observer.observe(document.getElementById("result-summary")||document.body,{childList:true,subtree:true});
-  scan();
-})();
-</script>
-</body>
-</html>
