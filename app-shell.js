@@ -4,18 +4,30 @@
  root.dataset.theme=saved==='light'?'light':'dark';
  root.style.background='#0b1017';
 
- function update(){document.querySelectorAll('[data-theme-label]').forEach(e=>e.textContent=root.dataset.theme==='dark'?'☀️ Светлая тема':'🌙 Светлая тема');}
- window.toggleSHTheme=function(){const next=root.dataset.theme==='dark'?'light':'dark';localStorage.setItem('shReportsTheme',next);root.dataset.theme=next;update();};
+ /* One visual layer: horeca-modern.css is loaded before the page is revealed. */
+ function reveal(){
+   document.documentElement.classList.add('hc-ready');
+ }
 
  function loadHorecaModern(){
    const existing=document.getElementById('anarsystem-horeca-modern');
-   if(existing)return;
+   if(existing){
+     if(existing.sheet) reveal();
+     else existing.addEventListener('load',reveal,{once:true});
+     return;
+   }
    const link=document.createElement('link');
    link.id='anarsystem-horeca-modern';
    link.rel='stylesheet';
-   link.href='horeca-modern.css?v=7';
+   link.href='horeca-modern.css?v=8';
+   link.onload=reveal;
+   link.onerror=reveal;
    document.head.appendChild(link);
  }
+
+ function update(){document.querySelectorAll('[data-theme-label]').forEach(e=>e.textContent=root.dataset.theme==='dark'?'☀️ Светлая тема':'🌙 Светлая тема');}
+ window.toggleSHTheme=function(){const next=root.dataset.theme==='dark'?'light':'dark';localStorage.setItem('shReportsTheme',next);root.dataset.theme=next;update();};
+
  function currentPage(){const p=location.pathname.toLowerCase();if(p.endsWith('/reports')||p.endsWith('/reports.html'))return'reports.html';if(p.endsWith('/plugin-control')||p.endsWith('/plugin-control.html'))return'plugin-control.html';if(p.endsWith('/plugin-events')||p.endsWith('/plugin-events.html'))return'plugin-events.html';if(p.endsWith('/settings')||p.endsWith('/settings.html'))return'settings.html';if(p.endsWith('/debug')||p.endsWith('/debug.html'))return'debug.html';if(p.endsWith('/qr-menu')||p.endsWith('/qr-menu.html'))return'qr-menu.html';return'index.html';}
  function buildUnifiedSidebar(){const sidebar=document.querySelector('.sidebar');if(!sidebar||sidebar.dataset.unifiedSidebar==='1')return;const page=currentPage();const active=x=>x===page?' class="active"':'';sidebar.innerHTML=`<nav class="side-nav unified-main-nav"><a href="index.html"${active('index.html')}><span class="side-icon">⌂</span>Dashboard</a><a href="reports.html"${active('reports.html')}><span class="side-icon">▥</span>OLAP Отчёты</a><a href="plugin-control.html"${active('plugin-control.html')}><span class="side-icon">▣</span>Кассы</a><a href="qr-menu.html"${active('qr-menu.html')}><span class="side-icon">▦</span>QR Menu</a><a href="settings.html"${active('settings.html')}><span class="side-icon">⚙</span>Настройки</a></nav><div class="sidebar-spacer"></div>`;sidebar.dataset.unifiedSidebar='1';}
  function loadQrMenuSync(){
@@ -36,5 +48,6 @@
    update();
    const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');
    if(menu&&side)menu.onclick=()=>side.classList.toggle('open');
+   reveal();
  });
 })();
