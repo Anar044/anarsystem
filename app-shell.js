@@ -3,13 +3,12 @@
  const saved=localStorage.getItem('shReportsTheme');
  root.dataset.theme=saved==='light'?'light':'dark';
 
- // The shell script is loaded at the end of each page. Hide the old page
- // styling before the browser gets a chance to paint it, then reveal only
- // after the unified stylesheet is available. This changes visuals only.
+ // Critical boot: app-shell.css hides the document before legacy page CSS can paint.
+ // Reveal only after the unified theme stylesheet is ready.
  const body=document.body;
  if(body){
-   body.style.opacity='0';
-   body.style.transition='opacity .08s ease';
+   body.style.setProperty('opacity','0','important');
+   body.style.setProperty('transition','none','important');
  }
  root.style.background='#0b1017';
  let revealed=false;
@@ -17,7 +16,7 @@
    if(revealed)return;
    revealed=true;
    if(body){
-     body.style.opacity='1';
+     body.style.setProperty('opacity','1','important');
    }
  }
 
@@ -29,13 +28,14 @@
    if(existing){
      if(existing.sheet) reveal();
      else existing.addEventListener('load',reveal,{once:true});
+     existing.addEventListener('error',reveal,{once:true});
      setTimeout(reveal,1500);
      return;
    }
    const link=document.createElement('link');
    link.id='anarsystem-horeca-modern';
    link.rel='stylesheet';
-   link.href='horeca-modern.css?v=5';
+   link.href='horeca-modern.css?v=6';
    link.onload=reveal;
    link.onerror=reveal;
    document.head.appendChild(link);
