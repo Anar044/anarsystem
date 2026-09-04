@@ -1,13 +1,12 @@
 <!doctype html>
-<html lang="ru" data-theme="light">
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SH_Reports — Кассы</title>
 <link rel="stylesheet" href="app-shell.css">
-<link rel="stylesheet" href="plugin-control.css">
 </head>
-<body data-protected="true">
+<body data-protected="true" style="background:#0b1017">
 <div class="app-shell">
 <aside class="sidebar">
   <div class="brand">SH_<span>Reports</span></div>
@@ -114,142 +113,14 @@
   const expectedEl = document.getElementById("shift-expected-sum");
   const statusEl = document.getElementById("shift-summary-status");
   if (!closedEl || !openEl || !expectedEl) return;
-
   const money = value => Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
   const text = value => String(value ?? "").toLowerCase();
-
-  function first(value) {
-    if (value == null || value === "") return null;
-    if (typeof value !== "object") return value;
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const found = first(item);
-        if (found != null && found !== "") return found;
-      }
-      return null;
-    }
-    for (const key of ["name", "title", "value", "number", "code", "id"]) {
-      const found = first(value[key]);
-      if (found != null && found !== "") return found;
-    }
-    return null;
-  }
-
-  function deep(value, names, depth = 0) {
-    if (value == null || typeof value !== "object" || depth > 15) return null;
-    const wanted = names.map(x => String(x).toLowerCase());
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const found = deep(item, names, depth + 1);
-        if (found != null && found !== "") return found;
-      }
-      return null;
-    }
-    for (const [key, child] of Object.entries(value)) {
-      if (wanted.includes(key.toLowerCase()) && child != null && child !== "") return child;
-    }
-    for (const child of Object.values(value)) {
-      const found = deep(child, names, depth + 1);
-      if (found != null && found !== "") return found;
-    }
-    return null;
-  }
-
-  function number(value) {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (value == null) return NaN;
-    const normalized = String(value).replace(/\s/g, "").replace(/[^0-9,.-]/g, "").replace(/,(?=.*[,])/g, "").replace(",", ".");
-    const parsed = Number(normalized);
-    return Number.isFinite(parsed) ? parsed : NaN;
-  }
-
-  function looksLikeOrder(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-    const orderNum = deep(value, ["orderNum", "orderNumber"]);
-    const amount = deep(value, ["orderExpectedRevenue", "revenue", "resultSum", "orderSum", "sum", "total"]);
-    const status = deep(value, ["orderStatus", "status", "state", "orderState", "statusName"]);
-    return (orderNum != null && orderNum !== "") && (amount != null || status != null);
-  }
-
-  function collectOrders(value, result = [], seen = new WeakSet(), depth = 0) {
-    if (value == null || depth > 15) return result;
-    if (typeof value !== "object") return result;
-    if (seen.has(value)) return result;
-    seen.add(value);
-
-    if (looksLikeOrder(value)) {
-      result.push(value);
-      return result;
-    }
-
-    if (Array.isArray(value)) {
-      for (const item of value) collectOrders(item, result, seen, depth + 1);
-    } else {
-      for (const child of Object.values(value)) collectOrders(child, result, seen, depth + 1);
-    }
-    return result;
-  }
-
-  async function update() {
-    try {
-      const stateResponse = await fetch("/api/plugin/data", { cache: "no-store" });
-      const state = await stateResponse.json();
-      const plugin = state?.plugins?.[0];
-      if (!plugin?.pluginId) throw new Error("Касса не подключена");
-
-      const response = await fetch("/api/plugin/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({ action: "get_orders", pluginId: plugin.pluginId, params: {} })
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || data.message || `HTTP ${response.status}`);
-
-      let payload = data.data;
-      if (typeof payload === "string") {
-        try { payload = JSON.parse(payload); } catch (_) {}
-      }
-
-      const rawOrders = collectOrders(payload);
-      const orders = new Map();
-      for (const row of rawOrders) {
-        const numberValue = first(deep(row, ["orderNum", "orderNumber"]));
-        const key = String(numberValue ?? "");
-        if (key) orders.set(key, row);
-      }
-
-      let closed = 0;
-      let open = 0;
-      let closedCount = 0;
-      let openCount = 0;
-
-      for (const row of orders.values()) {
-        const amount = number(first(deep(row, ["orderExpectedRevenue", "revenue", "resultSum", "orderSum", "sum", "total", "amount"])));
-        if (!Number.isFinite(amount)) continue;
-
-        const statusValue = text(first(deep(row, ["orderStatus", "status", "state", "orderState", "statusName"])));
-        const closeTime = deep(row, ["closeTime", "orderCloseTime", "closedAt", "closingTime"]);
-        const isClosed = /(closed|close|completed|complete|paid|закрыт|закрыто|оплачен|заверш)/.test(statusValue) || !!closeTime;
-
-        if (isClosed) {
-          closed += amount;
-          closedCount++;
-        } else {
-          open += amount;
-          openCount++;
-        }
-      }
-
-      closedEl.textContent = money(closed);
-      openEl.textContent = money(open);
-      expectedEl.textContent = money(closed + open);
-      statusEl.textContent = `По всем заказам · ${closedCount} закрытых / ${openCount} открытых`;
-    } catch (error) {
-      statusEl.textContent = error.message === "Касса не подключена" ? "Касса не подключена" : "Не удалось обновить";
-    }
-  }
-
+  function first(value) { if (value == null || value === "") return null; if (typeof value !== "object") return value; if (Array.isArray(value)) { for (const item of value) { const found = first(item); if (found != null && found !== "") return found; } return null; } for (const key of ["name", "title", "value", "number", "code", "id"]) { const found = first(value[key]); if (found != null && found !== "") return found; } return null; }
+  function deep(value, names, depth = 0) { if (value == null || typeof value !== "object" || depth > 15) return null; const wanted = names.map(x => String(x).toLowerCase()); if (Array.isArray(value)) { for (const item of value) { const found = deep(item, names, depth + 1); if (found != null && found !== "") return found; } return null; } for (const [key, child] of Object.entries(value)) { if (wanted.includes(key.toLowerCase()) && child != null && child !== "") return child; } for (const child of Object.values(value)) { const found = deep(child, names, depth + 1); if (found != null && found !== "") return found; } return null; }
+  function number(value) { if (typeof value === "number" && Number.isFinite(value)) return value; if (value == null) return NaN; const normalized = String(value).replace(/\s/g, "").replace(/[^0-9,.-]/g, "").replace(/,(?=.*[,])/g, "").replace(",", "."); const parsed = Number(normalized); return Number.isFinite(parsed) ? parsed : NaN; }
+  function looksLikeOrder(value) { if (!value || typeof value !== "object" || Array.isArray(value)) return false; const orderNum = deep(value, ["orderNum", "orderNumber"]); const amount = deep(value, ["orderExpectedRevenue", "revenue", "resultSum", "orderSum", "sum", "total"]); const status = deep(value, ["orderStatus", "status", "state", "orderState", "statusName"]); return (orderNum != null && orderNum !== "") && (amount != null || status != null); }
+  function collectOrders(value, result = [], seen = new WeakSet(), depth = 0) { if (value == null || depth > 15) return result; if (typeof value !== "object") return result; if (seen.has(value)) return result; seen.add(value); if (looksLikeOrder(value)) { result.push(value); return result; } if (Array.isArray(value)) { for (const item of value) collectOrders(item, result, seen, depth + 1); } else { for (const child of Object.values(value)) collectOrders(child, result, seen, depth + 1); } return result; }
+  async function update() { try { const stateResponse = await fetch("/api/plugin/data", { cache: "no-store" }); const state = await stateResponse.json(); const plugin = state?.plugins?.[0]; if (!plugin?.pluginId) throw new Error("Касса не подключена"); const response = await fetch("/api/plugin/request", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", body: JSON.stringify({ action: "get_orders", pluginId: plugin.pluginId, params: {} }) }); const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || data.message || `HTTP ${response.status}`); let payload = data.data; if (typeof payload === "string") { try { payload = JSON.parse(payload); } catch (_) {} } const rawOrders = collectOrders(payload); const orders = new Map(); for (const row of rawOrders) { const numberValue = first(deep(row, ["orderNum", "orderNumber"])); const key = String(numberValue ?? ""); if (key) orders.set(key, row); } let closed = 0; let open = 0; let closedCount = 0; let openCount = 0; for (const row of orders.values()) { const amount = number(first(deep(row, ["orderExpectedRevenue", "revenue", "resultSum", "orderSum", "sum", "total", "amount"]))); if (!Number.isFinite(amount)) continue; const statusValue = text(first(deep(row, ["orderStatus", "status", "state", "orderState", "statusName"]))); const closeTime = deep(row, ["closeTime", "orderCloseTime", "closedAt", "closingTime"]); const isClosed = /(closed|close|completed|complete|paid|закрыт|закрыто|оплачен|заверш)/.test(statusValue) || !!closeTime; if (isClosed) { closed += amount; closedCount++; } else { open += amount; openCount++; } } closedEl.textContent = money(closed); openEl.textContent = money(open); expectedEl.textContent = money(closed + open); statusEl.textContent = `По всем заказам · ${closedCount} закрытых / ${openCount} открытых`; } catch (error) { statusEl.textContent = error.message === "Касса не подключена" ? "Касса не подключена" : "Не удалось обновить"; } }
   update();
   setInterval(update, 10000);
 })();
