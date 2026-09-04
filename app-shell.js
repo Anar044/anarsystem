@@ -1,5 +1,6 @@
 (function(){
  const root=document.documentElement;
+ root.classList.add('hc-loading');
  const saved=localStorage.getItem('shReportsTheme');
  root.dataset.theme=saved==='light'?'light':'dark';
  root.style.background='#0b1017';
@@ -36,6 +37,7 @@
    buildUnifiedSidebar();
    loadQrMenuSync();
    update();
+   root.classList.remove('hc-loading');
    const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');
    if(menu&&side)menu.onclick=()=>side.classList.toggle('open');
  });
