@@ -2,42 +2,18 @@
  const root=document.documentElement;
  const saved=localStorage.getItem('shReportsTheme');
  root.dataset.theme=saved==='light'?'light':'dark';
-
- // Critical boot: app-shell.css hides the document before legacy page CSS can paint.
- // Reveal only after the unified theme stylesheet is ready.
- const body=document.body;
- if(body){
-   body.style.setProperty('opacity','0','important');
-   body.style.setProperty('transition','none','important');
- }
  root.style.background='#0b1017';
- let revealed=false;
- function reveal(){
-   if(revealed)return;
-   revealed=true;
-   if(body){
-     body.style.setProperty('opacity','1','important');
-   }
- }
 
  function update(){document.querySelectorAll('[data-theme-label]').forEach(e=>e.textContent=root.dataset.theme==='dark'?'☀️ Светлая тема':'🌙 Светлая тема');}
  window.toggleSHTheme=function(){const next=root.dataset.theme==='dark'?'light':'dark';localStorage.setItem('shReportsTheme',next);root.dataset.theme=next;update();};
 
  function loadHorecaModern(){
    const existing=document.getElementById('anarsystem-horeca-modern');
-   if(existing){
-     if(existing.sheet) reveal();
-     else existing.addEventListener('load',reveal,{once:true});
-     existing.addEventListener('error',reveal,{once:true});
-     setTimeout(reveal,1500);
-     return;
-   }
+   if(existing)return;
    const link=document.createElement('link');
    link.id='anarsystem-horeca-modern';
    link.rel='stylesheet';
-   link.href='horeca-modern.css?v=6';
-   link.onload=reveal;
-   link.onerror=reveal;
+   link.href='horeca-modern.css?v=7';
    document.head.appendChild(link);
  }
  function currentPage(){const p=location.pathname.toLowerCase();if(p.endsWith('/reports')||p.endsWith('/reports.html'))return'reports.html';if(p.endsWith('/plugin-control')||p.endsWith('/plugin-control.html'))return'plugin-control.html';if(p.endsWith('/plugin-events')||p.endsWith('/plugin-events.html'))return'plugin-events.html';if(p.endsWith('/settings')||p.endsWith('/settings.html'))return'settings.html';if(p.endsWith('/debug')||p.endsWith('/debug.html'))return'debug.html';if(p.endsWith('/qr-menu')||p.endsWith('/qr-menu.html'))return'qr-menu.html';return'index.html';}
@@ -51,7 +27,7 @@
  }
 
  loadHorecaModern();
- if(document.readyState!=='loading') buildUnifiedSidebar();
+ if(document.readyState!=='loading')buildUnifiedSidebar();
  document.addEventListener('DOMContentLoaded',()=>{
    update();
    loadHorecaModern();
