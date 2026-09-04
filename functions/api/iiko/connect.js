@@ -92,8 +92,8 @@ function normalizeDepartmentsPayload(payload) {
 function normalizeServerHost(ip) {
     return String(ip || "")
         .trim()
-        .replace(/^https?:\\/\\//i, "")
-        .replace(/\\/+$/, "");
+        .replace(/^https?:\/\//i, "")
+        .replace(/\/+$/, "");
 }
 
 async function requestAuth(serverUrl, login, password) {
@@ -105,8 +105,9 @@ async function requestAuth(serverUrl, login, password) {
 }
 
 async function getToken(ip, port, login, password) {
-    const host = normalizeServerHost(ip);
-    const requestedProtocol = /^https:\\/\\//i.test(String(ip || "").trim()) ? "https" : null;
+    const rawHost = String(ip || "").trim();
+    const host = normalizeServerHost(rawHost);
+    const requestedProtocol = /^https:\/\//i.test(rawHost) ? "https" : null;
     const protocols = requestedProtocol ? [requestedProtocol] : ["https", "http"];
     const attempts = [];
 
