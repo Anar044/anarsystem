@@ -161,6 +161,33 @@
    const loadPublish=()=>{loadFix();loadSyncFix();if(!document.getElementById('qr-menu-publish-script')){const p=document.createElement('script');p.id='qr-menu-publish-script';p.src='qr-menu-publish.js?v=2';document.body.appendChild(p);}};
    if(!document.getElementById('qr-menu-sync-script')){const s=document.createElement('script');s.id='qr-menu-sync-script';s.src='qr-menu-sync.js?v=3';s.onload=loadPublish;document.body.appendChild(s);}else loadPublish();
  }
+ function applySHBranding(){
+   const replaceVisibleText=node=>{
+     if(node.nodeType===Node.TEXT_NODE){
+       const parent=node.parentElement;
+       if(parent && !['SCRIPT','STYLE','PRE','CODE','NOSCRIPT'].includes(parent.tagName)){
+         node.nodeValue=node.nodeValue.replace(/iiko/gi,'SH');
+       }
+       return;
+     }
+     if(node.nodeType!==Node.ELEMENT_NODE)return;
+     if(['SCRIPT','STYLE','PRE','CODE','NOSCRIPT'].includes(node.tagName))return;
+     const walker=document.createTreeWalker(node,NodeFilter.SHOW_TEXT);
+     const texts=[];
+     while(walker.nextNode())texts.push(walker.currentNode);
+     texts.forEach(replaceVisibleText);
+     ['title','aria-label','placeholder'].forEach(attr=>{
+       if(node.hasAttribute(attr))node.setAttribute(attr,node.getAttribute(attr).replace(/iiko/gi,'SH'));
+     });
+   };
+   replaceVisibleText(document.body);
+   if(document.title)document.title=document.title.replace(/iiko/gi,'SH');
+   if(!document.body.dataset.shBrandingObserver){
+     const observer=new MutationObserver(mutations=>mutations.forEach(m=>m.addedNodes.forEach(replaceVisibleText)));
+     observer.observe(document.body,{childList:true,subtree:true});
+     document.body.dataset.shBrandingObserver='1';
+   }
+ }
  function reveal(){root.classList.remove('hc-loading');root.style.visibility='visible';}
  function init(){
    ensureMasterStyles().then(()=>{
@@ -169,11 +196,11 @@
      buildUnifiedSidebar();
      window.addEventListener('beforeunload',()=>{root.style.background='#0b1017';root.style.visibility='hidden';});
      document.addEventListener('DOMContentLoaded',()=>{
-       removeLegacyStyles();update();buildUnifiedSidebar();loadQrMenuSync();update();reveal();
+       removeLegacyStyles();update();buildUnifiedSidebar();loadQrMenuSync();applySHBranding();update();reveal();
        const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');
        if(menu&&side)menu.onclick=()=>side.classList.toggle('open');
      });
-     if(document.readyState!=='loading'){update();buildUnifiedSidebar();loadQrMenuSync();reveal();}
+     if(document.readyState!=='loading'){update();buildUnifiedSidebar();loadQrMenuSync();applySHBranding();reveal();}
    });
  }
  init();
