@@ -34,8 +34,8 @@
          <small>Restaurant Management</small>
        </div>
      </div>
-     <div class="nav-title">Основное</div>
-     <nav class="side-nav unified-main-nav">
+     <div class="nav-title">ОСНОВНОЕ</div>
+     <nav class="side-nav nav unified-main-nav">
        <a href="index.html"${active('index.html')}><span class="side-icon">⌂</span><span>Dashboard</span></a>
        <a href="reports.html"${active('reports.html')}><span class="side-icon">▥</span><span>OLAP Отчёты</span></a>
        <a href="plugin-control.html"${active('plugin-control.html')}><span class="side-icon">▣</span><span>Кассы</span></a>
