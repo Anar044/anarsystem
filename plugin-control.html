@@ -125,5 +125,91 @@
   setInterval(update, 10000);
 })();
 </script>
+
+<style id="cash-result-presentation">
+.result-panel{overflow:hidden!important}
+.result-summary{padding-top:4px!important}
+.result-table-title{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;margin:8px 0 12px!important;padding:0 2px!important}
+.result-table-title span{font-size:13px!important;font-weight:800!important;color:#e9f1f5!important}
+.result-table-title b{font-size:10px!important;font-weight:700!important;color:#7f8c9a!important;padding:5px 8px!important;border:1px solid #263340!important;border-radius:999px!important;background:#101820!important}
+.cash-metrics{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:10px!important;width:100%!important}
+.cash-metric{position:relative!important;min-width:0!important;min-height:82px!important;padding:13px 14px!important;border:1px solid #24313e!important;border-radius:12px!important;background:linear-gradient(145deg,#131d27,#101820)!important;display:flex!important;flex-direction:column!important;justify-content:space-between!important;overflow:hidden!important}
+.cash-metric:before{content:""!important;position:absolute!important;left:0!important;top:0!important;bottom:0!important;width:3px!important;background:#42d392!important;opacity:.8!important}
+.cash-metric-label{font-size:9px!important;line-height:1.25!important;color:#84919f!important;text-transform:uppercase!important;letter-spacing:.045em!important;font-weight:800!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.cash-metric-value{margin-top:7px!important;font-size:19px!important;line-height:1.15!important;color:#f4f7fa!important;font-weight:850!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;font-variant-numeric:tabular-nums!important}
+.cash-metric-type{margin-top:5px!important;font-size:9px!important;color:#5f6d7b!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.cash-metric.money .cash-metric-value{color:#42d392!important}
+.cash-metric.order .cash-metric-value{color:#f0f4f7!important}
+.cash-metric.warning .cash-metric-value{color:#ffb454!important}
+.cash-metric.neutral .cash-metric-value{color:#dce5ec!important}
+.cash-table-source{display:none!important}
+@media(max-width:1100px){.cash-metrics{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media(max-width:800px){.cash-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:520px){.cash-metrics{grid-template-columns:1fr!important}}
+</style>
+
+<script>
+(() => {
+  const LABELS = {
+    restaurantSections:"Секции ресторана", openOrders:"Открытые заказы", closedOrders:"Закрытые заказы",
+    expectedRevenueMoneySum:"Ожидаемая выручка", openOrdersMoneySum:"Выручка открытых заказов", closedOrdersMoneySum:"Выручка закрытых заказов",
+    activeTables:"Занятые столы", inactiveTables:"Свободные столы", banquetsToday:"Банкеты сегодня", banquetsWeek:"Банкеты за неделю", banquetsMonth:"Банкеты за месяц",
+    workload:"Загрузка", numberOfGuest:"Количество гостей", orderCount:"Количество заказов", discountSum:"Скидки", discountMoneySum:"Сумма скидок",
+    revenue:"Выручка", total:"Итого", amount:"Сумма", sum:"Сумма", payments:"Оплаты", products:"Товары", employees:"Сотрудники"
+  };
+  const HUMAN = key => LABELS[key] || String(key).replace(/([a-z])([A-Z])/g,"$1 $2").replace(/_/g," ").replace(/^./,s=>s.toUpperCase());
+  const parseValue = value => {
+    if (typeof value !== "string") return value;
+    const t=value.trim();
+    if ((t.startsWith("{")&&t.endsWith("}"))||(t.startsWith("[")&&t.endsWith("]"))) { try{return JSON.parse(t)}catch(_){} }
+    return value;
+  };
+  const clean = value => {
+    const parsed=parseValue(value);
+    if (parsed && typeof parsed === "object") {
+      const parts=[];
+      const order=parsed.openOrders, closed=parsed.closedOrders, expected=parsed.expectedRevenueMoneySum;
+      if(order!=null)parts.push(`Открытые: ${order}`);
+      if(closed!=null)parts.push(`Закрытые: ${closed}`);
+      if(expected!=null)parts.push(`Ожидаемо: ${expected}`);
+      return parts.length?parts.join(" · "):"Данные секций";
+    }
+    return value==null||value===""?"—":String(value);
+  };
+  const kind = (key,value) => {
+    const k=String(key).toLowerCase();
+    if(k.includes("revenue")||k.includes("sum")||k.includes("money")||k.includes("amount")||k==="total"||k==="revenue")return"money";
+    if(k.includes("order"))return"order";
+    if(k.includes("banquet")||k.includes("workload"))return"warning";
+    return"neutral";
+  };
+  function decorate(table){
+    if(!table || table.dataset.cashDecorated==="1")return;
+    const rows=table.querySelectorAll("tbody tr");
+    const headers=[...table.querySelectorAll("thead th")].map(x=>x.textContent.trim());
+    if(!headers.length || !rows.length)return;
+    const values=[...rows[0].querySelectorAll("td")].map(x=>x.textContent.trim());
+    if(!values.length)return;
+    const grid=document.createElement("div");
+    grid.className="cash-metrics";
+    headers.forEach((header,i)=>{
+      if(i>=values.length)return;
+      const value=clean(values[i]);
+      const card=document.createElement("div");
+      card.className=`cash-metric ${kind(header,value)}`;
+      card.innerHTML=`<div class="cash-metric-label">${HUMAN(header)}</div><div class="cash-metric-value"></div><div class="cash-metric-type">Данные с кассы</div>`;
+      card.querySelector(".cash-metric-value").textContent=value;
+      grid.appendChild(card);
+    });
+    const wrap=table.closest(".data-table-wrap");
+    if(wrap){wrap.classList.add("cash-table-source");wrap.parentNode.insertBefore(grid,wrap);}
+    table.dataset.cashDecorated="1";
+  }
+  const scan=()=>document.querySelectorAll("#result-summary .data-table").forEach(decorate);
+  const observer=new MutationObserver(scan);
+  observer.observe(document.getElementById("result-summary")||document.body,{childList:true,subtree:true});
+  scan();
+})();
+</script>
 </body>
 </html>
