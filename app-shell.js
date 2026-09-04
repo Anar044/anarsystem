@@ -1,9 +1,10 @@
 (function(){
  const root=document.documentElement;
  root.classList.add('hc-loading');
+ root.style.background='#0b1017';
+ root.style.visibility='hidden';
  const saved=localStorage.getItem('shReportsTheme');
  root.dataset.theme=saved==='light'?'light':'dark';
- root.style.background='#0b1017';
 
  function removeLegacyStyles(){
    document.querySelectorAll('link[rel="stylesheet"]').forEach(link=>{
@@ -29,15 +30,18 @@
    if(!document.getElementById('qr-menu-sync-script')){const s=document.createElement('script');s.id='qr-menu-sync-script';s.src='qr-menu-sync.js?v=3';s.onload=loadPublish;document.body.appendChild(s);}else loadPublish();
  }
 
+ function reveal(){root.classList.remove('hc-loading');root.style.visibility='visible';}
+
  removeLegacyStyles();
  if(document.readyState!=='loading')buildUnifiedSidebar();
+ window.addEventListener('beforeunload',()=>{root.style.background='#0b1017';root.style.visibility='hidden';});
  document.addEventListener('DOMContentLoaded',()=>{
    removeLegacyStyles();
    update();
    buildUnifiedSidebar();
    loadQrMenuSync();
    update();
-   root.classList.remove('hc-loading');
+   reveal();
    const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');
    if(menu&&side)menu.onclick=()=>side.classList.toggle('open');
  });
