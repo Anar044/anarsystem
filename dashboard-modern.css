@@ -1,0 +1,40 @@
+/* Dashboard visual layer only — no JS, IDs, API or data logic changed. */
+.horeca-dashboard .content{max-width:1480px!important;padding:32px 34px 52px!important}
+.horeca-dashboard .pagehead{margin-bottom:22px!important;align-items:flex-end!important}
+.horeca-dashboard .pagehead h1{font-size:30px!important;line-height:1.15!important;letter-spacing:-1px!important;font-weight:800!important}
+.horeca-dashboard .pagehead p{font-size:12px!important;color:#93a19c!important;margin-top:8px!important}
+.horeca-dashboard .period{background:#101a16!important;border:1px solid #263630!important;border-radius:12px!important;padding:4px!important;box-shadow:0 8px 24px rgba(0,0,0,.12)!important}
+.horeca-dashboard .period button{padding:8px 14px!important;font-size:11px!important;border-radius:9px!important;color:#82918b!important}
+.horeca-dashboard .period button.active{background:#1d2c26!important;color:#fff!important;box-shadow:inset 0 0 0 1px rgba(66,211,146,.08)!important}
+.horeca-dashboard .kpis{gap:14px!important;margin-bottom:16px!important}
+.horeca-dashboard .kpis .card{min-height:132px!important;padding:20px!important;background:linear-gradient(145deg,#14201b,#101914)!important;border:1px solid #273831!important;border-radius:16px!important;box-shadow:0 12px 30px rgba(0,0,0,.14)!important;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease!important}
+.horeca-dashboard .kpis .card:hover{transform:translateY(-2px)!important;border-color:#315044!important;box-shadow:0 16px 34px rgba(0,0,0,.2)!important}
+.horeca-dashboard .khead{font-size:11px!important;color:#8fa09a!important;align-items:center!important}
+.horeca-dashboard .kicon{width:36px!important;height:36px!important;border-radius:11px!important;background:#173326!important;color:#42d392!important;border:1px solid #28513d!important;font-size:15px!important}
+.horeca-dashboard .kvalue{font-size:28px!important;line-height:1!important;font-weight:800!important;letter-spacing:-.8px!important;margin:17px 0 7px!important;color:#f2f7f4!important}
+.horeca-dashboard .ksub{font-size:10px!important;color:#71817a!important}
+.horeca-dashboard .up{color:#42d392!important}
+.horeca-dashboard .grid{grid-template-columns:minmax(0,1.75fr) minmax(320px,.9fr)!important;gap:14px!important;margin-bottom:14px!important}
+.horeca-dashboard .grid3{grid-template-columns:1.15fr 1fr 1fr!important;gap:14px!important;margin-bottom:14px!important}
+.horeca-dashboard .grid>.card,.horeca-dashboard .grid3>.card,.horeca-dashboard .content> .card{background:linear-gradient(145deg,#131d19,#101713)!important;border:1px solid #273831!important;border-radius:16px!important;box-shadow:0 12px 30px rgba(0,0,0,.13)!important;padding:19px!important}
+.horeca-dashboard .ctitle{margin-bottom:8px!important;min-height:24px!important}
+.horeca-dashboard .ctitle h3{font-size:13px!important;font-weight:750!important;letter-spacing:-.1px!important;color:#eef5f1!important}
+.horeca-dashboard .ctitle span{font-size:10px!important;color:#71817a!important}
+.horeca-dashboard .chart{height:285px!important}
+.horeca-dashboard .smallchart{height:220px!important}
+.horeca-dashboard .insight{padding:13px!important;margin-top:8px!important;background:#101914!important;border:1px solid #26372f!important;border-radius:11px!important}
+.horeca-dashboard .insight b{font-size:11px!important;color:#e9f1ed!important}
+.horeca-dashboard .insight p{font-size:10px!important;line-height:1.5!important;color:#7f9089!important;margin:6px 0!important}
+.horeca-dashboard .progress{height:5px!important;background:#1c2923!important}
+.horeca-dashboard .progress i{background:#42d392!important}
+.horeca-dashboard .tablewrap{margin-top:4px!important}
+.horeca-dashboard table{font-size:11px!important}
+.horeca-dashboard th{font-size:9px!important;text-transform:uppercase!important;letter-spacing:.45px!important;color:#71817a!important;padding:10px 9px!important;border-bottom:1px solid #273831!important}
+.horeca-dashboard td{font-size:11px!important;color:#dce6e1!important;padding:11px 9px!important;border-bottom:1px solid #1d2924!important}
+.horeca-dashboard tbody tr{transition:background .15s ease!important}
+.horeca-dashboard tbody tr:hover{background:#16221c!important}
+.horeca-dashboard .prod{font-weight:650!important}
+.horeca-dashboard .pimg{width:34px!important;height:34px!important;border-radius:9px!important;background:#17231e!important;border:1px solid #263a31!important}
+.horeca-dashboard .badge{padding:4px 8px!important;border-radius:7px!important;background:#173326!important;border:1px solid #28513d!important;color:#42d392!important;font-size:9px!important;font-weight:700!important}
+@media(max-width:1100px){.horeca-dashboard .grid,.horeca-dashboard .grid3{grid-template-columns:1fr!important}.horeca-dashboard .chart{height:260px!important}.horeca-dashboard .smallchart{height:230px!important}}
+@media(max-width:760px){.horeca-dashboard .content{padding:22px 16px 38px!important}.horeca-dashboard .pagehead h1{font-size:24px!important}.horeca-dashboard .kpis{grid-template-columns:1fr!important}.horeca-dashboard .kpis .card{min-height:118px!important}.horeca-dashboard .period{width:100%!important}.horeca-dashboard .period button{flex:1!important}.horeca-dashboard .grid,.horeca-dashboard .grid3{grid-template-columns:1fr!important}.horeca-dashboard .chart,.horeca-dashboard .smallchart{height:250px!important}.horeca-dashboard .grid>.card,.horeca-dashboard .grid3>.card,.horeca-dashboard .content> .card{padding:16px!important}}
