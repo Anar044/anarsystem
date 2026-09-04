@@ -6,6 +6,33 @@
  const saved=localStorage.getItem('shReportsTheme');
  root.dataset.theme=saved==='light'?'light':'dark';
 
+ function ensureMasterStyles(){
+   if(document.querySelector('link[href*="app-shell.css"]')) return Promise.resolve();
+   return new Promise(resolve=>{
+     const link=document.createElement('link');
+     link.rel='stylesheet';
+     link.href='app-shell.css';
+     link.onload=resolve;
+     link.onerror=resolve;
+     document.head.appendChild(link);
+   });
+ }
+
+ function installUnifiedBrandStyle(){
+   if(document.getElementById('hc-unified-brand-style'))return;
+   const style=document.createElement('style');
+   style.id='hc-unified-brand-style';
+   style.textContent=`
+     .sidebar .unified-brand:before{content:none!important;display:none!important}
+     .sidebar .unified-brand{display:flex!important;align-items:center!important;gap:10px!important;width:100%!important;min-width:0!important;padding:7px 12px 28px!important;margin:0!important;box-sizing:border-box!important;color:#fff!important}
+     .sidebar .unified-logo{width:31px!important;min-width:31px!important;height:31px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:0 0 31px!important;margin:0!important;border-radius:9px!important;background:#42d392!important;color:#06110b!important;font-size:16px!important;font-weight:900!important;line-height:1!important;position:static!important}
+     .sidebar .unified-brand .brand-copy{display:flex!important;flex-direction:column!important;justify-content:center!important;gap:2px!important;min-width:0!important;flex:1 1 auto!important;line-height:1.15!important}
+     .sidebar .unified-brand .brand-copy b{display:block!important;margin:0!important;padding:0!important;color:#f4f7fa!important;font-size:17px!important;font-weight:850!important;white-space:nowrap!important;line-height:1.15!important}
+     .sidebar .unified-brand .brand-copy small{display:block!important;margin:0!important;padding:0!important;color:#8994a3!important;font-size:11px!important;font-weight:500!important;white-space:nowrap!important;line-height:1.2!important}
+   `;
+   document.head.appendChild(style);
+ }
+
  function removeLegacyStyles(){
    document.querySelectorAll('link[rel="stylesheet"]').forEach(link=>{
      const href=(link.getAttribute('href')||'').toLowerCase();
@@ -13,7 +40,9 @@
    });
    const path=location.pathname.toLowerCase();
    if(!path.endsWith('/index.html') && !path.endsWith('/')){
-     document.querySelectorAll('head > style').forEach(style=>style.remove());
+     document.querySelectorAll('head > style').forEach(style=>{
+       if(style.id!=='hc-unified-brand-style') style.remove();
+     });
    }
  }
 
@@ -28,7 +57,7 @@
    const active=x=>x===page?' class="active"':'';
    sidebar.innerHTML=`
      <div class="brand unified-brand">
-       <div class="logo unified-logo" style="margin-left:-41px;position:relative;z-index:2">SH</div>
+       <div class="unified-logo">SH</div>
        <div class="brand-copy">
          <b>Smart Horeca Control</b>
          <small>Restaurant Management</small>
@@ -55,17 +84,30 @@
 
  function reveal(){root.classList.remove('hc-loading');root.style.visibility='visible';}
 
- removeLegacyStyles();
- if(document.readyState!=='loading')buildUnifiedSidebar();
- window.addEventListener('beforeunload',()=>{root.style.background='#0b1017';root.style.visibility='hidden';});
- document.addEventListener('DOMContentLoaded',()=>{
-   removeLegacyStyles();
-   update();
-   buildUnifiedSidebar();
-   loadQrMenuSync();
-   update();
-   reveal();
-   const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');
-   if(menu&&side)menu.onclick=()=>side.classList.toggle('open');
- });
+ function init(){
+   ensureMasterStyles().then(()=>{
+     installUnifiedBrandStyle();
+     removeLegacyStyles();
+     if(document.readyState!=='loading')buildUnifiedSidebar();
+     window.addEventListener('beforeunload',()=>{root.style.background='#0b1017';root.style.visibility='hidden';});
+     document.addEventListener('DOMContentLoaded',()=>{
+       removeLegacyStyles();
+       update();
+       buildUnifiedSidebar();
+       loadQrMenuSync();
+       update();
+       reveal();
+       const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');
+       if(menu&&side)menu.onclick=()=>side.classList.toggle('open');
+     });
+     if(document.readyState!=='loading'){
+       update();
+       buildUnifiedSidebar();
+       loadQrMenuSync();
+       reveal();
+     }
+   });
+ }
+
+ init();
 })();
