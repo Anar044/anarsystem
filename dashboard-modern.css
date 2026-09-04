@@ -1,4 +1,22 @@
 /* Dashboard visual layer only — no JS, IDs, API or data logic changed. */
+/* Keep Dashboard as one coherent visual system even though the legacy index.html has inline styles. */
+.horeca-dashboard{background:#0b1210!important;color:#eef6f1!important}
+.horeca-dashboard .sidebar{width:236px!important;padding:20px 12px!important;background:#0b211b!important;border-right:1px solid #20352e!important;box-shadow:none!important}
+.horeca-dashboard .main{margin-left:236px!important;width:calc(100% - 236px)!important;min-height:100vh!important;background:#0b1210!important}
+.horeca-dashboard .topbar{height:64px!important;padding:0 26px!important;background:#0f1815!important;border-bottom:1px solid #20352e!important;backdrop-filter:none!important}
+.horeca-dashboard .title{font-size:13px!important;font-weight:800!important;color:#eef6f1!important}
+.horeca-dashboard .crumb{font-size:10px!important;color:#71817a!important}
+.horeca-dashboard .actions{gap:7px!important}
+.horeca-dashboard .search,.horeca-dashboard .control,.horeca-dashboard .avatar{background:#111a17!important;border:1px solid #263a33!important;color:#eef6f1!important;border-radius:9px!important}
+.horeca-dashboard .search{width:220px!important;padding:9px 11px!important}
+.horeca-dashboard .control{padding:9px 11px!important;font-size:11px!important}
+.horeca-dashboard .avatar{width:38px!important;height:38px!important}
+.horeca-dashboard .side-nav{display:grid!important;gap:5px!important}
+.horeca-dashboard .side-nav a{display:flex!important;align-items:center!important;gap:10px!important;min-height:38px!important;padding:9px 11px!important;margin:3px 0!important;border:0!important;border-radius:9px!important;background:transparent!important;color:#8fa09a!important;text-decoration:none!important;font-size:12px!important}
+.horeca-dashboard .side-nav a:hover{background:#12372b!important;color:#fff!important}
+.horeca-dashboard .side-nav a.active{background:#28b45e!important;color:#06100b!important;box-shadow:0 6px 16px rgba(40,180,94,.18)!important;font-weight:750!important}
+.horeca-dashboard .side-icon{width:18px!important;text-align:center!important;text-decoration:none!important}
+.horeca-dashboard .sidebar-spacer{flex:1!important}
 .horeca-dashboard .content{max-width:1480px!important;padding:32px 34px 52px!important}
 .horeca-dashboard .pagehead{margin-bottom:22px!important;align-items:flex-end!important}
 .horeca-dashboard .pagehead h1{font-size:30px!important;line-height:1.15!important;letter-spacing:-1px!important;font-weight:800!important}
@@ -36,5 +54,5 @@
 .horeca-dashboard .prod{font-weight:650!important}
 .horeca-dashboard .pimg{width:34px!important;height:34px!important;border-radius:9px!important;background:#17231e!important;border:1px solid #263a31!important}
 .horeca-dashboard .badge{padding:4px 8px!important;border-radius:7px!important;background:#173326!important;border:1px solid #28513d!important;color:#42d392!important;font-size:9px!important;font-weight:700!important}
-@media(max-width:1100px){.horeca-dashboard .grid,.horeca-dashboard .grid3{grid-template-columns:1fr!important}.horeca-dashboard .chart{height:260px!important}.horeca-dashboard .smallchart{height:230px!important}}
-@media(max-width:760px){.horeca-dashboard .content{padding:22px 16px 38px!important}.horeca-dashboard .pagehead h1{font-size:24px!important}.horeca-dashboard .kpis{grid-template-columns:1fr!important}.horeca-dashboard .kpis .card{min-height:118px!important}.horeca-dashboard .period{width:100%!important}.horeca-dashboard .period button{flex:1!important}.horeca-dashboard .grid,.horeca-dashboard .grid3{grid-template-columns:1fr!important}.horeca-dashboard .chart,.horeca-dashboard .smallchart{height:250px!important}.horeca-dashboard .grid>.card,.horeca-dashboard .grid3>.card,.horeca-dashboard .content> .card{padding:16px!important}}
+@media(max-width:1100px){.horeca-dashboard .sidebar{width:220px!important}.horeca-dashboard .main{margin-left:220px!important;width:calc(100% - 220px)!important}.horeca-dashboard .grid,.horeca-dashboard .grid3{grid-template-columns:1fr!important}.horeca-dashboard .chart{height:260px!important}.horeca-dashboard .smallchart{height:230px!important}}
+@media(max-width:760px){.horeca-dashboard .sidebar{transform:translateX(-100%)!important;width:260px!important}.horeca-dashboard .sidebar.open{transform:none!important}.horeca-dashboard .main{margin-left:0!important;width:100%!important}.horeca-dashboard .topbar{height:62px!important;padding:0 14px!important}.horeca-dashboard .content{padding:22px 16px 38px!important}.horeca-dashboard .pagehead{align-items:flex-start!important;flex-direction:column!important}.horeca-dashboard .pagehead h1{font-size:24px!important}.horeca-dashboard .kpis{grid-template-columns:1fr!important}.horeca-dashboard .kpis .card{min-height:118px!important}.horeca-dashboard .period{width:100%!important}.horeca-dashboard .period button{flex:1!important}.horeca-dashboard .grid,.horeca-dashboard .grid3{grid-template-columns:1fr!important}.horeca-dashboard .chart,.horeca-dashboard .smallchart{height:250px!important}.horeca-dashboard .grid>.card,.horeca-dashboard .grid3>.card,.horeca-dashboard .content> .card{padding:16px!important}}
