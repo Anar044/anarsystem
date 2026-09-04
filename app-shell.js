@@ -35,11 +35,10 @@
    const link=document.createElement('link');
    link.id='anarsystem-horeca-modern';
    link.rel='stylesheet';
-   link.href='horeca-modern.css?v=4';
+   link.href='horeca-modern.css?v=5';
    link.onload=reveal;
    link.onerror=reveal;
    document.head.appendChild(link);
-   setTimeout(reveal,1500);
  }
  function currentPage(){const p=location.pathname.toLowerCase();if(p.endsWith('/reports')||p.endsWith('/reports.html'))return'reports.html';if(p.endsWith('/plugin-control')||p.endsWith('/plugin-control.html'))return'plugin-control.html';if(p.endsWith('/plugin-events')||p.endsWith('/plugin-events.html'))return'plugin-events.html';if(p.endsWith('/settings')||p.endsWith('/settings.html'))return'settings.html';if(p.endsWith('/debug')||p.endsWith('/debug.html'))return'debug.html';if(p.endsWith('/qr-menu')||p.endsWith('/qr-menu.html'))return'qr-menu.html';return'index.html';}
  function buildUnifiedSidebar(){const sidebar=document.querySelector('.sidebar');if(!sidebar||sidebar.dataset.unifiedSidebar==='1')return;const page=currentPage();const active=x=>x===page?' class="active"':'';sidebar.innerHTML=`<nav class="side-nav unified-main-nav"><a href="index.html"${active('index.html')}><span class="side-icon">⌂</span>Dashboard</a><a href="reports.html"${active('reports.html')}><span class="side-icon">▥</span>OLAP Отчёты</a><a href="plugin-control.html"${active('plugin-control.html')}><span class="side-icon">▣</span>Кассы</a><a href="qr-menu.html"${active('qr-menu.html')}><span class="side-icon">▦</span>QR Menu</a><a href="settings.html"${active('settings.html')}><span class="side-icon">⚙</span>Настройки</a></nav><div class="sidebar-spacer"></div>`;sidebar.dataset.unifiedSidebar='1';}
