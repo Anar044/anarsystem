@@ -1,200 +1,48 @@
-/* QR Menu sync reliability fix + dish photo upload
-   Local iiko Server only. Does not touch OLAP.
+/* QR Menu sync + dish/category editor + photo upload
+   Keeps iiko connection and synchronization logic intact.
 */
 (function(){
   'use strict';
   const MENU_KEY='horeca_qr_menu_v1';
   const CONNECTION_KEY='iikoConnection';
   let busy=false;
+  const connection=()=>{try{return JSON.parse(localStorage.getItem(CONNECTION_KEY)||'null')}catch{return null}};
+  const state=()=>{try{return JSON.parse(localStorage.getItem(MENU_KEY)||'null')||{categories:[],dishes:[],active:''}}catch{return {categories:[],dishes:[],active:''}}};
+  const saveState=s=>localStorage.setItem(MENU_KEY,JSON.stringify(s));
+  const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+  function status(text,ok){const el=document.getElementById('saveStatus');if(el){el.textContent=text;el.style.color=ok?'#42d392':'#ffb454'}}
 
-  function connection(){
-    try{return JSON.parse(localStorage.getItem(CONNECTION_KEY)||'null');}
-    catch{return null;}
+  function ensureEditor(){
+    if(document.getElementById('qrDishEditor'))return;
+    const m=document.createElement('div');m.id='qrDishEditor';m.className='settings-modal';
+    m.innerHTML=`<div class="settings-panel" style="width:min(560px,100%)"><div class="settings-head"><div><h2 id="qrEditorTitle">✏️ Блюдо</h2><div class="hint">Изменения сохраняются локально и попадут гостям после публикации.</div></div><button class="close" id="qrEditorClose" type="button">×</button></div>
+      <div class="setting-section"><h4>Блюдо</h4><div class="settings"><div class="field"><label>Название</label><input id="qrEditName"></div><div class="field"><label>Описание</label><textarea id="qrEditDesc" placeholder="Например: нежное куриное филе с соусом..."></textarea></div><div class="field"><label>Состав</label><textarea id="qrEditComposition" placeholder="Например: курица, сливки, сыр, специи"></textarea></div><div class="design-grid"><div class="field"><label>Цена</label><input id="qrEditPrice" type="number" step="0.01" min="0"></div><div class="field"><label>Валюта</label><input id="qrEditCurrency" value="AZN"></div></div></div></div>
+      <div class="setting-section"><h4>Фотография</h4><div class="upload-box"><button class="qbtn" id="qrEditPhotoBtn" type="button">📷 Выбрать фото блюда</button><input id="qrEditPhotoInput" type="file" accept="image/*" hidden><div id="qrEditPhotoPreview" style="margin-top:10px"></div></div></div>
+      <div class="settings-actions"><button class="qbtn" id="qrEditorCancel" type="button">Отмена</button><button class="qbtn primary" id="qrEditorSave" type="button">Сохранить блюдо</button></div></div>`;
+    document.body.appendChild(m);
+    const close=()=>m.classList.remove('show');
+    document.getElementById('qrEditorClose').onclick=close;document.getElementById('qrEditorCancel').onclick=close;
+    document.getElementById('qrEditPhotoBtn').onclick=()=>document.getElementById('qrEditPhotoInput').click();
+    document.getElementById('qrEditPhotoInput').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{const p=await resizeImage(f);document.getElementById('qrEditPhotoPreview').innerHTML=`<img src="${p}" style="width:100%;max-height:220px;object-fit:cover;border-radius:12px">`;m.dataset.photo=p}catch(err){alert(err.message)}};
+    document.getElementById('qrEditorSave').onclick=()=>{const id=m.dataset.dishId;const s=state();const d=(s.dishes||[]).find(x=>String(x.id)===String(id));if(!d)return;d.name=document.getElementById('qrEditName').value.trim()||d.name;d.desc=document.getElementById('qrEditDesc').value.trim();d.composition=document.getElementById('qrEditComposition').value.trim();d.price=Number(document.getElementById('qrEditPrice').value||0);d.currency=document.getElementById('qrEditCurrency').value.trim()||'AZN';if(m.dataset.photo)d.photo=m.dataset.photo,d.photoSource='manual';d.updatedAt=new Date().toISOString();saveState(s);close();render();status('● Блюдо сохранено',true);window.dispatchEvent(new CustomEvent('qr-menu-updated'))};
   }
-  function state(){
-    try{return JSON.parse(localStorage.getItem(MENU_KEY)||'null')||{categories:[],dishes:[],active:''};}
-    catch{return {categories:[],dishes:[],active:''};}
-  }
-  function saveState(s){localStorage.setItem(MENU_KEY,JSON.stringify(s));}
-  function status(text,ok){
-    const el=document.getElementById('saveStatus');
-    if(el){el.textContent=text;el.style.color=ok?'#42d392':'#ffb454';}
-  }
-  function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
+  function openDishEditor(id){ensureEditor();const m=document.getElementById('qrDishEditor');const s=state();const d=(s.dishes||[]).find(x=>String(x.id)===String(id));if(!d)return;m.dataset.dishId=id;delete m.dataset.photo;document.getElementById('qrEditorTitle').textContent='✏️ '+(d.name||'Блюдо');document.getElementById('qrEditName').value=d.name||'';document.getElementById('qrEditDesc').value=d.desc||'';document.getElementById('qrEditComposition').value=d.composition||'';document.getElementById('qrEditPrice').value=Number(d.price||0);document.getElementById('qrEditCurrency').value=d.currency||'AZN';document.getElementById('qrEditPhotoPreview').innerHTML=d.photo?`<img src="${esc(d.photo)}" style="width:100%;max-height:220px;object-fit:cover;border-radius:12px">`:'';m.classList.add('show')}
+
+  function ensureCategoryPhotoInput(){let i=document.getElementById('qrCategoryPhotoInput');if(!i){i=document.createElement('input');i.id='qrCategoryPhotoInput';i.type='file';i.accept='image/*';i.hidden=true;document.body.appendChild(i)}i.onchange=async e=>{const f=e.target.files?.[0],catId=i.dataset.catId;if(!f||!catId)return;try{const photo=await resizeImage(f);const s=state();const c=(s.categories||[]).find(x=>String(x.id)===String(catId));if(!c)return;c.photo=photo;c.photoSource='manual';c.photoUpdatedAt=new Date().toISOString();saveState(s);render();status('● Фото категории сохранено',true);window.dispatchEvent(new CustomEvent('qr-menu-updated'))}catch(err){alert(err.message)}finally{i.value=''}};return i}
+  function chooseCategoryPhoto(id){const i=ensureCategoryPhotoInput();i.dataset.catId=id;i.value='';i.click()}
 
   function render(){
-    const s=state();
-    const cats=s.categories||[];
-    const dishes=s.dishes||[];
-    const active=cats.some(c=>String(c.id)===String(s.active))?s.active:(cats[0]?.id||'');
-    if(active!==s.active){s.active=active;saveState(s);}
-
+    const s=state(),cats=s.categories||[],dishes=s.dishes||[];const active=cats.some(c=>String(c.id)===String(s.active))?s.active:(cats[0]?.id||'');if(active!==s.active){s.active=active;saveState(s)}
     const catEl=document.getElementById('categories');
-    if(catEl){
-      catEl.innerHTML=cats.map(c=>{
-        const count=dishes.filter(d=>String(d.cat)===String(c.id)).length;
-        return `<div class="cat ${String(c.id)===String(active)?'active':''}" data-cat="${esc(c.id)}"><span>☷ &nbsp;${esc(c.name)}${c.source==='iiko'?'<span class="source-badge">iiko</span>':''}</span><span>${count}</span></div>`;
-      }).join('') || '<div class="empty">Синхронизируйте меню с iiko.</div>';
-      catEl.querySelectorAll('.cat').forEach(el=>el.onclick=()=>{
-        const next=state();next.active=el.dataset.cat;saveState(next);render();
-      });
-    }
-
-    const search=(document.getElementById('searchDish')?.value||'').toLowerCase();
-    const visible=dishes.filter(d=>String(d.cat)===String(active)&&(`${d.name||''} ${d.desc||''}`).toLowerCase().includes(search));
-    const itemEl=document.getElementById('items');
-    if(itemEl){
-      itemEl.innerHTML=visible.map(d=>`<div class="item" data-id="${esc(d.id)}"><div class="photo">${d.photo?`<img src="${esc(d.photo)}" alt="${esc(d.name)}">`:'🍽'}</div><div><h4>${esc(d.name)}${d.source==='iiko'?'<span class="source-badge">iiko</span>':''}</h4><p>${esc(d.desc||'Состав не указан')}</p><div class="item-actions"><button class="mini photoBtn" data-id="${esc(d.id)}">📷 ${d.photo?'Изменить фото':'Добавить фото'}</button></div></div><div class="price">${Number(d.price||0).toFixed(2)} ₼</div></div>`).join('') || '<div class="empty">В этой категории нет доступных блюд.</div>';
-      itemEl.querySelectorAll('.photoBtn').forEach(btn=>btn.onclick=()=>choosePhoto(btn.dataset.id));
-    }
-
-    const preview=document.getElementById('previewBody');
-    if(preview){
-      preview.innerHTML=cats.map(c=>{
-        const ds=dishes.filter(d=>String(d.cat)===String(c.id));
-        if(!ds.length)return '';
-        return `<div class="p-cat">${esc(c.name)}</div>`+ds.map(d=>`<div class="p-item"><div class="p-photo">${d.photo?`<img src="${esc(d.photo)}" alt="${esc(d.name)}">`:'🍽'}</div><div><b>${esc(d.name)}</b><span>${esc(d.desc||'')}</span></div><div class="p-price">${Number(d.price||0).toFixed(2)} ₼</div></div>`).join('');
-      }).join('');
-    }
+    if(catEl){catEl.innerHTML=cats.map(c=>{const count=dishes.filter(d=>String(d.cat)===String(c.id)).length;return `<div class="cat ${String(c.id)===String(active)?'active':''}" data-cat="${esc(c.id)}"><span>☷ &nbsp;${esc(c.name)}${c.source==='iiko'?'<span class="source-badge">iiko</span>':''}</span><span style="display:flex;gap:5px;align-items:center"><button class="mini catPhotoBtn" data-id="${esc(c.id)}" title="Фото категории">📷</button><span>${count}</span></span></div>`}).join('')||'<div class="empty">Синхронизируйте меню с iiko.</div>';catEl.querySelectorAll('.cat').forEach(el=>el.onclick=e=>{if(e.target.closest('.catPhotoBtn'))return;const n=state();n.active=el.dataset.cat;saveState(n);render()});catEl.querySelectorAll('.catPhotoBtn').forEach(b=>b.onclick=e=>{e.stopPropagation();chooseCategoryPhoto(b.dataset.id)})}
+    const search=(document.getElementById('searchDish')?.value||'').toLowerCase();const visible=dishes.filter(d=>String(d.cat)===String(active)&&(`${d.name||''} ${d.desc||''} ${d.composition||''}`).toLowerCase().includes(search));const itemEl=document.getElementById('items');
+    if(itemEl){itemEl.innerHTML=visible.map(d=>`<div class="item" data-id="${esc(d.id)}"><div class="photo">${d.photo?`<img src="${esc(d.photo)}" alt="${esc(d.name)}">`:'🍽'}</div><div><h4>${esc(d.name)}${d.source==='iiko'?'<span class="source-badge">iiko</span>':''}</h4><p>${esc(d.desc||'Описание не указано')}</p>${d.composition?`<p style="margin-top:4px">Состав: ${esc(d.composition)}</p>`:''}<div class="item-actions"><button class="mini editDishBtn" data-id="${esc(d.id)}">✏️ Редактировать</button><button class="mini photoBtn" data-id="${esc(d.id)}">📷 ${d.photo?'Изменить фото':'Добавить фото'}</button></div></div><div class="price">${Number(d.price||0).toFixed(2)} ${esc(d.currency||'AZN')}</div></div>`).join('')||'<div class="empty">В этой категории нет доступных блюд.</div>';itemEl.querySelectorAll('.photoBtn').forEach(b=>b.onclick=e=>{e.stopPropagation();choosePhoto(b.dataset.id)});itemEl.querySelectorAll('.editDishBtn').forEach(b=>b.onclick=e=>{e.stopPropagation();openDishEditor(b.dataset.id)})}
+    const preview=document.getElementById('previewBody');if(preview){preview.innerHTML=cats.map(c=>{const ds=dishes.filter(d=>String(d.cat)===String(c.id));if(!ds.length)return '';return `<div class="p-cat">${esc(c.name)}</div>`+ds.map(d=>`<div class="p-item"><div class="p-photo">${d.photo?`<img src="${esc(d.photo)}" alt="${esc(d.name)}">`:'🍽'}</div><div><b>${esc(d.name)}</b><span>${esc(d.desc||'')}</span></div><div class="p-price">${Number(d.price||0).toFixed(2)} ₼</div></div>`).join('')}).join('')}
   }
-
-  function choosePhoto(id){
-    const input=document.getElementById('qrDishPhotoInput');
-    if(!input)return;
-    input.dataset.dishId=String(id);
-    input.value='';
-    input.click();
-  }
-
-  function resizeImage(file){
-    return new Promise((resolve,reject)=>{
-      if(!file||!file.type.startsWith('image/')){reject(new Error('Выберите изображение.'));return;}
-      const reader=new FileReader();
-      reader.onerror=()=>reject(new Error('Не удалось прочитать файл.'));
-      reader.onload=e=>{
-        const img=new Image();
-        img.onerror=()=>reject(new Error('Не удалось открыть изображение.'));
-        img.onload=()=>{
-          const max=1200;
-          const scale=Math.min(1,max/Math.max(img.width,img.height));
-          const canvas=document.createElement('canvas');
-          canvas.width=Math.max(1,Math.round(img.width*scale));
-          canvas.height=Math.max(1,Math.round(img.height*scale));
-          const ctx=canvas.getContext('2d');
-          ctx.drawImage(img,0,0,canvas.width,canvas.height);
-          resolve(canvas.toDataURL('image/jpeg',0.82));
-        };
-        img.src=e.target.result;
-      };
-      reader.readAsDataURL(file);
-    });
-  }
-
-  async function handlePhotoInput(event){
-    const file=event.target.files?.[0];
-    const id=event.target.dataset.dishId;
-    if(!file||!id)return;
-    try{
-      status('● Обрабатываем фото блюда...');
-      const photo=await resizeImage(file);
-      const s=state();
-      const dish=(s.dishes||[]).find(d=>String(d.id)===String(id));
-      if(!dish){status('⚠ Блюдо не найдено');return;}
-      dish.photo=photo;
-      dish.photoSource='manual';
-      dish.photoUpdatedAt=new Date().toISOString();
-      saveState(s);
-      render();
-      status('● Фото блюда сохранено',true);
-      window.dispatchEvent(new CustomEvent('qr-menu-updated'));
-    }catch(e){
-      console.error('QR Menu photo upload:',e);
-      status(`⚠ Фото не сохранено: ${e.message}`);
-      alert(`Не удалось добавить фото:\n\n${e.message}`);
-    }finally{
-      event.target.value='';
-    }
-  }
-
-  async function sync(){
-    if(busy)return;
-    const btn=document.getElementById('syncBtn');
-    if(!btn)return;
-    const c=connection();
-    if(!c?.ip||!c?.port||!c?.login||c?.password==null){
-      status('⚠ Сначала подключитесь к iiko в Настройках');
-      alert('Сначала подключитесь к локальному iiko Server в разделе «Настройки».');
-      return;
-    }
-    busy=true;
-    const oldText=btn.textContent;
-    btn.disabled=true;btn.textContent='↻ Синхронизация...';
-    try{
-      status('● Получаем номенклатуру из локального iiko Server...');
-      const response=await fetch('/api/iiko/qr-menu',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','Accept':'application/json'},
-        body:JSON.stringify({ip:c.ip,port:c.port,login:c.login,password:c.password})
-      });
-      const text=await response.text();
-      let data={};
-      try{data=text?JSON.parse(text):{};}catch{throw new Error(text||`HTTP ${response.status}`);}
-      if(!response.ok||data.success===false)throw new Error(data.message||`HTTP ${response.status}`);
-
-      const products=(data.products||[]).filter(p=>p&&p.deleted!==true&&String(p.type||'').toUpperCase()==='DISH');
-      if(!products.length)throw new Error(`iiko вернул 0 доступных блюд. Групп: ${data.categoryCount??(data.categories||[]).length}.`);
-
-      const old=state();
-      const oldCats=new Map((old.categories||[]).map(x=>[String(x.iikoId||x.id),x]));
-      const oldDishes=new Map((old.dishes||[]).map(x=>[String(x.iikoId||x.id),x]));
-      const now=new Date().toISOString();
-      const categories=(data.categories||[]).map((c,i)=>{
-        const id=String(c.iikoId||c.id);const prev=oldCats.get(id)||{};
-        return {...prev,id:`iiko-cat-${id}`,iikoId:id,name:String(c.name||'Без категории'),parentId:c.parentId??null,sortOrder:Number(c.sortOrder??i),source:'iiko',iikoSyncedAt:now};
-      });
-      const catIds=new Set(categories.map(x=>x.iikoId));
-      const dishes=[];
-      products.forEach((p,i)=>{
-        const id=String(p.iikoId||p.id);const prev=oldDishes.get(id)||{};const catId=String(p.categoryId||prev.iikoCategoryId||'root');
-        if(!catIds.has(catId)){
-          categories.push({id:`iiko-cat-${catId}`,iikoId:catId,name:String(p.categoryName||'Без категории'),parentId:null,sortOrder:999999,source:'iiko',iikoSyncedAt:now});
-          catIds.add(catId);
-        }
-        const price=p.price==null?Number(prev.price||0):Number(p.price);
-        dishes.push({...prev,id:prev.id||`iiko-${id}`,iikoId:id,iikoCategoryId:catId,cat:`iiko-cat-${catId}`,source:'iiko',name:String(p.name||id),price:Number.isFinite(price)?price:0,desc:String(p.description??prev.desc??''),photo:prev.photo||p.image||p.frontImageId||null,photoSource:prev.photo?'manual':(p.image||p.frontImageId?'iiko':'none'),code:String(p.code||''),num:String(p.num||''),defaultIncludedInMenu:true,salePlaceAvailable:p.salePlaceAvailable!==false,excludedSections:Array.isArray(p.excludedSections)?p.excludedSections:null,sortOrder:Number(p.sortOrder??i)});
-      });
-      categories.sort((a,b)=>a.sortOrder-b.sortOrder);dishes.sort((a,b)=>a.sortOrder-b.sortOrder);
-      const next={...old,categories,dishes,active:old.active&&categories.some(c=>c.id===old.active)?old.active:(categories[0]?.id||''),lastIikoSync:now,source:'iiko-nomenclature'};
-      saveState(next);
-      render();
-      status(`● iiko: ${dishes.length} блюд, ${categories.length} групп`,true);
-      window.dispatchEvent(new CustomEvent('qr-menu-updated'));
-    }catch(e){
-      console.error('QR Menu sync fix:',e);
-      status(`⚠ Ошибка iiko: ${e.message}`);
-      alert(`Не удалось загрузить меню iiko:\n\n${e.message}`);
-    }finally{
-      busy=false;btn.disabled=false;btn.textContent=oldText;
-    }
-  }
-
-  function install(){
-    const btn=document.getElementById('syncBtn');
-    if(!btn)return;
-    btn.onclick=sync;
-    const search=document.getElementById('searchDish');
-    if(search)search.oninput=render;
-    let input=document.getElementById('qrDishPhotoInput');
-    if(!input){
-      input=document.createElement('input');
-      input.id='qrDishPhotoInput';
-      input.type='file';
-      input.accept='image/*';
-      input.style.display='none';
-      document.body.appendChild(input);
-    }
-    input.onchange=handlePhotoInput;
-    render();
-  }
+  function choosePhoto(id){const input=document.getElementById('qrDishPhotoInput');if(!input)return;input.dataset.dishId=String(id);input.value='';input.click()}
+  function resizeImage(file){return new Promise((resolve,reject)=>{if(!file||!file.type.startsWith('image/')){reject(new Error('Выберите изображение.'));return}const reader=new FileReader();reader.onerror=()=>reject(new Error('Не удалось прочитать файл.'));reader.onload=e=>{const img=new Image();img.onerror=()=>reject(new Error('Не удалось открыть изображение.'));img.onload=()=>{const max=1200,scale=Math.min(1,max/Math.max(img.width,img.height));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.width*scale));canvas.height=Math.max(1,Math.round(img.height*scale));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);resolve(canvas.toDataURL('image/jpeg',0.82))};img.src=e.target.result};reader.readAsDataURL(file)})}
+  async function handlePhotoInput(event){const file=event.target.files?.[0],id=event.target.dataset.dishId;if(!file||!id)return;try{status('● Обрабатываем фото блюда...');const photo=await resizeImage(file);const s=state(),dish=(s.dishes||[]).find(d=>String(d.id)===String(id));if(!dish){status('⚠ Блюдо не найдено');return}dish.photo=photo;dish.photoSource='manual';dish.photoUpdatedAt=new Date().toISOString();saveState(s);render();status('● Фото блюда сохранено',true);window.dispatchEvent(new CustomEvent('qr-menu-updated'))}catch(e){status(`⚠ Фото не сохранено: ${e.message}`);alert(`Не удалось добавить фото блюда:\n\n${e.message}`)}finally{event.target.value=''}}
+  async function sync(){if(busy)return;const btn=document.getElementById('syncBtn');if(!btn)return;const c=connection();if(!c?.ip||!c?.port||!c?.login||c?.password==null){status('⚠ Сначала подключитесь к iiko в Настройках');alert('Сначала подключитесь к локальному iiko Server в разделе «Настройки».');return}busy=true;const oldText=btn.textContent;btn.disabled=true;btn.textContent='↻ Синхронизация...';try{status('● Получаем номенклатуру из локального iiko Server...');const response=await fetch('/api/iiko/qr-menu',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({ip:c.ip,port:c.port,login:c.login,password:c.password})});const text=await response.text();let data={};try{data=text?JSON.parse(text):{}}catch{throw new Error(text||`HTTP ${response.status}`)}if(!response.ok||data.success===false)throw new Error(data.message||`HTTP ${response.status}`);const products=(data.products||[]).filter(p=>p&&p.deleted!==true&&String(p.type||'').toUpperCase()==='DISH');if(!products.length)throw new Error(`iiko вернул 0 доступных блюд. Групп: ${data.categoryCount??(data.categories||[]).length}.`);const old=state();const oldCats=new Map((old.categories||[]).map(x=>[String(x.iikoId||x.id),x]));const oldDishes=new Map((old.dishes||[]).map(x=>[String(x.iikoId||x.id),x]));const now=new Date().toISOString();const categories=(data.categories||[]).map((c,i)=>{const id=String(c.iikoId||c.id),prev=oldCats.get(id)||{};return {...prev,id:`iiko-cat-${id}`,iikoId:id,name:String(c.name||'Без категории'),parentId:c.parentId??null,sortOrder:Number(c.sortOrder??i),source:'iiko',iikoSyncedAt:now}});const catIds=new Set(categories.map(x=>x.iikoId));const dishes=[];products.forEach((p,i)=>{const id=String(p.iikoId||p.id),prev=oldDishes.get(id)||{},catId=String(p.categoryId||prev.iikoCategoryId||'root');if(!catIds.has(catId)){categories.push({id:`iiko-cat-${catId}`,iikoId:catId,name:String(p.categoryName||'Без категории'),parentId:null,sortOrder:999999,source:'iiko',iikoSyncedAt:now});catIds.add(catId)}const price=p.price==null?Number(prev.price||0):Number(p.price);dishes.push({...prev,id:prev.id||`iiko-${id}`,iikoId:id,iikoCategoryId:catId,cat:`iiko-cat-${catId}`,source:'iiko',name:String(p.name||id),price:Number.isFinite(price)?price:0,desc:String(p.description??prev.desc??''),composition:String(p.composition??prev.composition??''),photo:prev.photo||p.image||p.frontImageId||null,photoSource:prev.photo?'manual':(p.image||p.frontImageId?'iiko':'none'),code:String(p.code||''),num:String(p.num||''),defaultIncludedInMenu:true,salePlaceAvailable:p.salePlaceAvailable!==false,excludedSections:Array.isArray(p.excludedSections)?p.excludedSections:null,sortOrder:Number(p.sortOrder??i)})});categories.sort((a,b)=>a.sortOrder-b.sortOrder);dishes.sort((a,b)=>a.sortOrder-b.sortOrder);const next={...old,categories,dishes,active:old.active&&categories.some(c=>c.id===old.active)?old.active:(categories[0]?.id||''),lastIikoSync:now,source:'iiko-nomenclature'};saveState(next);render();status(`● iiko: ${dishes.length} блюд, ${categories.length} групп`,true);window.dispatchEvent(new CustomEvent('qr-menu-updated'))}catch(e){console.error('QR Menu sync fix:',e);status(`⚠ Ошибка iiko: ${e.message}`);alert(`Не удалось загрузить меню iiko:\n\n${e.message}`)}finally{busy=false;btn.disabled=false;btn.textContent=oldText}}
+  function install(){const btn=document.getElementById('syncBtn');if(!btn)return;btn.onclick=sync;ensureEditor();ensureCategoryPhotoInput();const search=document.getElementById('searchDish');if(search)search.oninput=render;let input=document.getElementById('qrDishPhotoInput');if(!input){input=document.createElement('input');input.id='qrDishPhotoInput';input.type='file';input.accept='image/*';input.hidden=true;document.body.appendChild(input)}input.onchange=handlePhotoInput;render()}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
 })();
