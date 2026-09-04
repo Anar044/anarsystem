@@ -11,24 +11,56 @@
    return new Promise(resolve=>{
      const link=document.createElement('link');
      link.rel='stylesheet';
-     link.href='app-shell.css';
+     link.href='app-shell.css?v=4';
      link.onload=resolve;
      link.onerror=resolve;
      document.head.appendChild(link);
    });
  }
 
- function installUnifiedBrandStyle(){
-   if(document.getElementById('hc-unified-brand-style'))return;
+ function installUnifiedStyle(){
+   if(document.getElementById('hc-unified-style'))return;
    const style=document.createElement('style');
-   style.id='hc-unified-brand-style';
+   style.id='hc-unified-style';
    style.textContent=`
+     /* ===== ONE UNIFIED HORECACONTROL STYLE ===== */
      .sidebar .unified-brand:before{content:none!important;display:none!important}
-     .sidebar .unified-brand{display:flex!important;align-items:center!important;gap:10px!important;width:100%!important;min-width:0!important;padding:7px 12px 28px!important;margin:0!important;box-sizing:border-box!important;color:#fff!important}
+     .sidebar .unified-brand{display:flex!important;align-items:center!important;gap:10px!important;width:100%!important;min-width:0!important;height:auto!important;padding:7px 12px 28px!important;margin:0!important;box-sizing:border-box!important;color:#fff!important}
      .sidebar .unified-logo{width:31px!important;min-width:31px!important;height:31px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:0 0 31px!important;margin:0!important;border-radius:9px!important;background:#42d392!important;color:#06110b!important;font-size:16px!important;font-weight:900!important;line-height:1!important;position:static!important}
      .sidebar .unified-brand .brand-copy{display:flex!important;flex-direction:column!important;justify-content:center!important;gap:2px!important;min-width:0!important;flex:1 1 auto!important;line-height:1.15!important}
      .sidebar .unified-brand .brand-copy b{display:block!important;margin:0!important;padding:0!important;color:#f4f7fa!important;font-size:17px!important;font-weight:850!important;white-space:nowrap!important;line-height:1.15!important}
      .sidebar .unified-brand .brand-copy small{display:block!important;margin:0!important;padding:0!important;color:#8994a3!important;font-size:11px!important;font-weight:500!important;white-space:nowrap!important;line-height:1.2!important}
+
+     /* Cash / plugin-control page */
+     .page.app-content{width:100%!important;max-width:1650px!important;margin:0 auto!important}
+     .shift-summary-panel{overflow:visible!important}
+     .shift-summary-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:10px!important;margin-top:13px!important}
+     .shift-summary-card{display:flex!important;flex-direction:column!important;align-items:flex-start!important;justify-content:center!important;min-height:78px!important;padding:13px 15px!important;gap:4px!important;overflow:hidden!important}
+     .shift-summary-card span{display:block!important;font-size:9px!important;text-transform:uppercase!important;letter-spacing:.06em!important;font-weight:800!important;line-height:1.2!important;color:#8994a3!important;white-space:nowrap!important}
+     .shift-summary-card strong{display:block!important;font-size:18px!important;line-height:1.25!important;color:#f4f7fa!important;font-weight:850!important;white-space:nowrap!important}
+     .shift-summary-card small{display:block!important;font-size:9px!important;line-height:1.2!important;color:#8994a3!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;max-width:100%!important}
+     .shift-summary-card.closed{border-color:#244637!important;background:linear-gradient(145deg,#14231e,#111923)!important}
+     .shift-summary-card.open{background:#121b25!important}
+     .shift-summary-card.expected{background:linear-gradient(145deg,#17251f,#111923)!important}
+
+     .overview-grid{margin-bottom:12px!important}
+     .overview-card{min-height:78px!important}
+     .request-panel,.result-panel{overflow:visible!important}
+     .request-grid{align-items:end!important}
+     .request-grid label{min-width:0!important}
+     .request-grid select,.request-grid input{width:100%!important;min-width:0!important}
+     .result-summary{min-width:0!important;overflow:hidden!important}
+     .result-headline{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))!important}
+     .data-table-wrap{max-width:100%!important;overflow:auto!important}
+     .data-table{min-width:700px!important}
+     .result-output{max-width:100%!important;overflow:auto!important;white-space:pre!important}
+
+     @media(max-width:900px){
+       .shift-summary-grid{grid-template-columns:1fr 1fr!important}
+     }
+     @media(max-width:620px){
+       .shift-summary-grid{grid-template-columns:1fr!important}
+     }
    `;
    document.head.appendChild(style);
  }
@@ -41,7 +73,7 @@
    const path=location.pathname.toLowerCase();
    if(!path.endsWith('/index.html') && !path.endsWith('/')){
      document.querySelectorAll('head > style').forEach(style=>{
-       if(style.id!=='hc-unified-brand-style') style.remove();
+       if(style.id!=='hc-unified-style') style.remove();
      });
    }
  }
@@ -86,7 +118,7 @@
 
  function init(){
    ensureMasterStyles().then(()=>{
-     installUnifiedBrandStyle();
+     installUnifiedStyle();
      removeLegacyStyles();
      if(document.readyState!=='loading')buildUnifiedSidebar();
      window.addEventListener('beforeunload',()=>{root.style.background='#0b1017';root.style.visibility='hidden';});
