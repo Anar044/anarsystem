@@ -28,9 +28,9 @@
    const active=x=>x===page?' class="active"':'';
    sidebar.innerHTML=`
      <div class="brand unified-brand">
-       <div class="logo unified-logo">SH</div>
+       <div class="logo unified-logo" style="margin-left:-41px;position:relative;z-index:2">SH</div>
        <div class="brand-copy">
-         <b><span>Smart</span> Horeca Control</b>
+         <b>Smart Horeca Control</b>
          <small>Restaurant Management</small>
        </div>
      </div>
