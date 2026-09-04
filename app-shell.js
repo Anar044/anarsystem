@@ -4,41 +4,15 @@
  root.dataset.theme=saved==='light'?'light':'dark';
  root.style.background='#0b1017';
 
- /* Bootstrap only: after the master stylesheet is ready, legacy layers are removed and the bootstrap sheet is detached. */
- function reveal(){
+ function removeLegacyStyles(){
    document.querySelectorAll('link[rel="stylesheet"]').forEach(link=>{
      const href=(link.getAttribute('href')||'').toLowerCase();
-     if(href.includes('app-shell.css')) link.remove();
-   });
-   requestAnimationFrame(()=>root.classList.add('hc-ready'));
- }
-
- function removeLegacyLayers(){
-   const legacy=['pages.css','olap-ui.css','site-modern.css','dashboard.css','dashboard-modern.css','modern-ui.css','modern-ui-v3.css','reports-modern.css','reports-modern-fix.css','site-modern-fix.css'];
-   document.querySelectorAll('link[rel="stylesheet"]').forEach(link=>{
-     const href=(link.getAttribute('href')||'').toLowerCase();
-     if(legacy.some(name=>href.includes(name))) link.remove();
+     if(!href.includes('app-shell.css')) link.remove();
    });
    const path=location.pathname.toLowerCase();
-   if(path.endsWith('/settings')||path.endsWith('/settings.html')||path.endsWith('/reports')||path.endsWith('/reports.html')){
+   if(!path.endsWith('/index.html') && !path.endsWith('/')){
      document.querySelectorAll('head > style').forEach(style=>style.remove());
    }
- }
-
- function loadHorecaModern(){
-   const existing=document.getElementById('anarsystem-horeca-modern');
-   if(existing){
-     if(existing.sheet) reveal();
-     else existing.addEventListener('load',reveal,{once:true});
-     return;
-   }
-   const link=document.createElement('link');
-   link.id='anarsystem-horeca-modern';
-   link.rel='stylesheet';
-   link.href='horeca-modern.css?v=10';
-   link.onload=reveal;
-   link.onerror=reveal;
-   document.head.appendChild(link);
  }
 
  function update(){document.querySelectorAll('[data-theme-label]').forEach(e=>e.textContent=root.dataset.theme==='dark'?'☀️ Светлая тема':'🌙 Светлая тема');}
@@ -54,13 +28,11 @@
    if(!document.getElementById('qr-menu-sync-script')){const s=document.createElement('script');s.id='qr-menu-sync-script';s.src='qr-menu-sync.js?v=3';s.onload=loadPublish;document.body.appendChild(s);}else loadPublish();
  }
 
- removeLegacyLayers();
- loadHorecaModern();
+ removeLegacyStyles();
  if(document.readyState!=='loading')buildUnifiedSidebar();
  document.addEventListener('DOMContentLoaded',()=>{
-   removeLegacyLayers();
+   removeLegacyStyles();
    update();
-   loadHorecaModern();
    buildUnifiedSidebar();
    loadQrMenuSync();
    update();
