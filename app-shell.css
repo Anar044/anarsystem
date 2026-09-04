@@ -1,3 +1,4 @@
+@import url("horeca-modern.css?v=3");
 html:not(.hc-ready) body{visibility:hidden!important;background:#0b1017!important}html.hc-ready body{visibility:visible!important}html.hc-loading{background:#0b1017!important}html.hc-loading body{visibility:hidden!important}
 :root{--bg:#f7f8f6;--surface:#fff;--surface2:#f1f4f1;--text:#14201d;--muted:#74807c;--line:#e4e9e6;--accent:#159447;--accent-dark:#0f7839;--accent-soft:#e7f6ec;--success:#159447;--danger:#d64545;--shadow:0 5px 22px rgba(20,32,29,.055);--sidebar:#10201d;--sidebar-muted:#aab8b3;--sidebar-line:rgba(255,255,255,.08)}
 html[data-theme="dark"]{--bg:#0c1210;--surface:#141c19;--surface2:#1b2521;--text:#edf4f0;--muted:#9aa9a3;--line:#293630;--accent:#28b45e;--accent-dark:#1b9448;--accent-soft:#193a28;--success:#28b45e;--danger:#f06a6a;--shadow:0 10px 30px rgba(0,0,0,.22);--sidebar:#08110f;--sidebar-muted:#8fa09a;--sidebar-line:rgba(255,255,255,.07)}
