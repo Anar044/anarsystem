@@ -11,7 +11,7 @@
    return new Promise(resolve=>{
      const link=document.createElement('link');
      link.rel='stylesheet';
-     link.href='app-shell.css?v=4';
+     link.href='app-shell.css?v=5';
      link.onload=resolve;
      link.onerror=resolve;
      document.head.appendChild(link);
@@ -24,14 +24,14 @@
    style.id='hc-unified-style';
    style.textContent=`
      /* ===== ONE UNIFIED HORECACONTROL STYLE ===== */
+     .sidebar{position:fixed!important;left:0!important;top:0!important;bottom:0!important;width:248px!important;height:100vh!important;display:flex!important;flex-direction:column!important;visibility:visible!important;opacity:1!important;transform:none!important;z-index:100!important}
      .sidebar .unified-brand:before{content:none!important;display:none!important}
      .sidebar .unified-brand{display:flex!important;align-items:center!important;gap:10px!important;width:100%!important;min-width:0!important;height:auto!important;padding:7px 12px 28px!important;margin:0!important;box-sizing:border-box!important;color:#fff!important}
      .sidebar .unified-logo{width:31px!important;min-width:31px!important;height:31px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:0 0 31px!important;margin:0!important;border-radius:9px!important;background:#42d392!important;color:#06110b!important;font-size:16px!important;font-weight:900!important;line-height:1!important;position:static!important}
      .sidebar .unified-brand .brand-copy{display:flex!important;flex-direction:column!important;justify-content:center!important;gap:2px!important;min-width:0!important;flex:1 1 auto!important;line-height:1.15!important}
      .sidebar .unified-brand .brand-copy b{display:block!important;margin:0!important;padding:0!important;color:#f4f7fa!important;font-size:17px!important;font-weight:850!important;white-space:nowrap!important;line-height:1.15!important}
      .sidebar .unified-brand .brand-copy small{display:block!important;margin:0!important;padding:0!important;color:#8994a3!important;font-size:11px!important;font-weight:500!important;white-space:nowrap!important;line-height:1.2!important}
-
-     /* Cash / plugin-control page */
+     .main{margin-left:248px!important;width:calc(100% - 248px)!important;min-width:0!important;min-height:100vh!important;background:#0b1017!important}
      .page.app-content{width:100%!important;max-width:1650px!important;margin:0 auto!important}
      .shift-summary-panel{overflow:visible!important}
      .shift-summary-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:10px!important;margin-top:13px!important}
@@ -42,7 +42,6 @@
      .shift-summary-card.closed{border-color:#244637!important;background:linear-gradient(145deg,#14231e,#111923)!important}
      .shift-summary-card.open{background:#121b25!important}
      .shift-summary-card.expected{background:linear-gradient(145deg,#17251f,#111923)!important}
-
      .overview-grid{margin-bottom:12px!important}
      .overview-card{min-height:78px!important}
      .request-panel,.result-panel{overflow:visible!important}
@@ -54,13 +53,9 @@
      .data-table-wrap{max-width:100%!important;overflow:auto!important}
      .data-table{min-width:700px!important}
      .result-output{max-width:100%!important;overflow:auto!important;white-space:pre!important}
-
-     @media(max-width:900px){
-       .shift-summary-grid{grid-template-columns:1fr 1fr!important}
-     }
-     @media(max-width:620px){
-       .shift-summary-grid{grid-template-columns:1fr!important}
-     }
+     @media(max-width:900px){.shift-summary-grid{grid-template-columns:1fr 1fr!important}}
+     @media(max-width:760px){.sidebar{width:260px!important;transform:translateX(-100%)!important}.sidebar.open{transform:translateX(0)!important}.main{margin-left:0!important;width:100%!important}}
+     @media(max-width:620px){.shift-summary-grid{grid-template-columns:1fr!important}}
    `;
    document.head.appendChild(style);
  }
@@ -113,33 +108,20 @@
    const loadPublish=()=>{loadFix();loadSyncFix();if(!document.getElementById('qr-menu-publish-script')){const p=document.createElement('script');p.id='qr-menu-publish-script';p.src='qr-menu-publish.js?v=2';document.body.appendChild(p);}};
    if(!document.getElementById('qr-menu-sync-script')){const s=document.createElement('script');s.id='qr-menu-sync-script';s.src='qr-menu-sync.js?v=3';s.onload=loadPublish;document.body.appendChild(s);}else loadPublish();
  }
-
  function reveal(){root.classList.remove('hc-loading');root.style.visibility='visible';}
-
  function init(){
    ensureMasterStyles().then(()=>{
      installUnifiedStyle();
      removeLegacyStyles();
-     if(document.readyState!=='loading')buildUnifiedSidebar();
+     buildUnifiedSidebar();
      window.addEventListener('beforeunload',()=>{root.style.background='#0b1017';root.style.visibility='hidden';});
      document.addEventListener('DOMContentLoaded',()=>{
-       removeLegacyStyles();
-       update();
-       buildUnifiedSidebar();
-       loadQrMenuSync();
-       update();
-       reveal();
+       removeLegacyStyles();update();buildUnifiedSidebar();loadQrMenuSync();update();reveal();
        const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');
        if(menu&&side)menu.onclick=()=>side.classList.toggle('open');
      });
-     if(document.readyState!=='loading'){
-       update();
-       buildUnifiedSidebar();
-       loadQrMenuSync();
-       reveal();
-     }
+     if(document.readyState!=='loading'){update();buildUnifiedSidebar();loadQrMenuSync();reveal();}
    });
  }
-
  init();
 })();
