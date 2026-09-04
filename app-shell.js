@@ -3,13 +3,26 @@
  const saved=localStorage.getItem('shReportsTheme');
  root.dataset.theme=saved==='light'?'light':'dark';
 
- // Prevent the old inline/page style from flashing before the unified theme is ready.
+ // Hard anti-flash: hide the document before any old inline/page CSS can be painted.
+ // The page is revealed only after the unified theme stylesheet is ready.
+ root.style.background='#0b1017';
+ root.style.opacity='0';
+ root.style.transition='none';
  const antiFlash=document.createElement('style');
- antiFlash.textContent='html.hc-loading body{visibility:hidden!important}';
+ antiFlash.textContent='html.hc-loading body{visibility:hidden!important}html.hc-ready body{visibility:visible!important}';
  document.head.appendChild(antiFlash);
  root.classList.add('hc-loading');
  let themeReady=false;
- function reveal(){if(themeReady)return;themeReady=true;root.classList.remove('hc-loading');}
+ function reveal(){
+   if(themeReady)return;
+   themeReady=true;
+   root.classList.remove('hc-loading');
+   root.classList.add('hc-ready');
+   requestAnimationFrame(()=>{
+     root.style.transition='opacity .12s ease-out';
+     root.style.opacity='1';
+   });
+ }
 
  function update(){document.querySelectorAll('[data-theme-label]').forEach(e=>e.textContent=root.dataset.theme==='dark'?'☀️ Светлая тема':'🌙 Светлая тема');}
  window.toggleSHTheme=function(){const next=root.dataset.theme==='dark'?'light':'dark';localStorage.setItem('shReportsTheme',next);root.dataset.theme=next;update();};
@@ -25,7 +38,7 @@
    const link=document.createElement('link');
    link.id='anarsystem-horeca-modern';
    link.rel='stylesheet';
-   link.href='horeca-modern.css?v=2';
+   link.href='horeca-modern.css?v=3';
    link.onload=reveal;
    link.onerror=reveal;
    document.head.appendChild(link);
@@ -41,8 +54,6 @@
    if(!document.getElementById('qr-menu-sync-script')){const s=document.createElement('script');s.id='qr-menu-sync-script';s.src='qr-menu-sync.js?v=3';s.onload=loadPublish;document.body.appendChild(s);}else loadPublish();
  }
 
- // Run immediately when the shell script is placed at the end of <body>.
- // DOMContentLoaded remains as a fallback for pages where the script is loaded earlier.
  loadHorecaModern();
  if(document.readyState!=='loading') buildUnifiedSidebar();
  document.addEventListener('DOMContentLoaded',()=>{
