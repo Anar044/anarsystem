@@ -1,6 +1,5 @@
-/* QR Menu UI safety fix
-   Restores the QR Menu page styles after app-shell removes legacy page styles.
-   Does not change iiko/OLAP data logic or menu functionality.
+/* QR Menu UI + design editor fix
+   Keeps iiko/menu data logic untouched.
 */
 (function () {
   'use strict';
@@ -11,108 +10,80 @@
     const style = document.createElement('style');
     style.id = 'qr-menu-runtime-style';
     style.textContent = `
-      .qr-page{padding:28px 30px 50px;max-width:1600px;margin:auto;color:#f5f7fa}
-      .qr-head{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:22px}
-      .qr-head h1{margin:0;font-size:30px}.qr-head p{margin:7px 0 0;color:#8994a3;font-size:13px}
-      .qr-actions{display:flex;gap:9px;flex-wrap:wrap}
-      .qbtn{border:1px solid #293442;background:#151d27;color:#fff;border-radius:11px;padding:10px 14px;font-weight:650;cursor:pointer}
-      .qbtn.primary{background:#42d392;border-color:#42d392;color:#07110c}.qbtn:disabled{opacity:.55;cursor:not-allowed}
-      .q-layout{display:grid;grid-template-columns:270px minmax(420px,1fr) 360px;gap:16px}
-      .q-card{background:linear-gradient(145deg,#121922,#10161e);border:1px solid #222c38;border-radius:18px;padding:16px}.q-card h3{margin:0 0 14px;font-size:14px}
-      .cat-list{display:grid;gap:7px}.cat{display:flex;align-items:center;justify-content:space-between;padding:11px 12px;border:1px solid transparent;border-radius:11px;color:#aeb7c4;cursor:pointer}.cat:hover{background:#151d27}.cat.active{background:#18251f;border-color:#244233;color:#fff}.cat span{font-size:11px;color:#718092}
-      .add-cat{width:100%;margin-top:10px;border:1px dashed #334150;background:transparent;color:#8994a3;border-radius:10px;padding:10px;cursor:pointer}
-      .menu-toolbar{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:12px}.menu-toolbar input{flex:1;min-width:100px;background:#0e151d;border:1px solid #293442;border-radius:10px;padding:10px 12px;color:#fff;outline:none}
-      .items{display:grid;gap:9px}.item{display:grid;grid-template-columns:70px 1fr auto;gap:12px;align-items:center;padding:10px;border:1px solid #222c38;border-radius:13px;background:#111821}
-      .photo{width:70px;height:70px;border-radius:11px;background:#1a232d;display:grid;place-items:center;overflow:hidden;color:#657385;font-size:23px}.photo img{width:100%;height:100%;object-fit:cover}.item h4{margin:0 0 5px;font-size:13px}.item p{margin:0;color:#778496;font-size:11px;line-height:1.35}.price{font-weight:750;white-space:nowrap}
-      .item-actions{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap}.mini{border:1px solid #293442;background:#151d27;color:#aeb7c4;border-radius:8px;padding:5px 8px;font-size:11px;cursor:pointer}
-      .source-badge{display:inline-block;margin-left:6px;padding:2px 5px;border-radius:5px;background:#173025;color:#42d392;font-size:9px}
-      .preview{position:sticky;top:94px}.phone{width:100%;max-width:310px;margin:auto;background:#f5f7fa;color:#17202a;border-radius:28px;padding:9px;box-shadow:0 15px 40px #0008}.phone-screen{background:#fff;border-radius:21px;overflow:hidden;min-height:550px}
-      .phone-top{position:relative;padding:0 0 16px;text-align:center;background:#17231e;color:#fff;overflow:hidden}.phone-hero{height:110px;background-size:cover;background-position:center;position:relative}.phone-hero:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,#0002,#0008)}
-      .phone-logo{position:relative;margin:-27px auto 7px;width:54px;height:54px;border-radius:50%;border:3px solid #fff;background:#fff;display:grid;place-items:center;overflow:hidden;z-index:2;color:#17231e;font-weight:900}.phone-logo img{width:100%;height:100%;object-fit:cover}.phone-top h2{position:relative;margin:0;font-size:20px;z-index:2}.phone-top small{position:relative;opacity:.7;z-index:2}.phone-body{padding:14px}
-      .p-cat{font-weight:750;font-size:14px;margin:12px 0 8px}.p-item{display:flex;gap:9px;padding:9px 0;border-bottom:1px solid #e8ebee}.p-photo{width:54px;height:54px;border-radius:9px;background:#edf0f2;overflow:hidden;flex:none;display:grid;place-items:center}.p-photo img{width:100%;height:100%;object-fit:cover}.p-item b{font-size:12px}.p-item span{display:block;font-size:10px;color:#78818b;margin-top:3px}.p-price{margin-left:auto;font-weight:750;font-size:11px;white-space:nowrap}
-      .settings{display:grid;gap:10px}.field label{display:block;color:#8994a3;font-size:11px;margin-bottom:5px}.field input,.field textarea,.field select{width:100%;background:#0e151d;border:1px solid #293442;border-radius:10px;color:#fff;padding:10px;outline:none}.field textarea{min-height:75px;resize:vertical}.hint{color:#718092;font-size:10px;line-height:1.4}
-      .qrbox{margin:14px auto 4px;width:150px;height:150px;background:#fff;border-radius:12px;display:grid;place-items:center;color:#111;font-weight:800}.status{padding:9px 11px;border-radius:10px;background:#17231e;color:#42d392;font-size:11px}.empty{padding:35px 10px;text-align:center;color:#718092;border:1px dashed #293442;border-radius:12px}
-      .settings-modal{position:fixed;inset:0;background:#000b;display:none;z-index:120;padding:22px}.settings-modal.show{display:flex;align-items:stretch;justify-content:flex-end}.settings-panel{width:min(520px,100%);height:100%;overflow:auto;background:#0d141b;border:1px solid #26313d;border-radius:20px;padding:22px;box-shadow:-20px 0 60px #0008}
-      .settings-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}.settings-head h2{margin:0;font-size:20px}.close{border:0;background:transparent;color:#9aa5b1;font-size:26px;cursor:pointer}.setting-section{border-top:1px solid #26313d;padding-top:18px;margin-top:18px}.setting-section:first-of-type{border-top:0;padding-top:0;margin-top:0}.setting-section h4{margin:0 0 12px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#9aa5b1}
-      .color-row{display:grid;grid-template-columns:1fr 105px;gap:8px}.color-row input[type=color]{height:40px;padding:3px;cursor:pointer}.swatches{display:flex;gap:8px;flex-wrap:wrap}.swatch{width:34px;height:34px;border-radius:10px;border:1px solid #43505d;cursor:pointer}.switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;color:#dce2e8;font-size:12px}.switch-row input{width:18px;height:18px;accent-color:#42d392}.upload-box{border:1px dashed #3a4652;border-radius:12px;padding:12px;background:#111a23}.settings-actions{display:flex;gap:8px;position:sticky;bottom:-22px;padding:14px 0 0;background:#0d141b}.preview-banner{display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;background:#17231e;color:#fff;margin-top:12px}.preview-banner strong{color:#42d392}.info-preview{margin-top:10px;padding:11px;border-radius:12px;background:#111821;border:1px solid #293442;color:#aeb7c4;font-size:11px;line-height:1.5}
-      @media(max-width:1200px){.q-layout{grid-template-columns:240px 1fr}.preview{grid-column:1/-1;position:static}.phone{max-width:360px}}
-      @media(max-width:800px){.qr-page{padding:20px 16px}.qr-head{align-items:flex-start;flex-direction:column}.q-layout{grid-template-columns:1fr}.q-card.preview{grid-column:auto}.settings-modal{padding:0}.settings-panel{border-radius:0;width:100%}}
+      .qr-page{padding:28px 30px 50px;max-width:1600px;margin:auto;color:#f5f7fa}.qr-head{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:22px}.qr-head h1{margin:0;font-size:30px}.qr-head p{margin:7px 0 0;color:#8994a3;font-size:13px}.qr-actions{display:flex;gap:9px;flex-wrap:wrap}.qbtn{border:1px solid #293442;background:#151d27;color:#fff;border-radius:11px;padding:10px 14px;font-weight:650;cursor:pointer}.qbtn.primary{background:#42d392;border-color:#42d392;color:#07110c}.qbtn:disabled{opacity:.55;cursor:not-allowed}
+      .q-layout{display:grid;grid-template-columns:270px minmax(420px,1fr) 360px;gap:16px}.q-card{background:linear-gradient(145deg,#121922,#10161e);border:1px solid #222c38;border-radius:18px;padding:16px}.q-card h3{margin:0 0 14px;font-size:14px}.cat-list{display:grid;gap:7px}.cat{display:flex;align-items:center;justify-content:space-between;padding:11px 12px;border:1px solid transparent;border-radius:11px;color:#aeb7c4;cursor:pointer}.cat:hover{background:#151d27}.cat.active{background:#18251f;border-color:#244233;color:#fff}.cat span{font-size:11px;color:#718092}.add-cat{width:100%;margin-top:10px;border:1px dashed #334150;background:transparent;color:#8994a3;border-radius:10px;padding:10px;cursor:pointer}.menu-toolbar{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:12px}.menu-toolbar input{flex:1;min-width:100px;background:#0e151d;border:1px solid #293442;border-radius:10px;padding:10px 12px;color:#fff;outline:none}.items{display:grid;gap:9px}.item{display:grid;grid-template-columns:70px 1fr auto;gap:12px;align-items:center;padding:10px;border:1px solid #222c38;border-radius:13px;background:#111821}.photo{width:70px;height:70px;border-radius:11px;background:#1a232d;display:grid;place-items:center;overflow:hidden;color:#657385;font-size:23px}.photo img{width:100%;height:100%;object-fit:cover}.item h4{margin:0 0 5px;font-size:13px}.item p{margin:0;color:#778496;font-size:11px;line-height:1.35}.price{font-weight:750;white-space:nowrap}.item-actions{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap}.mini{border:1px solid #293442;background:#151d27;color:#aeb7c4;border-radius:8px;padding:5px 8px;font-size:11px;cursor:pointer}.source-badge{display:inline-block;margin-left:6px;padding:2px 5px;border-radius:5px;background:#173025;color:#42d392;font-size:9px}
+      .preview{position:sticky;top:94px}.phone{width:100%;max-width:310px;margin:auto;background:#f5f7fa;color:#17202a;border-radius:28px;padding:9px;box-shadow:0 15px 40px #0008}.phone-screen{background:#fff;border-radius:21px;overflow:hidden;min-height:550px}.phone-top{position:relative;padding:0 0 16px;text-align:center;background:#17231e;color:#fff;overflow:hidden}.phone-hero{height:110px;background-size:cover;background-position:center;position:relative}.phone-hero:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,#0002,#0008)}.phone-logo{position:relative;margin:-27px auto 7px;width:54px;height:54px;border-radius:50%;border:3px solid #fff;background:#fff;display:grid;place-items:center;overflow:hidden;z-index:2;color:#17231e;font-weight:900}.phone-logo img{width:100%;height:100%;object-fit:cover}.phone-top h2{position:relative;margin:0;font-size:20px;z-index:2}.phone-top small{position:relative;opacity:.7;z-index:2}.phone-body{padding:14px}.p-cat{font-weight:750;font-size:14px;margin:12px 0 8px}.p-item{display:flex;gap:9px;padding:9px 0;border-bottom:1px solid #e8ebee}.p-photo{width:54px;height:54px;border-radius:9px;background:#edf0f2;overflow:hidden;flex:none;display:grid;place-items:center}.p-photo img{width:100%;height:100%;object-fit:cover}.p-item b{font-size:12px}.p-item span{display:block;font-size:10px;color:#78818b;margin-top:3px}.p-price{margin-left:auto;font-weight:750;font-size:11px;white-space:nowrap}
+      .settings{display:grid;gap:10px}.field label{display:block;color:#8994a3;font-size:11px;margin-bottom:5px}.field input,.field textarea,.field select{width:100%;background:#0e151d;border:1px solid #293442;border-radius:10px;color:#fff;padding:10px;outline:none}.field textarea{min-height:75px;resize:vertical}.hint{color:#718092;font-size:10px;line-height:1.4}.qrbox{margin:14px auto 4px;width:150px;height:150px;background:#fff;border-radius:12px;display:grid;place-items:center;color:#111;font-weight:800}.status{padding:9px 11px;border-radius:10px;background:#17231e;color:#42d392;font-size:11px}.empty{padding:35px 10px;text-align:center;color:#718092;border:1px dashed #293442;border-radius:12px}
+      .settings-modal{position:fixed;inset:0;background:#000b;display:none;z-index:120;padding:22px}.settings-modal.show{display:flex;align-items:stretch;justify-content:flex-end}.settings-panel{width:min(560px,100%);height:100%;overflow:auto;background:#0d141b;border:1px solid #26313d;border-radius:20px;padding:22px;box-shadow:-20px 0 60px #0008}.settings-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}.settings-head h2{margin:0;font-size:20px}.close{border:0;background:transparent;color:#9aa5b1;font-size:26px;cursor:pointer}.setting-section{border-top:1px solid #26313d;padding-top:18px;margin-top:18px}.setting-section:first-of-type{border-top:0;padding-top:0;margin-top:0}.setting-section h4{margin:0 0 12px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#9aa5b1}.color-row{display:grid;grid-template-columns:1fr 105px;gap:8px}.color-row input[type=color]{height:40px;padding:3px;cursor:pointer}.swatches{display:flex;gap:8px;flex-wrap:wrap}.swatch{width:34px;height:34px;border-radius:10px;border:1px solid #43505d;cursor:pointer}.switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;color:#dce2e8;font-size:12px}.switch-row input{width:18px;height:18px;accent-color:#42d392}.upload-box{border:1px dashed #3a4652;border-radius:12px;padding:12px;background:#111a23}.settings-actions{display:flex;gap:8px;position:sticky;bottom:-22px;padding:14px 0 0;background:#0d141b}.settings-actions .qbtn{flex:1}.preview-banner{display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;background:#17231e;color:#fff;margin-top:12px}.preview-banner strong{color:#42d392}.info-preview{margin-top:10px;padding:11px;border-radius:12px;background:#111821;border:1px solid #293442;color:#aeb7c4;font-size:11px;line-height:1.5}
+      .design-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.design-grid .full{grid-column:1/-1}.upload-choice{display:grid;grid-template-columns:1fr 1fr;gap:8px}.upload-choice button{border:1px solid #293442;background:#151d27;color:#dce2e8;border-radius:10px;padding:9px;cursor:pointer}.live-note{padding:10px 12px;border-radius:11px;background:#17231e;color:#aeb7c4;font-size:11px;line-height:1.45}.live-note b{color:#42d392}
+      @media(max-width:1200px){.q-layout{grid-template-columns:240px 1fr}.preview{grid-column:1/-1;position:static}.phone{max-width:360px}}@media(max-width:800px){.qr-page{padding:20px 16px}.qr-head{align-items:flex-start;flex-direction:column}.q-layout{grid-template-columns:1fr}.q-card.preview{grid-column:auto}.settings-modal{padding:0}.settings-panel{border-radius:0;width:100%}.design-grid{grid-template-columns:1fr}.design-grid .full{grid-column:auto}}
     `;
     document.head.appendChild(style);
   }
 
-  function readState() {
-    try { return JSON.parse(localStorage.getItem(KEY) || 'null') || {}; }
-    catch (e) { console.error('QR Menu state read error:', e); return {}; }
-  }
+  function readState() { try { return JSON.parse(localStorage.getItem(KEY) || 'null') || {}; } catch (e) { return {}; } }
   function byId(id) { return document.getElementById(id); }
   function value(id) { const el = byId(id); return el ? String(el.value || '') : ''; }
   function checked(id) { const el = byId(id); return !!(el && el.checked); }
+  function setValue(id,v){const el=byId(id);if(el)el.value=v??'';}
 
-  function findSaveButton() {
-    return byId('saveDesign') || byId('saveDesignBtn') ||
-      [...document.querySelectorAll('button')].find(b =>
-        b.textContent.trim().toLowerCase().includes('сохранить дизайн'));
+  function ensureModal(){
+    if(byId('settingsModal')) return byId('settingsModal');
+    const modal=document.createElement('div'); modal.id='settingsModal'; modal.className='settings-modal';
+    modal.innerHTML=`<div class="settings-panel"><div class="settings-head"><div><h2>🎨 Настроить дизайн</h2><div class="hint">Все изменения сразу видны в предпросмотре.</div></div><button class="close" id="closeSettings" type="button">×</button></div>
+      <div class="live-note"><b>Важно:</b> настройки сохраняются в меню. После этого нажми «Опубликовать меню», чтобы новый дизайн увидели гости.</div>
+      <div class="setting-section"><h4>Основное</h4><div class="design-grid"><div class="field"><label>Название ресторана</label><input id="dName"></div><div class="field"><label>Подзаголовок</label><input id="dTagline"></div><div class="field full"><label>О ресторане</label><textarea id="dAbout"></textarea></div></div></div>
+      <div class="setting-section"><h4>Внешний вид</h4><div class="design-grid"><div class="field"><label>Тема</label><select id="dTheme"><option value="light">Светлая</option><option value="dark">Тёмная</option></select></div><div class="field"><label>Шрифт</label><select id="dFont"><option value="Inter">Inter</option><option value="system">System</option><option value="Georgia">Georgia</option></select></div><div class="field"><label>Скругление</label><select id="dRadius"><option value="8px">8 px</option><option value="12px">12 px</option><option value="16px">16 px</option><option value="22px">22 px</option></select></div><div class="field"><label>Основной цвет</label><div class="color-row"><input id="dAccentText" value="#c6a45a"><input id="dAccent" type="color" value="#c6a45a"></div></div><div class="field"><label>Цвет текста</label><div class="color-row"><input id="dTextText" value="#17202a"><input id="dText" type="color" value="#17202a"></div></div><div class="field"><label>Фон</label><div class="color-row"><input id="dBgText" value="#f5f7fa"><input id="dBg" type="color" value="#f5f7fa"></div></div><div class="field full"><label>Цвет карточек / поверхностей</label><div class="color-row"><input id="dSurfaceText" value="#ffffff"><input id="dSurface" type="color" value="#ffffff"></div></div></div></div>
+      <div class="setting-section"><h4>Фотографии</h4><div class="upload-box"><div class="upload-choice"><button id="uploadHero" type="button">📷 Фото ресторана</button><button id="uploadLogo" type="button">◉ Логотип</button></div><input id="designHeroInput" type="file" accept="image/*" hidden><input id="designLogoInput" type="file" accept="image/*" hidden><div class="hint" style="margin-top:9px">Изображения уменьшаются перед сохранением, чтобы QR-меню быстро открывалось на телефоне.</div></div></div>
+      <div class="setting-section"><h4>Контакты</h4><div class="design-grid"><div class="field"><label>Телефон</label><input id="dPhone"></div><div class="field"><label>Адрес</label><input id="dAddress"></div><div class="field"><label>Время работы</label><input id="dHours"></div><div class="field"><label>Instagram / сайт</label><input id="dSocial"></div><div class="field full"><label>Wi‑Fi</label><input id="dWifi"></div></div></div>
+      <div class="setting-section"><h4>Что показывать гостю</h4><label class="switch-row"><span>Цены</span><input id="dShowPrices" type="checkbox"></label><label class="switch-row"><span>Описание блюд</span><input id="dShowDescriptions" type="checkbox"></label><label class="switch-row"><span>Состав блюд</span><input id="dShowComposition" type="checkbox"></label><label class="switch-row"><span>Блок «О ресторане»</span><input id="dShowAbout" type="checkbox"></label><label class="switch-row"><span>Контакты</span><input id="dShowContacts" type="checkbox"></label></div>
+      <div class="settings-actions"><button class="qbtn" id="resetDesign" type="button">Сбросить</button><button class="qbtn primary" id="saveDesign" type="button">Сохранить дизайн</button></div></div>`;
+    document.body.appendChild(modal);
+    return modal;
   }
 
-  function saveDesignDirectly() {
-    const state = readState();
-    state.design = Object.assign({}, state.design || {});
-    state.design.name = value('dName').trim() || 'Мой ресторан';
-    state.design.tagline = value('dTagline').trim() || 'QR Menu';
-    state.design.about = value('dAbout').trim();
-    state.design.theme = value('dTheme') || 'light';
-    state.design.font = value('dFont') || 'Inter';
-    state.design.radius = value('dRadius') || '16px';
-    state.design.phone = value('dPhone').trim();
-    state.design.address = value('dAddress').trim();
-    state.design.hours = value('dHours').trim();
-    state.design.social = value('dSocial').trim();
-    state.design.wifi = value('dWifi').trim();
-    state.design.showPrices = checked('dShowPrices');
-    state.design.showDescriptions = checked('dShowDescriptions');
-    state.design.showComposition = checked('dShowComposition');
-    state.design.showAbout = checked('dShowAbout');
-    state.design.showContacts = checked('dShowContacts');
-    ['accent', 'text', 'bg', 'surface'].forEach(key => {
-      const cap = key.charAt(0).toUpperCase() + key.slice(1);
-      const color = byId('d' + cap);
-      const text = value('d' + cap + 'Text').trim();
-      if (/^#[0-9a-fA-F]{6}$/.test(text)) state.design[key] = text;
-      else if (color && /^#[0-9a-fA-F]{6}$/.test(color.value)) state.design[key] = color.value;
-    });
-    try {
-      localStorage.setItem(KEY, JSON.stringify(state));
-      localStorage.setItem('horeca_qr_design_v1', JSON.stringify(state.design));
-    } catch (e) { alert('Не удалось сохранить дизайн: ' + (e.message || e)); return; }
-    const name = byId('previewName'), tagline = byId('previewTagline'), top = byId('phoneTop'), screen = byId('phoneScreen'), body = byId('previewBody');
-    if (name) name.textContent = state.design.name;
-    if (tagline) tagline.textContent = state.design.tagline;
-    if (top) top.style.background = state.design.theme === 'dark' ? '#111' : (state.design.accent || '#17231e');
-    if (screen) { screen.style.fontFamily = state.design.font === 'system' ? 'system-ui' : state.design.font + ',Georgia,serif'; if (state.design.surface) screen.style.background = state.design.surface; if (state.design.text) screen.style.color = state.design.text; if (state.design.radius) screen.style.borderRadius = state.design.radius; }
-    if (body && state.design.bg) body.style.background = state.design.bg;
-    const status = byId('saveStatus'); if (status) status.textContent = '● Дизайн сохранён локально';
-    const modal = byId('settingsModal'); if (modal) { modal.classList.remove('show'); modal.style.display = ''; }
-    alert('Дизайн сохранён. Нажмите «Опубликовать меню», чтобы применить изменения в публичном QR Menu.');
+  function compressImage(file, max=1400){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{let w=img.width,h=img.height;if(w>max||h>max){const s=Math.min(max/w,max/h);w=Math.round(w*s);h=Math.round(h*s);}const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);resolve(c.toDataURL('image/jpeg',.82));};img.onerror=reject;img.src=r.result;};r.onerror=reject;r.readAsDataURL(file);});}
+
+  function fillDesignForm(){
+    const s=readState(); const d=Object.assign({name:'Мой ресторан',tagline:'QR Menu',about:'',theme:'light',font:'Inter',radius:'16px',accent:'#c6a45a',text:'#17202a',bg:'#f5f7fa',surface:'#ffffff',phone:'',address:'',hours:'',social:'',wifi:'',showPrices:true,showDescriptions:true,showComposition:true,showAbout:true,showContacts:true},s.design||{});
+    ['Name','Tagline','About','Theme','Font','Radius','Phone','Address','Hours','Social','Wifi'].forEach(k=>setValue('d'+k,d[k.charAt(0).toLowerCase()+k.slice(1)]));
+    ['Accent','Text','Bg','Surface'].forEach(k=>{const v=d[k.toLowerCase()]||'';setValue('d'+k+'Text',v);setValue('d'+k,v);});
+    ['ShowPrices','ShowDescriptions','ShowComposition','ShowAbout','ShowContacts'].forEach(k=>{const el=byId('d'+k);if(el)el.checked=d[k.charAt(0).toLowerCase()+k.slice(1)]!==false;});
+    updatePreview(d);
   }
 
-  function bindSave() {
-    const save = findSaveButton();
-    if (!save || save.dataset.qrSaveFix === '1') return;
-    save.dataset.qrSaveFix = '1';
-    save.addEventListener('click', function (event) { event.preventDefault(); event.stopImmediatePropagation(); saveDesignDirectly(); }, true);
+  function updatePreview(d){
+    d=d||{}; const name=byId('previewName'),tag=byId('previewTagline'),top=byId('phoneTop'),screen=byId('phoneScreen'),body=byId('previewBody'),hero=byId('phoneHero'),info=byId('previewInfo');
+    if(name)name.textContent=d.name||'Мой ресторан'; if(tag)tag.textContent=d.tagline||'QR Menu';
+    if(screen){screen.style.background=d.surface||'#fff';screen.style.color=d.text||'#17202a';screen.style.borderRadius=d.radius||'16px';screen.style.fontFamily=d.font==='system'?'system-ui':(d.font||'Inter')+',sans-serif';}
+    if(top){top.style.background=d.theme==='dark'?'#111':(d.accent||'#c6a45a');top.style.color=d.theme==='dark'?'#fff':(d.text||'#17202a');}
+    if(body)body.style.background=d.bg||'#f5f7fa';
+    if(info)info.textContent=d.about||'Предпросмотр публичного QR-меню';
+    if(hero && d.hero){hero.style.backgroundImage='url('+d.hero+')';hero.style.display='block';} else if(hero)hero.style.display='none';
   }
 
-  function initQrMenuFix() {
-    injectQrStyles();
-    const btn = byId('designBtn'), modal = byId('settingsModal'), close = byId('closeSettings');
-    if (!modal) return;
-    if (btn) btn.onclick = function (event) { event.preventDefault(); event.stopPropagation(); try { if (typeof window.fillDesignForm === 'function') window.fillDesignForm(); } catch (e) { console.error('QR Menu design form error:', e); } modal.classList.add('show'); modal.style.display = 'flex'; setTimeout(bindSave, 0); };
-    if (close) close.onclick = function (event) { event.preventDefault(); event.stopPropagation(); modal.classList.remove('show'); modal.style.display = ''; };
-    modal.onclick = function (event) { if (event.target === modal) { modal.classList.remove('show'); modal.style.display = ''; } };
-    bindSave(); setTimeout(bindSave, 250); setTimeout(bindSave, 1000);
+  function collectDesign(){const d={};[['name','Name'],['tagline','Tagline'],['about','About'],['theme','Theme'],['font','Font'],['radius','Radius'],['phone','Phone'],['address','Address'],['hours','Hours'],['social','Social'],['wifi','Wifi']].forEach(([k,id])=>d[k]=value('d'+id));['accent','text','bg','surface'].forEach(k=>{const t=value('d'+k.charAt(0).toUpperCase()+k.slice(1)+'Text');d[k]=/^#[0-9a-fA-F]{6}$/.test(t)?t:value('d'+k.charAt(0).toUpperCase()+k.slice(1));});['showPrices','showDescriptions','showComposition','showAbout','showContacts'].forEach(k=>d[k]=checked('d'+k.charAt(0).toUpperCase()+k.slice(1)));const old=readState().design||{};if(old.hero)d.hero=old.hero;if(old.logo)d.logo=old.logo;return d;}
+
+  function saveDesignDirectly(){
+    const state=readState(); state.design=collectDesign();
+    try{localStorage.setItem(KEY,JSON.stringify(state));localStorage.setItem('horeca_qr_design_v1',JSON.stringify(state.design));}catch(e){alert('Не удалось сохранить дизайн: '+(e.message||e));return;}
+    updatePreview(state.design); const status=byId('saveStatus');if(status)status.textContent='● Дизайн сохранён локально'; const modal=byId('settingsModal');if(modal){modal.classList.remove('show');modal.style.display='';}
+    alert('Дизайн сохранён. Теперь нажми «Опубликовать меню», чтобы применить его в публичном QR Menu.');
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initQrMenuFix, { once: true });
-  else initQrMenuFix();
+  function bindSave(){const save=byId('saveDesign');if(!save||save.dataset.qrSaveFix==='1')return;save.dataset.qrSaveFix='1';save.onclick=e=>{e.preventDefault();saveDesignDirectly();};}
+
+  function bindLive(){['dName','dTagline','dAbout','dTheme','dFont','dRadius','dAccentText','dTextText','dBgText','dSurfaceText'].forEach(id=>{const el=byId(id);if(el)el.addEventListener('input',()=>updatePreview(collectDesign()));});['dAccent','dText','dBg','dSurface'].forEach(id=>{const el=byId(id);if(el)el.addEventListener('input',()=>{const t=byId(id+'Text');if(t)t.value=el.value;updatePreview(collectDesign());});});}
+
+  function bindUploads(){const hi=byId('designHeroInput'),li=byId('designLogoInput');byId('uploadHero').onclick=()=>hi.click();byId('uploadLogo').onclick=()=>li.click();hi.onchange=async()=>{if(!hi.files[0])return;const d=collectDesign();d.hero=await compressImage(hi.files[0]);const s=readState();s.design={...d,hero:d.hero};localStorage.setItem(KEY,JSON.stringify(s));fillDesignForm();};li.onchange=async()=>{if(!li.files[0])return;const d=collectDesign();d.logo=await compressImage(li.files[0]);const s=readState();s.design={...d,logo:d.logo};localStorage.setItem(KEY,JSON.stringify(s));fillDesignForm();};}
+
+  function initQrMenuFix(){
+    injectQrStyles(); const modal=ensureModal(); const btn=byId('designBtn');
+    if(btn)btn.onclick=e=>{e.preventDefault();e.stopPropagation();fillDesignForm();modal.classList.add('show');modal.style.display='flex';bindSave();bindLive();bindUploads();};
+    byId('closeSettings').onclick=e=>{e.preventDefault();modal.classList.remove('show');modal.style.display='';};
+    modal.onclick=e=>{if(e.target===modal){modal.classList.remove('show');modal.style.display='';}};
+    byId('resetDesign').onclick=()=>{localStorage.removeItem('horeca_qr_design_v1');const s=readState();delete s.design;localStorage.setItem(KEY,JSON.stringify(s));fillDesignForm();};
+    bindSave();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initQrMenuFix,{once:true});else initQrMenuFix();
 })();
