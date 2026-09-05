@@ -22,10 +22,10 @@
  <button class="theme-btn" onclick="toggleSHTheme()" data-theme-label>🌙 Светлая тема</button>
 </aside>
 <main class="main">
-<header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Настройки</span><div class="topbar-sub">Подключение к iiko Server</div></div><div class="top-actions"><span class="user-chip"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span></span><button class="icon-btn" data-auth-logout>Выйти</button><a class="period-chip" href="index.html">← Обзор</a></div></header>
+<header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Настройки</span><div class="topbar-sub">Подключение к SH Server</div></div><div class="top-actions"><span class="user-chip"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span></span><button class="icon-btn" data-auth-logout>Выйти</button><a class="period-chip" href="index.html">← Обзор</a></div></header>
 <section class="app-content settings-page">
  <div class="settings-card">
-  <h1>Подключение к iiko Server</h1>
+  <h1>Подключение к SH Server</h1>
   <p class="lead">Настройте подключение один раз — OLAP Отчёты будут использовать сохранённые параметры.</p>
   <div class="settings-grid">
    <div class="form-group"><label for="iiko-ip">IP адрес / домен</label><input id="iiko-ip" type="text" placeholder="s01.smarthoreca.az"></div>
@@ -38,10 +38,10 @@
   <button type="button" id="clear-iiko-data">Очистить сохранённые данные</button>
   <div id="iiko-status" class="iiko-status">⚪ Не подключено</div>
   <div id="iiko-identity" class="iiko-identity" hidden>
-   <div class="iiko-identity-title">Идентификатор iiko</div>
+   <div class="iiko-identity-title">Идентификатор SH</div>
    <div id="iiko-identity-list" class="iiko-identity-list"></div>
   </div>
-  <a class="debug-link" href="debug.html">⌁ Открыть Debug iiko — посмотреть обмен с сервером</a>
+  <a class="debug-link" href="debug.html">⌁ Открыть Debug SH — посмотреть обмен с сервером</a>
   <div class="settings-note">Данные подключения сохраняются в браузере только при включённой опции «Запомнить данные для входа».</div>
  </div>
 </section>
@@ -50,6 +50,7 @@
 <script src="auth-config.js"></script>
 <script src="auth.js"></script>
 <script src="app-shell.js"></script>
+<script src="mobile-responsive.js?v=1"></script>
 <script src="reports.js"></script>
 <script src="iiko-identity.js"></script>
 </body></html>
