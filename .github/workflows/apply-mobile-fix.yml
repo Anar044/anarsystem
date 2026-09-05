@@ -1,0 +1,35 @@
+name: Apply mobile responsive fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  mobile-fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply responsive CSS
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app-shell.css')
+          s = p.read_text(encoding='utf-8')
+          marker = '/* SH MOBILE HOTFIX v1 */'
+          if marker not in s:
+              s += '''\n\n/* SH MOBILE HOTFIX v1 */\n@media (max-width:760px){\n  html body .app-shell aside.sidebar{position:fixed!important;left:0!important;top:0!important;bottom:0!important;width:280px!important;height:100dvh!important;transform:translate3d(-110%,0,0)!important;z-index:999!important;overflow-y:auto!important;overflow-x:hidden!important;transition:transform .22s ease!important}\n  html body .app-shell aside.sidebar.open{transform:translate3d(0,0,0)!important}\n  html body .app-shell main.main{margin-left:0!important;width:100%!important;min-width:0!important}\n  html body .app-shell .mobile-menu,html body .app-shell .mobile{display:inline-flex!important;align-items:center!important;justify-content:center!important}\n  html body .app-shell .topbar{height:64px!important;padding:0 14px!important}\n  html body .app-shell .topbar-sub{max-width:230px!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}\n  html body .app-shell .content,html body .app-shell .page{width:100%!important;max-width:none!important;min-width:0!important;padding:18px 14px 34px!important}\n  html body .app-shell .pagehead{flex-direction:column!important;align-items:flex-start!important;gap:14px!important}\n  html body .app-shell .period{width:100%!important;display:grid!important;grid-template-columns:repeat(3,1fr)!important}\n  html body .app-shell .kpis{grid-template-columns:1fr!important;gap:10px!important}\n  html body .app-shell .grid,html body .app-shell .grid3{grid-template-columns:1fr!important;gap:10px!important}\n  html body .app-shell .card{min-width:0!important}\n  html body .app-shell .chart{height:250px!important;min-height:0!important}\n  html body .app-shell .smallchart{height:230px!important;min-height:0!important}\n  html body .app-shell .ctitle h3{font-size:16px!important;line-height:1.2!important}\n  html body .app-shell .tablewrap{width:100%!important;overflow-x:auto!important;-webkit-overflow-scrolling:touch!important}\n  html body .app-shell table{min-width:650px!important}\n  html body .app-shell .settings-grid{grid-template-columns:1fr!important}\n  html body .app-shell .olap-grid,html body .app-shell .olap-workspace{grid-template-columns:1fr!important}\n  html body .app-shell .olap-zones{grid-template-columns:1fr!important}\n  html body .app-shell .request-grid{grid-template-columns:1fr!important}\n  html body .app-shell .shift-summary-grid{grid-template-columns:1fr!important}\n  html body .app-shell .cash-overview-grid{grid-template-columns:1fr!important}\n}\n'''
+              p.write_text(s, encoding='utf-8')
+          PY
+      - name: Commit and clean up
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app-shell.css .github/workflows/apply-mobile-fix.yml
+          if git diff --cached --quiet; then exit 0; fi
+          git rm .github/workflows/apply-mobile-fix.yml
+          git commit -m 'Fix responsive mobile layout'
+          git push
