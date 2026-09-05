@@ -109,6 +109,70 @@
      @media(max-width:900px){.shift-summary-grid{grid-template-columns:1fr 1fr!important}.overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.request-grid{grid-template-columns:1fr 1fr!important}}
      @media(max-width:760px){.sidebar{width:260px!important;transform:translateX(-100%)!important}.sidebar.open{transform:translateX(0)!important}.main{margin-left:0!important;width:100%!important}.plugin-meta{grid-template-columns:1fr 1fr!important}.request-grid{grid-template-columns:1fr!important}.topbar{padding:0 18px!important}.top-actions .icon-btn{display:none!important}}
      @media(max-width:620px){.shift-summary-grid{grid-template-columns:1fr!important}.overview-grid{grid-template-columns:1fr!important}.plugin-meta{grid-template-columns:1fr!important}.connected-panel,.shift-summary-panel,.request-panel,.result-panel{padding:14px!important}}
+
+     /* ===== MOBILE NAV FIX ===== */
+     @media(max-width:760px){
+       html body .app-shell aside.sidebar,
+       html body .app aside.sidebar{
+         display:none!important;
+         position:fixed!important;
+         left:0!important;
+         top:0!important;
+         bottom:0!important;
+         width:280px!important;
+         height:100dvh!important;
+         margin:0!important;
+         transform:translate3d(-110%,0,0)!important;
+         z-index:9999!important;
+         overflow-y:auto!important;
+         overflow-x:hidden!important;
+       }
+       html body .app-shell aside.sidebar.open,
+       html body .app aside.sidebar.open{
+         display:flex!important;
+         transform:translate3d(0,0,0)!important;
+       }
+       html body .app-shell main.main,
+       html body .app main.main{
+         margin-left:0!important;
+         width:100%!important;
+         min-width:0!important;
+       }
+       html body .app-shell .mobile,
+       html body .app .mobile,
+       html body .app-shell .mobile-menu,
+       html body .app .mobile-menu,
+       html body button[data-mobile-menu]{
+         display:inline-flex!important;
+         align-items:center!important;
+         justify-content:center!important;
+         width:40px!important;
+         height:40px!important;
+         flex:0 0 40px!important;
+         padding:0!important;
+         margin:0!important;
+         visibility:visible!important;
+         opacity:1!important;
+         position:relative!important;
+         z-index:20!important;
+       }
+       html body .app-shell .topbar,
+       html body .app .topbar{
+         padding:0 14px!important;
+       }
+       html body .app-shell .topbar>div:first-child,
+       html body .app .topbar>div:first-child{
+         min-width:0!important;
+         display:flex!important;
+         align-items:center!important;
+         gap:10px!important;
+       }
+       html body .app-shell .title,
+       html body .app .title{
+         min-width:0!important;
+         white-space:nowrap!important;
+       }
+     }
    `;
    document.head.appendChild(style);
  }
