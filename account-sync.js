@@ -7,6 +7,7 @@
   const MENU_KEY = "horeca_qr_menu_v1";
   const DESIGN_KEY = "horeca_qr_design_v1";
   const PUBLIC_KEY = "horeca_qr_public";
+  let started = false;
   let ready = false;
   let remoteFound = false;
   let applyingRemote = false;
@@ -136,20 +137,13 @@
     remoteFound = true;
   }
 
-  async function sync() {
-    try {
-      await loadRemote();
-    } catch (error) {
-      console.warn("SH account cloud sync load failed", error);
-    }
+  async function init() {
+    if (started) return;
+    started = true;
+    initialLocalHadData = localHasData();
+    try { await loadRemote(); } catch (error) { console.warn("SH account cloud sync load failed", error); }
     ready = true;
     lastSnapshot = JSON.stringify(buildState());
-  }
-
-  async function init() {
-    initialLocalHadData = localHasData();
-    await sync();
-    if (!ready) return;
     setInterval(async () => {
       if (!remoteFound && !localHasData()) return;
       try { await saveRemote(); } catch (error) { console.warn("SH account cloud sync save failed", error); }
@@ -157,7 +151,11 @@
   }
 
   window.SHAccount = {
-    ready: init(),
+    ready: new Promise(resolve => {
+      const boot = () => init().then(resolve);
+      if (window.SH_CURRENT_USER) boot();
+      else document.addEventListener("sh-auth-ready", boot, { once: true });
+    }),
     load: loadRemote,
     save: saveRemote,
     getState: buildState
