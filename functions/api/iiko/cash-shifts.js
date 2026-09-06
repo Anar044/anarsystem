@@ -72,12 +72,13 @@ function shiftDateKey(item, fallback) {
     return match ? `${match[1]}-${match[2]}-${match[3]}` : fallback;
 }
 
-function normalizeShift(item, requestedDate) {
+function normalizeShift(item, requestedDate, requestedStatus) {
     if (!item || typeof item !== "object") return null;
     return {
         ...item,
         _sessionId: sessionId(item),
-        _dateKey: shiftDateKey(item, requestedDate)
+        _dateKey: shiftDateKey(item, requestedDate),
+        _requestedStatus: requestedStatus
     };
 }
 
@@ -108,45 +109,33 @@ async function requestJson(url, options = {}) {
     return { response, text, payload };
 }
 
-async function getShiftsForDate(serverUrl, token, date) {
+async function getShiftsForDateAndStatus(serverUrl, token, date, status) {
     const requestedDate = isoDate(date);
     const key = encodeURIComponent(token);
     const dateParam = encodeURIComponent(requestedDate);
+    const statusParam = encodeURIComponent(status);
 
-    // Different SH/iiko Server builds have used different parameter names.
-    // Send the requested date explicitly in all compatible query forms.
-    const primaryUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&date=${dateParam}&dateFrom=${dateParam}&dateTo=${dateParam}&openDateFrom=${dateParam}&openDateTo=${dateParam}`;
+    const primaryUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&date=${dateParam}&status=${statusParam}`;
     const primary = await requestJson(primaryUrl);
 
     if (primary.response.ok) {
         return {
             ok: true,
             status: primary.response.status,
-            shifts: extractList(primary.payload).map(item => normalizeShift(item, requestedDate)).filter(Boolean),
-            format: "date/dateFrom/dateTo/openDateFrom/openDateTo"
+            shifts: extractList(primary.payload).map(item => normalizeShift(item, requestedDate, status)).filter(Boolean),
+            format: `GET date + status=${status}`
         };
     }
 
-    // Compatibility fallback for SH Server builds that read the date from a POST body.
-    const postUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}`;
-    const post = await requestJson(postUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            date: requestedDate,
-            dateFrom: requestedDate,
-            dateTo: requestedDate,
-            openDateFrom: requestedDate,
-            openDateTo: requestedDate
-        })
-    });
+    const fallbackUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&openDateFrom=${dateParam}&openDateTo=${dateParam}&status=${statusParam}`;
+    const fallback = await requestJson(fallbackUrl);
 
-    if (post.response.ok) {
+    if (fallback.response.ok) {
         return {
             ok: true,
-            status: post.response.status,
-            shifts: extractList(post.payload).map(item => normalizeShift(item, requestedDate)).filter(Boolean),
-            format: "POST body date"
+            status: fallback.response.status,
+            shifts: extractList(fallback.payload).map(item => normalizeShift(item, requestedDate, status)).filter(Boolean),
+            format: `GET openDateFrom/openDateTo + status=${status}`
         };
     }
 
@@ -154,10 +143,13 @@ async function getShiftsForDate(serverUrl, token, date) {
         ok: false,
         status: primary.response.status,
         text: primary.text || "iiko Server не вернул текст ошибки",
-        fallbackStatus: post.response.status,
-        fallbackText: post.text,
+        fallbackStatus: fallback.response.status,
+        fallbackText: fallback.text,
         shifts: [],
-        formatsTried: ["GET date/dateFrom/dateTo/openDateFrom/openDateTo", "POST body date"]
+        formatsTried: [
+            `GET date + status=${status}`,
+            `GET openDateFrom/openDateTo + status=${status}`
+        ]
     };
 }
 
@@ -191,19 +183,22 @@ export async function onRequestPost(context) {
 
         for (let i = 0; i < days; i++) {
             const date = addDays(from, i);
-            const result = await getShiftsForDate(serverUrl, token, date);
-            if (result.ok) {
-                all.push(...result.shifts);
-                formatsTried.add(result.format);
-            } else {
-                for (const fmt of result.formatsTried || []) formatsTried.add(fmt);
-                errors.push({
-                    date: isoDate(date),
-                    status: result.status,
-                    message: result.text.slice(0, 500),
-                    fallbackStatus: result.fallbackStatus,
-                    fallbackText: result.fallbackText ? result.fallbackText.slice(0, 500) : ""
-                });
+            for (const status of ["OPEN", "CLOSED"]) {
+                const result = await getShiftsForDateAndStatus(serverUrl, token, date, status);
+                if (result.ok) {
+                    all.push(...result.shifts);
+                    formatsTried.add(result.format);
+                } else {
+                    for (const fmt of result.formatsTried || []) formatsTried.add(fmt);
+                    errors.push({
+                        date: isoDate(date),
+                        status,
+                        httpStatus: result.status,
+                        message: result.text.slice(0, 500),
+                        fallbackStatus: result.fallbackStatus,
+                        fallbackText: result.fallbackText ? result.fallbackText.slice(0, 500) : ""
+                    });
+                }
             }
         }
 
@@ -223,6 +218,7 @@ export async function onRequestPost(context) {
             shifts,
             errors,
             dateFormatsTried: Array.from(formatsTried),
+            statusesTried: ["OPEN", "CLOSED"],
             endpoint: "/resto/api/v2/cashshifts/list",
             dateFormat: "YYYY-MM-DD"
         });
