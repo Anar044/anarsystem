@@ -28,8 +28,8 @@ function parseDate(value) {
     return d;
 }
 
-function formatIikoDate(date) {
-    return `${String(date.getUTCDate()).padStart(2, "0")}.${String(date.getUTCMonth() + 1).padStart(2, "0")}.${date.getUTCFullYear()}`;
+function dateKey(date) {
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
 }
 
 function addDays(date, days) {
@@ -50,12 +50,30 @@ function sessionId(item) {
     return String(item?.id ?? item?.sessionId ?? item?.sessionID ?? item?.uuid ?? item?.UUID ?? "").trim();
 }
 
-function normalizeShift(item, requestedDate) {
+function firstValue(item, keys) {
+    for (const key of keys) {
+        const value = item?.[key];
+        if (value !== undefined && value !== null && value !== "") return value;
+    }
+    return "";
+}
+
+function shiftDateKey(item) {
+    const raw = firstValue(item, [
+        "businessDate", "operatingDay", "operationalDay", "date",
+        "openDate", "openedAt", "openTime", "startDate", "startTime"
+    ]);
+    if (!raw) return "";
+    const match = String(raw).match(/(\d{4})[-.](\d{2})[-.](\d{2})/);
+    return match ? `${match[1]}-${match[2]}-${match[3]}` : "";
+}
+
+function normalizeShift(item) {
     if (!item || typeof item !== "object") return null;
     return {
         ...item,
         _sessionId: sessionId(item),
-        _requestedDate: requestedDate
+        _dateKey: shiftDateKey(item)
     };
 }
 
@@ -69,20 +87,26 @@ async function getToken(ip, port, login, password) {
     return { serverUrl, token };
 }
 
-async function getShiftsForDate(serverUrl, token, date) {
-    const url = `${serverUrl}/resto/api/v2/cashshifts/list?key=${encodeURIComponent(token)}&date=${encodeURIComponent(formatIikoDate(date))}`;
+async function getAllShifts(serverUrl, token) {
+    // iikoServer exposes the cash-shift list without a date parameter.
+    // We fetch the real list once and filter the requested period locally.
+    const url = `${serverUrl}/resto/api/v2/cashshifts/list?key=${encodeURIComponent(token)}`;
     const response = await fetch(url, { headers: { "Accept": "application/json" } });
     const text = (await response.text()).trim();
 
     if (!response.ok) {
-        return { ok: false, status: response.status, text, shifts: [] };
+        throw new Error(`Кассовые смены: HTTP ${response.status}${text ? ` — ${text.slice(0, 800)}` : ""}`);
     }
 
     let payload;
-    try { payload = JSON.parse(text || "[]"); }
-    catch { return { ok: false, status: 502, text: "iiko вернул некорректный JSON", shifts: [] }; }
+    try {
+        payload = JSON.parse(text || "[]");
+    } catch {
+        throw new Error("iiko Server вернул некорректный JSON для списка кассовых смен");
+    }
 
-    return { ok: true, status: response.status, text, shifts: extractList(payload).map(x => normalizeShift(x, formatIikoDate(date))).filter(Boolean) };
+    const shifts = extractList(payload).map(normalizeShift).filter(Boolean);
+    return { shifts, rawCount: shifts.length };
 }
 
 export async function onRequestOptions() {
@@ -109,20 +133,20 @@ export async function onRequestPost(context) {
         if (days > 62) return jsonResponse({ success: false, message: "Максимальный период для кассовых смен — 62 дня" }, 400);
 
         const { serverUrl, token } = await getToken(ip, port, login, password);
-        const all = [];
-        const errors = [];
+        const result = await getAllShifts(serverUrl, token);
+        const fromKey = dateKey(from);
+        const toKey = dateKey(to);
 
-        for (let i = 0; i < days; i++) {
-            const date = addDays(from, i);
-            const result = await getShiftsForDate(serverUrl, token, date);
-            if (result.ok) all.push(...result.shifts);
-            else errors.push({ date: formatIikoDate(date), status: result.status, message: result.text.slice(0, 500) });
-        }
+        const filtered = result.shifts.filter(shift => {
+            // If the server does not expose a recognizable date field, keep the
+            // row instead of silently returning an empty report.
+            if (!shift._dateKey) return true;
+            return shift._dateKey >= fromKey && shift._dateKey <= toKey;
+        });
 
         const seen = new Set();
-        const shifts = all.filter(shift => {
-            const id = shift._sessionId;
-            const key = id || JSON.stringify(shift);
+        const shifts = filtered.filter(shift => {
+            const key = shift._sessionId || JSON.stringify(shift);
             if (seen.has(key)) return false;
             seen.add(key);
             return true;
@@ -133,8 +157,9 @@ export async function onRequestPost(context) {
             from: body.from,
             to: body.to,
             count: shifts.length,
+            totalFromServer: result.rawCount,
             shifts,
-            errors,
+            errors: [],
             endpoint: "/resto/api/v2/cashshifts/list"
         });
     } catch (error) {
