@@ -5,37 +5,58 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Smart Horeca Control — Журнал событий</title>
 <link rel="stylesheet" href="app-shell.css">
-<link rel="stylesheet" href="events.css?v=1">
+<link rel="stylesheet" href="events.css?v=3">
 </head>
 <body data-protected="true" style="background:#0b1017">
 <div class="app-shell">
   <aside class="sidebar"></aside>
   <main class="main">
     <header class="topbar">
-      <div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Журнал событий</span><div class="topbar-sub">События и действия пользователей в SH Server</div></div>
+      <div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Журнал событий</span><div class="topbar-sub">История действий пользователей в SH Server</div></div>
       <div class="top-actions"><span class="user-chip"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span></span><button class="icon-btn" data-auth-logout>Выйти</button></div>
     </header>
     <section class="events-page">
-      <div class="events-hero"><div><div class="events-kicker">SH SERVER API · EVENTS</div><h1>Журнал событий</h1><p>Показывает события из журнала iiko только по вашему запросу. Автоматических загрузок нет.</p></div><div class="events-source"><span class="events-source-dot"></span><div><b>Ручной запрос</b><small>Сервер не опрашивается автоматически</small></div></div></div>
+      <div class="events-hero">
+        <div><div class="events-kicker">АУДИТ · ДЕЙСТВИЯ ПОЛЬЗОВАТЕЛЕЙ</div><h1>Журнал событий</h1><p>Найдите всю историю по заказу, документу или пользователю. Запрос к SH Server выполняется только вручную.</p></div>
+        <div class="events-source"><span class="events-source-dot"></span><div><b>Ручной запрос</b><small>Автоматических загрузок нет</small></div></div>
+      </div>
+
+      <section class="events-panel events-search-panel">
+        <div class="events-search-title"><div><span class="events-section-kicker">БЫСТРЫЙ ПОИСК</span><h2>Что вы хотите найти?</h2></div><div id="events-status" class="events-status">Готово к запросу</div></div>
+        <div class="events-main-search">
+          <div class="events-search-icon">⌕</div>
+          <input id="events-order" type="text" placeholder="Номер заказа или документа, например 13">
+          <button id="events-load" class="events-primary">Показать историю</button>
+        </div>
+        <div class="events-search-hint">Например: введите номер заказа — система покажет открытие заказа, добавления и удаления позиций, изменения, оплату и закрытие, если эти события содержат номер заказа.</div>
+      </section>
+
       <section class="events-panel events-filters">
-        <div class="events-panel-head"><div><span class="events-section-kicker">ФИЛЬТРЫ</span><h2>Параметры запроса</h2><p>Сначала задайте фильтры, затем нажмите «Показать события».</p></div><div id="events-status" class="events-status">Готово к запросу</div></div>
+        <div class="events-panel-head"><div><span class="events-section-kicker">ДОПОЛНИТЕЛЬНЫЕ ФИЛЬТРЫ</span><h2>Уточнить поиск</h2><p>Фильтры применяются только после нажатия «Показать историю».</p></div></div>
         <div class="events-filter-grid">
           <label>С даты<input id="events-from" type="datetime-local"></label>
           <label>По дату<input id="events-to" type="datetime-local"></label>
-          <label>Тип события<input id="events-type" type="text" placeholder="Например: orderPaid"></label>
-          <label>Пользователь<input id="events-user" type="text" placeholder="Например: Администратор"></label>
+          <label>Тип события<input id="events-type" type="text" placeholder="Например: orderOpened"></label>
+          <label>Пользователь<input id="events-user" type="text" placeholder="Кто выполнял действие"></label>
         </div>
-        <div class="events-filter-actions"><button id="events-load" class="events-primary">Показать события</button><button id="events-clear" class="events-secondary">Сбросить</button><span class="events-manual-note">↻ Запрос выполняется только после нажатия кнопки</span></div>
+        <div class="events-filter-actions"><button id="events-clear" class="events-secondary">Сбросить фильтры</button><span class="events-manual-note">↻ Сервер опрашивается только вручную</span></div>
       </section>
+
       <section class="events-panel events-result">
-        <div class="events-result-head"><div><span class="events-section-kicker">РЕЗУЛЬТАТ</span><h2>События <span id="events-count" class="events-count">0</span></h2></div><div id="events-period" class="events-period">Период не загружен</div></div>
-        <div id="events-empty" class="events-empty"><div class="events-empty-icon">◷</div><strong>События ещё не загружены</strong><span>Выберите период и нужные фильтры, затем нажмите «Показать события».</span></div>
-        <div id="events-table-wrap" class="events-table-wrap" hidden><table class="events-table"><thead><tr><th>Дата и время</th><th>Событие</th><th>Пользователь</th><th>Отдел</th><th>Результат</th><th>Детали</th></tr></thead><tbody id="events-body"></tbody></table></div>
+        <div class="events-result-head">
+          <div><span class="events-section-kicker">ИСТОРИЯ</span><h2 id="events-result-title">Все события <span id="events-count" class="events-count">0</span></h2></div>
+          <div id="events-period" class="events-period">Период не загружен</div>
+        </div>
+        <div id="events-summary" class="events-summary" hidden></div>
+        <div id="events-empty" class="events-empty"><div class="events-empty-icon">⌕</div><strong>История ещё не загружена</strong><span>Введите номер заказа или документа либо задайте период и нажмите «Показать историю».</span></div>
+        <div id="events-table-wrap" class="events-table-wrap" hidden>
+          <table class="events-table"><thead><tr><th>Когда</th><th>Что произошло</th><th>Кто</th><th>Объект</th><th>Детали</th></tr></thead><tbody id="events-body"></tbody></table>
+        </div>
       </section>
     </section>
   </main>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=2"></script><script src="events.js?v=1"></script>
+<script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=2"></script><script src="events.js?v=3"></script>
 </body>
 </html>
