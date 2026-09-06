@@ -20,8 +20,10 @@ function parseDocuments(xml){
     return{id:tag(b,"id")||null,documentNumber:tag(b,"documentNumber")||tag(b,"number")||null,dateIncoming:tag(b,"dateIncoming")||tag(b,"date")||null,incomingDate:tag(b,"incomingDate")||null,invoice:tag(b,"invoice")||null,incomingDocumentNumber:tag(b,"incomingDocumentNumber")||null,transportInvoiceNumber:tag(b,"transportInvoiceNumber")||null,supplierId:tag(b,"supplier")||tag(b,"supplierId")||null,storeId:tag(b,"defaultStore")||tag(b,"store")||tag(b,"storeId")||null,dueDate:tag(b,"dueDate")||null,status:tag(b,"status")||null,comment:tag(b,"comment")||null,conception:tag(b,"conception")||null,employeeId:tag(b,"employeePassToAccount")||null,sum,vatSum:vatTotal||number(tag(b,"vatSum")),itemsCount:items.length,items,rawIndex:i};
   }).filter(d=>d.documentNumber||d.id||d.dateIncoming||d.itemsCount);
 }
-async function requestXml(serverUrl,path){const r=await fetch(`${serverUrl}${path}`,{cache:"no-store",headers:{Accept:"application/xml,text/xml,*/*"}});const text=await r.text();return{ok:r.ok,status:r.status,text};}
 function dateFormats(value){const s=String(value||"").trim();if(/^\\d{2}\\.\\d{2}\\.\\d{4}$/.test(s))return[s];if(/^\\d{4}-\\d{2}-\\d{2}$/.test(s)){const[y,m,d]=s.split("-");return[`${y}-${m}-${d}`,`${d}.${m}.${y}`];}return[];}
+function dateKey(value){const s=String(value||"").trim();let m=s.match(/^(\\d{2})\\.(\\d{2})\\.(\\d{4})/);if(m)return`${m[3]}-${m[2]}-${m[1]}`;m=s.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);if(m)return s.slice(0,10);return"";}
+function filterByRequestedRange(documents,from,to){const fromKey=dateKey(from),toKey=dateKey(to);if(!fromKey||!toKey)return documents;return documents.filter(d=>{const k=dateKey(d.dateIncoming||d.incomingDate);return !k||(k>=fromKey&&k<=toKey);});}
+async function requestXml(serverUrl,path){const r=await fetch(`${serverUrl}${path}`,{cache:"no-store",headers:{Accept:"application/xml,text/xml,*/*"}});const text=await r.text();return{ok:r.ok,status:r.status,text,contentType:r.headers.get("content-type")||""};}
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()});}
 export async function onRequestPost(context){
   try{
@@ -32,15 +34,25 @@ export async function onRequestPost(context){
     if(!fromFormats.length||!toFormats.length)return jsonResponse({success:false,message:"Укажите период в формате даты"},400);
     const{serverUrl,token}=await auth(ip,port,login,password);
     const attempts=[];
-    const pairs=[];
-    for(const from of fromFormats)for(const to of toFormats){const key=`${from}|${to}`;if(!pairs.some(x=>x.key===key))pairs.push({key,from,to});}
-    for(const pair of pairs){
-      const params=new URLSearchParams({key:token,from:pair.from,to:pair.to});
-      const result=await requestXml(serverUrl,`/resto/api/documents/export/incomingInvoice?${params.toString()}`);
-      attempts.push({from:pair.from,to:pair.to,status:result.status,ok:result.ok,length:result.text.length});
-      if(!result.ok)continue;
-      const documents=parseDocuments(result.text);
-      if(documents.length)return jsonResponse({success:true,count:documents.length,from:pair.from,to:pair.to,requestedFrom:b.from,requestedTo:b.to,documents});
+    const seen=new Set();
+    const tryRequest=async(label,path)=>{
+      const result=await requestXml(serverUrl,path);
+      const docs=result.ok?parseDocuments(result.text):[];
+      attempts.push({label,status:result.status,ok:result.ok,length:result.text.length,contentType:result.contentType,documents:docs.length,preview:result.text.slice(0,800)});
+      return{result,docs};
+    };
+    for(const from of fromFormats)for(const to of toFormats){
+      const key=`${from}|${to}`;if(seen.has(key))continue;seen.add(key);
+      const params=new URLSearchParams({key:token,from,to});
+      const {result,docs}=await tryRequest(`${from} → ${to}`,`/resto/api/documents/export/incomingInvoice?${params.toString()}`);
+      if(result.ok&&docs.length)return jsonResponse({success:true,count:docs.length,from,to,requestedFrom:b.from,requestedTo:b.to,documents:docs});
+    }
+    // Some older iikoServer builds return the export only without a date filter.
+    const noDateParams=new URLSearchParams({key:token});
+    const fallback=await tryRequest("без фильтра дат",`/resto/api/documents/export/incomingInvoice?${noDateParams.toString()}`);
+    if(fallback.result.ok&&fallback.docs.length){
+      const filtered=filterByRequestedRange(fallback.docs,b.from,b.to);
+      return jsonResponse({success:true,count:filtered.length,from:b.from,to:b.to,documents:filtered,source:"no-date-fallback",serverDocuments:fallback.docs.length,attempts});
     }
     return jsonResponse({success:true,count:0,from:b.from,to:b.to,documents:[],attempts});
   }catch(e){return jsonResponse({success:false,message:e?.message||"Ошибка получения приходных накладных"},502);}
