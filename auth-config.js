@@ -31,4 +31,10 @@ window.SH_AUTH_CONFIG = {
         script.src = "accounts-nav-fix.js?v=1";
         document.head.appendChild(script);
     }
+    if (!document.getElementById("sh-finance-nav-script")) {
+        const script = document.createElement("script");
+        script.id = "sh-finance-nav-script";
+        script.src = "finance-nav.js?v=1";
+        document.head.appendChild(script);
+    }
 })();
