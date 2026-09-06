@@ -2,6 +2,7 @@
   "use strict";
 
   const API = "/api/account/state";
+  const OWNER_KEY = "shAccountOwnerId";
   const IIKO_KEY = "iikoConnection";
   const IDENTITY_KEY = "iikoDepartmentIdentity";
   const MENU_KEY = "horeca_qr_menu_v1";
@@ -23,6 +24,12 @@
       if (value == null) localStorage.removeItem(key);
       else localStorage.setItem(key, JSON.stringify(value));
     } catch (error) { console.warn("SH account local write failed", error); }
+  }
+
+  function clearAccountData() {
+    [IIKO_KEY, IDENTITY_KEY, MENU_KEY, DESIGN_KEY, PUBLIC_KEY].forEach(key => localStorage.removeItem(key));
+    const user = window.SH_CURRENT_USER || {};
+    localStorage.removeItem(`SH_Reports.savedOlap.${user.id || user.email || "local"}`);
   }
 
   function currentUserReportsKey() {
@@ -140,6 +147,12 @@
   async function init() {
     if (started) return;
     started = true;
+    const user = window.SH_CURRENT_USER || {};
+    const userId = String(user.id || user.email || "");
+    const previousOwner = localStorage.getItem(OWNER_KEY) || "";
+    if (previousOwner && userId && previousOwner !== userId) clearAccountData();
+    if (userId) localStorage.setItem(OWNER_KEY, userId);
+
     initialLocalHadData = localHasData();
     try { await loadRemote(); } catch (error) { console.warn("SH account cloud sync load failed", error); }
     ready = true;
