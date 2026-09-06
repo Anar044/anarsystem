@@ -45,21 +45,25 @@ function recordsFrom(payload) {
         ["PAYOUT", payload.payOutRecords || payload.payOuts]
     ];
     const result = [];
-    for (const [group, list] of groups) {
+    for (const [fallbackGroup, list] of groups) {
         if (!Array.isArray(list)) continue;
         for (const record of list) {
             const info = record?.info || {};
             result.push({
-                group,
+                id: info.id ?? record.id ?? null,
+                group: info.group ?? record.group ?? fallbackGroup,
                 sum: info.sum ?? record.sum ?? record.actualSum ?? record.originalSum ?? null,
                 actualSum: record.actualSum ?? null,
                 originalSum: record.originalSum ?? info.sum ?? null,
-                paymentTypeId: record.paymentTypeId ?? info.paymentTypeId ?? null,
+                accountId: info.accountId ?? record.accountId ?? record.editedPayAccountId ?? record.originalPayAccountId ?? null,
+                counteragentId: info.counteragentId ?? record.counteragentId ?? null,
+                paymentTypeId: info.paymentTypeId ?? record.paymentTypeId ?? null,
+                type: info.type ?? record.type ?? null,
                 cashierId: info.cashierId ?? record.cashierId ?? null,
                 date: info.date ?? record.date ?? null,
                 creationDate: info.creationDate ?? record.creationDate ?? null,
                 comment: info.comment ?? record.comment ?? record.editableComment ?? "",
-                status: record.status ?? null
+                status: record.status ?? info.status ?? null
             });
         }
     }
