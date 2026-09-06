@@ -2,10 +2,10 @@
 <html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Smart Horeca Control — Накладные</title>
 <link rel="stylesheet" href="app-shell.css">
-<link rel="stylesheet" href="nakladnye.css?v=1">
+<link rel="stylesheet" href="nakladnye.css?v=2">
 </head>
 <body data-protected="true" style="background:#0b1017">
 <div class="app-shell">
@@ -15,18 +15,11 @@
       <div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Накладные</span><div class="topbar-sub">Приходные накладные из SH Server</div></div>
       <div class="top-actions"><span class="user-chip"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span></span><button class="icon-btn" data-auth-logout>Выйти</button></div>
     </header>
-
     <section class="invoices-page">
       <div class="invoices-toolbar">
-        <div>
-          <div class="invoices-page-title">Приходные накладные</div>
-          <div class="invoices-page-sub">Данные загружаются из iikoServer только по запросу</div>
-        </div>
-        <div class="invoices-toolbar-actions">
-          <label class="table-search"><span>Поиск</span><input id="invoice-search" type="text" placeholder="Номер, поставщик, счёт-фактура…"></label>
-        </div>
+        <div><div class="invoices-page-title">Приходные накладные</div><div class="invoices-page-sub">Данные загружаются из iikoServer только по запросу</div></div>
+        <div class="invoices-toolbar-actions"><label class="table-search"><span>Поиск</span><input id="invoice-search" type="text" placeholder="Номер, поставщик, счёт-фактура…"></label></div>
       </div>
-
       <div class="invoice-filterbar">
         <label>С <input id="invoice-from" type="date"></label>
         <label>По <input id="invoice-to" type="date"></label>
@@ -34,24 +27,16 @@
         <button id="invoice-clear" class="invoice-secondary" type="button">Сбросить</button>
         <span id="invoice-status" class="invoice-status">Готово к запросу</span>
       </div>
-
       <div class="invoice-summary">
         <div><span>Накладных</span><strong id="invoice-count">0</strong></div>
         <div><span>Позиций</span><strong id="invoice-items-count">0</strong></div>
         <div><span>Сумма</span><strong id="invoice-total">0.00</strong></div>
       </div>
-
       <section class="invoice-table-card">
         <div class="invoice-table-head"><strong>Список накладных</strong><span id="invoice-period"></span></div>
-        <div class="invoice-table-wrap">
-          <table class="invoice-table">
-            <thead><tr><th>№ накладной</th><th>Дата</th><th>Поставщик</th><th>Склад</th><th>Счёт-фактура</th><th>Входящий №</th><th>Срок оплаты</th><th>Статус</th><th>Позиций</th><th class="num">Сумма</th></tr></thead>
-            <tbody id="invoice-body"></tbody>
-          </table>
-        </div>
+        <div class="invoice-table-wrap"><table class="invoice-table"><thead><tr><th>№ накладной</th><th>Дата</th><th>Поставщик</th><th>Склад</th><th>Счёт-фактура</th><th>Входящий №</th><th>Срок оплаты</th><th>Статус</th><th>Позиций</th><th class="num">Сумма</th></tr></thead><tbody id="invoice-body"></tbody></table></div>
         <div class="invoice-empty" id="invoice-empty">Накладные ещё не загружены. Выберите период и нажмите «Показать накладные».</div>
       </section>
-
       <section class="invoice-details" id="invoice-details" hidden>
         <div class="invoice-details-head"><strong id="invoice-details-title">Накладная</strong><button id="invoice-details-close" type="button">Закрыть</button></div>
         <div class="invoice-details-grid" id="invoice-details-grid"></div>
@@ -61,6 +46,6 @@
   </main>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=2"></script><script src="nakladnye.js?v=1"></script>
+<script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=2"></script><script src="nakladnye.js?v=2"></script>
 </body>
 </html>
