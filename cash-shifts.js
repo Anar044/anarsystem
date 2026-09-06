@@ -1,106 +1,25 @@
 (function(){
-  const $ = id => document.getElementById(id);
-  const connectionKey = "iikoConnection";
-  const api = "/api/iiko/cash-shifts";
-  const detailApi = "/api/iiko/cash-shift-detail";
-
-  function installStyles(){
-    if(document.getElementById("cash-shifts-runtime-style")) return;
-    const style=document.createElement("style"); style.id="cash-shifts-runtime-style";
-    style.textContent=`
-      .cash-shifts-page{padding:24px;max-width:1650px;margin:0 auto;box-sizing:border-box}.cs-head{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;margin-bottom:18px}.cs-kicker{font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#42d392;margin-bottom:7px}.cs-title{margin:0;color:#f4f7fa;font-size:27px;line-height:1.15}.cs-sub{margin:7px 0 0;color:#8994a3;font-size:12px}.cs-panel{background:#111923;border:1px solid #222c38;border-radius:14px;padding:17px;margin-bottom:14px;box-sizing:border-box}.cs-filters{display:grid;grid-template-columns:180px 180px 1fr auto;gap:10px;align-items:end}.cs-field{display:flex;flex-direction:column;gap:6px}.cs-field label{font-size:10px;color:#8994a3;font-weight:700}.cs-field input{height:38px;box-sizing:border-box;border:1px solid #293442;background:#0e151d;color:#f4f7fa;border-radius:9px;padding:8px 10px;width:100%}.cs-btn{height:38px;border:0;border-radius:9px;padding:0 16px;background:#42d392;color:#06110b;font-weight:800;cursor:pointer}.cs-btn:disabled{opacity:.5;cursor:wait}.cs-status{font-size:10px;color:#8994a3;min-height:16px;margin-top:10px}.cs-status.error{color:#ff6678}.cs-status.ok{color:#42d392}.cs-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}.cs-stat{background:#111923;border:1px solid #222c38;border-radius:12px;padding:14px}.cs-stat span{display:block;color:#8994a3;font-size:9px;text-transform:uppercase;letter-spacing:.06em;font-weight:800;margin-bottom:7px}.cs-stat strong{font-size:20px;color:#f4f7fa}.cs-stat small{display:block;margin-top:4px;color:#6f7c8b;font-size:9px}.cs-table-wrap{overflow:auto;border:1px solid #222c38;border-radius:12px;background:#0f171f}.cs-table{width:100%;min-width:1120px;border-collapse:collapse;font-size:10px}.cs-table th{text-align:left;padding:10px;background:#111923;color:#6f7c8b;text-transform:uppercase;letter-spacing:.05em;font-size:8px;white-space:nowrap}.cs-table td{padding:10px;border-top:1px solid #1d2732;color:#dce4eb;white-space:nowrap}.cs-table tbody tr:hover{background:#121d26}.cs-empty{text-align:center;padding:38px;color:#6f7c8b;font-size:11px}.cs-badge{display:inline-flex;padding:4px 7px;border-radius:999px;font-size:8px;font-weight:800}.cs-open{background:#382f18;color:#ffb454}.cs-closed{background:#15251f;color:#42d392}.cs-loading{color:#8994a3}.cs-detail-error{color:#ff6678}.cs-payment{display:inline-block;margin-right:7px;color:#b8c4d0}.cs-payment b{color:#f4f7fa}.cs-errors{margin-top:10px;padding:10px;border:1px solid #3a2830;border-radius:9px;background:#171116;color:#ff9aa6;font-size:10px;line-height:1.5}.cs-errors b{color:#ff6678}.cs-debug{margin-top:8px;color:#8994a3;font-size:9px}
-      @media(max-width:900px){.cs-filters{grid-template-columns:1fr 1fr}.cs-filters .cs-btn{grid-column:1/-1}.cs-stats{grid-template-columns:1fr 1fr}}@media(max-width:760px){.cash-shifts-page{padding:18px 14px 34px}.cs-head{align-items:flex-start;flex-direction:column}.cs-title{font-size:23px}.cs-panel{padding:14px}}@media(max-width:480px){.cs-filters,.cs-stats{grid-template-columns:1fr}.cs-filters .cs-btn{grid-column:auto}.cs-table{min-width:1050px}}
-    `; document.head.appendChild(style);
-  }
-  function pad(n){return String(n).padStart(2,"0")}
-  function localDate(offset){const d=new Date();d.setDate(d.getDate()+offset);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
-  function addDays(v,n){const d=new Date(`${v}T00:00:00`);d.setDate(d.getDate()+n);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
-  function money(v){const n=Number(v);return Number.isFinite(n)?n.toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:2}):"—"}
-  function pick(o,keys,fallback=""){for(const k of keys)if(o&&o[k]!==undefined&&o[k]!==null&&o[k]!=="")return o[k];return fallback}
-  function deepPick(o,keys,depth=0){
-    if(o==null||depth>5||typeof o!=="object")return null;
-    const wanted=new Set(keys.map(k=>String(k).toLowerCase()));
-    for(const [k,v] of Object.entries(o)){
-      if(wanted.has(String(k).toLowerCase())&&v!==undefined&&v!==null&&v!==""&&(typeof v!=="object"))return v;
-    }
-    for(const v of Object.values(o)){
-      if(v&&typeof v==="object"){
-        const found=deepPick(v,keys,depth+1);
-        if(found!==null&&found!==undefined&&found!=="")return found;
-      }
-    }
-    return null;
-  }
-  function nested(o,paths,fallback="—"){
-    for(const path of paths){let cur=o;for(const p of path.split(".")){if(cur==null)break;cur=cur[p]}if(cur!==undefined&&cur!==null&&cur!==""){
-      if(typeof cur==="object"){const value=pick(cur,["name","Name","title","Title","displayName","DisplayName","number","Number","code","Code"],null);if(value!==null)return value;continue}
-      return cur;
-    }}
-    return fallback;
-  }
-  function formatDateTime(v){if(!v)return "—";return String(v).replace("T"," ").replace(/\.\d{1,6}(?=Z|$)/,"").replace("Z","")}
-  function getConnection(){try{return JSON.parse(localStorage.getItem(connectionKey)||"null")}catch{return null}}
-  function isOpen(s){const status=String(pick(s,["status","state","sessionStatus","Status"],"")).toUpperCase();if(status.includes("OPEN"))return true;return !pick(s,["closeDate","closedAt","closeTime","endDate","endTime","CloseDate","CloseTime"],"")}
-  function salesValue(s){
-    const direct=pick(s,["sum","salesSum","sales","revenue","totalSales","sumSales","salesAmount","totalSum","resultSum","ResultSum","fullSum","FullSum","sumOfSales"],null);
-    if(direct!==null)return direct;
-    return deepPick(s,["sum","salesSum","sales","revenue","totalSales","sumSales","salesAmount","totalSum","resultSum","fullSum","sumOfSales"]);
-  }
-  function cashName(s){
-    const direct=nested(s,["cashRegisterName","registerName","cashRegisterNumber","CashRegisterName","CashRegister.name","CashRegister.Name","CashRegister.number","CashRegister.Number","CashRegister.Code","cashRegister.name","cashRegister.Name"],"—");
-    if(direct!=="—")return direct;
-    const found=deepPick(s,["cashRegisterName","registerName","cashRegisterNumber","cashRegisterCode","registerNumber","registerCode","cashName","terminalName"]);
-    return found??"—";
-  }
-  function operator(s){
-    const direct=nested(s,["cashierName","operatorName","employeeName","responsibleCashier","CashierName","Cashier.Name","Cashier.name","OperatorName","Operator.Name","cashier.name"],"—");
-    if(direct!=="—")return direct;
-    const found=deepPick(s,["cashierName","operatorName","employeeName","responsibleCashier","cashierFullName","operatorFullName"]);
-    return found??"—";
-  }
-  function shiftNumber(s){return pick(s,["shiftNumber","number","sessionNumber","cashShiftNumber","ShiftNumber","SessionNumber"],deepPick(s,["shiftNumber","sessionNumber","cashShiftNumber"])??"—")}
-  function openTime(s){return pick(s,["openDate","openedAt","openTime","startDate","startTime","OpenDate","OpenTime"],deepPick(s,["openDate","openedAt","openTime","startDate"])||"")}
-  function closeTime(s){return pick(s,["closeDate","closedAt","closeTime","endDate","endTime","CloseDate","CloseTime"],deepPick(s,["closeDate","closedAt","closeTime","endDate"])||"")}
-  function businessDate(s){return pick(s,["date","businessDate","openDate","operatingDay","operationalDay","_dateKey","_requestedDate","Date","BusinessDate"],"—")}
-  function sessionId(s){return String(pick(s,["_sessionId","sessionId","sessionID","id","Id","uuid","UUID"],"")).trim()}
-  function setStatus(text,type=""){const el=$("cs-status");el.textContent=text;el.className=`cs-status ${type}`}
-  function escapeHtml(v){return String(v??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[c]))}
-  function paymentSummary(payments){
-    if(!Array.isArray(payments)||!payments.length)return "—";
-    const parts=[];
-    for(const p of payments){
-      const name=pick(p,["name","paymentName","typeName","title","Name","PaymentName"],null)??deepPick(p,["name","paymentName","typeName","title"]);
-      const sum=pick(p,["sum","amount","total","Sum","Amount"],null)??deepPick(p,["sum","amount","total"]);
-      if(name||sum!==null)parts.push(`<span class="cs-payment">${escapeHtml(name||"Оплата")}: <b>${sum===null?"—":money(sum)}</b></span>`);
-    }
-    return parts.length?parts.join(" "):"—";
-  }
-
-  function render(shifts){
-    const total=shifts.length,open=shifts.filter(isOpen).length,closed=total-open;const sales=shifts.reduce((sum,s)=>{const n=Number(salesValue(s));return Number.isFinite(n)?sum+n:sum},0);
-    $("cs-total").textContent=total;$("cs-open").textContent=open;$("cs-closed").textContent=closed;$("cs-sales").textContent=sales?money(sales):"—";
-    if(!total){$("cs-table-wrap").innerHTML='<div class="cs-empty">За выбранный период кассовые смены не найдены.</div>';return}
-    const rows=shifts.map((s,i)=>{const sale=salesValue(s);const payments=s._payments;return `<tr data-shift-index="${i}"><td>${escapeHtml(businessDate(s))}</td><td>${escapeHtml(cashName(s))}</td><td>${escapeHtml(shiftNumber(s))}</td><td>${escapeHtml(formatDateTime(openTime(s)))}</td><td>${escapeHtml(formatDateTime(closeTime(s)))}</td><td>${escapeHtml(operator(s))}</td><td>${sale==null?'<span class="cs-loading">—</span>':money(sale)}</td><td><span class="cs-badge ${isOpen(s)?'cs-open':'cs-closed'}">${isOpen(s)?'Открыта':'Закрыта'}</span></td><td class="cs-payments">${Array.isArray(payments)?paymentSummary(payments):'<span class="cs-loading">загрузка…</span>'}</td></tr>`}).join("");
-    $("cs-table-wrap").innerHTML=`<table class="cs-table"><thead><tr><th>Опер. день</th><th>Касса</th><th>№ смены</th><th>Открыта</th><th>Закрыта</th><th>Отв. кассир</th><th>Продажи</th><th>Статус</th><th>Оплаты</th></tr></thead><tbody>${rows}</tbody></table>`;
-  }
-
-  function mergeDetail(base,data){const detail=data&&data.shift&&typeof data.shift==="object"?data.shift:{};const merged={...base,...detail};merged._payments=Array.isArray(data?.payments)?data.payments:[];if(!merged._sessionId)merged._sessionId=sessionId(detail)||sessionId(base);return merged}
-  async function loadOneDetail(conn,shift){const sid=sessionId(shift);if(!sid)return{ok:false,shift,message:"Нет ID смены"};try{const res=await fetch(detailApi,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ip:conn.ip,port:conn.port,login:conn.login,password:conn.password,sessionId:sid})});const data=await res.json().catch(()=>({success:false,message:"Некорректный ответ"}));if(!res.ok||!data.success)throw new Error(data.message||`HTTP ${res.status}`);return{ok:true,shift:mergeDetail(shift,data)}}catch(error){return{ok:false,shift,message:error.message||"Ошибка деталей"}}}
-  async function loadDetails(conn,shifts){let completed=0;const enriched=[];for(let start=0;start<shifts.length;start+=5){const batch=shifts.slice(start,start+5);const results=await Promise.all(batch.map(s=>loadOneDetail(conn,s)));results.forEach((result,j)=>{const index=start+j;completed++;enriched[index]=result.shift;const row=$("cs-table-wrap").querySelector(`tr[data-shift-index="${index}"]`);if(row&&result.ok){const s=result.shift;row.cells[1].innerHTML=escapeHtml(cashName(s));row.cells[5].innerHTML=escapeHtml(operator(s));const sale=salesValue(s);row.cells[6].innerHTML=sale==null?"—":money(sale);row.cells[8].innerHTML=paymentSummary(s._payments)}else if(row)row.cells[8].innerHTML='<span class="cs-detail-error">не удалось загрузить</span>';setStatus(`Загружено ${completed} из ${shifts.length} смен.`,completed===shifts.length?"ok":"")})}
-    render(enriched);return enriched
-  }
-
-  async function requestChunk(conn,from,to){const res=await fetch(api,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ip:conn.ip,port:conn.port,login:conn.login,password:conn.password,from,to})});const data=await res.json().catch(()=>({success:false,message:"Некорректный ответ сервера"}));if(!res.ok||!data.success)throw new Error(data.message||`HTTP ${res.status}`);return data}
-  async function load(){
-    const conn=getConnection();if(!conn||!conn.ip||!conn.port||!conn.login||!conn.password){setStatus("Нет сохранённого подключения к SH Server. Сначала подключите сервер в Настройках.","error");return}
-    const from=$("cs-from").value,to=$("cs-to").value;if(!from||!to){setStatus("Выберите период.","error");return}
-    const btn=$("cs-load");btn.disabled=true;$("cs-table-wrap").innerHTML='<div class="cs-empty">Загрузка смен...</div>';setStatus("Получаем кассовые смены из SH Server…");
-    try{const all=[],errors=[],formats=new Set();const CHUNK_DAYS=10;let chunkStart=from,chunkIndex=0;const totalDays=Math.round((new Date(`${to}T00:00:00`)-new Date(`${from}T00:00:00`))/86400000)+1,totalChunks=Math.ceil(totalDays/CHUNK_DAYS);
-      while(chunkStart<=to){const remaining=Math.round((new Date(`${to}T00:00:00`)-new Date(`${chunkStart}T00:00:00`))/86400000)+1,size=Math.min(CHUNK_DAYS,remaining),chunkEnd=addDays(chunkStart,size-1);chunkIndex++;setStatus(`Загружаем период ${chunkIndex}/${totalChunks}: ${chunkStart} — ${chunkEnd}…`);const data=await requestChunk(conn,chunkStart,chunkEnd);if(Array.isArray(data.shifts))all.push(...data.shifts);if(Array.isArray(data.errors))errors.push(...data.errors);if(Array.isArray(data.dateFormatsTried))data.dateFormatsTried.forEach(x=>formats.add(x));chunkStart=addDays(chunkEnd,1)}
-      const seen=new Set(),shifts=all.filter(s=>{const key=s._sessionId||`${s._dateKey||""}|${s._requestedStatus||""}|${JSON.stringify(s)}`;if(seen.has(key))return false;seen.add(key);return true});render(shifts);
-      if(errors.length){const first=errors[0];setStatus(`Загружено ${shifts.length} смен. Ошибок запросов: ${errors.length}.`,"error");const box=document.createElement("div");box.className="cs-errors";box.innerHTML=`<b>Ошибка SH Server для ${escapeHtml(first.date||"даты")} (${escapeHtml(first.status||first.httpStatus||"")}, статус ${escapeHtml(first.requestedStatus||"")})</b>: ${escapeHtml(first.message||"без текста")}${formats.size?`<div class="cs-debug">Проверены форматы: ${escapeHtml(Array.from(formats).join(", "))}</div>`:""}`;$("cs-table-wrap").appendChild(box)}
-      if(shifts.length)await loadDetails(conn,shifts);else if(!errors.length)setStatus("За выбранный период кассовые смены не найдены.","");
-    }catch(e){render([]);setStatus(e.message||"Ошибка получения смен","error")}finally{btn.disabled=false}
-  }
-  document.addEventListener("DOMContentLoaded",()=>{installStyles();const today=localDate(0),weekAgo=localDate(-6);$("cs-from").value=weekAgo;$("cs-to").value=today;$("cs-load").addEventListener("click",load);load();});
+const $=id=>document.getElementById(id),KEY="iikoConnection",API="/api/iiko/cash-shifts",DETAIL="/api/iiko/cash-shift-detail";
+const pad=n=>String(n).padStart(2,"0");
+function day(n){const d=new Date();d.setDate(d.getDate()+n);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
+function add(v,n){const d=new Date(v+"T00:00:00");d.setDate(d.getDate()+n);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
+function money(v){const n=Number(v);return Number.isFinite(n)?n.toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:2}):"—"}
+function esc(v){return String(v??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[c]))}
+function v(o,k,f=null){return o&&o[k]!==undefined&&o[k]!==null&&o[k]!==""?o[k]:f}
+function fmt(x){return x?String(x).replace("T"," ").replace(/\.\d+(?=Z|$)/,"").replace("Z",""):"—"}
+function getConn(){try{return JSON.parse(localStorage.getItem(KEY)||"null")}catch{return null}}
+function open(s){return !v(s,"closeDate",null)||String(v(s,"sessionStatus","")).toUpperCase()==="OPEN"}
+function totals(shifts){return shifts.reduce((a,s)=>{a.sales+=Number(v(s,"payOrders",0))||0;a.cash+=Number(v(s,"salesCash",0))||0;a.card+=Number(v(s,"salesCard",0))||0;a.credit+=Number(v(s,"salesCredit",0))||0;a.in+=Number(v(s,"payIn",0))||0;a.out+=Number(v(s,"payOut",0))||0;return a},{sales:0,cash:0,card:0,credit:0,in:0,out:0})}
+function paymentHtml(s){const ps=Array.isArray(s._payments)?s._payments:[];if(!ps.length)return "—";const names={CARD:"Безналичные",PAYIN:"Внесения",PAYOUT:"Изъятия"};return ps.map(p=>`<span class="cs-payment">${esc(names[p.group]||p.group||"Проводка")}: <b>${money(p.sum)}</b></span>`).join("")}
+function install(){if($("cs-runtime"))return;const st=document.createElement("style");st.id="cs-runtime";st.textContent=`
+.cash-shifts-page{padding:24px;max-width:1750px;margin:auto;box-sizing:border-box}.cs-panel{background:#111923;border:1px solid #222c38;border-radius:14px;padding:17px;margin-bottom:14px}.cs-head{margin-bottom:18px}.cs-kicker{font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#42d392;margin-bottom:7px}.cs-title{margin:0;color:#f4f7fa;font-size:27px}.cs-sub{margin:7px 0 0;color:#8994a3;font-size:12px}.cs-filters{display:grid;grid-template-columns:180px 180px 1fr auto;gap:10px;align-items:end}.cs-field{display:flex;flex-direction:column;gap:6px}.cs-field label{font-size:10px;color:#8994a3;font-weight:700}.cs-field input{height:38px;border:1px solid #293442;background:#0e151d;color:#f4f7fa;border-radius:9px;padding:8px 10px;box-sizing:border-box}.cs-btn{height:38px;border:0;border-radius:9px;padding:0 16px;background:#42d392;color:#06110b;font-weight:800;cursor:pointer}.cs-btn:disabled{opacity:.5}.cs-status{font-size:10px;color:#8994a3;margin-top:10px;min-height:16px}.cs-status.ok{color:#42d392}.cs-status.error{color:#ff6678}.cs-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}.cs-stat{background:#111923;border:1px solid #222c38;border-radius:12px;padding:14px}.cs-stat span{display:block;color:#8994a3;font-size:9px;text-transform:uppercase;font-weight:800;margin-bottom:7px}.cs-stat strong{font-size:20px;color:#f4f7fa}.cs-stat small{display:block;margin-top:4px;color:#6f7c8b;font-size:9px}.cs-table-wrap{overflow:auto;border:1px solid #222c38;border-radius:12px;background:#0f171f}.cs-table{width:100%;min-width:2050px;border-collapse:collapse;font-size:10px}.cs-table th{padding:10px;text-align:left;background:#111923;color:#6f7c8b;font-size:8px;text-transform:uppercase;white-space:nowrap;position:sticky;top:0}.cs-table td{padding:10px;border-top:1px solid #1d2732;color:#dce4eb;white-space:nowrap;vertical-align:top}.cs-table tbody tr:hover{background:#121d26}.cs-empty{text-align:center;padding:38px;color:#6f7c8b}.cs-badge{display:inline-flex;padding:4px 7px;border-radius:999px;font-size:8px;font-weight:800}.cs-open{background:#382f18;color:#ffb454}.cs-closed{background:#15251f;color:#42d392}.cs-payment{display:block;margin-bottom:3px}.cs-payment b{color:#f4f7fa}.cs-id{font-family:monospace;font-size:9px;color:#8994a3}.cs-secondary{display:block;color:#8994a3;font-size:9px;margin-top:3px}@media(max-width:900px){.cs-filters{grid-template-columns:1fr 1fr}.cs-filters .cs-btn{grid-column:1/-1}.cs-stats{grid-template-columns:1fr 1fr}}@media(max-width:760px){.cash-shifts-page{padding:18px 14px 34px}.cs-title{font-size:23px}}@media(max-width:480px){.cs-filters,.cs-stats{grid-template-columns:1fr}.cs-filters .cs-btn{grid-column:auto}}
+`;document.head.appendChild(st)}
+function setStatus(t,c=""){const e=$("cs-status");e.textContent=t;e.className="cs-status "+c}
+function render(shifts){const t=totals(shifts),o=shifts.filter(open).length;$("cs-total").textContent=shifts.length;$("cs-open").textContent=o;$("cs-closed").textContent=shifts.length-o;$("cs-sales").textContent=t.sales?money(t.sales):"—";if(!shifts.length){$("cs-table-wrap").innerHTML='<div class="cs-empty">За выбранный период кассовые смены не найдены.</div>';return}
+$("cs-table-wrap").innerHTML=`<table class="cs-table"><thead><tr><th>Опер. день</th><th>Касса / ФР</th><th>№ смены</th><th>Фиск. №</th><th>Серийный №</th><th>Открыта</th><th>Закрыта</th><th>Ответственный кассир (ID)</th><th>Заказы</th><th>Наличные</th><th>Карта</th><th>Кредит</th><th>Внесения</th><th>Изъятия</th><th>Изъятие при закрытии</th><th>Остаток</th><th>Расхождение</th><th>Статус</th><th>Проводки</th></tr></thead><tbody>${shifts.map(s=>{const st=String(v(s,"sessionStatus","")).toUpperCase();return `<tr><td>${esc(s._operationDay||v(s,"_dateKey",v(s,"openDate","—")))}</td><td><b>${esc(v(s,"cashRegNumber","—"))}</b>${v(s,"cashRegSerial",null)?`<span class="cs-secondary">${esc(s.cashRegSerial)}</span>`:""}</td><td>${esc(v(s,"sessionNumber","—"))}</td><td>${esc(v(s,"fiscalNumber","—"))}</td><td>${esc(v(s,"cashRegSerial","—"))}</td><td>${esc(fmt(v(s,"openDate",null)))}</td><td>${esc(fmt(v(s,"closeDate",null)))}</td><td><span class="cs-id">${esc(v(s,"responsibleUser","—"))}</span></td><td>${money(v(s,"payOrders",null))}</td><td>${money(v(s,"salesCash",null))}</td><td>${money(v(s,"salesCard",null))}</td><td>${money(v(s,"salesCredit",null))}</td><td>${money(v(s,"payIn",null))}</td><td>${money(v(s,"payOut",null))}</td><td>${money(v(s,"payIncome",null))}</td><td>${money(v(s,"cashRemain",null))}</td><td>${money(v(s,"cashDiff",null))}</td><td><span class="cs-badge ${open(s)?"cs-open":"cs-closed"}">${esc(st||"—")}</span></td><td>${paymentHtml(s)}</td></tr>`}).join("")}</tbody></table>`}
+async function getDetail(c,s){const id=String(v(s,"_sessionId",v(s,"id","")));if(!id)return s;try{const r=await fetch(DETAIL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ip:c.ip,port:c.port,login:c.login,password:c.password,sessionId:id})});const d=await r.json();if(!r.ok||!d.success)return s;return {...s,...(d.shift||{}),_payments:Array.isArray(d.payments)?d.payments:[],_operationDay:d.operationDay||s._operationDay||null}}catch{return s}}
+async function loadDetails(c,shifts){const out=[];for(let i=0;i<shifts.length;i+=5){const r=await Promise.all(shifts.slice(i,i+5).map(s=>getDetail(c,s)));out.push(...r);render(out);setStatus(`Детали: ${out.length} из ${shifts.length}.`,out.length===shifts.length?"ok":"")}return out}
+async function request(c,from,to){const r=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ip:c.ip,port:c.port,login:c.login,password:c.password,from,to})});const d=await r.json();if(!r.ok||!d.success)throw new Error(d.message||`HTTP ${r.status}`);return d}
+async function load(){const c=getConn();if(!c||!c.ip||!c.port||!c.login||!c.password){setStatus("Нет сохранённого подключения к SH Server.","error");return}const from=$("cs-from").value,to=$("cs-to").value;if(!from||!to){setStatus("Выберите период.","error");return}const b=$("cs-load");b.disabled=true;setStatus("Получаем кассовые смены…");$("cs-table-wrap").innerHTML='<div class="cs-empty">Загрузка смен...</div>';try{const all=[];let start=from;while(start<=to){const days=Math.floor((new Date(to+"T00:00:00")-new Date(start+"T00:00:00"))/86400000)+1;const end=add(start,Math.min(10,days)-1);const d=await request(c,start,end);if(Array.isArray(d.shifts))all.push(...d.shifts);start=add(end,1)}const seen=new Set(),shifts=all.filter(s=>{const k=s._sessionId||s.id||JSON.stringify(s);if(seen.has(k))return false;seen.add(k);return true});render(shifts);setStatus(`Загружено ${shifts.length} смен.`,"ok");if(shifts.length)await loadDetails(c,shifts)}catch(e){render([]);setStatus(e.message||"Ошибка получения смен","error")}finally{b.disabled=false}}
+document.addEventListener("DOMContentLoaded",()=>{install();$("cs-from").value=day(-6);$("cs-to").value=day(0);$("cs-load").addEventListener("click",load);load()});
 })();
