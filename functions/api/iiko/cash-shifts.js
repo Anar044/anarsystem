@@ -9,7 +9,11 @@ function corsHeaders() {
 function jsonResponse(data, status = 200) {
     return new Response(JSON.stringify(data), {
         status,
-        headers: { "Content-Type": "application/json", ...corsHeaders() }
+        headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+            ...corsHeaders()
+        }
     });
 }
 
@@ -81,46 +85,65 @@ async function getToken(ip, port, login, password) {
     const serverUrl = `http://${ip}:${port}`;
     const passwordHash = await sha1(password);
     const authUrl = `${serverUrl}/resto/api/auth?login=${encodeURIComponent(login)}&pass=${passwordHash}`;
-    const response = await fetch(authUrl);
+    const response = await fetch(authUrl, { cache: "no-store" });
     const token = (await response.text()).trim();
     if (!response.ok || !token) throw new Error(`Ошибка авторизации iiko Server: HTTP ${response.status}`);
     return { serverUrl, token };
 }
 
+async function requestJson(url) {
+    const response = await fetch(url, {
+        headers: { "Accept": "application/json" },
+        cache: "no-store"
+    });
+    const text = (await response.text()).trim();
+    let payload = null;
+    try {
+        payload = JSON.parse(text || "[]");
+    } catch {}
+    return { response, text, payload };
+}
+
 async function getShiftsForDate(serverUrl, token, date) {
     const requestedDate = isoDate(date);
-    const url = `${serverUrl}/resto/api/v2/cashshifts/list?key=${encodeURIComponent(token)}&date=${encodeURIComponent(requestedDate)}`;
-    const response = await fetch(url, { headers: { "Accept": "application/json" } });
-    const text = (await response.text()).trim();
+    const key = encodeURIComponent(token);
+    const dateParam = encodeURIComponent(requestedDate);
 
-    if (!response.ok) {
+    // Primary format used by the iikoServer cash-shifts endpoint.
+    const primaryUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&date=${dateParam}`;
+    const primary = await requestJson(primaryUrl);
+
+    if (primary.response.ok) {
         return {
-            ok: false,
-            status: response.status,
-            text,
-            shifts: []
+            ok: true,
+            status: primary.response.status,
+            shifts: extractList(primary.payload).map(item => normalizeShift(item, requestedDate)).filter(Boolean),
+            format: "date"
         };
     }
 
-    let payload;
-    try {
-        payload = JSON.parse(text || "[]");
-    } catch {
+    // Some iikoServer builds expose the same endpoint with a date-range contract.
+    // Retry that contract when the server rejects the single-date request.
+    const rangeUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&openDateFrom=${dateParam}&openDateTo=${dateParam}`;
+    const range = await requestJson(rangeUrl);
+
+    if (range.response.ok) {
         return {
-            ok: false,
-            status: 502,
-            text: "iiko Server вернул некорректный JSON",
-            shifts: []
+            ok: true,
+            status: range.response.status,
+            shifts: extractList(range.payload).map(item => normalizeShift(item, requestedDate)).filter(Boolean),
+            format: "openDateFrom/openDateTo"
         };
     }
 
     return {
-        ok: true,
-        status: response.status,
-        text,
-        shifts: extractList(payload)
-            .map(item => normalizeShift(item, requestedDate))
-            .filter(Boolean)
+        ok: false,
+        status: primary.response.status,
+        text: primary.text || range.text || "iiko Server не вернул текст ошибки",
+        fallbackStatus: range.response.status,
+        fallbackText: range.text,
+        shifts: [],
+        formatsTried: ["date", "openDateFrom/openDateTo"]
     };
 }
 
@@ -150,17 +173,22 @@ export async function onRequestPost(context) {
         const { serverUrl, token } = await getToken(ip, port, login, password);
         const all = [];
         const errors = [];
+        const formatsTried = new Set();
 
         for (let i = 0; i < days; i++) {
             const date = addDays(from, i);
             const result = await getShiftsForDate(serverUrl, token, date);
             if (result.ok) {
                 all.push(...result.shifts);
+                formatsTried.add(result.format);
             } else {
+                formatsTried.add(...(result.formatsTried || []));
                 errors.push({
                     date: isoDate(date),
                     status: result.status,
-                    message: result.text.slice(0, 500)
+                    message: result.text.slice(0, 500),
+                    fallbackStatus: result.fallbackStatus,
+                    fallbackText: result.fallbackText ? result.fallbackText.slice(0, 500) : ""
                 });
             }
         }
@@ -180,6 +208,7 @@ export async function onRequestPost(context) {
             count: shifts.length,
             shifts,
             errors,
+            dateFormatsTried: Array.from(formatsTried),
             endpoint: "/resto/api/v2/cashshifts/list",
             dateFormat: "YYYY-MM-DD"
         });
