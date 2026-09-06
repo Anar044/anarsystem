@@ -9,11 +9,7 @@ function corsHeaders() {
 function jsonResponse(data, status = 200) {
     return new Response(JSON.stringify(data), {
         status,
-        headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-store",
-            ...corsHeaders()
-        }
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...corsHeaders() }
     });
 }
 
@@ -28,18 +24,11 @@ function parseDate(value) {
     const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (!m) return null;
     const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-    if (d.getUTCFullYear() !== Number(m[1]) || d.getUTCMonth() !== Number(m[2]) - 1 || d.getUTCDate() !== Number(m[3])) return null;
-    return d;
+    return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]) ? d : null;
 }
 
 function isoDate(date) {
     return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
-}
-
-function addDays(date, days) {
-    const d = new Date(date.getTime());
-    d.setUTCDate(d.getUTCDate() + days);
-    return d;
 }
 
 function extractList(payload) {
@@ -63,23 +52,14 @@ function firstValue(item, keys) {
 }
 
 function shiftDateKey(item, fallback) {
-    const raw = firstValue(item, [
-        "businessDate", "operatingDay", "operationalDay", "date",
-        "openDate", "openedAt", "openTime", "startDate", "startTime"
-    ]);
-    if (!raw) return fallback;
-    const match = String(raw).match(/(\d{4})[-.](\d{2})[-.](\d{2})/);
+    const raw = firstValue(item, ["businessDate", "operatingDay", "operationalDay", "date", "openDate", "openedAt", "openTime", "startDate", "startTime"]);
+    const match = String(raw || "").match(/(\d{4})[-.](\d{2})[-.](\d{2})/);
     return match ? `${match[1]}-${match[2]}-${match[3]}` : fallback;
 }
 
-function normalizeShift(item, requestedDate, requestedStatus) {
+function normalizeShift(item, requestedDate) {
     if (!item || typeof item !== "object") return null;
-    return {
-        ...item,
-        _sessionId: sessionId(item),
-        _dateKey: shiftDateKey(item, requestedDate),
-        _requestedStatus: requestedStatus
-    };
+    return { ...item, _sessionId: sessionId(item), _dateKey: shiftDateKey(item, requestedDate) };
 }
 
 async function getToken(ip, port, login, password) {
@@ -92,65 +72,12 @@ async function getToken(ip, port, login, password) {
     return { serverUrl, token };
 }
 
-async function requestJson(url, options = {}) {
-    const response = await fetch(url, {
-        ...options,
-        headers: {
-            "Accept": "application/json",
-            ...(options.headers || {})
-        },
-        cache: "no-store"
-    });
+async function requestJson(url) {
+    const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
     const text = (await response.text()).trim();
     let payload = null;
-    try {
-        payload = JSON.parse(text || "[]");
-    } catch {}
+    try { payload = JSON.parse(text || "[]"); } catch {}
     return { response, text, payload };
-}
-
-async function getShiftsForDateAndStatus(serverUrl, token, date, status) {
-    const requestedDate = isoDate(date);
-    const key = encodeURIComponent(token);
-    const dateParam = encodeURIComponent(requestedDate);
-    const statusParam = encodeURIComponent(status);
-
-    const primaryUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&date=${dateParam}&status=${statusParam}`;
-    const primary = await requestJson(primaryUrl);
-
-    if (primary.response.ok) {
-        return {
-            ok: true,
-            status: primary.response.status,
-            shifts: extractList(primary.payload).map(item => normalizeShift(item, requestedDate, status)).filter(Boolean),
-            format: `GET date + status=${status}`
-        };
-    }
-
-    const fallbackUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&openDateFrom=${dateParam}&openDateTo=${dateParam}&status=${statusParam}`;
-    const fallback = await requestJson(fallbackUrl);
-
-    if (fallback.response.ok) {
-        return {
-            ok: true,
-            status: fallback.response.status,
-            shifts: extractList(fallback.payload).map(item => normalizeShift(item, requestedDate, status)).filter(Boolean),
-            format: `GET openDateFrom/openDateTo + status=${status}`
-        };
-    }
-
-    return {
-        ok: false,
-        status: primary.response.status,
-        text: primary.text || "iiko Server не вернул текст ошибки",
-        fallbackStatus: fallback.response.status,
-        fallbackText: fallback.text,
-        shifts: [],
-        formatsTried: [
-            `GET date + status=${status}`,
-            `GET openDateFrom/openDateTo + status=${status}`
-        ]
-    };
 }
 
 export async function onRequestOptions() {
@@ -167,9 +94,7 @@ export async function onRequestPost(context) {
         const from = parseDate(body.from);
         const to = parseDate(body.to);
 
-        if (!ip || !port || !login || !password) {
-            return jsonResponse({ success: false, message: "Заполните IP, порт, логин и пароль SH Server" }, 400);
-        }
+        if (!ip || !port || !login || !password) return jsonResponse({ success: false, message: "Заполните IP, порт, логин и пароль SH Server" }, 400);
         if (!from || !to) return jsonResponse({ success: false, message: "Укажите корректный период дат" }, 400);
         if (to < from) return jsonResponse({ success: false, message: "Дата окончания не может быть раньше даты начала" }, 400);
 
@@ -177,36 +102,48 @@ export async function onRequestPost(context) {
         if (days > 62) return jsonResponse({ success: false, message: "Максимальный период для кассовых смен — 62 дня" }, 400);
 
         const { serverUrl, token } = await getToken(ip, port, login, password);
-        const all = [];
-        const errors = [];
-        const formatsTried = new Set();
+        const key = encodeURIComponent(token);
+        const fromDate = encodeURIComponent(isoDate(from));
+        const toDate = encodeURIComponent(isoDate(to));
 
-        for (let i = 0; i < days; i++) {
-            const date = addDays(from, i);
-            for (const status of ["OPEN", "CLOSED"]) {
-                const result = await getShiftsForDateAndStatus(serverUrl, token, date, status);
-                if (result.ok) {
-                    all.push(...result.shifts);
-                    formatsTried.add(result.format);
-                } else {
-                    for (const fmt of result.formatsTried || []) formatsTried.add(fmt);
-                    errors.push({
-                        date: isoDate(date),
-                        status,
-                        httpStatus: result.status,
-                        message: result.text.slice(0, 500),
-                        fallbackStatus: result.fallbackStatus,
-                        fallbackText: result.fallbackText ? result.fallbackText.slice(0, 500) : ""
-                    });
-                }
+        // ВАЖНО: один диапазон вместо запроса на каждый день и каждого статуса.
+        // Это резко уменьшает число Cloudflare subrequests.
+        const urls = [
+            `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&openDateFrom=${fromDate}&openDateTo=${toDate}`,
+            `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&dateFrom=${fromDate}&dateTo=${toDate}`,
+            `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&from=${fromDate}&to=${toDate}`
+        ];
+
+        let successful = null;
+        const errors = [];
+
+        for (const url of urls) {
+            const result = await requestJson(url);
+            if (result.response.ok) {
+                successful = result;
+                break;
             }
+            errors.push({ httpStatus: result.response.status, message: result.text.slice(0, 500) });
         }
+
+        if (!successful) {
+            return jsonResponse({
+                success: false,
+                message: "SH Server не принял запрос кассовых смен за диапазон дат",
+                errors,
+                triedEndpoints: urls.map(x => x.split("?")[0])
+            }, 502);
+        }
+
+        const all = extractList(successful.payload)
+            .map(item => normalizeShift(item, isoDate(from)))
+            .filter(Boolean);
 
         const seen = new Set();
         const shifts = all.filter(shift => {
-            const key = shift._sessionId || JSON.stringify(shift);
-            if (seen.has(key)) return false;
-            seen.add(key);
+            const id = shift._sessionId || JSON.stringify(shift);
+            if (seen.has(id)) return false;
+            seen.add(id);
             return true;
         });
 
@@ -216,11 +153,10 @@ export async function onRequestPost(context) {
             to: body.to,
             count: shifts.length,
             shifts,
-            errors,
-            dateFormatsTried: Array.from(formatsTried),
-            statusesTried: ["OPEN", "CLOSED"],
+            errors: [],
             endpoint: "/resto/api/v2/cashshifts/list",
-            dateFormat: "YYYY-MM-DD"
+            dateFormat: "YYYY-MM-DD",
+            rangeQuery: true
         });
     } catch (error) {
         return jsonResponse({ success: false, message: error?.message || "Ошибка получения кассовых смен" }, 502);
