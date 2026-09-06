@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Smart Horeca Control — Финансы</title>
 <link rel="stylesheet" href="app-shell.css">
-<link rel="stylesheet" href="finance.css?v=5">
+<link rel="stylesheet" href="finance.css?v=8">
 </head>
 <body data-protected="true" style="background:#0b1017">
 <div class="app-shell">
@@ -22,18 +22,92 @@
         <button class="icon-btn" data-auth-logout>Выйти</button>
       </div>
     </header>
+
     <section class="finance-page">
-      <div class="fin-hero"><div><div class="fin-kicker">ФИНАНСЫ · SH SERVER API</div><h1>Финансы</h1><p>Один раздел для баланса, движения денег и финансовых счетов ресторана.</p></div><div class="fin-source"><span></span><div><b>SH Server</b><small>Источник данных</small></div></div></div>
-      <nav class="fin-tabs" aria-label="Финансовые разделы"><a class="active" href="#overview">Обзор</a><a href="#movements">Движения</a><a href="#accounts">Счета</a></nav>
-      <div id="overview" class="fin-panel fin-filters"><div class="fin-date"><label>Период</label><div class="date-row"><input id="fin-from" type="date"><span>—</span><input id="fin-to" type="date"><button id="fin-load" class="fin-btn">↻ Обновить</button></div></div><div id="fin-status" class="fin-status">Готово к загрузке.</div></div>
-      <div class="fin-kpis"><div class="fin-kpi fin-income"><span>Приход</span><strong id="fin-income">—</strong><small>продажи + внесения</small></div><div class="fin-kpi fin-expense"><span>Расход</span><strong id="fin-expense">—</strong><small>изъятия</small></div><div class="fin-kpi"><span>Оборот</span><strong id="fin-turnover">—</strong><small>приход + расход</small></div><div class="fin-kpi"><span>Остаток</span><strong id="fin-cash">—</strong><small>после закрытия смен</small></div></div>
-      <div class="fin-grid"><div class="fin-panel fin-chart-panel"><div class="fin-panel-head"><div><span class="fin-section-kicker">ДИНАМИКА</span><h2>Движение по дням</h2></div><div class="fin-legend"><span><i class="in"></i>Приход</span><span><i class="out"></i>Расход</span></div></div><div id="fin-chart" class="fin-chart"><div class="fin-empty">Загрузите период</div></div></div><div class="fin-panel"><div class="fin-panel-head"><div><span class="fin-section-kicker">БАЛАНС</span><h2>По счетам</h2></div><a href="#accounts" class="fin-link">Все счета →</a></div><div id="fin-account-list" class="fin-account-list"><div class="fin-empty">Нет данных</div></div></div></div>
-      <div id="movements" class="fin-panel fin-movements"><div class="fin-panel-head"><div><span class="fin-section-kicker">ПРОВОДКИ</span><h2>Движения по счетам <span id="fin-count"></span></h2></div><div class="fin-hint">Дата · Счёт · Приход · Расход</div></div><div class="fin-table-wrap"><table class="fin-table"><thead><tr><th>Дата</th><th>Счёт</th><th>Операция</th><th>Приход</th><th>Расход</th><th>Комментарий</th></tr></thead><tbody id="fin-body"><tr><td colspan="6" class="fin-empty">Загрузите период</td></tr></tbody></table></div></div>
-      <section id="accounts" class="fin-panel fin-accounts-section"><div class="fin-panel-head"><div><span class="fin-section-kicker">СПРАВОЧНИК СЧЕТОВ</span><h2>Финансовые счета</h2><p class="fin-section-desc">Счета теперь находятся внутри «Финансы», чтобы не разделять финансовую информацию по разным страницам.</p></div><div class="fin-account-controls"><input id="fin-account-search" type="search" placeholder="Поиск счета…"><select id="fin-account-type"><option value="">Все типы</option></select></div></div><div class="fin-mini-stats"><span>Всего <b id="fin-account-total">0</b></span><span>Типов <b id="fin-account-types">0</b></span><span>Системных <b id="fin-account-system">0</b></span><span>Пользовательских <b id="fin-account-custom">0</b></span></div><div class="fin-table-wrap"><table class="fin-table fin-accounts-table"><thead><tr><th>Счёт</th><th>Код</th><th>Тип</th><th>Статус</th><th>Ручные проводки</th></tr></thead><tbody id="fin-accounts-body"><tr><td colspan="5" class="fin-empty">Загрузка счетов…</td></tr></tbody></table></div></section>
+      <div class="fin-hero">
+        <div>
+          <div class="fin-kicker">ФИНАНСЫ · SH SERVER API</div>
+          <h1>Финансы</h1>
+          <p>Прибыль и убыток, движение денег и финансовые счета ресторана в одном отчёте.</p>
+        </div>
+        <div class="fin-source"><span></span><div><b>SH Server</b><small>Источник данных</small></div></div>
+      </div>
+
+      <nav class="fin-tabs" aria-label="Финансовые разделы">
+        <a class="active" href="#overview">Обзор</a><a href="#movements">Движения</a><a href="#accounts">Счета</a>
+      </nav>
+
+      <div id="overview" class="fin-panel fin-filters">
+        <div class="fin-date"><label>Период отчёта</label><div class="date-row"><input id="fin-from" type="date"><span>—</span><input id="fin-to" type="date"><button id="fin-load" class="fin-btn">↻ Обновить</button></div></div>
+        <div id="fin-status" class="fin-status">Готово к загрузке.</div>
+      </div>
+
+      <section class="fin-pnl-panel">
+        <div class="fin-pnl-head">
+          <div><span class="fin-section-kicker">ФИНАНСОВЫЙ РЕЗУЛЬТАТ</span><h2>Прибыли и убытки</h2><p>Сравнение поступлений и расходов за выбранный период.</p></div>
+          <div class="fin-pnl-period" id="fin-pnl-period">—</div>
+        </div>
+        <div class="fin-pnl-layout">
+          <div class="fin-profit-main">
+            <span>Результат периода</span>
+            <strong id="fin-profit">—</strong>
+            <small id="fin-profit-caption">Приход − расход</small>
+          </div>
+          <div class="fin-pnl-bars">
+            <div class="fin-pnl-row"><div><span>Приход</span><b id="fin-pnl-income">—</b></div><div class="fin-track"><i id="fin-pnl-income-bar"></i></div></div>
+            <div class="fin-pnl-row"><div><span>Расход</span><b id="fin-pnl-expense">—</b></div><div class="fin-track expense"><i id="fin-pnl-expense-bar"></i></div></div>
+          </div>
+          <div class="fin-pnl-side">
+            <div><span>Выручка</span><b id="fin-pnl-sales">—</b><small>продажи</small></div>
+            <div><span>Расходы</span><b id="fin-pnl-costs">—</b><small>изъятия</small></div>
+            <div><span>Маржа</span><b id="fin-margin">—</b><small>результат / приход</small></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="fin-kpis">
+        <div class="fin-kpi fin-income"><span>Приход</span><strong id="fin-income">—</strong><small>продажи + внесения</small></div>
+        <div class="fin-kpi fin-expense"><span>Расход</span><strong id="fin-expense">—</strong><small>изъятия</small></div>
+        <div class="fin-kpi"><span>Оборот</span><strong id="fin-turnover">—</strong><small>приход + расход</small></div>
+        <div class="fin-kpi"><span>Остаток</span><strong id="fin-cash">—</strong><small>после закрытия смен</small></div>
+      </div>
+
+      <div class="fin-grid">
+        <div class="fin-panel fin-chart-panel">
+          <div class="fin-panel-head"><div><span class="fin-section-kicker">ДИНАМИКА</span><h2>Движение по дням</h2></div><div class="fin-legend"><span><i class="in"></i>Приход</span><span><i class="out"></i>Расход</span></div></div>
+          <div id="fin-chart" class="fin-chart"><div class="fin-empty">Загрузите период</div></div>
+        </div>
+        <div class="fin-panel">
+          <div class="fin-panel-head"><div><span class="fin-section-kicker">БАЛАНС</span><h2>По счетам</h2></div><a href="#accounts" class="fin-link">Все счета →</a></div>
+          <div id="fin-account-list" class="fin-account-list"><div class="fin-empty">Нет данных</div></div>
+        </div>
+      </div>
+
+      <div id="movements" class="fin-panel fin-movements">
+        <div class="fin-panel-head"><div><span class="fin-section-kicker">ПРОВОДКИ</span><h2>Движения по счетам <span id="fin-count"></span></h2></div><div class="fin-hint">Дата · Счёт · Приход · Расход</div></div>
+        <div class="fin-table-wrap"><table class="fin-table"><thead><tr><th>Дата</th><th>Счёт</th><th>Операция</th><th>Приход</th><th>Расход</th><th>Комментарий</th></tr></thead><tbody id="fin-body"><tr><td colspan="6" class="fin-empty">Загрузите период</td></tr></tbody></table></div>
+      </div>
+
+      <section id="accounts" class="fin-panel fin-accounts-section">
+        <div class="fin-panel-head"><div><span class="fin-section-kicker">СПРАВОЧНИК СЧЕТОВ</span><h2>Финансовые счета</h2><p class="fin-section-desc">Нажмите на любой счёт, чтобы посмотреть его движения, приход, расход и результат за выбранный период.</p></div><div class="fin-account-controls"><input id="fin-account-search" type="search" placeholder="Поиск счёта…"><select id="fin-account-type"><option value="">Все типы</option></select></div></div>
+        <div class="fin-mini-stats"><span>Всего <b id="fin-account-total">0</b></span><span>Типов <b id="fin-account-types">0</b></span><span>Системных <b id="fin-account-system">0</b></span><span>Пользовательских <b id="fin-account-custom">0</b></span></div>
+        <div class="fin-table-wrap"><table class="fin-table fin-accounts-table"><thead><tr><th>Счёт</th><th>Код</th><th>Тип</th><th>Статус</th><th>Движения</th></tr></thead><tbody id="fin-accounts-body"><tr><td colspan="5" class="fin-empty">Загрузка счетов…</td></tr></tbody></table></div>
+      </section>
     </section>
   </main>
 </div>
+
+<div id="fin-account-modal" class="fin-modal" aria-hidden="true">
+  <div class="fin-modal-backdrop" data-fin-close></div>
+  <section class="fin-modal-card" role="dialog" aria-modal="true" aria-labelledby="fin-modal-title">
+    <button class="fin-modal-close" data-fin-close aria-label="Закрыть">×</button>
+    <div class="fin-modal-head"><div><span class="fin-section-kicker">ДЕТАЛИ СЧЁТА</span><h2 id="fin-modal-title">Счёт</h2><p id="fin-modal-meta">—</p></div></div>
+    <div class="fin-modal-kpis"><div><span>Приход</span><b id="fin-modal-income">—</b></div><div><span>Расход</span><b id="fin-modal-expense">—</b></div><div><span>Результат</span><b id="fin-modal-result">—</b></div><div><span>Операций</span><b id="fin-modal-count">0</b></div></div>
+    <div class="fin-modal-section"><div class="fin-modal-section-head"><h3>Что происходило на счёте</h3><span id="fin-modal-period">—</span></div><div class="fin-table-wrap"><table class="fin-table fin-modal-table"><thead><tr><th>Дата</th><th>Операция</th><th>Приход</th><th>Расход</th><th>Комментарий</th></tr></thead><tbody id="fin-modal-body"></tbody></table></div></div>
+  </section>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=2"></script><script src="finance.js?v=5"></script>
+<script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=2"></script><script src="finance.js?v=8"></script>
 </body>
 </html>
