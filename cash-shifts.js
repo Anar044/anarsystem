@@ -2,114 +2,62 @@
   const $ = id => document.getElementById(id);
   const connectionKey = "iikoConnection";
   const api = "/api/iiko/cash-shifts";
+  const detailApi = "/api/iiko/cash-shift-detail";
 
   function installStyles(){
     if(document.getElementById("cash-shifts-runtime-style")) return;
-    const style=document.createElement("style");
-    style.id="cash-shifts-runtime-style";
+    const style=document.createElement("style"); style.id="cash-shifts-runtime-style";
     style.textContent=`
-      .cash-shifts-page{padding:24px;max-width:1650px;margin:0 auto;box-sizing:border-box}
-      .cs-head{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;margin-bottom:18px}
-      .cs-kicker{font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#42d392;margin-bottom:7px}
-      .cs-title{margin:0;color:#f4f7fa;font-size:27px;line-height:1.15}.cs-sub{margin:7px 0 0;color:#8994a3;font-size:12px}
-      .cs-panel{background:#111923;border:1px solid #222c38;border-radius:14px;padding:17px;margin-bottom:14px;box-sizing:border-box}
-      .cs-filters{display:grid;grid-template-columns:180px 180px 1fr auto;gap:10px;align-items:end}.cs-field{display:flex;flex-direction:column;gap:6px}.cs-field label{font-size:10px;color:#8994a3;font-weight:700}.cs-field input{height:38px;box-sizing:border-box;border:1px solid #293442;background:#0e151d;color:#f4f7fa;border-radius:9px;padding:8px 10px;width:100%}
-      .cs-btn{height:38px;border:0;border-radius:9px;padding:0 16px;background:#42d392;color:#06110b;font-weight:800;cursor:pointer}.cs-btn:disabled{opacity:.5;cursor:wait}
-      .cs-status{font-size:10px;color:#8994a3;min-height:16px;margin-top:10px}.cs-status.error{color:#ff6678}.cs-status.ok{color:#42d392}
-      .cs-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}.cs-stat{background:#111923;border:1px solid #222c38;border-radius:12px;padding:14px}.cs-stat span{display:block;color:#8994a3;font-size:9px;text-transform:uppercase;letter-spacing:.06em;font-weight:800;margin-bottom:7px}.cs-stat strong{font-size:20px;color:#f4f7fa}.cs-stat small{display:block;margin-top:4px;color:#6f7c8b;font-size:9px}
-      .cs-table-wrap{overflow:auto;border:1px solid #222c38;border-radius:12px;background:#0f171f}.cs-table{width:100%;min-width:900px;border-collapse:collapse;font-size:10px}.cs-table th{text-align:left;padding:10px;background:#111923;color:#6f7c8b;text-transform:uppercase;letter-spacing:.05em;font-size:8px;white-space:nowrap}.cs-table td{padding:10px;border-top:1px solid #1d2732;color:#dce4eb;white-space:nowrap}.cs-table tbody tr:hover{background:#121d26}.cs-empty{text-align:center;padding:38px;color:#6f7c8b;font-size:11px}.cs-badge{display:inline-flex;padding:4px 7px;border-radius:999px;font-size:8px;font-weight:800}.cs-open{background:#382f18;color:#ffb454}.cs-closed{background:#15251f;color:#42d392}
-      .cs-errors{margin-top:10px;padding:10px;border:1px solid #3a2830;border-radius:9px;background:#171116;color:#ff9aa6;font-size:10px;line-height:1.5}.cs-errors b{color:#ff6678}.cs-debug{margin-top:8px;color:#8994a3;font-size:9px}
-      @media(max-width:900px){.cs-filters{grid-template-columns:1fr 1fr}.cs-filters .cs-btn{grid-column:1/-1}.cs-stats{grid-template-columns:1fr 1fr}}
-      @media(max-width:760px){.cash-shifts-page{padding:18px 14px 34px}.cs-head{align-items:flex-start;flex-direction:column}.cs-title{font-size:23px}.cs-panel{padding:14px}}
-      @media(max-width:480px){.cs-filters,.cs-stats{grid-template-columns:1fr}.cs-filters .cs-btn{grid-column:auto}.cs-table{min-width:820px}}
-    `;
-    document.head.appendChild(style);
+      .cash-shifts-page{padding:24px;max-width:1650px;margin:0 auto;box-sizing:border-box}.cs-head{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;margin-bottom:18px}.cs-kicker{font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#42d392;margin-bottom:7px}.cs-title{margin:0;color:#f4f7fa;font-size:27px;line-height:1.15}.cs-sub{margin:7px 0 0;color:#8994a3;font-size:12px}.cs-panel{background:#111923;border:1px solid #222c38;border-radius:14px;padding:17px;margin-bottom:14px;box-sizing:border-box}.cs-filters{display:grid;grid-template-columns:180px 180px 1fr auto;gap:10px;align-items:end}.cs-field{display:flex;flex-direction:column;gap:6px}.cs-field label{font-size:10px;color:#8994a3;font-weight:700}.cs-field input{height:38px;box-sizing:border-box;border:1px solid #293442;background:#0e151d;color:#f4f7fa;border-radius:9px;padding:8px 10px;width:100%}.cs-btn{height:38px;border:0;border-radius:9px;padding:0 16px;background:#42d392;color:#06110b;font-weight:800;cursor:pointer}.cs-btn:disabled{opacity:.5;cursor:wait}.cs-status{font-size:10px;color:#8994a3;min-height:16px;margin-top:10px}.cs-status.error{color:#ff6678}.cs-status.ok{color:#42d392}.cs-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}.cs-stat{background:#111923;border:1px solid #222c38;border-radius:12px;padding:14px}.cs-stat span{display:block;color:#8994a3;font-size:9px;text-transform:uppercase;letter-spacing:.06em;font-weight:800;margin-bottom:7px}.cs-stat strong{font-size:20px;color:#f4f7fa}.cs-stat small{display:block;margin-top:4px;color:#6f7c8b;font-size:9px}.cs-table-wrap{overflow:auto;border:1px solid #222c38;border-radius:12px;background:#0f171f}.cs-table{width:100%;min-width:1120px;border-collapse:collapse;font-size:10px}.cs-table th{text-align:left;padding:10px;background:#111923;color:#6f7c8b;text-transform:uppercase;letter-spacing:.05em;font-size:8px;white-space:nowrap}.cs-table td{padding:10px;border-top:1px solid #1d2732;color:#dce4eb;white-space:nowrap}.cs-table tbody tr:hover{background:#121d26}.cs-empty{text-align:center;padding:38px;color:#6f7c8b;font-size:11px}.cs-badge{display:inline-flex;padding:4px 7px;border-radius:999px;font-size:8px;font-weight:800}.cs-open{background:#382f18;color:#ffb454}.cs-closed{background:#15251f;color:#42d392}.cs-loading{color:#8994a3}.cs-detail-error{color:#ff6678}.cs-payment{display:inline-block;margin-right:7px;color:#b8c4d0}.cs-payment b{color:#f4f7fa}.cs-errors{margin-top:10px;padding:10px;border:1px solid #3a2830;border-radius:9px;background:#171116;color:#ff9aa6;font-size:10px;line-height:1.5}.cs-errors b{color:#ff6678}.cs-debug{margin-top:8px;color:#8994a3;font-size:9px}
+      @media(max-width:900px){.cs-filters{grid-template-columns:1fr 1fr}.cs-filters .cs-btn{grid-column:1/-1}.cs-stats{grid-template-columns:1fr 1fr}}@media(max-width:760px){.cash-shifts-page{padding:18px 14px 34px}.cs-head{align-items:flex-start;flex-direction:column}.cs-title{font-size:23px}.cs-panel{padding:14px}}@media(max-width:480px){.cs-filters,.cs-stats{grid-template-columns:1fr}.cs-filters .cs-btn{grid-column:auto}.cs-table{min-width:1050px}}
+    `; document.head.appendChild(style);
   }
-
-  function pad(n){ return String(n).padStart(2,"0"); }
-  function localDate(offset){ const d=new Date(); d.setDate(d.getDate()+offset); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
-  function money(value){ const n=Number(value); return Number.isFinite(n) ? n.toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"; }
-  function pick(o,keys,fallback=""){ for(const k of keys){ if(o&&o[k]!==undefined&&o[k]!==null&&o[k]!=="") return o[k]; } return fallback; }
-  function formatDateTime(v){ if(!v)return "—"; return String(v).replace("T"," ").replace(/\.\d{1,6}(?=Z|$)/,"").replace("Z",""); }
-  function getConnection(){ try{return JSON.parse(localStorage.getItem(connectionKey)||"null");}catch{return null;} }
-  function isOpen(s){ const status=String(pick(s,["status","state","sessionStatus"],"")).toUpperCase(); if(status.includes("OPEN"))return true; return !pick(s,["closeDate","closedAt","closeTime","endDate","endTime"],""); }
-  function salesValue(s){ return pick(s,["sum","salesSum","sales","revenue","totalSales","sumSales","salesAmount"],null); }
-  function cashName(s){ return pick(s,["cashRegisterName","cashRegister","registerName","cashRegisterNumber","number"],"—"); }
-  function operator(s){ return pick(s,["cashierName","cashier","operatorName","employeeName","responsibleCashier"],"—"); }
-  function shiftNumber(s){ return pick(s,["shiftNumber","number","sessionNumber","cashShiftNumber"],"—"); }
-  function openTime(s){ return pick(s,["openDate","openedAt","openTime","startDate","startTime"],""); }
-  function closeTime(s){ return pick(s,["closeDate","closedAt","closeTime","endDate","endTime"],""); }
-  function businessDate(s){ return pick(s,["date","businessDate","openDate","operatingDay","operationalDay","_requestedDate"],"—"); }
-  function setStatus(text,type=""){ const el=$("cs-status"); el.textContent=text; el.className=`cs-status ${type}`; }
-  function escapeHtml(v){return String(v??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[c]));}
+  function pad(n){return String(n).padStart(2,"0")}
+  function localDate(offset){const d=new Date();d.setDate(d.getDate()+offset);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
+  function addDays(v,n){const d=new Date(`${v}T00:00:00`);d.setDate(d.getDate()+n);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
+  function money(v){const n=Number(v);return Number.isFinite(n)?n.toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:2}):"—"}
+  function pick(o,keys,fallback=""){for(const k of keys)if(o&&o[k]!==undefined&&o[k]!==null&&o[k]!=="")return o[k];return fallback}
+  function nested(o,paths,fallback="—"){for(const path of paths){let cur=o;for(const p of path.split(".")){if(cur==null)break;cur=cur[p]}if(cur!==undefined&&cur!==null&&cur!=="")return cur}return fallback}
+  function formatDateTime(v){if(!v)return "—";return String(v).replace("T"," ").replace(/\.\d{1,6}(?=Z|$)/,"").replace("Z","")}
+  function getConnection(){try{return JSON.parse(localStorage.getItem(connectionKey)||"null")}catch{return null}}
+  function isOpen(s){const status=String(pick(s,["status","state","sessionStatus","Status"],"")).toUpperCase();if(status.includes("OPEN"))return true;return !pick(s,["closeDate","closedAt","closeTime","endDate","endTime","CloseDate","CloseTime"],"")}
+  function salesValue(s){return pick(s,["sum","salesSum","sales","revenue","totalSales","sumSales","salesAmount","totalSum","resultSum","ResultSum","fullSum","FullSum","sumOfSales"],null)}
+  function cashName(s){return nested(s,["cashRegisterName","cashRegister","registerName","cashRegisterNumber","number","CashRegisterName","CashRegister.name","CashRegister.Name","CashRegister.number","CashRegister.Number","CashRegister.Code","cashRegister.name","cashRegister.Name"],"—")}
+  function operator(s){return nested(s,["cashierName","cashier","operatorName","employeeName","responsibleCashier","CashierName","Cashier.Name","Cashier.name","OperatorName","Operator.Name","cashier.name"],"—")}
+  function shiftNumber(s){return pick(s,["shiftNumber","number","sessionNumber","cashShiftNumber","ShiftNumber","SessionNumber"],"—")}
+  function openTime(s){return pick(s,["openDate","openedAt","openTime","startDate","startTime","OpenDate","OpenTime"],"")}
+  function closeTime(s){return pick(s,["closeDate","closedAt","closeTime","endDate","endTime","CloseDate","CloseTime"],"")}
+  function businessDate(s){return pick(s,["date","businessDate","openDate","operatingDay","operationalDay","_dateKey","_requestedDate","Date","BusinessDate"],"—")}
+  function sessionId(s){return String(pick(s,["_sessionId","sessionId","sessionID","id","Id","uuid","UUID"],"")).trim()}
+  function setStatus(text,type=""){const el=$("cs-status");el.textContent=text;el.className=`cs-status ${type}`}
+  function escapeHtml(v){return String(v??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[c]))}
+  function paymentSummary(payments){if(!Array.isArray(payments)||!payments.length)return "—";const parts=[];for(const p of payments){const name=pick(p,["name","paymentName","typeName","title","Name","PaymentName"],"");const sum=pick(p,["sum","amount","total","Sum","Amount"],null);if(name||sum!==null)parts.push(`${escapeHtml(name||"Оплата")}: <b>${sum===null?"—":money(sum)}</b>`)}return parts.length?parts.join(" · "):"—"}
 
   function render(shifts){
-    const total=shifts.length, open=shifts.filter(isOpen).length, closed=total-open;
-    const sales=shifts.reduce((sum,s)=>{const n=Number(salesValue(s));return Number.isFinite(n)?sum+n:sum;},0);
-    $("cs-total").textContent=total; $("cs-open").textContent=open; $("cs-closed").textContent=closed; $("cs-sales").textContent=sales?money(sales):"—";
-    if(!total){$("cs-table-wrap").innerHTML='<div class="cs-empty">За выбранный период кассовые смены не найдены.</div>';return;}
-    const rows=shifts.map(s=>{const opened=openTime(s),closedAt=closeTime(s),openState=isOpen(s),sale=salesValue(s);return `<tr><td>${escapeHtml(businessDate(s))}</td><td>${escapeHtml(cashName(s))}</td><td>${escapeHtml(shiftNumber(s))}</td><td>${escapeHtml(formatDateTime(opened))}</td><td>${escapeHtml(formatDateTime(closedAt))}</td><td>${escapeHtml(operator(s))}</td><td>${sale==null?"—":money(sale)}</td><td><span class="cs-badge ${openState?'cs-open':'cs-closed'}">${openState?'Открыта':'Закрыта'}</span></td></tr>`;}).join("");
-    $("cs-table-wrap").innerHTML=`<table class="cs-table"><thead><tr><th>Опер. день</th><th>Касса</th><th>№ смены</th><th>Открыта</th><th>Закрыта</th><th>Отв. кассир</th><th>Продажи</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table>`;
+    const total=shifts.length,open=shifts.filter(isOpen).length,closed=total-open;const sales=shifts.reduce((sum,s)=>{const n=Number(salesValue(s));return Number.isFinite(n)?sum+n:sum},0);
+    $("cs-total").textContent=total;$("cs-open").textContent=open;$("cs-closed").textContent=closed;$("cs-sales").textContent=sales?money(sales):"—";
+    if(!total){$("cs-table-wrap").innerHTML='<div class="cs-empty">За выбранный период кассовые смены не найдены.</div>';return}
+    const rows=shifts.map((s,i)=>{const sale=salesValue(s);return `<tr data-shift-index="${i}"><td>${escapeHtml(businessDate(s))}</td><td>${escapeHtml(cashName(s))}</td><td>${escapeHtml(shiftNumber(s))}</td><td>${escapeHtml(formatDateTime(openTime(s)))}</td><td>${escapeHtml(formatDateTime(closeTime(s)))}</td><td>${escapeHtml(operator(s))}</td><td>${sale==null?'<span class="cs-loading">загрузка…</span>':money(sale)}</td><td><span class="cs-badge ${isOpen(s)?'cs-open':'cs-closed'}">${isOpen(s)?'Открыта':'Закрыта'}</span></td><td class="cs-payments"><span class="cs-loading">загрузка…</span></td></tr>`}).join("");
+    $("cs-table-wrap").innerHTML=`<table class="cs-table"><thead><tr><th>Опер. день</th><th>Касса</th><th>№ смены</th><th>Открыта</th><th>Закрыта</th><th>Отв. кассир</th><th>Продажи</th><th>Статус</th><th>Оплаты</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
-  function addDaysToString(value, days){
-    const d=new Date(`${value}T00:00:00`);
-    d.setDate(d.getDate()+days);
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  function mergeDetail(base,data){const detail=data&&data.shift&&typeof data.shift==="object"?data.shift:{};const merged={...base,...detail};merged._payments=Array.isArray(data?.payments)?data.payments:[];if(!merged._sessionId)merged._sessionId=sessionId(detail)||sessionId(base);return merged}
+  async function loadOneDetail(conn,shift){const sid=sessionId(shift);if(!sid)return{ok:false,shift,message:"Нет ID смены"};try{const res=await fetch(detailApi,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ip:conn.ip,port:conn.port,login:conn.login,password:conn.password,sessionId:sid})});const data=await res.json().catch(()=>({success:false,message:"Некорректный ответ"}));if(!res.ok||!data.success)throw new Error(data.message||`HTTP ${res.status}`);return{ok:true,shift:mergeDetail(shift,data)}}catch(error){return{ok:false,shift,message:error.message||"Ошибка деталей"}}}
+  async function loadDetails(conn,shifts){let completed=0;const enriched=[];for(let start=0;start<shifts.length;start+=5){const batch=shifts.slice(start,start+5);const results=await Promise.all(batch.map(s=>loadOneDetail(conn,s)));results.forEach((result,j)=>{const index=start+j;completed++;enriched[index]=result.shift;const row=$("cs-table-wrap").querySelector(`tr[data-shift-index="${index}"]`);if(row&&result.ok){const s=result.shift;row.cells[1].innerHTML=escapeHtml(cashName(s));row.cells[5].innerHTML=escapeHtml(operator(s));const sale=salesValue(s);row.cells[6].innerHTML=sale==null?"—":money(sale);row.cells[8].innerHTML=paymentSummary(s._payments)}else if(row)row.cells[8].innerHTML='<span class="cs-detail-error">не удалось загрузить</span>';setStatus(`Загружено ${completed} из ${shifts.length} смен.`,completed===shifts.length?"ok":"")})}
+    render(enriched);return enriched
   }
 
-  async function requestChunk(conn, from, to){
-    const res=await fetch(api,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ip:conn.ip,port:conn.port,login:conn.login,password:conn.password,from,to})});
-    const data=await res.json().catch(()=>({success:false,message:"Некорректный ответ сервера"}));
-    if(!res.ok||!data.success)throw new Error(data.message||`HTTP ${res.status}`);
-    return data;
-  }
-
+  async function requestChunk(conn,from,to){const res=await fetch(api,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ip:conn.ip,port:conn.port,login:conn.login,password:conn.password,from,to})});const data=await res.json().catch(()=>({success:false,message:"Некорректный ответ сервера"}));if(!res.ok||!data.success)throw new Error(data.message||`HTTP ${res.status}`);return data}
   async function load(){
-    const conn=getConnection();
-    if(!conn||!conn.ip||!conn.port||!conn.login||!conn.password){setStatus("Нет сохранённого подключения к SH Server. Сначала подключите сервер в Настройках.","error");return;}
-    const from=$("cs-from").value,to=$("cs-to").value;
-    if(!from||!to){setStatus("Выберите период.","error");return;}
-    if(new Date(`${to}T00:00:00`)<new Date(`${from}T00:00:00`)){setStatus("Дата окончания не может быть раньше даты начала.","error");return;}
-
+    const conn=getConnection();if(!conn||!conn.ip||!conn.port||!conn.login||!conn.password){setStatus("Нет сохранённого подключения к SH Server. Сначала подключите сервер в Настройках.","error");return}
+    const from=$("cs-from").value,to=$("cs-to").value;if(!from||!to){setStatus("Выберите период.","error");return}
     const btn=$("cs-load");btn.disabled=true;$("cs-table-wrap").innerHTML='<div class="cs-empty">Загрузка смен...</div>';setStatus("Получаем кассовые смены из SH Server…");
-    try{
-      const all=[];
-      const errors=[];
-      const formats=new Set();
-      const CHUNK_DAYS=10;
-      let chunkStart=from;
-      let chunkIndex=0;
-      const totalDays=Math.round((new Date(`${to}T00:00:00`)-new Date(`${from}T00:00:00`))/86400000)+1;
-      const totalChunks=Math.ceil(totalDays/CHUNK_DAYS);
-
-      while(chunkStart<=to){
-        const remaining=Math.round((new Date(`${to}T00:00:00`)-new Date(`${chunkStart}T00:00:00`))/86400000)+1;
-        const size=Math.min(CHUNK_DAYS,remaining);
-        const chunkEnd=addDaysToString(chunkStart,size-1);
-        chunkIndex++;
-        setStatus(`Загружаем период ${chunkIndex}/${totalChunks}: ${chunkStart} — ${chunkEnd}…`);
-        const data=await requestChunk(conn,chunkStart,chunkEnd);
-        if(Array.isArray(data.shifts))all.push(...data.shifts);
-        if(Array.isArray(data.errors))errors.push(...data.errors);
-        if(Array.isArray(data.dateFormatsTried))data.dateFormatsTried.forEach(x=>formats.add(x));
-        chunkStart=addDaysToString(chunkEnd,1);
-      }
-
-      const seen=new Set();
-      const shifts=all.filter(shift=>{
-        const key=shift._sessionId||`${shift._dateKey||""}|${shift._requestedStatus||""}|${JSON.stringify(shift)}`;
-        if(seen.has(key))return false;seen.add(key);return true;
-      });
-      render(shifts);
-
-      if(errors.length){
-        const first=errors[0];
-        setStatus(`Загружено ${shifts.length} смен. Ошибок запросов: ${errors.length}.`,"error");
-        const box=document.createElement("div");box.className="cs-errors";box.innerHTML=`<b>Ошибка SH Server для ${escapeHtml(first.date||"даты")} (${escapeHtml(first.status||first.httpStatus||"")}, статус ${escapeHtml(first.requestedStatus||"")})</b>: ${escapeHtml(first.message||"без текста")}${formats.size?`<div class="cs-debug">Проверены форматы: ${escapeHtml(Array.from(formats).join(", "))}</div>`:""}`;$("cs-table-wrap").appendChild(box);
-      }else setStatus(`Загружено ${shifts.length} кассовых смен.`,"ok");
-    }catch(e){render([]);setStatus(e.message||"Ошибка получения смен","error");}finally{btn.disabled=false;}
+    try{const all=[],errors=[],formats=new Set();const CHUNK_DAYS=10;let chunkStart=from,chunkIndex=0;const totalDays=Math.round((new Date(`${to}T00:00:00`)-new Date(`${from}T00:00:00`))/86400000)+1,totalChunks=Math.ceil(totalDays/CHUNK_DAYS);
+      while(chunkStart<=to){const remaining=Math.round((new Date(`${to}T00:00:00`)-new Date(`${chunkStart}T00:00:00`))/86400000)+1,size=Math.min(CHUNK_DAYS,remaining),chunkEnd=addDays(chunkStart,size-1);chunkIndex++;setStatus(`Загружаем период ${chunkIndex}/${totalChunks}: ${chunkStart} — ${chunkEnd}…`);const data=await requestChunk(conn,chunkStart,chunkEnd);if(Array.isArray(data.shifts))all.push(...data.shifts);if(Array.isArray(data.errors))errors.push(...data.errors);if(Array.isArray(data.dateFormatsTried))data.dateFormatsTried.forEach(x=>formats.add(x));chunkStart=addDays(chunkEnd,1)}
+      const seen=new Set(),shifts=all.filter(s=>{const key=s._sessionId||`${s._dateKey||""}|${s._requestedStatus||""}|${JSON.stringify(s)}`;if(seen.has(key))return false;seen.add(key);return true});render(shifts);
+      if(errors.length){const first=errors[0];setStatus(`Загружено ${shifts.length} смен. Ошибок запросов: ${errors.length}.`,"error");const box=document.createElement("div");box.className="cs-errors";box.innerHTML=`<b>Ошибка SH Server для ${escapeHtml(first.date||"даты")} (${escapeHtml(first.status||first.httpStatus||"")}, статус ${escapeHtml(first.requestedStatus||"")})</b>: ${escapeHtml(first.message||"без текста")}${formats.size?`<div class="cs-debug">Проверены форматы: ${escapeHtml(Array.from(formats).join(", "))}</div>`:""}`;$("cs-table-wrap").appendChild(box)}
+      if(shifts.length)await loadDetails(conn,shifts);else if(!errors.length)setStatus("За выбранный период кассовые смены не найдены.","");
+    }catch(e){render([]);setStatus(e.message||"Ошибка получения смен","error")}finally{btn.disabled=false}
   }
-
-  document.addEventListener("DOMContentLoaded",()=>{installStyles();const today=localDate(0),weekAgo=localDate(-6);$("cs-from").value=weekAgo;$("cs-to").value=today;$("cs-load").addEventListener("click",load);});
+  document.addEventListener("DOMContentLoaded",()=>{installStyles();const today=localDate(0),weekAgo=localDate(-6);$("cs-from").value=weekAgo;$("cs-to").value=today;$("cs-load").addEventListener("click",load)})
 })();
