@@ -52,22 +52,62 @@
     $("cs-table-wrap").innerHTML=`<table class="cs-table"><thead><tr><th>Опер. день</th><th>Касса</th><th>№ смены</th><th>Открыта</th><th>Закрыта</th><th>Отв. кассир</th><th>Продажи</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
+  function addDaysToString(value, days){
+    const d=new Date(`${value}T00:00:00`);
+    d.setDate(d.getDate()+days);
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  }
+
+  async function requestChunk(conn, from, to){
+    const res=await fetch(api,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ip:conn.ip,port:conn.port,login:conn.login,password:conn.password,from,to})});
+    const data=await res.json().catch(()=>({success:false,message:"Некорректный ответ сервера"}));
+    if(!res.ok||!data.success)throw new Error(data.message||`HTTP ${res.status}`);
+    return data;
+  }
+
   async function load(){
     const conn=getConnection();
     if(!conn||!conn.ip||!conn.port||!conn.login||!conn.password){setStatus("Нет сохранённого подключения к SH Server. Сначала подключите сервер в Настройках.","error");return;}
     const from=$("cs-from").value,to=$("cs-to").value;
     if(!from||!to){setStatus("Выберите период.","error");return;}
+    if(new Date(`${to}T00:00:00`)<new Date(`${from}T00:00:00`)){setStatus("Дата окончания не может быть раньше даты начала.","error");return;}
+
     const btn=$("cs-load");btn.disabled=true;$("cs-table-wrap").innerHTML='<div class="cs-empty">Загрузка смен...</div>';setStatus("Получаем кассовые смены из SH Server…");
     try{
-      const res=await fetch(api,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ip:conn.ip,port:conn.port,login:conn.login,password:conn.password,from,to})});
-      const data=await res.json().catch(()=>({success:false,message:"Некорректный ответ сервера"}));
-      if(!res.ok||!data.success)throw new Error(data.message||`HTTP ${res.status}`);
-      render(Array.isArray(data.shifts)?data.shifts:[]);
-      if(Array.isArray(data.errors)&&data.errors.length){
-        const first=data.errors[0];
-        setStatus(`Загружено ${data.count||0} смен. Ошибок дат: ${data.errors.length}.`,"error");
-        const box=document.createElement("div");box.className="cs-errors";box.innerHTML=`<b>iiko не принял запрос для ${escapeHtml(first.date||"даты")}</b>: HTTP ${escapeHtml(first.status||"")} — ${escapeHtml(first.message||"без текста")}${data.dateFormatsTried?`<div class="cs-debug">Проверены форматы: ${escapeHtml(data.dateFormatsTried.join(", "))}</div>`:""}`;$("cs-table-wrap").appendChild(box);
-      }else setStatus(`Загружено ${data.count||0} кассовых смен.`,"ok");
+      const all=[];
+      const errors=[];
+      const formats=new Set();
+      const CHUNK_DAYS=10;
+      let chunkStart=from;
+      let chunkIndex=0;
+      const totalDays=Math.round((new Date(`${to}T00:00:00`)-new Date(`${from}T00:00:00`))/86400000)+1;
+      const totalChunks=Math.ceil(totalDays/CHUNK_DAYS);
+
+      while(chunkStart<=to){
+        const remaining=Math.round((new Date(`${to}T00:00:00`)-new Date(`${chunkStart}T00:00:00`))/86400000)+1;
+        const size=Math.min(CHUNK_DAYS,remaining);
+        const chunkEnd=addDaysToString(chunkStart,size-1);
+        chunkIndex++;
+        setStatus(`Загружаем период ${chunkIndex}/${totalChunks}: ${chunkStart} — ${chunkEnd}…`);
+        const data=await requestChunk(conn,chunkStart,chunkEnd);
+        if(Array.isArray(data.shifts))all.push(...data.shifts);
+        if(Array.isArray(data.errors))errors.push(...data.errors);
+        if(Array.isArray(data.dateFormatsTried))data.dateFormatsTried.forEach(x=>formats.add(x));
+        chunkStart=addDaysToString(chunkEnd,1);
+      }
+
+      const seen=new Set();
+      const shifts=all.filter(shift=>{
+        const key=shift._sessionId||`${shift._dateKey||""}|${shift._requestedStatus||""}|${JSON.stringify(shift)}`;
+        if(seen.has(key))return false;seen.add(key);return true;
+      });
+      render(shifts);
+
+      if(errors.length){
+        const first=errors[0];
+        setStatus(`Загружено ${shifts.length} смен. Ошибок запросов: ${errors.length}.`,"error");
+        const box=document.createElement("div");box.className="cs-errors";box.innerHTML=`<b>Ошибка SH Server для ${escapeHtml(first.date||"даты")} (${escapeHtml(first.status||first.httpStatus||"")}, статус ${escapeHtml(first.requestedStatus||"")})</b>: ${escapeHtml(first.message||"без текста")}${formats.size?`<div class="cs-debug">Проверены форматы: ${escapeHtml(Array.from(formats).join(", "))}</div>`:""}`;$("cs-table-wrap").appendChild(box);
+      }else setStatus(`Загружено ${shifts.length} кассовых смен.`,"ok");
     }catch(e){render([]);setStatus(e.message||"Ошибка получения смен","error");}finally{btn.disabled=false;}
   }
 
