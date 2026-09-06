@@ -2,7 +2,7 @@
   "use strict";
 
   const API = "/api/account/state";
-  const I IKO_KEY = "iikoConnection";
+  const IIKO_KEY = "iikoConnection";
   const IDENTITY_KEY = "iikoDepartmentIdentity";
   const MENU_KEY = "horeca_qr_menu_v1";
   const DESIGN_KEY = "horeca_qr_design_v1";
@@ -12,9 +12,6 @@
   let applyingRemote = false;
   let lastSnapshot = "";
   let initialLocalHadData = false;
-
-  // Fix the intentionally spaced constant without changing the public key names.
-  const IIKO_KEY = "iikoConnection";
 
   function read(key) {
     try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (_) { return null; }
@@ -114,14 +111,12 @@
   async function loadRemote() {
     const headers = await authHeaders();
     if (!headers) return;
-    const response = await fetch(API, { headers: { ...headers, "Content-Type": undefined } });
+    const response = await fetch(API, { headers: { Accept: "application/json", Authorization: headers.Authorization } });
     if (!response.ok) throw new Error(`Account state HTTP ${response.status}`);
     const data = await response.json();
     remoteFound = !!data.found;
     if (data.found && data.state && !initialLocalHadData) {
       await applyRemote(data.state);
-      // Existing page scripts may have already initialized from empty localStorage.
-      // One reload makes the restored account state the normal source for that page.
       setTimeout(() => location.reload(), 250);
       return;
     }
@@ -159,10 +154,6 @@
       if (!remoteFound && !localHasData()) return;
       try { await saveRemote(); } catch (error) { console.warn("SH account cloud sync save failed", error); }
     }, 3000);
-
-    window.addEventListener("beforeunload", () => {
-      // The periodic writer is the reliable path; unload is intentionally not async.
-    });
   }
 
   window.SHAccount = {
