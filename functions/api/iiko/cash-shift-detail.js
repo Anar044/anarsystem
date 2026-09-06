@@ -9,11 +9,7 @@ function corsHeaders() {
 function jsonResponse(data, status = 200) {
     return new Response(JSON.stringify(data), {
         status,
-        headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-store",
-            ...corsHeaders()
-        }
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...corsHeaders() }
     });
 }
 
@@ -29,28 +25,45 @@ async function getToken(ip, port, login, password) {
     const authUrl = `${serverUrl}/resto/api/auth?login=${encodeURIComponent(login)}&pass=${passwordHash}`;
     const response = await fetch(authUrl, { cache: "no-store" });
     const token = (await response.text()).trim();
-    if (!response.ok || !token) throw new Error(`Ошибка авторизации iiko Server: HTTP ${response.status}`);
+    if (!response.ok || !token) throw new Error(`Ошибка авторизации SH Server: HTTP ${response.status}`);
     return { serverUrl, token };
 }
 
 async function requestJson(url) {
-    const response = await fetch(url, {
-        method: "GET",
-        headers: { "Accept": "application/json" },
-        cache: "no-store"
-    });
+    const response = await fetch(url, { method: "GET", headers: { Accept: "application/json" }, cache: "no-store" });
     const text = (await response.text()).trim();
     let payload = null;
-    try { payload = JSON.parse(text || "[]"); } catch {}
+    try { payload = JSON.parse(text || "{}"); } catch {}
     return { response, text, payload };
 }
 
-function extractList(payload) {
-    if (Array.isArray(payload)) return payload;
-    for (const key of ["items", "payments", "data", "rows", "sessions", "cashShifts"]) {
-        if (Array.isArray(payload?.[key])) return payload[key];
+function recordsFrom(payload) {
+    if (!payload || typeof payload !== "object") return [];
+    const groups = [
+        ["CARD", payload.cashlessRecords],
+        ["PAYIN", payload.payInRecords],
+        ["PAYOUT", payload.payOutRecords || payload.payOuts]
+    ];
+    const result = [];
+    for (const [group, list] of groups) {
+        if (!Array.isArray(list)) continue;
+        for (const record of list) {
+            const info = record?.info || {};
+            result.push({
+                group,
+                sum: info.sum ?? record.sum ?? record.actualSum ?? record.originalSum ?? null,
+                actualSum: record.actualSum ?? null,
+                originalSum: record.originalSum ?? info.sum ?? null,
+                paymentTypeId: record.paymentTypeId ?? info.paymentTypeId ?? null,
+                cashierId: info.cashierId ?? record.cashierId ?? null,
+                date: info.date ?? record.date ?? null,
+                creationDate: info.creationDate ?? record.creationDate ?? null,
+                comment: info.comment ?? record.comment ?? record.editableComment ?? "",
+                status: record.status ?? null
+            });
+        }
     }
-    return [];
+    return result;
 }
 
 export async function onRequestOptions() {
@@ -66,9 +79,7 @@ export async function onRequestPost(context) {
         const password = String(body.password || "");
         const sessionId = String(body.sessionId || body.sessionID || body.id || "").trim();
 
-        if (!ip || !port || !login || !password) {
-            return jsonResponse({ success: false, message: "Заполните IP, порт, логин и пароль SH Server" }, 400);
-        }
+        if (!ip || !port || !login || !password) return jsonResponse({ success: false, message: "Заполните IP, порт, логин и пароль SH Server" }, 400);
         if (!sessionId) return jsonResponse({ success: false, message: "Не указан ID кассовой смены" }, 400);
 
         const { serverUrl, token } = await getToken(ip, port, login, password);
@@ -76,24 +87,28 @@ export async function onRequestPost(context) {
         const sid = encodeURIComponent(sessionId);
 
         const shiftResult = await requestJson(`${serverUrl}/resto/api/v2/cashshifts/byId/${sid}?key=${key}`);
-        if (!shiftResult.response.ok) {
-            return jsonResponse({
-                success: false,
-                message: `Не удалось получить смену: HTTP ${shiftResult.response.status}`,
-                details: shiftResult.text.slice(0, 1000)
-            }, 502);
+        if (!shiftResult.response.ok || !shiftResult.payload || typeof shiftResult.payload !== "object") {
+            return jsonResponse({ success: false, message: `Не удалось получить смену: HTTP ${shiftResult.response.status}`, details: shiftResult.text.slice(0, 1000) }, 502);
         }
 
-        const paymentsResult = await requestJson(`${serverUrl}/resto/api/v2/cashshifts/payments/list/${sid}?key=${key}`);
-        const payments = paymentsResult.response.ok ? extractList(paymentsResult.payload) : [];
+        const paymentsResult = await requestJson(`${serverUrl}/resto/api/v2/cashshifts/payments/list/${sid}?key=${key}&hideAccepted=false`);
+        const paymentsPayload = paymentsResult.payload && typeof paymentsResult.payload === "object" ? paymentsResult.payload : {};
+        const payments = recordsFrom(paymentsPayload);
 
+        const shift = shiftResult.payload;
         return jsonResponse({
             success: true,
             sessionId,
-            shift: shiftResult.payload,
+            shift,
             payments,
+            paymentGroups: {
+                cashlessRecords: Array.isArray(paymentsPayload.cashlessRecords) ? paymentsPayload.cashlessRecords : [],
+                payInRecords: Array.isArray(paymentsPayload.payInRecords) ? paymentsPayload.payInRecords : [],
+                payOutRecords: Array.isArray(paymentsPayload.payOutRecords) ? paymentsPayload.payOutRecords : (Array.isArray(paymentsPayload.payOuts) ? paymentsPayload.payOuts : [])
+            },
             paymentsLoaded: paymentsResult.response.ok,
-            paymentsStatus: paymentsResult.response.status
+            paymentsStatus: paymentsResult.response.status,
+            operationDay: paymentsPayload.operationDay || null
         });
     } catch (error) {
         return jsonResponse({ success: false, message: error?.message || "Ошибка получения деталей кассовой смены" }, 502);
