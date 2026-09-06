@@ -1,1 +1,94 @@
-<!DOCTYPE html><html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Smart Horeca Control — Финансы</title><link rel="stylesheet" href="app-shell.css"><link rel="stylesheet" href="finance.css?v=1"></head><body data-protected="true" style="background:#0b1017"><div class="app-shell"><aside class="sidebar"></aside><main class="main"><header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Финансы</span><div class="topbar-sub">Движение денег и проводки SH Server</div></div><div class="top-actions"><span class="user-chip"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span></span><button class="icon-btn" data-auth-logout>Выйти</button></div></header><section class="finance-page"><div class="fin-hero"><div><div class="fin-kicker">ФИНАНСЫ · SH SERVER API</div><h1>Баланс / Движение</h1><p>Реальные продажи, внесения, изъятия и проводки из кассовых смен.</p></div><div class="fin-source"><span></span><div><b>SH Server</b><small>Источник данных</small></div></div></div><div class="fin-panel fin-filters"><div class="fin-date"><label>Период</label><div class="date-row"><input id="fin-from" type="date"><span>—</span><input id="fin-to" type="date"><button id="fin-load" class="fin-btn">↻ Обновить</button></div></div><div id="fin-status" class="fin-status">Готово к загрузке.</div></div><div class="fin-kpis"><div class="fin-kpi fin-income"><span>Приход</span><strong id="fin-income">—</strong><small>продажи + внесения</small></div><div class="fin-kpi fin-expense"><span>Расход</span><strong id="fin-expense">—</strong><small>изъятия</small></div><div class="fin-kpi"><span>Оборот</span><strong id="fin-turnover">—</strong><small>приход + расход</small></div><div class="fin-kpi"><span>Остаток в кассе</span><strong id="fin-cash">—</strong><small>после закрытия смен</small></div></div><div class="fin-grid"><div class="fin-panel fin-chart-panel"><div class="fin-panel-head"><div><span class="fin-section-kicker">ДИНАМИКА</span><h2>Движение по дням</h2></div></div><div id="fin-chart" class="fin-chart"><div class="fin-empty">Загрузите период</div></div></div><div class="fin-panel"><div class="fin-panel-head"><div><span class="fin-section-kicker">СЧЕТА</span><h2>По счетам</h2></div></div><div id="fin-account-list" class="fin-account-list"><div class="fin-empty">Нет данных</div></div></div></div><div class="fin-panel fin-movements"><div class="fin-panel-head"><div><span class="fin-section-kicker">ПРОВОДКИ</span><h2>Движения по счетам <span id="fin-count"></span></h2></div><div class="fin-hint">Дата · Счёт · Приход · Расход</div></div><div class="fin-table-wrap"><table class="fin-table"><thead><tr><th>Дата</th><th>Счёт</th><th>Операция</th><th>Приход</th><th>Расход</th><th>Комментарий</th></tr></thead><tbody id="fin-body"><tr><td colspan="6" class="fin-empty">Загрузите период</td></tr></tbody></table></div></div></section></main></div><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=1"></script><script src="finance.js?v=1"></script></body></html>
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Horeca Control — Финансы</title>
+<link rel="stylesheet" href="app-shell.css">
+<link rel="stylesheet" href="finance.css?v=4">
+</head>
+<body data-protected="true" style="background:#0b1017">
+<div class="app-shell">
+  <aside class="sidebar"></aside>
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+        <span class="topbar-title">Финансы</span>
+        <div class="topbar-sub">Деньги, счета и движения SH Server</div>
+      </div>
+      <div class="top-actions">
+        <span class="user-chip"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span></span>
+        <button class="icon-btn" data-auth-logout>Выйти</button>
+      </div>
+    </header>
+
+    <section class="finance-page">
+      <div class="fin-hero">
+        <div>
+          <div class="fin-kicker">ФИНАНСЫ · SH SERVER API</div>
+          <h1>Финансы</h1>
+          <p>Один раздел для баланса, движения денег и финансовых счетов ресторана.</p>
+        </div>
+        <div class="fin-source"><span></span><div><b>SH Server</b><small>Источник данных</small></div></div>
+      </div>
+
+      <nav class="fin-tabs" aria-label="Финансовые разделы">
+        <a class="active" href="#overview">Обзор</a>
+        <a href="#movements">Движения</a>
+        <a href="#accounts">Счета</a>
+      </nav>
+
+      <div id="overview" class="fin-panel fin-filters">
+        <div class="fin-date">
+          <label>Период</label>
+          <div class="date-row">
+            <input id="fin-from" type="date"><span>—</span><input id="fin-to" type="date">
+            <button id="fin-load" class="fin-btn">↻ Обновить</button>
+          </div>
+        </div>
+        <div id="fin-status" class="fin-status">Готово к загрузке.</div>
+      </div>
+
+      <div class="fin-kpis">
+        <div class="fin-kpi fin-income"><span>Приход</span><strong id="fin-income">—</strong><small>продажи + внесения</small></div>
+        <div class="fin-kpi fin-expense"><span>Расход</span><strong id="fin-expense">—</strong><small>изъятия</small></div>
+        <div class="fin-kpi"><span>Оборот</span><strong id="fin-turnover">—</strong><small>приход + расход</small></div>
+        <div class="fin-kpi"><span>Остаток</span><strong id="fin-cash">—</strong><small>после закрытия смен</small></div>
+      </div>
+
+      <div class="fin-grid">
+        <div class="fin-panel fin-chart-panel">
+          <div class="fin-panel-head"><div><span class="fin-section-kicker">ДИНАМИКА</span><h2>Движение по дням</h2></div><div class="fin-legend"><span><i class="in"></i>Приход</span><span><i class="out"></i>Расход</span></div></div>
+          <div id="fin-chart" class="fin-chart"><div class="fin-empty">Загрузите период</div></div>
+        </div>
+        <div class="fin-panel">
+          <div class="fin-panel-head"><div><span class="fin-section-kicker">БАЛАНС</span><h2>По счетам</h2></div><a href="#accounts" class="fin-link">Все счета →</a></div>
+          <div id="fin-account-list" class="fin-account-list"><div class="fin-empty">Нет данных</div></div>
+        </div>
+      </div>
+
+      <div id="movements" class="fin-panel fin-movements">
+        <div class="fin-panel-head"><div><span class="fin-section-kicker">ПРОВОДКИ</span><h2>Движения по счетам <span id="fin-count"></span></h2></div><div class="fin-hint">Дата · Счёт · Приход · Расход</div></div>
+        <div class="fin-table-wrap"><table class="fin-table"><thead><tr><th>Дата</th><th>Счёт</th><th>Операция</th><th>Приход</th><th>Расход</th><th>Комментарий</th></tr></thead><tbody id="fin-body"><tr><td colspan="6" class="fin-empty">Загрузите период</td></tr></tbody></table></div>
+      </div>
+
+      <section id="accounts" class="fin-panel fin-accounts-section">
+        <div class="fin-panel-head">
+          <div><span class="fin-section-kicker">СПРАВОЧНИК СЧЕТОВ</span><h2>Финансовые счета</h2><p class="fin-section-desc">Счета теперь находятся внутри «Финансы», чтобы не разделять финансовую информацию по разным страницам.</p></div>
+          <div class="fin-account-controls"><input id="fin-account-search" type="search" placeholder="Поиск счета…"><select id="fin-account-type"><option value="">Все типы</option></select></div>
+        </div>
+        <div class="fin-mini-stats"><span>Всего <b id="fin-account-total">0</b></span><span>Типов <b id="fin-account-types">0</b></span><span>Системных <b id="fin-account-system">0</b></span><span>Пользовательских <b id="fin-account-custom">0</b></span></div>
+        <div class="fin-table-wrap"><table class="fin-table fin-accounts-table"><thead><tr><th>Счёт</th><th>Код</th><th>Тип</th><th>Статус</th><th>Ручные проводки</th></tr></thead><tbody id="fin-accounts-body"><tr><td colspan="5" class="fin-empty">Загрузка счетов…</td></tr></tbody></table></div>
+      </section>
+    </section>
+  </main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script>
+<script src="auth.js"></script>
+<script src="app-shell.js"></script>
+<script src="mobile-responsive.js?v=2"></script>
+<script src="finance.js?v=4"></script>
+</body>
+</html>
