@@ -71,6 +71,7 @@
       checkedAt:new Date().toISOString()
     };
     localStorage.setItem(IDENTITY_KEY,JSON.stringify(identity));
+    try{await window.SHAccount?.save?.();}catch(_){ }
     return identity;
   }
 
@@ -101,6 +102,7 @@
       setQr(data.publicUrl);
       showResult("Меню опубликовано",`Версия опубликована для организации ${organizationId}.`,true,data.publicUrl);
       const status=document.getElementById("saveStatus");if(status)status.textContent="● Опубликовано на сервере";
+      try{await window.SHAccount?.save?.();}catch(error){console.warn("SH account QR publish sync",error);}
     }catch(error){
       console.error("QR Menu publish",error);
       showResult("Ошибка публикации",error.message||"Не удалось опубликовать меню.",false);
