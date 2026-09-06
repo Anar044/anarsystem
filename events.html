@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Smart Horeca Control — Журнал событий</title>
 <link rel="stylesheet" href="app-shell.css">
-<link rel="stylesheet" href="events.css?v=3">
+<link rel="stylesheet" href="events.css?v=4">
 </head>
 <body data-protected="true" style="background:#0b1017">
 <div class="app-shell">
@@ -26,13 +26,13 @@
         <div class="events-main-search">
           <div class="events-search-icon">⌕</div>
           <input id="events-order" type="text" placeholder="Номер заказа или документа, например 13">
-          <button id="events-load" class="events-primary">Показать историю</button>
+          <button id="events-load" class="events-primary">Показать события</button>
         </div>
         <div class="events-search-hint">Например: введите номер заказа — система покажет открытие заказа, добавления и удаления позиций, изменения, оплату и закрытие, если эти события содержат номер заказа.</div>
       </section>
 
       <section class="events-panel events-filters">
-        <div class="events-panel-head"><div><span class="events-section-kicker">ДОПОЛНИТЕЛЬНЫЕ ФИЛЬТРЫ</span><h2>Уточнить поиск</h2><p>Фильтры применяются только после нажатия «Показать историю».</p></div></div>
+        <div class="events-panel-head"><div><span class="events-section-kicker">ДОПОЛНИТЕЛЬНЫЕ ФИЛЬТРЫ</span><h2>Уточнить поиск</h2><p>Фильтры применяются только после нажатия «Показать события».</p></div></div>
         <div class="events-filter-grid">
           <label>С даты<input id="events-from" type="datetime-local"></label>
           <label>По дату<input id="events-to" type="datetime-local"></label>
@@ -48,7 +48,7 @@
           <div id="events-period" class="events-period">Период не загружен</div>
         </div>
         <div id="events-summary" class="events-summary" hidden></div>
-        <div id="events-empty" class="events-empty"><div class="events-empty-icon">⌕</div><strong>История ещё не загружена</strong><span>Введите номер заказа или документа либо задайте период и нажмите «Показать историю».</span></div>
+        <div id="events-empty" class="events-empty"><div class="events-empty-icon">⌕</div><strong>История ещё не загружена</strong><span>Введите номер заказа или документа либо задайте период и нажмите «Показать события».</span></div>
         <div id="events-table-wrap" class="events-table-wrap" hidden>
           <table class="events-table"><thead><tr><th>Когда</th><th>Что произошло</th><th>Кто</th><th>Объект</th><th>Детали</th></tr></thead><tbody id="events-body"></tbody></table>
         </div>
@@ -57,6 +57,6 @@
   </main>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=2"></script><script src="events.js?v=3"></script>
+<script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=2"></script><script src="events.js?v=4"></script>
 </body>
 </html>
