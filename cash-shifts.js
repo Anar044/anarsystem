@@ -17,27 +17,70 @@
   function addDays(v,n){const d=new Date(`${v}T00:00:00`);d.setDate(d.getDate()+n);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
   function money(v){const n=Number(v);return Number.isFinite(n)?n.toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:2}):"—"}
   function pick(o,keys,fallback=""){for(const k of keys)if(o&&o[k]!==undefined&&o[k]!==null&&o[k]!=="")return o[k];return fallback}
-  function nested(o,paths,fallback="—"){for(const path of paths){let cur=o;for(const p of path.split(".")){if(cur==null)break;cur=cur[p]}if(cur!==undefined&&cur!==null&&cur!=="")return cur}return fallback}
+  function deepPick(o,keys,depth=0){
+    if(o==null||depth>5||typeof o!=="object")return null;
+    const wanted=new Set(keys.map(k=>String(k).toLowerCase()));
+    for(const [k,v] of Object.entries(o)){
+      if(wanted.has(String(k).toLowerCase())&&v!==undefined&&v!==null&&v!==""&&(typeof v!=="object"))return v;
+    }
+    for(const v of Object.values(o)){
+      if(v&&typeof v==="object"){
+        const found=deepPick(v,keys,depth+1);
+        if(found!==null&&found!==undefined&&found!=="")return found;
+      }
+    }
+    return null;
+  }
+  function nested(o,paths,fallback="—"){
+    for(const path of paths){let cur=o;for(const p of path.split(".")){if(cur==null)break;cur=cur[p]}if(cur!==undefined&&cur!==null&&cur!==""){
+      if(typeof cur==="object"){const value=pick(cur,["name","Name","title","Title","displayName","DisplayName","number","Number","code","Code"],null);if(value!==null)return value;continue}
+      return cur;
+    }}
+    return fallback;
+  }
   function formatDateTime(v){if(!v)return "—";return String(v).replace("T"," ").replace(/\.\d{1,6}(?=Z|$)/,"").replace("Z","")}
   function getConnection(){try{return JSON.parse(localStorage.getItem(connectionKey)||"null")}catch{return null}}
   function isOpen(s){const status=String(pick(s,["status","state","sessionStatus","Status"],"")).toUpperCase();if(status.includes("OPEN"))return true;return !pick(s,["closeDate","closedAt","closeTime","endDate","endTime","CloseDate","CloseTime"],"")}
-  function salesValue(s){return pick(s,["sum","salesSum","sales","revenue","totalSales","sumSales","salesAmount","totalSum","resultSum","ResultSum","fullSum","FullSum","sumOfSales"],null)}
-  function cashName(s){return nested(s,["cashRegisterName","cashRegister","registerName","cashRegisterNumber","number","CashRegisterName","CashRegister.name","CashRegister.Name","CashRegister.number","CashRegister.Number","CashRegister.Code","cashRegister.name","cashRegister.Name"],"—")}
-  function operator(s){return nested(s,["cashierName","cashier","operatorName","employeeName","responsibleCashier","CashierName","Cashier.Name","Cashier.name","OperatorName","Operator.Name","cashier.name"],"—")}
-  function shiftNumber(s){return pick(s,["shiftNumber","number","sessionNumber","cashShiftNumber","ShiftNumber","SessionNumber"],"—")}
-  function openTime(s){return pick(s,["openDate","openedAt","openTime","startDate","startTime","OpenDate","OpenTime"],"")}
-  function closeTime(s){return pick(s,["closeDate","closedAt","closeTime","endDate","endTime","CloseDate","CloseTime"],"")}
+  function salesValue(s){
+    const direct=pick(s,["sum","salesSum","sales","revenue","totalSales","sumSales","salesAmount","totalSum","resultSum","ResultSum","fullSum","FullSum","sumOfSales"],null);
+    if(direct!==null)return direct;
+    return deepPick(s,["sum","salesSum","sales","revenue","totalSales","sumSales","salesAmount","totalSum","resultSum","fullSum","sumOfSales"]);
+  }
+  function cashName(s){
+    const direct=nested(s,["cashRegisterName","registerName","cashRegisterNumber","CashRegisterName","CashRegister.name","CashRegister.Name","CashRegister.number","CashRegister.Number","CashRegister.Code","cashRegister.name","cashRegister.Name"],"—");
+    if(direct!=="—")return direct;
+    const found=deepPick(s,["cashRegisterName","registerName","cashRegisterNumber","cashRegisterCode","registerNumber","registerCode","cashName","terminalName"]);
+    return found??"—";
+  }
+  function operator(s){
+    const direct=nested(s,["cashierName","operatorName","employeeName","responsibleCashier","CashierName","Cashier.Name","Cashier.name","OperatorName","Operator.Name","cashier.name"],"—");
+    if(direct!=="—")return direct;
+    const found=deepPick(s,["cashierName","operatorName","employeeName","responsibleCashier","cashierFullName","operatorFullName"]);
+    return found??"—";
+  }
+  function shiftNumber(s){return pick(s,["shiftNumber","number","sessionNumber","cashShiftNumber","ShiftNumber","SessionNumber"],deepPick(s,["shiftNumber","sessionNumber","cashShiftNumber"])??"—")}
+  function openTime(s){return pick(s,["openDate","openedAt","openTime","startDate","startTime","OpenDate","OpenTime"],deepPick(s,["openDate","openedAt","openTime","startDate"])||"")}
+  function closeTime(s){return pick(s,["closeDate","closedAt","closeTime","endDate","endTime","CloseDate","CloseTime"],deepPick(s,["closeDate","closedAt","closeTime","endDate"])||"")}
   function businessDate(s){return pick(s,["date","businessDate","openDate","operatingDay","operationalDay","_dateKey","_requestedDate","Date","BusinessDate"],"—")}
   function sessionId(s){return String(pick(s,["_sessionId","sessionId","sessionID","id","Id","uuid","UUID"],"")).trim()}
   function setStatus(text,type=""){const el=$("cs-status");el.textContent=text;el.className=`cs-status ${type}`}
   function escapeHtml(v){return String(v??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[c]))}
-  function paymentSummary(payments){if(!Array.isArray(payments)||!payments.length)return "—";const parts=[];for(const p of payments){const name=pick(p,["name","paymentName","typeName","title","Name","PaymentName"],"");const sum=pick(p,["sum","amount","total","Sum","Amount"],null);if(name||sum!==null)parts.push(`${escapeHtml(name||"Оплата")}: <b>${sum===null?"—":money(sum)}</b>`)}return parts.length?parts.join(" · "):"—"}
+  function paymentSummary(payments){
+    if(!Array.isArray(payments)||!payments.length)return "—";
+    const parts=[];
+    for(const p of payments){
+      const name=pick(p,["name","paymentName","typeName","title","Name","PaymentName"],null)??deepPick(p,["name","paymentName","typeName","title"]);
+      const sum=pick(p,["sum","amount","total","Sum","Amount"],null)??deepPick(p,["sum","amount","total"]);
+      if(name||sum!==null)parts.push(`<span class="cs-payment">${escapeHtml(name||"Оплата")}: <b>${sum===null?"—":money(sum)}</b></span>`);
+    }
+    return parts.length?parts.join(" "):"—";
+  }
 
   function render(shifts){
     const total=shifts.length,open=shifts.filter(isOpen).length,closed=total-open;const sales=shifts.reduce((sum,s)=>{const n=Number(salesValue(s));return Number.isFinite(n)?sum+n:sum},0);
     $("cs-total").textContent=total;$("cs-open").textContent=open;$("cs-closed").textContent=closed;$("cs-sales").textContent=sales?money(sales):"—";
     if(!total){$("cs-table-wrap").innerHTML='<div class="cs-empty">За выбранный период кассовые смены не найдены.</div>';return}
-    const rows=shifts.map((s,i)=>{const sale=salesValue(s);return `<tr data-shift-index="${i}"><td>${escapeHtml(businessDate(s))}</td><td>${escapeHtml(cashName(s))}</td><td>${escapeHtml(shiftNumber(s))}</td><td>${escapeHtml(formatDateTime(openTime(s)))}</td><td>${escapeHtml(formatDateTime(closeTime(s)))}</td><td>${escapeHtml(operator(s))}</td><td>${sale==null?'<span class="cs-loading">загрузка…</span>':money(sale)}</td><td><span class="cs-badge ${isOpen(s)?'cs-open':'cs-closed'}">${isOpen(s)?'Открыта':'Закрыта'}</span></td><td class="cs-payments"><span class="cs-loading">загрузка…</span></td></tr>`}).join("");
+    const rows=shifts.map((s,i)=>{const sale=salesValue(s);const payments=s._payments;return `<tr data-shift-index="${i}"><td>${escapeHtml(businessDate(s))}</td><td>${escapeHtml(cashName(s))}</td><td>${escapeHtml(shiftNumber(s))}</td><td>${escapeHtml(formatDateTime(openTime(s)))}</td><td>${escapeHtml(formatDateTime(closeTime(s)))}</td><td>${escapeHtml(operator(s))}</td><td>${sale==null?'<span class="cs-loading">—</span>':money(sale)}</td><td><span class="cs-badge ${isOpen(s)?'cs-open':'cs-closed'}">${isOpen(s)?'Открыта':'Закрыта'}</span></td><td class="cs-payments">${Array.isArray(payments)?paymentSummary(payments):'<span class="cs-loading">загрузка…</span>'}</td></tr>`}).join("");
     $("cs-table-wrap").innerHTML=`<table class="cs-table"><thead><tr><th>Опер. день</th><th>Касса</th><th>№ смены</th><th>Открыта</th><th>Закрыта</th><th>Отв. кассир</th><th>Продажи</th><th>Статус</th><th>Оплаты</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
@@ -59,5 +102,5 @@
       if(shifts.length)await loadDetails(conn,shifts);else if(!errors.length)setStatus("За выбранный период кассовые смены не найдены.","");
     }catch(e){render([]);setStatus(e.message||"Ошибка получения смен","error")}finally{btn.disabled=false}
   }
-  document.addEventListener("DOMContentLoaded",()=>{installStyles();const today=localDate(0),weekAgo=localDate(-6);$("cs-from").value=weekAgo;$("cs-to").value=today;$("cs-load").addEventListener("click",load)})
+  document.addEventListener("DOMContentLoaded",()=>{installStyles();const today=localDate(0),weekAgo=localDate(-6);$("cs-from").value=weekAgo;$("cs-to").value=today;$("cs-load").addEventListener("click",load);load();});
 })();
