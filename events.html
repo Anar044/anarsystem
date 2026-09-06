@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Smart Horeca Control — Журнал событий</title>
 <link rel="stylesheet" href="app-shell.css">
-<link rel="stylesheet" href="events.css?v=5">
+<link rel="stylesheet" href="events.css?v=6">
 </head>
 <body data-protected="true" style="background:#0b1017">
 <div class="app-shell">
@@ -64,8 +64,7 @@
             <div><strong id="events-result-title">События</strong><span id="events-count" class="events-count">0</span></div>
             <div id="events-status" class="events-status">Готово к запросу</div>
           </div>
-          <div id="events-empty" class="events-empty"><div class="events-empty-icon">⌕</div><strong>События ещё не загружены</strong><span>Задайте фильтры слева и нажмите «Показать события».</span></div>
-          <div id="events-table-wrap" class="events-table-wrap" hidden>
+          <div id="events-table-wrap" class="events-table-wrap">
             <table class="events-table">
               <thead><tr><th>Дата и время</th><th>Тип события</th><th>Пользователь</th><th>Терминал</th><th>№ смены</th><th>Имя пользователя</th><th>Название</th><th>Уровень</th><th>Должность</th></tr></thead>
               <tbody id="events-body"></tbody>
@@ -78,6 +77,6 @@
   </main>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=2"></script><script src="events.js?v=5"></script>
+<script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=2"></script><script src="events.js?v=6"></script>
 </body>
 </html>
