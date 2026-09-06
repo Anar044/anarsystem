@@ -19,18 +19,6 @@ window.SH_AUTH_CONFIG = {
         script.src = "cash-shifts-nav.js?v=1";
         document.head.appendChild(script);
     }
-    if (!document.getElementById("sh-accounts-nav-script")) {
-        const script = document.createElement("script");
-        script.id = "sh-accounts-nav-script";
-        script.src = "accounts-nav.js?v=1";
-        document.head.appendChild(script);
-    }
-    if (!document.getElementById("sh-accounts-nav-fix-script")) {
-        const script = document.createElement("script");
-        script.id = "sh-accounts-nav-fix-script";
-        script.src = "accounts-nav-fix.js?v=1";
-        document.head.appendChild(script);
-    }
     if (!document.getElementById("sh-finance-nav-script")) {
         const script = document.createElement("script");
         script.id = "sh-finance-nav-script";
