@@ -91,9 +91,13 @@ async function getToken(ip, port, login, password) {
     return { serverUrl, token };
 }
 
-async function requestJson(url) {
+async function requestJson(url, options = {}) {
     const response = await fetch(url, {
-        headers: { "Accept": "application/json" },
+        ...options,
+        headers: {
+            "Accept": "application/json",
+            ...(options.headers || {})
+        },
         cache: "no-store"
     });
     const text = (await response.text()).trim();
@@ -109,8 +113,9 @@ async function getShiftsForDate(serverUrl, token, date) {
     const key = encodeURIComponent(token);
     const dateParam = encodeURIComponent(requestedDate);
 
-    // Primary format used by the iikoServer cash-shifts endpoint.
-    const primaryUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&date=${dateParam}`;
+    // Different SH/iiko Server builds have used different parameter names.
+    // Send the requested date explicitly in all compatible query forms.
+    const primaryUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&date=${dateParam}&dateFrom=${dateParam}&dateTo=${dateParam}&openDateFrom=${dateParam}&openDateTo=${dateParam}`;
     const primary = await requestJson(primaryUrl);
 
     if (primary.response.ok) {
@@ -118,32 +123,41 @@ async function getShiftsForDate(serverUrl, token, date) {
             ok: true,
             status: primary.response.status,
             shifts: extractList(primary.payload).map(item => normalizeShift(item, requestedDate)).filter(Boolean),
-            format: "date"
+            format: "date/dateFrom/dateTo/openDateFrom/openDateTo"
         };
     }
 
-    // Some iikoServer builds expose the same endpoint with a date-range contract.
-    // Retry that contract when the server rejects the single-date request.
-    const rangeUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&openDateFrom=${dateParam}&openDateTo=${dateParam}`;
-    const range = await requestJson(rangeUrl);
+    // Compatibility fallback for SH Server builds that read the date from a POST body.
+    const postUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}`;
+    const post = await requestJson(postUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            date: requestedDate,
+            dateFrom: requestedDate,
+            dateTo: requestedDate,
+            openDateFrom: requestedDate,
+            openDateTo: requestedDate
+        })
+    });
 
-    if (range.response.ok) {
+    if (post.response.ok) {
         return {
             ok: true,
-            status: range.response.status,
-            shifts: extractList(range.payload).map(item => normalizeShift(item, requestedDate)).filter(Boolean),
-            format: "openDateFrom/openDateTo"
+            status: post.response.status,
+            shifts: extractList(post.payload).map(item => normalizeShift(item, requestedDate)).filter(Boolean),
+            format: "POST body date"
         };
     }
 
     return {
         ok: false,
         status: primary.response.status,
-        text: primary.text || range.text || "iiko Server не вернул текст ошибки",
-        fallbackStatus: range.response.status,
-        fallbackText: range.text,
+        text: primary.text || "iiko Server не вернул текст ошибки",
+        fallbackStatus: post.response.status,
+        fallbackText: post.text,
         shifts: [],
-        formatsTried: ["date", "openDateFrom/openDateTo"]
+        formatsTried: ["GET date/dateFrom/dateTo/openDateFrom/openDateTo", "POST body date"]
     };
 }
 
@@ -182,7 +196,7 @@ export async function onRequestPost(context) {
                 all.push(...result.shifts);
                 formatsTried.add(result.format);
             } else {
-                formatsTried.add(...(result.formatsTried || []));
+                for (const fmt of result.formatsTried || []) formatsTried.add(fmt);
                 errors.push({
                     date: isoDate(date),
                     status: result.status,
