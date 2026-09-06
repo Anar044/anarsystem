@@ -5,34 +5,18 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Smart Horeca Control — Кассовые смены</title>
 <link rel="stylesheet" href="app-shell.css">
-<style>
-.cash-shifts-page{padding:24px;max-width:1650px;margin:0 auto}
-.cs-head{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;margin-bottom:18px}
-.cs-kicker{font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#42d392;margin-bottom:7px}
-.cs-title{margin:0;color:#f4f7fa;font-size:27px;line-height:1.15}
-.cs-sub{margin:7px 0 0;color:#8994a3;font-size:12px}
-.cs-panel{background:#111923;border:1px solid #222c38;border-radius:14px;padding:17px;margin-bottom:14px}
-.cs-filters{display:grid;grid-template-columns:180px 180px 1fr auto;gap:10px;align-items:end}
-.cs-field{display:flex;flex-direction:column;gap:6px}.cs-field label{font-size:10px;color:#8994a3;font-weight:700}.cs-field input{height:38px;border:1px solid #293442;background:#0e151d;color:#f4f7fa;border-radius:9px;padding:8px 10px}
-.cs-btn{height:38px;border:0;border-radius:9px;padding:0 16px;background:#42d392;color:#06110b;font-weight:800;cursor:pointer}.cs-btn:disabled{opacity:.5;cursor:wait}
-.cs-status{font-size:10px;color:#8994a3;min-height:16px;margin-top:10px}.cs-status.error{color:#ff6678}.cs-status.ok{color:#42d392}
-.cs-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
-.cs-stat{background:#111923;border:1px solid #222c38;border-radius:12px;padding:14px}.cs-stat span{display:block;color:#8994a3;font-size:9px;text-transform:uppercase;letter-spacing:.06em;font-weight:800;margin-bottom:7px}.cs-stat strong{font-size:20px;color:#f4f7fa}.cs-stat small{display:block;margin-top:4px;color:#6f7c8b;font-size:9px}
-.cs-table-wrap{overflow:auto;border:1px solid #222c38;border-radius:12px;background:#0f171f}.cs-table{width:100%;min-width:900px;border-collapse:collapse;font-size:10px}.cs-table th{text-align:left;padding:10px;background:#111923;color:#6f7c8b;text-transform:uppercase;letter-spacing:.05em;font-size:8px;white-space:nowrap}.cs-table td{padding:10px;border-top:1px solid #1d2732;color:#dce4eb;white-space:nowrap}.cs-table tbody tr:hover{background:#121d26}.cs-empty{text-align:center;padding:38px;color:#6f7c8b;font-size:11px}.cs-badge{display:inline-flex;padding:4px 7px;border-radius:999px;font-size:8px;font-weight:800}.cs-open{background:#382f18;color:#ffb454}.cs-closed{background:#15251f;color:#42d392}
-@media(max-width:760px){.cash-shifts-page{padding:18px 14px 34px}.cs-head{align-items:flex-start;flex-direction:column}.cs-title{font-size:23px}.cs-filters{grid-template-columns:1fr 1fr}.cs-filters .cs-btn{grid-column:1/-1}.cs-stats{grid-template-columns:1fr 1fr}.cs-panel{padding:14px}}
-@media(max-width:480px){.cs-filters,.cs-stats{grid-template-columns:1fr}.cs-filters .cs-btn{grid-column:auto}}
-</style>
+<link rel="stylesheet" href="cash-shifts.css?v=2">
 </head>
 <body data-protected="true" style="background:#0b1017">
 <div class="app-shell">
 <aside class="sidebar"><div class="brand">Smart Horeca Control</div></aside>
 <main class="main">
 <header class="topbar">
- <div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Кассовые смены</span><div class="topbar-sub">Смены из iiko Server</div></div>
+ <div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Кассовые смены</span><div class="topbar-sub">Смены из SH Server</div></div>
  <div class="top-actions"><span class="user-chip"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span></span><button class="icon-btn" data-auth-logout>Выйти</button></div>
 </header>
 <section class="cash-shifts-page">
- <div class="cs-head"><div><div class="cs-kicker">iiko Server API</div><h1 class="cs-title">Кассовые смены</h1><p class="cs-sub">Получение реальных кассовых смен напрямую из iiko Server.</p></div></div>
+ <div class="cs-head"><div><div class="cs-kicker">SH Server API</div><h1 class="cs-title">Кассовые смены</h1><p class="cs-sub">Получение реальных кассовых смен напрямую из SH Server.</p></div></div>
  <div class="cs-panel">
   <div class="cs-filters">
    <div class="cs-field"><label for="cs-from">Дата с</label><input id="cs-from" type="date"></div>
@@ -58,5 +42,5 @@
 <script src="auth-config.js"></script>
 <script src="auth.js"></script>
 <script src="app-shell.js"></script>
-<script src="cash-shifts.js?v=1"></script>
+<script src="cash-shifts.js?v=2"></script>
 </body></html>
