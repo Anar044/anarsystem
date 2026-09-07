@@ -1,0 +1,1 @@
+(function(){"use strict";function load(){if(document.getElementById("dashboard-style"))return;const l=document.createElement("link");l.id="dashboard-style";l.rel="stylesheet";l.href="dashboard.css?v=2";document.head.appendChild(l)}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",load,{once:true});else load()})();
