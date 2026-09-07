@@ -8,16 +8,14 @@
     ['vnutrennie-peremescheniya.html','Внутренние перемещения','⇄']
   ];
 
-  // One fixed order for the main sidebar.
-  // Dashboard always stays first, Settings always stays last.
   const order=[
     'index.html',
     'finance.html',
     'reports.html',
     'plugin-control.html',
-    'plugin-events.html',
     'qr-menu.html',
     'events.html',
+    'plugin-events.html',
     'settings.html'
   ];
 
@@ -67,18 +65,23 @@
   function organize(nav){
     if(!nav) return;
 
-    // Only top-level links participate in the main order.
+    // The Documents group is a block, not a normal top-level link.
+    // Temporarily detach it so it cannot move to the top when links are reordered.
+    const group=nav.querySelector(':scope > .documents-nav-group');
+    if(group) group.remove();
+
     const links=[...nav.children].filter(el=>el.tagName==='A');
-    if(!links.length) return;
+    if(!links.length){
+      if(group) nav.appendChild(group);
+      return;
+    }
 
-    // Remove the old top-level Documents link if another script created it.
     const clean=links.filter(a=>label(a)!=='Накладные');
-
     const rank=new Map(order.map((href,i)=>[href,i]));
     const dashboard=clean.find(a=>hrefOf(a)==='index.html'||label(a)==='Dashboard');
     const settings=clean.find(a=>hrefOf(a)==='settings.html'||label(a)==='Настройки');
-
     const middle=clean.filter(a=>a!==dashboard&&a!==settings);
+
     middle.sort((a,b)=>{
       const ra=rank.has(hrefOf(a))?rank.get(hrefOf(a)):999;
       const rb=rank.has(hrefOf(b))?rank.get(hrefOf(b)):999;
@@ -92,12 +95,15 @@
       ...(settings?[settings]:[])
     ];
 
-    const current=[...nav.children].filter(el=>el.tagName==='A');
-    const same=current.length===desired.length && current.every((el,i)=>el===desired[i]);
+    // Remove only top-level links, then put them back in the fixed order.
+    links.forEach(a=>a.remove());
+    desired.forEach(a=>nav.appendChild(a));
 
-    if(!same){
-      current.forEach(a=>a.remove());
-      desired.forEach(a=>nav.appendChild(a));
+    // Documents must always sit between the main navigation and Settings.
+    if(group){
+      const settingsLink=[...nav.children].find(a=>a.tagName==='A'&&hrefOf(a)==='settings.html');
+      if(settingsLink) nav.insertBefore(group,settingsLink);
+      else nav.appendChild(group);
     }
   }
 
@@ -105,16 +111,8 @@
     if(!nav) return;
     const page=currentPage();
     nav.querySelectorAll('a').forEach(a=>a.classList.remove('active'));
-
-    const active=[...nav.querySelectorAll('a')].find(a=>hrefOf(a)===page);
+    const active=[...nav.querySelectorAll(':scope > a')].find(a=>hrefOf(a)===page);
     if(active) active.classList.add('active');
-
-    // Never allow the Dashboard and Finance links to be active simultaneously.
-    if(active){
-      nav.querySelectorAll('a').forEach(a=>{
-        if(a!==active) a.classList.remove('active');
-      });
-    }
   }
 
   function add(){
@@ -159,11 +157,15 @@
       });
 
       group.append(toggle,links);
-
       const settingsLink=[...nav.children].find(a=>a.tagName==='A'&&hrefOf(a)==='settings.html');
       if(settingsLink) nav.insertBefore(group,settingsLink);
       else nav.appendChild(group);
     }
+
+    // A group may already exist after organize(); make absolutely sure it is
+    // in the correct place without observing DOM mutations.
+    const settingsLink=[...nav.children].find(a=>a.tagName==='A'&&hrefOf(a)==='settings.html');
+    if(settingsLink && group.nextElementSibling!==settingsLink) nav.insertBefore(group,settingsLink);
 
     sidebar.dataset.documentsNav='1';
     return true;
@@ -172,16 +174,11 @@
   function boot(){
     let attempts=0;
     const maxAttempts=30;
-
     function tryAdd(){
       const ok=add();
       attempts++;
-      // A few bounded retries are intentional: app-shell and page nav scripts
-      // can finish building the sidebar at slightly different times.
-      if(attempts<maxAttempts) setTimeout(tryAdd,200);
-      else if(!ok) return;
+      if(!ok && attempts<maxAttempts) setTimeout(tryAdd,200);
     }
-
     tryAdd();
   }
 
