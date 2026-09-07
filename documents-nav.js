@@ -7,7 +7,7 @@
   ];
 
   function installStyle(){
-    if(document.getElementById('documents-nav-style'))return;
+    if(document.getElementById('documents-nav-style')) return;
     const style=document.createElement('style');
     style.id='documents-nav-style';
     style.textContent=`
@@ -29,33 +29,44 @@
   }
 
   function label(a){
-    return String(a?.querySelector('span:last-child')?.textContent||a?.textContent||'').replace(/\s+/g,' ').trim();
+    return String(a?.querySelector('span:last-child')?.textContent||a?.textContent||'')
+      .replace(/\s+/g,' ').trim();
   }
 
   function organize(nav){
-    if(!nav)return;
-    const links=[...nav.children].filter(el=>el.tagName==='A');
-    if(!links.length)return;
+    if(!nav) return;
 
-    links.forEach(a=>{if(label(a)==='Накладные')a.remove();});
+    const links=[...nav.children].filter(el=>el.tagName==='A');
+    if(!links.length) return;
+
+    const withoutOldNakladnye=links.filter(a=>label(a)!=='Накладные');
+    const dashboard=withoutOldNakladnye.find(a=>label(a)==='Dashboard');
+    const settings=withoutOldNakladnye.find(a=>label(a)==='Настройки');
+    const middle=withoutOldNakladnye.filter(a=>a!==dashboard&&a!==settings);
+
+    const desired=[
+      ...(dashboard?[dashboard]:[]),
+      ...middle,
+      ...(settings?[settings]:[])
+    ];
 
     const current=[...nav.children].filter(el=>el.tagName==='A');
-    const dashboard=current.find(a=>label(a)==='Dashboard');
-    const settings=current.find(a=>label(a)==='Настройки');
-    const middle=current.filter(a=>a!==dashboard&&a!==settings);
+    const same=current.length===desired.length && current.every((el,i)=>el===desired[i]);
 
-    [...nav.children].filter(el=>el.tagName==='A').forEach(a=>a.remove());
-    if(dashboard)nav.appendChild(dashboard);
-    middle.forEach(a=>nav.appendChild(a));
-    if(settings)nav.appendChild(settings);
+    if(same) return;
+
+    current.forEach(a=>a.remove());
+    desired.forEach(a=>nav.appendChild(a));
   }
 
   function add(){
     installStyle();
+
     const sidebar=document.querySelector('.sidebar');
-    if(!sidebar)return false;
+    if(!sidebar) return false;
+
     const nav=sidebar.querySelector('.unified-main-nav,.side-nav');
-    if(!nav)return false;
+    if(!nav) return false;
 
     organize(nav);
 
@@ -90,9 +101,8 @@
 
       group.append(toggle,links);
 
-      const settings=nav.querySelector('a');
       const settingsLink=[...nav.children].find(a=>a.tagName==='A'&&label(a)==='Настройки');
-      if(settingsLink)nav.insertBefore(group,settingsLink);
+      if(settingsLink) nav.insertBefore(group,settingsLink);
       else nav.appendChild(group);
     }
 
@@ -101,21 +111,22 @@
   }
 
   function boot(){
-    if(add()){
-      const sidebar=document.querySelector('.sidebar');
-      if(sidebar&&!sidebar.dataset.documentsObserver){
-        const observer=new MutationObserver(()=>{
-          const nav=sidebar.querySelector('.unified-main-nav,.side-nav');
-          if(nav)organize(nav);
-        });
-        observer.observe(sidebar,{childList:true,subtree:true});
-        sidebar.dataset.documentsObserver='1';
-      }
-      return;
+    let attempts=0;
+    const maxAttempts=100;
+
+    function tryAdd(){
+      if(add()) return;
+      attempts++;
+      if(attempts>=maxAttempts) return;
+      setTimeout(tryAdd,100);
     }
-    let n=0;
-    const t=setInterval(()=>{if(add()||++n>100)clearInterval(t);},100);
+
+    tryAdd();
   }
 
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',boot,{once:true});
+  }else{
+    boot();
+  }
 })();
