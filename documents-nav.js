@@ -13,6 +13,7 @@
     'finance.html',
     'reports.html',
     'plugin-control.html',
+    'cash-shifts.html',
     'qr-menu.html',
     'events.html',
     'plugin-events.html',
@@ -57,25 +58,51 @@
     if(p.endsWith('/plugin-control')||p.endsWith('/plugin-control.html')) return 'plugin-control.html';
     if(p.endsWith('/plugin-events')||p.endsWith('/plugin-events.html')) return 'plugin-events.html';
     if(p.endsWith('/qr-menu')||p.endsWith('/qr-menu.html')) return 'qr-menu.html';
+    if(p.endsWith('/cash-shifts')||p.endsWith('/cash-shifts.html')) return 'cash-shifts.html';
     if(p.endsWith('/events')||p.endsWith('/events.html')) return 'events.html';
     if(p.endsWith('/settings')||p.endsWith('/settings.html')) return 'settings.html';
     return 'index.html';
   }
 
-  function organize(nav){
-    if(!nav) return;
+  function ensureGroup(nav){
+    let group=nav.querySelector(':scope > .documents-nav-group');
+    if(group) return group;
 
-    // The Documents group is a block, not a normal top-level link.
-    // Temporarily detach it so it cannot move to the top when links are reordered.
+    group=document.createElement('div');
+    group.className='documents-nav-group';
+
+    const toggle=document.createElement('button');
+    toggle.type='button';
+    toggle.className='documents-nav-toggle';
+    toggle.setAttribute('aria-expanded','false');
+    toggle.innerHTML='<span class="documents-nav-toggle-left"><span class="documents-nav-folder">▣</span><span>Документы</span></span><span class="documents-nav-chevron">⌄</span>';
+
+    const links=document.createElement('nav');
+    links.className='side-nav nav documents-subnav';
+    links.hidden=true;
+
+    items.forEach(([href,text,icon])=>{
+      const a=document.createElement('a');
+      a.href=href;
+      a.innerHTML=`<span class="side-icon">${icon}</span><span>${text}</span>`;
+      links.appendChild(a);
+    });
+
+    toggle.addEventListener('click',()=>{
+      const open=toggle.getAttribute('aria-expanded')!=='true';
+      toggle.setAttribute('aria-expanded',String(open));
+      group.classList.toggle('open',open);
+      links.hidden=!open;
+    });
+
+    group.append(toggle,links);
+    nav.appendChild(group);
+    return group;
+  }
+
+  function normalize(nav){
     const group=nav.querySelector(':scope > .documents-nav-group');
-    if(group) group.remove();
-
     const links=[...nav.children].filter(el=>el.tagName==='A');
-    if(!links.length){
-      if(group) nav.appendChild(group);
-      return;
-    }
-
     const clean=links.filter(a=>label(a)!=='Накладные');
     const rank=new Map(order.map((href,i)=>[href,i]));
     const dashboard=clean.find(a=>hrefOf(a)==='index.html'||label(a)==='Dashboard');
@@ -89,102 +116,73 @@
       return label(a).localeCompare(label(b),'ru');
     });
 
-    const desired=[
-      ...(dashboard?[dashboard]:[]),
-      ...middle,
-      ...(settings?[settings]:[])
-    ];
+    const desired=[...(dashboard?[dashboard]:[]),...middle,...(settings?[settings]:[])];
+    const current=links.filter(a=>label(a)==='Накладные' || desired.includes(a));
+    const needsLinkReorder=current.length!==desired.length || current.some((a,i)=>a!==desired[i]);
 
-    // Remove only top-level links, then put them back in the fixed order.
-    links.forEach(a=>a.remove());
-    desired.forEach(a=>nav.appendChild(a));
+    if(needsLinkReorder){
+      links.forEach(a=>a.remove());
+      desired.forEach(a=>nav.appendChild(a));
+    }
 
-    // Documents must always sit between the main navigation and Settings.
     if(group){
       const settingsLink=[...nav.children].find(a=>a.tagName==='A'&&hrefOf(a)==='settings.html');
-      if(settingsLink) nav.insertBefore(group,settingsLink);
-      else nav.appendChild(group);
+      if(settingsLink && group.nextElementSibling!==settingsLink) nav.insertBefore(group,settingsLink);
+      else if(!settingsLink && group.previousElementSibling!==nav.lastElementChild) nav.appendChild(group);
     }
   }
 
   function setActive(nav){
-    if(!nav) return;
     const page=currentPage();
     nav.querySelectorAll('a').forEach(a=>a.classList.remove('active'));
     const active=[...nav.querySelectorAll(':scope > a')].find(a=>hrefOf(a)===page);
     if(active) active.classList.add('active');
+    const subActive=[...nav.querySelectorAll('.documents-subnav a')].find(a=>hrefOf(a)===page);
+    if(subActive){
+      subActive.classList.add('active');
+      const group=nav.querySelector(':scope > .documents-nav-group');
+      const toggle=group?.querySelector('.documents-nav-toggle');
+      if(toggle) toggle.classList.add('active');
+    }
   }
 
-  function add(){
-    installStyle();
+  let observer=null;
+  let scheduled=false;
 
+  function run(){
+    scheduled=false;
     const sidebar=document.querySelector('.sidebar');
-    if(!sidebar) return false;
+    const nav=sidebar?.querySelector('.unified-main-nav,.side-nav');
+    if(!nav) return;
 
-    const nav=sidebar.querySelector('.unified-main-nav,.side-nav');
-    if(!nav) return false;
-
-    organize(nav);
+    if(observer) observer.disconnect();
+    installStyle();
+    ensureGroup(nav);
+    normalize(nav);
     setActive(nav);
 
-    let group=sidebar.querySelector('.documents-nav-group');
-    if(!group){
-      group=document.createElement('div');
-      group.className='documents-nav-group';
-
-      const toggle=document.createElement('button');
-      toggle.type='button';
-      toggle.className='documents-nav-toggle';
-      toggle.setAttribute('aria-expanded','false');
-      toggle.innerHTML='<span class="documents-nav-toggle-left"><span class="documents-nav-folder">▣</span><span>Документы</span></span><span class="documents-nav-chevron">⌄</span>';
-
-      const links=document.createElement('nav');
-      links.className='side-nav nav documents-subnav';
-      links.hidden=true;
-
-      items.forEach(([href,text,icon])=>{
-        const a=document.createElement('a');
-        a.href=href;
-        a.innerHTML=`<span class="side-icon">${icon}</span><span>${text}</span>`;
-        links.appendChild(a);
-      });
-
-      toggle.addEventListener('click',()=>{
-        const open=toggle.getAttribute('aria-expanded')!=='true';
-        toggle.setAttribute('aria-expanded',String(open));
-        group.classList.toggle('open',open);
-        links.hidden=!open;
-      });
-
-      group.append(toggle,links);
-      const settingsLink=[...nav.children].find(a=>a.tagName==='A'&&hrefOf(a)==='settings.html');
-      if(settingsLink) nav.insertBefore(group,settingsLink);
-      else nav.appendChild(group);
-    }
-
-    // A group may already exist after organize(); make absolutely sure it is
-    // in the correct place without observing DOM mutations.
-    const settingsLink=[...nav.children].find(a=>a.tagName==='A'&&hrefOf(a)==='settings.html');
-    if(settingsLink && group.nextElementSibling!==settingsLink) nav.insertBefore(group,settingsLink);
-
-    sidebar.dataset.documentsNav='1';
-    return true;
+    observer=new MutationObserver(()=>{
+      if(scheduled) return;
+      scheduled=true;
+      requestAnimationFrame(run);
+    });
+    observer.observe(nav,{childList:true,subtree:true});
   }
 
   function boot(){
     let attempts=0;
-    const maxAttempts=30;
-    function tryAdd(){
-      const ok=add();
+    const timer=setInterval(()=>{
       attempts++;
-      if(!ok && attempts<maxAttempts) setTimeout(tryAdd,200);
-    }
-    tryAdd();
+      const sidebar=document.querySelector('.sidebar');
+      const nav=sidebar?.querySelector('.unified-main-nav,.side-nav');
+      if(nav || attempts>=50){
+        clearInterval(timer);
+        if(nav) run();
+      }
+    },150);
+    run();
   }
 
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded',boot,{once:true});
-  }else{
-    boot();
-  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true});
+  else boot();
 })();
