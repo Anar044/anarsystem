@@ -19,4 +19,19 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script>
 <script>(function(){var l=document.createElement('link');l.rel='stylesheet';l.href='finance.css?v=10';document.head.appendChild(l);})();</script>
 <script src="mobile-responsive.js?v=2"></script><script src="finance-optimized.js?v=3"></script><script src="events-nav.js?v=1"></script><script src="documents-nav.js?v=3"></script>
+<script>
+(function(){
+  function restore(){
+    if(!document.querySelector('link[data-finance-final-style]')){
+      var l=document.createElement('link');
+      l.rel='stylesheet';
+      l.href='finance.css?v=12';
+      l.dataset.financeFinalStyle='1';
+      document.head.appendChild(l);
+    }
+  }
+  document.addEventListener('DOMContentLoaded',restore,{once:true});
+  setTimeout(restore,100);
+})();
+</script>
 </body></html>
