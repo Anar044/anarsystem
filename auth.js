@@ -226,7 +226,7 @@
             if (document.getElementById("pnl-nav-loader-script")) return;
             const s = document.createElement("script");
             s.id = "pnl-nav-loader-script";
-            s.src = "pnl-nav-loader.js?v=1";
+            s.src = "pnl-nav-loader.js?v=20260907";
             document.body.appendChild(s);
         }, 700);
     }
