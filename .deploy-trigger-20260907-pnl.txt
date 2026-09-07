@@ -1,0 +1,2 @@
+Deploy trigger for P&L sidebar navigation.
+app-shell.js already contains the Прибыли и убытки menu item.
