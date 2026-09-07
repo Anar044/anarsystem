@@ -84,14 +84,12 @@
 
   <section class="card panel result-panel">
     <div class="panel-head"><div><div class="section-kicker">RESULT</div><div class="panel-title" id="result-title">Результат</div><div class="panel-muted" id="result-subtitle">Здесь будут отображаться полученные данные в удобном виде.</div></div><div class="result-live-label"><span></span> LIVE</div></div>
-
     <div class="cash-overview-grid" aria-label="Состояние кассы">
       <div class="overview-card accent-card"><div class="overview-icon">◉</div><div><span>Кассы онлайн</span><strong id="overview-online">—</strong><small id="overview-online-text">Проверяем подключение…</small></div></div>
       <div class="overview-card"><div class="overview-icon">↯</div><div><span>Последняя активность</span><strong id="overview-activity">—</strong><small id="overview-event">Ожидание события</small></div></div>
       <div class="overview-card"><div class="overview-icon">▥</div><div><span>Текущий отчёт</span><strong id="overview-report">Продажи</strong><small id="overview-report-status">Автоматически обновляется</small></div></div>
       <div class="overview-card"><div class="overview-icon">✓</div><div><span>Синхронизация</span><strong id="overview-sync">—</strong><small id="overview-sync-text">—</small></div></div>
     </div>
-
     <div id="result-summary" class="result-summary"><div class="empty-note">Данные появятся автоматически после подключения кассы.</div></div>
     <details class="raw-details"><summary>Показать технический ответ</summary><pre id="result-output" class="result-output">Ожидание запроса…</pre></details>
   </section>
@@ -106,6 +104,7 @@
 <script src="shift-summary.js"></script>
 <script src="plugin-orders.js"></script>
 <script src="plugin-order-history-v2.js"></script>
+<script src="documents-nav.js?v=5"></script>
 
 <script>
 (() => {
@@ -126,34 +125,4 @@
   setInterval(update, 10000);
 })();
 </script>
-
-<style id="cash-result-presentation">
-.result-panel{overflow:hidden!important}
-.result-summary{padding-top:4px!important}
-.result-table-title{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;margin:8px 0 12px!important;padding:0 2px!important}
-.result-table-title span{font-size:13px!important;font-weight:800!important;color:#e9f1f5!important}
-.result-table-title b{font-size:10px!important;font-weight:700!important;color:#7f8c9a!important;padding:5px 8px!important;border:1px solid #263340!important;border-radius:999px!important;background:#101820!important}
-.cash-metrics{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:10px!important;width:100%!important}
-.cash-metric{position:relative!important;min-width:0!important;min-height:82px!important;padding:13px 14px!important;border:1px solid #24313e!important;border-radius:12px!important;background:linear-gradient(145deg,#131d27,#101820)!important;display:flex!important;flex-direction:column!important;justify-content:space-between!important;overflow:hidden!important}
-.cash-metric:before{content:""!important;position:absolute!important;left:0!important;top:0!important;bottom:0!important;width:3px!important;background:#42d392!important;opacity:.8!important}
-.cash-metric-label{font-size:9px!important;line-height:1.25!important;color:#84919f!important;text-transform:uppercase!important;letter-spacing:.045em!important;font-weight:800!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-.cash-metric-value{margin-top:7px!important;font-size:19px!important;line-height:1.15!important;color:#f4f7fa!important;font-weight:850!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;font-variant-numeric:tabular-nums!important}
-.cash-metric-type{margin-top:5px!important;font-size:9px!important;color:#5f6d7b!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-.cash-metric.money .cash-metric-value{color:#42d392!important}
-.cash-metric.order .cash-metric-value{color:#f0f4f7!important}
-.cash-metric.warning .cash-metric-value{color:#ffb454!important}
-.cash-metric.neutral .cash-metric-value{color:#dce5ec!important}
-.cash-table-source{display:none!important}
-.cash-overview-grid{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:10px!important;margin:0 0 16px!important}
-.cash-overview-grid .overview-card{min-width:0!important;min-height:78px!important;padding:12px 14px!important;border:1px solid #24313e!important;border-radius:12px!important;background:linear-gradient(145deg,#141e28,#101820)!important;display:flex!important;align-items:center!important;gap:11px!important;box-shadow:none!important}
-.cash-overview-grid .overview-card.accent-card{border-color:#284536!important;background:linear-gradient(145deg,#14251f,#101a17)!important}
-.cash-overview-grid .overview-icon{width:32px!important;height:32px!important;min-width:32px!important;border-radius:9px!important;display:grid!important;place-items:center!important;background:#17222d!important;color:#42d392!important;border:1px solid #263543!important;font-size:14px!important}
-.cash-overview-grid .overview-card>div:last-child{min-width:0!important}
-.cash-overview-grid .overview-card span{display:block!important;font-size:9px!important;color:#84919f!important;text-transform:uppercase!important;letter-spacing:.045em!important;font-weight:800!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-.cash-overview-grid .overview-card strong{display:block!important;margin-top:4px!important;font-size:17px!important;line-height:1.1!important;color:#f4f7fa!important;font-weight:850!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;font-variant-numeric:tabular-nums!important}
-.cash-overview-grid .overview-card small{display:block!important;margin-top:4px!important;font-size:8px!important;color:#687687!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-.cash-overview-grid .accent-card strong{color:#42d392!important}
-@media(max-width:1100px){.cash-metrics{grid-template-columns:repeat(3,minmax(0,1fr))!important}.cash-overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
-@media(max-width:800px){.cash-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}.cash-overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
-@media(max-width:520px){.cash-metrics{grid-template-columns:1fr!important}.cash-overview-grid{grid-template-columns:1fr!important}}
-</style>
+</body></html>
