@@ -6,11 +6,44 @@
     ['vnutrennie-peremescheniya.html','Внутренние перемещения','⇄']
   ];
 
+  function normalizeLabel(a){
+    return String(a?.querySelector('span:last-child')?.textContent||a?.textContent||'').replace(/\s+/g,' ').trim();
+  }
+
+  function organizeMainNav(nav){
+    if(!nav || nav.dataset.documentsOrganized==='1') return;
+
+    const links=[...nav.children].filter(el=>el.tagName==='A');
+    if(!links.length) return;
+
+    // Накладные теперь находится только внутри раздела «Документы».
+    links.forEach(a=>{
+      if(normalizeLabel(a)==='Накладные') a.remove();
+    });
+
+    const remaining=[...nav.children].filter(el=>el.tagName==='A');
+    const dashboard=remaining.find(a=>normalizeLabel(a)==='Dashboard');
+    const others=remaining.filter(a=>a!==dashboard);
+
+    const collator=new Intl.Collator('ru',{sensitivity:'base',numeric:true});
+    others.sort((a,b)=>collator.compare(normalizeLabel(a),normalizeLabel(b)));
+
+    [...nav.children].filter(el=>el.tagName==='A').forEach(a=>a.remove());
+    if(dashboard) nav.appendChild(dashboard);
+    others.forEach(a=>nav.appendChild(a));
+    nav.dataset.documentsOrganized='1';
+  }
+
   function add(){
     const sidebar=document.querySelector('.sidebar');
-    if(!sidebar||sidebar.dataset.documentsNav==='1')return false;
+    if(!sidebar)return false;
+
     const nav=sidebar.querySelector('.unified-main-nav,.side-nav');
     if(!nav)return false;
+
+    organizeMainNav(nav);
+
+    if(sidebar.dataset.documentsNav==='1')return true;
     if(sidebar.querySelector('.documents-nav-group')){sidebar.dataset.documentsNav='1';return true;}
 
     const group=document.createElement('div');
@@ -55,7 +88,6 @@
     const spacer=sidebar.querySelector('.sidebar-spacer');
     if(spacer)sidebar.insertBefore(group,spacer);else sidebar.appendChild(group);
 
-    // If the user is already inside one of the document pages, keep the section open.
     if(currentDocument)setOpen(true);
 
     sidebar.dataset.documentsNav='1';
