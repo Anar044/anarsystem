@@ -6,98 +6,85 @@
     ['vnutrennie-peremescheniya.html','Внутренние перемещения','⇄']
   ];
 
-  function normalizeLabel(a){
-    return String(a?.querySelector('span:last-child')?.textContent||a?.textContent||'').replace(/\s+/g,' ').trim();
-  }
+  function label(a){return String(a?.querySelector('span:last-child')?.textContent||a?.textContent||'').replace(/\s+/g,' ').trim();}
 
-  function organizeMainNav(nav){
-    if(!nav || nav.dataset.documentsOrganized==='1') return;
-
+  function organize(nav){
+    if(!nav)return;
     const links=[...nav.children].filter(el=>el.tagName==='A');
-    if(!links.length) return;
+    if(!links.length)return;
 
-    // Накладные теперь находится только внутри раздела «Документы».
-    links.forEach(a=>{
-      if(normalizeLabel(a)==='Накладные') a.remove();
-    });
-
-    const remaining=[...nav.children].filter(el=>el.tagName==='A');
-    const dashboard=remaining.find(a=>normalizeLabel(a)==='Dashboard');
-    const others=remaining.filter(a=>a!==dashboard);
-
+    links.forEach(a=>{if(label(a)==='Накладные')a.remove();});
+    const current=[...nav.children].filter(el=>el.tagName==='A');
+    const dashboard=current.find(a=>label(a)==='Dashboard');
+    const others=current.filter(a=>a!==dashboard);
     const collator=new Intl.Collator('ru',{sensitivity:'base',numeric:true});
-    others.sort((a,b)=>collator.compare(normalizeLabel(a),normalizeLabel(b)));
+    others.sort((a,b)=>collator.compare(label(a),label(b)));
 
     [...nav.children].filter(el=>el.tagName==='A').forEach(a=>a.remove());
-    if(dashboard) nav.appendChild(dashboard);
+    if(dashboard)nav.appendChild(dashboard);
     others.forEach(a=>nav.appendChild(a));
-    nav.dataset.documentsOrganized='1';
   }
 
   function add(){
     const sidebar=document.querySelector('.sidebar');
     if(!sidebar)return false;
-
     const nav=sidebar.querySelector('.unified-main-nav,.side-nav');
     if(!nav)return false;
 
-    organizeMainNav(nav);
+    organize(nav);
 
-    if(sidebar.dataset.documentsNav==='1')return true;
-    if(sidebar.querySelector('.documents-nav-group')){sidebar.dataset.documentsNav='1';return true;}
+    let group=sidebar.querySelector('.documents-nav-group');
+    if(!group){
+      group=document.createElement('div');
+      group.className='documents-nav-group';
 
-    const group=document.createElement('div');
-    group.className='documents-nav-group';
+      const toggle=document.createElement('button');
+      toggle.type='button';
+      toggle.className='documents-nav-toggle';
+      toggle.setAttribute('aria-expanded','false');
+      toggle.innerHTML='<span class="documents-nav-toggle-left"><span class="documents-nav-folder">▣</span><span>Документы</span></span><span class="documents-nav-chevron">⌄</span>';
 
-    const toggle=document.createElement('button');
-    toggle.type='button';
-    toggle.className='documents-nav-toggle';
-    toggle.setAttribute('aria-expanded','false');
-    toggle.innerHTML='<span class="documents-nav-toggle-left"><span class="documents-nav-folder">▣</span><span>Документы</span></span><span class="documents-nav-chevron">⌄</span>';
+      const links=document.createElement('nav');
+      links.className='side-nav nav documents-subnav';
+      links.hidden=true;
 
-    const links=document.createElement('nav');
-    links.className='side-nav nav documents-subnav';
-    links.hidden=true;
+      items.forEach(([href,text,icon])=>{
+        const a=document.createElement('a');
+        a.href=href;
+        a.innerHTML=`<span class="side-icon">${icon}</span><span>${text}</span>`;
+        links.appendChild(a);
+      });
 
-    const path=location.pathname.toLowerCase();
-    let currentDocument=false;
+      toggle.addEventListener('click',()=>{
+        const open=toggle.getAttribute('aria-expanded')!=='true';
+        toggle.setAttribute('aria-expanded',String(open));
+        group.classList.toggle('open',open);
+        links.hidden=!open;
+      });
 
-    items.forEach(([href,label,icon])=>{
-      const a=document.createElement('a');
-      a.href=href;
-      if(path.endsWith('/'+href)||path.endsWith(href)){
-        a.className='active';
-        currentDocument=true;
-      }
-      a.innerHTML=`<span class="side-icon">${icon}</span><span>${label}</span>`;
-      links.appendChild(a);
-    });
-
-    function setOpen(open){
-      toggle.setAttribute('aria-expanded',String(open));
-      group.classList.toggle('open',open);
-      links.hidden=!open;
+      group.append(toggle,links);
+      const spacer=sidebar.querySelector('.sidebar-spacer');
+      if(spacer)sidebar.insertBefore(group,spacer);else sidebar.appendChild(group);
     }
-
-    toggle.addEventListener('click',()=>{
-      setOpen(toggle.getAttribute('aria-expanded')!=='true');
-    });
-
-    group.append(toggle,links);
-
-    const spacer=sidebar.querySelector('.sidebar-spacer');
-    if(spacer)sidebar.insertBefore(group,spacer);else sidebar.appendChild(group);
-
-    if(currentDocument)setOpen(true);
 
     sidebar.dataset.documentsNav='1';
     return true;
   }
 
   function boot(){
-    if(add())return;
-    let n=0;
-    const t=setInterval(()=>{if(add()||++n>50)clearInterval(t);},100);
+    if(add()){
+      const sidebar=document.querySelector('.sidebar');
+      if(sidebar&&!sidebar.dataset.documentsObserver){
+        const observer=new MutationObserver(()=>{
+          const nav=sidebar.querySelector('.unified-main-nav,.side-nav');
+          if(nav)organize(nav);
+        });
+        observer.observe(sidebar,{childList:true,subtree:true});
+        sidebar.dataset.documentsObserver='1';
+      }
+      return;
+    }
+    let n=0;const t=setInterval(()=>{if(add()||++n>100)clearInterval(t);},100);
   }
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
