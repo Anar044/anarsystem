@@ -6,7 +6,10 @@
  const saved=localStorage.getItem('shReportsTheme');
  root.dataset.theme=saved==='light'?'light':'dark';
 
+ function isAuthPage(){return document.body&&document.body.dataset.authPage;}
+
  function ensureMasterStyles(){
+   if(isAuthPage()) return Promise.resolve();
    if(document.querySelector('link[href*="app-shell.css"]')) return Promise.resolve();
    return new Promise(resolve=>{
      const link=document.createElement('link');
@@ -180,10 +183,12 @@
  function removeLegacyStyles(){
    document.querySelectorAll('link[rel="stylesheet"]').forEach(link=>{
      const href=(link.getAttribute('href')||'').toLowerCase();
-     if(!href.includes('app-shell.css')) link.remove();
+     if(href.includes('app-shell.css')) return;
+     if(isAuthPage() && href.includes('auth.css')) return;
+     link.remove();
    });
    const path=location.pathname.toLowerCase();
-   if(!path.endsWith('/index.html') && !path.endsWith('/')){
+   if(!path.endsWith('/index.html') && !path.endsWith('/') && !isAuthPage()){
      document.querySelectorAll('head > style').forEach(style=>{
        if(style.id!=='hc-unified-style') style.remove();
      });
