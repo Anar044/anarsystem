@@ -1,1 +1,30 @@
-(function(){'use strict';function add(){const nav=document.querySelector('.unified-main-nav,.side-nav');if(!nav)return false;if(!nav.querySelector('a[href="finance.html"]')){const a=document.createElement('a');a.href='finance.html';if(/finance(?:\.html)?\/?$/i.test(location.pathname))a.className='active';a.innerHTML='<span class="side-icon">₽</span><span>Финансы</span>';const accounts=nav.querySelector('a[href="accounts.html"]');nav.insertBefore(a,accounts||nav.firstChild)}if(!nav.querySelector('a[href="events.html"]')){const e=document.createElement('a');e.href='events.html';if(/events(?:\.html)?\/?$/i.test(location.pathname))e.className='active';e.innerHTML='<span class="side-icon">◷</span><span>Журнал событий</span>';const settings=nav.querySelector('a[href="settings.html"]');nav.insertBefore(e,settings||null)}if(!nav.querySelector('a[href="nakladnye.html"]')){const n=document.createElement('a');n.href='nakladnye.html';if(/nakladnye(?:\.html)?\/?$/i.test(location.pathname))n.className='active';n.innerHTML='<span class="side-icon">▤</span><span>Накладные</span>';const settings=nav.querySelector('a[href="settings.html"]');nav.insertBefore(n,settings||null)}if(/events(?:\.html)?\/?$/i.test(location.pathname)){nav.querySelectorAll('a').forEach(a=>{if(a.getAttribute('href')!=='events.html')a.classList.remove('active')})}if(/nakladnye(?:\.html)?\/?$/i.test(location.pathname)){nav.querySelectorAll('a').forEach(a=>{if(a.getAttribute('href')!=='nakladnye.html')a.classList.remove('active')})}return true}function start(){if(add())return;const o=new MutationObserver(()=>{if(add())o.disconnect()});o.observe(document.body,{childList:true,subtree:true});setTimeout(()=>o.disconnect(),10000)}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start()})();
+(function(){
+  'use strict';
+  function add(){
+    const nav=document.querySelector('.unified-main-nav,.side-nav');
+    if(!nav)return false;
+    let a=nav.querySelector('a[href="finance.html"]');
+    if(!a){
+      a=document.createElement('a');
+      a.href='finance.html';
+      a.innerHTML='<span class="side-icon">₽</span><span>Финансы</span>';
+    }
+    const dashboard=nav.querySelector('a[href="index.html"]');
+    if(dashboard && a!==dashboard.nextElementSibling) nav.insertBefore(a,dashboard.nextElementSibling);
+    else if(!dashboard && !a.parentNode) nav.appendChild(a);
+    const active=/finance(?:\.html)?\/?$/i.test(location.pathname);
+    a.classList.toggle('active',active);
+    if(active)nav.querySelectorAll('a').forEach(x=>{if(x!==a)x.classList.remove('active')});
+    return true;
+  }
+  function start(){
+    let n=0;
+    function run(){
+      add();
+      if(++n<30)setTimeout(run,200);
+    }
+    run();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});
+  else start();
+})();
