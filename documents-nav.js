@@ -1,9 +1,24 @@
 (function(){
+  'use strict';
+
   const items=[
     ['nakladnye.html','Накладные','▤'],
     ['rashodnye-nakladnye.html','Расходная накладная','▧'],
     ['akty-spisaniya.html','Акты списания','▥'],
     ['vnutrennie-peremescheniya.html','Внутренние перемещения','⇄']
+  ];
+
+  // One fixed order for the main sidebar.
+  // Dashboard always stays first, Settings always stays last.
+  const order=[
+    'index.html',
+    'finance.html',
+    'reports.html',
+    'plugin-control.html',
+    'plugin-events.html',
+    'qr-menu.html',
+    'events.html',
+    'settings.html'
   ];
 
   function installStyle(){
@@ -28,21 +43,48 @@
     document.head.appendChild(style);
   }
 
+  function hrefOf(a){
+    return String(a?.getAttribute('href')||'').split('#')[0].split('?')[0].split('/').pop().toLowerCase();
+  }
+
   function label(a){
     return String(a?.querySelector('span:last-child')?.textContent||a?.textContent||'')
       .replace(/\s+/g,' ').trim();
   }
 
+  function currentPage(){
+    const p=location.pathname.toLowerCase();
+    if(p.endsWith('/finance')||p.endsWith('/finance.html')) return 'finance.html';
+    if(p.endsWith('/reports')||p.endsWith('/reports.html')) return 'reports.html';
+    if(p.endsWith('/plugin-control')||p.endsWith('/plugin-control.html')) return 'plugin-control.html';
+    if(p.endsWith('/plugin-events')||p.endsWith('/plugin-events.html')) return 'plugin-events.html';
+    if(p.endsWith('/qr-menu')||p.endsWith('/qr-menu.html')) return 'qr-menu.html';
+    if(p.endsWith('/events')||p.endsWith('/events.html')) return 'events.html';
+    if(p.endsWith('/settings')||p.endsWith('/settings.html')) return 'settings.html';
+    return 'index.html';
+  }
+
   function organize(nav){
     if(!nav) return;
 
+    // Only top-level links participate in the main order.
     const links=[...nav.children].filter(el=>el.tagName==='A');
     if(!links.length) return;
 
-    const withoutOldNakladnye=links.filter(a=>label(a)!=='Накладные');
-    const dashboard=withoutOldNakladnye.find(a=>label(a)==='Dashboard');
-    const settings=withoutOldNakladnye.find(a=>label(a)==='Настройки');
-    const middle=withoutOldNakladnye.filter(a=>a!==dashboard&&a!==settings);
+    // Remove the old top-level Documents link if another script created it.
+    const clean=links.filter(a=>label(a)!=='Накладные');
+
+    const rank=new Map(order.map((href,i)=>[href,i]));
+    const dashboard=clean.find(a=>hrefOf(a)==='index.html'||label(a)==='Dashboard');
+    const settings=clean.find(a=>hrefOf(a)==='settings.html'||label(a)==='Настройки');
+
+    const middle=clean.filter(a=>a!==dashboard&&a!==settings);
+    middle.sort((a,b)=>{
+      const ra=rank.has(hrefOf(a))?rank.get(hrefOf(a)):999;
+      const rb=rank.has(hrefOf(b))?rank.get(hrefOf(b)):999;
+      if(ra!==rb) return ra-rb;
+      return label(a).localeCompare(label(b),'ru');
+    });
 
     const desired=[
       ...(dashboard?[dashboard]:[]),
@@ -53,10 +95,26 @@
     const current=[...nav.children].filter(el=>el.tagName==='A');
     const same=current.length===desired.length && current.every((el,i)=>el===desired[i]);
 
-    if(same) return;
+    if(!same){
+      current.forEach(a=>a.remove());
+      desired.forEach(a=>nav.appendChild(a));
+    }
+  }
 
-    current.forEach(a=>a.remove());
-    desired.forEach(a=>nav.appendChild(a));
+  function setActive(nav){
+    if(!nav) return;
+    const page=currentPage();
+    nav.querySelectorAll('a').forEach(a=>a.classList.remove('active'));
+
+    const active=[...nav.querySelectorAll('a')].find(a=>hrefOf(a)===page);
+    if(active) active.classList.add('active');
+
+    // Never allow the Dashboard and Finance links to be active simultaneously.
+    if(active){
+      nav.querySelectorAll('a').forEach(a=>{
+        if(a!==active) a.classList.remove('active');
+      });
+    }
   }
 
   function add(){
@@ -69,6 +127,7 @@
     if(!nav) return false;
 
     organize(nav);
+    setActive(nav);
 
     let group=sidebar.querySelector('.documents-nav-group');
     if(!group){
@@ -101,7 +160,7 @@
 
       group.append(toggle,links);
 
-      const settingsLink=[...nav.children].find(a=>a.tagName==='A'&&label(a)==='Настройки');
+      const settingsLink=[...nav.children].find(a=>a.tagName==='A'&&hrefOf(a)==='settings.html');
       if(settingsLink) nav.insertBefore(group,settingsLink);
       else nav.appendChild(group);
     }
@@ -112,13 +171,15 @@
 
   function boot(){
     let attempts=0;
-    const maxAttempts=100;
+    const maxAttempts=30;
 
     function tryAdd(){
-      if(add()) return;
+      const ok=add();
       attempts++;
-      if(attempts>=maxAttempts) return;
-      setTimeout(tryAdd,100);
+      // A few bounded retries are intentional: app-shell and page nav scripts
+      // can finish building the sidebar at slightly different times.
+      if(attempts<maxAttempts) setTimeout(tryAdd,200);
+      else if(!ok) return;
     }
 
     tryAdd();
