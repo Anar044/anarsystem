@@ -1,5 +1,5 @@
 (function(){'use strict';
-function installPageStyles(){if(document.getElementById('nakladnye-page-style'))return;const l=document.createElement('link');l.id='nakladnye-page-style';l.rel='stylesheet';l.href='nakladnye.css?v=3';document.head.appendChild(l)}
+function installPageStyles(){if(document.getElementById('nakladnye-page-style'))return;const l=document.createElement('link');l.id='nakladnye-page-style';l.rel='stylesheet';l.href='/nakladnye.css?v=4';document.head.appendChild(l)}
 installPageStyles();
 const $=id=>document.getElementById(id);const esc=v=>String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));let documents=[];
 function connection(){try{const c=JSON.parse(localStorage.getItem('iikoConnection')||'null');return c&&c.ip&&c.port&&c.login&&c.password?c:null}catch{return null}}
