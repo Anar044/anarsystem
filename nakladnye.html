@@ -46,6 +46,16 @@
   </main>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=2"></script><script src="nakladnye.js?v=5"></script>
+<script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=2"></script><script src="nakladnye.js?v=6"></script>
+<script>
+window.addEventListener('load',function(){
+  if(document.getElementById('nakladnye-page-style'))return;
+  var l=document.createElement('link');
+  l.id='nakladnye-page-style';
+  l.rel='stylesheet';
+  l.href='/nakladnye.css?v=5';
+  document.head.appendChild(l);
+});
+</script>
 </body>
 </html>
