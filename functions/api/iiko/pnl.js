@@ -23,9 +23,11 @@ function value(row,key){return number(row?.[key]??row?.[String(key).toLowerCase(
 function allRows(report){return Array.isArray(report?.data)?report.data:[]}
 function rowText(row,field){return clean(row?.[field]??row?.[String(field).toLowerCase()]??'')}
 function sumField(report,field){return allRows(report).reduce((a,r)=>a+value(r,field),0)}
-// In iiko OLAP the discount amount is a positive amount representing the
-// reduction of the pre-discount sum. Therefore net revenue is:
-// base sum - discount + surcharge.
+// iiko SALES fields used here:
+// DishSumInt   = amount before discounts/increases.
+// DiscountSum  = actual discount amount.
+// IncreaseSum  = actual surcharge amount.
+// Therefore net revenue = base - discount + surcharge.
 function netRevenue(r,base,discount,surcharge){return value(r,base)-(discount?value(r,discount):0)+(surcharge?value(r,surcharge):0)}
 function autoCategory(r){const t=r.accountType.toLowerCase(),n=r.name.toLowerCase();if(/asset|актив|активы|активлар/.test(t)||/liabil|обязат|borc/.test(t)||/equity|капитал|капиталı/.test(t))return'EXCLUDED';if(/income|доход|gəlir/.test(t))return'REVENUE';if(/expense|расход|xərc/.test(t)||/проч.*расход|other expense|digər xərc/.test(n))return'OPEX';if(/проч.*доход|other income|digər gəlir/.test(n))return'OTHER_INCOME';return'UNCLASSIFIED'}
 
@@ -36,22 +38,26 @@ export async function onRequestPost(c){
     const b=await c.request.json();const from=clean(b.from).slice(0,10),to=clean(b.to||b.from).slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return json({success:false,message:'Укажите корректный период'},400);
     const{u,t}=await auth(b);const salesFields=await cols(u,t,'SALES');const transactionFields=await cols(u,t,'TRANSACTIONS');
 
+    // IMPORTANT: DiscountSum is the actual discount amount.
+    // DishDiscountSumInt is a different iiko OLAP measure and must not be used
+    // as the displayed "Сумма скидки" when DiscountSum is available.
     const revenueBase=findField(salesFields,['DishSumInt','Сумма без учета скидок и надбавок','Сумма без скидки','Сумма без скидок','Торговая выручка без учета скидок']);
-    const discount=findField(salesFields,['DishDiscountSumInt','Сумма скидки','Скидка','Discount']);
-    const surcharge=findField(salesFields,['DishIncreaseSumInt','Сумма надбавки','Надбавка','Increase','Surcharge']);
+    const discount=findField(salesFields,['DiscountSum','Сумма скидки','Скидка','Discount','DishDiscountSumInt']);
+    const surcharge=findField(salesFields,['IncreaseSum','Сумма надбавки','Надбавка','Increase','Surcharge','DishIncreaseSumInt']);
     const category=findField(salesFields,['DishCategory','DishCategory.Name','DishCategoryName','Category','Category.Name','CategoryName','Категория блюда']);
     const salesDate=findField(salesFields,['OpenDate.Typed','OpenDate','Учетный день','Дата']);
     if(!revenueBase)throw Error('В OLAP SALES не найдено поле «Сумма без скидки».');
+    if(!discount)throw Error('В OLAP SALES не найдено поле «Сумма скидки» (DiscountSum).');
     if(!category)throw Error('В OLAP SALES не найдено поле «Категория блюда». Откройте «Диагностика источников» — нам нужно увидеть точное название поля категории.');
 
-    const categoryQuery=await olap(u,t,'SALES',{rows:[category],measures:[revenueBase,...[discount,surcharge].filter(Boolean)],from,to,dateField:salesDate||'OpenDate.Typed'});
+    const categoryQuery=await olap(u,t,'SALES',{rows:[category],measures:[revenueBase,discount,...[surcharge].filter(Boolean)],from,to,dateField:salesDate||'OpenDate.Typed'});
     if(!categoryQuery.ok)throw Error(`OLAP SALES по категориям: ${categoryQuery.error}`);
 
     const revenueBaseValue=sumField(categoryQuery.report,revenueBase);
-    const discountValue=discount?sumField(categoryQuery.report,discount):0;
+    const discountValue=sumField(categoryQuery.report,discount);
     const surchargeValue=surcharge?sumField(categoryQuery.report,surcharge):0;
 
-    const categoryRows=allRows(categoryQuery.report).map(r=>({name:rowText(r,category)||'Без категории',value:netRevenue(r,revenueBase,discount,surcharge),base:value(r,revenueBase),discount:discount?value(r,discount):0,surcharge:surcharge?value(r,surcharge):0})).filter(x=>x.name&&Math.abs(x.value)>0.000001);
+    const categoryRows=allRows(categoryQuery.report).map(r=>({name:rowText(r,category)||'Без категории',value:netRevenue(r,revenueBase,discount,surcharge),base:value(r,revenueBase),discount:value(r,discount),surcharge:surcharge?value(r,surcharge):0})).filter(x=>x.name&&Math.abs(x.value)>0.000001);
     const revenue=revenueBaseValue-discountValue+surchargeValue;
     if(!categoryRows.length)throw Error('iiko OLAP SALES не вернул строки по категориям блюд за выбранный период. Проверьте период и наличие продаж.');
 
@@ -73,6 +79,6 @@ export async function onRequestPost(c){
     const revenueRows=[{name:'Выручка',value:revenue,kind:'section',level:true,open:true},{name:'Сумма без скидки',value:revenueBaseValue,kind:'sub'},{name:'Сумма скидки',value:discountValue,kind:'sub'},{name:'Сумма надбавки',value:surchargeValue,kind:'sub'},{name:'Итого выручка',value:revenue,kind:'total'}];
     const final=[...revenueRows,{name:'Себестоимость',value:-cogs,kind:'section',level:true,open:true},{name:'Расход продуктов',value:-cogs,kind:'sub'},{name:'Валовая прибыль',value:grossProfit,kind:'total'},{name:'Операционные расходы',value:-opex,kind:'section',level:true,open:true},...financial.filter(x=>x.pnlCategory==='OPEX').map(x=>({name:x.name,value:-Math.abs(x.value),kind:'sub'})),{name:'Операционная прибыль',value:operatingProfit,kind:'total'},{name:'Прочие доходы',value:otherIncome,kind:'section',level:true,open:true},...financial.filter(x=>x.pnlCategory==='OTHER_INCOME').map(x=>({name:x.name,value:Math.abs(x.value),kind:'sub'})),{name:'Прочие расходы',value:-otherExpense,kind:'section',level:true,open:true},...financial.filter(x=>x.pnlCategory==='OTHER_EXPENSE').map(x=>({name:x.name,value:-Math.abs(x.value),kind:'sub'})),{name:'ИТОГО ЧИСТАЯ ПРИБЫЛЬ',value:netProfit,kind:'total profit'}];
 
-    return json({success:true,revenue,revenueBase:revenueBaseValue,discount:discountValue,surcharge:surchargeValue,revenueCategories:categoryRows.sort((a,b)=>b.value-a.value).map(x=>({name:x.name,value:x.value,share:revenue?x.value/revenue*100:0,base:x.base,discount:x.discount,surcharge:x.surcharge})),cogs,opex,otherIncome,otherExpense,grossProfit,operatingProfit,netProfit,rows:final,accounts:postings.map(x=>({...x,pnlCategory:x.name.toLowerCase()==='расход продуктов'?'COGS':autoCategory(x)})),salesFields,transactionFields,sourceNote:'iiko Server · OLAP SALES по категориям блюд + OLAP TRANSACTIONS · без кассовых смен',debug:{salesRequest:categoryQuery.request,salesRows:categoryRows.length,salesReport:categoryQuery.report,transactionRows:rawPostings.length}});
+    return json({success:true,revenue,revenueBase:revenueBaseValue,discount:discountValue,surcharge:surchargeValue,revenueCategories:categoryRows.sort((a,b)=>b.value-a.value).map(x=>({name:x.name,value:x.value,share:revenue?x.value/revenue*100:0,base:x.base,discount:x.discount,surcharge:x.surcharge})),cogs,opex,otherIncome,otherExpense,grossProfit,operatingProfit,netProfit,rows:final,accounts:postings.map(x=>({...x,pnlCategory:x.name.toLowerCase()==='расход продуктов'?'COGS':autoCategory(x)})),salesFields,transactionFields,sourceNote:'iiko Server · OLAP SALES по категориям блюд + OLAP TRANSACTIONS · без кассовых смен',debug:{salesRequest:categoryQuery.request,salesRows:categoryRows.length,salesReport:categoryQuery.report,transactionRows:rawPostings.length,selectedSalesFields:{revenueBase,discount,surcharge,category,salesDate}}});
   }catch(e){console.error('IIKO P&L ERROR',e);return json({success:false,message:e.message||'Ошибка P&L'},502)}
 }
