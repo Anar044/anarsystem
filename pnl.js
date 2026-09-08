@@ -78,7 +78,7 @@ async function exportExcel(){
   const rev=Number(last.revenue||0);(last.rows||[]).forEach(r=>addExcelRow(ws,r,rev));
   ws.columns=[{key:'name',width:38},{key:'value',width:17},{key:'pct',width:17}];ws.autoFilter={from:{row:5,column:1},to:{row:5,column:3}};
   const totalRow=ws.addRow([]);totalRow.height=8;
-  ws.getHeaderFooter().oddFooter=`&LSmart Horeca Control&CСтраница &P из &N&R${$('from').value} — ${$('to').value}`;
+  ws.headerFooter.oddFooter=`&LSmart Horeca Control&CСтраница &P из &N&R${$('from').value} — ${$('to').value}`;
 
   const cat=wb.addWorksheet('Структура выручки',{views:[{showGridLines:false}]});cat.pageSetup={orientation:'portrait',paperSize:9,fitToPage:true,fitToWidth:1};cat.freezePanes={xSplit:0,ySplit:5};
   cat.mergeCells('A1:D1');const ct=cat.getCell('A1');ct.value='СТРУКТУРА ВЫРУЧКИ ПО КАТЕГОРИЯМ';styleCell(ct,{font:excelFont(15,true,'FFFFFFFF'),fill:'FF166534',alignment:{vertical:'middle'}});cat.getRow(1).height=29;
@@ -90,7 +90,7 @@ async function exportExcel(){
   const crTotal=cat.addRow(['ИТОГО',rev,1,100]);crTotal.eachCell(c=>{c.font=excelFont(11,true,'FF0F172A');c.fill=excelFill('FFF1F5F9');c.border=excelBorder()});crTotal.getCell(2).numFmt='#,##0.00';crTotal.getCell(3).numFmt='0.0%';crTotal.getCell(4).numFmt='0.0';
   cat.columns=[{key:'name',width:34},{key:'value',width:18},{key:'share',width:15},{key:'sharePct',width:14}];
   if(cats.length)cat.addConditionalFormatting({ref:`B6:B${5+cats.length}`,rules:[{type:'dataBar',priority:1,showValue:true,color:{argb:'FF86B68A'}}]});
-  cat.getHeaderFooter().oddFooter='&LSmart Horeca Control&CСтраница &P из &N';
+  cat.headerFooter.oddFooter='&LSmart Horeca Control&CСтраница &P из &N';
 
   const buf=await wb.xlsx.writeBuffer();const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`pnl-${$('from').value}-${$('to').value}.xlsx`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
  }catch(e){console.error('Excel export error',e);alert('Не удалось сформировать Excel: '+(e.message||e))}
