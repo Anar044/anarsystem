@@ -7,7 +7,7 @@ function iso(d){return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDat
 function initDates(){const n=new Date(),f=new Date(n.getFullYear(),n.getMonth(),1);$('from').value=iso(f);$('to').value=iso(n)}
 function setPeriod(v){const n=new Date(),t=new Date(n);if(v==='month'){t.setDate(1);$('from').value=iso(t);$('to').value=iso(n)}else if(v==='prev'){const f=new Date(n.getFullYear(),n.getMonth()-1,1),e=new Date(n.getFullYear(),n.getMonth(),0);$('from').value=iso(f);$('to').value=iso(e)}else if(v==='7'||v==='30'){t.setDate(t.getDate()-Number(v)+1);$('from').value=iso(t);$('to').value=iso(n)}}
 function money(v){return Number(v||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})}
-function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+function esc(s){return String(s??'').replace(/[&<>\"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[m]))}
 function render(rows,rev){
  const tb=$('pnl-table').querySelector('tbody');tb.innerHTML='';
  const totalRev=Number(rev||0);
@@ -77,8 +77,8 @@ async function exportExcel(){
   ws.addRow([]);const head=ws.addRow(['Статья','Сумма','% к выручке']);head.height=23;head.eachCell(c=>styleCell(c,{font:excelFont(11,true,'FFFFFFFF'),fill:'FF334155',alignment:{vertical:'middle',horizontal:c.col===1?'left':'center'}}));
   const rev=Number(last.revenue||0);(last.rows||[]).forEach(r=>addExcelRow(ws,r,rev));
   ws.columns=[{key:'name',width:38},{key:'value',width:17},{key:'pct',width:17}];ws.autoFilter={from:{row:5,column:1},to:{row:5,column:3}};
-  const totalRow=ws.addRow([]);totalRow.height=8;
-  ws.headerFooter.oddFooter=`&LSmart Horeca Control&CСтраница &P из &N&R${$('from').value} — ${$('to').value}`;
+  // Do not use worksheet.getHeaderFooter()/headerFooter APIs here.
+  // ExcelJS builds used by some browsers do not expose that API consistently.
 
   const cat=wb.addWorksheet('Структура выручки',{views:[{showGridLines:false}]});cat.pageSetup={orientation:'portrait',paperSize:9,fitToPage:true,fitToWidth:1};cat.freezePanes={xSplit:0,ySplit:5};
   cat.mergeCells('A1:D1');const ct=cat.getCell('A1');ct.value='СТРУКТУРА ВЫРУЧКИ ПО КАТЕГОРИЯМ';styleCell(ct,{font:excelFont(15,true,'FFFFFFFF'),fill:'FF166534',alignment:{vertical:'middle'}});cat.getRow(1).height=29;
@@ -89,8 +89,7 @@ async function exportExcel(){
   cats.forEach(x=>{const row=cat.addRow([x.name,Number(x.value)||0,Number(x.share||0)/100,Number(x.share)||0]);row.getCell(2).numFmt='#,##0.00;[Red]-#,##0.00';row.getCell(3).numFmt='0.0%';row.getCell(4).numFmt='0.0';row.eachCell(c=>c.border=excelBorder());row.getCell(1).font=excelFont(11,false,'FF334155');row.getCell(2).alignment={horizontal:'right'};row.getCell(3).alignment={horizontal:'right'};row.getCell(4).alignment={horizontal:'right'};row.height=20});
   const crTotal=cat.addRow(['ИТОГО',rev,1,100]);crTotal.eachCell(c=>{c.font=excelFont(11,true,'FF0F172A');c.fill=excelFill('FFF1F5F9');c.border=excelBorder()});crTotal.getCell(2).numFmt='#,##0.00';crTotal.getCell(3).numFmt='0.0%';crTotal.getCell(4).numFmt='0.0';
   cat.columns=[{key:'name',width:34},{key:'value',width:18},{key:'share',width:15},{key:'sharePct',width:14}];
-  if(cats.length)cat.addConditionalFormatting({ref:`B6:B${5+cats.length}`,rules:[{type:'dataBar',priority:1,showValue:true,color:{argb:'FF86B68A'}}]});
-  cat.headerFooter.oddFooter='&LSmart Horeca Control&CСтраница &P из &N';
+  if(cats.length&&typeof cat.addConditionalFormatting==='function')cat.addConditionalFormatting({ref:`B6:B${5+cats.length}`,rules:[{type:'dataBar',priority:1,showValue:true,color:{argb:'FF86B68A'}}]});
 
   const buf=await wb.xlsx.writeBuffer();const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`pnl-${$('from').value}-${$('to').value}.xlsx`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
  }catch(e){console.error('Excel export error',e);alert('Не удалось сформировать Excel: '+(e.message||e))}
