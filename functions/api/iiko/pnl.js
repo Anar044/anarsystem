@@ -34,15 +34,16 @@ export async function onRequestPost(c){
     const{u,t}=await auth(b);const salesFields=await cols(u,t,'SALES');const transactionFields=await cols(u,t,'TRANSACTIONS');
 
     // --------------------------------------------------------
-    // SALES — revenue grouped ONLY by dish category.
-    // No individual dishes are returned to the P&L.
+    // SALES — get the revenue components and category structure
+    // directly from OLAP. Categories are returned separately from
+    // the main P&L revenue lines.
     // --------------------------------------------------------
-    const revenueBase=findField(salesFields,['DishSumInt','Сумма без учета скидок и надбавок','Сумма без учета скидок','Торговая выручка без учета скидок']);
+    const revenueBase=findField(salesFields,['DishSumInt','Сумма без учета скидок и надбавок','Сумма без скидки','Сумма без скидок','Торговая выручка без учета скидок']);
     const discount=findField(salesFields,['DishDiscountSumInt','Сумма скидки','Скидка','Discount']);
     const surcharge=findField(salesFields,['DishIncreaseSumInt','Сумма надбавки','Надбавка','Increase','Surcharge']);
-    const category=findField(salesFields,['DishCategory','DishCategory.Name','DishCategoryName','Category','Category.Name','CategoryName','Группа блюда','Категория блюда','DishGroup','DishGroupName']);
+    const category=findField(salesFields,['DishCategory','DishCategory.Name','DishCategoryName','Category','Category.Name','CategoryName','Категория блюда']);
     const salesDate=findField(salesFields,['OpenDate.Typed','OpenDate','Учетный день','Дата']);
-    if(!revenueBase)throw Error('В OLAP SALES не найдено поле «Сумма без учета скидок и надбавок».');
+    if(!revenueBase)throw Error('В OLAP SALES не найдено поле «Сумма без скидки».');
     if(!category)throw Error('В OLAP SALES не найдено поле «Категория блюда». Откройте «Диагностика источников» — нам нужно увидеть точное название поля категории.');
 
     const categoryQuery=await olap(u,t,'SALES',{rows:[category],measures:[revenueBase,...[discount,surcharge].filter(Boolean)],from,to,dateField:salesDate||'OpenDate.Typed'});
@@ -69,9 +70,17 @@ export async function onRequestPost(c){
     const opex=financial.filter(x=>x.pnlCategory==='OPEX').reduce((a,x)=>a+Math.abs(x.value),0);const otherIncome=financial.filter(x=>x.pnlCategory==='OTHER_INCOME').reduce((a,x)=>a+Math.abs(x.value),0);const otherExpense=financial.filter(x=>x.pnlCategory==='OTHER_EXPENSE').reduce((a,x)=>a+Math.abs(x.value),0);
     const grossProfit=revenue-cogs,operatingProfit=grossProfit-opex,netProfit=operatingProfit+otherIncome-otherExpense;
 
-    const revenueRows=[{name:'Выручка',value:revenue,kind:'section',level:true,open:true},...categoryRows.sort((a,b)=>b.value-a.value).map(x=>({name:x.name,value:x.value,kind:'sub',revenueCategory:true,share:revenue?x.value/revenue*100:0})),{name:'Итого выручка',value:revenue,kind:'total'}];
+    // Main P&L revenue keeps only the three OLAP components.
+    // Category breakdown is shown in the separate revenue-structure block.
+    const revenueRows=[
+      {name:'Выручка',value:revenue,kind:'section',level:true,open:true},
+      {name:'Сумма без скидки',value:revenueBaseValue=sumField(categoryQuery.report,revenueBase),kind:'sub'},
+      {name:'Сумма скидки',value:discountValue=discount?sumField(categoryQuery.report,discount):0,kind:'sub'},
+      {name:'Сумма надбавки',value:surchargeValue=surcharge?sumField(categoryQuery.report,surcharge):0,kind:'sub'},
+      {name:'Итого выручка',value:revenue,kind:'total'}
+    ];
     const final=[...revenueRows,{name:'Себестоимость',value:-cogs,kind:'section',level:true,open:true},{name:'Расход продуктов',value:-cogs,kind:'sub'},{name:'Валовая прибыль',value:grossProfit,kind:'total'},{name:'Операционные расходы',value:-opex,kind:'section',level:true,open:true},...financial.filter(x=>x.pnlCategory==='OPEX').map(x=>({name:x.name,value:-Math.abs(x.value),kind:'sub'})),{name:'Операционная прибыль',value:operatingProfit,kind:'total'},{name:'Прочие доходы',value:otherIncome,kind:'section',level:true,open:true},...financial.filter(x=>x.pnlCategory==='OTHER_INCOME').map(x=>({name:x.name,value:Math.abs(x.value),kind:'sub'})),{name:'Прочие расходы',value:-otherExpense,kind:'section',level:true,open:true},...financial.filter(x=>x.pnlCategory==='OTHER_EXPENSE').map(x=>({name:x.name,value:-Math.abs(x.value),kind:'sub'})),{name:'ИТОГО ЧИСТАЯ ПРИБЫЛЬ',value:netProfit,kind:'total profit'}];
 
-    return json({success:true,revenue,revenueCategories:categoryRows.map(x=>({name:x.name,value:x.value,share:revenue?x.value/revenue*100:0,base:x.base,discount:x.discount,surcharge:x.surcharge})),cogs,opex,otherIncome,otherExpense,grossProfit,operatingProfit,netProfit,rows:final,accounts:postings.map(x=>({...x,pnlCategory:x.name.toLowerCase()==='расход продуктов'?'COGS':autoCategory(x)})),salesFields,transactionFields,sourceNote:'iiko Server · OLAP SALES по категориям блюд + OLAP TRANSACTIONS · без кассовых смен',debug:{salesRequest:categoryQuery.request,salesRows:categoryRows.length,salesReport:categoryQuery.report,transactionRows:rawPostings.length}});
+    return json({success:true,revenue,revenueBase:revenueBaseValue,discount:discountValue,surcharge:surchargeValue,revenueCategories:categoryRows.map(x=>({name:x.name,value:x.value,share:revenue?x.value/revenue*100:0,base:x.base,discount:x.discount,surcharge:x.surcharge})),cogs,opex,otherIncome,otherExpense,grossProfit,operatingProfit,netProfit,rows:final,accounts:postings.map(x=>({...x,pnlCategory:x.name.toLowerCase()==='расход продуктов'?'COGS':autoCategory(x)})),salesFields,transactionFields,sourceNote:'iiko Server · OLAP SALES по категориям блюд + OLAP TRANSACTIONS · без кассовых смен',debug:{salesRequest:categoryQuery.request,salesRows:categoryRows.length,salesReport:categoryQuery.report,transactionRows:rawPostings.length}});
   }catch(e){console.error('IIKO P&L ERROR',e);return json({success:false,message:e.message||'Ошибка P&L'},502)}
 }
