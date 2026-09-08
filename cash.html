@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Horeca Control — Кассы</title>
+<link rel="stylesheet" href="app-shell.css">
+<link rel="stylesheet" href="cash.css?v=20260908-1">
+</head>
+<body data-protected="true" style="background:#0b1017">
+<div class="app-shell">
+  <aside class="sidebar"></aside>
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+        <span class="topbar-title">Кассы</span>
+        <div class="topbar-sub">Оперативный контроль заказов и выручки SH</div>
+      </div>
+      <div class="cash-top-actions">
+        <span id="connection" class="cash-connection pending">● Проверка кассы</span>
+        <button id="refresh" class="icon-btn cash-refresh">↻ Обновить</button>
+      </div>
+    </header>
+
+    <div class="app-content">
+      <main class="cash-page">
+        <section class="cash-head">
+          <div>
+            <div class="eyebrow">КАССА · ОНЛАЙН</div>
+            <h1>Операционная касса</h1>
+            <p id="cash-subtitle">Заказы, выручка и оплаты в одном окне.</p>
+          </div>
+          <div class="cash-source">
+            <span id="cash-name">Касса</span>
+            <small id="cash-updated">Обновление —</small>
+          </div>
+        </section>
+
+        <section class="cash-kpis">
+          <article class="cash-kpi closed">
+            <span>Закрытые заказы</span>
+            <strong id="closed-sum">0,00</strong>
+            <small id="closed-count">0 заказов</small>
+          </article>
+          <article class="cash-kpi open">
+            <span>Открытые заказы</span>
+            <strong id="open-sum">0,00</strong>
+            <small id="open-count">0 заказов</small>
+          </article>
+          <article class="cash-kpi expected">
+            <span>Ожидаемая выручка</span>
+            <strong id="expected-sum">0,00</strong>
+            <small>закрытые + открытые</small>
+          </article>
+          <article class="cash-kpi orders">
+            <span>Всего заказов</span>
+            <strong id="orders-count">0</strong>
+            <small id="status-counts">—</small>
+          </article>
+        </section>
+
+        <section class="cash-grid-top">
+          <article class="cash-card payments-card">
+            <div class="card-head">
+              <div><span class="section-kicker">ОПЛАТЫ</span><h2>Закрытые заказы по способам оплаты</h2></div>
+              <span id="payments-total" class="card-total">0,00</span>
+            </div>
+            <div id="payments" class="payments-list"><div class="empty-state">Загрузка оплат…</div></div>
+          </article>
+
+          <article class="cash-card status-card">
+            <div class="card-head">
+              <div><span class="section-kicker">СТАТУСЫ</span><h2>Состояние заказов</h2></div>
+            </div>
+            <div id="status-chart" class="status-chart"></div>
+          </article>
+        </section>
+
+        <section class="cash-card orders-card">
+          <div class="orders-head">
+            <div>
+              <span class="section-kicker">ЗАКАЗЫ</span>
+              <h2>Все заказы</h2>
+              <p>Открытые, закрытые и другие статусы. Нажмите на заказ, чтобы увидеть полную информацию.</p>
+            </div>
+            <div class="orders-tools">
+              <input id="search" type="search" placeholder="Поиск заказа, официанта, стола…">
+              <div id="filters" class="filters">
+                <button class="filter active" data-filter="all">Все</button>
+                <button class="filter" data-filter="open">Открытые</button>
+                <button class="filter" data-filter="closed">Закрытые</button>
+                <button class="filter" data-filter="other">Другие</button>
+              </div>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="orders-table">
+              <thead><tr>
+                <th>Заказ</th><th>Статус</th><th>Стол</th><th>Зал</th><th>Официант</th><th>Сумма</th><th>Открыт</th><th>Закрыт</th><th>Оплата</th><th></th>
+              </tr></thead>
+              <tbody id="orders"></tbody>
+            </table>
+          </div>
+          <div id="orders-footer" class="orders-footer">—</div>
+        </section>
+
+        <details class="cash-technical">
+          <summary>Технический статус</summary>
+          <pre id="technical-output"></pre>
+        </details>
+      </main>
+    </div>
+  </main>
+</div>
+
+<div id="order-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-backdrop" data-close-modal></div>
+  <section class="order-modal-card" role="dialog" aria-modal="true" aria-labelledby="order-modal-title">
+    <header class="modal-head">
+      <div><span class="section-kicker">ЗАКАЗ</span><h2 id="order-modal-title">Заказ</h2><p id="order-modal-subtitle">Загрузка…</p></div>
+      <button class="modal-close" data-close-modal>×</button>
+    </header>
+    <div id="order-details" class="order-details"></div>
+    <div class="modal-section"><div class="modal-section-title">Состав заказа</div><div id="order-items"></div></div>
+    <div class="modal-section"><div class="modal-section-title">История событий</div><div id="order-history"></div></div>
+  </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script>
+<script src="auth.js"></script>
+<script src="app-shell.js"></script>
+<script src="mobile-responsive.js?v=1"></script>
+<script src="cash.js?v=20260908-1"></script>
+</body>
+</html>
