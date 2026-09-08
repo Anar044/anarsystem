@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HorecaControl — ABC / XYZ анализ блюд</title>
 <link rel="stylesheet" href="app-shell.css">
-<link rel="stylesheet" href="abc-xyz.css?v=20260908">
+<link rel="stylesheet" href="abc-xyz.css?v=20260908-2">
 </head>
 <body data-protected="true" style="background:#0b1017">
 <div class="app-shell"><aside class="sidebar"></aside><main class="main">
@@ -25,8 +25,9 @@
 <div class="thresholds"><span class="filter-title">Границы</span><label>ABC A <input id="abcA" type="number" min="1" max="99" value="80">%</label><label>ABC B <input id="abcB" type="number" min="2" max="100" value="95">%</label><label>XYZ X <input id="xyzX" type="number" min="0" max="100" value="10">%</label><label>XYZ Y <input id="xyzY" type="number" min="1" max="100" value="25">%</label></div>
 </div></div>
 <div class="legend-row"><div><b>ABC:</b><span class="abc-chip a">A 0–80%</span><span class="abc-chip b">B 80–95%</span><span class="abc-chip c">C 95–100%</span></div><div><b>XYZ:</b><span class="xyz-chip x">X 0–10%</span><span class="xyz-chip y">Y 10–25%</span><span class="xyz-chip z">Z &gt;25%</span></div></div>
+<div id="abc-summary" class="abc-summary"></div>
 <div class="tabs"><button class="tab active" data-tab="abc">ABC-анализ</button><button class="tab" data-tab="xyz">XYZ-анализ</button><button class="tab" data-tab="matrix">ABC / XYZ-анализ</button></div>
 <div class="analytics-grid"><aside class="distribution-card"><div class="card-title">Распределение по группам</div><div id="distribution" class="distribution"></div></aside><section class="table-card"><div class="table-toolbar"><div class="search-wrap"><input id="search" type="search" placeholder="Введите текст для поиска..."><button id="clearSearch">Очистить</button></div><div id="rowCount" class="row-count">0 позиций</div></div><div id="error" class="error-box" hidden></div><div class="table-scroll"><table id="resultTable"><thead></thead><tbody></tbody><tfoot></tfoot></table></div></section></div>
 </section></div></main></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=1"></script><script src="abc-xyz-v4.js?v=20260908-1"></script><script src="documents-nav.js?v=9"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=1"></script><script src="abc-xyz-v4.js?v=20260908-2"></script><script src="documents-nav.js?v=9"></script>
 </body></html>
