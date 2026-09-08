@@ -1,6 +1,6 @@
 // ============================================================
 // ANAR SYSTEM — P&L FROM IIKO
-// Main P&L revenue: TRANSACTIONS OLAP / financial accounts
+// Main P&L revenue: TRANSACTIONS + SALES OLAP
 // Revenue category structure: SALES OLAP by dish category
 // COGS + financial articles: TRANSACTIONS OLAP
 // Cash shifts are intentionally NOT used here.
@@ -35,9 +35,8 @@ export async function onRequestPost(c){
     const{u,t}=await auth(b);const salesFields=await cols(u,t,'SALES');const transactionFields=await cols(u,t,'TRANSACTIONS');
 
     // ------------------------------------------------------------
-    // 1. SALES OLAP is used ONLY for the category structure.
-    // The main P&L revenue is taken from financial accounts below,
-    // because this is how native iiko P&L is built.
+    // 1. SALES OLAP — used for the actual discount/surcharge values
+    // and for the revenue category structure.
     // ------------------------------------------------------------
     const revenueBase=findField(salesFields,['DishSumInt','Сумма без учета скидок и надбавок','Сумма без скидки','Сумма без скидок','Торговая выручка без учета скидок']);
     const discount=findField(salesFields,['DiscountSum','Сумма скидки','Скидка','Discount','DishDiscountSumInt']);
@@ -50,18 +49,16 @@ export async function onRequestPost(c){
 
     const categoryQuery=await olap(u,t,'SALES',{rows:[category],measures:[revenueBase,discount,...[surcharge].filter(Boolean)],from,to,dateField:salesDate||'OpenDate.Typed'});
     if(!categoryQuery.ok)throw Error(`OLAP SALES по категориям: ${categoryQuery.error}`);
-    const categoryBase=sumField(categoryQuery.report,revenueBase),categoryDiscount=discount?sumField(categoryQuery.report,discount):0,categorySurcharge=surcharge?sumField(categoryQuery.report,surcharge):0;
+    const categoryBase=sumField(categoryQuery.report,revenueBase),categoryDiscount=sumField(categoryQuery.report,discount),categorySurcharge=surcharge?sumField(categoryQuery.report,surcharge):0;
     const categoryRevenue=categoryBase-categoryDiscount+categorySurcharge;
-    const categoryRows=allRows(categoryQuery.report).map(r=>({name:rowText(r,category)||'Без категории',value:value(r,revenueBase)-(discount?value(r,discount):0)+(surcharge?value(r,surcharge):0),base:value(r,revenueBase),discount:discount?value(r,discount):0,surcharge:surcharge?value(r,surcharge):0})).filter(x=>x.name&&Math.abs(x.value)>0.000001);
+    const categoryRows=allRows(categoryQuery.report).map(r=>({name:rowText(r,category)||'Без категории',value:value(r,revenueBase)-value(r,discount)+(surcharge?value(r,surcharge):0),base:value(r,revenueBase),discount:value(r,discount),surcharge:surcharge?value(r,surcharge):0})).filter(x=>x.name&&Math.abs(x.value)>0.000001);
     if(!categoryRows.length)throw Error('iiko OLAP SALES не вернул строки по категориям блюд за выбранный период. Проверьте период и наличие продаж.');
 
     // ------------------------------------------------------------
-    // 2. TRANSACTIONS OLAP — the source of the native iiko P&L.
-    // Revenue is assembled from financial accounts:
-    //   Торговая выручка
-    //   Предоставленные скидки
-    //   Торговая выручка, прочие
-    // This gives the same structure as iikoOffice P&L.
+    // 2. TRANSACTIONS OLAP — financial accounts used by native iiko P&L.
+    // Trading revenue and "прочие" stay from accounts.
+    // Discount and surcharge are deliberately taken from SALES OLAP,
+    // so the P&L shows the actual amounts, not only their difference.
     // ------------------------------------------------------------
     const article=findField(transactionFields,['Account.Name','AccountName','Счет','Счёт','FinancialArticle','Article','Account']);
     const amount=findField(transactionFields,['Sum','Сумма','Amount','Value','TransactionSum','MoneySum']);
@@ -75,11 +72,15 @@ export async function onRequestPost(c){
     const rawPostings=allRows(postingQuery.report);
     const postings=rawPostings.map(r=>({name:rowText(r,article)||'Без статьи',value:value(r,amount),accountId:accountId?rowText(r,accountId):'',accountType:accountType?rowText(r,accountType):'',counterAccount:counterAccount?rowText(r,counterAccount):''})).filter(x=>x.name);
 
-    // Exact financial-account buckets used by iiko's native P&L.
     const tradingRevenue=postings.filter(x=>isAccount(x.name,['Торговая выручка'])).reduce((a,x)=>a+x.value,0);
-    const providedDiscounts=postings.filter(x=>isAccount(x.name,['Предоставленные скидки'])).reduce((a,x)=>a+x.value,0);
+    const accountProvidedDiscounts=postings.filter(x=>isAccount(x.name,['Предоставленные скидки'])).reduce((a,x)=>a+x.value,0);
     const otherTradingRevenue=postings.filter(x=>isAccount(x.name,['Торговая выручка, прочие','Торговая выручка прочие'])).reduce((a,x)=>a+x.value,0);
-    const revenue=tradingRevenue+providedDiscounts+otherTradingRevenue;
+
+    // Actual discount/surcharge from SALES OLAP.
+    const discountValue=categoryDiscount;
+    const surchargeValue=categorySurcharge;
+    // Keep the iiko financial-account "прочие" amount in the total.
+    const revenue=tradingRevenue-discountValue+surchargeValue+otherTradingRevenue;
 
     const cogs=Math.abs(rawPostings.filter(r=>norm(rowText(r,article))===norm('Расход продуктов')).reduce((a,r)=>a+value(r,amount),0));
     const revenueAccountNames=new Set([norm('Торговая выручка'),norm('Предоставленные скидки'),norm('Торговая выручка, прочие'),norm('Торговая выручка прочие')]);
@@ -92,9 +93,10 @@ export async function onRequestPost(c){
     const revenueRows=[
       {name:'Выручка',value:revenue,kind:'section',level:true,open:true},
       {name:'Торговая выручка',value:tradingRevenue,kind:'sub'},
-      {name:'Предоставленные скидки',value:providedDiscounts,kind:'sub'},
+      {name:'Сумма скидки',value:-discountValue,kind:'sub'},
+      {name:'Сумма надбавки',value:surchargeValue,kind:'sub'},
       {name:'Торговая выручка, прочие',value:otherTradingRevenue,kind:'sub'},
-      {name:'Итого Торговая выручка',value:tradingRevenue+providedDiscounts+otherTradingRevenue,kind:'total'},
+      {name:'Итого Торговая выручка',value:revenue,kind:'total'},
       {name:'Итого Выручка',value:revenue,kind:'total'}
     ];
     const final=[...revenueRows,
@@ -115,16 +117,16 @@ export async function onRequestPost(c){
       success:true,
       revenue,
       revenueBase:tradingRevenue,
-      discount:providedDiscounts,
-      surcharge:otherTradingRevenue,
-      revenueAccounts:{tradingRevenue,providedDiscounts,otherTradingRevenue,totalTradingRevenue:revenue},
+      discount:discountValue,
+      surcharge:surchargeValue,
+      revenueAccounts:{tradingRevenue,accountProvidedDiscounts,otherTradingRevenue,totalRevenue:revenue,olapDiscount:discountValue,olapSurcharge:surchargeValue},
       revenueCategories:categoryRows.sort((a,b)=>b.value-a.value).map(x=>({name:x.name,value:x.value,share:categoryRevenue?x.value/categoryRevenue*100:0,base:x.base,discount:x.discount,surcharge:x.surcharge})),
       categoryRevenue,
       cogs,opex,otherIncome,otherExpense,grossProfit,operatingProfit,netProfit,
       rows:final,
       accounts:postings.map(x=>({...x,pnlCategory:revenueAccountNames.has(norm(x.name))?'REVENUE':(norm(x.name)==='расход продуктов'?'COGS':autoCategory(x))})),
       salesFields,transactionFields,
-      sourceNote:'iiko Server · P&L выручка из OLAP TRANSACTIONS по финансовым счетам + структура категорий из OLAP SALES · без кассовых смен',
+      sourceNote:'iiko Server · P&L: Торговая выручка и прочие из OLAP TRANSACTIONS, сумма скидки и надбавки из OLAP SALES, категории из OLAP SALES · без кассовых смен',
       debug:{
         salesRequest:categoryQuery.request,
         salesRows:categoryRows.length,
@@ -132,7 +134,7 @@ export async function onRequestPost(c){
         transactionRows:rawPostings.length,
         selectedSalesFields:{revenueBase,discount,surcharge,category,salesDate},
         selectedTransactionFields:{article,amount,accountId,accountType,counterAccount,trDate},
-        revenueAccounts:{tradingRevenue,providedDiscounts,otherTradingRevenue,total:revenue}
+        revenueAccounts:{tradingRevenue,accountProvidedDiscounts,otherTradingRevenue,total:revenue,olapDiscount:discountValue,olapSurcharge:surchargeValue}
       }
     });
   }catch(e){console.error('IIKO P&L ERROR',e);return json({success:false,message:e.message||'Ошибка P&L'},502)}
