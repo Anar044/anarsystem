@@ -4,6 +4,11 @@
 // Revenue category structure: SALES OLAP by dish category
 // COGS + financial articles: TRANSACTIONS OLAP
 // Cash shifts are intentionally NOT used here.
+//
+// IMPORTANT ACCOUNT MAPPING RULE:
+// iiko Account.Id is the stable identifier. Account.Name is used
+// ONLY to discover a role for a never-seen account and then the role
+// is persisted in D1. Renaming an account therefore does not break P&L.
 // ============================================================
 
 function corsHeaders(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type'}}
@@ -25,16 +30,29 @@ function allRows(report){return Array.isArray(report?.data)?report.data:[]}
 function rowText(row,field){return clean(row?.[field]??row?.[String(field).toLowerCase()]??'')}
 function sumField(report,field){return allRows(report).reduce((a,r)=>a+value(r,field),0)}
 function autoCategory(r){const t=r.accountType.toLowerCase(),n=r.name.toLowerCase();if(/asset|актив|активы|активлар/.test(t)||/liabil|обязат|borc/.test(t)||/equity|капитал|капиталı/.test(t))return'EXCLUDED';if(/проч.*расход|other expense|digər xərc/.test(n))return'OTHER_EXPENSE';if(/проч.*доход|other income|digər gəlir/.test(n))return'OTHER_INCOME';if(/income|доход|gəlir/.test(t))return'REVENUE';if(/expense|расход|xərc/.test(t))return'OPEX';return'UNCLASSIFIED'}
-function isAccount(name,patterns){const n=norm(name);return patterns.some(x=>n===norm(x)||n.includes(norm(x)))}
+function detectRole(r){const n=norm(r.name);if(n.includes(norm('Торговая выручка, прочие'))||n.includes(norm('Торговая выручка прочие')))return'OTHER_TRADING_REVENUE';if(n.includes(norm('Предоставленные скидки')))return'DISCOUNT';if(n.includes(norm('Торговая выручка')))return'TRADING_REVENUE';if(n===norm('Расход продуктов'))return'COGS';return autoCategory(r)}
+function roleToCategory(role){if(['TRADING_REVENUE','OTHER_TRADING_REVENUE','DISCOUNT'].includes(role))return'REVENUE';if(role==='COGS')return'COGS';return role}
+
+async function loadAccountRoles(env,scope){
+  if(!env?.DB)return new Map();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS sh_pnl_account_roles (scope_id TEXT NOT NULL, account_id TEXT NOT NULL, account_name TEXT NOT NULL DEFAULT '', account_type TEXT NOT NULL DEFAULT '', pnl_role TEXT NOT NULL DEFAULT 'UNCLASSIFIED', updated_at TEXT NOT NULL, PRIMARY KEY(scope_id,account_id))`).run();
+  const r=await env.DB.prepare(`SELECT account_id,pnl_role FROM sh_pnl_account_roles WHERE scope_id=?1`).bind(scope).all();
+  return new Map((r.results||[]).map(x=>[clean(x.account_id),clean(x.pnl_role)]));
+}
+async function saveNewAccountRoles(env,scope,items){
+  if(!env?.DB||!items.length)return;
+  const now=new Date().toISOString();
+  const statements=items.map(x=>env.DB.prepare(`INSERT INTO sh_pnl_account_roles(scope_id,account_id,account_name,account_type,pnl_role,updated_at) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(scope_id,account_id) DO UPDATE SET account_name=excluded.account_name,account_type=excluded.account_type,updated_at=excluded.updated_at`).bind(scope,x.accountId,x.name,x.accountType,x.role,now));
+  for(let i=0;i<statements.length;i+=80)await env.DB.batch(statements.slice(i,i+80));
+}
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
 
-export async function onRequestPost(c){
+export async function onRequestPost({request,env}){
   try{
-    const b=await c.request.json();const from=clean(b.from).slice(0,10),to=clean(b.to||b.from).slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return json({success:false,message:'Укажите корректный период'},400);
+    const b=await request.json();const from=clean(b.from).slice(0,10),to=clean(b.to||b.from).slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return json({success:false,message:'Укажите корректный период'},400);
     const{u,t}=await auth(b);const salesFields=await cols(u,t,'SALES');const transactionFields=await cols(u,t,'TRANSACTIONS');
 
-    // SALES OLAP: gross sales + actual discount + actual surcharge.
     const revenueBase=findField(salesFields,['DishSumInt','Сумма без учета скидок и надбавок','Сумма без скидки','Сумма без скидок','Торговая выручка без учета скидок']);
     const discount=findField(salesFields,['DiscountSum','Сумма скидки','Скидка','Discount']);
     const surcharge=findField(salesFields,['IncreaseSum','Сумма надбавки','Надбавка','Increase','Surcharge','DishIncreaseSumInt']);
@@ -51,7 +69,6 @@ export async function onRequestPost(c){
     const categoryRows=allRows(categoryQuery.report).map(r=>({name:rowText(r,category)||'Без категории',value:value(r,revenueBase)-value(r,discount)+(surcharge?value(r,surcharge):0),base:value(r,revenueBase),discount:value(r,discount),surcharge:surcharge?value(r,surcharge):0})).filter(x=>x.name&&Math.abs(x.value)>0.000001);
     if(!categoryRows.length)throw Error('iiko OLAP SALES не вернул строки по категориям блюд за выбранный период. Проверьте период и наличие продаж.');
 
-    // TRANSACTIONS OLAP: financial accounts and the native "прочие" amount.
     const article=findField(transactionFields,['Account.Name','AccountName','Счет','Счёт','FinancialArticle','Article','Account']);
     const amount=findField(transactionFields,['Sum','Сумма','Amount','Value','TransactionSum','MoneySum']);
     const accountId=findField(transactionFields,['Account.Id','Account.ID','AccountId','AccountUUID','Account.Guid','Account.Code']);
@@ -62,31 +79,34 @@ export async function onRequestPost(c){
     const postingRows=[article];for(const f of[accountId,accountType,counterAccount])if(f&&!postingRows.includes(f))postingRows.push(f);
     const postingQuery=await olap(u,t,'TRANSACTIONS',{rows:postingRows,measures:[amount],from,to,dateField:trDate||'DateTime.DateTyped'});if(!postingQuery.ok)throw Error(`OLAP TRANSACTIONS: ${postingQuery.error}`);
     const rawPostings=allRows(postingQuery.report);
-    const postings=rawPostings.map(r=>({name:rowText(r,article)||'Без статьи',value:value(r,amount),accountId:accountId?rowText(r,accountId):'',accountType:accountType?rowText(r,accountType):'',counterAccount:counterAccount?rowText(r,counterAccount):''})).filter(x=>x.name);
 
-    // IMPORTANT: native iiko P&L separates the 593.00 SALES amount from
-    // the 2.50 "Торговая выручка, прочие". TRANSACTIONS may aggregate
-    // both into the same "Торговая выручка" account (595.50), so we use
-    // SALES OLAP for the main trading revenue and reconcile the remainder
-    // as "прочие". This keeps the total identical to iiko.
-    const transactionTradingRevenue=postings.filter(x=>isAccount(x.name,['Торговая выручка'])).reduce((a,x)=>a+x.value,0);
-    const accountProvidedDiscounts=postings.filter(x=>isAccount(x.name,['Предоставленные скидки'])).reduce((a,x)=>a+x.value,0);
-    const explicitOtherTradingRevenue=postings.filter(x=>isAccount(x.name,['Торговая выручка, прочие','Торговая выручка прочие'])).reduce((a,x)=>a+x.value,0);
+    const scope=await sha1(u.toLowerCase());
+    const savedRoles=await loadAccountRoles(env,scope);
+    const newlyDiscovered=[];
+    const postings=rawPostings.map(r=>{
+      const item={name:rowText(r,article)||'Без статьи',value:value(r,amount),accountId:accountId?rowText(r,accountId):'',accountType:accountType?rowText(r,accountType):'',counterAccount:counterAccount?rowText(r,counterAccount):''};
+      let role=item.accountId?savedRoles.get(item.accountId):null;
+      if(!role){role=detectRole(item);if(item.accountId)newlyDiscovered.push({...item,role});}
+      return{...item,role,pnlCategory:roleToCategory(role)};
+    }).filter(x=>x.name);
+    await saveNewAccountRoles(env,scope,newlyDiscovered);
+
+    const transactionTradingRevenue=postings.filter(x=>x.role==='TRADING_REVENUE').reduce((a,x)=>a+x.value,0);
+    const accountProvidedDiscounts=postings.filter(x=>x.role==='DISCOUNT').reduce((a,x)=>a+x.value,0);
+    const explicitOtherTradingRevenue=postings.filter(x=>x.role==='OTHER_TRADING_REVENUE').reduce((a,x)=>a+x.value,0);
     const tradingRevenue=categoryBase;
     const reconciledOtherTradingRevenue=Math.max(0,transactionTradingRevenue-tradingRevenue);
     const otherTradingRevenue=explicitOtherTradingRevenue>0?explicitOtherTradingRevenue:reconciledOtherTradingRevenue;
 
-    // Actual discount/surcharge are taken directly from SALES OLAP.
     const discountValue=categoryDiscount;
     const surchargeValue=categorySurcharge;
     const revenue=tradingRevenue-discountValue+surchargeValue+otherTradingRevenue;
 
-    const cogs=Math.abs(rawPostings.filter(r=>norm(rowText(r,article))===norm('Расход продуктов')).reduce((a,r)=>a+value(r,amount),0));
-    const revenueAccountNames=new Set([norm('Торговая выручка'),norm('Предоставленные скидки'),norm('Торговая выручка, прочие'),norm('Торговая выручка прочие')]);
-    const financial=postings.filter(x=>!revenueAccountNames.has(norm(x.name))&&!['расход продуктов'].includes(norm(x.name))).map(x=>({...x,pnlCategory:autoCategory(x)}));
-    const opex=financial.filter(x=>x.pnlCategory==='OPEX').reduce((a,x)=>a+Math.abs(x.value),0);
-    const otherIncome=financial.filter(x=>x.pnlCategory==='OTHER_INCOME').reduce((a,x)=>a+Math.abs(x.value),0);
-    const otherExpense=financial.filter(x=>x.pnlCategory==='OTHER_EXPENSE').reduce((a,x)=>a+Math.abs(x.value),0);
+    const cogs=Math.abs(postings.filter(x=>x.role==='COGS').reduce((a,x)=>a+x.value,0));
+    const financial=postings.filter(x=>!['TRADING_REVENUE','DISCOUNT','OTHER_TRADING_REVENUE','COGS','EXCLUDED'].includes(x.role));
+    const opex=financial.filter(x=>x.role==='OPEX').reduce((a,x)=>a+Math.abs(x.value),0);
+    const otherIncome=financial.filter(x=>x.role==='OTHER_INCOME').reduce((a,x)=>a+Math.abs(x.value),0);
+    const otherExpense=financial.filter(x=>x.role==='OTHER_EXPENSE').reduce((a,x)=>a+Math.abs(x.value),0);
     const grossProfit=revenue-cogs,operatingProfit=grossProfit-opex,netProfit=operatingProfit+otherIncome-otherExpense;
 
     const revenueRows=[
@@ -103,12 +123,12 @@ export async function onRequestPost(c){
       {name:'Расход продуктов',value:-cogs,kind:'sub'},
       {name:'Валовая прибыль',value:grossProfit,kind:'total'},
       {name:'Операционные расходы',value:-opex,kind:'section',level:true,open:true},
-      ...financial.filter(x=>x.pnlCategory==='OPEX').map(x=>({name:x.name,value:-Math.abs(x.value),kind:'sub'})),
+      ...financial.filter(x=>x.role==='OPEX').map(x=>({name:x.name,value:-Math.abs(x.value),kind:'sub'})),
       {name:'Операционная прибыль',value:operatingProfit,kind:'total'},
       {name:'Прочие доходы',value:otherIncome,kind:'section',level:true,open:true},
-      ...financial.filter(x=>x.pnlCategory==='OTHER_INCOME').map(x=>({name:x.name,value:Math.abs(x.value),kind:'sub'})),
+      ...financial.filter(x=>x.role==='OTHER_INCOME').map(x=>({name:x.name,value:Math.abs(x.value),kind:'sub'})),
       {name:'Прочие расходы',value:-otherExpense,kind:'section',level:true,open:true},
-      ...financial.filter(x=>x.pnlCategory==='OTHER_EXPENSE').map(x=>({name:x.name,value:-Math.abs(x.value),kind:'sub'})),
+      ...financial.filter(x=>x.role==='OTHER_EXPENSE').map(x=>({name:x.name,value:-Math.abs(x.value),kind:'sub'})),
       {name:'ИТОГО ЧИСТАЯ ПРИБЫЛЬ',value:netProfit,kind:'total profit'}
     ];
 
@@ -123,9 +143,9 @@ export async function onRequestPost(c){
       categoryRevenue,
       cogs,opex,otherIncome,otherExpense,grossProfit,operatingProfit,netProfit,
       rows:final,
-      accounts:postings.map(x=>({...x,pnlCategory:revenueAccountNames.has(norm(x.name))?'REVENUE':(norm(x.name)==='расход продуктов'?'COGS':autoCategory(x))})),
+      accounts:postings.map(x=>({...x,pnlCategory:x.pnlCategory,accountMappingSource:x.accountId&&savedRoles.has(x.accountId)?'Account.Id mapping':'bootstrap by Account.Name'})),
       salesFields,transactionFields,
-      sourceNote:'iiko Server · P&L: Торговая выручка из OLAP SALES, сумма скидки и надбавки из OLAP SALES, прочие из OLAP TRANSACTIONS с reconciliation · без кассовых смен',
+      sourceNote:'iiko Server · P&L: Торговая выручка из OLAP SALES, сумма скидки и надбавки из OLAP SALES, прочие из OLAP TRANSACTIONS с reconciliation · счета идентифицируются по Account.Id · без кассовых смен',
       debug:{
         salesRequest:categoryQuery.request,
         salesRows:categoryRows.length,
@@ -133,7 +153,8 @@ export async function onRequestPost(c){
         transactionRows:rawPostings.length,
         selectedSalesFields:{revenueBase,discount,surcharge,category,salesDate},
         selectedTransactionFields:{article,amount,accountId,accountType,counterAccount,trDate},
-        revenueAccounts:{tradingRevenue,transactionTradingRevenue,accountProvidedDiscounts,explicitOtherTradingRevenue,otherTradingRevenue,total:revenue,olapDiscount:discountValue,olapSurcharge:surchargeValue}
+        revenueAccounts:{tradingRevenue,transactionTradingRevenue,accountProvidedDiscounts,explicitOtherTradingRevenue,otherTradingRevenue,total:revenue,olapDiscount:discountValue,olapSurcharge:surchargeValue},
+        accountMapping:{storage:env?.DB?'D1 sh_pnl_account_roles':'disabled — fallback to current account names',scope,accountIdField:accountId,savedCount:savedRoles.size,newlyDiscovered:newlyDiscovered.length}
       }
     });
   }catch(e){console.error('IIKO P&L ERROR',e);return json({success:false,message:e.message||'Ошибка P&L'},502)}
