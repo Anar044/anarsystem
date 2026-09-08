@@ -1,11 +1,10 @@
 <!doctype html>
 <html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Smart Horeca Control — Кассы</title>
 <link rel="stylesheet" href="app-shell.css">
-<link rel="stylesheet" href="/cash.css?v=20260908-3">
+<link rel="stylesheet" href="/cash.css?v=20260908-4">
 </head>
 <body data-protected="true" style="background:#0b1017">
 <div class="app-shell"><aside class="sidebar"></aside><main class="main">
@@ -18,14 +17,5 @@
 <details class="cash-technical"><summary>Технический статус</summary><pre id="technical-output"></pre></details>
 </main></div></main></div>
 <div id="order-modal" class="modal hidden" aria-hidden="true"><div class="modal-backdrop" data-close-modal></div><section class="order-modal-card" role="dialog" aria-modal="true" aria-labelledby="order-modal-title"><header class="modal-head"><div><span class="section-kicker">ЗАКАЗ</span><h2 id="order-modal-title">Заказ</h2><p id="order-modal-subtitle">Загрузка…</p></div><button class="modal-close" data-close-modal>×</button></header><div id="order-details" class="order-details"></div><div class="modal-section"><div class="modal-section-title">Состав заказа</div><div id="order-items"></div></div><div class="modal-section"><div class="modal-section-title">История событий</div><div id="order-history"></div></div></section></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=1"></script><script src="cash.js?v=20260908-2"></script>
-<script>
-(function(){
-  function patchCashNavigation(){
-    const nav=document.querySelector('.unified-main-nav'); if(!nav)return;
-    nav.querySelectorAll('a').forEach(a=>{if((a.textContent||'').trim()==='Кассы'){a.href='cash.html';a.classList.add('active');} if((a.textContent||'').trim()==='Кассовые смены')a.remove();});
-  }
-  patchCashNavigation(); setTimeout(patchCashNavigation,100); setTimeout(patchCashNavigation,500);
-})();
-</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=1"></script><script src="cash.js?v=20260908-3"></script>
 </body></html>
