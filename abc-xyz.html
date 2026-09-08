@@ -20,22 +20,12 @@
 <div class="app-content">
 <section class="abc-page">
   <div class="abc-head">
-    <div>
-      <h1>ABC / XYZ анализ блюд</h1>
-      <p>Структура отчёта максимально близка к iikoOffice: период, склады, показатели, детализация, ABC, XYZ и совмещённый анализ.</p>
-    </div>
-    <div class="abc-head-actions">
-      <span id="status" class="status-pill">Готово</span>
-      <button id="run" class="primary-btn">↻ Обновить</button>
-      <button id="export" class="secondary-btn">Excel</button>
-    </div>
+    <div><h1>ABC / XYZ анализ блюд</h1><p>Структура отчёта максимально близка к iikoOffice: период, склады, показатели, детализация, ABC, XYZ и совмещённый анализ.</p></div>
+    <div class="abc-head-actions"><span id="status" class="status-pill">Готово</span><button id="run" class="primary-btn">↻ Обновить</button><button id="export" class="secondary-btn">Excel</button></div>
   </div>
-
   <div class="filter-card">
     <div class="filter-grid">
-      <label>За период
-        <div class="date-range"><input id="from" type="date"><span>—</span><input id="to" type="date"></div>
-      </label>
+      <label>За период<div class="date-range"><input id="from" type="date"><span>—</span><input id="to" type="date"></div></label>
       <label>Склады<select id="store"><option value="">Все</option></select></label>
       <label>Группы<select id="group"><option value="">Все</option></select></label>
       <label>Категории<select id="category"><option value="">Все</option></select></label>
@@ -43,65 +33,21 @@
       <label>Интервал XYZ<select id="interval"><option value="day">День</option><option value="week">Неделя</option><option value="month" selected>Месяц</option></select></label>
     </div>
     <div class="filter-bottom">
-      <div class="indicator-box">
-        <span class="filter-title">Показатели ABC</span>
-        <label class="check"><input type="checkbox" value="revenue" checked> Выручка</label>
-        <label class="check"><input type="checkbox" value="quantity" checked> Количество продаж</label>
-        <label class="check"><input type="checkbox" value="profit" checked> Прибыль</label>
-      </div>
+      <div class="indicator-box"><span class="filter-title">Показатели ABC</span><label class="check"><input type="checkbox" value="revenue" checked> Выручка</label><label class="check"><input type="checkbox" value="quantity" checked> Количество продаж</label><label class="check"><input type="checkbox" value="profit" checked> Прибыль</label></div>
       <label class="xyz-metric">Показатель XYZ<select id="xyzMetric"><option value="quantity" selected>Количество продаж</option><option value="revenue">Выручка</option><option value="profit">Прибыль</option></select></label>
-      <div class="thresholds">
-        <span class="filter-title">Границы</span>
-        <label>ABC A <input id="abcA" type="number" min="1" max="99" step="1" value="80">%</label>
-        <label>ABC B <input id="abcB" type="number" min="2" max="100" step="1" value="95">%</label>
-        <label>XYZ X <input id="xyzX" type="number" min="0" max="100" step="1" value="10">%</label>
-        <label>XYZ Y <input id="xyzY" type="number" min="1" max="100" step="1" value="25">%</label>
-      </div>
+      <div class="thresholds"><span class="filter-title">Границы</span><label>ABC A <input id="abcA" type="number" min="1" max="99" step="1" value="80">%</label><label>ABC B <input id="abcB" type="number" min="2" max="100" step="1" value="95">%</label><label>XYZ X <input id="xyzX" type="number" min="0" max="100" step="1" value="10">%</label><label>XYZ Y <input id="xyzY" type="number" min="1" max="100" step="1" value="25">%</label></div>
     </div>
   </div>
-
-  <div class="legend-row">
-    <div><b>Распределение групп в ABC-анализе:</b><span class="abc-chip a">A <em>80%</em> (0–A)</span><span class="abc-chip b">B <em>15%</em> (A–B)</span><span class="abc-chip c">C <em>5%</em> (B–100%)</span></div>
-    <div><b>Коэффициент вариации в XYZ-анализе:</b><span class="xyz-chip x">X <em>10%</em> (0–X)</span><span class="xyz-chip y">Y <em>15%</em> (X–Y)</span><span class="xyz-chip z">Z <em>&gt;25%</em></span></div>
-  </div>
-
-  <div class="tabs" role="tablist">
-    <button class="tab active" data-tab="abc">ABC-анализ</button>
-    <button class="tab" data-tab="xyz">XYZ-анализ</button>
-    <button class="tab" data-tab="matrix">ABC / XYZ-анализ</button>
-  </div>
-
-  <div class="analytics-grid">
-    <aside class="distribution-card">
-      <div class="card-title">Распределение по группам</div>
-      <div id="distribution" class="distribution"></div>
-      <div class="small-note">График строится по текущему набору данных и выбранным показателям.</div>
-    </aside>
-    <section class="table-card">
-      <div class="table-toolbar">
-        <div class="search-wrap"><input id="search" type="search" placeholder="Введите текст для поиска..."><button id="clearSearch">Очистить</button></div>
-        <div id="rowCount" class="row-count">0 позиций</div>
-      </div>
-      <div id="error" class="error-box" hidden></div>
-      <div class="table-scroll">
-        <table id="resultTable">
-          <thead></thead>
-          <tbody></tbody>
-          <tfoot></tfoot>
-        </table>
-      </div>
-    </section>
-  </div>
+  <div class="legend-row"><div><b>Распределение групп в ABC-анализе:</b><span class="abc-chip a">A <em>80%</em> (0–A)</span><span class="abc-chip b">B <em>15%</em> (A–B)</span><span class="abc-chip c">C <em>5%</em> (B–100%)</span></div><div><b>Коэффициент вариации в XYZ-анализе:</b><span class="xyz-chip x">X <em>10%</em> (0–X)</span><span class="xyz-chip y">Y <em>15%</em> (X–Y)</span><span class="xyz-chip z">Z <em>&gt;25%</em></span></div></div>
+  <div class="tabs" role="tablist"><button class="tab active" data-tab="abc">ABC-анализ</button><button class="tab" data-tab="xyz">XYZ-анализ</button><button class="tab" data-tab="matrix">ABC / XYZ-анализ</button></div>
+  <div class="analytics-grid"><aside class="distribution-card"><div class="card-title">Распределение по группам</div><div id="distribution" class="distribution"></div><div class="small-note">График строится по текущему набору данных и выбранным показателям.</div></aside><section class="table-card"><div class="table-toolbar"><div class="search-wrap"><input id="search" type="search" placeholder="Введите текст для поиска..."><button id="clearSearch">Очистить</button></div><div id="rowCount" class="row-count">0 позиций</div></div><div id="error" class="error-box" hidden></div><div class="table-scroll"><table id="resultTable"><thead></thead><tbody></tbody><tfoot></tfoot></table></div></section></div>
 </section>
-</div>
-</main>
-</div>
+</div></main></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="auth-config.js"></script>
 <script src="auth.js"></script>
 <script src="app-shell.js"></script>
 <script src="mobile-responsive.js?v=1"></script>
-<script src="abc-xyz.js?v=20260908-2"></script>
+<script src="abc-xyz-v2.js?v=20260908-3"></script>
 <script src="documents-nav.js?v=9"></script>
-</body>
-</html>
+</body></html>
