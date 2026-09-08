@@ -11,7 +11,7 @@
 <div class="app-shell"><aside class="sidebar"></aside><main class="main">
 <header class="topbar"><div class="topbar-left"><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><div><span class="topbar-title">ABC / XYZ анализ</span><div class="topbar-sub">Анализ меню по продажам, выручке, прибыли и стабильности спроса</div></div></div></header>
 <div class="app-content"><section class="abc-page">
-<div class="abc-head"><div><h1>ABC / XYZ анализ блюд</h1><p>Анализ меню по продажам, выручке, прибыли и стабильности спроса.</p></div><div class="abc-head-actions"><span id="status" class="status-pill">Готово</span><button id="run" class="primary-btn">↻ Обновить</button><button id="export" class="secondary-btn">Excel</button></div></div>
+<div class="abc-head"><div><h1>ABC / XYZ анализ блюд</h1><p>ABC рассчитывается нашей системой на основании агрегированных данных продаж из iiko OLAP.</p></div><div class="abc-head-actions"><span id="status" class="status-pill">Готово</span><button id="run" class="primary-btn">↻ Обновить</button><button id="export" class="secondary-btn">Excel</button></div></div>
 <div class="filter-card"><div class="filter-grid">
 <label>За период<div class="date-range"><input id="from" type="date"><span>—</span><input id="to" type="date"></div></label>
 <label>Склады<select id="store"><option value="">Все</option></select></label>
@@ -28,5 +28,5 @@
 <div class="tabs"><button class="tab active" data-tab="abc">ABC-анализ</button><button class="tab" data-tab="xyz">XYZ-анализ</button><button class="tab" data-tab="matrix">ABC / XYZ-анализ</button></div>
 <div class="analytics-grid"><aside class="distribution-card"><div class="card-title">Распределение по группам</div><div id="distribution" class="distribution"></div></aside><section class="table-card"><div class="table-toolbar"><div class="search-wrap"><input id="search" type="search" placeholder="Введите текст для поиска..."><button id="clearSearch">Очистить</button></div><div id="rowCount" class="row-count">0 позиций</div></div><div id="error" class="error-box" hidden></div><div class="table-scroll"><table id="resultTable"><thead></thead><tbody></tbody><tfoot></tfoot></table></div></section></div>
 </section></div></main></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=1"></script><script src="abc-xyz-v3.js?v=20260908-4"></script><script src="documents-nav.js?v=9"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="mobile-responsive.js?v=1"></script><script src="abc-xyz-v4.js?v=20260908-1"></script><script src="documents-nav.js?v=9"></script>
 </body></html>
