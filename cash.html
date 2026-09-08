@@ -4,7 +4,10 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Smart Horeca Control — Кассы</title>
 <link rel="stylesheet" href="app-shell.css">
-<link rel="stylesheet" href="/cash.css?v=20260908-5">
+<link rel="stylesheet" href="/cash.css?v=20260908-6">
+<style id="cash-order-details-polish">
+.history-list{position:relative;display:grid;gap:7px;padding:2px 0 2px 18px}.history-list:before{content:"";position:absolute;left:5px;top:8px;bottom:8px;width:1px;background:#263642}.history-row{position:relative;display:flex;min-width:0}.history-dot{position:absolute;left:-16px;top:14px;width:7px;height:7px;border-radius:50%;background:#42d392;box-shadow:0 0 0 3px #0f171f}.history-main{width:100%;padding:10px 12px;border:1px solid #22303c;border-radius:10px;background:#111b24}.history-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.history-top strong{font-size:10px;color:#eef3f6}.history-top time{font-size:8px;color:#7d8997;white-space:nowrap}.history-info{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}.history-info span{display:inline-flex;align-items:center;gap:4px;padding:5px 7px;border:1px solid #1e2c37;border-radius:7px;background:#0d151d;color:#cbd5dc;font-size:8px}.history-info b{color:#71808d;font-weight:600}.items-table-wrap{width:100%;overflow:auto}.items-table td:first-child strong{display:block}.items-table td:first-child small{display:block;margin-top:2px;color:#7d8997;font-size:8px}.item-modifiers{margin-top:4px;color:#7d8997;font-size:8px;line-height:1.4}.item-total{font-weight:850;color:#42d392}.items-table td:nth-child(2),.items-table td:nth-child(3),.items-table td:nth-child(4){font-variant-numeric:tabular-nums}.modal-section-title{display:flex;align-items:center;justify-content:space-between}.modal-section{margin-top:15px}.order-modal-card{max-width:1080px}.order-details{margin-top:12px;gap:6px}.detail{padding:8px 10px}.detail strong{font-size:9px}
+</style>
 </head>
 <body data-protected="true" style="background:#0b1017">
 <div class="app-shell"><aside class="sidebar"></aside><main class="main">
@@ -17,5 +20,5 @@
 <details class="cash-technical"><summary>Технический статус</summary><pre id="technical-output"></pre></details>
 </main></div></main></div>
 <div id="order-modal" class="modal hidden" aria-hidden="true"><div class="modal-backdrop" data-close-modal></div><section class="order-modal-card" role="dialog" aria-modal="true" aria-labelledby="order-modal-title"><header class="modal-head"><div><span class="section-kicker">ЗАКАЗ</span><h2 id="order-modal-title">Заказ</h2><p id="order-modal-subtitle">Загрузка…</p></div><button class="modal-close" data-close-modal>×</button></header><div id="order-details" class="order-details"></div><div class="modal-section"><div class="modal-section-title">Состав заказа</div><div id="order-items"></div></div><div class="modal-section"><div class="modal-section-title">История событий</div><div id="order-history"></div></div></section></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="documents-nav.js?v=20260908-1"></script><script src="mobile-responsive.js?v=1"></script><script src="cash.js?v=20260908-5"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script><script src="documents-nav.js?v=20260908-1"></script><script src="mobile-responsive.js?v=1"></script><script src="cash.js?v=20260908-6"></script>
 </body></html>
