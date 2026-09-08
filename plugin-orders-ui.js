@@ -8,7 +8,7 @@
       if (!firstCell || firstCell.querySelector(".order-action-button")) return;
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "order-action-button";
+      button.className = "order-action-button order-open-btn";
       button.textContent = "Открыть ↗";
       button.title = "Открыть детали заказа и историю событий";
       firstCell.appendChild(button);
