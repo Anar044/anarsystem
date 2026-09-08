@@ -44,13 +44,65 @@ async function load(){
  }catch(e){$('pnl-status').textContent='Ошибка';$('message').style.display='block';$('message').textContent=e.message;$('excel').disabled=true}
  finally{$('load').disabled=false}
 }
+function excelBorder(){return{top:{style:'thin'},left:{style:'thin'},bottom:{style:'thin'},right:{style:'thin'}}}
+function excelFill(color){return{type:'pattern',pattern:'solid',fgColor:{argb:color}}}
+function excelFont(size,bold,color){return{name:'Calibri',size:size||11,bold:!!bold,color:{argb:color||'FF1F2937'}}}
+function styleCell(cell,opts={}){cell.font=opts.font||excelFont(11,!!opts.bold,opts.color);cell.alignment=opts.alignment||{vertical:'middle'};if(opts.fill)cell.fill=excelFill(opts.fill);if(opts.border!==false)cell.border=excelBorder();if(opts.numFmt)cell.numFmt=opts.numFmt}
+function addExcelRow(ws,r,rev){
+ const row=ws.addRow([r.name,Number(r.value)||0,rev?Number(r.value)/rev:0]);
+ const kind=r.kind||'';
+ const indent=r.level?0:1;
+ row.getCell(1).alignment={vertical:'middle',indent};
+ row.getCell(2).alignment={vertical:'middle',horizontal:'right'};
+ row.getCell(3).alignment={vertical:'middle',horizontal:'right'};
+ row.getCell(2).numFmt='#,##0.00;[Red]-#,##0.00';row.getCell(3).numFmt='0.0%';
+ row.eachCell(c=>c.border=excelBorder());
+ if(kind.includes('section')){row.font=excelFont(11,true,'FF0F172A');row.fill=excelFill('FFE8EEF7');row.height=23}
+ else if(kind.includes('profit')){row.font=excelFont(12,true,'FF0F172A');row.fill=excelFill('FFDDEFE2');row.height=25}
+ else if(kind.includes('total')){row.font=excelFont(11,true,'FF0F172A');row.fill=excelFill('FFF1F5F9');row.height=22}
+ else{row.font=excelFont(11,false,'FF334155');row.height=20}
+ if(Number(r.value)<0)row.getCell(2).font=excelFont(11,kind.includes('total')||kind.includes('section'),'FFC62828');
+ return row;
+}
+async function exportExcel(){
+ if(!last||!window.ExcelJS){alert('Excel-модуль ещё не загрузился. Попробуйте ещё раз.');return}
+ const btn=$('excel');btn.disabled=true;btn.textContent='Создание…';
+ try{
+  const wb=new ExcelJS.Workbook();wb.creator='Smart Horeca Control';wb.company='Smart Horeca Control';wb.subject='Отчёт о прибылях и убытках';wb.title='P&L';wb.created=new Date();
+  const ws=wb.addWorksheet('P&L',{views:[{showGridLines:false}]});
+  ws.pageSetup={orientation:'landscape',paperSize:9,fitToPage:true,fitToWidth:1,fitToHeight:0};ws.pageMargins={left:0.3,right:0.3,top:0.5,bottom:0.5,header:0.2,footer:0.2};ws.freezePanes={xSplit:0,ySplit:5};
+  ws.mergeCells('A1:C1');const title=ws.getCell('A1');title.value='ОТЧЁТ О ПРИБЫЛЯХ И УБЫТКАХ';styleCell(title,{font:excelFont(16,true,'FFFFFFFF'),fill:'FF166534',alignment:{vertical:'middle',horizontal:'left'}});ws.getRow(1).height=30;
+  ws.mergeCells('A2:C2');const period=ws.getCell('A2');period.value=`Период: ${$('from').value} — ${$('to').value}`;styleCell(period,{font:excelFont(11,false,'FF475569'),fill:'FFF8FAFC',alignment:{vertical:'middle'}});ws.getRow(2).height=22;
+  ws.mergeCells('A3:C3');const source=ws.getCell('A3');source.value='Источник: iiko Server · без кассовых смен';styleCell(source,{font:excelFont(10,false,'FF64748B'),fill:'FFF8FAFC',alignment:{vertical:'middle'}});ws.getRow(3).height=20;
+  ws.addRow([]);const head=ws.addRow(['Статья','Сумма','% к выручке']);head.height=23;head.eachCell(c=>styleCell(c,{font:excelFont(11,true,'FFFFFFFF'),fill:'FF334155',alignment:{vertical:'middle',horizontal:c.col===1?'left':'center'}}));
+  const rev=Number(last.revenue||0);(last.rows||[]).forEach(r=>addExcelRow(ws,r,rev));
+  ws.columns=[{key:'name',width:38},{key:'value',width:17},{key:'pct',width:17}];ws.autoFilter={from:{row:5,column:1},to:{row:5,column:3}};
+  const totalRow=ws.addRow([]);totalRow.height=8;
+  ws.getHeaderFooter().oddFooter=`&LSmart Horeca Control&CСтраница &P из &N&R${$('from').value} — ${$('to').value}`;
+
+  const cat=wb.addWorksheet('Структура выручки',{views:[{showGridLines:false}]});cat.pageSetup={orientation:'portrait',paperSize:9,fitToPage:true,fitToWidth:1};cat.freezePanes={xSplit:0,ySplit:5};
+  cat.mergeCells('A1:D1');const ct=cat.getCell('A1');ct.value='СТРУКТУРА ВЫРУЧКИ ПО КАТЕГОРИЯМ';styleCell(ct,{font:excelFont(15,true,'FFFFFFFF'),fill:'FF166534',alignment:{vertical:'middle'}});cat.getRow(1).height=29;
+  cat.mergeCells('A2:D2');const cp=cat.getCell('A2');cp.value=`Период: ${$('from').value} — ${$('to').value}`;styleCell(cp,{font:excelFont(11,false,'FF475569'),fill:'FFF8FAFC'});cat.getRow(2).height=22;
+  cat.mergeCells('A3:D3');const cr=cat.getCell('A3');cr.value=`Итого выручка: ${money(rev)}`;styleCell(cr,{font:excelFont(11,true,'FF166534'),fill:'FFF0FDF4'});cat.getRow(3).height=22;
+  cat.addRow([]);const ch=cat.addRow(['Категория','Выручка','Доля','Доля, %']);ch.height=23;ch.eachCell(c=>styleCell(c,{font:excelFont(11,true,'FFFFFFFF'),fill:'FF334155',alignment:{vertical:'middle',horizontal:c.col===1?'left':'center'}}));
+  const cats=(last.revenueCategories||[]).slice().sort((a,b)=>Number(b.share)-Number(a.share));
+  cats.forEach(x=>{const row=cat.addRow([x.name,Number(x.value)||0,Number(x.share||0)/100,Number(x.share)||0]);row.getCell(2).numFmt='#,##0.00;[Red]-#,##0.00';row.getCell(3).numFmt='0.0%';row.getCell(4).numFmt='0.0';row.eachCell(c=>c.border=excelBorder());row.getCell(1).font=excelFont(11,false,'FF334155');row.getCell(2).alignment={horizontal:'right'};row.getCell(3).alignment={horizontal:'right'};row.getCell(4).alignment={horizontal:'right'};row.height=20});
+  const crTotal=cat.addRow(['ИТОГО',rev,1,100]);crTotal.eachCell(c=>{c.font=excelFont(11,true,'FF0F172A');c.fill=excelFill('FFF1F5F9');c.border=excelBorder()});crTotal.getCell(2).numFmt='#,##0.00';crTotal.getCell(3).numFmt='0.0%';crTotal.getCell(4).numFmt='0.0';
+  cat.columns=[{key:'name',width:34},{key:'value',width:18},{key:'share',width:15},{key:'sharePct',width:14}];
+  if(cats.length)cat.addConditionalFormatting({ref:`B6:B${5+cats.length}`,rules:[{type:'dataBar',priority:1,showValue:true,color:{argb:'FF86B68A'}}]});
+  cat.getHeaderFooter().oddFooter='&LSmart Horeca Control&CСтраница &P из &N';
+
+  const buf=await wb.xlsx.writeBuffer();const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`pnl-${$('from').value}-${$('to').value}.xlsx`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+ }catch(e){console.error('Excel export error',e);alert('Не удалось сформировать Excel: '+(e.message||e))}
+ finally{btn.disabled=false;btn.textContent='Excel'}
+}
 function bind(){
  if(!$('load'))return;
  $('period').onchange=e=>setPeriod(e.target.value);$('load').onclick=load;
  $('expand').onclick=()=>{tree.forEach(x=>{if(x.level)x.open=true});render(tree,last?.revenue||0)};
  $('collapse').onclick=()=>{tree.forEach(x=>{if(x.level)x.open=false});render(tree,last?.revenue||0)};
  $('pct').onchange=()=>render(tree,last?.revenue||0);
- $('excel').onclick=()=>{if(!last)return;const lines=[['Статья','Сумма','% к выручке'],...last.rows.map(r=>[r.name,r.value,last.revenue?Number(r.value)/last.revenue*100:0])];const csv='\ufeff'+lines.map(a=>a.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download=`pnl-${$('from').value}-${$('to').value}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500)};
+ $('excel').onclick=exportExcel;
  initDates()
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind()
