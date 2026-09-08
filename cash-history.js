@@ -2,127 +2,94 @@
   const root = document.getElementById('order-history');
   if (!root) return;
 
-  const esc = value => String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+  // Translate the real event coming from the plugin before cash.js renders it.
+  // This keeps the UI semantic instead of guessing from the already formatted text.
+  const originalFetch = window.fetch.bind(window);
 
-  const eventNames = [
-    'Заказ создан',
-    'Заказ обновлён',
-    'Заказ закрыт',
-    'Заказ закрывается',
-    'Оплата заказа',
-    'Применена скидка',
-    'Применена надбавка',
-    'Добавлено блюдо',
-    'Удалено блюдо',
-    'Выставлен счёт',
-    'Событие'
-  ];
+  const clean = value => String(value ?? '').trim();
+  const compact = value => clean(value).toLowerCase().replace(/[\s_-]/g, '');
 
-  const technicalNames = {
-    ordercreated: 'Заказ создан',
-    neworder: 'Заказ создан',
-    orderupdated: 'Заказ обновлён',
-    orderupdate: 'Заказ обновлён',
-    orderguestsbill: 'Выставлен счёт',
-    closingorder: 'Заказ закрывается',
-    closedorder: 'Заказ закрыт',
-    orderclosed: 'Заказ закрыт',
-    payment: 'Оплата заказа',
-    paymentadded: 'Оплата заказа',
-    discount: 'Применена скидка',
-    orderdiscount: 'Применена скидка',
-    increase: 'Применена надбавка',
-    surcharge: 'Применена надбавка'
-  };
+  function eventTitle(event) {
+    const type = compact(event?.pluginEventType ?? event?.eventType ?? event?.type ?? event?.Type);
+    const d = event?.data ?? event?.Data ?? {};
+    const blob = JSON.stringify(d).toLowerCase();
+    const product = clean(d.productName ?? d.name ?? d.Name ?? d.discountName ?? d.surchargeName);
+    const productText = product.toLowerCase();
 
-  function cleanText(value) {
-    return String(value ?? '').replace(/\s+/g, ' ').trim();
-  }
+    if (type === 'neworder' || type === 'ordercreated') return 'Заказ создан';
+    if (type === 'orderupdated' || type === 'orderupdate') return 'Заказ обновлён';
+    if (type === 'orderguestsbill' || type === 'guestbill' || type === 'orderbill') return 'Выставлен счёт';
+    if (type === 'closingorder') return 'Заказ закрыт';
+    if (type === 'closedorder' || type === 'orderclosed') return 'Заказ закрыт';
+    if (type === 'payment' || type === 'paymentadded' || type === 'orderpayment') return 'Оплата заказа';
 
-  function titleFor(line) {
-    const text = cleanText(line);
-    for (const name of eventNames) {
-      if (text.startsWith(name)) return { title: name, rest: text.slice(name.length) };
+    // The plugin uses one event for adding a discount/surcharge item.
+    if (type === 'adddiscountsurchargeitem' || type === 'adddiscountsurcharge') {
+      const isDiscount = d.isDiscount ?? d.IsDiscount ?? d.discount ?? d.Discount;
+      if (isDiscount === true || /discount|скид/.test(blob) || /скид/.test(productText)) return 'Применена скидка';
+      return 'Применена надбавка';
     }
 
-    const compact = text.toLowerCase().replace(/[\s_-]/g, '');
-    for (const [key, name] of Object.entries(technicalNames)) {
-      if (compact.startsWith(key)) return { title: name, rest: text.slice(key.length) };
+    // Printed-item deletion can be either a normal dish, a discount or a surcharge.
+    if (type === 'deletionofprinteditem' || type === 'deleteprinteditem' || type === 'deletedprinteditem') {
+      if (/discount|скид/.test(blob) || /скид/.test(productText)) return 'Удалена скидка';
+      if (/surcharge|increase|надбав/.test(blob) || /надбав/.test(productText)) return 'Удалена надбавка';
+      return 'Удалено блюдо';
     }
+
+    if (type === 'discount' || type === 'orderdiscount') return 'Применена скидка';
+    if (type === 'increase' || type === 'surcharge' || type === 'ordersurcharge') return 'Применена надбавка';
+    if (type === 'removediscount') return 'Удалена скидка';
+    if (type === 'removesurcharge') return 'Удалена надбавка';
+    if (type === 'additem' || type === 'addorderitem' || type === 'addeditem') return 'Добавлено блюдо';
+    if (type === 'removeitem' || type === 'removeorderitem' || type === 'deleteditem') return 'Удалено блюдо';
+    if (type === 'cancelguestbill' || type === 'cancellationofguestbill') return 'Счёт отменён';
+    if (type === 'ordercancelled' || type === 'cancelorder') return 'Заказ отменён';
+    if (type === 'tablechanged' || type === 'ordertablechanged') return 'Изменён стол';
+    if (type === 'waiterchanged' || type === 'orderwaiterchanged') return 'Изменён официант';
+    if (type === 'cashregisterstart' || type === 'opencashregistershift') return 'Кассовая смена открыта';
+    if (type === 'cashregistershutdown' || type === 'closecashregistershift') return 'Кассовая смена закрыта';
 
     return null;
   }
 
-  function parseLines() {
-    const lines = root.innerText
-      .split(/\n+/)
-      .map(cleanText)
-      .filter(Boolean);
+  if (!window.__cashHistoryTranslatorInstalled) {
+    window.__cashHistoryTranslatorInstalled = true;
+    window.fetch = async (...args) => {
+      const response = await originalFetch(...args);
+      try {
+        const input = args[0];
+        const url = new URL(input instanceof Request ? input.url : String(input), location.href);
+        if (!url.pathname.includes('/api/plugin/order-history')) return response;
 
-    const events = [];
-    let current = null;
+        const payload = await response.clone().json();
+        const events = payload?.events ?? payload?.data?.events ?? payload?.history ?? payload?.data;
+        if (!Array.isArray(events)) return response;
 
-    for (const line of lines) {
-      const parsed = titleFor(line);
-      if (parsed) {
-        if (current) events.push(current);
-        const dateMatch = parsed.rest.match(/(\d{2}\.\d{2}\.\d{4},?\s*\d{2}:\d{2})/);
-        current = {
-          title: parsed.title,
-          time: dateMatch ? dateMatch[1].replace(',', ', ') : '',
-          details: []
-        };
-        const tail = dateMatch ? parsed.rest.slice(dateMatch.index + dateMatch[0].length) : parsed.rest;
-        if (cleanText(tail)) current.details.push(cleanText(tail));
-      } else if (current) {
-        current.details.push(line);
+        const translated = events.map(event => {
+          const title = eventTitle(event);
+          if (!title) return event;
+          return { ...event, pluginEventType: title };
+        });
+
+        const out = structuredClone(payload);
+        if (Array.isArray(out.events)) out.events = translated;
+        else if (out?.data && Array.isArray(out.data.events)) out.data.events = translated;
+        else if (Array.isArray(out.history)) out.history = translated;
+        else if (Array.isArray(out.data)) out.data = translated;
+
+        return new Response(JSON.stringify(out), {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers
+        });
+      } catch {
+        return response;
       }
-    }
-
-    if (current) events.push(current);
-    return events;
+    };
   }
 
-  function build() {
-    if (!root || root.dataset.historyPolished === '1') return;
-    if (root.querySelector('.history-list')) {
-      root.dataset.historyPolished = '1';
-      return;
-    }
-    if (!root.innerText.trim()) return;
-
-    const events = parseLines();
-    if (!events.length) return;
-
-    root.innerHTML = `<div class="history-list">${events.map((event, index) => {
-      const details = event.details
-        .map(text => `<span>${esc(text)}</span>`)
-        .join('');
-
-      return `<div class="history-row">
-        <span class="history-dot" aria-hidden="true"></span>
-        <div class="history-main">
-          <div class="history-top">
-            <strong>${esc(event.title)}</strong>
-            <time>${esc(event.time || '—')}</time>
-          </div>
-          <div class="history-info">${details || '<span><b>Информация</b>Событие заказа</span>'}</div>
-        </div>
-      </div>`;
-    }).join('')}</div>`;
-
-    root.dataset.historyPolished = '1';
-  }
-
-  const observer = new MutationObserver(() => {
-    if (root.dataset.historyPolished !== '1') build();
-  });
-
-  observer.observe(root, { childList: true, subtree: true, characterData: true });
-  build();
+  // Keep the visual polishing already applied by cash-history.css.
+  const observer = new MutationObserver(() => {});
+  observer.observe(root, { childList: true, subtree: true });
 })();
