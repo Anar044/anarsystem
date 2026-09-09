@@ -5,35 +5,47 @@
     const root=document.getElementById('olap-result');
     if(!root)return;
 
-    if(!root.dataset.groupToggleBound){
-      root.dataset.groupToggleBound='1';
-      root.addEventListener('click',function(event){
-        const button=event.target.closest('.olap-group-toggle');
-        if(!button||!root.contains(button))return;
-        const row=button.closest('tr.olap-group-row');
-        if(!row)return;
-        const level=Number(row.dataset.olapLevel||0);
-        let next=row.nextElementSibling;
-        const expanded=button.getAttribute('aria-expanded')!=='false';
-        while(next){
-          const nextGroup=next.classList.contains('olap-group-row');
-          const nextLevel=nextGroup?Number(next.dataset.olapLevel||0):Infinity;
-          if(nextGroup&&nextLevel<=level)break;
-          next.hidden=expanded;
-          next=next.nextElementSibling;
-        }
-        button.setAttribute('aria-expanded',expanded?'false':'true');
-        button.textContent=expanded?'▶':'▼';
-        button.title=expanded?'Развернуть':'Свернуть';
-      });
-      root.addEventListener('keydown',function(event){
-        if((event.key!=='Enter'&&event.key!==' ')||!event.target.classList.contains('olap-group-toggle'))return;
-        event.preventDefault();
-        event.target.click();
-      });
-    }
+    bindToggles(root);
+    polishTree(root);
+  }
 
-    root.querySelectorAll('.olap-group-toggle').forEach(button=>{
+  function bindToggles(root){
+    if(root.dataset.groupToggleBound==='1')return;
+    root.dataset.groupToggleBound='1';
+
+    root.addEventListener('click',function(event){
+      const button=event.target.closest('.olap-group-toggle');
+      if(!button||!root.contains(button))return;
+      const row=button.closest('tr.olap-group-row');
+      if(!row)return;
+
+      const level=Number(row.dataset.olapLevel||0);
+      const expanded=button.getAttribute('aria-expanded')!=='false';
+      let next=row.nextElementSibling;
+
+      while(next){
+        const isGroup=next.classList.contains('olap-group-row');
+        const nextLevel=isGroup?Number(next.dataset.olapLevel||0):Infinity;
+        if(isGroup&&nextLevel<=level)break;
+        next.hidden=expanded;
+        next=next.nextElementSibling;
+      }
+
+      button.setAttribute('aria-expanded',expanded?'false':'true');
+      button.textContent=expanded?'▶':'▼';
+      button.title=expanded?'Развернуть':'Свернуть';
+      row.classList.toggle('is-collapsed',expanded);
+    });
+
+    root.addEventListener('keydown',function(event){
+      if((event.key!=='Enter'&&event.key!==' ')||!event.target.classList.contains('olap-group-toggle'))return;
+      event.preventDefault();
+      event.target.click();
+    });
+  }
+
+  function polishTree(root){
+    root.querySelectorAll('.olap-group-toggle').forEach(function(button){
       button.tabIndex=0;
       if(!button.dataset.enhanced){
         button.dataset.enhanced='1';
@@ -43,44 +55,99 @@
       }
     });
 
-    /* Presentation only: for a simple one-level grouped report, put the
-       aggregated value directly on the group row and hide duplicate detail
-       and subtotal rows. Multi-level reports remain unchanged. */
-    root.querySelectorAll('tbody').forEach(tbody=>{
-      if(tbody.dataset.compactEnhanced==='1')return;
-      const groups=[...tbody.querySelectorAll(':scope > tr.olap-group-row')];
+    root.querySelectorAll('tbody').forEach(function(tbody){
+      if(tbody.dataset.treeEnhanced==='1')return;
+
+      const rows=[...tbody.children].filter(row=>row.tagName==='TR');
+      const groups=rows.filter(row=>row.classList.contains('olap-group-row'));
       if(!groups.length)return;
 
-      let simple=true;
-      groups.forEach(group=>{
-        if(Number(group.dataset.olapLevel||0)!==0)simple=false;
-      });
-      if(!simple)return;
+      /*
+       * reports.js remains the source of truth.  This pass changes only the
+       * already-rendered DOM: leaf values are moved onto their hierarchy row,
+       * duplicate detail rows and repetitive "... всего" rows are hidden.
+       */
+      groups.forEach(function(group,index){
+        const level=Number(group.dataset.olapLevel||0);
+        group.classList.add('olap-tree-row','olap-level-'+level);
+        group.dataset.treeLevel=String(level);
 
-      groups.forEach(group=>{
-        let next=group.nextElementSibling;
-        const detail=[];
-        let subtotal=null;
-        while(next && !next.classList.contains('olap-group-row') && !next.classList.contains('olap-grand-total')){
-          if(next.classList.contains('olap-data-row'))detail.push(next);
-          if(next.classList.contains('olap-group-total'))subtotal=next;
-          next=next.nextElementSibling;
-        }
-        if(detail.length!==1)return;
+        const cells=[...group.children];
+        if(cells[level])cells[level].classList.add('olap-tree-label-cell');
 
-        const source=subtotal||detail[0];
-        const sourceCells=[...source.children];
-        const targetCells=[...group.children];
-        for(let i=1;i<targetCells.length;i++){
-          const text=sourceCells[i]?.textContent?.trim()||'';
-          if(text)targetCells[i].innerHTML='<strong>'+escapeHtml(text)+'</strong>';
+        const nextBoundary=findNextBoundary(group,level);
+        const range=rowsBetween(group,nextBoundary,rows);
+        const detail=range.filter(row=>row.classList.contains('olap-data-row'));
+        const subtotals=range.filter(row=>row.classList.contains('olap-group-total'));
+
+        /* The last subtotal before the next peer/parent is this group's own subtotal. */
+        const ownSubtotal=subtotals.length?subtotals[subtotals.length-1]:null;
+        const source=ownSubtotal||detail[detail.length-1]||null;
+        if(source)copyMeasureCells(group,source,level);
+
+        /* A leaf group already represents its detail row. */
+        if(detail.length){
+          detail.forEach(row=>{
+            row.hidden=true;
+            row.classList.add('olap-rendered-into-tree');
+          });
         }
-        detail[0].hidden=true;
-        if(subtotal)subtotal.hidden=true;
-        group.classList.add('olap-compact-group');
+
+        /* Parent totals live on the parent hierarchy row, not as another giant row. */
+        subtotals.forEach(row=>{
+          row.hidden=true;
+          row.classList.add('olap-rendered-into-tree');
+        });
+
+        const toggle=group.querySelector('.olap-group-toggle');
+        if(toggle){
+          const hasChildren=range.some(row=>row.classList.contains('olap-group-row')) || detail.length>0;
+          toggle.hidden=!hasChildren;
+          if(!hasChildren)group.classList.add('olap-leaf');
+        }
       });
-      tbody.dataset.compactEnhanced='1';
+
+      /* Grand total stays visible and becomes the single report total. */
+      const grand=rows.find(row=>row.classList.contains('olap-grand-total'));
+      if(grand){
+        grand.hidden=false;
+        grand.classList.add('olap-tree-grand-total');
+      }
+
+      tbody.dataset.treeEnhanced='1';
     });
+  }
+
+  function findNextBoundary(group,level){
+    let next=group.nextElementSibling;
+    while(next){
+      if(next.classList.contains('olap-group-row') && Number(next.dataset.olapLevel||0)<=level)return next;
+      if(next.classList.contains('olap-grand-total'))return next;
+      next=next.nextElementSibling;
+    }
+    return null;
+  }
+
+  function rowsBetween(start,end,allRows){
+    const startIndex=allRows.indexOf(start);
+    const endIndex=end?allRows.indexOf(end):allRows.length;
+    if(startIndex<0)return [];
+    return allRows.slice(startIndex+1,endIndex<0?allRows.length:endIndex);
+  }
+
+  function copyMeasureCells(target,source,level){
+    const targetCells=[...target.children];
+    const sourceCells=[...source.children];
+    const rowFieldCount=Math.max(0,level+1);
+
+    for(let index=0;index<sourceCells.length;index++){
+      if(index<rowFieldCount)continue;
+      if(!targetCells[index])continue;
+      const text=sourceCells[index].textContent.trim();
+      if(!text)continue;
+      targetCells[index].innerHTML='<strong>'+escapeHtml(text)+'</strong>';
+      targetCells[index].classList.add('olap-inline-value');
+    }
   }
 
   function escapeHtml(value){
