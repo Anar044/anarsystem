@@ -1,0 +1,53 @@
+name: Make P&L revenue data-driven from transactions
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.head_commit.message != 'Apply P&L dynamic revenue fix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update P&L revenue logic
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('functions/api/iiko/pnl.js')
+          s = p.read_text(encoding='utf-8')
+
+          replacements = [
+            ("// Revenue: TRANSACTIONS OLAP by Account.Type\n// Discounts / surcharges: SALES OLAP", "// Revenue, discounts and surcharges: TRANSACTIONS OLAP by Account.Type"),
+            ("    // ------------------------------------------------------------\n    // SALES OLAP: only discounts, surcharges and analytics.\n    // These are intentionally NOT taken from TRANSACTIONS.\n    // ------------------------------------------------------------", "    // ------------------------------------------------------------\n    // SALES OLAP: analytics by category only.\n    // P&L revenue amounts come from TRANSACTIONS.\n    // ------------------------------------------------------------"),
+            ("    const discount=findField(salesFields,['DiscountSum','DiscountSumInt','Сумма скидки','Скидка','Discount']);\n    const surcharge=findField(salesFields,['IncreaseSum','IncreaseSumInt','Сумма надбавки','Надбавка','Increase','Surcharge','DishIncreaseSumInt']);\n", ""),
+            ("    if(!discount)throw Error('В OLAP SALES не найдено поле «Сумма скидки».');\n", ""),
+            ("    const categoryQuery=await olap(u,t,'SALES',{rows:[category],measures:[salesBase,discount,...(surcharge?[surcharge]:[])],from,to,dateField:salesDate||'OpenDate.Typed'});", "    const categoryQuery=await olap(u,t,'SALES',{rows:[category],measures:[salesBase],from,to,dateField:salesDate||'OpenDate.Typed'});"),
+            ("      discount:value(r,discount),\n      surcharge:surcharge?value(r,surcharge):0,\n      value:value(r,salesBase)+value(r,discount)-(surcharge?value(r,surcharge):0)", "      value:value(r,salesBase)"),
+            ("    const salesDiscount= sumField(categoryQuery.report,discount);\n    const salesSurcharge=surcharge?sumField(categoryQuery.report,surcharge):0;\n    const categoryBase=sumField(categoryQuery.report,salesBase);\n    const categoryRevenue=categoryBase+salesDiscount-salesSurcharge;", "    const categoryBase=sumField(categoryQuery.report,salesBase);\n    const categoryRevenue=categoryBase;\n    const salesDiscount=0;\n    const salesSurcharge=0;"),
+            ("    // IMPORTANT: Trading revenue comes from TRANSACTIONS by account type.\n    // SALES is NOT used for this P&L line.\n    // Discounts and surcharges come ONLY from SALES OLAP.", "    // IMPORTANT: All P&L revenue rows come from TRANSACTIONS by Account.Type.\n    // Account.Name is display-only and is never hard-coded.\n    // SALES is used only for category analytics."),
+            ("    const revenueRows=[\n      {name:'Выручка',value:revenue,kind:'section',level:true,open:true},\n      {name:'Торговая выручка без учета скидок',value:tradingRevenue,kind:'sub'},\n      {name:'Предоставленные скидки',value:discountValue,kind:'sub'},\n      {name:'Сумма надбавки',value:-surchargeValue,kind:'sub'},\n      {name:'Торговая выручка, прочие',value:otherTradingRevenue,kind:'sub'},\n      {name:'Итого Торговая выручка',value:revenue,kind:'total'},\n      {name:'Итого Выручка',value:revenue,kind:'total'}\n    ];", "    const revenueRows=[\n      {name:'Выручка',value:revenue,kind:'section',level:true,open:true},\n      ...revenueAccounts.map(x=>({name:x.name,value:x.value,kind:'sub',accountId:x.accountId,accountType:x.accountType})),\n      {name:'Итого Выручка',value:revenue,kind:'total'}\n    ];"),
+            ("        source:'TRANSACTIONS Account.Type + SALES OLAP discounts/surcharges'", "        source:'TRANSACTIONS Account.Type'"),
+            ("      sourceNote:'iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; названия счетов только отображаются · Торговая выручка: TRANSACTIONS Account.Type · скидки/надбавки: SALES OLAP · без кассовых смен',", "      sourceNote:'iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; Account.Name берётся напрямую из iiko · выручка/скидки/надбавки: TRANSACTIONS · без кассовых смен',"),
+            ("        selectedSalesFields:{salesBase,discount,surcharge,category,salesDate},", "        selectedSalesFields:{salesBase,category,salesDate},"),
+          ]
+
+          for old, new in replacements:
+              if old not in s:
+                  raise SystemExit(f'Missing target snippet: {old[:100]!r}')
+              s = s.replace(old, new, 1)
+
+          p.write_text(s, encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add functions/api/iiko/pnl.js
+          git commit -m 'Apply P&L dynamic revenue fix'
+          git push
+          rm -f .github/workflows/fix-pnl-dynamic-revenue.yml
+          git add .github/workflows/fix-pnl-dynamic-revenue.yml
+          git commit -m 'Remove temporary P&L dynamic revenue workflow'
+          git push
