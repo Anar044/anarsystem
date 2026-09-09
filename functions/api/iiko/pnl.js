@@ -1,13 +1,14 @@
 // ============================================================
 // ANAR SYSTEM — P&L FROM IIKO
-// Main P&L revenue: SALES OLAP + TRANSACTIONS reconciliation
-// COGS / OPEX / other blocks: TRANSACTIONS OLAP by ACCOUNT TYPE
+// Revenue: TRANSACTIONS OLAP by Account.Type
+// Discounts / surcharges: SALES OLAP
+// COGS / OPEX / other blocks: TRANSACTIONS OLAP by Account.Type
 // Cash shifts are intentionally NOT used here.
 //
 // IMPORTANT:
 // P&L block membership is determined by Account.Type, NOT Account.Name.
-// Account.Id is kept as the stable account identifier.
-// Account.Name is displayed to the user only.
+// Account.Id is the stable grouping identifier.
+// Account.Name is display-only.
 // ============================================================
 
 function corsHeaders(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type'}}
@@ -29,9 +30,8 @@ function allRows(report){return Array.isArray(report?.data)?report.data:[]}
 function rowText(row,field){return clean(row?.[field]??row?.[String(field).toLowerCase()]??'')}
 function sumField(report,field){return allRows(report).reduce((a,r)=>a+value(r,field),0)}
 
-// iiko chart-of-accounts types are the authoritative P&L classification.
-// Examples documented by iiko: "Доходы", "Прямые издержки (себестоимость)",
-// "Расходы", "Прочие доходы", "Прочие расходы".
+// The P&L classifier is based on the account type. Account names are never
+// used to decide whether a posting belongs to revenue, COGS or expenses.
 function accountTypeRole(type){
   const n=norm(type);
   if(!n)return'UNCLASSIFIED';
@@ -43,44 +43,63 @@ function accountTypeRole(type){
   if(n.includes(norm('актив'))||n.includes('asset')||n.includes(norm('обязатель'))||n.includes('liabil')||n.includes(norm('капитал'))||n.includes('equity'))return'EXCLUDED';
   return'UNCLASSIFIED';
 }
-
-function groupAccounts(postings,roles){
+function groupAccounts(postings,role){
   const m=new Map();
   for(const x of postings){
-    if(x.role!==roles)continue;
-    const key=x.accountId||`name:${x.name}`;
+    if(x.role!==role)continue;
+    const key=x.accountId||`row:${x.name}`;
     const old=m.get(key);
     if(old)old.value+=x.value;
-    else m.set(key,{accountId:x.accountId,name:x.name,accountType:x.accountType,value:x.value,role:x.role});
+    else m.set(key,{accountId:x.accountId||null,name:x.name,accountType:x.accountType,value:x.value,role:x.role});
   }
   return [...m.values()].filter(x=>Math.abs(x.value)>0.000001).sort((a,b)=>Math.abs(b.value)-Math.abs(a.value));
 }
+function accountRoleTotal(list){return(list||[]).reduce((a,x)=>a+Number(x.value||0),0)}
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
 
-export async function onRequestPost({request,env}){
+export async function onRequestPost({request}){
   try{
-    const b=await request.json();const from=clean(b.from).slice(0,10),to=clean(b.to||b.from).slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return json({success:false,message:'Укажите корректный период'},400);
-    const{u,t}=await auth(b);const salesFields=await cols(u,t,'SALES');const transactionFields=await cols(u,t,'TRANSACTIONS');
+    const b=await request.json();
+    const from=clean(b.from).slice(0,10),to=clean(b.to||b.from).slice(0,10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return json({success:false,message:'Укажите корректный период'},400);
 
-    // SALES OLAP: actual sales metrics.
-    const revenueBase=findField(salesFields,['DishSumInt','Сумма без учета скидок и надбавок','Сумма без скидки','Сумма без скидок','Торговая выручка без учета скидок']);
-    const discount=findField(salesFields,['DiscountSum','Сумма скидки','Скидка','Discount']);
-    const surcharge=findField(salesFields,['IncreaseSum','Сумма надбавки','Надбавка','Increase','Surcharge','DishIncreaseSumInt']);
+    const{u,t}=await auth(b);
+    const salesFields=await cols(u,t,'SALES');
+    const transactionFields=await cols(u,t,'TRANSACTIONS');
+
+    // ------------------------------------------------------------
+    // SALES OLAP: only discounts, surcharges and analytics.
+    // These are intentionally NOT taken from TRANSACTIONS.
+    // ------------------------------------------------------------
+    const salesBase=findField(salesFields,['DishSumInt','Сумма без учета скидок и надбавок','Сумма без скидки','Сумма без скидок','Торговая выручка без учета скидок']);
+    const discount=findField(salesFields,['DiscountSum','DiscountSumInt','Сумма скидки','Скидка','Discount']);
+    const surcharge=findField(salesFields,['IncreaseSum','IncreaseSumInt','Сумма надбавки','Надбавка','Increase','Surcharge','DishIncreaseSumInt']);
     const category=findField(salesFields,['DishCategory','DishCategory.Name','DishCategoryName','Category','Category.Name','CategoryName','Категория блюда']);
     const salesDate=findField(salesFields,['OpenDate.Typed','OpenDate','Учетный день','Дата']);
-    if(!revenueBase)throw Error('В OLAP SALES не найдено поле «Сумма без скидки».');
-    if(!discount)throw Error('В OLAP SALES не найдено поле «Сумма скидки» (DiscountSum).');
+    if(!salesBase)throw Error('В OLAP SALES не найдено поле для суммы продаж.');
+    if(!discount)throw Error('В OLAP SALES не найдено поле «Сумма скидки».');
     if(!category)throw Error('В OLAP SALES не найдено поле «Категория блюда».');
 
-    const categoryQuery=await olap(u,t,'SALES',{rows:[category],measures:[revenueBase,discount,...[surcharge].filter(Boolean)],from,to,dateField:salesDate||'OpenDate.Typed'});
+    const categoryQuery=await olap(u,t,'SALES',{rows:[category],measures:[salesBase,discount,...(surcharge?[surcharge]:[])],from,to,dateField:salesDate||'OpenDate.Typed'});
     if(!categoryQuery.ok)throw Error(`OLAP SALES по категориям: ${categoryQuery.error}`);
-    const categoryBase=sumField(categoryQuery.report,revenueBase),categoryDiscount=sumField(categoryQuery.report,discount),categorySurcharge=surcharge?sumField(categoryQuery.report,surcharge):0;
-    const categoryRevenue=categoryBase-categoryDiscount+categorySurcharge;
-    const categoryRows=allRows(categoryQuery.report).map(r=>({name:rowText(r,category)||'Без категории',value:value(r,revenueBase)-value(r,discount)+(surcharge?value(r,surcharge):0),base:value(r,revenueBase),discount:value(r,discount),surcharge:surcharge?value(r,surcharge):0})).filter(x=>x.name&&Math.abs(x.value)>0.000001);
-    if(!categoryRows.length)throw Error('iiko OLAP SALES не вернул строки по категориям блюд за выбранный период.');
+    const categoryRows=allRows(categoryQuery.report).map(r=>({
+      name:rowText(r,category)||'Без категории',
+      base:value(r,salesBase),
+      discount:value(r,discount),
+      surcharge:surcharge?value(r,surcharge):0,
+      value:value(r,salesBase)+value(r,discount)-(surcharge?value(r,surcharge):0)
+    })).filter(x=>x.name&&Math.abs(x.value)>0.000001);
+    const salesDiscount= sumField(categoryQuery.report,discount);
+    const salesSurcharge=surcharge?sumField(categoryQuery.report,surcharge):0;
+    const categoryBase=sumField(categoryQuery.report,salesBase);
+    const categoryRevenue=categoryBase+salesDiscount-salesSurcharge;
+    if(!categoryRows.length)throw Error('iiko OLAP SALES не вернул строки по категориям за выбранный период.');
 
-    // TRANSACTIONS OLAP: Account.Id + Account.Type + movement.
+    // ------------------------------------------------------------
+    // TRANSACTIONS OLAP: P&L blocks by Account.Type.
+    // Account.Id is used as the stable grouping key; Account.Name is display-only.
+    // ------------------------------------------------------------
     const article=findField(transactionFields,['Account.Name','AccountName','Счет','Счёт','FinancialArticle','Article','Account']);
     const amount=findField(transactionFields,['Sum','Сумма','Amount','Value','TransactionSum','MoneySum']);
     const accountId=findField(transactionFields,['Account.Id','Account.ID','AccountId','AccountUUID','Account.Guid','Account.Code']);
@@ -88,53 +107,58 @@ export async function onRequestPost({request,env}){
     const counterAccount=findField(transactionFields,['CounterAccount.Name','CounterAccountName','Корр.Счет/Склад','Корр. Счет/Склад','CounterAccount']);
     const trDate=findField(transactionFields,['DateTime.DateTyped','DateTime.Typed','DateTime.Date','Date.Typed','Date','TransactionDate','OperationDate','OpenDate.Typed','Учетный день']);
     if(!article||!amount)throw Error('В OLAP TRANSACTIONS не найдены поля «Счет» и/или «Сумма».');
-    if(!accountType)throw Error('В OLAP TRANSACTIONS не найдено поле «Тип счета». Оно необходимо для устойчивого P&L.');
+    if(!accountType)throw Error('В OLAP TRANSACTIONS не найдено поле «Тип счета».');
 
-    const postingRows=[article,accountType];for(const f of[accountId,counterAccount])if(f&&!postingRows.includes(f))postingRows.push(f);
-    const postingQuery=await olap(u,t,'TRANSACTIONS',{rows:postingRows,measures:[amount],from,to,dateField:trDate||'DateTime.DateTyped'});if(!postingQuery.ok)throw Error(`OLAP TRANSACTIONS: ${postingQuery.error}`);
+    const postingRows=[article,accountType];
+    for(const f of[accountId,counterAccount])if(f&&!postingRows.includes(f))postingRows.push(f);
+    const postingQuery=await olap(u,t,'TRANSACTIONS',{rows:postingRows,measures:[amount],from,to,dateField:trDate||'DateTime.DateTyped'});
+    if(!postingQuery.ok)throw Error(`OLAP TRANSACTIONS: ${postingQuery.error}`);
+
     const rawPostings=allRows(postingQuery.report);
     const postings=rawPostings.map(r=>{
-      const item={name:rowText(r,article)||'Без счета',value:value(r,amount),accountId:accountId?rowText(r,accountId):'',accountType:rowText(r,accountType),counterAccount:counterAccount?rowText(r,counterAccount):''};
+      const item={
+        name:rowText(r,article)||'Без счета',
+        value:value(r,amount),
+        accountId:accountId?rowText(r,accountId):'',
+        accountType:rowText(r,accountType),
+        counterAccount:counterAccount?rowText(r,counterAccount):''
+      };
       return{...item,role:accountTypeRole(item.accountType)};
     }).filter(x=>x.name);
 
-    // Account type is authoritative. Names are never used to decide a block.
     const revenueAccounts=groupAccounts(postings,'REVENUE');
     const cogsAccounts=groupAccounts(postings,'COGS');
     const opexAccounts=groupAccounts(postings,'OPEX');
     const otherIncomeAccounts=groupAccounts(postings,'OTHER_INCOME');
     const otherExpenseAccounts=groupAccounts(postings,'OTHER_EXPENSE');
 
-    // Keep the already reconciled sales presentation for the main revenue KPI.
-    // It uses SALES for actual discount/surcharge and TRANSACTIONS for the
-    // remaining "прочие" amount, while account membership itself is type-based.
-    const transactionRevenueTotal=revenueAccounts.reduce((a,x)=>a+x.value,0);
-    const tradingRevenue=categoryBase;
-    const reconciledOtherTradingRevenue=Math.max(0,transactionRevenueTotal-tradingRevenue+categoryDiscount-categorySurcharge);
-    const otherTradingRevenue=reconciledOtherTradingRevenue;
-    const discountValue=categoryDiscount;
-    const surchargeValue=categorySurcharge;
-    const revenue=tradingRevenue-discountValue+surchargeValue+otherTradingRevenue;
+    // IMPORTANT: Trading revenue comes from TRANSACTIONS by account type.
+    // SALES is NOT used for this P&L line.
+    // Discounts and surcharges come ONLY from SALES OLAP.
+    const tradingRevenue=accountRoleTotal(revenueAccounts);
+    const discountValue=salesDiscount;
+    const surchargeValue=salesSurcharge;
+    const otherTradingRevenue=0;
+    const revenue=tradingRevenue+discountValue-surchargeValue;
 
-    const cogs=Math.abs(cogsAccounts.reduce((a,x)=>a+x.value,0));
-    const opex=opexAccounts.reduce((a,x)=>a+Math.abs(x.value),0);
-    const otherIncome=otherIncomeAccounts.reduce((a,x)=>a+Math.abs(x.value),0);
-    const otherExpense=otherExpenseAccounts.reduce((a,x)=>a+Math.abs(x.value),0);
-    const grossProfit=revenue-cogs,operatingProfit=grossProfit-opex,netProfit=operatingProfit+otherIncome-otherExpense;
+    const cogs=Math.abs(accountRoleTotal(cogsAccounts));
+    const opex=Math.abs(accountRoleTotal(opexAccounts));
+    const otherIncome=Math.abs(accountRoleTotal(otherIncomeAccounts));
+    const otherExpense=Math.abs(accountRoleTotal(otherExpenseAccounts));
+    const grossProfit=revenue-cogs;
+    const operatingProfit=grossProfit-opex;
+    const netProfit=operatingProfit+otherIncome-otherExpense;
 
     const revenueRows=[
       {name:'Выручка',value:revenue,kind:'section',level:true,open:true},
       {name:'Торговая выручка',value:tradingRevenue,kind:'sub'},
-      {name:'Сумма скидки',value:-discountValue,kind:'sub'},
-      {name:'Сумма надбавки',value:surchargeValue,kind:'sub'},
+      {name:'Предоставленные скидки',value:discountValue,kind:'sub'},
+      {name:'Сумма надбавки',value:-surchargeValue,kind:'sub'},
       {name:'Торговая выручка, прочие',value:otherTradingRevenue,kind:'sub'},
       {name:'Итого Торговая выручка',value:revenue,kind:'total'},
       {name:'Итого Выручка',value:revenue,kind:'total'}
     ];
 
-    // Every account with movement is now shown in its type block.
-    // This is the important fix: e.g. "Удаление блюд со списанием"
-    // is included automatically because its type is COGS.
     const cogsRows=cogsAccounts.map(x=>({name:x.name,value:-Math.abs(x.value),kind:'sub'}));
     const opexRows=opexAccounts.map(x=>({name:x.name,value:-Math.abs(x.value),kind:'sub'}));
     const otherIncomeRows=otherIncomeAccounts.map(x=>({name:x.name,value:Math.abs(x.value),kind:'sub'}));
@@ -143,7 +167,7 @@ export async function onRequestPost({request,env}){
     const final=[...revenueRows,
       {name:'Себестоимость',value:-cogs,kind:'section',level:true,open:true},
       ...cogsRows,
-      {name:'Валовая прибыль',value:grossProfit,kind:'total'},
+      {name:'Валовая прибыль',value:grossProfit,kind:'total profit'},
       {name:'Операционные расходы',value:-opex,kind:'section',level:true,open:true},
       ...opexRows,
       {name:'Операционная прибыль',value:operatingProfit,kind:'total'},
@@ -156,23 +180,36 @@ export async function onRequestPost({request,env}){
 
     return json({
       success:true,
-      revenue,revenueBase:tradingRevenue,discount:discountValue,surcharge:surchargeValue,
-      revenueAccounts:{tradingRevenue,transactionRevenueTotal,otherTradingRevenue,totalRevenue:revenue,olapDiscount:discountValue,olapSurcharge:surchargeValue},
+      revenue,
+      revenueBase:tradingRevenue,
+      discount:discountValue,
+      surcharge:surchargeValue,
+      revenueAccounts:{
+        tradingRevenue,
+        transactionRevenueTotal:tradingRevenue,
+        otherTradingRevenue,
+        totalRevenue:revenue,
+        olapDiscount:discountValue,
+        olapSurcharge:surchargeValue,
+        source:'TRANSACTIONS Account.Type + SALES OLAP discounts/surcharges'
+      },
       revenueCategories:categoryRows.sort((a,b)=>b.value-a.value).map(x=>({name:x.name,value:x.value,share:categoryRevenue?x.value/categoryRevenue*100:0,base:x.base,discount:x.discount,surcharge:x.surcharge})),
-      categoryRevenue,cogs,opex,otherIncome,otherExpense,grossProfit,operatingProfit,netProfit,
+      categoryRevenue,
+      cogs,opex,otherIncome,otherExpense,grossProfit,operatingProfit,netProfit,
       rows:final,
       accounts:postings.map(x=>({...x,pnlCategory:x.role})),
       accountTypeSummary:{REVENUE:revenueAccounts,COGS:cogsAccounts,OPEX:opexAccounts,OTHER_INCOME:otherIncomeAccounts,OTHER_EXPENSE:otherExpenseAccounts},
       salesFields,transactionFields,
-      sourceNote:'iiko Server · P&L: блоки счетов определяются по Account.Type; Account.Id используется как идентификатор; названия счетов только отображаются · выручка: OLAP SALES + reconciliation · без кассовых смен',
+      sourceNote:'iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; названия счетов только отображаются · Торговая выручка: TRANSACTIONS Account.Type · скидки/надбавки: SALES OLAP · без кассовых смен',
       debug:{
         salesRequest:categoryQuery.request,
         salesRows:categoryRows.length,
         salesReport:categoryQuery.report,
         transactionRows:rawPostings.length,
-        selectedSalesFields:{revenueBase,discount,surcharge,category,salesDate},
+        selectedSalesFields:{salesBase,discount,surcharge,category,salesDate},
         selectedTransactionFields:{article,amount,accountId,accountType,counterAccount,trDate},
         accountTypeSummary:{REVENUE:revenueAccounts.length,COGS:cogsAccounts.length,OPEX:opexAccounts.length,OTHER_INCOME:otherIncomeAccounts.length,OTHER_EXPENSE:otherExpenseAccounts.length,UNCLASSIFIED:postings.filter(x=>x.role==='UNCLASSIFIED').length},
+        revenueAccounts:revenueAccounts.map(x=>({id:x.accountId,name:x.name,type:x.accountType,value:x.value})),
         cogsAccounts:cogsAccounts.map(x=>({id:x.accountId,name:x.name,type:x.accountType,value:x.value})),
         opexAccounts:opexAccounts.map(x=>({id:x.accountId,name:x.name,type:x.accountType,value:x.value}))
       }
