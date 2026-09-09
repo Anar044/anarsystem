@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HorecaControl — OLAP Отчёты</title>
 <link rel="stylesheet" href="app-shell.css">
-<link rel="stylesheet" href="reports-fields-scroll.css?v=20260910-4">
-<link rel="stylesheet" href="reports-header-compact.css?v=20260910-1">
+<link rel="stylesheet" href="reports-fields-scroll.css?v=20260910-5">
 <link rel="stylesheet" href="reports-result.css?v=20260909-5">
 <style>
-/* OLAP fields: keep the long 258-field list inside the left card. */
+/* Compact OLAP page: the duplicate static page title is removed from the DOM; keep the builder high. */
+#olap-builder{margin-top:-20px!important;}
 #olap-builder .olap-workspace{align-items:start!important;}
 #olap-builder .olap-fields-card{align-self:start!important;height:700px!important;min-height:700px!important;max-height:700px!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;}
 #olap-builder .olap-fields-card .olap-card-title,#olap-builder .olap-fields-card .olap-search-wrap,#olap-builder .olap-fields-card .olap-field-actions{flex:0 0 auto!important;}
@@ -18,7 +18,7 @@
 #olap-builder #olap-fields::-webkit-scrollbar-track{background:#0d1722!important;border-radius:8px!important;}
 #olap-builder #olap-fields::-webkit-scrollbar-thumb{background:#536b80!important;border:2px solid #0d1722!important;border-radius:8px!important;}
 #olap-builder #olap-fields::-webkit-scrollbar-thumb:hover{background:#7591a8!important;}
-@media(max-width:900px){#olap-builder .olap-fields-card{height:560px!important;min-height:560px!important;max-height:560px!important;}}
+@media(max-width:900px){#olap-builder{margin-top:-12px!important;}#olap-builder .olap-fields-card{height:560px!important;min-height:560px!important;max-height:560px!important;}}
 </style>
 </head>
 <body data-protected="true" style="background:#0b1017">
@@ -28,7 +28,7 @@
   <div class="nav-section">Основное</div>
   <nav class="side-nav">
     <a href="index.html"><span class="side-icon">⌂</span>Dashboard</a>
-    <a class="active" href="reports.html"><span class="side-icon">▥</span>OLAP Отчёты</a>
+    <a href="reports.html"><span class="side-icon">▥</span>OLAP Отчёты</a>
     <a href="plugin-control.html"><span class="side-icon">▣</span>Кассы</a>
     <a href="qr-menu.html"><span class="side-icon">▦</span>QR Menu</a>
     <a href="settings.html"><span class="side-icon">⚙</span>Настройки</a>
@@ -43,7 +43,6 @@
 <div class="app-content">
   <main class="reports-page">
     <div class="reports-container">
-      <h1>OLAP Отчёты</h1>
       <div class="iiko-card" id="sales-card" style="display:none;">
         <h2>📊 Продажи</h2>
         <div class="form-group"><label for="report-from">Дата от</label><input id="report-from" type="date"></div>
