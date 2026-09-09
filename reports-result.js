@@ -1,12 +1,148 @@
 (function(){
   'use strict';
-  function enhance(){const root=document.getElementById('olap-result');if(!root)return;bindToggles(root);polishTree(root)}
-  function bindToggles(root){if(root.dataset.groupToggleBound==='1')return;root.dataset.groupToggleBound='1';root.addEventListener('click',function(e){const b=e.target.closest('.olap-group-toggle');if(!b)return;const row=b.closest('tr.olap-group-row');if(!row)return;const level=Number(row.dataset.olapLevel||0),collapse=b.getAttribute('aria-expanded')!=='false';let n=row.nextElementSibling;while(n){const g=n.classList.contains('olap-group-row'),l=g?Number(n.dataset.olapLevel||0):Infinity;if(g&&l<=level)break;n.hidden=collapse;n=n.nextElementSibling}b.setAttribute('aria-expanded',collapse?'false':'true');b.textContent=collapse?'▶':'▼';b.title=collapse?'Развернуть':'Свернуть';row.classList.toggle('is-collapsed',collapse)})}
-  function polishTree(root){root.querySelectorAll('.olap-group-toggle').forEach(function(b){b.tabIndex=0;if(!b.dataset.enhanced){b.dataset.enhanced='1';b.setAttribute('aria-expanded','true');b.textContent='▼';b.title='Свернуть'}});root.querySelectorAll('tbody').forEach(function(tbody){if(tbody.dataset.treeEnhanced==='1')return;const rows=[...tbody.children].filter(r=>r.tagName==='TR'),groups=rows.filter(r=>r.classList.contains('olap-group-row'));if(!groups.length)return;groups.forEach(function(group){const level=Number(group.dataset.olapLevel||0);group.classList.add('olap-tree-row','olap-level-'+level);const boundary=findBoundary(group,level);const range=between(group,boundary,rows);const detail=range.filter(r=>r.classList.contains('olap-data-row'));const totals=range.filter(r=>r.classList.contains('olap-group-total'));const subtotal=totals.length?totals[totals.length-1]:null;/* Values belong to the deepest hierarchy row. */if(level===Number(group.dataset.olapLevel||0)){const source=subtotal||detail[detail.length-1];if(source)copyRightValues(group,source)}detail.forEach(r=>{r.hidden=true;r.classList.add('olap-rendered-into-tree')});totals.forEach(r=>{r.hidden=true;r.classList.add('olap-rendered-into-tree')});const toggle=group.querySelector('.olap-group-toggle');if(toggle){toggle.hidden=!(range.some(r=>r.classList.contains('olap-group-row'))||detail.length);if(!toggle.hidden)toggle.setAttribute('aria-label',level===0?'Свернуть группу':'Свернуть подраздел')}});const grand=rows.find(r=>r.classList.contains('olap-grand-total'));if(grand){grand.hidden=false;grand.classList.add('olap-tree-grand-total')}tbody.dataset.treeEnhanced='1'})}
-  function findBoundary(group,level){let n=group.nextElementSibling;while(n){if(n.classList.contains('olap-group-row')&&Number(n.dataset.olapLevel||0)<=level)return n;if(n.classList.contains('olap-grand-total'))return n;n=n.nextElementSibling}return null}
-  function between(start,end,rows){const a=rows.indexOf(start),b=end?rows.indexOf(end):rows.length;return a<0?[]:rows.slice(a+1,b<0?rows.length:b)}
-  function copyRightValues(target,source){const tc=[...target.children],sc=[...source.children];const count=Math.min(2,tc.length);const sv=sc.slice(-count),start=tc.length-count;sv.forEach(function(cell,i){const text=cell.textContent.trim();if(!text)return;const t=tc[start+i];t.innerHTML='<strong>'+escapeHtml(text)+'</strong>';t.classList.add('olap-inline-value')})}
-  function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
-  function start(){const root=document.getElementById('olap-result');if(!root)return;enhance();new MutationObserver(enhance).observe(root,{childList:true,subtree:true})}
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+
+  function copyMeasures(target, source){
+    if(!target || !source) return;
+    const targetCells=[...target.children];
+    const sourceCells=[...source.children];
+    if(targetCells.length<2 || sourceCells.length<2) return;
+    const count=Math.min(2,targetCells.length,sourceCells.length);
+    for(let i=0;i<count;i++){
+      const text=(sourceCells[sourceCells.length-count+i]?.textContent||'').trim();
+      if(!text) continue;
+      const cell=targetCells[targetCells.length-count+i];
+      cell.innerHTML='<strong>'+escapeHtml(text)+'</strong>';
+      cell.classList.add('olap-inline-value');
+    }
+  }
+
+  function escapeHtml(value){
+    return String(value??'').replace(/[&<>"']/g,function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function getRows(tbody){
+    return [...tbody.children].filter(row=>row.tagName==='TR');
+  }
+
+  function findBoundary(rows,startIndex,level){
+    for(let i=startIndex+1;i<rows.length;i++){
+      const row=rows[i];
+      if(row.classList.contains('olap-grand-total')) return i;
+      if(row.classList.contains('olap-group-row')){
+        const rowLevel=Number(row.dataset.olapLevel||0);
+        if(rowLevel<=level) return i;
+      }
+    }
+    return rows.length;
+  }
+
+  function decorateTable(tbody){
+    const rows=getRows(tbody);
+    if(!rows.length) return;
+
+    const groups=rows.filter(row=>row.classList.contains('olap-group-row'));
+    if(!groups.length) return;
+
+    groups.forEach(group=>{
+      const level=Number(group.dataset.olapLevel||0);
+      group.classList.add('olap-tree-row','olap-level-'+level);
+
+      const index=rows.indexOf(group);
+      const boundary=findBoundary(rows,index,level);
+      const range=rows.slice(index+1,boundary);
+      const totals=range.filter(row=>row.classList.contains('olap-group-total'));
+      const ownTotal=totals.length?totals[totals.length-1]:null;
+
+      if(ownTotal) copyMeasures(group,ownTotal);
+
+      const toggle=group.querySelector('.olap-group-toggle');
+      if(toggle){
+        toggle.tabIndex=0;
+        toggle.setAttribute('aria-expanded',toggle.getAttribute('aria-expanded')==='false'?'false':'true');
+        toggle.textContent=toggle.getAttribute('aria-expanded')==='false'?'▶':'▼';
+        toggle.title=toggle.getAttribute('aria-expanded')==='false'?'Развернуть':'Свернуть';
+      }
+    });
+
+    rows.forEach(row=>{
+      if(row.classList.contains('olap-data-row')){
+        row.classList.add('olap-waiter-row');
+        row.hidden=false;
+      }
+      if(row.classList.contains('olap-group-total')){
+        row.classList.add('olap-design-hidden');
+        row.hidden=true;
+      }
+      if(row.classList.contains('olap-grand-total')){
+        row.classList.add('olap-tree-grand-total');
+        row.hidden=false;
+      }
+    });
+
+    tbody.dataset.olapDesignEnhanced='1';
+  }
+
+  function bindToggles(root){
+    root.querySelectorAll('.olap-group-toggle').forEach(function(button){
+      if(button.dataset.designToggleBound==='1') return;
+      button.dataset.designToggleBound='1';
+      button.addEventListener('click',function(event){
+        event.preventDefault();
+        event.stopPropagation();
+        const row=button.closest('tr.olap-group-row');
+        if(!row) return;
+        const level=Number(row.dataset.olapLevel||0);
+        const collapsed=button.getAttribute('aria-expanded')!=='false';
+        let next=row.nextElementSibling;
+        while(next){
+          const isGroup=next.classList.contains('olap-group-row');
+          const nextLevel=isGroup?Number(next.dataset.olapLevel||0):Infinity;
+          if(isGroup && nextLevel<=level) break;
+          if(!next.classList.contains('olap-design-hidden')) next.hidden=collapsed;
+          next=next.nextElementSibling;
+        }
+        button.setAttribute('aria-expanded',collapsed?'false':'true');
+        button.textContent=collapsed?'▶':'▼';
+        button.title=collapsed?'Развернуть':'Свернуть';
+        row.classList.toggle('is-collapsed',collapsed);
+      });
+    });
+  }
+
+  function enhance(){
+    const root=document.getElementById('olap-result');
+    if(!root) return;
+    root.querySelectorAll('tbody').forEach(decorateTable);
+    bindToggles(root);
+  }
+
+  function scheduleEnhance(){
+    if(scheduleEnhance.pending) return;
+    scheduleEnhance.pending=true;
+    requestAnimationFrame(function(){
+      scheduleEnhance.pending=false;
+      enhance();
+    });
+  }
+
+  function start(){
+    scheduleEnhance();
+
+    const observer=new MutationObserver(function(){
+      scheduleEnhance();
+    });
+    observer.observe(document.body,{childList:true,subtree:true});
+
+    let attempts=0;
+    const timer=setInterval(function(){
+      scheduleEnhance();
+      attempts++;
+      if(attempts>=30) clearInterval(timer);
+    },250);
+  }
+
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',start);
+  else start();
 })();
