@@ -1,7 +1,7 @@
 // ============================================================
 // ANAR SYSTEM — P&L FROM IIKO
 // Revenue: TRANSACTIONS OLAP by Account.Type
-// Discounts / surcharges: SALES OLAP
+// Revenue, discounts and surcharges: TRANSACTIONS OLAP by Account.Type
 // COGS / OPEX / other blocks: TRANSACTIONS OLAP by Account.Type
 // Cash shifts are intentionally NOT used here.
 //
@@ -74,29 +74,22 @@ export async function onRequestPost({request}){
     // These are intentionally NOT taken from TRANSACTIONS.
     // ------------------------------------------------------------
     const salesBase=findField(salesFields,['DishSumInt','Сумма без учета скидок и надбавок','Сумма без скидки','Сумма без скидок','Торговая выручка без учета скидок']);
-    const discount=findField(salesFields,['DiscountSum','DiscountSumInt','Сумма скидки','Скидка','Discount']);
-    const surcharge=findField(salesFields,['IncreaseSum','IncreaseSumInt','Сумма надбавки','Надбавка','Increase','Surcharge','DishIncreaseSumInt']);
     const category=findField(salesFields,['DishCategory','DishCategory.Name','DishCategoryName','Category','Category.Name','CategoryName','Категория блюда']);
     const salesDate=findField(salesFields,['OpenDate.Typed','OpenDate','Учетный день','Дата']);
     if(!salesBase)throw Error('В OLAP SALES не найдено поле для суммы продаж.');
-    if(!discount)throw Error('В OLAP SALES не найдено поле «Сумма скидки».');
     if(!category)throw Error('В OLAP SALES не найдено поле «Категория блюда».');
 
-    const categoryQuery=await olap(u,t,'SALES',{rows:[category],measures:[salesBase,discount,...(surcharge?[surcharge]:[])],from,to,dateField:salesDate||'OpenDate.Typed'});
+    const categoryQuery=await olap(u,t,'SALES',{rows:[category],measures:[salesBase],from,to,dateField:salesDate||'OpenDate.Typed'});
     if(!categoryQuery.ok)throw Error(`OLAP SALES по категориям: ${categoryQuery.error}`);
     const categoryRows=allRows(categoryQuery.report).map(r=>({
       name:rowText(r,category)||'Без категории',
       base:value(r,salesBase),
-      discount:value(r,discount),
-      surcharge:surcharge?value(r,surcharge):0,
-      value:value(r,salesBase)+value(r,discount)-(surcharge?value(r,surcharge):0)
+      value:value(r,salesBase)
     })).filter(x=>x.name&&Math.abs(x.value)>0.000001);
-    const salesDiscount= sumField(categoryQuery.report,discount);
-    const salesSurcharge=surcharge?sumField(categoryQuery.report,surcharge):0;
-    const discountLabel=fieldTitle(salesFields,discount);
-    const surchargeLabel=surcharge?fieldTitle(salesFields,surcharge):'';
+    const salesDiscount=0;
+    const salesSurcharge=0;
     const categoryBase=sumField(categoryQuery.report,salesBase);
-    const categoryRevenue=categoryBase+salesDiscount-salesSurcharge;
+    const categoryRevenue=categoryBase;
     if(!categoryRows.length)throw Error('iiko OLAP SALES не вернул строки по категориям за выбранный период.');
 
     // ------------------------------------------------------------
@@ -137,7 +130,7 @@ export async function onRequestPost({request}){
 
     // IMPORTANT: Trading revenue comes from TRANSACTIONS by account type.
     // SALES is NOT used for this P&L line.
-    // Discounts and surcharges come ONLY from SALES OLAP.
+    // Revenue, discounts and surcharges come from TRANSACTIONS by Account.Type.
     const tradingRevenue=accountRoleTotal(revenueAccounts);
     const discountValue=salesDiscount;
     const surchargeValue=salesSurcharge;
@@ -208,7 +201,7 @@ export async function onRequestPost({request}){
         salesRows:categoryRows.length,
         salesReport:categoryQuery.report,
         transactionRows:rawPostings.length,
-        selectedSalesFields:{salesBase,discount,surcharge,category,salesDate},
+        selectedSalesFields:{salesBase,category,salesDate},
         selectedTransactionFields:{article,amount,accountId,accountType,counterAccount,trDate},
         accountTypeSummary:{REVENUE:revenueAccounts.length,COGS:cogsAccounts.length,OPEX:opexAccounts.length,OTHER_INCOME:otherIncomeAccounts.length,OTHER_EXPENSE:otherExpenseAccounts.length,UNCLASSIFIED:postings.filter(x=>x.role==='UNCLASSIFIED').length},
         revenueAccounts:revenueAccounts.map(x=>({id:x.accountId,name:x.name,type:x.accountType,value:x.value})),
