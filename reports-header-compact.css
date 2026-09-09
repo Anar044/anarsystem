@@ -1,0 +1,9 @@
+/* Compact OLAP page header: remove duplicate large page title and reclaim vertical space. */
+.reports-page > .reports-container > h1,
+.reports-container > h1 { display: none !important; }
+.reports-page { padding-top: 0 !important; }
+.reports-container { padding-top: 0 !important; }
+#olap-builder { margin-top: -16px !important; }
+@media (max-width: 900px) {
+  #olap-builder { margin-top: -8px !important; }
+}
