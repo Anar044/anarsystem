@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HorecaControl — Настройки</title>
 <link rel="stylesheet" href="app-shell.css">
+<style>
+.connection-mode{margin:18px 0;padding:16px 18px;border:1px solid rgba(255,255,255,.09);border-radius:14px;background:rgba(255,255,255,.025)}
+.connection-mode-title{font-weight:700;margin-bottom:5px}.connection-mode-sub{font-size:13px;opacity:.65;margin-bottom:12px}
+.chain-toggle{display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600}.chain-toggle input{width:18px;height:18px;accent-color:#22c55e}
+.chain-hint{display:none;margin-top:10px;font-size:13px;line-height:1.45;color:#86efac}.chain-hint.visible{display:block}
+</style>
 </head>
 <body data-protected="true" style="background:#0b1017">
 <div class="app-shell">
@@ -33,6 +39,12 @@
    <div class="form-group"><label for="iiko-login">Логин</label><input id="iiko-login" type="text" autocomplete="username" placeholder="Логин"></div>
    <div class="form-group"><label for="iiko-password">Пароль</label><input id="iiko-password" type="password" autocomplete="current-password" placeholder="Пароль"></div>
   </div>
+  <div class="connection-mode">
+   <div class="connection-mode-title">Тип подключения</div>
+   <div class="connection-mode-sub">Выберите, как SH Server должен обрабатываться в системе.</div>
+   <label class="chain-toggle"><input type="checkbox" id="is-chain"><span>Это iikoChain — сеть ресторанов</span></label>
+   <div id="chain-hint" class="chain-hint">После подключения система получит структуру сети: корпорацию, рестораны/торговые предприятия, группы, точки продаж и подразделения. Все отчёты будут работать с этой структурой.</div>
+  </div>
   <div class="remember-login"><label><input type="checkbox" id="remember-iiko"><span>Запомнить данные для входа</span></label></div>
   <button id="connect-iiko">Подключиться</button>
   <button type="button" id="clear-iiko-data">Очистить сохранённые данные</button>
@@ -54,4 +66,7 @@
 <script src="reports.js"></script>
 <script src="iiko-identity.js"></script>
 <script src="documents-nav.js?v=3"></script>
+<script>
+(function(){const c=document.getElementById('is-chain'),h=document.getElementById('chain-hint');if(!c)return;function sync(){h.classList.toggle('visible',c.checked)}c.addEventListener('change',sync);sync()})();
+</script>
 </body></html>
