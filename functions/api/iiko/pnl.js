@@ -151,7 +151,7 @@ export async function onRequestPost({request}){
 
     const revenueRows=[
       {name:'Выручка',value:revenue,kind:'section',level:true,open:true},
-      {name:'Торговая выручка',value:tradingRevenue,kind:'sub'},
+      {name:'Торговая выручка без учета скидок',value:tradingRevenue,kind:'sub'},
       {name:'Предоставленные скидки',value:discountValue,kind:'sub'},
       {name:'Сумма надбавки',value:-surchargeValue,kind:'sub'},
       {name:'Торговая выручка, прочие',value:otherTradingRevenue,kind:'sub'},
