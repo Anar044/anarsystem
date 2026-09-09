@@ -1,0 +1,53 @@
+name: Fix OLAP title mapping
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replace field resolver only
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('reports.js')
+          s = p.read_text(encoding='utf-8')
+          old = '''function resolveTechnicalField(value) {
+        const field = findOlapField(value);
+        return field ? field.name : String(value || "");
+    }'''
+          new = '''function resolveTechnicalField(value) {
+        const direct = findOlapField(value);
+        if (direct) return direct.name;
+        const target = String(value ?? "").trim();
+        if (!target) return "";
+        const norm = x => String(x ?? "").trim().toLowerCase().replace(/\\s+/g, " ");
+        const wanted = norm(target);
+        const hit = olapFields.find(field => {
+            const values = [field?.name, field?.title, field?.caption, field?.label, field?.displayName];
+            return values.some(candidate => {
+                const current = norm(candidate);
+                return current === wanted || current.includes(wanted) || wanted.includes(current);
+            });
+        });
+        return hit?.name || target;
+    }'''
+          if old not in s:
+              raise SystemExit('Target resolver block not found; aborting to avoid changing unrelated logic.')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+      - name: Commit and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports.js .github/workflows/fix-olap-title-to-technical.yml
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "Fix OLAP display field mapping"
+          git push
