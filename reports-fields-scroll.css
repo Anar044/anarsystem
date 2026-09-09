@@ -1,0 +1,44 @@
+/* Compact scrollable list for the 258+ available OLAP fields. */
+.olap-fields-card {
+    min-height: 0;
+}
+
+.olap-fields-card .olap-fields {
+    max-height: 520px;
+    min-height: 180px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    padding-right: 6px;
+}
+
+.olap-fields-card .olap-fields::-webkit-scrollbar {
+    width: 9px;
+}
+
+.olap-fields-card .olap-fields::-webkit-scrollbar-track {
+    background: #0d1722;
+    border-radius: 8px;
+}
+
+.olap-fields-card .olap-fields::-webkit-scrollbar-thumb {
+    background: #40566b;
+    border: 2px solid #0d1722;
+    border-radius: 8px;
+}
+
+.olap-fields-card .olap-fields::-webkit-scrollbar-thumb:hover {
+    background: #5c7890;
+}
+
+.olap-fields-card .olap-field {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+@media (max-width: 900px) {
+    .olap-fields-card .olap-fields {
+        max-height: 420px;
+    }
+}
