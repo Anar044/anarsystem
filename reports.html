@@ -5,20 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HorecaControl — OLAP Отчёты</title>
 <link rel="stylesheet" href="app-shell.css">
-<link rel="stylesheet" href="reports-fields-scroll.css?v=20260910-3">
+<link rel="stylesheet" href="reports-fields-scroll.css?v=20260910-4">
 <link rel="stylesheet" href="reports-result.css?v=20260909-5">
 <style>
-/* OLAP: 258 available fields must scroll inside the left panel, not grow the page. */
+/* OLAP fields: keep the long 258-field list inside the left card. */
 #olap-builder .olap-workspace{align-items:start!important;}
 #olap-builder .olap-fields-card{align-self:start!important;height:700px!important;min-height:700px!important;max-height:700px!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;}
-#olap-builder .olap-fields-card .olap-card-title{flex:0 0 auto!important;}
-#olap-builder .olap-fields-card .olap-search-wrap{flex:0 0 auto!important;}
+#olap-builder .olap-fields-card .olap-card-title,#olap-builder .olap-fields-card .olap-search-wrap,#olap-builder .olap-fields-card .olap-field-actions{flex:0 0 auto!important;}
 #olap-builder #olap-fields{flex:1 1 auto!important;height:auto!important;min-height:0!important;max-height:none!important;overflow-y:scroll!important;overflow-x:hidden!important;overscroll-behavior:contain!important;scrollbar-gutter:stable!important;padding-right:8px!important;}
-#olap-builder #olap-fields::-webkit-scrollbar{width:10px!important;}
+#olap-builder #olap-fields::-webkit-scrollbar{width:12px!important;}
 #olap-builder #olap-fields::-webkit-scrollbar-track{background:#0d1722!important;border-radius:8px!important;}
 #olap-builder #olap-fields::-webkit-scrollbar-thumb{background:#536b80!important;border:2px solid #0d1722!important;border-radius:8px!important;}
 #olap-builder #olap-fields::-webkit-scrollbar-thumb:hover{background:#7591a8!important;}
-#olap-builder .olap-field-actions{flex:0 0 auto!important;}
 @media(max-width:900px){#olap-builder .olap-fields-card{height:560px!important;min-height:560px!important;max-height:560px!important;}}
 </style>
 </head>
@@ -65,6 +63,7 @@
 <script src="reports-fields-clean.js?v=20260909-1"></script>
 <script src="reports-default-filters.js?v=20260910-1"></script>
 <script src="reports.js?v=20260910-7"></script>
+<script src="reports-fields-scroll-force.js?v=20260910-1"></script>
 <script src="reports-result.js?v=20260910-6"></script>
 <script src="documents-nav.js?v=3"></script>
 </body>
