@@ -21,6 +21,7 @@ function normalizeFields(raw){const out=[];const add=(name,meta={})=>{name=clean
 async function cols(u,t,type){const x=await get(`${u}/resto/api/v2/reports/olap/columns?key=${encodeURIComponent(t)}&reportType=${encodeURIComponent(type)}`);if(!x.r.ok||!x.p)throw Error(`OLAP ${type}: HTTP ${x.r.status}`);return normalizeFields(x.p)}
 function norm(s){return clean(s).toLowerCase().replace(/[\s._()\/-]+/g,'')}
 function findField(fs,candidates){for(const c of candidates){const q=norm(c),x=fs.find(f=>norm(f.name)===q||norm(f.title)===q);if(x)return x.name}for(const c of candidates){const q=norm(c),x=fs.find(f=>norm(f.name).includes(q)||norm(f.title).includes(q));if(x)return x.name}return null}
+function fieldTitle(fs,name){const x=(fs||[]).find(f=>f.name===name);return x?clean(x.title||x.name||''):clean(name)}
 function endExclusive(to){const d=new Date(`${to}T00:00:00`);d.setDate(d.getDate()+1);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function dateFilter(from,to){return{filterType:'DateRange',periodType:'CUSTOM',from,to:endExclusive(to)}}
 async function olap(u,t,type,q){const req={reportType:type,buildSummary:true,groupByRowFields:q.rows||[],groupByColFields:q.cols||[],aggregateFields:q.measures||[],filters:{...(q.filters||{})}};if(q.from&&q.to&&q.dateField)req.filters[q.dateField]=dateFilter(q.from,q.to);const x=await get(`${u}/resto/api/v2/reports/olap?key=${encodeURIComponent(t)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req)});return{request:req,ok:x.r.ok,report:x.p,error:x.r.ok?null:`HTTP ${x.r.status}: ${x.t.slice(0,2000)}`}}
@@ -92,6 +93,8 @@ export async function onRequestPost({request}){
     })).filter(x=>x.name&&Math.abs(x.value)>0.000001);
     const salesDiscount= sumField(categoryQuery.report,discount);
     const salesSurcharge=surcharge?sumField(categoryQuery.report,surcharge):0;
+    const discountLabel=fieldTitle(salesFields,discount);
+    const surchargeLabel=surcharge?fieldTitle(salesFields,surcharge):'';
     const categoryBase=sumField(categoryQuery.report,salesBase);
     const categoryRevenue=categoryBase+salesDiscount-salesSurcharge;
     if(!categoryRows.length)throw Error('iiko OLAP SALES не вернул строки по категориям за выбранный период.');
@@ -151,10 +154,9 @@ export async function onRequestPost({request}){
 
     const revenueRows=[
       {name:'Выручка',value:revenue,kind:'section',level:true,open:true},
-      {name:'Торговая выручка без учета скидок',value:tradingRevenue,kind:'sub'},
-      {name:'Предоставленные скидки',value:discountValue,kind:'sub'},
-      {name:'Сумма надбавки',value:-surchargeValue,kind:'sub'},
-      {name:'Торговая выручка, прочие',value:otherTradingRevenue,kind:'sub'},
+      ...revenueAccounts.map(x=>({name:x.name,value:x.value,kind:'sub'})),
+      ...(discountValue? [{name:discountLabel,value:discountValue,kind:'sub'}] : []),
+      ...(surchargeValue? [{name:surchargeLabel,value:-surchargeValue,kind:'sub'}] : []),
       {name:'Итого Торговая выручка',value:revenue,kind:'total'},
       {name:'Итого Выручка',value:revenue,kind:'total'}
     ];
