@@ -43,33 +43,40 @@
       }
     });
 
-    /* Compact simple OLAP results visually: when a group contains only one
-       detail row, show the value directly on the group row and remove the
-       duplicate detail/subtotal lines. This changes presentation only. */
+    /* Presentation only: for a simple one-level grouped report, put the
+       aggregated value directly on the group row and hide duplicate detail
+       and subtotal rows. Multi-level reports remain unchanged. */
     root.querySelectorAll('tbody').forEach(tbody=>{
       if(tbody.dataset.compactEnhanced==='1')return;
       const groups=[...tbody.querySelectorAll(':scope > tr.olap-group-row')];
+      if(!groups.length)return;
+
+      let simple=true;
       groups.forEach(group=>{
-        if(Number(group.dataset.olapLevel||0)!==0)return;
+        if(Number(group.dataset.olapLevel||0)!==0)simple=false;
+      });
+      if(!simple)return;
+
+      groups.forEach(group=>{
         let next=group.nextElementSibling;
-        const between=[];
+        const detail=[];
+        let subtotal=null;
         while(next && !next.classList.contains('olap-group-row') && !next.classList.contains('olap-grand-total')){
-          between.push(next);
+          if(next.classList.contains('olap-data-row'))detail.push(next);
+          if(next.classList.contains('olap-group-total'))subtotal=next;
           next=next.nextElementSibling;
         }
-        const detail=between.filter(row=>row.classList.contains('olap-data-row'));
-        const subtotal=between.find(row=>row.classList.contains('olap-group-total'));
-        if(detail.length!==1||!subtotal)return;
-        const detailCells=[...detail[0].children];
-        const groupCells=[...group.children];
-        detailCells.forEach((cell,index)=>{
-          if(index===0)return;
-          if(!groupCells[index])return;
-          const text=cell.textContent.trim();
-          if(text)groupCells[index].innerHTML='<strong>'+escapeHtml(text)+'</strong>';
-        });
+        if(detail.length!==1)return;
+
+        const source=subtotal||detail[0];
+        const sourceCells=[...source.children];
+        const targetCells=[...group.children];
+        for(let i=1;i<targetCells.length;i++){
+          const text=sourceCells[i]?.textContent?.trim()||'';
+          if(text)targetCells[i].innerHTML='<strong>'+escapeHtml(text)+'</strong>';
+        }
         detail[0].hidden=true;
-        subtotal.hidden=true;
+        if(subtotal)subtotal.hidden=true;
         group.classList.add('olap-compact-group');
       });
       tbody.dataset.compactEnhanced='1';
