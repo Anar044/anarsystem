@@ -1,0 +1,36 @@
+name: Fix P&L revenue source
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-pnl-revenue-source.yml'
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore transaction revenue source
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('functions/api/iiko/pnl.js')
+          s=p.read_text(encoding='utf-8')
+          old='const tradingRevenue=categoryBase;'
+          new='const tradingRevenue=accountRoleTotal(revenueAccounts);'
+          if old not in s:
+              print('Target test line not present; no replacement needed.')
+          else:
+              s=s.replace(old,new,1)
+              s=s.replace('// IMPORTANT: Trading revenue comes from TRANSACTIONS by account type.\n    // SALES is NOT used for this P&L line.\n    // Discounts and surcharges come ONLY from SALES OLAP.', '// IMPORTANT: Trading revenue comes from TRANSACTIONS by account type.\n    // SALES is NOT used for this P&L line.\n    // Discounts and surcharges come ONLY from SALES OLAP.')
+              p.write_text(s,encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add functions/api/iiko/pnl.js
+          git commit -m 'Restore P&L trading revenue from transactions' || true
+          git push
+          rm -f .github/workflows/fix-pnl-revenue-source.yml
+          git add .github/workflows/fix-pnl-revenue-source.yml
+          git commit -m 'Remove temporary P&L fix workflow' || true
+          git push
