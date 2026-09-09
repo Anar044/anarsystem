@@ -1,53 +1,61 @@
-/* Fixed-height scroll area for the OLAP field list. */
-.olap-fields-card {
-    min-height: 0 !important;
-    height: auto !important;
+/* OLAP field list: fixed viewport with its own mouse wheel scrollbar. */
+#olap-builder .olap-workspace {
+    align-items: start !important;
 }
 
-/* 258 fields stay inside this box; the page itself no longer grows with them. */
-.olap-fields-card > .olap-fields,
-#olap-fields {
+#olap-builder .olap-fields-card {
+    align-self: start !important;
+    min-height: 0 !important;
+    height: fit-content !important;
+    max-height: 650px !important;
+    overflow: hidden !important;
+}
+
+#olap-builder #olap-fields {
     display: block !important;
-    box-sizing: border-box !important;
     width: 100% !important;
-    height: 520px !important;
-    min-height: 520px !important;
-    max-height: 520px !important;
-    overflow-y: scroll !important;
+    height: 500px !important;
+    min-height: 0 !important;
+    max-height: 500px !important;
+    overflow-y: auto !important;
     overflow-x: hidden !important;
     overscroll-behavior: contain !important;
+    scrollbar-width: auto !important;
     scrollbar-gutter: stable !important;
     padding-right: 8px !important;
 }
 
-#olap-fields::-webkit-scrollbar {
-    width: 10px !important;
+#olap-builder #olap-fields::-webkit-scrollbar {
+    width: 12px !important;
 }
 
-#olap-fields::-webkit-scrollbar-track {
-    background: #0d1722 !important;
+#olap-builder #olap-fields::-webkit-scrollbar-track {
+    background: #0b121a !important;
     border-radius: 8px !important;
 }
 
-#olap-fields::-webkit-scrollbar-thumb {
-    background: #536b80 !important;
-    border: 2px solid #0d1722 !important;
+#olap-builder #olap-fields::-webkit-scrollbar-thumb {
+    background: #61788c !important;
+    border: 2px solid #0b121a !important;
     border-radius: 8px !important;
 }
 
-#olap-fields::-webkit-scrollbar-thumb:hover {
-    background: #7591a8 !important;
+#olap-builder #olap-fields::-webkit-scrollbar-thumb:hover {
+    background: #89a2b7 !important;
 }
 
-#olap-fields .olap-field {
+#olap-builder #olap-fields .olap-field {
     width: 100% !important;
     box-sizing: border-box !important;
 }
 
 @media (max-width: 900px) {
-    #olap-fields {
-        height: 420px !important;
-        min-height: 420px !important;
-        max-height: 420px !important;
+    #olap-builder .olap-fields-card {
+        max-height: 520px !important;
+    }
+
+    #olap-builder #olap-fields {
+        height: 380px !important;
+        max-height: 380px !important;
     }
 }
