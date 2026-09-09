@@ -17,34 +17,35 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           p = Path('functions/api/iiko/pnl.js')
           s = p.read_text(encoding='utf-8')
-          old = """    const revenueRows=[
-      {name:'Выручка',value:revenue,kind:'section',level:true,open:true},
-      ...revenueAccounts.map(x=>({name:x.name,value:x.value,kind:'sub'})),
-      ...(discountValue? [{name:discountLabel,value:discountValue,kind:'sub'}] : []),
-      ...(surchargeValue? [{name:surchargeLabel,value:-surchargeValue,kind:'sub'}] : []),
-      {name:'Итого Торговая выручка',value:revenue,kind:'total'},
-      {name:'Итого Выручка',value:revenue,kind:'total'}
-    ];"""
-          new = """    const tradingRevenueRows=revenueAccounts.map(x=>({name:x.name,value:x.value,kind:'sub',accountId:x.accountId,accountType:x.accountType}));
-    const tradingRevenueChildren=[...tradingRevenueRows,
-      ...(discountValue? [{name:discountLabel,value:discountValue,kind:'sub'}] : []),
-      ...(surchargeValue? [{name:surchargeLabel,value:-surchargeValue,kind:'sub'}] : [])
-    ];
-    const tradingRevenueTotal=tradingRevenueChildren.reduce((a,x)=>a+Number(x.value||0),0);
-    const revenueRows=[
-      {name:'Выручка',value:tradingRevenueTotal,kind:'section',level:true,open:true},
-      {name:'Торговая выручка',value:tradingRevenueTotal,kind:'section',level:true,open:true},
-      ...tradingRevenueChildren,
-      {name:'Итого Торговая выручка',value:tradingRevenueTotal,kind:'total'},
-      {name:'Итого Выручка',value:tradingRevenueTotal,kind:'total'}
-    ];"""
-          if old not in s:
-              raise SystemExit('Revenue rows target not found')
-          s = s.replace(old, new, 1)
-          s = s.replace("      revenue,\n      revenueBase:tradingRevenue,", "      revenue:tradingRevenueTotal,\n      revenueBase:tradingRevenue,", 1)
-          s = s.replace("      {name:'Итого ЧИСТАЯ ПРИБЫЛЬ'", "      {name:'ИТОГО ЧИСТАЯ ПРИБЫЛЬ'", 1)
+
+          s = re.sub(
+              r"    // IMPORTANT: Trading revenue comes from TRANSACTIONS by account type\.\n    // SALES is NOT used for this P&L line\.\n    // Revenue, discounts and surcharges come from TRANSACTIONS by Account\.Type\.\n    const tradingRevenue=accountRoleTotal\(revenueAccounts\);\n    const discountValue=salesDiscount;\n    const surchargeValue=salesSurcharge;\n    const otherTradingRevenue=0;\n    const revenue=tradingRevenue\+discountValue-surchargeValue;",
+              "    // IMPORTANT: Every revenue account comes directly from TRANSACTIONS.\n    // Classification uses Account.Type; Account.Name is display-only.\n    const tradingRevenue=accountRoleTotal(revenueAccounts);\n    const revenue=tradingRevenue;",
+              s,
+              count=1)
+
+          s = re.sub(
+              r"    const revenueRows=\[\n      \{name:'Выручка',value:revenue,kind:'section',level:true,open:true\},\n      \.\.\.revenueAccounts\.map\(x=>\(\{name:x\.name,value:x\.value,kind:'sub'\}\)\),\n      \(\?\(discountValue\? \[\{name:discountLabel,value:discountValue,kind:'sub'\}\] : \[\]\)\),\n      \(\?\(surchargeValue\? \[\{name:surchargeLabel,value:-surchargeValue,kind:'sub'\}\] : \[\]\)\),\n      \{name:'Итого Торговая выручка',value:revenue,kind:'total'\},\n      \{name:'Итого Выручка',value:revenue,kind:'total'\}\n    \];",
+              "    const revenueRows=[\n      {name:'Выручка',value:revenue,kind:'section',level:true,open:true},\n      {name:'Торговая выручка',value:tradingRevenue,kind:'section',level:true,open:true},\n      ...revenueAccounts.map(x=>({name:x.name,value:x.value,kind:'sub',accountId:x.accountId,accountType:x.accountType})),\n      {name:'Итого Торговая выручка',value:tradingRevenue,kind:'total'},\n      {name:'Итого Выручка',value:revenue,kind:'total'}\n    ];",
+              s,
+              count=1)
+
+          # Remove obsolete SALES P&L values/labels; SALES remains only for category analytics.
+          s = re.sub(r"\n    const salesDiscount=0;\n    const salesSurcharge=0;", "", s, count=1)
+          s = re.sub(r"\n    const discountLabel=fieldTitle\([^\n]+;", "", s, count=1)
+          s = re.sub(r"\n    const surchargeLabel=fieldTitle\([^\n]+;", "", s, count=1)
+          s = s.replace("      discount:discountValue,\n      surcharge:surchargeValue,\n", "")
+          s = s.replace("        olapDiscount:discountValue,\n        olapSurcharge:surchargeValue,\n", "")
+          s = s.replace("      revenue,\n      revenueBase:tradingRevenue,", "      revenue,\n      revenueBase:tradingRevenue,")
+          s = s.replace("        source:'TRANSACTIONS Account.Type + SALES OLAP discounts/surcharges'", "        source:'TRANSACTIONS Account.Type'")
+          s = s.replace("      sourceNote:'iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; названия счетов только отображаются · Торговая выручка: TRANSACTIONS Account.Type · скидки/надбавки: SALES OLAP · без кассовых смен',", "      sourceNote:'iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; Account.Name берётся напрямую из iiko · выручка/скидки/надбавки: TRANSACTIONS · без кассовых смен',")
+
+          # Ensure no P&L row references obsolete SALES discount variables.
+          if 'name:discountLabel' in s or 'name:surchargeLabel' in s or 'salesDiscount' in s or 'salesSurcharge' in s:
+              raise SystemExit('Obsolete SALES P&L variables remain')
           p.write_text(s, encoding='utf-8')
           PY
           git config user.name 'github-actions[bot]'
