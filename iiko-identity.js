@@ -8,6 +8,7 @@
     function esc(value) {
         return String(value ?? "").replace(/[&<>"']/g, char => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[char]));
     }
+    const clean = value => String(value ?? "").trim();
     async function safeJson(response) {
         const text = await response.text();
         if (!text) return {};
@@ -62,8 +63,7 @@
             let chainStructure=null;
             let serverMode=String(data.detectedMode||data.mode||"").toUpperCase();
 
-            // Always ask the server for its corporate structure. The checkbox is NOT the detector.
-            // It remains only as an explicit override for the rare ambiguous one-department Chain case.
+            // Load corporate structure only during connection. Dashboard will reuse the saved result.
             try{
                 const chainResponse=await fetch("/api/iiko/chain",{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify({ip,port,login,password})});
                 chainStructure=await safeJson(chainResponse);
@@ -82,18 +82,25 @@
             const checkedAt=new Date().toISOString();
             const organizationId=String(data.organizationId||organizations[0]?.id||departments[0]?.id||"");
 
-            const identity={mode:isChain?"CHAIN":"RMS",detectedMode,organizationId,organizations,departmentIds:departments.map(x=>x.id),departments,hierarchy:chainStructure?.hierarchy||[],groups:chainStructure?.groups||[],pointsOfSale:chainStructure?.pointsOfSale||[],restaurantSections:chainStructure?.restaurantSections||[],server:{ip,port},checkedAt};
+            // Capture the correct display name NOW, at connection time.
+            // RMS -> restaurant / trading enterprise name.
+            // CHAIN -> corporation / network name.
+            const networkName=clean(chainStructure?.organization?.name||chainStructure?.organization?.Name||"");
+            const restaurantName=clean(organizations[0]?.name||departments[0]?.name||data.restaurantName||"");
+            const displayName=isChain?(networkName||restaurantName):restaurantName;
+
+            const identity={mode:isChain?"CHAIN":"RMS",detectedMode,organizationId,displayName,networkName,restaurantName,organizations,departmentIds:departments.map(x=>x.id),departments,hierarchy:chainStructure?.hierarchy||[],groups:chainStructure?.groups||[],pointsOfSale:chainStructure?.pointsOfSale||[],restaurantSections:chainStructure?.restaurantSections||[],server:{ip,port},checkedAt};
             localStorage.setItem(IDENTITY_KEY,JSON.stringify(identity));
 
-            const connection={ip,port,login,password,connectionType:isChain?"CHAIN":"RMS",isChain,detectedMode,organizationId,departmentIds:identity.departmentIds,departments,organizations,hierarchy:identity.hierarchy,groups:identity.groups,pointsOfSale:identity.pointsOfSale,restaurantSections:identity.restaurantSections,connectedAt:checkedAt};
+            const connection={ip,port,login,password,connectionType:isChain?"CHAIN":"RMS",isChain,detectedMode,organizationId,displayName,networkName,restaurantName,departmentIds:identity.departmentIds,departments,organizations,hierarchy:identity.hierarchy,groups:identity.groups,pointsOfSale:identity.pointsOfSale,restaurantSections:identity.restaurantSections,connectedAt:checkedAt};
             if(remember)localStorage.setItem(CONNECTION_KEY,JSON.stringify(connection));else localStorage.removeItem(CONNECTION_KEY);
 
             const checkbox=$("is-chain"), hint=$("chain-hint");
             if(checkbox)checkbox.checked=isChain;
             if(hint&&checkbox)hint.classList.toggle("visible",checkbox.checked);
             renderIdentity(departments,organizations,identity.server,isChain);
-            setStatus(isChain?`🟢 SH Chain определён автоматически • ресторанов: ${organizations.length}`:`🟢 SH RMS определён автоматически • Department ID: ${organizationId||"—"}`);
-            console.info("SH DETECTED TYPE:",detectedMode,"FINAL TYPE:",isChain?"CHAIN":"RMS");
+            setStatus(isChain?`🟢 SH Chain определён автоматически • сеть: ${displayName||"—"} • ресторанов: ${organizations.length}`:`🟢 SH RMS определён автоматически • ресторан: ${displayName||"—"} • Department ID: ${organizationId||"—"}`);
+            console.info("SH DETECTED TYPE:",detectedMode,"FINAL TYPE:",isChain?"CHAIN":"RMS","DISPLAY NAME:",displayName);
         }catch(error){
             setStatus("🔴 Ошибка соединения");
             if(list)list.innerHTML=`<div class="iiko-identity-empty">${esc(error?.message||error)}</div>`;
