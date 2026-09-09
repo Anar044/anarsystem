@@ -1,0 +1,58 @@
+name: Fix P&L transaction revenue workflow
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.head_commit.message != 'Apply P&L structure fix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix P&L structure
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('functions/api/iiko/pnl.js')
+          s = p.read_text(encoding='utf-8')
+          old = """    const revenueRows=[
+      {name:'Выручка',value:revenue,kind:'section',level:true,open:true},
+      ...revenueAccounts.map(x=>({name:x.name,value:x.value,kind:'sub'})),
+      ...(discountValue? [{name:discountLabel,value:discountValue,kind:'sub'}] : []),
+      ...(surchargeValue? [{name:surchargeLabel,value:-surchargeValue,kind:'sub'}] : []),
+      {name:'Итого Торговая выручка',value:revenue,kind:'total'},
+      {name:'Итого Выручка',value:revenue,kind:'total'}
+    ];"""
+          new = """    const tradingRevenueRows=revenueAccounts.map(x=>({name:x.name,value:x.value,kind:'sub',accountId:x.accountId,accountType:x.accountType}));
+    const tradingRevenueChildren=[...tradingRevenueRows,
+      ...(discountValue? [{name:discountLabel,value:discountValue,kind:'sub'}] : []),
+      ...(surchargeValue? [{name:surchargeLabel,value:-surchargeValue,kind:'sub'}] : [])
+    ];
+    const tradingRevenueTotal=tradingRevenueChildren.reduce((a,x)=>a+Number(x.value||0),0);
+    const revenueRows=[
+      {name:'Выручка',value:tradingRevenueTotal,kind:'section',level:true,open:true},
+      {name:'Торговая выручка',value:tradingRevenueTotal,kind:'section',level:true,open:true},
+      ...tradingRevenueChildren,
+      {name:'Итого Торговая выручка',value:tradingRevenueTotal,kind:'total'},
+      {name:'Итого Выручка',value:tradingRevenueTotal,kind:'total'}
+    ];"""
+          if old not in s:
+              raise SystemExit('Revenue rows target not found')
+          s = s.replace(old, new, 1)
+          s = s.replace("      revenue,\n      revenueBase:tradingRevenue,", "      revenue:tradingRevenueTotal,\n      revenueBase:tradingRevenue,", 1)
+          s = s.replace("      {name:'Итого ЧИСТАЯ ПРИБЫЛЬ'", "      {name:'ИТОГО ЧИСТАЯ ПРИБЫЛЬ'", 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add functions/api/iiko/pnl.js
+          git commit -m 'Apply P&L structure fix'
+          git push
+          rm -f .github/workflows/fix-pnl-dynamic-revenue.yml
+          git add -A .github/workflows
+          git commit -m 'Remove temporary P&L structure workflow'
+          git push
