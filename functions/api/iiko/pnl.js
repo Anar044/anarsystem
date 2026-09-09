@@ -1,7 +1,6 @@
 // ============================================================
 // ANAR SYSTEM — P&L FROM IIKO
 // Revenue: TRANSACTIONS OLAP by Account.Type
-// Revenue, discounts and surcharges: TRANSACTIONS OLAP by Account.Type
 // COGS / OPEX / other blocks: TRANSACTIONS OLAP by Account.Type
 // Cash shifts are intentionally NOT used here.
 //
@@ -21,7 +20,6 @@ function normalizeFields(raw){const out=[];const add=(name,meta={})=>{name=clean
 async function cols(u,t,type){const x=await get(`${u}/resto/api/v2/reports/olap/columns?key=${encodeURIComponent(t)}&reportType=${encodeURIComponent(type)}`);if(!x.r.ok||!x.p)throw Error(`OLAP ${type}: HTTP ${x.r.status}`);return normalizeFields(x.p)}
 function norm(s){return clean(s).toLowerCase().replace(/[\s._()\/-]+/g,'')}
 function findField(fs,candidates){for(const c of candidates){const q=norm(c),x=fs.find(f=>norm(f.name)===q||norm(f.title)===q);if(x)return x.name}for(const c of candidates){const q=norm(c),x=fs.find(f=>norm(f.name).includes(q)||norm(f.title).includes(q));if(x)return x.name}return null}
-function fieldTitle(fs,name){const x=(fs||[]).find(f=>f.name===name);return x?clean(x.title||x.name||''):clean(name)}
 function endExclusive(to){const d=new Date(`${to}T00:00:00`);d.setDate(d.getDate()+1);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function dateFilter(from,to){return{filterType:'DateRange',periodType:'CUSTOM',from,to:endExclusive(to)}}
 async function olap(u,t,type,q){const req={reportType:type,buildSummary:true,groupByRowFields:q.rows||[],groupByColFields:q.cols||[],aggregateFields:q.measures||[],filters:{...(q.filters||{})}};if(q.from&&q.to&&q.dateField)req.filters[q.dateField]=dateFilter(q.from,q.to);const x=await get(`${u}/resto/api/v2/reports/olap?key=${encodeURIComponent(t)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req)});return{request:req,ok:x.r.ok,report:x.p,error:x.r.ok?null:`HTTP ${x.r.status}: ${x.t.slice(0,2000)}`}}
@@ -70,8 +68,8 @@ export async function onRequestPost({request}){
     const transactionFields=await cols(u,t,'TRANSACTIONS');
 
     // ------------------------------------------------------------
-    // SALES OLAP: only discounts, surcharges and analytics.
-    // These are intentionally NOT taken from TRANSACTIONS.
+    // SALES OLAP: analytics by category only.
+    // P&L revenue amounts are NOT taken from SALES.
     // ------------------------------------------------------------
     const salesBase=findField(salesFields,['DishSumInt','Сумма без учета скидок и надбавок','Сумма без скидки','Сумма без скидок','Торговая выручка без учета скидок']);
     const category=findField(salesFields,['DishCategory','DishCategory.Name','DishCategoryName','Category','Category.Name','CategoryName','Категория блюда']);
@@ -86,15 +84,13 @@ export async function onRequestPost({request}){
       base:value(r,salesBase),
       value:value(r,salesBase)
     })).filter(x=>x.name&&Math.abs(x.value)>0.000001);
-    const salesDiscount=0;
-    const salesSurcharge=0;
     const categoryBase=sumField(categoryQuery.report,salesBase);
     const categoryRevenue=categoryBase;
     if(!categoryRows.length)throw Error('iiko OLAP SALES не вернул строки по категориям за выбранный период.');
 
     // ------------------------------------------------------------
     // TRANSACTIONS OLAP: P&L blocks by Account.Type.
-    // Account.Id is used as the stable grouping key; Account.Name is display-only.
+    // Account.Id is the stable grouping key; Account.Name is display-only.
     // ------------------------------------------------------------
     const article=findField(transactionFields,['Account.Name','AccountName','Счет','Счёт','FinancialArticle','Article','Account']);
     const amount=findField(transactionFields,['Sum','Сумма','Amount','Value','TransactionSum','MoneySum']);
@@ -128,14 +124,10 @@ export async function onRequestPost({request}){
     const otherIncomeAccounts=groupAccounts(postings,'OTHER_INCOME');
     const otherExpenseAccounts=groupAccounts(postings,'OTHER_EXPENSE');
 
-    // IMPORTANT: Trading revenue comes from TRANSACTIONS by account type.
-    // SALES is NOT used for this P&L line.
-    // Revenue, discounts and surcharges come from TRANSACTIONS by Account.Type.
+    // IMPORTANT: Revenue is only the sum of TRANSACTIONS revenue accounts.
+    // Account.Name is never used for classification and is never hard-coded.
     const tradingRevenue=accountRoleTotal(revenueAccounts);
-    const discountValue=salesDiscount;
-    const surchargeValue=salesSurcharge;
-    const otherTradingRevenue=0;
-    const revenue=tradingRevenue+discountValue-surchargeValue;
+    const revenue=tradingRevenue;
 
     const cogs=Math.abs(accountRoleTotal(cogsAccounts));
     const opex=Math.abs(accountRoleTotal(opexAccounts));
@@ -145,13 +137,16 @@ export async function onRequestPost({request}){
     const operatingProfit=grossProfit-opex;
     const netProfit=operatingProfit+otherIncome-otherExpense;
 
+    // Exact hierarchy: Выручка -> Торговая выручка -> iiko Account.Name rows.
+    // Totals are calculated from the same rows that are displayed.
+    const tradingRevenueRows=revenueAccounts.map(x=>({name:x.name,value:x.value,kind:'sub',accountId:x.accountId,accountType:x.accountType}));
+    const tradingRevenueTotal=tradingRevenueRows.reduce((a,x)=>a+Number(x.value||0),0);
     const revenueRows=[
-      {name:'Выручка',value:revenue,kind:'section',level:true,open:true},
-      ...revenueAccounts.map(x=>({name:x.name,value:x.value,kind:'sub'})),
-      ...(discountValue? [{name:discountLabel,value:discountValue,kind:'sub'}] : []),
-      ...(surchargeValue? [{name:surchargeLabel,value:-surchargeValue,kind:'sub'}] : []),
-      {name:'Итого Торговая выручка',value:revenue,kind:'total'},
-      {name:'Итого Выручка',value:revenue,kind:'total'}
+      {name:'Выручка',value:tradingRevenueTotal,kind:'section',level:true,open:true},
+      {name:'Торговая выручка',value:tradingRevenueTotal,kind:'section',level:true,open:true},
+      ...tradingRevenueRows,
+      {name:'Итого Торговая выручка',value:tradingRevenueTotal,kind:'total'},
+      {name:'Итого Выручка',value:tradingRevenueTotal,kind:'total'}
     ];
 
     const cogsRows=cogsAccounts.map(x=>({name:x.name,value:-Math.abs(x.value),kind:'sub'}));
@@ -175,27 +170,22 @@ export async function onRequestPost({request}){
 
     return json({
       success:true,
-      revenue,
+      revenue:tradingRevenueTotal,
       revenueBase:tradingRevenue,
-      discount:discountValue,
-      surcharge:surchargeValue,
       revenueAccounts:{
-        tradingRevenue,
+        tradingRevenue:tradingRevenueTotal,
         transactionRevenueTotal:tradingRevenue,
-        otherTradingRevenue,
-        totalRevenue:revenue,
-        olapDiscount:discountValue,
-        olapSurcharge:surchargeValue,
-        source:'TRANSACTIONS Account.Type + SALES OLAP discounts/surcharges'
+        totalRevenue:tradingRevenueTotal,
+        source:'TRANSACTIONS Account.Type'
       },
-      revenueCategories:categoryRows.sort((a,b)=>b.value-a.value).map(x=>({name:x.name,value:x.value,share:categoryRevenue?x.value/categoryRevenue*100:0,base:x.base,discount:x.discount,surcharge:x.surcharge})),
+      revenueCategories:categoryRows.sort((a,b)=>b.value-a.value).map(x=>({name:x.name,value:x.value,share:categoryRevenue?x.value/categoryRevenue*100:0,base:x.base})),
       categoryRevenue,
       cogs,opex,otherIncome,otherExpense,grossProfit,operatingProfit,netProfit,
       rows:final,
       accounts:postings.map(x=>({...x,pnlCategory:x.role})),
       accountTypeSummary:{REVENUE:revenueAccounts,COGS:cogsAccounts,OPEX:opexAccounts,OTHER_INCOME:otherIncomeAccounts,OTHER_EXPENSE:otherExpenseAccounts},
       salesFields,transactionFields,
-      sourceNote:'iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; названия счетов только отображаются · Торговая выручка: TRANSACTIONS Account.Type · скидки/надбавки: SALES OLAP · без кассовых смен',
+      sourceNote:'iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; Account.Name берётся напрямую из iiko · P&L выручка: TRANSACTIONS · без кассовых смен',
       debug:{
         salesRequest:categoryQuery.request,
         salesRows:categoryRows.length,
