@@ -1,25 +1,65 @@
-.olap-result{min-height:180px;color:#e8eef6}
-.olap-result .report-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px;padding:2px 2px 10px;border-bottom:1px solid rgba(148,163,184,.14)}
-.olap-result .report-header strong{font-size:15px;font-weight:800;letter-spacing:.01em;color:#f3f7fb}
-.olap-result .report-header span{font-size:12px;color:#8fa0b2}
-.olap-result .report-table-wrapper{overflow:auto;border:1px solid rgba(148,163,184,.14);border-radius:14px;background:rgba(7,13,20,.48);box-shadow:inset 0 1px 0 rgba(255,255,255,.02)}
-.olap-result .report-table{width:100%;min-width:520px;border-collapse:separate;border-spacing:0;font-size:13px}
-.olap-result .report-table th{position:sticky;top:0;z-index:2;padding:12px 14px;text-align:left;font-size:11px;font-weight:800;letter-spacing:.045em;text-transform:uppercase;color:#91a0b2;background:#111a24;border-bottom:1px solid rgba(148,163,184,.16);white-space:nowrap}
-.olap-result .report-table td{padding:11px 14px;border-bottom:1px solid rgba(148,163,184,.09);color:#d9e2ec;background:rgba(15,23,33,.36);white-space:nowrap}
+.olap-result{min-height:0;color:#e8eef6;font-family:inherit}
+
+/* ===== OLAP RESULT / ANALYTICS TABLE ===== */
+.olap-result .report-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 14px;padding:0 2px}
+.olap-result .report-header strong{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:800;letter-spacing:-.01em;color:#f5f8fb}
+.olap-result .report-header strong::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#42d392;box-shadow:0 0 0 4px rgba(66,211,146,.10)}
+.olap-result .report-header span{display:inline-flex;align-items:center;min-height:28px;padding:0 10px;border:1px solid rgba(148,163,184,.15);border-radius:999px;background:rgba(255,255,255,.035);font-size:11px;font-weight:700;color:#94a3b8;white-space:nowrap}
+
+.olap-result .report-table-wrapper{overflow:auto;border:1px solid rgba(148,163,184,.13);border-radius:12px;background:#0c131c;box-shadow:0 8px 28px rgba(0,0,0,.16),inset 0 1px 0 rgba(255,255,255,.025)}
+.olap-result .report-table{width:100%;min-width:520px;border-collapse:separate;border-spacing:0;font-size:13px;table-layout:auto}
+
+.olap-result .report-table th{position:sticky;top:0;z-index:2;padding:11px 15px;text-align:left;font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#7f91a5;background:#121b26;border-bottom:1px solid rgba(148,163,184,.15);white-space:nowrap}
+.olap-result .report-table th:not(:first-child){text-align:right}
+.olap-result .report-table th:first-child{min-width:260px}
+
+.olap-result .report-table td{height:44px;padding:10px 15px;border-bottom:1px solid rgba(148,163,184,.075);color:#dce5ee;background:#0d151f;white-space:nowrap;transition:background .15s ease}
+.olap-result .report-table td:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
 .olap-result .report-table tbody tr:last-child td{border-bottom:0}
-.olap-result .report-table .olap-group-row td{padding:10px 14px;background:rgba(66,211,146,.065);border-bottom:1px solid rgba(66,211,146,.16);color:#edf8f2}
-.olap-result .report-table .olap-group-row:hover td{background:rgba(66,211,146,.095)}
-.olap-result .report-table .olap-group-label{font-weight:700;min-width:240px}
-.olap-result .report-table .olap-group-label strong{vertical-align:middle}
-.olap-result .report-table .olap-group-toggle{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-right:8px;padding:0;border:1px solid rgba(148,163,184,.18);border-radius:7px;background:rgba(255,255,255,.045);color:#9ce9bf;font-size:11px;line-height:1;cursor:pointer;transition:background .16s,border-color .16s,transform .16s}
-.olap-result .report-table .olap-group-toggle:hover{background:rgba(66,211,146,.12);border-color:rgba(66,211,146,.35)}
-.olap-result .report-table .olap-data-row td{background:rgba(10,16,24,.2)}
-.olap-result .report-table .olap-data-row td:first-child{color:#93a3b5}
-.olap-result .report-table .olap-group-total td{background:rgba(148,163,184,.045);color:#cdd7e2;border-bottom-color:rgba(148,163,184,.12)}
-.olap-result .report-table .olap-grand-total td{background:rgba(66,211,146,.08);color:#f3faf6;border-top:1px solid rgba(66,211,146,.22);border-bottom:0;font-weight:800}
-.olap-result .report-table .olap-total-label{color:#f0f7f3!important}
-.olap-result .report-table tbody tr.olap-data-row:hover td{background:rgba(255,255,255,.035)}
-.olap-result .report-table td:not(.olap-total-label):not(.olap-group-label){text-align:right;font-variant-numeric:tabular-nums}
-.report-loading,.report-error{padding:18px;border-radius:12px;border:1px solid rgba(148,163,184,.14);background:rgba(15,23,33,.45);font-size:13px}
+.olap-result .report-table tbody tr.olap-data-row:hover td{background:#111b27}
+
+/* Group / dimension rows */
+.olap-result .report-table .olap-group-row td{height:46px;padding:10px 15px;background:linear-gradient(90deg,rgba(66,211,146,.075),rgba(66,211,146,.025));border-top:1px solid rgba(66,211,146,.10);border-bottom:1px solid rgba(66,211,146,.13);color:#edf8f2}
+.olap-result .report-table .olap-group-row:hover td{background:linear-gradient(90deg,rgba(66,211,146,.105),rgba(66,211,146,.035))}
+.olap-result .report-table .olap-group-label{min-width:260px;font-weight:700!important;text-align:left!important}
+.olap-result .report-table .olap-group-label strong{vertical-align:middle;font-size:13px;font-weight:750;color:#edf8f2}
+
+.olap-result .report-table .olap-group-toggle{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;margin-right:9px;padding:0;border:1px solid rgba(148,163,184,.19);border-radius:7px;background:rgba(255,255,255,.045);color:#a6eec8;font-size:10px;line-height:1;cursor:pointer;transition:all .16s ease;vertical-align:middle}
+.olap-result .report-table .olap-group-toggle:hover{background:rgba(66,211,146,.13);border-color:rgba(66,211,146,.38);transform:translateY(-1px)}
+.olap-result .report-table .olap-group-toggle:focus-visible{outline:2px solid rgba(66,211,146,.55);outline-offset:2px}
+
+/* Detail rows */
+.olap-result .report-table .olap-data-row td:first-child{color:#aab8c7}
+.olap-result .report-table .olap-data-row td{background:#0d151f}
+
+/* Subtotal */
+.olap-result .report-table .olap-group-total td{height:40px;background:#101923;color:#b9c7d5;border-bottom:1px solid rgba(148,163,184,.11);font-size:12px}
+.olap-result .report-table .olap-group-total td strong{font-weight:750;color:#cbd7e2}
+.olap-result .report-table .olap-total-label{text-align:left!important;color:#dce7e1!important}
+.olap-result .report-table .olap-group-total .olap-total-label{padding-left:50px;position:relative}
+.olap-result .report-table .olap-group-total .olap-total-label::before{content:"";position:absolute;left:27px;top:50%;width:13px;height:1px;background:rgba(148,163,184,.35)}
+
+/* Grand total */
+.olap-result .report-table .olap-grand-total td{height:52px;background:linear-gradient(90deg,rgba(66,211,146,.105),rgba(66,211,146,.055));color:#f3faf6;border-top:1px solid rgba(66,211,146,.22);border-bottom:0;font-weight:800}
+.olap-result .report-table .olap-grand-total td strong{font-size:14px;font-weight:850;color:#f4fbf7}
+.olap-result .report-table .olap-grand-total .olap-total-label{font-size:12px;text-transform:uppercase;letter-spacing:.045em}
+
+/* Loading / errors */
+.report-loading,.report-error{padding:18px;border-radius:12px;border:1px solid rgba(148,163,184,.14);background:#0d151f;font-size:13px}
+.report-loading{color:#b8c5d3}
 .report-error{color:#ffb4b4;border-color:rgba(255,102,120,.25);background:rgba(255,102,120,.06)}
-@media (max-width:900px){.olap-result .report-table{min-width:460px}.olap-result .report-table th,.olap-result .report-table td{padding:10px 11px}.olap-result .report-table .olap-group-label{min-width:190px}}
+
+@media (max-width:900px){
+  .olap-result .report-table{min-width:460px}
+  .olap-result .report-table th,.olap-result .report-table td{padding:10px 11px}
+  .olap-result .report-table th:first-child,.olap-result .report-table .olap-group-label{min-width:190px}
+  .olap-result .report-table .olap-group-total .olap-total-label{padding-left:38px}
+  .olap-result .report-table .olap-group-total .olap-total-label::before{left:18px}
+}
+
+@media (max-width:600px){
+  .olap-result .report-header{margin-bottom:10px}
+  .olap-result .report-header strong{font-size:14px}
+  .olap-result .report-table{min-width:430px;font-size:12px}
+  .olap-result .report-table th{font-size:9px}
+}
