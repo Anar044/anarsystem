@@ -1,106 +1,140 @@
 (function(){
   'use strict';
 
+  // IMPORTANT: iiko /resto/api/v2/reports/olap/columns returns an object
+  // whose KEYS are the real OLAP field identifiers and whose `name` is only
+  // the human-readable iikoOffice caption. Never use the caption as a field id.
   const originalFetch = window.fetch.bind(window);
 
-  function clean(v){ return String(v ?? '').trim(); }
+  const clean = v => String(v ?? '').trim();
 
-  function technicalOf(field){
-    if(!field || typeof field !== 'object') return '';
-    return clean(
-      field.technicalName ||
-      field.technical_name ||
-      field.field ||
-      field.key ||
-      field.code ||
-      field.id ||
-      ''
-    );
-  }
+  function makeField(technicalName, meta){
+    if(!technicalName || !meta || typeof meta !== 'object' || Array.isArray(meta)) return null;
 
-  function titleOf(field, technical){
-    return clean(
-      field.title ||
-      field.caption ||
-      field.label ||
-      field.displayName ||
-      field.display_name ||
-      field.name ||
+    const technical = clean(technicalName);
+    if(!technical) return null;
+
+    const title = clean(
+      meta.name ||
+      meta.title ||
+      meta.caption ||
+      meta.label ||
+      meta.displayName ||
+      meta.display_name ||
       technical
     );
-  }
-
-  function normalizeField(field){
-    if(!field || typeof field !== 'object' || Array.isArray(field)) return field;
-
-    const technical = technicalOf(field);
-    if(!technical) return field;
-
-    const title = titleOf(field, technical);
 
     return {
-      ...field,
+      ...meta,
       name: technical,
+      field: technical,
+      key: technical,
+      id: technical,
       technicalName: technical,
-      title
+      title,
+      type: clean(meta.type || meta.dataType || meta.data_type || meta.kind || 'unknown'),
+      aggregationAllowed: meta.aggregationAllowed === true || meta.allowAggregation === true || meta.canAggregate === true,
+      groupingAllowed: meta.groupingAllowed !== false,
+      filteringAllowed: meta.filteringAllowed !== false,
+      isMeasure: meta.isMeasure === true || meta.measure === true || meta.aggregationAllowed === true
     };
   }
 
-  function normalizeFieldsCollection(value){
-    if(Array.isArray(value)) return value.map(normalizeField);
-    if(value && typeof value === 'object'){
-      const out = {};
-      for(const [key,item] of Object.entries(value)) out[key] = normalizeField(item);
-      return out;
+  function fieldsFromRaw(raw){
+    const out = [];
+    const seen = new Set();
+
+    function add(technical, meta){
+      const field = makeField(technical, meta);
+      if(!field) return;
+      const key = field.name.toLowerCase();
+      if(seen.has(key)) return;
+      seen.add(key);
+      out.push(field);
     }
-    return value;
+
+    // Authoritative iiko format:
+    // { "OpenDate.Typed": { name: "Учетный день", ... }, ... }
+    if(raw && typeof raw === 'object' && !Array.isArray(raw)){
+      const nestedKeys = ['fields','columns','dimensions','measures','fieldDefinitions'];
+      for(const key of nestedKeys){
+        const collection = raw[key];
+        if(!collection) continue;
+        if(Array.isArray(collection)){
+          for(const item of collection){
+            if(!item || typeof item !== 'object') continue;
+            const technical = clean(item.technicalName || item.field || item.key || item.code || item.id);
+            if(technical) add(technical, item);
+          }
+        }else if(typeof collection === 'object'){
+          for(const [technical, meta] of Object.entries(collection)) add(technical, meta);
+        }
+      }
+
+      // Most iiko installations return the fields directly at the root.
+      for(const [technical, meta] of Object.entries(raw)){
+        if(['fields','columns','dimensions','measures','fieldDefinitions','data','items'].includes(technical)) continue;
+        if(meta && typeof meta === 'object' && !Array.isArray(meta)) add(technical, meta);
+      }
+    }
+
+    return out;
   }
 
-  async function fixFieldsResponse(response){
+  function authoritativeFields(data){
+    // Prefer the original iiko `raw` object because its keys are the only
+    // source that unambiguously identify the technical OLAP field.
+    const fromRaw = fieldsFromRaw(data?.raw);
+    if(fromRaw.length) return fromRaw;
+
+    // Fallback: accept already-normalized backend fields ONLY when they carry
+    // an explicit technical identifier. Do not invent one from the caption.
+    const source = Array.isArray(data?.fields) ? data.fields : [];
+    return source.map(item => {
+      if(!item || typeof item !== 'object') return null;
+      const technical = clean(item.technicalName || item.field || item.key || item.code || item.id || item.name);
+      if(!technical) return null;
+      return makeField(technical, item);
+    }).filter(Boolean);
+  }
+
+  async function processFieldsResponse(response){
     try{
       const data = await response.clone().json();
       if(!data || typeof data !== 'object') return response;
 
-      if(data.fields) data.fields = normalizeFieldsCollection(data.fields);
-      if(data.columns) data.columns = normalizeFieldsCollection(data.columns);
-      if(data.dimensions) data.dimensions = normalizeFieldsCollection(data.dimensions);
-      if(data.measures) data.measures = normalizeFieldsCollection(data.measures);
+      const fields = authoritativeFields(data);
+      if(!fields.length) return response;
 
-      // Backend also returns raw iiko metadata. Normalize common field collections there.
-      if(data.raw && typeof data.raw === 'object'){
-        if(data.raw.fields) data.raw.fields = normalizeFieldsCollection(data.raw.fields);
-        if(data.raw.columns) data.raw.columns = normalizeFieldsCollection(data.raw.columns);
-        if(data.raw.dimensions) data.raw.dimensions = normalizeFieldsCollection(data.raw.dimensions);
-        if(data.raw.measures) data.raw.measures = normalizeFieldsCollection(data.raw.measures);
-      }
+      data.fields = fields;
+      data.fieldCount = fields.length;
 
       return new Response(JSON.stringify(data), {
         status: response.status,
         statusText: response.statusText,
         headers: response.headers
       });
-    }catch(_){
+    }catch(error){
+      console.warn('[OLAP] authoritative field mapping skipped:', error);
       return response;
     }
   }
 
   window.fetch = async function(input, init){
     const url = typeof input === 'string' ? input : (input?.url || '');
-
-    if(!url.includes('/api/iiko/olap')){
-      return originalFetch(input, init);
-    }
+    if(!url.includes('/api/iiko/olap')) return originalFetch(input, init);
 
     try{
-      const rawBody = init?.body;
-      if(typeof rawBody === 'string'){
-        const body = JSON.parse(rawBody);
+      if(typeof init?.body === 'string'){
+        const body = JSON.parse(init.body);
         if(body.action === 'fields'){
           const response = await originalFetch(input, init);
-          return await fixFieldsResponse(response);
+          return processFieldsResponse(response);
         }
       }
-    }catch(_){ }
+    }catch(error){
+      console.warn('[OLAP] field response processing skipped:', error);
+    }
 
     return originalFetch(input, init);
   };
