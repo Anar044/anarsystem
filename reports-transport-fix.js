@@ -4,10 +4,18 @@
   const clean=v=>String(v??'').trim();
   function fieldMap(){
     const map=new Map();
-    document.querySelectorAll('.olap-field, .olap-selected-field').forEach(el=>{
+    // The available-field list is authoritative: data-field is the iiko technical name.
+    document.querySelectorAll('.olap-field').forEach(el=>{
       const title=clean(el.querySelector('strong')?.textContent||'');
-      const technical=clean(el.dataset.field||el.querySelector('small')?.textContent?.split(' • ')[0]||'');
+      const technical=clean(el.dataset.field||el.querySelector('small')?.textContent||'');
       if(title&&technical)map.set(title,technical);
+    });
+    // Selected chips can come from saved reports and may contain a display title.
+    // Only add them when the authoritative available-field mapping is missing.
+    document.querySelectorAll('.olap-selected-field').forEach(el=>{
+      const title=clean(el.querySelector('strong')?.textContent||'');
+      const technical=clean(el.dataset.field||'');
+      if(title&&technical&&!map.has(title))map.set(title,technical);
     });
     return map;
   }
