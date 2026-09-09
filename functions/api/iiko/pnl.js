@@ -135,7 +135,7 @@ export async function onRequestPost({request}){
     // IMPORTANT: Trading revenue comes from TRANSACTIONS by account type.
     // SALES is NOT used for this P&L line.
     // Discounts and surcharges come ONLY from SALES OLAP.
-    const tradingRevenue=accountRoleTotal(revenueAccounts);
+    const tradingRevenue=categoryBase;
     const discountValue=salesDiscount;
     const surchargeValue=salesSurcharge;
     const otherTradingRevenue=0;
