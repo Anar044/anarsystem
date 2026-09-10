@@ -17,7 +17,16 @@
 #olap-builder #olap-fields::-webkit-scrollbar-track{background:#0d1722!important;border-radius:8px!important;}
 #olap-builder #olap-fields::-webkit-scrollbar-thumb{background:#536b80!important;border:2px solid #0d1722!important;border-radius:8px!important;}
 #olap-builder #olap-fields::-webkit-scrollbar-thumb:hover{background:#7591a8!important;}
-@media(max-width:900px){#olap-builder{margin-top:-12px!important;}#olap-builder .olap-fields-card{height:560px!important;min-height:560px!important;max-height:560px!important;}}
+
+/* Smooth bootstrap while D1/iiko state is being restored. */
+#reports-loading{display:flex;align-items:center;justify-content:center;min-height:560px;padding:32px;box-sizing:border-box;}
+#reports-loading .reports-loading-card{width:min(520px,100%);padding:34px 36px;border:1px solid rgba(148,163,184,.16);border-radius:20px;background:linear-gradient(145deg,rgba(20,29,40,.96),rgba(13,20,29,.96));box-shadow:0 20px 60px rgba(0,0,0,.28);text-align:center;}
+#reports-loading .reports-loading-spinner{width:38px;height:38px;margin:0 auto 18px;border:3px solid rgba(148,163,184,.18);border-top-color:#8aa7c2;border-radius:50%;animation:reports-loading-spin .8s linear infinite;}
+#reports-loading .reports-loading-title{font-size:18px;font-weight:700;color:#eef4f8;margin-bottom:8px;}
+#reports-loading .reports-loading-text{font-size:13px;line-height:1.5;color:#8fa0b2;}
+@keyframes reports-loading-spin{to{transform:rotate(360deg)}}
+
+@media(max-width:900px){#olap-builder{margin-top:-12px!important;}#olap-builder .olap-fields-card{height:560px!important;min-height:560px!important;max-height:560px!important;}#reports-loading{min-height:460px;padding:24px 12px;}#reports-loading .reports-loading-card{padding:28px 22px;}}
 </style>
 </head>
 <body data-protected="true" style="background:#0b1017">
@@ -42,6 +51,13 @@
 <div class="app-content">
   <main class="reports-page">
     <div class="reports-container">
+      <div id="reports-loading" aria-live="polite">
+        <div class="reports-loading-card">
+          <div class="reports-loading-spinner" aria-hidden="true"></div>
+          <div class="reports-loading-title">Загружаем OLAP отчёты</div>
+          <div class="reports-loading-text">Восстанавливаем подключение к iiko и подготавливаем доступные поля…</div>
+        </div>
+      </div>
       <div class="iiko-card" id="sales-card" style="display:none;">
         <h2>📊 Продажи</h2>
         <div class="form-group"><label for="report-from">Дата от</label><input id="report-from" type="date"></div>
@@ -62,7 +78,7 @@
 <script src="mobile-responsive.js?v=1"></script>
 <script src="reports-fields-clean.js?v=20260909-1"></script>
 <script src="reports-default-filters.js?v=20260910-1"></script>
-<script src="reports-d1-loader.js?v=20260910-4"></script>
+<script src="reports-d1-loader.js?v=20260910-5"></script>
 <script src="reports.js?v=20260910-10"></script>
 <script src="reports-fields-scroll-force.js?v=20260910-1"></script>
 <script src="reports-result.js?v=20260910-6"></script>
