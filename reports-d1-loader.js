@@ -37,6 +37,15 @@
         };
     }
 
+    function finishLoading() {
+        const loader = document.getElementById("reports-loading");
+        if (!loader) return;
+        loader.style.transition = "opacity .18s ease, transform .18s ease";
+        loader.style.opacity = "0";
+        loader.style.transform = "translateY(4px)";
+        window.setTimeout(() => loader.remove(), 190);
+    }
+
     async function getD1State() {
         if (!window.SHAuth || typeof window.SHAuth.createClient !== "function") {
             throw new Error("SH Auth не готов");
@@ -92,6 +101,7 @@
             wrappedReportsReady = true;
             const wrapped = async function (event) {
                 await prepareD1();
+                finishLoading();
                 return listener.call(this, event);
             };
             return originalAddEventListener(type, wrapped, options);
