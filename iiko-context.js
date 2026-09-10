@@ -1,10 +1,6 @@
 (function () {
   "use strict";
 
-  // Единый источник iiko для всех страниц AnarSystem.
-  // Подключение хранится в D1 и загружается один раз за открытие страницы.
-  // Никаких отдельных форм/авторизаций iiko для вкладок не требуется.
-
   let promise = null;
   let cache = null;
 
@@ -17,81 +13,52 @@
 
   async function load(force = false) {
     if (!force && promise) return promise;
-
     promise = (async () => {
       const client = await getClient();
       const { data, error } = await client.auth.getSession();
       const token = data?.session?.access_token;
       if (error || !token) throw new Error("Сессия пользователя не найдена");
-
       const response = await fetch("/api/iiko/state", {
         method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${token}`
-        },
+        headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
         cache: "no-store"
       });
-
       const result = await response.json().catch(() => ({}));
-      if (!response.ok || result.success === false) {
-        throw new Error(result.message || `iiko D1 HTTP ${response.status}`);
-      }
-
+      if (!response.ok || result.success === false) throw new Error(result.message || `iiko D1 HTTP ${response.status}`);
       cache = result?.state || null;
       return cache;
-    })().catch(error => {
-      cache = null;
-      throw error;
-    });
-
+    })().catch(error => { cache = null; throw error; });
     return promise;
   }
 
-  function connection(state) {
-    return state?.connection || null;
-  }
-
-  function identity(state) {
-    return state?.identity || null;
-  }
+  function connection(state) { return state?.connection || null; }
+  function identity(state) { return state?.identity || null; }
 
   function departmentIds(state) {
-    const ids = identity(state)?.departmentIds;
-    return Array.isArray(ids)
-      ? [...new Set(ids.map(String).map(x => x.trim()).filter(Boolean))]
-      : [];
+    const id = identity(state);
+    const conn = connection(state);
+    const candidates = [
+      ...(Array.isArray(id?.departmentIds) ? id.departmentIds : []),
+      ...(Array.isArray(conn?.departmentIds) ? conn.departmentIds : []),
+      ...(Array.isArray(id?.departments) ? id.departments.map(x => x?.id) : []),
+      ...(Array.isArray(id?.organizations) ? id.organizations.map(x => x?.id) : []),
+      ...(Array.isArray(conn?.organizations) ? conn.organizations.map(x => x?.id) : []),
+      id?.organizationId,
+      conn?.organizationId
+    ];
+    return [...new Set(candidates.map(String).map(x => x.trim()).filter(x => x && x !== "undefined" && x !== "null"))];
   }
 
-  function server(state) {
-    return identity(state)?.server || connection(state)?.server || null;
-  }
-
-  async function getConnection(force = false) {
-    return connection(await load(force));
-  }
-
-  async function getIdentity(force = false) {
-    return identity(await load(force));
-  }
-
+  function server(state) { return identity(state)?.server || connection(state)?.server || null; }
+  async function getConnection(force = false) { return connection(await load(force)); }
+  async function getIdentity(force = false) { return identity(await load(force)); }
   async function getBinding(force = false) {
     const state = await load(force);
-    return {
-      departmentIds: departmentIds(state),
-      server: server(state),
-      connection: connection(state),
-      identity: identity(state)
-    };
+    return { departmentIds: departmentIds(state), server: server(state), connection: connection(state), identity: identity(state) };
   }
 
   window.SH_IikoContext = {
-    load,
-    get: load,
-    getConnection,
-    getIdentity,
-    getBinding,
-    departmentIds: state => departmentIds(state),
-    getCached: () => cache
+    load, get: load, getConnection, getIdentity, getBinding,
+    departmentIds: state => departmentIds(state), getCached: () => cache
   };
 })();
