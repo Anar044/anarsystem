@@ -1,38 +1,52 @@
 # AnarSystem Mobile
 
-Mobile application foundation for AnarSystem. The app is intentionally kept in `mobile/` so the existing Cloudflare Pages web application is not changed.
+Flutter client for AnarSystem restaurant analytics. The mobile application lives in `mobile/` and does not replace or modify the existing web application.
 
-## Direction
+## Current integration
 
 - Flutter client for Android and iOS.
-- Existing AnarSystem web/API remains the source of business logic and data.
-- UI follows the approved light blue/white AnarSystem design system.
-- Navigation is modular so new web functionality can be added as new mobile modules without redesigning the shell.
+- Dashboard uses live data from the existing Cloudflare API: `https://anarsystem.pages.dev/api/iiko/sales`.
+- iiko Server connection fields: IP, port, login and password.
+- Connection credentials are stored locally with `flutter_secure_storage`.
+- Dashboard periods: Today, Week and Month.
+- Live KPIs: revenue, orders and average check.
+- Revenue chart is built from iiko OLAP daily rows.
+- Pull-to-refresh and retry handling are included.
+- Sales screen also uses the live API.
+- Orders and Finance are intentionally placeholders until their existing web/API business logic is connected.
 
-## Current UI foundation
+## Architecture
 
-- Dashboard
-- Sales
-- Orders
-- Finance / P&L
-- More / modules
-- OLAP, Analytics, Cash Shifts, Inventory, Employees, Reports and Settings module entries
-- Future-module placeholder
-- Reusable KPI cards, filters, headers and chart components
+```text
+iiko Server
+    ↓
+AnarSystem Cloudflare API
+    ↓
+mobile/lib/core/api/iiko_api.dart
+    ↓
+Dashboard / Sales UI
+```
+
+The mobile app does not connect directly to iiko from the device. It sends the saved iiko connection parameters to the existing AnarSystem API, preserving the current web-side integration.
 
 ## Run locally
 
-From the repository root, first generate the native Flutter platform folders if needed:
+From the repository root:
 
 ```bash
 cd mobile
 flutter create . --platforms=android,ios
 flutter pub get
+flutter analyze
 flutter run
 ```
 
-Do not run `flutter create .` against the repository root. The existing web project stays untouched.
+Run `flutter create .` only inside `mobile/`; never against the repository root.
 
-## Next integration step
+## Next modules
 
-Replace demo values with the existing AnarSystem API clients. Authentication, restaurant selection, iiko context and report data should be implemented behind service/repository classes rather than inside widgets.
+1. Orders — real open/closed orders.
+2. Cash shifts — current shift and payment breakdown.
+3. Finance / P&L — the agreed accounting logic based on account types.
+4. OLAP constructor — fields, dimensions, measures and filters.
+5. Multi-restaurant / user access and licensing.
