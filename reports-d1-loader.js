@@ -46,33 +46,41 @@
         window.setTimeout(() => loader.remove(), 190);
     }
 
+    let preparePromise = null;
     async function prepareD1() {
-        try {
-            if (!window.SH_IikoContext?.get) throw new Error("Единый iiko context не готов");
-            const state = await window.SH_IikoContext.get();
-            shadow.iikoConnection = state?.connection || null;
-            shadow.iikoDepartmentIdentity = state?.identity || null;
-            window.SH_IikoD1 = {
-                connection: shadow.iikoConnection,
-                identity: shadow.iikoDepartmentIdentity,
-                state
-            };
-        } catch (error) {
-            console.warn("[reports-d1] Не удалось загрузить iiko из D1:", error);
-            window.SH_IikoD1 = {
-                connection: null,
-                identity: null,
-                error: error?.message || String(error)
-            };
-        }
-        patchStorage();
+        if (preparePromise) return preparePromise;
+        preparePromise = (async () => {
+            try {
+                if (!window.SH_IikoContext?.get) throw new Error("Единый iiko context не готов");
+                const state = await window.SH_IikoContext.get();
+                shadow.iikoConnection = state?.connection || null;
+                shadow.iikoDepartmentIdentity = state?.identity || null;
+                window.SH_IikoD1 = {
+                    connection: shadow.iikoConnection,
+                    identity: shadow.iikoDepartmentIdentity,
+                    state
+                };
+            } catch (error) {
+                // Auth/context may initialize slightly later. Allow the shared context to retry.
+                console.warn("[reports-d1] Не удалось загрузить iiko из D1:", error);
+                window.SH_IikoD1 = {
+                    connection: null,
+                    identity: null,
+                    error: error?.message || String(error)
+                };
+            }
+            patchStorage();
+        })();
+        return preparePromise;
     }
 
+    // reports.js, account-sync.js and other page scripts may all register their
+    // own DOMContentLoaded handler. The old loader wrapped only the FIRST one,
+    // so reports.js could run before the D1 shadow was populated. Wrap every
+    // DOMContentLoaded listener and reuse the same bootstrap promise.
     const originalAddEventListener = document.addEventListener.bind(document);
-    let wrappedReportsReady = false;
     document.addEventListener = function (type, listener, options) {
-        if (!wrappedReportsReady && type === "DOMContentLoaded" && typeof listener === "function") {
-            wrappedReportsReady = true;
+        if (type === "DOMContentLoaded" && typeof listener === "function") {
             const wrapped = async function (event) {
                 await prepareD1();
                 finishLoading();
@@ -82,4 +90,8 @@
         }
         return originalAddEventListener(type, listener, options);
     };
+
+    // Start loading immediately as well, so the context is already warm by the
+    // time DOMContentLoaded fires.
+    prepareD1().catch(() => {});
 })();
