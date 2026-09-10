@@ -84,6 +84,11 @@
         const script = document.createElement("script");
         script.src = "reports.js?v=20260910-8";
         script.dataset.d1Loader = "1";
+        script.onload = () => {
+            // reports.js registers DOMContentLoaded, but this loader itself runs
+            // after DOMContentLoaded. Fire it once after reports.js is ready.
+            document.dispatchEvent(new Event("DOMContentLoaded"));
+        };
         script.onerror = () => console.error("Не удалось загрузить reports.js");
         document.body.appendChild(script);
     }
