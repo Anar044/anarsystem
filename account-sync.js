@@ -3,8 +3,6 @@
 
   const API = "/api/account/state";
   const OWNER_KEY = "shAccountOwnerId";
-  const IIKO_KEY = "iikoConnection";
-  const IDENTITY_KEY = "iikoDepartmentIdentity";
   const MENU_KEY = "horeca_qr_menu_v1";
   const DESIGN_KEY = "horeca_qr_design_v1";
   const PUBLIC_KEY = "horeca_qr_public";
@@ -26,8 +24,13 @@
     } catch (error) { console.warn("SH account local write failed", error); }
   }
 
+  function clearLegacyIikoBrowserData() {
+    ["iikoConnection", "iikoDepartmentIdentity"].forEach(key => localStorage.removeItem(key));
+  }
+
   function clearAccountData() {
-    [IIKO_KEY, IDENTITY_KEY, MENU_KEY, DESIGN_KEY, PUBLIC_KEY].forEach(key => localStorage.removeItem(key));
+    [MENU_KEY, DESIGN_KEY, PUBLIC_KEY].forEach(key => localStorage.removeItem(key));
+    clearLegacyIikoBrowserData();
     const user = window.SH_CURRENT_USER || {};
     localStorage.removeItem(`SH_Reports.savedOlap.${user.id || user.email || "local"}`);
   }
@@ -38,12 +41,10 @@
   }
 
   function localHasData() {
-    const iiko = read(IIKO_KEY);
-    const identity = read(IDENTITY_KEY);
     const menu = read(MENU_KEY);
     const reports = read(currentUserReportsKey());
     const pub = read(PUBLIC_KEY);
-    return !!(iiko || identity || pub || (menu && (menu.categories?.length || menu.dishes?.length || menu.design)) || (Array.isArray(reports) && reports.length));
+    return !!(pub || (menu && (menu.categories?.length || menu.dishes?.length || menu.design)) || (Array.isArray(reports) && reports.length));
   }
 
   async function authHeaders() {
@@ -62,9 +63,8 @@
   }
 
   function buildState() {
+    clearLegacyIikoBrowserData();
     return {
-      iikoConnection: read(IIKO_KEY),
-      iikoDepartmentIdentity: read(IDENTITY_KEY),
       horecaQrPublic: read(PUBLIC_KEY),
       savedOlapReports: read(currentUserReportsKey()) || [],
       qr: read(DESIGN_KEY) || {},
@@ -86,8 +86,6 @@
     if (!state || typeof state !== "object") return false;
     applyingRemote = true;
     try {
-      if (state.iikoConnection) write(IIKO_KEY, state.iikoConnection);
-      if (state.iikoDepartmentIdentity) write(IDENTITY_KEY, state.iikoDepartmentIdentity);
       if (state.horecaQrPublic) write(PUBLIC_KEY, state.horecaQrPublic);
       if (Array.isArray(state.savedOlapReports)) write(currentUserReportsKey(), state.savedOlapReports);
       if (state.qr && Object.keys(state.qr).length) write(DESIGN_KEY, state.qr);
@@ -110,6 +108,7 @@
       } else if (state.qrMenu) {
         write(MENU_KEY, state.qrMenu);
       }
+      clearLegacyIikoBrowserData();
       return true;
     } finally {
       applyingRemote = false;
@@ -147,6 +146,7 @@
   async function init() {
     if (started) return;
     started = true;
+    clearLegacyIikoBrowserData();
     const user = window.SH_CURRENT_USER || {};
     const userId = String(user.id || user.email || "");
     const previousOwner = localStorage.getItem(OWNER_KEY) || "";
