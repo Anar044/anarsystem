@@ -10,6 +10,7 @@
 .connection-mode-title{font-weight:700;margin-bottom:5px}.connection-mode-sub{font-size:13px;opacity:.65;margin-bottom:12px}
 .chain-toggle{display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600}.chain-toggle input{width:18px;height:18px;accent-color:#22c55e}
 .chain-hint{display:none;margin-top:10px;font-size:13px;line-height:1.45;color:#86efac}.chain-hint.visible{display:block}
+.remember-login{display:none!important}
 </style>
 </head>
 <body data-protected="true" style="background:#0b1017">
@@ -32,7 +33,7 @@
 <section class="app-content settings-page">
  <div class="settings-card">
   <h1>Подключение к SH Server</h1>
-  <p class="lead">Настройте подключение один раз — OLAP Отчёты будут использовать сохранённые параметры.</p>
+  <p class="lead">Настройте подключение один раз — параметры iiko и структура ресторана будут сохранены в D1 и доступны вашему аккаунту на всех страницах.</p>
   <div class="settings-grid">
    <div class="form-group"><label for="iiko-ip">IP адрес / домен</label><input id="iiko-ip" type="text" placeholder="s01.smarthoreca.az"></div>
    <div class="form-group"><label for="iiko-port">Порт</label><input id="iiko-port" type="number" placeholder="Введите порт"></div>
@@ -41,20 +42,19 @@
   </div>
   <div class="connection-mode">
    <div class="connection-mode-title">Тип подключения</div>
-   <div class="connection-mode-sub">Выберите, как SH Server должен обрабатываться в системе.</div>
+   <div class="connection-mode-sub">Тип определяется автоматически по структуре iiko. Для сети ресторанов система сохранит всю доступную иерархию.</div>
    <label class="chain-toggle"><input type="checkbox" id="is-chain"><span>Это iikoChain — сеть ресторанов</span></label>
    <div id="chain-hint" class="chain-hint">После подключения система получит структуру сети: корпорацию, рестораны/торговые предприятия, группы, точки продаж и подразделения. Все отчёты будут работать с этой структурой.</div>
   </div>
-  <div class="remember-login"><label><input type="checkbox" id="remember-iiko"><span>Запомнить данные для входа</span></label></div>
   <button id="connect-iiko">Подключиться</button>
-  <button type="button" id="clear-iiko-data">Очистить сохранённые данные</button>
+  <button type="button" id="clear-iiko-data">Удалить подключение из D1</button>
   <div id="iiko-status" class="iiko-status">⚪ Не подключено</div>
+  <div class="settings-note">Данные подключения и структура iiko сохраняются в D1 для текущего авторизованного аккаунта. Они не сохраняются в localStorage браузера.</div>
   <div id="iiko-identity" class="iiko-identity" hidden>
    <div class="iiko-identity-title">Идентификатор SH</div>
    <div id="iiko-identity-list" class="iiko-identity-list"></div>
   </div>
   <a class="debug-link" href="debug.html">⌁ Открыть Debug SH — посмотреть обмен с сервером</a>
-  <div class="settings-note">Данные подключения сохраняются в браузере только при включённой опции «Запомнить данные для входа».</div>
  </div>
 </section>
 </main></div>
