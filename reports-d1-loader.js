@@ -47,20 +47,16 @@
     }
 
     async function getD1State() {
-        const config = window.SH_AUTH_CONFIG || {};
-        if (!config.url || !config.publishableKey || !window.supabase?.createClient) {
-            throw new Error("Supabase Auth не готов");
+        // IMPORTANT: reuse the authenticated Supabase client created by auth.js.
+        // Creating a second client with persistSession:false loses the existing session.
+        if (!window.SHAuth || typeof window.SHAuth.createClient !== "function") {
+            throw new Error("SH Auth не готов");
         }
 
-        const client = window.supabase.createClient(config.url, config.publishableKey, {
-            auth: {
-                persistSession: false,
-                autoRefreshToken: false,
-                detectSessionInUrl: false
-            }
-        });
+        const sb = await window.SHAuth.createClient();
+        if (!sb) throw new Error("Supabase Auth не настроен");
 
-        const { data: sessionData, error: sessionError } = await client.auth.getSession();
+        const { data: sessionData, error: sessionError } = await sb.auth.getSession();
         if (sessionError || !sessionData?.session?.access_token) {
             throw new Error("Не удалось получить сессию пользователя");
         }
@@ -81,13 +77,15 @@
     }
 
     function injectReportsScript() {
+        // reports.js is intentionally loaded only after D1 state is ready,
+        // so its legacy localStorage reads receive a temporary in-memory value.
         const script = document.createElement("script");
-        script.src = "reports.js?v=20260910-8";
+        script.src = "reports.js?v=20260910-9";
         script.dataset.d1Loader = "1";
         script.onload = () => {
-            // reports.js registers DOMContentLoaded, but this loader itself runs
-            // after DOMContentLoaded. Fire it once after reports.js is ready.
-            document.dispatchEvent(new Event("DOMContentLoaded"));
+            window.dispatchEvent(new CustomEvent("sh-reports-d1-ready", {
+                detail: window.SH_IikoD1
+            }));
         };
         script.onerror = () => console.error("Не удалось загрузить reports.js");
         document.body.appendChild(script);
@@ -105,7 +103,11 @@
             };
         } catch (error) {
             console.warn("[reports-d1] Не удалось загрузить SH Server из D1:", error);
-            window.SH_IikoD1 = { connection: null, identity: null, error: error?.message || String(error) };
+            window.SH_IikoD1 = {
+                connection: null,
+                identity: null,
+                error: error?.message || String(error)
+            };
         }
 
         patchStorage();
