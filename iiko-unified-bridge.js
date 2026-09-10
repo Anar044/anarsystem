@@ -22,7 +22,14 @@
     }catch(e){console.warn('[iiko-unified] D1 state unavailable',e)}
     loaded=true;
   }
+  function loadDashboard(){
+    if(!/^(?:\/|.*\/)index\.html$/.test(location.pathname) && location.pathname!=='/') return;
+    const s=document.createElement('script');
+    s.src='dashboard-live.js?v=20260910-1';
+    s.async=false;
+    document.head.appendChild(s);
+  }
   patch();
   window.SH_IikoUnifiedLoad=load;
-  load();
+  load().finally(loadDashboard);
 })();
