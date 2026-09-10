@@ -1,47 +1,9 @@
 (function () {
   "use strict";
 
-  let statePromise = null;
-
-  async function authToken() {
-    try {
-      if (!window.SHAuth?.createClient) return null;
-      const client = await window.SHAuth.createClient();
-      if (!client) return null;
-      const { data } = await client.auth.getSession();
-      return data?.session?.access_token || null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  async function loadState(force = false) {
-    if (!force && statePromise) return statePromise;
-    statePromise = (async () => {
-      const token = await authToken();
-      if (!token) return null;
-      const response = await fetch("/api/iiko/state", {
-        headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
-        cache: "no-store"
-      });
-      if (!response.ok) throw new Error(`iiko D1 state HTTP ${response.status}`);
-      const data = await response.json();
-      if (!data.found || !data.state) return null;
-      return data.state;
-    })();
-    return statePromise;
-  }
-
   async function binding() {
-    const state = await loadState();
-    const identity = state?.identity || {};
-    const departments = Array.isArray(identity.departmentIds)
-      ? [...new Set(identity.departmentIds.map(String).map(x => x.trim()).filter(Boolean))]
-      : [];
-    return {
-      departmentIds: departments,
-      serverUrl: ""
-    };
+    if (!window.SH_IikoContext?.getBinding) return { departmentIds: [], server: null, connection: null, identity: null };
+    return window.SH_IikoContext.getBinding();
   }
 
   async function bodyBinding() {
@@ -72,7 +34,9 @@
       try {
         const current = JSON.parse(init.body);
         const extra = await bodyBinding();
-        init = { ...init, body: JSON.stringify({ ...current, ...extra, serverUrl: undefined }) };
+        const next = { ...current, ...extra };
+        delete next.serverUrl;
+        init = { ...init, body: JSON.stringify(next) };
       } catch (_) {}
       return originalFetch(input, init);
     }
@@ -81,8 +45,8 @@
   };
 
   window.SHIikoD1 = {
-    load: () => loadState(true),
-    get: () => loadState(false),
+    load: force => window.SH_IikoContext?.load(force),
+    get: () => window.SH_IikoContext?.get(),
     binding
   };
 })();
