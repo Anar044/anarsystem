@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Smart Horeca Control — Финансы</title>
 <link rel="stylesheet" href="app-shell.css"><link rel="stylesheet" href="finance.css?v=10">
 </head>
@@ -16,22 +16,8 @@
 <section class="fin-panel" id="movements"><div class="fin-panel-head"><div><span class="fin-section-kicker">ЖУРНАЛ</span><h2>Все операции <span id="fin-count"></span></h2></div></div><div class="fin-table-wrap"><table class="fin-table"><thead><tr><th>Дата</th><th>Счёт</th><th>Операция</th><th>Приход</th><th>Расход</th><th>Комментарий</th></tr></thead><tbody id="fin-body"><tr><td colspan="6" class="fin-empty">Загрузите период</td></tr></tbody></table></div></section>
 </section></main></div>
 <div id="fin-account-modal" class="fin-modal" aria-hidden="true"><div class="fin-modal-backdrop" data-fin-close></div><section class="fin-modal-card" role="dialog" aria-modal="true"><button class="fin-modal-close" data-fin-close>×</button><div class="fin-modal-head"><span class="fin-section-kicker">СЧЁТ</span><h2 id="fin-modal-title">Счёт</h2><p id="fin-modal-meta">—</p></div><div class="fin-modal-balance"><span>Текущий баланс</span><strong id="fin-modal-balance">—</strong><small id="fin-modal-balance-note">—</small></div><div class="fin-modal-kpis"><div><span>Приход</span><b id="fin-modal-income">—</b></div><div><span>Расход</span><b id="fin-modal-expense">—</b></div><div><span>Результат</span><b id="fin-modal-result">—</b></div><div><span>Операций</span><b id="fin-modal-count">0</b></div></div><div class="fin-modal-section-head"><h3>Операции по счёту</h3><span id="fin-modal-period">—</span></div><div class="fin-table-wrap"><table class="fin-table fin-modal-table"><thead><tr><th>Дата</th><th>Операция</th><th>Приход</th><th>Расход</th><th>Комментарий</th></tr></thead><tbody id="fin-modal-body"></tbody></table></div></section></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="app-shell.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="iiko-context.js?v=20260910-2"></script><script src="iiko-unified-bridge.js?v=20260910-1"></script><script src="app-shell.js"></script>
 <script>(function(){var l=document.createElement('link');l.rel='stylesheet';l.href='finance.css?v=10';document.head.appendChild(l);})();</script>
 <script src="mobile-responsive.js?v=2"></script><script src="finance-optimized.js?v=3"></script><script src="events-nav.js?v=1"></script><script src="documents-nav.js?v=3"></script>
-<script>
-(function(){
-  function restore(){
-    if(!document.querySelector('link[data-finance-final-style]')){
-      var l=document.createElement('link');
-      l.rel='stylesheet';
-      l.href='finance.css?v=12';
-      l.dataset.financeFinalStyle='1';
-      document.head.appendChild(l);
-    }
-  }
-  document.addEventListener('DOMContentLoaded',restore,{once:true});
-  setTimeout(restore,100);
-})();
-</script>
+<script>(function(){function restore(){if(!document.querySelector('link[data-finance-final-style]')){var l=document.createElement('link');l.rel='stylesheet';l.href='finance.css?v=12';l.dataset.financeFinalStyle='1';document.head.appendChild(l)}}document.addEventListener('DOMContentLoaded',restore,{once:true});setTimeout(restore,100)})();</script>
 </body></html>
