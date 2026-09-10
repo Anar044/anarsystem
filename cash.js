@@ -1,6 +1,6 @@
 (() => {
   const $ = id => document.getElementById(id);
-  const state = { plugins: [], pluginId: '', orders: [], filter: 'all', search: '', busy: false, timer: null, detailCache: new Map(), paymentLoading: new Set() };
+  const state = { plugins: [], pluginId: '', orders: [], filter: 'all', search: '', busy: false, timer: null, detailCache: new Map(), paymentLoading: new Set(), iikoBinding: { departmentIds: [], serverUrl: '' } };
   const esc = v => String(v ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const unwrap = v => { if (typeof v === 'string') { try { return JSON.parse(v); } catch { return v; } } return v; };
   const first = v => { if (v == null || v === '') return null; if (Array.isArray(v)) { for (const x of v) { const r=first(x); if(r!=null&&r!=='') return r; } return null; } if(typeof v!=='object') return v; for(const k of ['name','Name','title','Title','value','Value','sum','Sum','amount','Amount','typeName','TypeName','type','Type']) if(v[k]!=null&&v[k]!=='') return v[k]; return null; };
@@ -13,13 +13,70 @@
   const amount = r => num(r?.orderExpectedRevenue ?? r?.revenue ?? r?.resultSum ?? r?.orderSum);
   const table = r => r?.orderTables ?? r?.tables ?? '—'; const floor = r => r?.floor ?? r?.restaurantSectionName ?? r?.__sectionName ?? '—'; const waiter = r => r?.waiter ?? '—'; const cashier = r => r?.cashier ?? '—'; const openTime = r => r?.orderOpenDate ?? r?.openTime ?? r?.deliveryOpenTime; const closeTime = r => r?.orderCloseTime ?? r?.closeTime ?? r?.deliveryDeliveryCloseTime;
   const statusText = r => orderState(r)==='closed'?'Закрыт':orderState(r)==='open'?'Открыт':rawStatus(r)||'Другой';
+
+  function readJsonStorage(key){ try { return JSON.parse(localStorage.getItem(key)||'null'); } catch { return null; } }
+  function loadIikoBinding(){
+    const identity=readJsonStorage('iikoDepartmentIdentity')||{};
+    const connection=readJsonStorage('iikoConnection')||{};
+    const departments=Array.isArray(identity.departmentIds)&&identity.departmentIds.length?identity.departmentIds:(Array.isArray(connection.departmentIds)?connection.departmentIds:[]);
+    const server=identity.server||connection.server||{};
+    const ip=String(server.ip||connection.ip||'').trim();
+    const port=String(server.port||connection.port||'').trim();
+    state.iikoBinding={
+      departmentIds:[...new Set(departments.map(String).map(x=>x.trim()).filter(Boolean))],
+      serverUrl:ip&&port?`http://${ip}:${port}`:''
+    };
+    return state.iikoBinding;
+  }
+
+  function bindingQuery(){
+    loadIikoBinding();
+    const q=new URLSearchParams();
+    if(state.iikoBinding.departmentIds.length)q.set('departmentIds',state.iikoBinding.departmentIds.join(','));
+    if(state.iikoBinding.serverUrl)q.set('serverUrl',state.iikoBinding.serverUrl);
+    return q.toString();
+  }
+
+  function bindingBody(){
+    loadIikoBinding();
+    return {
+      ...(state.iikoBinding.departmentIds.length?{departmentIds:state.iikoBinding.departmentIds}:{}),
+      ...(state.iikoBinding.serverUrl?{serverUrl:state.iikoBinding.serverUrl}: {})
+    };
+  }
+
   function extractRows(payload){ const root=unwrap(payload)?.data ?? unwrap(payload) ?? {},out=[]; for(const g of (Array.isArray(root.terminalsGroups)?root.terminalsGroups:[])) for(const s of (Array.isArray(g?.restaurantSections)?g.restaurantSections:[])){ for(const r of (Array.isArray(s.orders)?s.orders:[])) out.push({...r,__sectionName:s.restaurantSectionName||'',__source:'order'}); for(const r of (Array.isArray(s.deliveries)?s.deliveries:[])) out.push({...r,__sectionName:s.restaurantSectionName||'',__source:'delivery'}); for(const x of (Array.isArray(s.reserves)?s.reserves:[])) if(x?.reserveOrder) out.push({...x.reserveOrder,__sectionName:s.restaurantSectionName||'',__source:'reserve'}); } return out; }
   function detailRoot(payload){ const x=unwrap(payload); return x?.data ?? x?.orderDetails ?? x?.order ?? x; }
   function paymentArray(row){ const d=row?.__detail; for(const v of [row?.payments,row?.Payments,row?.paymentItems,row?.PaymentItems,d?.payments,d?.Payments,d?.paymentItems,d?.PaymentItems]) if(Array.isArray(v)) return v; return []; }
   function paymentParts(row){ return paymentArray(row).map(p=>({name:String(p?.name??p?.Name??p?.typeName??p?.TypeName??p?.type?.name??p?.Type?.Name??p?.type??p?.Type??'').trim(),amount:num(p?.value??p?.Value??p?.sum??p?.Sum??p?.amount??p?.Amount)})).filter(p=>p.name); }
   function paymentText(row){ const p=paymentParts(row); return p.length?p.map(x=>x.name).join(', '):'Загрузка…'; }
-  async function getPlugins(){ const r=await fetch('/api/plugin/data',{cache:'no-store'}); if(!r.ok)throw Error(`HTTP ${r.status}`); const data=unwrap(await r.json()); let list=Array.isArray(data)?data:(data?.plugins||data?.data||data?.items||[]); if(!Array.isArray(list))list=[]; state.plugins=list.map(x=>x?.data?{...x,...x.data}:x).filter(Boolean); const p=state.plugins.find(x=>x?.pluginId)||state.plugins[0]; state.pluginId=p?.pluginId||''; $('cash-name').textContent=p?.pluginName||p?.groupName||'Касса'; $('cash-subtitle').textContent=p?'Заказы, выручка и оплаты непосредственно от подключённой кассы.':'Подключённая касса не найдена.'; $('connection').className=`cash-connection ${p?'online':'offline'}`; $('connection').textContent=p?'● Касса подключена':'● Нет подключения'; return p; }
-  async function request(action,extra={}){ const body={action,...(state.pluginId?{pluginId:state.pluginId}:{}),...extra}; const r=await fetch('/api/plugin/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store'}); const text=await r.text(); let d; try{d=JSON.parse(text)}catch{throw Error(`Плагин вернул не JSON (HTTP ${r.status})`)} if(!r.ok||d?.success===false&&d?.error)throw Error(d?.error||`HTTP ${r.status}`); return unwrap(d); }
+
+  async function getPlugins(){
+    const qs=bindingQuery();
+    const r=await fetch(`/api/plugin/data${qs?`?${qs}`:''}`,{cache:'no-store'});
+    if(!r.ok)throw Error(`HTTP ${r.status}`);
+    const data=unwrap(await r.json());
+    let list=Array.isArray(data)?data:(data?.plugins||data?.data||data?.items||[]);
+    if(!Array.isArray(list))list=[];
+    state.plugins=list.map(x=>x?.data?{...x,...x.data}:x).filter(Boolean);
+    const p=state.plugins.find(x=>x?.pluginId)||state.plugins[0];
+    state.pluginId=p?.pluginId||'';
+    $('cash-name').textContent=p?.pluginName||p?.groupName||'Касса';
+    $('cash-subtitle').textContent=p?'Заказы, выручка и оплаты непосредственно от подключённой кассы.':'Подключённая касса не найдена.';
+    $('connection').className=`cash-connection ${p?'online':'offline'}`;
+    $('connection').textContent=p?'● Касса подключена':'● Нет подключения';
+    return p;
+  }
+
+  async function request(action,extra={}){
+    const body={action,...bindingBody(),...(state.pluginId?{pluginId:state.pluginId}:{}),...extra};
+    const r=await fetch('/api/plugin/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store'});
+    const text=await r.text(); let d;
+    try{d=JSON.parse(text)}catch{throw Error(`Плагин вернул не JSON (HTTP ${r.status})`)}
+    if(!r.ok||d?.success===false&&d?.error)throw Error(d?.error||`HTTP ${r.status}`);
+    return unwrap(d);
+  }
+
   async function requestDetail(n){ const params={orderNum:String(n),requestDetail:String(n),RequestDetail:String(n),orderNumber:String(n)}; try{const x=await request('Order',{params});const d=detailRoot(x);if(d&&typeof d==='object')return x;}catch{} return request('get_order',{params}); }
   async function enrichPayments(){ const q=state.orders.filter(x=>orderState(x.row)==='closed'&&!paymentParts(x.row).length&&!state.paymentLoading.has(x.num)); if(!q.length)return; q.forEach(x=>state.paymentLoading.add(x.num)); let i=0; const worker=async()=>{while(i<q.length){const x=q[i++];try{const payload=await requestDetail(x.num);const d=detailRoot(payload);if(d&&typeof d==='object'){x.row.__detail=d;state.detailCache.set(x.num,d);renderPayments();renderOrders();}}catch{}finally{state.paymentLoading.delete(x.num);}}}; await Promise.all([worker(),worker(),worker()]); renderPayments();renderOrders(); }
   async function loadOrders(){ if(state.busy)return; state.busy=true; try{await getPlugins(); if(!state.pluginId){state.orders=[];render();return;} const payload=await request('get_orders'); const rows=extractRows(payload),seen=new Set(); state.orders=rows.map(r=>({row:r,num:orderNum(r)})).filter(x=>x.num&&!seen.has(x.num)&&(seen.add(x.num),true)); for(const x of state.orders){const d=state.detailCache.get(x.num);if(d)x.row.__detail=d;} $('cash-updated').textContent=`Обновлено ${new Date().toLocaleTimeString('ru-RU')}`; $('technical-output').textContent=JSON.stringify(payload,null,2); render(); enrichPayments(); }catch(e){$('connection').className='cash-connection offline';$('connection').textContent='● Ошибка получения данных';$('orders').innerHTML=`<tr><td colspan="10" class="error-cell">${esc(e.message||e)}</td></tr>`;$('orders-footer').textContent='Не удалось получить данные от кассы.';}finally{state.busy=false;} }
@@ -35,7 +92,7 @@
   function historyText(ev){const raw=eventType(ev);const t=raw.toLowerCase();const c=t.replace(/[\s_-]/g,'');if(/cancelguestbill|cancellationofguestbill|guestbillcancel/.test(c))return'Счёт отменён';if(/ordercancelled|cancelorder|cancelledorder/.test(c))return'Заказ отменён';if(/deletionofprinteditem|deleteprinteditem|deletedprinteditem|deletingsurcharge|removingsurcharge|removesurcharge|removediscount|deletingdiscount|removingdiscount/.test(c)){if(/discount|скид/.test(c))return'Удалена скидка';if(/surcharge|increase|надбав/.test(c))return'Удалена надбавка';return'Удалено блюдо';}if(/adddiscountsurchargeitem|adddiscountsurcharge/.test(c)){const d=ev?.data??ev?.Data??{};const blob=JSON.stringify(d).toLowerCase();if(d?.isDiscount===true||d?.IsDiscount===true||/discount|скид/.test(blob))return'Применена скидка';return'Применена надбавка';}if(/neworder|ordercreated/.test(c))return'Заказ создан';if(/orderguestsbill|guestbill|orderbill/.test(c))return'Выставлен счёт';if(/closingorder|closedorder|orderclosed|closeorder/.test(c))return'Заказ закрыт';if(/payment|pay/.test(c))return'Оплата заказа';if(/tablechanged|ordertablechanged/.test(c))return'Изменён стол';if(/waiterchanged|orderwaiterchanged/.test(c))return'Изменён официант';if(/add.*item|item.*add|addeditem/.test(c))return'Добавлено блюдо';if(/remove.*item|item.*remove|delete.*item/.test(c))return'Удалено блюдо';if(/discount/.test(c))return'Применена скидка';if(/surcharge|increase/.test(c))return'Применена надбавка';if(/update|change|edit/.test(c))return'Заказ обновлён';return raw||'Событие';}
   function historySummary(ev){const d=ev?.data||ev?.Data||{};const type=eventType(ev).toLowerCase().replace(/[\s_-]/g,'');const parts=[];const add=(label,v)=>{if(v!==undefined&&v!==null&&v!=='')parts.push(`<span><b>${label}</b>${esc(v)}</span>`)};const value=(...keys)=>{for(const k of keys){const v=d?.[k]??ev?.[k];if(v!==undefined&&v!==null&&v!=='')return v;}return null;};const nested=(obj,keys)=>{if(!obj||typeof obj!=='object')return null;for(const k of keys){if(obj[k]!==undefined&&obj[k]!==null&&obj[k]!=='')return obj[k];}return null;};const itemObject=value('product','Product','item','Item','dish','Dish','printedItem','PrintedItem','deletedItem','DeletedItem','discountSurchargeItem','DiscountSurchargeItem');const itemName=value('productName','ProductName','itemName','ItemName','dishName','DishName','name','Name')||nested(itemObject,['name','Name','title','Title']);const qtyRaw=value('quantity','Quantity','qty','Qty','count','Count','itemAmount','ItemAmount','productAmount','ProductAmount','value','Value')||nested(itemObject,['quantity','Quantity','qty','Qty','amount','Amount','count','Count']);const qty=num(qtyRaw);const itemSumRaw=value('itemSum','ItemSum','productSum','ProductSum','dishSum','DishSum','resultSum','ResultSum','lineSum','LineSum','totalSum','TotalSum','cost','Cost','sum','Sum','amountSum','AmountSum')||nested(itemObject,['resultSum','ResultSum','sum','Sum','totalSum','TotalSum','cost','Cost','price','Price']);const itemPriceRaw=value('itemPrice','ItemPrice','productPrice','ProductPrice','dishPrice','DishPrice','price','Price')||nested(itemObject,['price','Price']);const itemSum=num(itemSumRaw);const itemPrice=num(itemPriceRaw);const isItemEvent=/item|printeditem|dish|discount|surcharge|increase/.test(type);add('Стол',value('orderTables','OrderTables','table','Table','tables','Tables'));add('Официант',value('waiter','Waiter'));add('Статус',value('orderStatus','OrderStatus'));if(isItemEvent){add('Блюдо',itemName);if(Number.isFinite(qty))add('Кол-во',qty);if(Number.isFinite(itemPrice))add('Цена',money(itemPrice));if(Number.isFinite(itemSum))add('Сумма',money(itemSum));}else{const rev=value('revenue','Revenue');if(rev!==null)add('Сумма',money(rev));if(itemName)add('Блюдо',itemName);if(Number.isFinite(qty))add('Кол-во',qty);}return parts.join('')||'<span><b>Информация</b>Событие заказа</span>';}
   function renderHistory(events){if(!Array.isArray(events)||!events.length)return '<div class="modal-empty">История событий пока недоступна.</div>';const sorted=[...events].sort((a,b)=>new Date(a?.receivedAt??a?.ReceivedAt??0)-new Date(b?.receivedAt??b?.ReceivedAt??0));return `<div class="history-list">${sorted.map(e=>`<div class="history-row"><div class="history-dot"></div><div class="history-main"><div class="history-top"><strong>${esc(historyText(e))}</strong><time>${esc(dt(e?.receivedAt??e?.ReceivedAt))}</time></div><div class="history-info">${historySummary(e)}</div></div></div>`).join('')}</div>`;}
-  async function loadHistory(n){const box=$('order-history');box.innerHTML='<div class="modal-loading">Загружаем историю…</div>';try{const r=await fetch(`/api/plugin/order-history?orderNum=${encodeURIComponent(n)}${state.pluginId?`&pluginId=${encodeURIComponent(state.pluginId)}`:''}`,{cache:'no-store'});const d=unwrap(await r.json());const events=d?.events??d?.data?.events??d?.history??d?.data??d;box.innerHTML=renderHistory(Array.isArray(events)?events:[]);}catch(e){box.innerHTML=`<div class="modal-empty">Не удалось загрузить историю: ${esc(e.message)}</div>`;}}
+  async function loadHistory(n){const box=$('order-history');box.innerHTML='<div class="modal-loading">Загружаем историю…</div>';try{const q=bindingQuery();const r=await fetch(`/api/plugin/order-history?orderNum=${encodeURIComponent(n)}${state.pluginId?`&pluginId=${encodeURIComponent(state.pluginId)}`:''}${q?`&${q}`:''}`,{cache:'no-store'});const d=unwrap(await r.json());const events=d?.events??d?.data?.events??d?.history??d?.data??d;box.innerHTML=renderHistory(Array.isArray(events)?events:[]);}catch(e){box.innerHTML=`<div class="modal-empty">Не удалось загрузить историю: ${esc(e.message)}</div>`;}}
   async function openOrder(n){const modal=$('order-modal');modal.classList.remove('hidden');modal.setAttribute('aria-hidden','false');$('order-modal-title').textContent=`Заказ #${n}`;$('order-modal-subtitle').textContent='Загрузка полной информации…';$('order-details').innerHTML='<div class="modal-loading">Загружаем заказ…</div>';$('order-items').innerHTML='';$('order-history').innerHTML='<div class="modal-loading">Загружаем историю…</div>';try{let d=state.detailCache.get(String(n));if(!d){const payload=await requestDetail(n);d=detailRoot(payload);if(d)state.detailCache.set(String(n),d);}if(!d)throw Error('Детализация заказа не получена');const row=state.orders.find(x=>x.num===String(n))?.row;if(row)row.__detail=d;const revenue=d.Revenue??d.revenue??amount(row);const payments=paymentParts({Payments:d.Payments??d.payments});$('order-modal-subtitle').textContent=`${statusText(row||d)} · ${money(revenue)}`;$('order-details').innerHTML=[detailValue('Стол',d.Tables??d.tables??table(row)),detailValue('Зал',d.Floor??d.floor??floor(row)),detailValue('Официант',d.Waiter??d.waiter??waiter(row)),detailValue('Кассир',d.Cashier??d.cashier??cashier(row)),detailValue('Открыт',dt(d.OpenTime??d.openTime??openTime(row))),detailValue('Пробит',dt(d.BillTime??d.billTime)),detailValue('Закрыт',dt(d.CloseTime??d.closeTime??closeTime(row))),detailValue('Оплата',payments.length?payments.map(p=>`${p.name}${Number.isFinite(p.amount)?` · ${money(p.amount)}`:''}`).join(', '):'—')].join('');$('order-items').innerHTML=renderItems(d);loadHistory(n);}catch(e){$('order-details').innerHTML=`<div class="modal-empty">${esc(e.message||e)}</div>`;$('order-items').innerHTML='';loadHistory(n);}}
   function closeModal(){$('order-modal').classList.add('hidden');$('order-modal').setAttribute('aria-hidden','true');}
   function render(){renderKpis();renderPayments();renderStatus();renderOrders();}
