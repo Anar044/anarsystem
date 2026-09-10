@@ -12,8 +12,10 @@ Flutter client for AnarSystem restaurant analytics. The mobile application lives
 - Live KPIs: revenue, orders and average check.
 - Revenue chart is built from iiko OLAP daily rows.
 - Pull-to-refresh and retry handling are included.
-- Sales screen also uses the live API.
-- Orders and Finance are intentionally placeholders until their existing web/API business logic is connected.
+- Sales screen uses the live API.
+- Orders screen now uses the new `https://anarsystem.pages.dev/api/iiko/orders` endpoint and requests order rows from iiko OLAP.
+- Orders screen supports date selection, order number, amount, table, waiter and status when those OLAP fields are available.
+- Finance remains a placeholder for the next integration stage.
 
 ## Architecture
 
@@ -21,10 +23,12 @@ Flutter client for AnarSystem restaurant analytics. The mobile application lives
 iiko Server
     ↓
 AnarSystem Cloudflare API
+    ├── /api/iiko/sales
+    └── /api/iiko/orders
     ↓
 mobile/lib/core/api/iiko_api.dart
     ↓
-Dashboard / Sales UI
+Dashboard / Sales / Orders UI
 ```
 
 The mobile app does not connect directly to iiko from the device. It sends the saved iiko connection parameters to the existing AnarSystem API, preserving the current web-side integration.
@@ -45,8 +49,7 @@ Run `flutter create .` only inside `mobile/`; never against the repository root.
 
 ## Next modules
 
-1. Orders — real open/closed orders.
-2. Cash shifts — current shift and payment breakdown.
-3. Finance / P&L — the agreed accounting logic based on account types.
-4. OLAP constructor — fields, dimensions, measures and filters.
-5. Multi-restaurant / user access and licensing.
+1. Cash shifts — current shift and payment breakdown.
+2. Finance / P&L — the agreed accounting logic based on account types.
+3. OLAP constructor — fields, dimensions, measures and filters.
+4. Multi-restaurant / user access and licensing.
