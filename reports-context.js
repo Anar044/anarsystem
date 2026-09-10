@@ -2,7 +2,8 @@
     "use strict";
 
     // Единое подключение iiko берём напрямую из D1-контекста.
-    // Никаких UI-окон восстановления подключения здесь нет.
+    // ВАЖНО: инициализацию UI нельзя блокировать ожиданием D1.
+    // Сначала рисуем OLAP-интерфейс, затем тихо догружаем iiko-состояние.
     const KEYS = new Set(["iikoConnection", "iikoDepartmentIdentity"]);
     const storage = window.localStorage;
     const get0 = Storage.prototype.getItem;
@@ -38,6 +39,8 @@
     patchStorage();
 
     let ready = null;
+    let stateReady = false;
+
     async function prepare() {
         if (ready) return ready;
         ready = (async () => {
@@ -46,26 +49,40 @@
             shadow.iikoConnection = state?.connection || null;
             shadow.iikoDepartmentIdentity = state?.identity || null;
             window.SH_IikoD1 = { connection: shadow.iikoConnection, identity: shadow.iikoDepartmentIdentity, state };
+            stateReady = true;
             return state;
         })().catch(error => {
             ready = null;
+            stateReady = false;
             throw error;
         });
         return ready;
     }
 
-    // Начинаем запрос сразу, пока браузер строит DOM.
+    // Запускаем запрос сразу, параллельно отрисовке страницы.
     prepare().catch(error => console.warn("[reports-context] iiko D1 unavailable:", error));
 
-    // reports.js должен получить D1-подключение до своего init,
-    // но пользователю никакое окно загрузки не показываем.
     const add0 = document.addEventListener.bind(document);
     document.addEventListener = function (type, listener, options) {
         if (type === "DOMContentLoaded" && typeof listener === "function") {
+            const source = Function.prototype.toString.call(listener);
+            const isReportsInit = source.includes("createOlapBuilder") && source.includes("loadSavedIikoData");
+
             return add0(type, async function (event) {
-                try { await prepare(); }
-                catch (error) { console.warn("[reports-context]", error); }
-                return listener.call(this, event);
+                // Критично: OLAP UI появляется сразу и не ждёт медленный D1/auth запрос.
+                try { await listener.call(this, event); }
+                catch (error) { console.warn("[reports-context] init:", error); }
+
+                // Когда D1 наконец готов, повторяем только reports.js init.
+                // Это заполняет iikoConnection и загружает OLAP fields, не блокируя первый paint.
+                if (isReportsInit && !stateReady) {
+                    try {
+                        await prepare();
+                        await listener.call(this, event);
+                    } catch (error) {
+                        console.warn("[reports-context] iiko D1 unavailable after UI init:", error);
+                    }
+                }
             }, options);
         }
         return add0(type, listener, options);
