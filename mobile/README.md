@@ -13,9 +13,11 @@ Flutter client for AnarSystem restaurant analytics. The mobile application lives
 - Revenue chart is built from iiko OLAP daily rows.
 - Pull-to-refresh and retry handling are included.
 - Sales screen uses the live API.
-- Orders screen now uses the new `https://anarsystem.pages.dev/api/iiko/orders` endpoint and requests order rows from iiko OLAP.
+- Orders screen uses `/api/iiko/orders` and requests order rows from iiko OLAP.
 - Orders screen supports date selection, order number, amount, table, waiter and status when those OLAP fields are available.
-- Finance remains a placeholder for the next integration stage.
+- Cash shifts screen uses `/api/iiko/cash-shifts` with the existing iiko Server cash-shift logic.
+- Cash shift details use `/api/iiko/cash-shift-detail` and show cashless operations, pay-ins, pay-outs and individual payment records when available.
+- Finance / P&L remains a placeholder for the next integration stage.
 
 ## Architecture
 
@@ -24,11 +26,13 @@ iiko Server
     ↓
 AnarSystem Cloudflare API
     ├── /api/iiko/sales
-    └── /api/iiko/orders
+    ├── /api/iiko/orders
+    ├── /api/iiko/cash-shifts
+    └── /api/iiko/cash-shift-detail
     ↓
 mobile/lib/core/api/iiko_api.dart
     ↓
-Dashboard / Sales / Orders UI
+Dashboard / Sales / Orders / Cash Shifts UI
 ```
 
 The mobile app does not connect directly to iiko from the device. It sends the saved iiko connection parameters to the existing AnarSystem API, preserving the current web-side integration.
@@ -49,7 +53,6 @@ Run `flutter create .` only inside `mobile/`; never against the repository root.
 
 ## Next modules
 
-1. Cash shifts — current shift and payment breakdown.
-2. Finance / P&L — the agreed accounting logic based on account types.
-3. OLAP constructor — fields, dimensions, measures and filters.
-4. Multi-restaurant / user access and licensing.
+1. Finance / P&L — the agreed accounting logic based on account types.
+2. OLAP constructor — fields, dimensions, measures and filters.
+3. Multi-restaurant / user access and licensing.
