@@ -1,7 +1,7 @@
 (function () {
     "use strict";
 
-    const IKOO_KEYS = new Set(["iikoConnection", "iikoDepartmentIdentity"]);
+    const IIKO_KEYS = new Set(["iikoConnection", "iikoDepartmentIdentity"]);
     const storage = window.localStorage;
     const originalGetItem = Storage.prototype.getItem;
     const originalSetItem = Storage.prototype.setItem;
@@ -18,7 +18,7 @@
 
     function patchStorage() {
         Storage.prototype.getItem = function (key) {
-            if (isTargetStorage(this) && IKOO_KEYS.has(String(key))) {
+            if (isTargetStorage(this) && IIKO_KEYS.has(String(key))) {
                 const value = shadow[String(key)];
                 return value == null ? null : JSON.stringify(value);
             }
@@ -26,7 +26,7 @@
         };
 
         Storage.prototype.setItem = function (key, value) {
-            if (isTargetStorage(this) && IKOO_KEYS.has(String(key))) {
+            if (isTargetStorage(this) && IIKO_KEYS.has(String(key))) {
                 try {
                     shadow[String(key)] = JSON.parse(String(value));
                 } catch {
@@ -38,7 +38,7 @@
         };
 
         Storage.prototype.removeItem = function (key) {
-            if (isTargetStorage(this) && IKOO_KEYS.has(String(key))) {
+            if (isTargetStorage(this) && IIKO_KEYS.has(String(key))) {
                 shadow[String(key)] = null;
                 return;
             }
@@ -91,8 +91,9 @@
     async function init() {
         try {
             const data = await getD1State();
-            shadow.iikoConnection = data?.connection || null;
-            shadow.iikoDepartmentIdentity = data?.identity || null;
+            const state = data?.state || {};
+            shadow.iikoConnection = state.connection || null;
+            shadow.iikoDepartmentIdentity = state.identity || null;
             window.SH_IikoD1 = {
                 connection: shadow.iikoConnection,
                 identity: shadow.iikoDepartmentIdentity
