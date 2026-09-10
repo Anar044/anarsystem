@@ -12,33 +12,24 @@
         iikoDepartmentIdentity: null
     };
 
-    function isTargetStorage(instance) {
-        return instance === storage;
-    }
-
     function patchStorage() {
         Storage.prototype.getItem = function (key) {
-            if (isTargetStorage(this) && IIKO_KEYS.has(String(key))) {
+            if (this === storage && IIKO_KEYS.has(String(key))) {
                 const value = shadow[String(key)];
                 return value == null ? null : JSON.stringify(value);
             }
             return originalGetItem.call(this, key);
         };
-
         Storage.prototype.setItem = function (key, value) {
-            if (isTargetStorage(this) && IIKO_KEYS.has(String(key))) {
-                try {
-                    shadow[String(key)] = JSON.parse(String(value));
-                } catch {
-                    shadow[String(key)] = String(value);
-                }
+            if (this === storage && IIKO_KEYS.has(String(key))) {
+                try { shadow[String(key)] = JSON.parse(String(value)); }
+                catch { shadow[String(key)] = String(value); }
                 return;
             }
             return originalSetItem.call(this, key, value);
         };
-
         Storage.prototype.removeItem = function (key) {
-            if (isTargetStorage(this) && IIKO_KEYS.has(String(key))) {
+            if (this === storage && IIKO_KEYS.has(String(key))) {
                 shadow[String(key)] = null;
                 return;
             }
@@ -47,20 +38,15 @@
     }
 
     async function getD1State() {
-        // IMPORTANT: reuse the authenticated Supabase client created by auth.js.
-        // Creating a second client with persistSession:false loses the existing session.
         if (!window.SHAuth || typeof window.SHAuth.createClient !== "function") {
             throw new Error("SH Auth не готов");
         }
-
         const sb = await window.SHAuth.createClient();
         if (!sb) throw new Error("Supabase Auth не настроен");
-
         const { data: sessionData, error: sessionError } = await sb.auth.getSession();
         if (sessionError || !sessionData?.session?.access_token) {
             throw new Error("Не удалось получить сессию пользователя");
         }
-
         const response = await fetch("/api/iiko/state", {
             method: "GET",
             headers: {
@@ -68,7 +54,6 @@
                 Authorization: `Bearer ${sessionData.session.access_token}`
             }
         });
-
         const data = await response.json().catch(() => ({}));
         if (!response.ok || data.success === false) {
             throw new Error(data.message || `D1 HTTP ${response.status}`);
@@ -76,22 +61,7 @@
         return data;
     }
 
-    function injectReportsScript() {
-        // reports.js is intentionally loaded only after D1 state is ready,
-        // so its legacy localStorage reads receive a temporary in-memory value.
-        const script = document.createElement("script");
-        script.src = "reports.js?v=20260910-9";
-        script.dataset.d1Loader = "1";
-        script.onload = () => {
-            window.dispatchEvent(new CustomEvent("sh-reports-d1-ready", {
-                detail: window.SH_IikoD1
-            }));
-        };
-        script.onerror = () => console.error("Не удалось загрузить reports.js");
-        document.body.appendChild(script);
-    }
-
-    async function init() {
+    async function prepareD1() {
         try {
             const data = await getD1State();
             const state = data?.state || {};
@@ -109,10 +79,23 @@
                 error: error?.message || String(error)
             };
         }
-
         patchStorage();
-        injectReportsScript();
     }
 
-    init();
+    // reports.js registers its DOMContentLoaded handler after this file.
+    // We wrap only the first DOMContentLoaded handler (reports.js), so D1 is
+    // loaded before reports.js reads its legacy iikoConnection state.
+    const originalAddEventListener = document.addEventListener.bind(document);
+    let wrappedReportsReady = false;
+    document.addEventListener = function (type, listener, options) {
+        if (!wrappedReportsReady && type === "DOMContentLoaded" && typeof listener === "function") {
+            wrappedReportsReady = true;
+            const wrapped = async function (event) {
+                await prepareD1();
+                return listener.call(this, event);
+            };
+            return originalAddEventListener(type, wrapped, options);
+        }
+        return originalAddEventListener(type, listener, options);
+    };
 })();
