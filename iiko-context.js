@@ -27,7 +27,12 @@
       if (!response.ok || result.success === false) throw new Error(result.message || `iiko D1 HTTP ${response.status}`);
       cache = result?.state || null;
       return cache;
-    })().catch(error => { cache = null; throw error; });
+    })().catch(error => {
+      cache = null;
+      // Не оставляем отклонённый Promise навсегда: Auth может быть готов чуть позже.
+      promise = null;
+      throw error;
+    });
     return promise;
   }
 
