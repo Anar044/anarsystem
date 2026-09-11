@@ -87,8 +87,9 @@
             if(connection.login) $("iiko-login").value=connection.login;
             if($("iiko-password")) $("iiko-password").value=connection.password||"";
             if($("remember-iiko")) $("remember-iiko").checked=true;
+            const restaurantCount=organizations.length||departments.length;
             setStatus(chain
-                ? `🟢 D1: SH Chain • ${identity.displayName||connection.displayName||"—"}`
+                ? `🟢 D1: SH Chain • ${identity.displayName||connection.displayName||"—"} • ресторанов: ${restaurantCount}`
                 : `🟢 D1: SH RMS • ${identity.displayName||connection.displayName||"—"} • Department ID: ${identity.organizationId||"—"}`);
         }catch(error){
             console.warn("Cannot load saved SH identity from D1",error);
@@ -131,18 +132,28 @@
             const data=await safeJson(response);
             if(!response.ok||data.success===false)throw new Error(data.message||`HTTP ${response.status}`);
 
-            let departments=Array.isArray(data.departments)?data.departments:[];
-            let organizations=Array.isArray(data.organizations)?data.organizations:[];
+            // Primary connection endpoint is authoritative when it returned real departments.
+            // Chain enrichment is optional: an empty Chain response must NEVER erase valid departments.
+            let departments=Array.isArray(data.departments)?data.departments.filter(x=>x?.id):[];
+            let organizations=Array.isArray(data.organizations)?data.organizations.filter(x=>x?.id):[];
             let chainStructure=null;
             let serverMode=String(data.detectedMode||data.mode||"").toUpperCase();
 
             try{
                 const chainResponse=await fetch("/api/iiko/chain",{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify({ip,port,login,password})});
-                chainStructure=await safeJson(chainResponse);
-                if(chainResponse.ok&&chainStructure.success!==false){
-                    serverMode=String(chainStructure.detectedMode||chainStructure.mode||serverMode||"").toUpperCase();
-                    departments=Array.isArray(chainStructure.departments)?chainStructure.departments:departments;
-                    organizations=Array.isArray(chainStructure.restaurants)?chainStructure.restaurants:organizations;
+                const candidate=await safeJson(chainResponse);
+                if(chainResponse.ok&&candidate.success!==false){
+                    chainStructure=candidate;
+                    serverMode=String(candidate.detectedMode||candidate.mode||serverMode||"").toUpperCase();
+                    const chainDepartments=Array.isArray(candidate.departments)?candidate.departments.filter(x=>x?.id):[];
+                    const chainRestaurants=Array.isArray(candidate.restaurants)?candidate.restaurants.filter(x=>x?.id):[];
+                    if(chainDepartments.length) departments=chainDepartments;
+                    if(chainRestaurants.length) organizations=chainRestaurants;
+                    console.info("SH Chain lookup:",{
+                        departments:chainDepartments.length,
+                        restaurants:chainRestaurants.length,
+                        groups:Array.isArray(candidate.groups)?candidate.groups.length:0
+                    });
                 }
             }catch(error){
                 console.warn("SH Chain structure lookup failed; using primary server response",error);
@@ -156,18 +167,19 @@
             const networkName=clean(chainStructure?.organization?.name||chainStructure?.organization?.Name||"");
             const restaurantName=clean(organizations[0]?.name||departments[0]?.name||data.restaurantName||"");
             const displayName=isChain?(networkName||restaurantName):restaurantName;
+            const restaurantList=organizations.length?organizations:departments.map(x=>({id:x.id,name:x.name,code:x.code,parentId:x.parentId}));
 
-            const identity={mode:isChain?"CHAIN":"RMS",detectedMode,organizationId,displayName,networkName,restaurantName,organizations,departmentIds:departments.map(x=>x.id),departments,hierarchy:chainStructure?.hierarchy||[],groups:chainStructure?.groups||[],pointsOfSale:chainStructure?.pointsOfSale||[],restaurantSections:chainStructure?.restaurantSections||[],server:{ip,port},checkedAt};
-            const connection={ip,port,login,password,connectionType:isChain?"CHAIN":"RMS",isChain,detectedMode,organizationId,displayName,networkName,restaurantName,departmentIds:identity.departmentIds,departments,organizations,hierarchy:identity.hierarchy,groups:identity.groups,pointsOfSale:identity.pointsOfSale,restaurantSections:identity.restaurantSections,connectedAt:checkedAt};
+            const identity={mode:isChain?"CHAIN":"RMS",detectedMode,organizationId,displayName,networkName,restaurantName,organizations:restaurantList,departmentIds:departments.map(x=>String(x.id)),departments,hierarchy:chainStructure?.hierarchy||[],groups:chainStructure?.groups||[],pointsOfSale:chainStructure?.pointsOfSale||[],restaurantSections:chainStructure?.restaurantSections||[],server:{ip,port},checkedAt};
+            const connection={ip,port,login,password,connectionType:isChain?"CHAIN":"RMS",isChain,detectedMode,organizationId,displayName,networkName,restaurantName,departmentIds:identity.departmentIds,departments,organizations:restaurantList,hierarchy:identity.hierarchy,groups:identity.groups,pointsOfSale:identity.pointsOfSale,restaurantSections:identity.restaurantSections,connectedAt:checkedAt};
 
             await saveIikoState(connection,identity);
 
             const checkbox=$("is-chain"), hint=$("chain-hint");
             if(checkbox)checkbox.checked=isChain;
             if(hint&&checkbox)hint.classList.toggle("visible",checkbox.checked);
-            renderIdentity(departments,organizations,identity.server,isChain,identity.groups,identity.pointsOfSale);
+            renderIdentity(departments,restaurantList,identity.server,isChain,identity.groups,identity.pointsOfSale);
             setStatus(isChain
-                ? `🟢 SH Chain сохранён в D1 • сеть: ${displayName||"—"} • ресторанов: ${organizations.length}`
+                ? `🟢 SH Chain сохранён в D1 • сеть: ${displayName||"—"} • ресторанов: ${restaurantList.length}`
                 : `🟢 SH RMS сохранён в D1 • ресторан: ${displayName||"—"} • Department ID: ${organizationId||"—"}`);
             console.info("SH D1 SAVED:",identity);
         }catch(error){
