@@ -1,3 +1,5 @@
 /index.html /dashboard.html 200
 / /dashboard.html 200
+/nakladnye /nakladnye.html 200
+/nakladnye/ /nakladnye.html 200
 # Dashboard uses iiko OLAP data
