@@ -11,9 +11,15 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-export async function onRequestGet() {
+export async function onRequestGet(context) {
   try {
-    const response = await fetch(`${VPS_API}/api/plugin/data`, {
+    // Preserve the caller's Department filter when proxying to the VPS.
+    // Without this, the VPS receives /api/plugin/data without departmentIds
+    // and can return plugins belonging to other iiko Servers.
+    const incoming = new URL(context.request.url);
+    const upstreamUrl = `${VPS_API}/api/plugin/data${incoming.search}`;
+
+    const response = await fetch(upstreamUrl, {
       method: "GET",
       headers: {
         "Accept": "application/json"
