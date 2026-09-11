@@ -1,9 +1,9 @@
 (() => {
   'use strict';
 
-  // Normalize order-detail request parameters for the Plugin.
   const originalFetch = window.fetch.bind(window);
 
+  // Normalize order-detail request parameters for the Plugin.
   window.fetch = async function(input, init) {
     try {
       const url = typeof input === 'string' ? input : input?.url || '';
@@ -27,88 +27,146 @@
     return originalFetch(input, init);
   };
 
-  // Enrich the visible order history with the timestamp and actor/details
-  // already stored by the VPS. We intentionally do not invent missing data.
   const historyByOrder = new Map();
-
   const esc = v => String(v ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
-  const dt = v => {
-    if (!v) return '—';
-    const d = new Date(v);
-    if (Number.isNaN(d.getTime())) return String(v);
-    return d.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' });
-  };
   const scalar = value => {
     if (value == null || value === '') return null;
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
     if (Array.isArray(value)) { for (const x of value) { const s = scalar(x); if (s) return s; } return null; }
     if (typeof value === 'object') {
-      for (const k of ['name','Name','fullName','FullName','title','Title','value','Value']) { const s = scalar(value[k]); if (s) return s; }
+      for (const k of ['name','Name','fullName','FullName','displayName','DisplayName','title','Title','value','Value','text','Text']) {
+        const s = scalar(value[k]); if (s) return s;
+      }
     }
     return null;
   };
   const deep = (obj, keys, depth = 0) => {
-    if (!obj || typeof obj !== 'object' || depth > 8) return null;
-    const wanted = keys.map(k => k.toLowerCase());
+    if (!obj || typeof obj !== 'object' || depth > 10) return null;
+    const wanted = keys.map(k => String(k).toLowerCase());
     for (const [k,v] of Object.entries(obj)) {
       if (wanted.includes(k.toLowerCase())) { const s = scalar(v); if (s) return s; }
     }
     for (const v of Object.values(obj)) { const s = deep(v, keys, depth + 1); if (s) return s; }
     return null;
   };
-  const eventTitle = e => {
-    const s = String(e?.pluginEventType ?? e?.eventType ?? e?.type ?? '').toLowerCase();
+  const dt = v => {
+    if (!v) return 'Время не указано';
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return String(v);
+    return d.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  };
+  const money = v => {
+    if (v == null || v === '') return null;
+    const n = Number(String(v).replace(/\s/g,'').replace(',','.').replace(/[^0-9+\-.]/g,''));
+    return Number.isFinite(n) ? n.toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' ₼' : String(v);
+  };
+
+  function eventType(e) { return String(e?.pluginEventType ?? e?.eventType ?? e?.type ?? e?.Type ?? '').trim(); }
+  function eventTitle(e) {
+    const s = eventType(e).toLowerCase();
     if (/neworder|ordercreated/.test(s)) return 'Заказ создан';
     if (/closingorder|closedorder|orderclosed/.test(s)) return 'Заказ закрыт';
-    if (/orderguestbill|payment|orderpayment/.test(s)) return 'Оплата заказа';
-    if (/cancel/.test(s)) return 'Заказ отменён';
-    if (/delete.*item|deletionofprinteditem|remove|removed/.test(s)) return 'Удалено блюдо';
+    if (/orderguestbill|guestbill/.test(s)) return 'Гостевой счёт выставлен';
+    if (/payment|orderpayment/.test(s)) return 'Оплата заказа';
+    if (/cancel|void|storno/.test(s)) return 'Заказ отменён';
+    if (/delete.*item|deletionofprinteditem|remove.*item|removeditem/.test(s)) return 'Удалено блюдо';
     if (/additem|addeditem/.test(s)) return 'Добавлено блюдо';
     if (/discount/.test(s)) return 'Изменена скидка';
     if (/surcharge|increase/.test(s)) return 'Изменена надбавка';
     if (/table/.test(s)) return 'Изменён стол';
     if (/waiter/.test(s)) return 'Изменён официант';
-    return e?.pluginEventType ?? e?.eventType ?? e?.type ?? 'Событие';
-  };
-  const actor = e => deep(e?.data ?? e, [
-    'employeeName','employeeFullName','employee','operatorName','operatorFullName','operator',
-    'userName','userFullName','user','cashierName','cashierFullName','cashier',
-    'waiterName','waiterFullName','waiter','authorName','authorFullName','author'
-  ]);
-  const details = e => {
-    const d = e?.data ?? {}, parts = [];
-    const item = deep(d, ['itemName','productName','dishName','menuItemName']);
-    const qty = deep(d, ['quantity','amount','count','itemAmount']);
-    const table = deep(d, ['tableName','orderTables','table']);
-    const sum = deep(d, ['resultSum','orderSum','revenue','total','sum']);
-    const payment = deep(d, ['paymentTypeName','paymentMethod','paymentName','paymentType']);
-    if (item) parts.push(`Блюдо: ${item}${qty ? ` · ${qty} шт.` : ''}`);
-    else if (qty) parts.push(`Количество: ${qty}`);
-    if (table) parts.push(`Стол: ${table}`);
-    if (sum && !/neworder|ordercreated/i.test(String(e?.pluginEventType))) parts.push(`Сумма: ${sum}`);
-    if (payment) parts.push(`Оплата: ${payment}`);
+    if (/print/.test(s)) return 'Печать';
+    return eventType(e) || 'Событие';
+  }
+
+  function actor(e) {
+    const d = e?.data ?? e;
+    return deep(d, [
+      'employeeName','employeeFullName','employee','userName','userFullName','user',
+      'operatorName','operatorFullName','operator','cashierName','cashierFullName','cashier',
+      'waiterName','waiterFullName','waiter','authorName','authorFullName','author',
+      'createdBy','performedBy','changedBy','modifiedBy'
+    ]);
+  }
+
+  function detailParts(e) {
+    const d = e?.data ?? {};
+    const parts = [];
+    const item = deep(d, ['itemName','ItemName','productName','ProductName','dishName','DishName','menuItemName','MenuItemName']);
+    const qty = deep(d, ['quantity','Quantity','amount','Amount','itemAmount','ItemAmount','count','Count']);
+    const sum = deep(d, ['resultSum','ResultSum','itemSum','ItemSum','sum','Sum','total','Total','revenue','Revenue']);
+    const table = deep(d, ['tableName','TableName','table','Table','orderTables','OrderTables']);
+    const floor = deep(d, ['floorName','FloorName','floor','Floor','restaurantSection','RestaurantSection','hall','Hall']);
+    const payment = deep(d, ['paymentTypeName','PaymentTypeName','paymentName','PaymentName','paymentMethod','PaymentMethod','paymentType','PaymentType']);
+    const oldValue = deep(d, ['oldValue','OldValue','previousValue','PreviousValue','before','Before']);
+    const newValue = deep(d, ['newValue','NewValue','currentValue','CurrentValue','after','After']);
+    if (item) parts.push(`Блюдо: ${item}`);
+    if (qty != null && qty !== '') parts.push(`Количество: ${qty}`);
+    if (sum != null && sum !== '') parts.push(`Сумма: ${money(sum)}`);
+    if (table != null && table !== '') parts.push(`Стол: ${scalar(table) ?? table}`);
+    if (floor != null && floor !== '') parts.push(`Зал: ${scalar(floor) ?? floor}`);
+    if (payment != null && payment !== '') parts.push(`Способ оплаты: ${scalar(payment) ?? payment}`);
+    if (oldValue != null && newValue != null) parts.push(`Было: ${scalar(oldValue) ?? oldValue} → Стало: ${scalar(newValue) ?? newValue}`);
     return parts;
-  };
+  }
+
+  function icon(e) {
+    const s = eventType(e).toLowerCase();
+    if (/payment|guestbill/.test(s)) return '₼';
+    if (/close/.test(s)) return '✓';
+    if (/cancel|void|storno|delete|remove/.test(s)) return '−';
+    if (/add|neworder|created/.test(s)) return '+';
+    if (/discount|surcharge|increase/.test(s)) return '%';
+    return '•';
+  }
+
+  function installAuditStyle() {
+    if (document.getElementById('cm-audit-style')) return;
+    const style = document.createElement('style');
+    style.id = 'cm-audit-style';
+    style.textContent = `
+      .cm-history{display:grid;gap:8px}
+      .cm-event-rich{position:relative;display:grid;grid-template-columns:28px 1fr;gap:10px;padding:12px 13px;border:1px solid rgba(255,255,255,.055);border-radius:11px;background:linear-gradient(180deg,#0f1821,#0d151e)}
+      .cm-event-rich::before{content:"";position:absolute;left:26px;top:40px;bottom:-9px;width:1px;background:rgba(255,255,255,.07)}
+      .cm-event-rich:last-child::before{display:none}
+      .cm-audit-icon{width:25px;height:25px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:#17232e;border:1px solid rgba(255,255,255,.08);color:#8ee3ba;font-weight:700;font-size:11px;z-index:1}
+      .cm-event-main{min-width:0}
+      .cm-event-main strong{display:block;color:#e7edf3;font-size:11px;font-weight:700}
+      .cm-event-time{display:block;margin-top:3px;color:#8492a2;font-size:9px;font-variant-numeric:tabular-nums}
+      .cm-event-meta{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+      .cm-event-meta span{padding:4px 7px;border-radius:6px;background:#151f29;color:#8d9baa;font-size:9px}
+      .cm-event-meta b{color:#d6dee6;font-weight:600}
+    `;
+    document.head.appendChild(style);
+  }
 
   function renderHistory(events) {
     const host = document.getElementById('cm-history');
     if (!host || !Array.isArray(events)) return;
+    installAuditStyle();
     if (!events.length) { host.innerHTML = '<div class="cm-empty">История событий не найдена.</div>'; return; }
-    host.innerHTML = events.slice().sort((a,b) => {
+    const ordered = events.slice().sort((a,b) => {
       const ta = new Date(a?.receivedAt ?? a?.createdAt ?? a?.timestamp ?? a?.time ?? 0).getTime();
       const tb = new Date(b?.receivedAt ?? b?.createdAt ?? b?.timestamp ?? b?.time ?? 0).getTime();
-      return ta - tb;
-    }).map(e => {
+      return (Number.isFinite(ta) ? ta : 0) - (Number.isFinite(tb) ? tb : 0);
+    });
+    host.innerHTML = ordered.map(e => {
       const when = e?.receivedAt ?? e?.createdAt ?? e?.timestamp ?? e?.time;
-      const who = actor(e), extra = details(e);
+      const who = actor(e) || 'не указан в событии';
+      const extra = detailParts(e);
+      const raw = eventType(e);
       return `<div class="cm-event cm-event-rich">
-        <div class="cm-event-main"><strong>${esc(eventTitle(e))}</strong><span class="cm-event-time">${esc(dt(when))}</span></div>
-        <div class="cm-event-meta">${who ? `<span><b>Сотрудник:</b> ${esc(who)}</span>` : '<span><b>Сотрудник:</b> не указан в событии</span>'}${extra.map(x => `<span>${esc(x)}</span>`).join('')}</div>
+        <div class="cm-audit-icon">${esc(icon(e))}</div>
+        <div class="cm-event-main">
+          <strong>${esc(eventTitle(e))}</strong>
+          <span class="cm-event-time">${esc(dt(when))}</span>
+          <div class="cm-event-meta"><span><b>Сотрудник:</b> ${esc(who)}</span>${extra.map(x => `<span>${esc(x)}</span>`).join('')}${raw ? `<span><b>Код:</b> ${esc(raw)}</span>` : ''}</div>
+        </div>
       </div>`;
     }).join('');
   }
 
-  // Wrap fetch a second time so the order-detail normalizer above remains intact.
+  // Capture the raw audit response without changing the response consumed by cash-groups.js.
   const fetchWithHistory = window.fetch.bind(window);
   window.fetch = async function(input, init) {
     const response = await fetchWithHistory(input, init);
@@ -128,13 +186,9 @@
 
   const observer = new MutationObserver(() => {
     const host = document.getElementById('cm-history');
-    if (!host || host.dataset.richHistory === '1') return;
+    if (!host) return;
     for (const events of historyByOrder.values()) {
-      if (Array.isArray(events) && events.length) {
-        host.dataset.richHistory = '1';
-        renderHistory(events);
-        break;
-      }
+      if (Array.isArray(events) && events.length) { renderHistory(events); break; }
     }
   });
   observer.observe(document.documentElement, { childList:true, subtree:true });
