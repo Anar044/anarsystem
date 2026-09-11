@@ -1,8 +1,6 @@
 (function(){
   'use strict';
 
-  // Единое главное меню AnarSystem. Меню собирается в одном месте,
-  // чтобы разные старые страницы/скрипты не создавали дубли.
   const menu=[
     ['Dashboard','/index.html','⌂','index.html'],
     ['Финансы','/finance.html','₽','finance.html'],
@@ -21,6 +19,8 @@
     ['Акты списания','/akty-spisaniya.html','▥','akty-spisaniya.html'],
     ['Внутренние перемещения','/vnutrennie-peremescheniya.html','⇄','vnutrennie-peremescheniya.html']
   ];
+
+  const settings=['Настройки','/settings.html','⚙','settings.html'];
 
   function currentPage(){
     const p=location.pathname.toLowerCase().replace(/\/$/,'');
@@ -70,6 +70,7 @@
     const [text,href,icon,key]=item;
     const a=document.createElement('a');
     a.href=href;
+    a.dataset.unifiedNavItem=key;
     a.innerHTML=`<span class="side-icon">${icon}</span><span>${text}</span>`;
     if(key===page) a.classList.add('active');
     return a;
@@ -78,11 +79,12 @@
   function build(nav){
     const page=currentPage();
     nav.innerHTML='';
-
     menu.forEach(item=>nav.appendChild(makeLink(item,page)));
 
     const group=document.createElement('div');
     group.className='documents-nav-group';
+    group.dataset.unifiedNavDocuments='1';
+
     const toggle=document.createElement('button');
     toggle.type='button';
     toggle.className='documents-nav-toggle';
@@ -91,10 +93,11 @@
     const sub=document.createElement('nav');
     sub.className='side-nav nav documents-subnav';
     sub.hidden=true;
+
     let activeDoc=false;
     documents.forEach(item=>{
       const a=makeLink(item,page);
-      if(item[3]===page){activeDoc=true;}
+      if(item[3]===page) activeDoc=true;
       sub.appendChild(a);
     });
 
@@ -116,31 +119,61 @@
 
     group.append(toggle,sub);
     nav.appendChild(group);
-
-    const settings=makeLink(['Настройки','/settings.html','⚙','settings.html'],page);
-    nav.appendChild(settings);
+    nav.appendChild(makeLink(settings,page));
+    nav.dataset.documentsMenuVersion='20260911-2';
   }
 
-  function run(){
-    const sidebar=document.querySelector('.sidebar');
-    const nav=sidebar?.querySelector('.unified-main-nav,.side-nav');
+  function ensure(nav){
     if(!nav) return false;
     style();
-    if(nav.dataset.documentsMenuVersion==='20260911-1') return true;
     build(nav);
-    nav.dataset.documentsMenuVersion='20260911-1';
     return true;
   }
 
   function boot(){
+    const sidebar=document.querySelector('.sidebar');
+    const nav=sidebar?.querySelector('.unified-main-nav,.side-nav');
+    if(!nav) return false;
+    ensure(nav);
+
+    if(!nav.dataset.documentsNavObserver){
+      let scheduled=false;
+      const observer=new MutationObserver(()=>{
+        if(scheduled) return;
+        scheduled=true;
+        queueMicrotask(()=>{
+          scheduled=false;
+          if(document.body.contains(nav)){
+            const expected=menu.length+2;
+            const directChildren=Array.from(nav.children);
+            const hasDocuments=!!nav.querySelector(':scope > .documents-nav-group');
+            const hasWrongCount=directChildren.length!==expected;
+            const duplicateKeys=new Set();
+            let duplicates=false;
+            nav.querySelectorAll(':scope > a[data-unified-nav-item]').forEach(a=>{
+              const key=a.dataset.unifiedNavItem;
+              if(duplicateKeys.has(key)) duplicates=true;
+              duplicateKeys.add(key);
+            });
+            if(hasWrongCount||!hasDocuments||duplicates) ensure(nav);
+          }
+        });
+      });
+      observer.observe(nav,{childList:true,subtree:true});
+      nav.dataset.documentsNavObserver='1';
+    }
+    return true;
+  }
+
+  function start(){
     let attempts=0;
     const timer=setInterval(()=>{
       attempts++;
-      if(run() || attempts>=50) clearInterval(timer);
+      if(boot()||attempts>=60) clearInterval(timer);
     },50);
-    run();
+    boot();
   }
 
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true});
-  else boot();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',start,{once:true});
+  else start();
 })();
