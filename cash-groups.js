@@ -48,14 +48,18 @@
     return unwrap(data);
   }
 
-  function normalizePlugins(payload) {
+  function normalizePlugins(payload, departmentIds) {
     let list=Array.isArray(payload)?payload:(payload?.plugins||payload?.data||payload?.items||[]);
     if (!Array.isArray(list)) list=[];
-    // A group is shown only while a real Plugin from that group is online.
-    // Offline/stale registry records must not create an empty group card.
+    const allowed=new Set((departmentIds||[]).map(String).map(x=>x.trim().toLowerCase()).filter(Boolean));
     return list
       .map(x => x?.data ? {...x,...x.data} : x)
-      .filter(x => x?.pluginId && x?.online === true);
+      .filter(x => x?.pluginId)
+      // Defense in depth: even if a proxy/upstream accidentally returns
+      // unrelated plugins, never render one outside this user's Department.
+      .filter(x => allowed.has(String(x?.departmentId||'').trim().toLowerCase()))
+      // A group is shown only while a real Plugin from that group is online.
+      .filter(x => x?.online === true);
   }
 
   function stats(rows) {
@@ -73,7 +77,6 @@
     const s=stats(rows);
     const name=plugin.groupName || 'Без группы';
     const machine=plugin.pluginName || plugin.pluginId;
-    const online=plugin.online === true;
     const orders=rows.slice().sort((a,b)=>{
       const da=new Date(a?.orderOpenDate ?? a?.openTime ?? 0).getTime();
       const db=new Date(b?.orderOpenDate ?? b?.openTime ?? 0).getTime();
@@ -130,7 +133,7 @@
       }
       const qs=new URLSearchParams({departmentIds:binding.departmentIds.join(',')});
       const payload=await api(`/api/plugin/data?${qs.toString()}`);
-      const plugins=normalizePlugins(payload);
+      const plugins=normalizePlugins(payload,binding.departmentIds);
       if(!plugins.length) {
         host.innerHTML='<div class="cash-card"><div class="empty-state">Сейчас нет отвечающих Plugin для текущего Department ID.</div></div>';
         return;
