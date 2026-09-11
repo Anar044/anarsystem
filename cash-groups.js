@@ -51,7 +51,11 @@
   function normalizePlugins(payload) {
     let list=Array.isArray(payload)?payload:(payload?.plugins||payload?.data||payload?.items||[]);
     if (!Array.isArray(list)) list=[];
-    return list.map(x => x?.data ? {...x,...x.data} : x).filter(x => x?.pluginId);
+    // A group is shown only while a real Plugin from that group is online.
+    // Offline/stale registry records must not create an empty group card.
+    return list
+      .map(x => x?.data ? {...x,...x.data} : x)
+      .filter(x => x?.pluginId && x?.online === true);
   }
 
   function stats(rows) {
@@ -69,7 +73,7 @@
     const s=stats(rows);
     const name=plugin.groupName || 'Без группы';
     const machine=plugin.pluginName || plugin.pluginId;
-    const online=plugin.online !== false;
+    const online=plugin.online === true;
     const orders=rows.slice().sort((a,b)=>{
       const da=new Date(a?.orderOpenDate ?? a?.openTime ?? 0).getTime();
       const db=new Date(b?.orderOpenDate ?? b?.openTime ?? 0).getTime();
@@ -93,7 +97,7 @@
           <h2>${esc(name)}</h2>
           <p>${esc(machine)} · Department: ${esc(plugin.departmentId || '—')}</p>
         </div>
-        <div class="cash-group-status ${online?'online':'offline'}">${online?'● Онлайн':'● Офлайн'}</div>
+        <div class="cash-group-status online">● Онлайн</div>
       </div>
       <div class="cash-group-kpis">
         <div><span>Закрытые</span><strong>${money(s.closedSum)}</strong><small>${s.closed} заказов</small></div>
@@ -117,7 +121,7 @@
   async function load() {
     const host=document.getElementById('cash-groups');
     if(!host) return;
-    host.innerHTML='<div class="cash-card"><div class="empty-state">Загрузка всех касс…</div></div>';
+    host.innerHTML='<div class="cash-card"><div class="empty-state">Загрузка подключённых касс…</div></div>';
     try {
       const binding=await getBinding();
       if(!binding.departmentIds?.length) {
@@ -128,7 +132,7 @@
       const payload=await api(`/api/plugin/data?${qs.toString()}`);
       const plugins=normalizePlugins(payload);
       if(!plugins.length) {
-        host.innerHTML='<div class="cash-card"><div class="empty-state">Для текущего Department ID подключённых Plugin не найдено.</div></div>';
+        host.innerHTML='<div class="cash-card"><div class="empty-state">Сейчас нет отвечающих Plugin для текущего Department ID.</div></div>';
         return;
       }
       const sections=[];
