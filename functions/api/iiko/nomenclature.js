@@ -1,199 +1,46 @@
-function corsHeaders() {
-    return {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type"
-    };
-}
-
-function jsonResponse(data, status = 200) {
-    return new Response(JSON.stringify(data), {
-        status,
-        headers: {
-            "Content-Type": "application/json",
-            ...corsHeaders()
-        }
-    });
-}
-
-async function sha1(text) {
-    const data = new TextEncoder().encode(text);
-    const hash = await crypto.subtle.digest("SHA-1", data);
-    return Array.from(new Uint8Array(hash))
-        .map(byte => byte.toString(16).padStart(2, "0"))
-        .join("");
-}
-
-async function auth(ip, port, login, password) {
-    const serverUrl = `http://${ip}:${port}`;
-    const passwordHash = await sha1(password);
-    const url = `${serverUrl}/resto/api/auth?login=${encodeURIComponent(login)}&pass=${passwordHash}`;
-    const response = await fetch(url);
-    const token = (await response.text()).trim();
-
-    if (!response.ok || !token) {
-        throw new Error(`Ошибка авторизации iiko: HTTP ${response.status}`);
-    }
-
-    return { serverUrl, token };
-}
-
-function toNumber(value) {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : null;
-}
-
-function asArray(payload) {
-    if (Array.isArray(payload)) return payload;
-    if (Array.isArray(payload?.items)) return payload.items;
-    if (Array.isArray(payload?.products)) return payload.products;
-    return [];
-}
-
-function normalizeCategoryMap(value) {
-    if (!Array.isArray(value)) return new Map();
-
-    return new Map(
-        value
-            .filter(x => x && (x.iikoId || x.id))
-            .map(x => [
-                String(x.iikoId || x.id),
-                String(x.name || "Без категории")
-            ])
-    );
-}
-
-async function getProducts(serverUrl, token) {
-    const url =
-        `${serverUrl}/resto/api/v2/entities/products/list` +
-        `?includeDeleted=false&types=DISH&key=${encodeURIComponent(token)}`;
-
-    const response = await fetch(url, {
-        method: "GET",
-        headers: {
-            "Accept": "application/json"
-        }
-    });
-
-    const text = (await response.text()).trim();
-
-    if (!response.ok) {
-        throw new Error(
-            `iiko /entities/products/list: HTTP ${response.status}${text ? ` — ${text.slice(0, 500)}` : ""}`
-        );
-    }
-
-    if (!text) return [];
-
-    let payload;
-    try {
-        payload = JSON.parse(text);
-    } catch {
-        throw new Error("iiko /entities/products/list вернул некорректный JSON");
-    }
-
-    return asArray(payload);
-}
-
-function normalizeProducts(items, categoryMap) {
-    const products = [];
-    const categories = new Map();
-
-    for (let index = 0; index < items.length; index += 1) {
-        const item = items[index];
-        if (!item || item.deleted === true) continue;
-        if (String(item.type || "").toUpperCase() !== "DISH") continue;
-
-        const id = String(item.id || "").trim();
-        if (!id) continue;
-
-        const parentId = item.parent == null || item.parent === ""
-            ? "root"
-            : String(item.parent);
-
-        const categoryName =
-            categoryMap.get(parentId) ||
-            (parentId === "root" ? "Без категории" : "Группа iiko");
-
-        if (!categories.has(parentId)) {
-            categories.set(parentId, {
-                id: parentId,
-                iikoId: parentId,
-                name: categoryName,
-                sortOrder: parentId === "root" ? 999999 : categories.size
-            });
-        }
-
-        products.push({
-            id,
-            name: String(item.name || id),
-            description: String(item.description || ""),
-            categoryId: parentId,
-            price: toNumber(item.defaultSalePrice),
-            defaultIncludedInMenu: item.defaultIncludedInMenu === true,
-            deleted: false,
-            type: "DISH",
-            code: String(item.code || ""),
-            num: String(item.num || ""),
-            mainUnit: item.mainUnit || null,
-            position: toNumber(item.position),
-            frontImageId: item.frontImageId || null,
-            excludedSections: Array.isArray(item.excludedSections)
-                ? item.excludedSections
-                : null,
-            sortOrder: toNumber(item.position) ?? index
-        });
-    }
-
-    products.sort((a, b) => a.sortOrder - b.sortOrder);
-
-    return {
-        categories: Array.from(categories.values()),
-        products
-    };
-}
-
-export async function onRequestOptions() {
-    return new Response(null, {
-        status: 204,
-        headers: corsHeaders()
-    });
-}
-
-export async function onRequestPost(context) {
-    try {
-        const body = await context.request.json();
-
-        const ip = String(body.ip || "").trim();
-        const port = String(body.port || "").trim();
-        const login = String(body.login || "").trim();
-        const password = String(body.password || "");
-
-        if (!ip || !port || !login || !password) {
-            return jsonResponse({
-                success: false,
-                message: "Заполните IP, порт, логин и пароль iiko"
-            }, 400);
-        }
-
-        const categoryMap = normalizeCategoryMap(body.categories);
-        const { serverUrl, token } = await auth(ip, port, login, password);
-        const rawProducts = await getProducts(serverUrl, token);
-        const normalized = normalizeProducts(rawProducts, categoryMap);
-
-        return jsonResponse({
-            success: true,
-            source: "iiko-nomenclature",
-            endpoint: "/resto/api/v2/entities/products/list",
-            categoryCount: normalized.categories.length,
-            productCount: normalized.products.length,
-            categories: normalized.categories,
-            products: normalized.products
-        });
-    } catch (error) {
-        return jsonResponse({
-            success: false,
-            message: error?.message || "Ошибка загрузки номенклатуры iiko"
-        }, 502);
-    }
-}
+function corsHeaders(){return {'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type'}}
+function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json',...corsHeaders()}})}
+async function sha1(text){const h=await crypto.subtle.digest('SHA-1',new TextEncoder().encode(text));return Array.from(new Uint8Array(h)).map(x=>x.toString(16).padStart(2,'0')).join('')}
+async function auth(connection){const ip=String(connection?.ip||'').trim(),port=String(connection?.port||'').trim(),login=String(connection?.login||'').trim(),password=String(connection?.password||'');if(!ip||!port||!login||!password)throw new Error('Нет подключения iiko Server');const base=`http://${ip}:${port}`,pass=await sha1(password),r=await fetch(`${base}/resto/api/auth?login=${encodeURIComponent(login)}&pass=${pass}`),token=(await r.text()).trim();if(!r.ok||!token)throw new Error(`Ошибка авторизации iiko Server: HTTP ${r.status}`);return{base,token}}
+function url(base,path,token,params={}){const q=new URLSearchParams({key:token});for(const[k,v]of Object.entries(params)){if(v===undefined||v===null||v==='')continue;if(Array.isArray(v))v.forEach(x=>q.append(k,String(x)));else q.set(k,String(v))}return`${base}${path}?${q}`}
+async function call(action,connection,params={},payload=null){const{base,token}=await auth(connection);let path,method='GET',body;
+switch(action){
+case'products.list':path='/resto/api/v2/entities/products/list';break;
+case'products.save':path='/resto/api/v2/entities/products/save';method='POST';body=payload;break;
+case'products.update':path='/resto/api/v2/entities/products/update';method='POST';body=payload;break;
+case'products.delete':path='/resto/api/v2/entities/products/delete';method='POST';body=payload;break;
+case'products.restore':path='/resto/api/v2/entities/products/restore';method='POST';body=payload;break;
+case'groups.list':path='/resto/api/v2/entities/products/group/list';break;
+case'groups.save':path='/resto/api/v2/entities/products/group/save';method='POST';body=payload;break;
+case'groups.update':path='/resto/api/v2/entities/products/group/update';method='POST';body=payload;break;
+case'groups.delete':path='/resto/api/v2/entities/products/group/delete';method='POST';body=payload;break;
+case'groups.restore':path='/resto/api/v2/entities/products/group/restore';method='POST';body=payload;break;
+case'categories.list':path='/resto/api/v2/entities/products/category/list';break;
+case'categories.save':path='/resto/api/v2/entities/products/category/save';method='POST';body=payload;break;
+case'categories.update':path='/resto/api/v2/entities/products/category/update';method='POST';body=payload;break;
+case'categories.delete':path='/resto/api/v2/entities/products/category/delete';method='POST';body=payload;break;
+case'categories.restore':path='/resto/api/v2/entities/products/category/restore';method='POST';body=payload;break;
+case'scales.list':path='/resto/api/v2/entities/productScales';break;
+case'scales.save':path='/resto/api/v2/entities/productScales/save';method='POST';body=payload;break;
+case'scales.update':path='/resto/api/v2/entities/productScales/update';method='POST';body=payload;break;
+case'scales.delete':path='/resto/api/v2/entities/productScales/delete';method='POST';body=payload;break;
+case'scales.restore':path='/resto/api/v2/entities/productScales/restore';method='POST';body=payload;break;
+case'scales.byProduct':path=`/resto/api/v2/entities/products/${encodeURIComponent(params.productId)}/productScale`;break;
+case'scales.byProducts':path='/resto/api/v2/entities/products/productScales';break;
+case'scales.assign':path=`/resto/api/v2/entities/products/${encodeURIComponent(params.productId)}/productScale`;method='POST';body=payload;break;
+case'images.load':path='/resto/api/v2/images/load';break;
+case'charts.all':path='/resto/api/v2/assemblyCharts/getAll';break;
+case'charts.allUpdate':path='/resto/api/v2/assemblyCharts/getAllUpdate';break;
+case'charts.byId':path='/resto/api/v2/assemblyCharts/byId';break;
+case'charts.tree':path='/resto/api/v2/assemblyCharts/getTree';break;
+case'charts.assembled':path='/resto/api/v2/assemblyCharts/getAssembled';break;
+case'charts.prepared':path='/resto/api/v2/assemblyCharts/getPrepared';break;
+case'charts.history':path='/resto/api/v2/assemblyCharts/getHistory';break;
+case'charts.save':path='/resto/api/v2/assemblyCharts/save';method='POST';body=payload;break;
+case'charts.update':path='/resto/api/v2/assemblyCharts/update';method='POST';body=payload;break;
+case'charts.delete':path='/resto/api/v2/assemblyCharts/delete';method='POST';body=payload;break;
+default:throw new Error('Неизвестная операция номенклатурного API')}
+const r=await fetch(url(base,path,token,params),{method,headers:{Accept:'application/json',...(method==='POST'?{'Content-Type':'application/json'}:{})},body:method==='POST'?JSON.stringify(body??{}):undefined});const text=(await r.text()).trim();let data;try{data=text?JSON.parse(text):null}catch{data={raw:text}}if(!r.ok)throw new Error(`iiko API HTTP ${r.status}: ${text.slice(0,1200)}`);return data}
+export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
+export async function onRequestPost({request}){try{const b=await request.json();const data=await call(String(b.action||''),b.connection,b.params||{},b.payload??null);return json({success:true,data})}catch(e){return json({success:false,message:e?.message||'Ошибка iiko API'},502)}}
+export async function onRequestGet({request}){try{const q=new URL(request.url).searchParams,connection=JSON.parse(q.get('connection')||'{}'),action=q.get('action')||'',params={};q.forEach((v,k)=>{if(k==='connection'||k==='action')return;if(params[k]===undefined)params[k]=v;else params[k]=Array.isArray(params[k])?[...params[k],v]:[params[k],v]});const data=await call(action,connection,params,null);return json({success:true,data})}catch(e){return json({success:false,message:e?.message||'Ошибка iiko API'},502)}}
