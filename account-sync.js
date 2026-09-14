@@ -6,12 +6,14 @@
   const MENU_KEY = "horeca_qr_menu_v1";
   const DESIGN_KEY = "horeca_qr_design_v1";
   const PUBLIC_KEY = "horeca_qr_public";
+  const FALLBACK_SYNC_MS = 10000;
   let started = false;
   let ready = false;
   let remoteFound = false;
   let applyingRemote = false;
   let lastSnapshot = "";
   let initialLocalHadData = false;
+  let saveInFlight = null;
 
   function read(key) {
     try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (_) { return null; }
@@ -132,15 +134,24 @@
 
   async function saveRemote() {
     if (applyingRemote || !ready) return;
-    const headers = await authHeaders();
-    if (!headers) return;
+
+    // Build and compare locally BEFORE asking Supabase for a session.
+    // With no changes the fallback timer now performs zero network calls.
     const state = buildState();
     const snapshot = JSON.stringify(state);
     if (snapshot === lastSnapshot) return;
-    const response = await fetch(API, { method: "POST", headers, body: JSON.stringify({ state }) });
-    if (!response.ok) throw new Error(`Account state save HTTP ${response.status}`);
-    lastSnapshot = snapshot;
-    remoteFound = true;
+    if (saveInFlight) return saveInFlight;
+
+    saveInFlight = (async () => {
+      const headers = await authHeaders();
+      if (!headers) return;
+      const response = await fetch(API, { method: "POST", headers, body: JSON.stringify({ state }) });
+      if (!response.ok) throw new Error(`Account state save HTTP ${response.status}`);
+      lastSnapshot = snapshot;
+      remoteFound = true;
+    })().finally(() => { saveInFlight = null; });
+
+    return saveInFlight;
   }
 
   async function init() {
@@ -157,10 +168,15 @@
     try { await loadRemote(); } catch (error) { console.warn("SH account cloud sync load failed", error); }
     ready = true;
     lastSnapshot = JSON.stringify(buildState());
+
     setInterval(async () => {
       if (!remoteFound && !localHasData()) return;
       try { await saveRemote(); } catch (error) { console.warn("SH account cloud sync save failed", error); }
-    }, 3000);
+    }, FALLBACK_SYNC_MS);
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") saveRemote().catch(() => {});
+    });
   }
 
   window.SHAccount = {
