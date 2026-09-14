@@ -1,0 +1,51 @@
+name: Legacy Reference Audit
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find legacy script references
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidates=(
+            abc-xyz.js
+            abc-xyz-v2.js
+            abc-xyz-v3.js
+            dashboard.js
+            finance.js
+            accounts.js
+            accounts-nav.js
+            accounts-nav-fix.js
+            pnl-d1-loader.js
+            pnl-nav-loader.js
+            qr-menu-d1-fix.js
+            qr-menu-fix.js
+            qr-menu-sync.js
+            qr-menu-sync-fix.js
+            nakladnye-actions-fix.js
+            nakladnye-d1-fix.js
+            reports-d1-loader.js
+            reports-field-meta-fix.js
+            reports-fields-clean.js
+            reports-transport-fix.js
+            cash-shifts-nav.js
+            finance-nav.js
+          )
+          for file in "${candidates[@]}"; do
+            echo "===== $file ====="
+            grep -RFn \
+              --exclude="$file" \
+              --exclude='legacy-reference-audit.yml' \
+              --exclude-dir=.git \
+              --exclude-dir=node_modules \
+              --exclude-dir=mobile \
+              -- "$file" . || true
+          done
