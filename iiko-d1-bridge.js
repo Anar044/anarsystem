@@ -10,6 +10,16 @@
     try { window.localStorage.removeItem(key); } catch (_) {}
   }
 
+  function ensureCashContext() {
+    if (window.SH_CashContext || document.querySelector('script[data-sh-cash-context]')) return;
+    const script = document.createElement('script');
+    script.src = '/cash-context.js?v=20260914-1';
+    script.async = false;
+    script.dataset.shCashContext = '1';
+    script.addEventListener('error', () => console.error('[cash-context] Не удалось загрузить cash-context.js'));
+    document.head.appendChild(script);
+  }
+
   async function get(force = false) {
     if (!window.SH_IikoContext?.get) return null;
     return window.SH_IikoContext.get(force);
@@ -33,4 +43,6 @@
     get,
     binding
   };
+
+  ensureCashContext();
 })();
