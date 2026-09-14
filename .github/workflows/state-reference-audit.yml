@@ -1,0 +1,20 @@
+name: State Reference Audit
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Find state storage references
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '===== loadPrivateIikoState ====='
+          grep -RFn --exclude='state-reference-audit.yml' --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=mobile -- 'loadPrivateIikoState' . || true
+          echo '===== ensureIikoStateTable ====='
+          grep -RFn --exclude='state-reference-audit.yml' --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=mobile -- 'ensureIikoStateTable' . || true
