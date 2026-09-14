@@ -1,0 +1,28 @@
+name: Syntax Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  javascript:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=0
+          while IFS= read -r file; do
+            echo "Checking $file"
+            node --input-type=module --check < "$file"
+            count=$((count + 1))
+          done < <(find . -type f -name '*.js' \
+            -not -path './.git/*' \
+            -not -path './node_modules/*' \
+            -not -path './mobile/*' \
+            | sort)
+          echo "Checked $count JavaScript files"
