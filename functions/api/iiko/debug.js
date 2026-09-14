@@ -1,3 +1,5 @@
+import { getIikoAuth, iikoText } from "./_lib/iiko-client.js";
+
 function corsHeaders() {
     return {
         "Access-Control-Allow-Origin": "*",
@@ -14,12 +16,6 @@ function jsonResponse(data, status = 200) {
             ...corsHeaders()
         }
     });
-}
-
-async function sha1(text) {
-    const data = new TextEncoder().encode(text);
-    const hash = await crypto.subtle.digest("SHA-1", data);
-    return Array.from(new Uint8Array(hash)).map(byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function addTrace(trace, level, message, detail = "") {
@@ -83,15 +79,6 @@ function parseDepartmentsXml(text) {
     return result;
 }
 
-async function readBody(response) {
-    const text = await response.text();
-    return {
-        text,
-        bytes: new TextEncoder().encode(text).length,
-        contentType: response.headers.get("content-type") || ""
-    };
-}
-
 export async function onRequestOptions() {
     return new Response(null, { status: 204, headers: corsHeaders() });
 }
@@ -102,67 +89,69 @@ export async function onRequestPost(context) {
 
     try {
         const body = await context.request.json();
-        const ip = String(body.ip || "").trim();
-        const port = String(body.port || "").trim();
-        const login = String(body.login || "").trim();
-        const password = String(body.password || "");
+        const connection = {
+            ip: String(body.ip || "").trim(),
+            port: String(body.port || "").trim(),
+            login: String(body.login || "").trim(),
+            password: String(body.password || "")
+        };
 
-        if (!ip || !port || !login || !password) {
+        if (!connection.ip || !connection.port || !connection.login || !connection.password) {
             addTrace(trace, "err", "Входные данные не заполнены");
             return jsonResponse({ success: false, message: "Заполните все поля", trace }, 400);
         }
 
-        const serverUrl = `http://${ip}:${port}`;
+        const serverUrl = `http://${connection.ip}:${connection.port}`;
         addTrace(trace, "info", "Начинаем диагностику", `server=${serverUrl}`);
+        addTrace(trace, "info", "→ общий iiko auth", `login=${connection.login}\npassword=*** (скрыт)`);
 
-        const passwordHash = await sha1(password);
-        const authUrl = `${serverUrl}/resto/api/auth?login=${encodeURIComponent(login)}&pass=${passwordHash}`;
-        addTrace(trace, "info", "→ iiko /resto/api/auth", `method=GET\nlogin=${login}\npassword=*** (скрыт)`);
+        const auth = await getIikoAuth(connection);
+        addTrace(
+            trace,
+            "ok",
+            "← авторизация iiko успешна",
+            `token=получен, длина ${auth.token.length}\ncache=${auth.cacheHit ? "hit" : "miss"}`
+        );
 
-        const authResponse = await fetch(authUrl);
-        const authBody = await readBody(authResponse);
-        const token = authBody.text.trim();
-
-        addTrace(trace, authResponse.ok && token ? "ok" : "err", "← ответ iiko /resto/api/auth",
-            `HTTP ${authResponse.status}\ncontent-type=${authBody.contentType}\nbytes=${authBody.bytes}\ntoken=${token ? `получен, длина ${token.length}` : "не получен"}`);
-
-        if (!authResponse.ok || !token) {
-            return jsonResponse({ success: false, message: `Ошибка авторизации iiko: HTTP ${authResponse.status}`, trace }, 502);
-        }
-
-        const departmentsUrl = `${serverUrl}/resto/api/corporation/departments/?key=${encodeURIComponent(token)}`;
         addTrace(trace, "info", "→ iiko /resto/api/corporation/departments/", "method=GET\nAccept=application/xml\nkey=*** (токен скрыт)");
 
-        // iikoServer's documented representation of this endpoint is XML.
-        // Request XML explicitly: some iiko versions return [{},{},{}] for JSON negotiation.
-        const departmentsResponse = await fetch(departmentsUrl, {
-            method: "GET",
-            headers: { "Accept": "application/xml, text/xml" }
-        });
-        const departmentsBody = await readBody(departmentsResponse);
+        const departmentsResponse = await iikoText(
+            connection,
+            "/resto/api/corporation/departments/",
+            {
+                method: "GET",
+                headers: { "Accept": "application/xml, text/xml" }
+            }
+        );
+        const text = departmentsResponse.text;
+        const bytes = new TextEncoder().encode(text).length;
 
-        addTrace(trace, departmentsResponse.ok ? "ok" : "err", "← ответ iiko /resto/api/corporation/departments/",
-            `HTTP ${departmentsResponse.status}\ncontent-type=${departmentsBody.contentType}\nbytes=${departmentsBody.bytes}`);
+        addTrace(
+            trace,
+            departmentsResponse.ok ? "ok" : "err",
+            "← ответ iiko /resto/api/corporation/departments/",
+            `HTTP ${departmentsResponse.status}\ncontent-type=${departmentsResponse.contentType}\nbytes=${bytes}\nauth-cache=${departmentsResponse.auth?.cacheHit ? "hit" : "miss"}`
+        );
 
         if (!departmentsResponse.ok) {
             return jsonResponse({ success: false, message: `Ошибка получения подразделений iiko: HTTP ${departmentsResponse.status}`, trace }, 502);
         }
 
-        const preview = departmentsBody.text.slice(0, 3000);
-        addTrace(trace, "info", "Сырой ответ iiko", `length=${departmentsBody.text.length}\n${preview || "<пусто>"}`);
+        const preview = text.slice(0, 3000);
+        addTrace(trace, "info", "Сырой ответ iiko", `length=${text.length}\n${preview || "<пусто>"}`);
 
         let departments = [];
         let format = "empty";
-        if (departmentsBody.text) {
+        if (text) {
             try {
-                const payload = JSON.parse(departmentsBody.text);
+                const payload = JSON.parse(text);
                 departments = normalizeDepartments(payload);
                 format = "JSON";
                 addTrace(trace, "info", "Структура JSON", Array.isArray(payload)
                     ? `array length=${payload.length}`
                     : `object keys=${Object.keys(payload || {}).join(", ")}`);
             } catch {
-                departments = parseDepartmentsXml(departmentsBody.text);
+                departments = parseDepartmentsXml(text);
                 format = "XML";
             }
         }
@@ -178,7 +167,11 @@ export async function onRequestPost(context) {
             message: onlyDepartments.length ? `Найдено подразделений: ${onlyDepartments.length}` : "iiko подключён, но DEPARTMENT не найден в ответе",
             departments: onlyDepartments,
             departmentIds: onlyDepartments.map(item => item.id),
-            trace
+            trace,
+            meta: {
+                sharedIikoClient: true,
+                authCacheHit: auth.cacheHit === true
+            }
         });
     } catch (error) {
         addTrace(trace, "err", "Исключение на сервере", error?.message || String(error));
