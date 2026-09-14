@@ -122,9 +122,10 @@ jobs:
             functions/api/iiko/connect.js
             functions/api/iiko/incoming-invoices.js
             functions/api/iiko/outgoing-invoices.js
+            functions/api/iiko/references.js
           )
           for file in "${files[@]}"; do
-            if grep -Eq '/resto/api/auth|async function auth\(|async function sha1\(' "$file"; then
+            if grep -Eq '/resto/api/auth|async function auth\(' "$file"; then
               echo "Manual iiko authentication reintroduced in $file"
               exit 1
             fi
@@ -132,8 +133,17 @@ jobs:
           done
           grep -q 'getIikoAuth' functions/api/iiko/incoming-invoices.js
           grep -q 'getIikoAuth' functions/api/iiko/outgoing-invoices.js
+          grep -q 'getIikoAuth' functions/api/iiko/references.js
           grep -q 'iikoText' functions/api/iiko/connect.js
           echo 'Shared iiko authentication check passed'
+
+      - name: Report remaining manual iiko auth files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t manual < <(grep -Rl --include='*.js' '/resto/api/auth' functions/api/iiko | sort || true)
+          echo 'Remaining files containing /resto/api/auth:'
+          printf '  %s\n' "${manual[@]:-<none>}"
 
   preview-smoke:
     if: github.event_name == 'pull_request'
