@@ -1,3 +1,5 @@
+import { clean, iikoFetch, iikoJson } from './_lib/iiko-client.js';
+
 function corsHeaders() {
     return {
         "Access-Control-Allow-Origin": "*",
@@ -11,25 +13,10 @@ function jsonResponse(data, status = 200) {
         status,
         headers: {
             "Content-Type": "application/json",
+            "Cache-Control": "no-store",
             ...corsHeaders()
         }
     });
-}
-
-async function sha1(text) {
-    const data = new TextEncoder().encode(text);
-    const hash = await crypto.subtle.digest("SHA-1", data);
-    return Array.from(new Uint8Array(hash)).map(byte => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function auth(ip, port, login, password) {
-    const serverUrl = `http://${ip}:${port}`;
-    const passwordHash = await sha1(password);
-    const url = `${serverUrl}/resto/api/auth?login=${encodeURIComponent(login)}&pass=${passwordHash}`;
-    const response = await fetch(url);
-    const token = (await response.text()).trim();
-    if (!response.ok || !token) throw new Error(`Ошибка авторизации iiko: HTTP ${response.status}`);
-    return { serverUrl, token };
 }
 
 function toNumber(value) {
@@ -148,47 +135,52 @@ function arrayBufferToDataUrl(buffer, contentType) {
     return `data:${contentType || "image/jpeg"};base64,${btoa(binary)}`;
 }
 
-async function fetchImageDataUrl(serverUrl, token, imageId) {
+const imagePaths = [
+    imageId => `/resto/api/v2/images/${encodeURIComponent(imageId)}`,
+    imageId => `/resto/api/v2/images/${encodeURIComponent(imageId)}/download`,
+    imageId => `/resto/api/images/${encodeURIComponent(imageId)}`,
+    imageId => `/resto/api/v2/entities/products/image/${encodeURIComponent(imageId)}`
+];
+
+async function fetchImageDataUrl(connection, imageId, imageState) {
     if (!imageId) return null;
 
-    const candidates = [
-        `${serverUrl}/resto/api/v2/images/${encodeURIComponent(imageId)}?key=${encodeURIComponent(token)}`,
-        `${serverUrl}/resto/api/v2/images/${encodeURIComponent(imageId)}/download?key=${encodeURIComponent(token)}`,
-        `${serverUrl}/resto/api/images/${encodeURIComponent(imageId)}?key=${encodeURIComponent(token)}`,
-        `${serverUrl}/resto/api/v2/entities/products/image/${encodeURIComponent(imageId)}?key=${encodeURIComponent(token)}`
-    ];
+    const order = [];
+    if (Number.isInteger(imageState.preferredIndex)) order.push(imageState.preferredIndex);
+    for (let i = 0; i < imagePaths.length; i += 1) if (!order.includes(i)) order.push(i);
 
-    for (const url of candidates) {
+    for (const index of order) {
         try {
-            const response = await fetch(url, { headers: { Accept: "image/*,*/*;q=0.8" } });
+            const { response } = await iikoFetch(connection, imagePaths[index](imageId), {
+                headers: { Accept: "image/*,*/*;q=0.8" },
+                timeoutMs: 15000
+            });
             const contentType = response.headers.get("content-type") || "";
             if (!response.ok || !contentType.toLowerCase().startsWith("image/")) continue;
             const buffer = await response.arrayBuffer();
             if (!buffer.byteLength) continue;
+            imageState.preferredIndex = index;
+            imageState.successfulPath = index;
             return arrayBufferToDataUrl(buffer, contentType.split(";")[0] || "image/jpeg");
         } catch (_) {}
     }
     return null;
 }
 
-async function getProducts(serverUrl, token) {
-    const url = `${serverUrl}/resto/api/v2/entities/products/list?includeDeleted=false&types=DISH&key=${encodeURIComponent(token)}`;
-    const response = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
-    const text = (await response.text()).trim();
-    if (!response.ok) throw new Error(`iiko /entities/products/list: HTTP ${response.status}${text ? ` — ${text.slice(0, 500)}` : ""}`);
-    if (!text) return [];
-    try { return asArray(JSON.parse(text)); }
-    catch { throw new Error("iiko /resto/api/v2/entities/products/list вернул некорректный JSON"); }
+async function getProducts(connection) {
+    const result = await iikoJson(connection, "/resto/api/v2/entities/products/list?includeDeleted=false&types=DISH");
+    if (!result.ok) throw new Error(`iiko /entities/products/list: HTTP ${result.status}${result.text ? ` — ${result.text.slice(0, 500)}` : ""}`);
+    if (!result.text) return [];
+    if (!result.payload) throw new Error("iiko /resto/api/v2/entities/products/list вернул некорректный JSON");
+    return asArray(result.payload);
 }
 
-async function getGroups(serverUrl, token) {
-    const url = `${serverUrl}/resto/api/v2/entities/products/group/list?includeDeleted=false&key=${encodeURIComponent(token)}`;
-    const response = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
-    const text = (await response.text()).trim();
-    if (!response.ok) throw new Error(`iiko /entities/products/group/list: HTTP ${response.status}${text ? ` — ${text.slice(0, 500)}` : ""}`);
-    if (!text) return [];
-    try { return asGroupArray(JSON.parse(text)); }
-    catch { throw new Error("iiko /resto/api/v2/entities/products/group/list вернул некорректный JSON"); }
+async function getGroups(connection) {
+    const result = await iikoJson(connection, "/resto/api/v2/entities/products/group/list?includeDeleted=false");
+    if (!result.ok) throw new Error(`iiko /entities/products/group/list: HTTP ${result.status}${result.text ? ` — ${result.text.slice(0, 500)}` : ""}`);
+    if (!result.text) return [];
+    if (!result.payload) throw new Error("iiko /resto/api/v2/entities/products/group/list вернул некорректный JSON");
+    return asGroupArray(result.payload);
 }
 
 export async function onRequestOptions() {
@@ -198,37 +190,36 @@ export async function onRequestOptions() {
 export async function onRequestPost(context) {
     try {
         const body = await context.request.json();
-        const ip = String(body.ip || "").trim();
-        const port = String(body.port || "").trim();
-        const login = String(body.login || "").trim();
-        const password = String(body.password || "");
+        const connection = {
+            ip: clean(body.ip),
+            port: clean(body.port),
+            login: clean(body.login),
+            password: String(body.password || "")
+        };
 
-        if (!ip || !port || !login || !password) {
+        if (!connection.ip || !connection.port || !connection.login || !connection.password) {
             return jsonResponse({ success: false, message: "Заполните IP, порт, логин и пароль iiko" }, 400);
         }
 
-        const { serverUrl, token } = await auth(ip, port, login, password);
         const [rawProducts, rawGroups] = await Promise.all([
-            getProducts(serverUrl, token),
-            getGroups(serverUrl, token)
+            getProducts(connection),
+            getGroups(connection)
         ]);
 
         const groupMap = buildGroupMap(rawGroups);
         const normalized = normalizeProducts(rawProducts, groupMap);
 
         let imageCount = 0;
-        const imageLimit = 4;
-        for (let i = 0; i < normalized.products.length; i += imageLimit) {
-            const batch = normalized.products.slice(i, i + imageLimit);
+        const imageConcurrency = 4;
+        const imageState = { preferredIndex: null, successfulPath: null };
+        for (let i = 0; i < normalized.products.length; i += imageConcurrency) {
+            const batch = normalized.products.slice(i, i + imageConcurrency);
             await Promise.all(batch.map(async product => {
                 if (!product.frontImageId) return;
                 const originalImageId = product.frontImageId;
-                const dataUrl = await fetchImageDataUrl(serverUrl, token, originalImageId);
+                const dataUrl = await fetchImageDataUrl(connection, originalImageId, imageState);
                 product.iikoImageId = originalImageId;
                 if (dataUrl) {
-                    // Keep the original UUID separately, but place the actual
-                    // image in frontImageId because the existing QR Menu UI
-                    // already carries this property through to publishing.
                     product.frontImageId = dataUrl;
                     product.photo = dataUrl;
                     imageCount += 1;
@@ -250,7 +241,11 @@ export async function onRequestPost(context) {
             imageCount,
             skippedNoSalePlace: normalized.skippedNoSalePlace,
             categories: normalized.categories,
-            products: normalized.products
+            products: normalized.products,
+            meta: {
+                imageConcurrency,
+                preferredImageEndpointIndex: imageState.successfulPath
+            }
         });
     } catch (error) {
         return jsonResponse({ success: false, message: error?.message || "Ошибка загрузки меню iiko" }, 502);
