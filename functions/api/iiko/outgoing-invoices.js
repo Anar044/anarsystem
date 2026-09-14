@@ -1,4 +1,5 @@
 import { syncReferences } from "./references.js";
+import { getIikoAuth, iikoText } from "./_lib/iiko-client.js";
 
 function corsHeaders() {
   return {
@@ -14,28 +15,6 @@ function jsonResponse(data, status = 200) {
     status,
     headers: { ...corsHeaders(), "Cache-Control": "no-store" }
   });
-}
-
-async function sha1(text) {
-  const data = new TextEncoder().encode(text);
-  const hash = await crypto.subtle.digest("SHA-1", data);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-async function auth(ip, port, login, password) {
-  const serverUrl = `http://${ip}:${port}`;
-  const pass = await sha1(password);
-  const response = await fetch(
-    `${serverUrl}/resto/api/auth?login=${encodeURIComponent(login)}&pass=${pass}`,
-    { cache: "no-store" }
-  );
-  const token = (await response.text()).trim();
-  if (!response.ok || !token) {
-    throw new Error(`Ошибка авторизации SH Server: HTTP ${response.status}`);
-  }
-  return { serverUrl, token };
 }
 
 function xmlDecode(value) {
@@ -188,21 +167,13 @@ function applyNames(documents, refs) {
   });
 }
 
-async function requestXml(serverUrl, path) {
-  const response = await fetch(`${serverUrl}${path}`, {
-    cache: "no-store",
+async function requestXml(connection, path) {
+  return iikoText(connection, path, {
     headers: { Accept: "application/xml,text/xml,*/*" }
   });
-  const text = await response.text();
-  return {
-    ok: response.ok,
-    status: response.status,
-    text,
-    contentType: response.headers.get("content-type") || ""
-  };
 }
 
-async function getInvoices(serverUrl, token, from, to, counteragentId) {
+async function getInvoices(connection, from, to, counteragentId) {
   const attempts = [];
   const fromFormats = dateFormats(from);
   const toFormats = dateFormats(to);
@@ -210,14 +181,13 @@ async function getInvoices(serverUrl, token, from, to, counteragentId) {
   for (const fromValue of fromFormats) {
     for (const toValue of toFormats) {
       const params = new URLSearchParams({
-        key: token,
         from: fromValue,
         to: toValue
       });
       if (counteragentId) params.set("supplierId", counteragentId);
 
       const response = await requestXml(
-        serverUrl,
+        connection,
         `/resto/api/documents/export/outgoingInvoice?${params.toString()}`
       );
       const documents = response.ok ? parseDocuments(response.text) : [];
@@ -235,12 +205,13 @@ async function getInvoices(serverUrl, token, from, to, counteragentId) {
     }
   }
 
-  const params = new URLSearchParams({ key: token });
+  const params = new URLSearchParams();
   if (counteragentId) params.set("supplierId", counteragentId);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
 
   const fallback = await requestXml(
-    serverUrl,
-    `/resto/api/documents/export/outgoingInvoice?${params.toString()}`
+    connection,
+    `/resto/api/documents/export/outgoingInvoice${suffix}`
   );
   const documents = fallback.ok ? parseDocuments(fallback.text) : [];
   const fromKey = dateKey(from);
@@ -278,12 +249,14 @@ export async function onRequestOptions() {
 export async function onRequestPost(context) {
   try {
     const body = await context.request.json();
-    const ip = String(body.ip || "").trim();
-    const port = String(body.port || "").trim();
-    const login = String(body.login || "").trim();
-    const password = String(body.password || "");
+    const connection = {
+      ip: String(body.ip || "").trim(),
+      port: String(body.port || "").trim(),
+      login: String(body.login || "").trim(),
+      password: String(body.password || "")
+    };
 
-    if (!ip || !port || !login || !password) {
+    if (!connection.ip || !connection.port || !connection.login || !connection.password) {
       return jsonResponse(
         {
           success: false,
@@ -304,14 +277,13 @@ export async function onRequestPost(context) {
       );
     }
 
-    const { serverUrl, token } = await auth(ip, port, login, password);
     const result = await getInvoices(
-      serverUrl,
-      token,
+      connection,
       body.from,
       body.to,
       body.counteragentId
     );
+    const auth = await getIikoAuth(connection);
 
     const needed = [
       ...new Set(
@@ -323,8 +295,8 @@ export async function onRequestPost(context) {
 
     const references = await syncReferences(
       context.env,
-      serverUrl,
-      token,
+      auth.serverUrl,
+      auth.token,
       needed
     ).catch((error) => ({
       maps: {
@@ -346,7 +318,11 @@ export async function onRequestPost(context) {
       documents,
       referenceSource: "iiko-sync+d1",
       attempts: result.attempts,
-      serverDocuments: result.serverDocuments || result.docs.length
+      serverDocuments: result.serverDocuments || result.docs.length,
+      meta: {
+        sharedIikoClient: true,
+        authCacheHit: auth.cacheHit === true
+      }
     });
   } catch (error) {
     return jsonResponse(
