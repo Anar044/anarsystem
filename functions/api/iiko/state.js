@@ -4,6 +4,7 @@ import {
   sessionCookie,
   ensureIikoStateTable,
   loadPrivateIikoState,
+  savePrivateIikoState,
   publicState,
   isServerPasswordMarker
 } from "./_lib/user-state.js";
@@ -76,7 +77,7 @@ export async function onRequestGet({ request, env }) {
     if (!auth) return json({ success: false, message: "Необходима авторизация." }, 401);
     if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
 
-    const stored = await loadPrivateIikoState(env.DB, auth.user.id);
+    const stored = await loadPrivateIikoState(env.DB, auth.user.id, env);
     const cookie = sessionCookie(auth.token);
     if (!stored.found) return json({ success: true, found: false, state: null }, 200, { "Set-Cookie": cookie });
 
@@ -84,7 +85,8 @@ export async function onRequestGet({ request, env }) {
       success: true,
       found: true,
       state: publicState(stored.state),
-      updatedAt: stored.updatedAt
+      updatedAt: stored.updatedAt,
+      storageEncrypted: stored.encrypted === true
     }, 200, { "Set-Cookie": cookie });
   } catch (error) {
     return json({ success: false, message: error?.message || "Ошибка загрузки подключения iiko." }, 500);
@@ -98,7 +100,7 @@ export async function onRequestPost({ request, env }) {
     if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
 
     const body = await request.json();
-    const existing = await loadPrivateIikoState(env.DB, auth.user.id);
+    const existing = await loadPrivateIikoState(env.DB, auth.user.id, env);
     const existingPassword = existing?.state?.connection?.password || "";
     const connection = sanitizeConnection(body?.connection, existingPassword);
     const identity = sanitizeIdentity(body?.identity);
@@ -108,16 +110,12 @@ export async function onRequestPost({ request, env }) {
     }
 
     const state = { connection, identity, savedAt: new Date().toISOString() };
-    const stateJson = JSON.stringify(state);
-    if (stateJson.length > 1900000) return json({ success: false, message: "Данные iiko слишком большие для одного D1 snapshot." }, 413);
-
-    await ensureIikoStateTable(env.DB);
-    const now = new Date().toISOString();
-    await env.DB.prepare(`INSERT INTO iiko_connections(user_id,state_json,updated_at) VALUES(?1,?2,?3) ON CONFLICT(user_id) DO UPDATE SET state_json=excluded.state_json, updated_at=excluded.updated_at`).bind(auth.user.id, stateJson, now).run();
+    const saved = await savePrivateIikoState(env.DB, auth.user.id, state, env);
 
     return json({
       success: true,
-      updatedAt: now,
+      updatedAt: saved.updatedAt,
+      storageEncrypted: saved.encrypted === true,
       state: publicState(state)
     }, 200, { "Set-Cookie": sessionCookie(auth.token) });
   } catch (error) {
