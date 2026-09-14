@@ -114,6 +114,27 @@ jobs:
           grep -q '^/index.html /dashboard.html 200$' _redirects
           echo 'Unified bridge allowlist check passed'
 
+      - name: Verify document routes use shared iiko authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            functions/api/iiko/connect.js
+            functions/api/iiko/incoming-invoices.js
+            functions/api/iiko/outgoing-invoices.js
+          )
+          for file in "${files[@]}"; do
+            if grep -Eq '/resto/api/auth|async function auth\(|async function sha1\(' "$file"; then
+              echo "Manual iiko authentication reintroduced in $file"
+              exit 1
+            fi
+            grep -q './_lib/iiko-client.js' "$file"
+          done
+          grep -q 'getIikoAuth' functions/api/iiko/incoming-invoices.js
+          grep -q 'getIikoAuth' functions/api/iiko/outgoing-invoices.js
+          grep -q 'iikoText' functions/api/iiko/connect.js
+          echo 'Shared iiko authentication check passed'
+
   preview-smoke:
     if: github.event_name == 'pull_request'
     needs: javascript
@@ -155,6 +176,7 @@ jobs:
             "/settings.html"
             "/qr-menu.html"
             "/nakladnye.html"
+            "/rashodnye-nakladnye.html"
             "/akty-spisaniya.html"
           )
           for path in "${pages[@]}"; do
@@ -177,8 +199,11 @@ jobs:
             "/api/iiko/accounts"
             "/api/iiko/supplier-balances"
             "/api/iiko/chain"
+            "/api/iiko/connect"
             "/api/iiko/olap"
             "/api/iiko/incoming-invoices"
+            "/api/iiko/outgoing-invoices"
+            "/api/iiko/references"
             "/api/iiko/documents"
             "/api/iiko/document-action"
             "/api/iiko/document-by-number"
