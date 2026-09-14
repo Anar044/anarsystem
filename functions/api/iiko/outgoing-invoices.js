@@ -1,5 +1,6 @@
 import { syncReferences } from "./references.js";
 import { getIikoAuth, iikoText } from "./_lib/iiko-client.js";
+import { loadCachedReferenceMaps } from "./_lib/reference-cache.js";
 
 function corsHeaders() {
   return {
@@ -39,17 +40,12 @@ function blocks(source, name) {
   const regex = new RegExp(pattern, "gi");
   const text = String(source || "");
   let match;
-  while ((match = regex.exec(text))) {
-    result.push(match[0]);
-  }
+  while ((match = regex.exec(text))) result.push(match[0]);
   return result;
 }
 
 function number(value) {
-  const normalized = String(value ?? "")
-    .replace(/\s/g, "")
-    .replace(",", ".");
-  const parsed = Number(normalized);
+  const parsed = Number(String(value ?? "").replace(/\s/g, "").replace(",", "."));
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -73,45 +69,31 @@ function parseItems(block) {
 }
 
 function parseDocuments(xml) {
-  return blocks(xml, "document")
-    .map((documentBlock, index) => {
-      const items = parseItems(documentBlock);
-      return {
-        id: tag(documentBlock, "id") || null,
-        documentNumber: tag(documentBlock, "documentNumber") || null,
-        dateIncoming: tag(documentBlock, "dateIncoming") || null,
-        status: tag(documentBlock, "status") || null,
-        accountToCode: tag(documentBlock, "accountToCode") || null,
-        revenueAccountCode: tag(documentBlock, "revenueAccountCode") || null,
-        defaultStoreId:
-          tag(documentBlock, "defaultStoreId") ||
-          tag(documentBlock, "defaultStore") ||
-          null,
-        defaultStoreCode: tag(documentBlock, "defaultStoreCode") || null,
-        counteragentId:
-          tag(documentBlock, "counteragentId") ||
-          tag(documentBlock, "counteragent") ||
-          null,
-        counteragentCode: tag(documentBlock, "counteragentCode") || null,
-        comment: tag(documentBlock, "comment") || null,
-        linkedOutgoingInvoiceId:
-          tag(documentBlock, "linkedOutgoingInvoiceId") || null,
-        sum: items.reduce((total, item) => total + (item.sum || 0), 0),
-        itemsCount: items.length,
-        items,
-        rawIndex: index
-      };
-    })
-    .filter((document) =>
-      document.documentNumber || document.id || document.itemsCount
-    );
+  return blocks(xml, "document").map((documentBlock, index) => {
+    const items = parseItems(documentBlock);
+    return {
+      id: tag(documentBlock, "id") || null,
+      documentNumber: tag(documentBlock, "documentNumber") || null,
+      dateIncoming: tag(documentBlock, "dateIncoming") || null,
+      status: tag(documentBlock, "status") || null,
+      accountToCode: tag(documentBlock, "accountToCode") || null,
+      revenueAccountCode: tag(documentBlock, "revenueAccountCode") || null,
+      defaultStoreId: tag(documentBlock, "defaultStoreId") || tag(documentBlock, "defaultStore") || null,
+      defaultStoreCode: tag(documentBlock, "defaultStoreCode") || null,
+      counteragentId: tag(documentBlock, "counteragentId") || tag(documentBlock, "counteragent") || null,
+      counteragentCode: tag(documentBlock, "counteragentCode") || null,
+      comment: tag(documentBlock, "comment") || null,
+      linkedOutgoingInvoiceId: tag(documentBlock, "linkedOutgoingInvoiceId") || null,
+      sum: items.reduce((total, item) => total + (item.sum || 0), 0),
+      itemsCount: items.length,
+      items,
+      rawIndex: index
+    };
+  }).filter(document => document.documentNumber || document.id || document.itemsCount);
 }
 
 function key(value) {
-  return String(value ?? "")
-    .trim()
-    .replace(/^\{+|\}+$/g, "")
-    .toLowerCase();
+  return String(value ?? "").trim().replace(/^\{+|\}+$/g, "").toLowerCase();
 }
 
 function dateParts(value) {
@@ -122,12 +104,7 @@ function dateParts(value) {
   }
   if (/^\d{2}\.\d{2}\.\d{4}$/.test(text)) {
     const parts = text.split(".");
-    return {
-      iso: `${parts[2]}-${parts[1]}-${parts[0]}`,
-      d: parts[0],
-      m: parts[1],
-      y: parts[2]
-    };
+    return { iso: `${parts[2]}-${parts[1]}-${parts[0]}`, d: parts[0], m: parts[1], y: parts[2] };
   }
   return null;
 }
@@ -142,35 +119,40 @@ function dateKey(value) {
 }
 
 function applyNames(documents, refs) {
-  return documents.map((document) => {
-    const counteragentName =
-      refs.suppliers.get(key(document.counteragentId)) ||
-      document.counteragentId ||
-      "—";
-    const storeName =
-      refs.warehouses.get(key(document.defaultStoreId)) ||
-      document.defaultStoreId ||
-      "—";
-
-    const items = (document.items || []).map((item) => ({
+  return documents.map(document => {
+    const counteragentName = refs.suppliers.get(key(document.counteragentId)) || document.counteragentId || "—";
+    const storeName = refs.warehouses.get(key(document.defaultStoreId)) || document.defaultStoreId || "—";
+    const items = (document.items || []).map(item => ({
       ...item,
-      productName:
-        refs.products.get(key(item.productId)) || item.productId || "—",
-      storeName:
-        refs.warehouses.get(key(item.storeId || document.defaultStoreId)) ||
-        item.storeId ||
-        document.defaultStoreId ||
-        "—"
+      productName: refs.products.get(key(item.productId)) || item.productId || "—",
+      storeName: refs.warehouses.get(key(item.storeId || document.defaultStoreId)) || item.storeId || document.defaultStoreId || "—"
     }));
-
     return { ...document, counteragentName, storeName, items };
   });
 }
 
 async function requestXml(connection, path) {
-  return iikoText(connection, path, {
-    headers: { Accept: "application/xml,text/xml,*/*" }
-  });
+  return iikoText(connection, path, { headers: { Accept: "application/xml,text/xml,*/*" } });
+}
+
+async function getReferences(env, auth, neededSupplierIds = []) {
+  try {
+    const cached = await loadCachedReferenceMaps(env, auth.serverUrl, neededSupplierIds);
+    if (cached) {
+      return {
+        ...cached,
+        diagnostics: { cache: { hit: true, ageMs: cached.ageMs, ttlMs: cached.ttlMs } }
+      };
+    }
+    const synced = await syncReferences(env, auth.serverUrl, auth.token, neededSupplierIds);
+    return { ...synced, cacheHit: false };
+  } catch (error) {
+    return {
+      maps: { suppliers: new Map(), warehouses: new Map(), products: new Map(), groups: new Map(), categories: new Map() },
+      cacheHit: false,
+      diagnostics: { error: String(error?.message || error) }
+    };
+  }
 }
 
 async function getInvoices(connection, from, to, counteragentId) {
@@ -180,70 +162,37 @@ async function getInvoices(connection, from, to, counteragentId) {
 
   for (const fromValue of fromFormats) {
     for (const toValue of toFormats) {
-      const params = new URLSearchParams({
-        from: fromValue,
-        to: toValue
-      });
+      const params = new URLSearchParams({ from: fromValue, to: toValue });
       if (counteragentId) params.set("supplierId", counteragentId);
-
-      const response = await requestXml(
-        connection,
-        `/resto/api/documents/export/outgoingInvoice?${params.toString()}`
-      );
+      const response = await requestXml(connection, `/resto/api/documents/export/outgoingInvoice?${params.toString()}`);
       const documents = response.ok ? parseDocuments(response.text) : [];
-      attempts.push({
-        from: fromValue,
-        to: toValue,
-        status: response.status,
-        ok: response.ok,
-        documents: documents.length
-      });
-
-      if (response.ok && documents.length) {
-        return { docs: documents, attempts };
-      }
+      attempts.push({ from: fromValue, to: toValue, status: response.status, ok: response.ok, documents: documents.length });
+      if (response.ok && documents.length) return { docs: documents, attempts };
     }
   }
 
   const params = new URLSearchParams();
   if (counteragentId) params.set("supplierId", counteragentId);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-
-  const fallback = await requestXml(
-    connection,
-    `/resto/api/documents/export/outgoingInvoice${suffix}`
-  );
+  const fallback = await requestXml(connection, `/resto/api/documents/export/outgoingInvoice${suffix}`);
   const documents = fallback.ok ? parseDocuments(fallback.text) : [];
   const fromKey = dateKey(from);
   const toKey = dateKey(to);
-
-  const filtered = documents.filter((document) => {
+  const filtered = documents.filter(document => {
     const documentKey = dateKey(document.dateIncoming);
     if (!documentKey) return true;
-    return (!fromKey || documentKey >= fromKey) &&
-      (!toKey || documentKey <= toKey);
+    return (!fromKey || documentKey >= fromKey) && (!toKey || documentKey <= toKey);
   });
 
   return {
     docs: filtered,
-    attempts: [
-      ...attempts,
-      {
-        fallback: true,
-        status: fallback.status,
-        ok: fallback.ok,
-        documents: documents.length
-      }
-    ],
+    attempts: [...attempts, { fallback: true, status: fallback.status, ok: fallback.ok, documents: documents.length }],
     serverDocuments: documents.length
   };
 }
 
 export async function onRequestOptions() {
-  return new Response(null, {
-    status: 204,
-    headers: { ...corsHeaders() }
-  });
+  return new Response(null, { status: 204, headers: { ...corsHeaders() } });
 }
 
 export async function onRequestPost(context) {
@@ -257,56 +206,19 @@ export async function onRequestPost(context) {
     };
 
     if (!connection.ip || !connection.port || !connection.login || !connection.password) {
-      return jsonResponse(
-        {
-          success: false,
-          message: "Заполните IP, порт, логин и пароль SH Server"
-        },
-        400
-      );
+      return jsonResponse({ success: false, message: "Заполните IP, порт, логин и пароль SH Server" }, 400);
     }
-
     if (!dateParts(body.from) || !dateParts(body.to)) {
       return jsonResponse({ success: false, message: "Укажите период" }, 400);
     }
-
     if (dateKey(body.to) < dateKey(body.from)) {
-      return jsonResponse(
-        { success: false, message: "Дата «По» раньше даты «С»" },
-        400
-      );
+      return jsonResponse({ success: false, message: "Дата «По» раньше даты «С»" }, 400);
     }
 
-    const result = await getInvoices(
-      connection,
-      body.from,
-      body.to,
-      body.counteragentId
-    );
+    const result = await getInvoices(connection, body.from, body.to, body.counteragentId);
     const auth = await getIikoAuth(connection);
-
-    const needed = [
-      ...new Set(
-        result.docs
-          .map((document) => key(document.counteragentId))
-          .filter(Boolean)
-      )
-    ];
-
-    const references = await syncReferences(
-      context.env,
-      auth.serverUrl,
-      auth.token,
-      needed
-    ).catch((error) => ({
-      maps: {
-        suppliers: new Map(),
-        warehouses: new Map(),
-        products: new Map()
-      },
-      diagnostics: { error: String(error?.message || error) }
-    }));
-
+    const needed = [...new Set(result.docs.map(document => key(document.counteragentId)).filter(Boolean))];
+    const references = await getReferences(context.env, auth, needed);
     const maps = references.maps || references;
     const documents = applyNames(result.docs, maps);
 
@@ -316,21 +228,18 @@ export async function onRequestPost(context) {
       from: body.from,
       to: body.to,
       documents,
-      referenceSource: "iiko-sync+d1",
+      referenceSource: references.cacheHit ? "d1-cache" : "iiko-sync+d1",
+      referenceDiagnostics: references.diagnostics || null,
       attempts: result.attempts,
       serverDocuments: result.serverDocuments || result.docs.length,
       meta: {
         sharedIikoClient: true,
-        authCacheHit: auth.cacheHit === true
+        authCacheHit: auth.cacheHit === true,
+        referenceCacheHit: references.cacheHit === true,
+        referenceCacheAgeMs: references.ageMs ?? null
       }
     });
   } catch (error) {
-    return jsonResponse(
-      {
-        success: false,
-        message: error?.message || "Ошибка получения расходных накладных"
-      },
-      502
-    );
+    return jsonResponse({ success: false, message: error?.message || "Ошибка получения расходных накладных" }, 502);
   }
 }
