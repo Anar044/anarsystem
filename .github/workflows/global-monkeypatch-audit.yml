@@ -10,14 +10,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Find global browser monkey patches
+      - name: Find global browser monkey patches and references
         shell: bash
         run: |
           set -euo pipefail
+          echo '===== monkey patches ====='
           grep -REn \
             --include='*.js' \
             --exclude-dir=.git \
             --exclude-dir=node_modules \
             --exclude-dir=mobile \
-            --exclude='global-monkeypatch-audit.yml' \
             'Storage\.prototype\.(getItem|setItem|removeItem)\s*=|window\.fetch\s*=|document\.addEventListener\s*=' . || true
+
+          echo '===== references ====='
+          candidates=(cash-audit-overlay.js cash-history.js cash-history-enhancer.js nakladnye-names.js)
+          for file in "${candidates[@]}"; do
+            echo "--- $file ---"
+            grep -RFn \
+              --exclude="$file" \
+              --exclude='global-monkeypatch-audit.yml' \
+              --exclude-dir=.git \
+              --exclude-dir=node_modules \
+              --exclude-dir=mobile \
+              -- "$file" . || true
+          done
