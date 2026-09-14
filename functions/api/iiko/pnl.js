@@ -78,7 +78,7 @@ export async function onRequestPost({request}){
     const salesBase=findField(salesFields,['DishSumInt','Сумма без учета скидок и надбавок','Сумма без скидки','Сумма без скидок','Торговая выручка без учета скидок']);
     const category=findField(salesFields,['DishCategory','DishCategory.Name','DishCategoryName','Category','Category.Name','CategoryName','Категория блюда']);
     const salesDate=findField(salesFields,['OpenDate.Typed','OpenDate','Учетный день','Дата']);
-    const salesDepartment=findField(salesFields,['Department.Id','Department.ID','DepartmentId','Department.Guid']);
+    const salesDepartment=findField(salesFields,['Department.Id','Department.ID','DepartmentId','Department.Guid','Department.UUID','Department.Uuid']);
     if(!salesBase)throw Error('В OLAP SALES не найдено поле для суммы продаж.');
     if(!category)throw Error('В OLAP SALES не найдено поле «Категория блюда».');
 
@@ -92,22 +92,27 @@ export async function onRequestPost({request}){
     const accountType=findField(transactionFields,['Account.Type','AccountType','Account.TypeName','Account.Kind','Тип счета','Тип счёта','Type']);
     const counterAccount=findField(transactionFields,['CounterAccount.Name','CounterAccountName','Корр.Счет/Склад','Корр. Счет/Склад','CounterAccount']);
     const trDate=findField(transactionFields,['DateTime.DateTyped','DateTime.Typed','DateTime.Date','Date.Typed','Date','TransactionDate','OperationDate','OpenDate.Typed','Учетный день']);
-    const transactionDepartment=findField(transactionFields,['Department.Id','Department.ID','DepartmentId','Department.Guid']);
+    const transactionDepartment=findField(transactionFields,['Department.Id','Department.ID','DepartmentId','Department.Guid','Department.UUID','Department.Uuid','Transaction.DepartmentId','Transaction.Department.Id']);
     if(!article||!amount)throw Error('В OLAP TRANSACTIONS не найдены поля «Счет» и/или «Сумма».');
     if(!accountType)throw Error('В OLAP TRANSACTIONS не найдено поле «Тип счета».');
 
-    // If a restaurant was explicitly selected, never silently fall back to
-    // server-wide P&L. A missing department dimension would otherwise produce
-    // convincing but incorrect totals.
+    // SALES must stay restaurant-scoped because this dimension is available on
+    // normal iiko SALES reports. TRANSACTIONS differs between iiko versions:
+    // some installations do not expose any Department.Id-like dimension at all.
+    // In that case keep the legacy working behaviour (server-wide TRANSACTIONS)
+    // instead of failing the whole P&L, but expose an explicit scope warning.
     if(departmentIds.length&&!salesDepartment)throw Error('В OLAP SALES не найден Department.Id для фильтра выбранного ресторана.');
-    if(departmentIds.length&&!transactionDepartment)throw Error('В OLAP TRANSACTIONS не найден Department.Id для фильтра выбранного ресторана.');
+    const transactionDepartmentScopeApplied=departmentIds.length>0&&!!transactionDepartment;
+    const scopeWarning=departmentIds.length&&!transactionDepartment
+      ?'iiko TRANSACTIONS не отдаёт поле Department.Id: продажи по категориям ограничены выбранным рестораном, а финансовые проводки временно получены по всему подключённому iiko Server.'
+      :null;
 
     const postingRows=[article,accountType];
     for(const f of[accountId,counterAccount])if(f&&!postingRows.includes(f))postingRows.push(f);
 
     const [categoryQuery,postingQuery]=await Promise.all([
       olap(connection,'SALES',{rows:[category],measures:[salesBase],from,to,dateField:salesDate||'OpenDate.Typed',departmentIds,departmentField:salesDepartment}),
-      olap(connection,'TRANSACTIONS',{rows:postingRows,measures:[amount],from,to,dateField:trDate||'DateTime.DateTyped',departmentIds,departmentField:transactionDepartment})
+      olap(connection,'TRANSACTIONS',{rows:postingRows,measures:[amount],from,to,dateField:trDate||'DateTime.DateTyped',departmentIds:transactionDepartment?departmentIds:[],departmentField:transactionDepartment})
     ]);
     if(!categoryQuery.ok)throw Error(`OLAP SALES по категориям: ${categoryQuery.error}`);
     if(!postingQuery.ok)throw Error(`OLAP TRANSACTIONS: ${postingQuery.error}`);
@@ -201,10 +206,13 @@ export async function onRequestPost({request}){
       accounts:postings.map(x=>({...x,pnlCategory:x.role})),
       accountTypeSummary:{REVENUE:revenueAccounts,COGS:cogsAccounts,OPEX:opexAccounts,OTHER_INCOME:otherIncomeAccounts,OTHER_EXPENSE:otherExpenseAccounts},
       salesFields,transactionFields,
-      sourceNote:'iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; Account.Name берётся напрямую из iiko · P&L выручка: TRANSACTIONS · без кассовых смен',
+      sourceNote:`iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; Account.Name берётся напрямую из iiko · P&L выручка: TRANSACTIONS · без кассовых смен${scopeWarning?' · ⚠ TRANSACTIONS без фильтра ресторана':''}`,
       meta:{
         departmentIds,
-        departmentScopeApplied:departmentIds.length>0,
+        departmentScopeApplied:departmentIds.length>0&&!!salesDepartment&&!!transactionDepartment,
+        salesDepartmentScopeApplied:departmentIds.length>0&&!!salesDepartment,
+        transactionDepartmentScopeApplied,
+        scopeWarning,
         salesDepartmentField:salesDepartment||null,
         transactionDepartmentField:transactionDepartment||null,
         salesFieldsCacheHit:salesMeta.cacheHit,
