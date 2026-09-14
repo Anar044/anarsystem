@@ -1,3 +1,5 @@
+import { iikoJson } from "./_lib/iiko-client.js";
+
 function corsHeaders() {
     return {
         "Access-Control-Allow-Origin": "*",
@@ -15,12 +17,6 @@ function jsonResponse(data, status = 200) {
             ...corsHeaders()
         }
     });
-}
-
-async function sha1(text) {
-    const data = new TextEncoder().encode(text);
-    const hash = await crypto.subtle.digest("SHA-1", data);
-    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
 function parseDate(value) {
@@ -82,75 +78,68 @@ function normalizeShift(item, requestedDate, requestedStatus) {
     };
 }
 
-async function getToken(ip, port, login, password) {
-    const serverUrl = `http://${ip}:${port}`;
-    const passwordHash = await sha1(password);
-    const authUrl = `${serverUrl}/resto/api/auth?login=${encodeURIComponent(login)}&pass=${passwordHash}`;
-    const response = await fetch(authUrl, { cache: "no-store" });
-    const token = (await response.text()).trim();
-    if (!response.ok || !token) throw new Error(`Ошибка авторизации iiko Server: HTTP ${response.status}`);
-    return { serverUrl, token };
-}
-
-async function requestJson(url, options = {}) {
-    const response = await fetch(url, {
-        ...options,
-        headers: {
-            "Accept": "application/json",
-            ...(options.headers || {})
-        },
-        cache: "no-store"
-    });
-    const text = (await response.text()).trim();
-    let payload = null;
-    try {
-        payload = JSON.parse(text || "[]");
-    } catch {}
-    return { response, text, payload };
-}
-
-async function getShiftsForDateAndStatus(serverUrl, token, date, status) {
+async function getShiftsForDateAndStatus(connection, date, status) {
     const requestedDate = isoDate(date);
-    const key = encodeURIComponent(token);
     const dateParam = encodeURIComponent(requestedDate);
     const statusParam = encodeURIComponent(status);
 
-    const primaryUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&date=${dateParam}&status=${statusParam}`;
-    const primary = await requestJson(primaryUrl);
+    const primary = await iikoJson(
+        connection,
+        `/resto/api/v2/cashshifts/list?date=${dateParam}&status=${statusParam}`
+    );
 
-    if (primary.response.ok) {
+    if (primary.ok) {
         return {
             ok: true,
-            status: primary.response.status,
+            status: primary.status,
             shifts: extractList(primary.payload).map(item => normalizeShift(item, requestedDate, status)).filter(Boolean),
-            format: `GET date + status=${status}`
+            format: `GET date + status=${status}`,
+            authCacheHit: primary.auth?.cacheHit === true
         };
     }
 
-    const fallbackUrl = `${serverUrl}/resto/api/v2/cashshifts/list?key=${key}&openDateFrom=${dateParam}&openDateTo=${dateParam}&status=${statusParam}`;
-    const fallback = await requestJson(fallbackUrl);
+    const fallback = await iikoJson(
+        connection,
+        `/resto/api/v2/cashshifts/list?openDateFrom=${dateParam}&openDateTo=${dateParam}&status=${statusParam}`
+    );
 
-    if (fallback.response.ok) {
+    if (fallback.ok) {
         return {
             ok: true,
-            status: fallback.response.status,
+            status: fallback.status,
             shifts: extractList(fallback.payload).map(item => normalizeShift(item, requestedDate, status)).filter(Boolean),
-            format: `GET openDateFrom/openDateTo + status=${status}`
+            format: `GET openDateFrom/openDateTo + status=${status}`,
+            authCacheHit: fallback.auth?.cacheHit === true
         };
     }
 
     return {
         ok: false,
-        status: primary.response.status,
+        status: primary.status,
         text: primary.text || "iiko Server не вернул текст ошибки",
-        fallbackStatus: fallback.response.status,
+        fallbackStatus: fallback.status,
         fallbackText: fallback.text,
         shifts: [],
         formatsTried: [
             `GET date + status=${status}`,
             `GET openDateFrom/openDateTo + status=${status}`
-        ]
+        ],
+        authCacheHit: primary.auth?.cacheHit === true || fallback.auth?.cacheHit === true
     };
+}
+
+async function mapLimit(items, limit, worker) {
+    const results = new Array(items.length);
+    let next = 0;
+    const run = async () => {
+        while (true) {
+            const index = next++;
+            if (index >= items.length) return;
+            results[index] = await worker(items[index], index);
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
+    return results;
 }
 
 export async function onRequestOptions() {
@@ -160,14 +149,16 @@ export async function onRequestOptions() {
 export async function onRequestPost(context) {
     try {
         const body = await context.request.json();
-        const ip = String(body.ip || "").trim();
-        const port = String(body.port || "").trim();
-        const login = String(body.login || "").trim();
-        const password = String(body.password || "");
+        const connection = {
+            ip: String(body.ip || "").trim(),
+            port: String(body.port || "").trim(),
+            login: String(body.login || "").trim(),
+            password: String(body.password || "")
+        };
         const from = parseDate(body.from);
         const to = parseDate(body.to);
 
-        if (!ip || !port || !login || !password) {
+        if (!connection.ip || !connection.port || !connection.login || !connection.password) {
             return jsonResponse({ success: false, message: "Заполните IP, порт, логин и пароль SH Server" }, 400);
         }
         if (!from || !to) return jsonResponse({ success: false, message: "Укажите корректный период дат" }, 400);
@@ -176,31 +167,36 @@ export async function onRequestPost(context) {
         const days = Math.round((to - from) / 86400000) + 1;
         if (days > 62) return jsonResponse({ success: false, message: "Максимальный период для кассовых смен — 62 дня" }, 400);
 
-        const { serverUrl, token } = await getToken(ip, port, login, password);
+        const tasks = [];
+        for (let i = 0; i < days; i++) {
+            const date = addDays(from, i);
+            for (const status of ["OPEN", "CLOSED"]) tasks.push({ date, status });
+        }
+
+        const results = await mapLimit(tasks, 6, task => getShiftsForDateAndStatus(connection, task.date, task.status));
         const all = [];
         const errors = [];
         const formatsTried = new Set();
+        let authCacheHit = false;
 
-        for (let i = 0; i < days; i++) {
-            const date = addDays(from, i);
-            for (const status of ["OPEN", "CLOSED"]) {
-                const result = await getShiftsForDateAndStatus(serverUrl, token, date, status);
-                if (result.ok) {
-                    all.push(...result.shifts);
-                    formatsTried.add(result.format);
-                } else {
-                    for (const fmt of result.formatsTried || []) formatsTried.add(fmt);
-                    errors.push({
-                        date: isoDate(date),
-                        status,
-                        httpStatus: result.status,
-                        message: result.text.slice(0, 500),
-                        fallbackStatus: result.fallbackStatus,
-                        fallbackText: result.fallbackText ? result.fallbackText.slice(0, 500) : ""
-                    });
-                }
+        results.forEach((result, index) => {
+            const task = tasks[index];
+            authCacheHit = authCacheHit || result.authCacheHit === true;
+            if (result.ok) {
+                all.push(...result.shifts);
+                formatsTried.add(result.format);
+            } else {
+                for (const fmt of result.formatsTried || []) formatsTried.add(fmt);
+                errors.push({
+                    date: isoDate(task.date),
+                    status: task.status,
+                    httpStatus: result.status,
+                    message: result.text.slice(0, 500),
+                    fallbackStatus: result.fallbackStatus,
+                    fallbackText: result.fallbackText ? result.fallbackText.slice(0, 500) : ""
+                });
             }
-        }
+        });
 
         const seen = new Set();
         const shifts = all.filter(shift => {
@@ -220,7 +216,12 @@ export async function onRequestPost(context) {
             dateFormatsTried: Array.from(formatsTried),
             statusesTried: ["OPEN", "CLOSED"],
             endpoint: "/resto/api/v2/cashshifts/list",
-            dateFormat: "YYYY-MM-DD"
+            dateFormat: "YYYY-MM-DD",
+            meta: {
+                sharedIikoClient: true,
+                authCacheHit,
+                concurrency: 6
+            }
         });
     } catch (error) {
         return jsonResponse({ success: false, message: error?.message || "Ошибка получения кассовых смен" }, 502);
