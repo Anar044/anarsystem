@@ -9,6 +9,13 @@
   const shadow = { iikoConnection: null, iikoDepartmentIdentity: null };
   let prepared = false;
 
+  // Older AnarSystem builds persisted the full iiko connection, including the
+  // password. Remove those physical values before installing the compatibility
+  // shadow so browser storage no longer retains the old secret.
+  for (const key of KEYS) {
+    try { originalRemoveItem.call(storage, key); } catch (_) {}
+  }
+
   async function binding() {
     if (!window.SH_IikoContext?.getBinding) return { departmentIds: [], server: null, connection: null, identity: null };
     return window.SH_IikoContext.getBinding();
@@ -42,6 +49,7 @@
   Storage.prototype.removeItem = function (key) {
     if (this === storage && KEYS.has(String(key))) {
       shadow[String(key)] = null;
+      try { originalRemoveItem.call(storage, String(key)); } catch (_) {}
       return;
     }
     return originalRemoveItem.call(this, key);
