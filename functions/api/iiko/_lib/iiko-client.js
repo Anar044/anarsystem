@@ -121,7 +121,13 @@ export async function iikoFetch(connection, path, options = {}) {
 export async function iikoText(connection, path, options = {}) {
   const { response, auth } = await iikoFetch(connection, path, options);
   const text = (await response.text()).trim();
-  return { ok: response.ok, status: response.status, text, auth };
+  return {
+    ok: response.ok,
+    status: response.status,
+    text,
+    auth,
+    contentType: response.headers.get("content-type") || ""
+  };
 }
 
 export async function iikoJson(connection, path, options = {}) {
