@@ -64,6 +64,24 @@ jobs:
           grep -q 'reports-loader.js' reports.html
           echo 'OLAP Reports bootstrap cleanup check passed'
 
+      - name: Verify OLAP endpoint uses shared client
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=functions/api/iiko/olap.js
+          grep -q './_lib/iiko-client.js' "$file"
+          grep -q 'getOlapFields' "$file"
+          grep -q 'iikoJson' "$file"
+          if grep -Eq '/resto/api/auth|async function authenticate\(|async function sha1\(' "$file"; then
+            echo 'OLAP endpoint reintroduced manual iiko authentication'
+            exit 1
+          fi
+          grep -q 'rawResponse' "$file"
+          grep -q 'groupByRowFields' "$file"
+          grep -q 'groupByColFields' "$file"
+          grep -q 'aggregateFields' "$file"
+          echo 'OLAP shared client contract check passed'
+
       - name: Verify P&L uses direct iiko context
         shell: bash
         run: |
@@ -137,13 +155,16 @@ jobs:
           grep -q 'iikoText' functions/api/iiko/connect.js
           echo 'Shared iiko authentication check passed'
 
-      - name: Report remaining manual iiko auth files
+      - name: Verify iiko authentication is centralized
         shell: bash
         run: |
           set -euo pipefail
           mapfile -t manual < <(grep -Rl --include='*.js' '/resto/api/auth' functions/api/iiko | sort || true)
-          echo 'Remaining files containing /resto/api/auth:'
+          echo 'Files containing /resto/api/auth:'
           printf '  %s\n' "${manual[@]:-<none>}"
+          test "${#manual[@]}" -eq 1
+          test "${manual[0]}" = 'functions/api/iiko/_lib/iiko-client.js'
+          echo 'iiko authentication is centralized in the shared client'
 
   preview-smoke:
     if: github.event_name == 'pull_request'
@@ -201,16 +222,25 @@ jobs:
           set -euo pipefail
           routes=(
             "/api/iiko/dashboard"
+            "/api/iiko/dashboard-summary"
             "/api/iiko/pnl"
             "/api/iiko/abc"
             "/api/iiko/finance-data"
+            "/api/iiko/cash-shifts"
+            "/api/iiko/cash-shift-detail"
             "/api/iiko/nomenclature"
             "/api/iiko/qr-menu"
+            "/api/iiko/qr-image"
             "/api/iiko/accounts"
             "/api/iiko/supplier-balances"
+            "/api/iiko/contractors"
             "/api/iiko/chain"
             "/api/iiko/connect"
+            "/api/iiko/debug"
+            "/api/iiko/events"
             "/api/iiko/olap"
+            "/api/iiko/orders"
+            "/api/iiko/sales"
             "/api/iiko/incoming-invoices"
             "/api/iiko/outgoing-invoices"
             "/api/iiko/references"
