@@ -146,7 +146,11 @@ export async function onRequestPost({request,env}){
 
       const originalCat=String(d.cat||d.iikoCategoryId||"");
       const categoryId=categoryMap.get(originalCat)||null;
-      const dishId=`${menuId}:dish:${String(d.iikoId||d.id||i)}`;
+      const sourceDishId=String(d.iikoId||d.id||i);
+      // qr_dishes.id is an internal row key, not the iiko product identity.
+      // Include the current position so duplicated source ids cannot violate
+      // the D1 PRIMARY KEY. The real iiko/local id remains in iiko_id below.
+      const dishId=`${menuId}:dish:${i}:${sourceDishId}`;
       const imageCandidate=String(d.photo||d.photo_url||"").trim();
       const frontImageCandidate=String(d.frontImageId||"").trim();
       const photoUrl=imageCandidate || (frontImageCandidate.startsWith("data:image/") ? frontImageCandidate : "");
@@ -158,7 +162,7 @@ export async function onRequestPost({request,env}){
             dishId,
             menuId,
             categoryId,
-            String(d.iikoId||d.id||""),
+            sourceDishId,
             String(d.name),
             String(d.desc||d.description||""),
             String(d.composition||d.desc||""),
