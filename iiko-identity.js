@@ -2,6 +2,7 @@
     "use strict";
 
     const $ = id => document.getElementById(id);
+    const SERVER_PASSWORD_MARKER = "__SH_SERVER_STORED__";
 
     function esc(value) {
         return String(value ?? "").replace(/[&<>"']/g, char => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[char]));
@@ -85,7 +86,13 @@
             if(connection.ip) $("iiko-ip").value=connection.ip;
             if(connection.port) $("iiko-port").value=connection.port;
             if(connection.login) $("iiko-login").value=connection.login;
-            if($("iiko-password")) $("iiko-password").value=connection.password||"";
+            const passwordInput=$("iiko-password");
+            if(passwordInput){
+                const stored=connection.passwordStored===true||connection.password===SERVER_PASSWORD_MARKER;
+                passwordInput.value="";
+                passwordInput.dataset.serverStored=stored?"1":"0";
+                passwordInput.placeholder=stored?"Сохранён на сервере — оставьте пустым":"Пароль";
+            }
             if($("remember-iiko")) $("remember-iiko").checked=true;
             const restaurantCount=organizations.length||departments.length;
             setStatus(chain
@@ -118,9 +125,12 @@
     }
 
     async function callConnectionEndpoint(path, credentials) {
+        const auth=await authHeaders();
+        const headers={"Content-Type":"application/json","Accept":"application/json"};
+        if(auth?.Authorization)headers.Authorization=auth.Authorization;
         const response=await fetch(path,{
             method:"POST",
-            headers:{"Content-Type":"application/json","Accept":"application/json"},
+            headers,
             body:JSON.stringify(credentials)
         });
         const data=await safeJson(response);
@@ -130,7 +140,10 @@
 
     async function handleIdentityConnection(event){
         event.preventDefault();
-        const ip=$("iiko-ip")?.value.trim(), port=$("iiko-port")?.value.trim(), login=$("iiko-login")?.value.trim(), password=$("iiko-password")?.value||"";
+        const ip=$("iiko-ip")?.value.trim(), port=$("iiko-port")?.value.trim(), login=$("iiko-login")?.value.trim();
+        const passwordInput=$("iiko-password");
+        const enteredPassword=passwordInput?.value||"";
+        const password=enteredPassword||(passwordInput?.dataset.serverStored==="1"?SERVER_PASSWORD_MARKER:"");
         const requestedChain=$("is-chain")?.checked===true;
         if(!ip||!port||!login||!password){setStatus("🟠 Заполните IP, порт, логин и пароль");return;}
         const button=$("connect-iiko"); if(button)button.disabled=true;
@@ -146,10 +159,6 @@
             let serverMode="";
             let discoverySource="chain";
 
-            // Corporation API is the richest source and normally gives all
-            // departments/groups in one AnarSystem request. Only if it cannot
-            // provide a real Department ID do we call /connect, whose OLAP
-            // fallback supports older/simpler RMS installations.
             try{
                 const candidate=await callConnectionEndpoint("/api/iiko/chain",credentials);
                 chainStructure=candidate;
@@ -214,6 +223,11 @@
 
             await saveIikoState(connection,identity);
 
+            if(passwordInput){
+                passwordInput.value="";
+                passwordInput.dataset.serverStored="1";
+                passwordInput.placeholder="Сохранён на сервере — оставьте пустым";
+            }
             const checkbox=$("is-chain"), hint=$("chain-hint");
             if(checkbox)checkbox.checked=isChain;
             if(hint&&checkbox)hint.classList.toggle("visible",checkbox.checked);
@@ -234,6 +248,8 @@
         try{
             await clearIikoState();
             ["iikoConnection","iikoDepartmentIdentity"].forEach(key=>localStorage.removeItem(key));
+            const passwordInput=$("iiko-password");
+            if(passwordInput){passwordInput.value="";delete passwordInput.dataset.serverStored;passwordInput.placeholder="Пароль";}
             const card=$("iiko-identity"); if(card)card.hidden=true;
             setStatus("⚪ Подключение iiko удалено из D1");
         }catch(error){setStatus("🔴 " + (error?.message||error));}
