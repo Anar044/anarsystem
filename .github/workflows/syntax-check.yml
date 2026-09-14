@@ -64,6 +64,22 @@ jobs:
           grep -q 'reports-loader.js' reports.html
           echo 'OLAP Reports bootstrap cleanup check passed'
 
+      - name: Verify P&L uses direct iiko context
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Eq 'pnl-d1-loader\.js|iiko-unified-bridge\.js' pnl.html; then
+            echo 'P&L legacy bridge is active again'
+            exit 1
+          fi
+          if grep -Eq 'localStorage|getItem\(['"'"']iikoConnection|Storage\.prototype' pnl.js; then
+            echo 'P&L reintroduced browser-side iiko connection storage'
+            exit 1
+          fi
+          grep -q 'SH_IikoContext.getBinding' pnl.js
+          grep -q 'departmentIds' pnl.js
+          echo 'P&L direct context check passed'
+
   preview-smoke:
     if: github.event_name == 'pull_request'
     needs: javascript
