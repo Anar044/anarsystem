@@ -26,3 +26,73 @@ jobs:
             -not -path './mobile/*' \
             | sort)
           echo "Checked $count JavaScript files"
+
+  preview-smoke:
+    if: github.event_name == 'pull_request'
+    needs: javascript
+    runs-on: ubuntu-latest
+    env:
+      PREVIEW_BASE: https://${{ github.head_ref }}.anarsystem.pages.dev
+    steps:
+      - name: Wait for Cloudflare Pages preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 18); do
+            code=$(curl -sS -L -o /tmp/preview-home.html -w '%{http_code}' "$PREVIEW_BASE/" || true)
+            if [ "$code" = "200" ]; then
+              echo "Preview ready: $PREVIEW_BASE"
+              exit 0
+            fi
+            echo "Preview not ready yet (HTTP $code, attempt $attempt)"
+            sleep 5
+          done
+          echo "Cloudflare Pages preview did not become reachable"
+          exit 1
+
+      - name: Smoke test application pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          pages=(
+            "/"
+            "/dashboard.html"
+            "/pnl.html"
+            "/finance.html"
+            "/cash-shifts.html"
+            "/settings.html"
+            "/qr-menu.html"
+            "/nakladnye.html"
+          )
+          for path in "${pages[@]}"; do
+            code=$(curl -sS -L -o /tmp/page.html -w '%{http_code}' "$PREVIEW_BASE$path")
+            echo "$path -> HTTP $code"
+            test "$code" = "200"
+          done
+
+      - name: Smoke test changed iiko API routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          routes=(
+            "/api/iiko/dashboard"
+            "/api/iiko/pnl"
+            "/api/iiko/abc"
+            "/api/iiko/finance-data"
+            "/api/iiko/nomenclature"
+            "/api/iiko/qr-menu"
+            "/api/iiko/accounts"
+            "/api/iiko/supplier-balances"
+            "/api/iiko/chain"
+            "/api/iiko/incoming-invoices"
+            "/api/iiko/document-action"
+            "/api/iiko/document-by-number"
+          )
+          for path in "${routes[@]}"; do
+            code=$(curl -sS -X OPTIONS -o /tmp/api.txt -w '%{http_code}' "$PREVIEW_BASE$path" || true)
+            echo "$path -> HTTP $code"
+            case "$code" in
+              2*) ;;
+              *) cat /tmp/api.txt || true; exit 1 ;;
+            esac
+          done
