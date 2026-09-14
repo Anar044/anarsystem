@@ -1,3 +1,5 @@
+import { iikoText } from "./_lib/iiko-client.js";
+
 function corsHeaders() {
     return {
         "Access-Control-Allow-Origin": "*",
@@ -14,14 +16,6 @@ function jsonResponse(data, status = 200) {
             ...corsHeaders()
         }
     });
-}
-
-async function sha1(text) {
-    const data = new TextEncoder().encode(text);
-    const hash = await crypto.subtle.digest("SHA-1", data);
-    return Array.from(new Uint8Array(hash))
-        .map(byte => byte.toString(16).padStart(2, "0"))
-        .join("");
 }
 
 function xmlDecode(value) {
@@ -103,59 +97,46 @@ function normalizeDepartmentsPayload(payload) {
     return items.map(normalizeDepartmentItem).filter(Boolean);
 }
 
-async function getToken(ip, port, login, password) {
-    // ONLY local iiko Server. No iiko Cloud API.
-    const serverUrl = `http://${ip}:${port}`;
-    const passwordHash = await sha1(password);
-    const authUrl =
-        `${serverUrl}/resto/api/auth` +
-        `?login=${encodeURIComponent(login)}` +
-        `&pass=${passwordHash}`;
-
-    const response = await fetch(authUrl);
-    const token = (await response.text()).trim();
-
-    if (!response.ok || !token) {
-        throw new Error(`Ошибка авторизации iiko Server: HTTP ${response.status}`);
-    }
-
-    return { serverUrl, token };
-}
-
-async function getDepartments(serverUrl, token) {
-    const url =
-        `${serverUrl}/resto/api/corporation/departments` +
-        `?key=${encodeURIComponent(token)}`;
-
-    const response = await fetch(url, {
-        method: "GET",
-        headers: {
-            "Accept": "application/json, application/xml, text/xml"
+async function getDepartments(connection) {
+    const result = await iikoText(
+        connection,
+        "/resto/api/corporation/departments",
+        {
+            method: "GET",
+            headers: { "Accept": "application/json, application/xml, text/xml" }
         }
-    });
+    );
 
-    const text = (await response.text()).trim();
-
-    if (!response.ok) {
+    const text = result.text;
+    if (!result.ok) {
         throw new Error(
-            `Ошибка получения подразделений iiko Server: HTTP ${response.status}${text ? ` — ${text.slice(0, 800)}` : ""}`
+            `Ошибка получения подразделений iiko Server: HTTP ${result.status}${text ? ` — ${text.slice(0, 800)}` : ""}`
         );
     }
 
-    if (!text) return { departments: [], rawFormat: "empty", rawPreview: "" };
+    if (!text) {
+        return {
+            departments: [],
+            rawFormat: "empty",
+            rawPreview: "",
+            authCacheHit: result.auth?.cacheHit === true
+        };
+    }
 
     try {
         const payload = JSON.parse(text);
         return {
             departments: normalizeDepartmentsPayload(payload),
             rawFormat: "json",
-            rawPreview: JSON.stringify(payload).slice(0, 1200)
+            rawPreview: JSON.stringify(payload).slice(0, 1200),
+            authCacheHit: result.auth?.cacheHit === true
         };
     } catch {
         return {
             departments: parseDepartmentsXml(text),
             rawFormat: "xml",
-            rawPreview: text.slice(0, 1200)
+            rawPreview: text.slice(0, 1200),
+            authCacheHit: result.auth?.cacheHit === true
         };
     }
 }
@@ -171,13 +152,9 @@ function localIsoNow() {
     return new Date().toISOString().slice(0, 10);
 }
 
-async function getDepartmentsFromOlap(serverUrl, token) {
+async function getDepartmentsFromOlap(connection) {
     // Fallback ONLY for local iiko Server identity.
     // This does not change the main OLAP reports implementation.
-    const url =
-        `${serverUrl}/resto/api/v2/reports/olap` +
-        `?key=${encodeURIComponent(token)}`;
-
     const baseBody = {
         reportType: "SALES",
         buildSummary: false,
@@ -192,38 +169,26 @@ async function getDepartmentsFromOlap(serverUrl, token) {
         }
     };
 
-    let response = await fetch(url, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        },
-        body: JSON.stringify({
-            ...baseBody,
-            groupByRowFields: ["Department.Id", "Department"]
-        })
-    });
-
-    let text = (await response.text()).trim();
-
-    if (!response.ok) {
-        response = await fetch(url, {
+    const run = groupByRowFields => iikoText(
+        connection,
+        "/resto/api/v2/reports/olap",
+        {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 "Accept": "application/json"
             },
-            body: JSON.stringify({
-                ...baseBody,
-                groupByRowFields: ["Department.Id"]
-            })
-        });
-        text = (await response.text()).trim();
-    }
+            body: JSON.stringify({ ...baseBody, groupByRowFields })
+        }
+    );
 
-    if (!response.ok) {
+    let result = await run(["Department.Id", "Department"]);
+    if (!result.ok) result = await run(["Department.Id"]);
+
+    const text = result.text;
+    if (!result.ok) {
         throw new Error(
-            `iiko OLAP Department.Id: HTTP ${response.status}${text ? ` — ${text.slice(0, 800)}` : ""}`
+            `iiko OLAP Department.Id: HTTP ${result.status}${text ? ` — ${text.slice(0, 800)}` : ""}`
         );
     }
 
@@ -270,7 +235,8 @@ async function getDepartmentsFromOlap(serverUrl, token) {
     return {
         departments,
         rawFormat: "olap",
-        rawPreview: JSON.stringify(payload).slice(0, 1600)
+        rawPreview: JSON.stringify(payload).slice(0, 1600),
+        authCacheHit: result.auth?.cacheHit === true
     };
 }
 
@@ -284,26 +250,26 @@ export async function onRequestOptions() {
 export async function onRequestPost(context) {
     try {
         const body = await context.request.json();
+        const connection = {
+            ip: String(body.ip || "").trim(),
+            port: String(body.port || "").trim(),
+            login: String(body.login || "").trim(),
+            password: String(body.password || "")
+        };
 
-        const ip = String(body.ip || "").trim();
-        const port = String(body.port || "").trim();
-        const login = String(body.login || "").trim();
-        const password = String(body.password || "");
-
-        if (!ip || !port || !login || !password) {
+        if (!connection.ip || !connection.port || !connection.login || !connection.password) {
             return jsonResponse({
                 success: false,
                 message: "Заполните IP, порт, логин и пароль iiko Server"
             }, 400);
         }
 
-        const auth = await getToken(ip, port, login, password);
-        let departmentResult = await getDepartments(auth.serverUrl, auth.token);
+        let departmentResult = await getDepartments(connection);
         let departments = departmentResult.departments;
 
         if (!departments.length) {
             try {
-                departmentResult = await getDepartmentsFromOlap(auth.serverUrl, auth.token);
+                departmentResult = await getDepartmentsFromOlap(connection);
                 departments = departmentResult.departments;
             } catch (olapError) {
                 return jsonResponse({
@@ -346,7 +312,11 @@ export async function onRequestPost(context) {
             departments,
             source: "iiko-server-local",
             identityType: "DEPARTMENT",
-            identitySource: departmentResult.rawFormat
+            identitySource: departmentResult.rawFormat,
+            meta: {
+                sharedIikoClient: true,
+                authCacheHit: departmentResult.authCacheHit === true
+            }
         });
 
     } catch (error) {
