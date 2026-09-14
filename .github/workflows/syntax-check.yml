@@ -27,6 +27,24 @@ jobs:
             | sort)
           echo "Checked $count JavaScript files"
 
+      - name: Verify public iiko state hides password
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { publicState, SERVER_PASSWORD_MARKER } from './functions/api/iiko/_lib/user-state.js';
+          const secret = 'ci-real-iiko-password';
+          const safe = publicState({
+            connection: { ip: '127.0.0.1', port: '8080', login: 'user', password: secret },
+            identity: { organizationId: 'test' }
+          });
+          const encoded = JSON.stringify(safe);
+          if (encoded.includes(secret)) throw new Error('publicState leaked the real iiko password');
+          if (safe.connection.password !== SERVER_PASSWORD_MARKER) throw new Error('publicState did not return the server marker');
+          if (safe.connection.passwordStored !== true) throw new Error('publicState did not expose passwordStored=true');
+          console.log('iiko public state credential test passed');
+          NODE
+
   preview-smoke:
     if: github.event_name == 'pull_request'
     needs: javascript
@@ -87,6 +105,7 @@ jobs:
             "/api/iiko/incoming-invoices"
             "/api/iiko/document-action"
             "/api/iiko/document-by-number"
+            "/api/iiko/state"
           )
           for path in "${routes[@]}"; do
             code=$(curl -sS -X OPTIONS -o /tmp/api.txt -w '%{http_code}' "$PREVIEW_BASE$path" || true)
@@ -96,3 +115,12 @@ jobs:
               *) cat /tmp/api.txt || true; exit 1 ;;
             esac
           done
+
+      - name: Verify iiko state requires authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/state.json -w '%{http_code}' "$PREVIEW_BASE/api/iiko/state" || true)
+          echo "/api/iiko/state unauthenticated -> HTTP $code"
+          cat /tmp/state.json || true
+          test "$code" = "401"
