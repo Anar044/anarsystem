@@ -1,36 +1,26 @@
-name: Global Monkey Patch Audit
+name: Global Monkey Patch Check
 
 on:
   push:
   pull_request:
 
 jobs:
-  audit:
+  check:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Find global browser monkey patches and references
+      - name: Reject global browser monkey patches
         shell: bash
         run: |
           set -euo pipefail
-          echo '===== monkey patches ====='
-          grep -REn \
+          if grep -REn \
             --include='*.js' \
             --exclude-dir=.git \
             --exclude-dir=node_modules \
             --exclude-dir=mobile \
-            'Storage\.prototype\.(getItem|setItem|removeItem)\s*=|window\.fetch\s*=|document\.addEventListener\s*=' . || true
-
-          echo '===== references ====='
-          candidates=(cash-audit-overlay.js cash-history.js cash-history-enhancer.js nakladnye-names.js)
-          for file in "${candidates[@]}"; do
-            echo "--- $file ---"
-            grep -RFn \
-              --exclude="$file" \
-              --exclude='global-monkeypatch-audit.yml' \
-              --exclude-dir=.git \
-              --exclude-dir=node_modules \
-              --exclude-dir=mobile \
-              -- "$file" . || true
-          done
+            'Storage\.prototype\.(getItem|setItem|removeItem)\s*=|window\.fetch\s*=|document\.addEventListener\s*=' .; then
+            echo 'Global browser monkey patch detected. Use an explicit context/API adapter instead.'
+            exit 1
+          fi
+          echo 'No global browser monkey patches found.'
