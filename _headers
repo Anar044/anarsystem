@@ -1,0 +1,14 @@
+/app-shell.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/app-shell.css
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/documents-nav.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/sidebar-finance-fix.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/mobile-responsive.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
