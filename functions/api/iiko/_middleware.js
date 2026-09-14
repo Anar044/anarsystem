@@ -169,7 +169,7 @@ export async function onRequest(context) {
   if (env.DB) {
     const auth = await getUser(request, env);
     if (auth) {
-      const stored = await loadPrivateIikoState(env.DB, auth.user.id);
+      const stored = await loadPrivateIikoState(env.DB, auth.user.id, env);
       if (stored.found) {
         storedState = stored.state;
         if (hasPrivateConnection(stored.state)) storedConnection = privateConnection(stored.state);
