@@ -128,6 +128,7 @@ export async function iikoText(connection, path, options = {}) {
   return {
     ok: response.ok,
     status: response.status,
+    statusText: response.statusText,
     text,
     auth,
     contentType: response.headers.get("content-type") || ""
@@ -192,7 +193,7 @@ export async function getOlapFields(connection, reportType, options = {}) {
   const now = Date.now();
 
   if (!options.force && cached?.fields?.length && cached.expiresAt > now) {
-    return { fields: cached.fields, cacheHit: true };
+    return { fields: cached.fields, raw: cached.raw ?? null, cacheHit: true };
   }
 
   if (!options.force) {
@@ -210,8 +211,8 @@ export async function getOlapFields(connection, reportType, options = {}) {
     }
     const fields = extractFields(result.payload);
     if (!fields.length) throw new Error("iiko не вернул OLAP-поля");
-    olapFieldsCache.set(cacheKey, { fields, expiresAt: Date.now() + ttlMs });
-    return { fields, cacheHit: false };
+    olapFieldsCache.set(cacheKey, { fields, raw: result.payload, expiresAt: Date.now() + ttlMs });
+    return { fields, raw: result.payload, cacheHit: false };
   })().finally(() => {
     if (olapFieldsInFlight.get(cacheKey) === pending) olapFieldsInFlight.delete(cacheKey);
   });
