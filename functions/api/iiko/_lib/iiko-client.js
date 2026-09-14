@@ -38,11 +38,34 @@ async function connectionKey(connection) {
   return `${c.serverUrl}|${c.login}|${passwordHash}`;
 }
 
+function isUnsupportedCacheOption(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return message.includes("cache") && (
+    message.includes("not implemented") ||
+    message.includes("unsupported cache mode") ||
+    message.includes("requestinitializerdict")
+  );
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    const requestOptions = { ...options, signal: controller.signal };
+    try {
+      return await fetch(url, requestOptions);
+    } catch (error) {
+      // Older Cloudflare Pages/Workers compatibility dates throw when the
+      // standard RequestInit `cache` option is supplied. Retry without that
+      // optional hint so legacy deployments keep the same behaviour as the
+      // original AnarSystem fetch() calls.
+      if (Object.prototype.hasOwnProperty.call(requestOptions, "cache") && isUnsupportedCacheOption(error)) {
+        const fallbackOptions = { ...requestOptions };
+        delete fallbackOptions.cache;
+        return await fetch(url, fallbackOptions);
+      }
+      throw error;
+    }
   } catch (error) {
     if (error?.name === "AbortError") {
       throw new Error(`iiko не ответил за ${Math.round(timeoutMs / 1000)} секунд`);
