@@ -20,6 +20,7 @@ jobs:
             exit 1
           fi
           grep -q 'SH_IikoContext' iiko-d1-bridge.js
+          grep -q 'cash-context.js' iiko-d1-bridge.js
           grep -q 'SH_CashContext' cash-context.js
           grep -q 'SH_CashContext' cash-order-detail-fix.js
           grep -q 'SH_CashContext' cash-high-risk.js
@@ -38,20 +39,19 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in $(seq 1 24); do
-            code=$(curl -sS -L -o /tmp/cash.html -w '%{http_code}' "$PREVIEW_BASE/cash/" || true)
-            echo "cash preview HTTP $code attempt=$attempt"
-            if [ "$code" = "200" ]; then exit 0; fi
+            cash_code=$(curl -sS -L -o /tmp/cash.html -w '%{http_code}' "$PREVIEW_BASE/cash/" || true)
+            context_code=$(curl -sS -L -o /tmp/cash-context.js -w '%{http_code}' "$PREVIEW_BASE/cash-context.js" || true)
+            echo "cash=$cash_code cash-context=$context_code attempt=$attempt"
+            if [ "$cash_code" = "200" ] && [ "$context_code" = "200" ]; then exit 0; fi
             sleep 5
           done
           exit 1
-      - name: Verify cash page and plugin request route
+      - name: Verify cash adapter and plugin request route
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'cash-context.js' /tmp/cash.html || {
-            echo 'cash-context.js is not loaded by /cash/'
-            exit 1
-          }
+          grep -q 'iiko-d1-bridge.js' /tmp/cash.html
+          grep -q 'SH_CashContext' /tmp/cash-context.js
           code=$(curl -sS -X OPTIONS -o /tmp/plugin-request.txt -w '%{http_code}' "$PREVIEW_BASE/api/plugin/request" || true)
           echo "/api/plugin/request OPTIONS -> HTTP $code"
           case "$code" in
