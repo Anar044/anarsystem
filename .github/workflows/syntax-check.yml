@@ -80,6 +80,23 @@ jobs:
           grep -q 'departmentIds' pnl.js
           echo 'P&L direct context check passed'
 
+      - name: Verify unified bridge HTML allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t refs < <(grep -Rl --include='*.html' 'iiko-unified-bridge.js' . | sed 's#^\./##' | sort || true)
+          echo 'Active HTML references to iiko-unified-bridge.js:'
+          printf '  %s\n' "${refs[@]:-<none>}"
+          unexpected=0
+          for file in "${refs[@]}"; do
+            case "$file" in
+              qr-menu.html) ;;
+              *) echo "Unexpected unified bridge reference: $file"; unexpected=1 ;;
+            esac
+          done
+          test "$unexpected" = "0"
+          echo 'Unified bridge allowlist check passed'
+
   preview-smoke:
     if: github.event_name == 'pull_request'
     needs: javascript
