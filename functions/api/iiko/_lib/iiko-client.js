@@ -76,6 +76,16 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_M
   }
 }
 
+function cloudflareDiagnostic(response, body) {
+  const cfType = clean(response?.headers?.get?.("cf-error-type"));
+  const text = String(body || "");
+  const codeMatch = text.match(/\b(1\d{3})\b/);
+  const code = cfType || codeMatch?.[1] || "";
+  if (Number(response?.status) !== 530 && !code) return "";
+  const suffix = code ? `, Cloudflare ${code}` : "";
+  return `Cloudflare HTTP ${response?.status || 530}${suffix}: проблема DNS/origin у адреса iiko Server`;
+}
+
 async function performAuthentication(connection, key) {
   const c = normalizeConnection(connection);
   const passwordHash = await sha1(c.password);
@@ -84,7 +94,9 @@ async function performAuthentication(connection, key) {
   const token = (await response.text()).trim();
   if (!response.ok || !token) {
     tokenCache.delete(key);
-    throw new Error(`Ошибка авторизации iiko Server: HTTP ${response.status}`);
+    const cf = cloudflareDiagnostic(response, token);
+    if (cf) throw new Error(cf);
+    throw new Error(`Ошибка авторизации iiko Server: HTTP ${response.status}${token ? ` — ${token.slice(0, 240).replace(/\s+/g, " ")}` : ""}`);
   }
 
   tokenCache.set(key, { token, expiresAt: Date.now() + TOKEN_TTL_MS });
