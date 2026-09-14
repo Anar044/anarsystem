@@ -80,6 +80,22 @@ jobs:
           grep -q 'departmentIds' pnl.js
           echo 'P&L direct context check passed'
 
+      - name: Verify QR Menu uses safe context adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Eq 'iiko-unified-bridge\.js|qr-menu-d1-fix\.js' qr-menu.html; then
+            echo 'QR Menu legacy bridge is active again'
+            exit 1
+          fi
+          grep -q 'qr-menu-context.js' qr-menu.html
+          if grep -En 'Storage\.prototype|window\.fetch\s*=|document\.addEventListener\s*=' qr-menu-context.js; then
+            echo 'QR Menu context adapter contains a global monkey patch'
+            exit 1
+          fi
+          grep -q 'SH_IikoContext.get' qr-menu-context.js
+          echo 'QR Menu safe context adapter check passed'
+
       - name: Verify unified bridge HTML allowlist
         shell: bash
         run: |
@@ -90,8 +106,7 @@ jobs:
           unexpected=0
           for file in "${refs[@]}"; do
             case "$file" in
-              qr-menu.html) ;; # temporary active compatibility path
-              index.html) ;;   # inactive on Cloudflare: _redirects rewrites it to dashboard.html
+              index.html) ;; # inactive on Cloudflare: _redirects rewrites it to dashboard.html
               *) echo "Unexpected unified bridge reference: $file"; unexpected=1 ;;
             esac
           done
