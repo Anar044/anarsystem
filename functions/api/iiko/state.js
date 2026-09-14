@@ -72,9 +72,9 @@ export async function onRequestOptions() {
 
 export async function onRequestGet({ request, env }) {
   try {
-    if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
     const auth = await getUser(request, env);
     if (!auth) return json({ success: false, message: "Необходима авторизация." }, 401);
+    if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
 
     const stored = await loadPrivateIikoState(env.DB, auth.user.id);
     const cookie = sessionCookie(auth.token);
@@ -93,9 +93,9 @@ export async function onRequestGet({ request, env }) {
 
 export async function onRequestPost({ request, env }) {
   try {
-    if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
     const auth = await getUser(request, env);
     if (!auth) return json({ success: false, message: "Необходима авторизация." }, 401);
+    if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
 
     const body = await request.json();
     const existing = await loadPrivateIikoState(env.DB, auth.user.id);
@@ -127,9 +127,10 @@ export async function onRequestPost({ request, env }) {
 
 export async function onRequestDelete({ request, env }) {
   try {
-    if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
     const auth = await getUser(request, env);
     if (!auth) return json({ success: false, message: "Необходима авторизация." }, 401);
+    if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
+
     await ensureIikoStateTable(env.DB);
     await env.DB.prepare(`DELETE FROM iiko_connections WHERE user_id=?1`).bind(auth.user.id).run();
     return json({ success: true }, 200, { "Set-Cookie": sessionCookie("", 0) });
