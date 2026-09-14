@@ -3,6 +3,7 @@
 
     const CONNECTION_KEY = "iikoConnection";
     const IDENTITY_KEY = "iikoDepartmentIdentity";
+    const DEPARTMENTS_COOKIE = "sh_reports_departments";
     let ready = null;
     let cachedState = null;
 
@@ -14,9 +15,9 @@
             ? state.identity
             : null;
 
-        // reports.js still reads the legacy key during this transition.
-        // /api/iiko/state already returns only the server-side password marker,
-        // never the real iiko password, so this browser copy contains no secret.
+        // Temporary compatibility for reports.js only. /api/iiko/state returns
+        // the server-side marker instead of the real password, so no secret is
+        // written to browser storage.
         try {
             if (connection) localStorage.setItem(CONNECTION_KEY, JSON.stringify(connection));
             else localStorage.removeItem(CONNECTION_KEY);
@@ -26,6 +27,14 @@
         } catch (error) {
             console.warn("[reports-context] cannot write safe compatibility state", error);
         }
+    }
+
+    function writeDepartmentScope(ids) {
+        const values = [...new Set((ids || []).map(String).map(x => x.trim()).filter(Boolean))];
+        const encoded = encodeURIComponent(values.join(","));
+        const maxAge = values.length ? 86400 : 0;
+        document.cookie = `${DEPARTMENTS_COOKIE}=${encoded}; Path=/api/iiko; SameSite=Lax; Max-Age=${maxAge}`;
+        return values;
     }
 
     async function prepare(force = false) {
@@ -39,6 +48,12 @@
             const state = await window.SH_IikoContext.get(force);
             cachedState = state || null;
             writeSafeCompatibilityState(cachedState);
+
+            const binding = window.SH_IikoContext?.getBinding
+                ? await window.SH_IikoContext.getBinding(force)
+                : null;
+            writeDepartmentScope(binding?.departmentIds || []);
+
             return cachedState;
         })().catch(error => {
             ready = null;
@@ -54,6 +69,7 @@
             localStorage.removeItem(CONNECTION_KEY);
             localStorage.removeItem(IDENTITY_KEY);
         } catch (_) {}
+        writeDepartmentScope([]);
         cachedState = null;
         ready = null;
     }
