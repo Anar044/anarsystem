@@ -45,6 +45,25 @@ jobs:
           console.log('iiko public state credential test passed');
           NODE
 
+      - name: Verify OLAP Reports has no global transport or DOM patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -En 'Storage\.prototype|window\.fetch\s*=|document\.addEventListener\s*=' reports-context.js reports-default-filters.js reports-loader.js; then
+            echo 'OLAP Reports reintroduced a global browser monkey patch'
+            exit 1
+          fi
+          if grep -q 'reports-fields-clean.js' reports.html; then
+            echo 'Legacy reports-fields-clean.js is active again'
+            exit 1
+          fi
+          if grep -q '<script src="reports.js' reports.html; then
+            echo 'reports.js must be loaded only by reports-loader.js'
+            exit 1
+          fi
+          grep -q 'reports-loader.js' reports.html
+          echo 'OLAP Reports bootstrap cleanup check passed'
+
   preview-smoke:
     if: github.event_name == 'pull_request'
     needs: javascript
@@ -77,6 +96,7 @@ jobs:
           pages=(
             "/"
             "/dashboard.html"
+            "/reports.html"
             "/pnl.html"
             "/finance.html"
             "/cash-shifts.html"
@@ -104,6 +124,7 @@ jobs:
             "/api/iiko/accounts"
             "/api/iiko/supplier-balances"
             "/api/iiko/chain"
+            "/api/iiko/olap"
             "/api/iiko/incoming-invoices"
             "/api/iiko/document-action"
             "/api/iiko/document-by-number"
