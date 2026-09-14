@@ -1,0 +1,23 @@
+name: Global Monkey Patch Audit
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Find global browser monkey patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -REn \
+            --include='*.js' \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude-dir=mobile \
+            --exclude='global-monkeypatch-audit.yml' \
+            'Storage\.prototype\.(getItem|setItem|removeItem)\s*=|window\.fetch\s*=|document\.addEventListener\s*=' . || true
