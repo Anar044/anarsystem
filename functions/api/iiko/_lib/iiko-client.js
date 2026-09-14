@@ -2,7 +2,9 @@
 // Keeps authentication, timeouts, retry logic and OLAP metadata caching in one place.
 
 const tokenCache = new Map();
+const authInFlight = new Map();
 const olapFieldsCache = new Map();
+const olapFieldsInFlight = new Map();
 
 const DEFAULT_TIMEOUT_MS = 20000;
 const TOKEN_TTL_MS = 4 * 60 * 1000;
@@ -42,22 +44,17 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_M
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (error) {
-    if (error?.name === "AbortError") throw new Error(`iiko не ответил за ${Math.round(timeoutMs / 1000)} секунд`);
+    if (error?.name === "AbortError") {
+      throw new Error(`iiko не ответил за ${Math.round(timeoutMs / 1000)} секунд`);
+    }
     throw error;
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function authenticate(connection, force = false) {
+async function performAuthentication(connection, key) {
   const c = normalizeConnection(connection);
-  const key = await connectionKey(c);
-  const cached = tokenCache.get(key);
-  const now = Date.now();
-  if (!force && cached?.token && cached.expiresAt > now) {
-    return { serverUrl: c.serverUrl, token: cached.token, cacheHit: true, connectionKey: key };
-  }
-
   const passwordHash = await sha1(c.password);
   const url = `${c.serverUrl}/resto/api/auth?login=${encodeURIComponent(c.login)}&pass=${passwordHash}`;
   const response = await fetchWithTimeout(url, { method: "GET", cache: "no-store" });
@@ -67,8 +64,33 @@ async function authenticate(connection, force = false) {
     throw new Error(`Ошибка авторизации iiko Server: HTTP ${response.status}`);
   }
 
-  tokenCache.set(key, { token, expiresAt: now + TOKEN_TTL_MS });
+  tokenCache.set(key, { token, expiresAt: Date.now() + TOKEN_TTL_MS });
   return { serverUrl: c.serverUrl, token, cacheHit: false, connectionKey: key };
+}
+
+async function authenticate(connection, force = false) {
+  const c = normalizeConnection(connection);
+  const key = await connectionKey(c);
+  const cached = tokenCache.get(key);
+  const now = Date.now();
+
+  if (!force && cached?.token && cached.expiresAt > now) {
+    return { serverUrl: c.serverUrl, token: cached.token, cacheHit: true, connectionKey: key };
+  }
+
+  if (force) {
+    tokenCache.delete(key);
+    authInFlight.delete(key);
+  } else {
+    const pending = authInFlight.get(key);
+    if (pending) return pending;
+  }
+
+  const pending = performAuthentication(c, key).finally(() => {
+    if (authInFlight.get(key) === pending) authInFlight.delete(key);
+  });
+  authInFlight.set(key, pending);
+  return pending;
 }
 
 export async function iikoFetch(connection, path, options = {}) {
@@ -106,7 +128,9 @@ export async function iikoJson(connection, path, options = {}) {
   const headers = { Accept: "application/json", ...(options.headers || {}) };
   const result = await iikoText(connection, path, { ...options, headers });
   let payload = null;
-  try { payload = JSON.parse(result.text || "{}"); } catch (_) {}
+  try {
+    payload = JSON.parse(result.text || "{}");
+  } catch (_) {}
   return { ...result, payload };
 }
 
@@ -129,7 +153,9 @@ function extractFields(raw) {
   if (Array.isArray(raw)) {
     for (const item of raw) {
       if (typeof item === "string") add(item);
-      else if (item && typeof item === "object") add(item.technicalName || item.field || item.key || item.code || item.id || item.name, item);
+      else if (item && typeof item === "object") {
+        add(item.technicalName || item.field || item.key || item.code || item.id || item.name, item);
+      }
     }
   } else if (raw && typeof raw === "object") {
     for (const key of ["fields", "columns", "dimensions", "measures"]) {
@@ -150,25 +176,43 @@ function extractFields(raw) {
 export async function getOlapFields(connection, reportType, options = {}) {
   const ttlMs = Number(options.ttlMs) > 0 ? Number(options.ttlMs) : OLAP_FIELDS_TTL_MS;
   const baseKey = await connectionKey(connection);
-  const cacheKey = `${baseKey}|fields|${clean(reportType).toUpperCase()}`;
+  const type = clean(reportType).toUpperCase();
+  const cacheKey = `${baseKey}|fields|${type}`;
   const cached = olapFieldsCache.get(cacheKey);
   const now = Date.now();
+
   if (!options.force && cached?.fields?.length && cached.expiresAt > now) {
     return { fields: cached.fields, cacheHit: true };
   }
 
-  const type = clean(reportType).toUpperCase();
-  const result = await iikoJson(connection, `/resto/api/v2/reports/olap/columns?reportType=${encodeURIComponent(type)}`);
-  if (!result.ok || !result.payload) {
-    throw new Error(`iiko OLAP columns HTTP ${result.status}: ${result.text.slice(0, 1000)}`);
+  if (!options.force) {
+    const pending = olapFieldsInFlight.get(cacheKey);
+    if (pending) return pending;
   }
-  const fields = extractFields(result.payload);
-  if (!fields.length) throw new Error("iiko не вернул OLAP-поля");
-  olapFieldsCache.set(cacheKey, { fields, expiresAt: now + ttlMs });
-  return { fields, cacheHit: false };
+
+  const pending = (async () => {
+    const result = await iikoJson(
+      connection,
+      `/resto/api/v2/reports/olap/columns?reportType=${encodeURIComponent(type)}`
+    );
+    if (!result.ok || !result.payload) {
+      throw new Error(`iiko OLAP columns HTTP ${result.status}: ${result.text.slice(0, 1000)}`);
+    }
+    const fields = extractFields(result.payload);
+    if (!fields.length) throw new Error("iiko не вернул OLAP-поля");
+    olapFieldsCache.set(cacheKey, { fields, expiresAt: Date.now() + ttlMs });
+    return { fields, cacheHit: false };
+  })().finally(() => {
+    if (olapFieldsInFlight.get(cacheKey) === pending) olapFieldsInFlight.delete(cacheKey);
+  });
+
+  olapFieldsInFlight.set(cacheKey, pending);
+  return pending;
 }
 
 export function clearIikoClientCache() {
   tokenCache.clear();
+  authInFlight.clear();
   olapFieldsCache.clear();
+  olapFieldsInFlight.clear();
 }
