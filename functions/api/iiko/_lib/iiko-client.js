@@ -93,6 +93,10 @@ async function authenticate(connection, force = false) {
   return pending;
 }
 
+export async function getIikoAuth(connection, options = {}) {
+  return authenticate(connection, options.force === true);
+}
+
 export async function iikoFetch(connection, path, options = {}) {
   const {
     method = "GET",
