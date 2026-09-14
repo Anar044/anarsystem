@@ -1,0 +1,68 @@
+name: State Encryption Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  encryption:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Verify AES-GCM state encryption
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { webcrypto } from 'node:crypto';
+          if (!globalThis.crypto) globalThis.crypto = webcrypto;
+          if (!globalThis.btoa) globalThis.btoa = value => Buffer.from(value, 'binary').toString('base64');
+          if (!globalThis.atob) globalThis.atob = value => Buffer.from(value, 'base64').toString('binary');
+
+          const {
+            encodeStoredIikoState,
+            decodeStoredIikoState,
+            IIKO_STATE_ENCRYPTION_ENV
+          } = await import('./functions/api/iiko/_lib/user-state.js');
+
+          const userId = 'ci-user';
+          const password = 'ci-sensitive-iiko-password';
+          const state = {
+            connection: { ip: '127.0.0.1', port: '8080', login: 'ci', password },
+            identity: { organizationId: 'ci-org' }
+          };
+          const env = { [IIKO_STATE_ENCRYPTION_ENV]: 'ci-only-encryption-secret-2026' };
+
+          const encoded = await encodeStoredIikoState(state, userId, env);
+          if (!encoded.encrypted) throw new Error('state was not encrypted');
+          if (encoded.value.includes(password)) throw new Error('ciphertext leaked the password');
+
+          const decoded = await decodeStoredIikoState(encoded.value, userId, env);
+          if (!decoded.encrypted) throw new Error('encrypted envelope was not detected');
+          if (decoded.state.connection.password !== password) throw new Error('decrypted password mismatch');
+
+          const legacy = await decodeStoredIikoState(JSON.stringify(state), userId, env);
+          if (legacy.encrypted) throw new Error('legacy plaintext was misclassified');
+          if (legacy.state.connection.password !== password) throw new Error('legacy plaintext compatibility failed');
+
+          let wrongKeyFailed = false;
+          try {
+            await decodeStoredIikoState(encoded.value, userId, {
+              [IIKO_STATE_ENCRYPTION_ENV]: 'wrong-key'
+            });
+          } catch {
+            wrongKeyFailed = true;
+          }
+          if (!wrongKeyFailed) throw new Error('wrong encryption key unexpectedly decrypted state');
+
+          let wrongUserFailed = false;
+          try {
+            await decodeStoredIikoState(encoded.value, 'different-user', env);
+          } catch {
+            wrongUserFailed = true;
+          }
+          if (!wrongUserFailed) throw new Error('ciphertext was not bound to user id');
+
+          console.log('AES-GCM iiko state encryption test passed');
+          NODE
