@@ -21,11 +21,28 @@
     }
   }
 
-  function ensureMenuEngineeringNav(){
+  function reportsSubnav(){
     const nav=document.querySelector('.sidebar .unified-main-nav');
     const group=nav?.querySelector('.reports-nav-group');
     const sub=group?.querySelector('.documents-subnav');
-    if(!nav||!group||!sub)return;
+    return{nav,group,sub};
+  }
+
+  function activateReport(link){
+    const {nav,group,sub}=reportsSubnav();
+    if(!nav||!group||!sub||!link)return;
+    nav.querySelectorAll(':scope > a[data-unified-nav-item]').forEach(a=>a.classList.remove('active'));
+    sub.querySelectorAll('a[data-unified-nav-item]').forEach(a=>a.classList.toggle('active',a===link));
+    const toggle=group.querySelector('.documents-nav-toggle');
+    group.classList.add('open');
+    toggle?.classList.add('active');
+    toggle?.setAttribute('aria-expanded','true');
+    sub.hidden=false;
+  }
+
+  function ensureMenuEngineeringNav(){
+    const {nav,group,sub}=reportsSubnav();
+    if(!nav||!group||!sub)return null;
 
     let link=sub.querySelector('a[data-unified-nav-item="menu-engineering.html"]');
     if(!link){
@@ -39,21 +56,34 @@
     }
 
     const path=currentPath();
-    const isMenuEngineering=path.endsWith('/menu-engineering')||path.endsWith('/menu-engineering.html');
-    if(!isMenuEngineering)return;
+    if(path.endsWith('/menu-engineering')||path.endsWith('/menu-engineering.html'))activateReport(link);
+    return link;
+  }
 
-    nav.querySelectorAll(':scope > a[data-unified-nav-item]').forEach(a=>a.classList.remove('active'));
-    sub.querySelectorAll('a[data-unified-nav-item]').forEach(a=>a.classList.toggle('active',a===link));
-    const toggle=group.querySelector('.documents-nav-toggle');
-    group.classList.add('open');
-    toggle?.classList.add('active');
-    toggle?.setAttribute('aria-expanded','true');
-    sub.hidden=false;
+  function ensureWaiterPerformanceNav(){
+    const {nav,group,sub}=reportsSubnav();
+    if(!nav||!group||!sub)return null;
+
+    let link=sub.querySelector('a[data-unified-nav-item="waiter-performance.html"]');
+    if(!link){
+      link=document.createElement('a');
+      link.href='/waiter-performance.html';
+      link.dataset.unifiedNavItem='waiter-performance.html';
+      link.innerHTML='<span class="side-icon">♙</span><span>Рейтинг официантов / Средний чек</span>';
+      const bcg=sub.querySelector('a[data-unified-nav-item="menu-engineering.html"]');
+      if(bcg)bcg.insertAdjacentElement('afterend',link);
+      else sub.appendChild(link);
+    }
+
+    const path=currentPath();
+    if(path.endsWith('/waiter-performance')||path.endsWith('/waiter-performance.html'))activateReport(link);
+    return link;
   }
 
   function sync(){
     normalizeCashNav();
     ensureMenuEngineeringNav();
+    ensureWaiterPerformanceNav();
     return true;
   }
 
@@ -66,6 +96,7 @@
         const path=currentPath();
         if(path==='/cash'||path.endsWith('/cash.html')||path.endsWith('/cash/index.html'))return'cash.html';
         if(path.endsWith('/menu-engineering')||path.endsWith('/menu-engineering.html'))return'menu-engineering.html';
+        if(path.endsWith('/waiter-performance')||path.endsWith('/waiter-performance.html'))return'waiter-performance.html';
         return null;
       }
     };

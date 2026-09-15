@@ -63,3 +63,12 @@
 
 /bcg-abc-xyz.css
   Cache-Control: no-cache, max-age=0, must-revalidate
+
+/waiter-performance.html
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/waiter-performance.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/waiter-performance.css
+  Cache-Control: no-cache, max-age=0, must-revalidate
