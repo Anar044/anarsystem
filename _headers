@@ -13,6 +13,9 @@
 /mobile-responsive.js
   Cache-Control: no-cache, max-age=0, must-revalidate
 
+/dashboard-assets.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
 /qr-menu.js
   Cache-Control: no-cache, max-age=0, must-revalidate
 
