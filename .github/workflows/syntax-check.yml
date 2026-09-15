@@ -197,7 +197,7 @@ jobs:
     needs: javascript
     runs-on: ubuntu-latest
     env:
-      PREVIEW_BASE: https://${{ github.head_ref }}.anarsystem.pages.dev
+      PREVIEW_BASE: https://${{ github.head_ref }}.smarthoreca.pages.dev
     steps:
       - name: Wait for current Cloudflare Pages preview
         shell: bash
