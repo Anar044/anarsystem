@@ -110,11 +110,16 @@ jobs:
           grep -q "action==='depreciation'" functions/api/assets.js
           grep -q 'Authorization' assets.js
           grep -q 'SH_IikoContext.getBinding' assets.js
-          if grep -Eq '/resto/api/|iikoFetch|getIikoAuth' functions/api/assets.js; then
+          grep -q 'fixed_asset_meta' functions/api/asset-meta.js
+          grep -q 'repairCost12m' assets-advanced.js
+          grep -q 'ASSET_FILES' functions/api/asset-files.js
+          grep -q 'fixed_asset_files' functions/api/asset-files.js
+          grep -q 'assets-advanced.js' assets.html
+          if grep -Eq '/resto/api/|iikoFetch|getIikoAuth' functions/api/assets.js functions/api/asset-meta.js functions/api/asset-files.js; then
             echo 'Fixed assets module must not call iiko Server'
             exit 1
           fi
-          echo 'Fixed assets D1 contract check passed'
+          echo 'Fixed assets D1 and R2 contract check passed'
 
       - name: Verify QR Menu uses safe context adapter
         shell: bash
@@ -268,6 +273,8 @@ jobs:
             "/api/iiko/document-by-number"
             "/api/iiko/state"
             "/api/assets"
+            "/api/asset-meta"
+            "/api/asset-files"
           )
           for path in "${routes[@]}"; do
             code=$(curl -sS -X OPTIONS -o /tmp/api.txt -w '%{http_code}' "$PREVIEW_BASE$path" || true)
