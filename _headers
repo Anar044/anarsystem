@@ -46,7 +46,7 @@
 /assets-plan.js
   Cache-Control: no-cache, max-age=0, must-revalidate
 
-/assets-plan.css
+/assets.css-plan.css
   Cache-Control: no-cache, max-age=0, must-revalidate
 
 /pnl.js
