@@ -115,11 +115,14 @@ jobs:
           grep -q 'ASSET_FILES' functions/api/asset-files.js
           grep -q 'fixed_asset_files' functions/api/asset-files.js
           grep -q 'assets-advanced.js' assets.html
+          grep -q '/assets-plan/assets.html' assets.html
+          grep -q '/api/asset-meta' assets-plan.js
+          grep -q '/api/assets' assets-plan.js
           if grep -Eq '/resto/api/|iikoFetch|getIikoAuth' functions/api/assets.js functions/api/asset-meta.js functions/api/asset-files.js; then
             echo 'Fixed assets module must not call iiko Server'
             exit 1
           fi
-          echo 'Fixed assets D1 and R2 contract check passed'
+          echo 'Fixed assets D1, R2 and planning contract check passed'
 
       - name: Verify QR Menu uses safe context adapter
         shell: bash
@@ -230,6 +233,7 @@ jobs:
             "/settings.html"
             "/qr-menu.html"
             "/assets.html"
+            "/assets-plan/assets.html"
             "/nakladnye.html"
             "/rashodnye-nakladnye.html"
             "/akty-spisaniya.html"
