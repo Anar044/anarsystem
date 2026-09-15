@@ -11,6 +11,12 @@ function fieldObject(fields,candidates){
   return null;
 }
 function fieldName(fields,candidates){return fieldObject(fields,candidates)?.name||null;}
+function candidateNames(fields,candidates){
+  const out=[];
+  for(const c of candidates){const q=norm(c);for(const f of fields){if((norm(f?.name)===q||norm(f?.title)===q)&&f?.name&&!out.includes(f.name))out.push(f.name);}}
+  for(const c of candidates){const q=norm(c);for(const f of fields){if((norm(f?.name).includes(q)||norm(f?.title).includes(q))&&f?.name&&!out.includes(f.name))out.push(f.name);}}
+  return out;
+}
 function endDate(value){const d=new Date(`${value}T00:00:00`);d.setDate(d.getDate()+1);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
 function rowObject(row,columns){if(!Array.isArray(row))return row&&typeof row==='object'?row:{};const out={};row.forEach((value,index)=>{const col=columns?.[index];const name=typeof col==='string'?col:col?.name||col?.field||col?.key||`col${index}`;out[name]=value;});return out;}
 function extractRows(report){
@@ -41,6 +47,44 @@ function parseUpsellProducts(value){
 }
 function normalizeProductName(value){return clean(value).toLowerCase().replace(/\s+/g,' ');}
 function waiterKey(value){return clean(value)||'Без официанта';}
+function isGroupingError(error){return /grouping\s+is\s+not\s+allowed|grouping.*not.*allowed|illegalargumentexception/i.test(String(error?.message||error||''));}
+
+async function loadOrderCounts({connection,fields,waiterField,dateField,revenueField,filters}){
+  const orderCountField=fieldName(fields,['UniqOrderId','UniqueOrderCount','UniqOrderCount','OrderCount','OrdersCount','OrderCountInt']);
+  if(orderCountField){
+    try{
+      const request={reportType:'SALES',buildSummary:false,groupByRowFields:[waiterField],groupByColFields:[],aggregateFields:[orderCountField],filters};
+      const result=await query(connection,request);
+      const counts=new Map();
+      for(const raw of extractRows(result.payload))counts.set(waiterKey(raw[waiterField]),Math.max(0,num(raw[orderCountField])));
+      return{counts,field:orderCountField,mode:'unique_order_measure',authCacheHit:result.authCacheHit};
+    }catch(error){
+      console.warn('[WAITER-PERFORMANCE] unique order measure failed',orderCountField,error?.message||error);
+    }
+  }
+
+  const dimensions=candidateNames(fields,['OrderNum','OrderNumber','Order.Number','OrderId','Order.Id']).filter(name=>norm(name)!==norm(orderCountField));
+  let lastError=null;
+  for(const orderField of dimensions){
+    for(const withDate of [true,false]){
+      try{
+        const rows=unique([waiterField,withDate?dateField:null,orderField]);
+        const request={reportType:'SALES',buildSummary:false,groupByRowFields:rows,groupByColFields:[],aggregateFields:[revenueField],filters};
+        const result=await query(connection,request);
+        const counts=new Map();
+        for(const raw of extractRows(result.payload)){
+          const key=waiterKey(raw[waiterField]);
+          counts.set(key,(counts.get(key)||0)+1);
+        }
+        return{counts,field:orderField,mode:withDate?'order_dimension_with_date':'order_dimension',authCacheHit:result.authCacheHit};
+      }catch(error){
+        lastError=error;
+        if(!isGroupingError(error))break;
+      }
+    }
+  }
+  throw new Error(`Не удалось определить количество заказов по официантам${lastError?`: ${lastError.message}`:''}`);
+}
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()});}
 
@@ -60,7 +104,6 @@ export async function onRequestPost(context){
     const fields=metadata.fields||[];
     const dateField=fieldName(fields,['OpenDate.Typed','OpenDate']);
     const waiterField=fieldName(fields,['DishWaiterName','WaiterName','OrderWaiterName','Waiter.Name','OrderWaiter.Name','EmployeeName','Waiter']);
-    const orderField=fieldName(fields,['UniqOrderId','OrderId','Order.Id','OrderNum','OrderNumber','Order.Number']);
     const dishField=fieldName(fields,['DishName','Product.Name','Dish','ProductName']);
     const revenueField=fieldName(fields,['DishDiscountSumInt','DishSumInt','Sales','DishDiscountSum']);
     const quantityField=fieldName(fields,['DishAmountInt','DishAmount','Quantity','DishQuantity']);
@@ -71,7 +114,6 @@ export async function onRequestPost(context){
     const missing=[];
     if(!dateField)missing.push('дата продажи');
     if(!waiterField)missing.push('официант');
-    if(!orderField)missing.push('заказ');
     if(!dishField)missing.push('блюдо');
     if(!revenueField)missing.push('выручка');
     if(!quantityField)missing.push('количество');
@@ -80,13 +122,12 @@ export async function onRequestPost(context){
 
     const filters=buildFilters({fields,dateField,from,to,departmentField,departmentIds});
     const aggregateFields=unique([revenueField,quantityField,profitField]);
-    const detailRequest={reportType:'SALES',buildSummary:false,groupByRowFields:unique([waiterField,orderField,dishField]),groupByColFields:[],aggregateFields,filters};
+    const detailRequest={reportType:'SALES',buildSummary:false,groupByRowFields:unique([waiterField,dishField]),groupByColFields:[],aggregateFields,filters};
     const detail=await query(connection,detailRequest);
     const rawRows=extractRows(detail.payload);
 
-    const detailRows=rawRows.map((raw,index)=>({
+    const detailRows=rawRows.map(raw=>({
       waiter:waiterKey(raw[waiterField]),
-      orderId:clean(raw[orderField])||`unknown-${index}`,
       dish:clean(raw[dishField])||'Без названия',
       revenue:num(raw[revenueField]),
       quantity:num(raw[quantityField]),
@@ -103,16 +144,21 @@ export async function onRequestPost(context){
     const map=new Map();
     for(const row of detailRows){
       const key=row.waiter;
-      if(!map.has(key))map.set(key,{waiter:key,revenue:0,quantity:0,profit:0,orders:new Set(),upsellQuantity:0,upsellRevenue:0,tips:null});
+      if(!map.has(key))map.set(key,{waiter:key,revenue:0,quantity:0,profit:0,orders:0,upsellQuantity:0,upsellRevenue:0,tips:null});
       const item=map.get(key);
       item.revenue+=row.revenue;
       item.quantity+=row.quantity;
       item.profit+=row.profit;
-      item.orders.add(row.orderId);
       const isConfigured=configuredSet.size&&configuredSet.has(normalizeProductName(row.dish));
       const unitProfit=row.quantity?row.profit/row.quantity:0;
       const isAuto=!configuredSet.size&&profitField&&row.quantity>0&&unitProfit>=autoMarginThreshold;
       if(isConfigured||isAuto){item.upsellQuantity+=row.quantity;item.upsellRevenue+=row.revenue;}
+    }
+
+    const orderCounts=await loadOrderCounts({connection,fields,waiterField,dateField,revenueField,filters});
+    for(const [key,count] of orderCounts.counts){
+      if(!map.has(key))map.set(key,{waiter:key,revenue:0,quantity:0,profit:0,orders:0,upsellQuantity:0,upsellRevenue:0,tips:null});
+      map.get(key).orders=Math.max(0,num(count));
     }
 
     let tipsAvailable=false;
@@ -126,7 +172,7 @@ export async function onRequestPost(context){
         const tipsRows=extractRows(tipsResult.payload);
         for(const raw of tipsRows){
           const key=waiterKey(raw[waiterField]);
-          if(!map.has(key))map.set(key,{waiter:key,revenue:0,quantity:0,profit:0,orders:new Set(),upsellQuantity:0,upsellRevenue:0,tips:0});
+          if(!map.has(key))map.set(key,{waiter:key,revenue:0,quantity:0,profit:0,orders:0,upsellQuantity:0,upsellRevenue:0,tips:0});
           map.get(key).tips=num(raw[tipField]);
         }
         tipsAvailable=true;
@@ -136,9 +182,9 @@ export async function onRequestPost(context){
       }
     }
 
-    const totalOrders=new Set(detailRows.map(r=>`${r.waiter}¦${r.orderId}`)).size;
+    const totalOrders=[...map.values()].reduce((s,item)=>s+Math.max(0,num(item.orders)),0);
     const waiters=[...map.values()].map(item=>{
-      const orders=item.orders.size;
+      const orders=Math.max(0,num(item.orders));
       const averageCheck=orders?item.revenue/orders:0;
       const checkDepth=orders?item.quantity/orders:0;
       const marginPct=item.revenue?item.profit/item.revenue*100:0;
@@ -147,7 +193,7 @@ export async function onRequestPost(context){
       const tips=tipsAvailable?num(item.tips):null;
       const tipsPerOrder=tipsAvailable&&orders?tips/orders:null;
       return{waiter:item.waiter,revenue:item.revenue,revenueShare,orders,averageCheck,quantity:item.quantity,checkDepth,profit:item.profit,marginPct,upsellQuantity:item.upsellQuantity,upsellRevenue:item.upsellRevenue,upsellPerOrder,tips,tipsPerOrder};
-    }).sort((a,b)=>b.revenue-a.revenue).map((row,index)=>({...row,rank:index+1}));
+    }).filter(row=>row.revenue!==0||row.quantity!==0||row.orders!==0||num(row.tips)!==0).sort((a,b)=>b.revenue-a.revenue).map((row,index)=>({...row,rank:index+1}));
 
     const totalTips=tipsAvailable?waiters.reduce((s,r)=>s+num(r.tips),0):null;
     const averageCheck=totalOrders?totalRevenue/totalOrders:0;
@@ -159,8 +205,8 @@ export async function onRequestPost(context){
       summary:{waiters:waiters.length,orders:totalOrders,revenue:totalRevenue,quantity:totalQuantity,profit:totalProfit,averageCheck,checkDepth,averageRevenuePerWaiter,totalTips},
       upsell:{mode:upsellMode,configuredProducts:upsellProducts,autoMarginThreshold,profitAvailable:Boolean(profitField)},
       tips:{available:tipsAvailable,message:tipsMessage,field:tipField},
-      fields:{dateField,waiterField,orderField,dishField,revenueField,quantityField,profitField,departmentField,tipField},
-      meta:{departmentIds,departmentScopeApplied:departmentIds.length>0,olapFieldsCacheHit:metadata.cacheHit===true,authCacheHit:detail.authCacheHit,tipsAuthCacheHit}
+      fields:{dateField,waiterField,dishField,revenueField,quantityField,profitField,departmentField,tipField,orderCountField:orderCounts.field,orderCountMode:orderCounts.mode},
+      meta:{departmentIds,departmentScopeApplied:departmentIds.length>0,olapFieldsCacheHit:metadata.cacheHit===true,authCacheHit:detail.authCacheHit,orderCountAuthCacheHit:orderCounts.authCacheHit,tipsAuthCacheHit}
     });
   }catch(error){
     console.error(`[WAITER-PERFORMANCE][${requestId}]`,error);
