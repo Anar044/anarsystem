@@ -34,5 +34,11 @@
 /assets.css
   Cache-Control: no-cache, max-age=0, must-revalidate
 
+/assets-advanced.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/assets-advanced.css
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
 /pnl.js
   Cache-Control: no-cache, max-age=0, must-revalidate
