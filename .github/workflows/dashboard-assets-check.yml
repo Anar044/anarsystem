@@ -1,0 +1,26 @@
+name: Dashboard Asset Alerts Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  dashboard-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Verify dashboard equipment alerts
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'dashboard-assets.js' dashboard.html
+          grep -q '/api/asset-meta' dashboard-assets.js
+          grep -q 'SH_IikoContext.*getBinding' dashboard-assets.js
+          grep -q 'restaurantId' functions/api/asset-meta.js
+          grep -q '/assets-plan/assets.html' dashboard-assets.js
+          if grep -Eq '/resto/api/|iikoFetch|getIikoAuth' dashboard-assets.js; then
+            echo 'Dashboard asset alerts must not call iiko Server directly'
+            exit 1
+          fi
+          echo 'Dashboard equipment alerts contract check passed'

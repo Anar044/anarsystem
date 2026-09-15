@@ -4,8 +4,39 @@ if(window.__SH_MOBILE_RESPONSIVE__)return;window.__SH_MOBILE_RESPONSIVE__=true;
 const style=document.createElement('style');style.id='sh-mobile-responsive';style.textContent=`@media(max-width:760px){html,body{width:100%;max-width:100%;overflow-x:hidden!important;-webkit-text-size-adjust:100%}body{padding-bottom:74px!important}.app-shell,.app{display:block!important;width:100%!important;min-width:0!important}.main{width:100%!important;min-width:0!important;margin:0!important}.topbar{height:64px!important;min-height:64px!important;padding:0 14px!important;position:sticky!important;top:0!important;z-index:90!important}.topbar .title,.topbar-title{font-size:15px!important;line-height:1.15!important}.topbar .crumb,.topbar-sub{font-size:10px!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;max-width:230px!important}.topbar .avatar,.topbar .user-avatar{width:34px!important;height:34px!important;min-width:34px!important}.top-actions{gap:5px!important}.sidebar{display:none!important}.sh-mobile-nav{position:fixed!important;left:7px!important;right:7px!important;bottom:8px!important;height:60px!important;display:grid!important;grid-template-columns:repeat(6,1fr)!important;gap:2px!important;padding:5px!important;background:rgba(15,21,29,.97)!important;border:1px solid #273340!important;border-radius:18px!important;box-shadow:0 14px 40px rgba(0,0,0,.42)!important;backdrop-filter:blur(18px)!important;-webkit-backdrop-filter:blur(18px)!important;z-index:9999!important}.sh-mobile-nav a{display:flex!important;min-width:0!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:2px!important;border-radius:12px!important;text-decoration:none!important;color:#7f8b99!important;font-size:7px!important;font-weight:700!important;line-height:1!important}.sh-mobile-nav a.active{background:#15251f!important;color:#42d392!important}.sh-mobile-nav .mnav-icon{font-size:17px!important;line-height:19px!important}.sh-mobile-nav .mnav-label{white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;max-width:100%!important}.content,.page,.app-content,.reports-page,.settings-page,.finance-page,.accounts-page{width:100%!important;max-width:none!important;margin:0!important;padding:18px 14px 30px!important;min-width:0!important}.finance-page{padding:18px 14px 34px!important}.finance-page .fin-table-wrap{width:100%!important;overflow-x:auto!important}.finance-page .fin-accounts-table{min-width:720px!important}.tablewrap{width:100%!important;overflow-x:auto!important}.tablewrap table{min-width:620px!important}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}.grid,.grid3{grid-template-columns:1fr!important}.card,.panel{min-width:0!important}.settings-grid,.olap-workspace,.olap-grid,.olap-zones,.request-grid,.shift-summary-grid{grid-template-columns:1fr!important}.fin-grid{grid-template-columns:1fr!important}.fin-kpis{grid-template-columns:1fr 1fr!important}.date-row{flex-wrap:wrap}.date-row input{flex:1;min-width:130px}.fin-btn{width:100%!important}.fin-chart{height:240px!important}.fin-bars{height:175px!important}.chart{max-width:100%!important}.reports-header{flex-direction:column!important}.olap-workspace,.olap-grid{display:flex!important;flex-direction:column!important}.accounts-page{padding:18px 14px 34px!important}.acc-tools{grid-template-columns:1fr!important}.acc-stats{grid-template-columns:1fr 1fr!important}.acc-table-wrap{overflow-x:auto!important}}
 @media(max-width:420px){.content,.page,.app-content,.reports-page,.settings-page,.accounts-page,.finance-page{padding-left:12px!important;padding-right:12px!important}.kpis,.fin-kpis,.acc-stats{grid-template-columns:1fr!important}}
 `;document.head.appendChild(style);
-function currentPage(){const p=location.pathname.toLowerCase();if(p.endsWith('/reports')||p.endsWith('/reports.html'))return'reports.html';if(p.endsWith('/finance')||p.endsWith('/finance.html')||p.endsWith('/accounts')||p.endsWith('/accounts.html'))return'finance.html';if(p.endsWith('/plugin-control')||p.endsWith('/plugin-control.html'))return'plugin-control.html';if(p.endsWith('/qr-menu')||p.endsWith('/qr-menu.html'))return'qr-menu.html';if(p.endsWith('/settings')||p.endsWith('/settings.html'))return'settings.html';return'index.html'}
-function addMobileNav(){if(window.innerWidth>760||document.querySelector('.sh-mobile-nav'))return;const nav=document.createElement('nav');nav.className='sh-mobile-nav';const page=currentPage();const items=[['index.html','⌂','Dashboard','index.html'],['reports.html','▥','OLAP','reports.html'],['finance.html','₽','Финансы','finance.html'],['plugin-control.html','▣','Кассы','plugin-control.html'],['qr-menu.html','▦','QR Menu','qr-menu.html'],['settings.html','⚙','Настройки','settings.html']];nav.innerHTML=items.map(x=>`<a href="${x[0]}" class="${x[3]===page?'active':''}"><span class="mnav-icon">${x[1]}</span><span class="mnav-label">${x[2]}</span></a>`).join('');document.body.appendChild(nav)}
+function currentPage(){
+  const p=location.pathname.toLowerCase().replace(/\/$/,'');
+  if(p==='/reports'||p.endsWith('/reports.html'))return'reports.html';
+  if(p==='/finance'||p.endsWith('/finance.html')||p==='/accounts'||p.endsWith('/accounts.html'))return'finance.html';
+  if(p==='/cash'||p.endsWith('/cash.html')||p.endsWith('/cash/index.html'))return'cash.html';
+  if(p==='/qr-menu'||p.endsWith('/qr-menu.html'))return'qr-menu.html';
+  if(p==='/settings'||p.endsWith('/settings.html'))return'settings.html';
+  if(p==='/pnl'||p.endsWith('/pnl.html'))return'pnl.html';
+  if(p==='/abc-xyz'||p.endsWith('/abc-xyz.html'))return'abc-xyz.html';
+  if(p==='/supplier-balances'||p.endsWith('/supplier-balances.html'))return'supplier-balances.html';
+  if(p==='/cash-shifts'||p.endsWith('/cash-shifts.html'))return'cash-shifts.html';
+  if(p==='/nomenclature'||p.endsWith('/nomenclature.html'))return'nomenclature.html';
+  if(p==='/nakladnye'||p.endsWith('/nakladnye.html'))return'nakladnye.html';
+  if(p==='/rashodnye-nakladnye'||p.endsWith('/rashodnye-nakladnye.html'))return'rashodnye-nakladnye.html';
+  if(p==='/akty-spisaniya'||p.endsWith('/akty-spisaniya.html'))return'akty-spisaniya.html';
+  if(p==='/vnutrennie-peremescheniya'||p.endsWith('/vnutrennie-peremescheniya.html'))return'vnutrennie-peremescheniya.html';
+  return'index.html';
+}
+function addMobileNav(){
+  if(window.innerWidth>760||document.querySelector('.sh-mobile-nav'))return;
+  const nav=document.createElement('nav');nav.className='sh-mobile-nav';
+  const page=currentPage();
+  const items=[
+    ['/index.html','⌂','Dashboard','index.html'],
+    ['/reports.html','▥','OLAP','reports.html'],
+    ['/finance.html','₽','Финансы','finance.html'],
+    ['/cash','▣','Кассы','cash.html'],
+    ['/qr-menu.html','▦','QR Menu','qr-menu.html'],
+    ['/settings.html','⚙','Настройки','settings.html']
+  ];
+  nav.innerHTML=items.map(x=>`<a href="${x[0]}" class="${x[3]===page?'active':''}"><span class="mnav-icon">${x[1]}</span><span class="mnav-label">${x[2]}</span></a>`).join('');
+  document.body.appendChild(nav);
+}
 function refresh(){const nav=document.querySelector('.sh-mobile-nav');if(window.innerWidth<=760){if(!nav)addMobileNav()}else if(nav)nav.remove()}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',refresh,{once:true});else refresh();window.addEventListener('resize',refresh,{passive:true});
 })();

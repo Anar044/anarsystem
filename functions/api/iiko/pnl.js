@@ -10,19 +10,16 @@
 // Account.Name is display-only.
 // ============================================================
 
+import { clean, getOlapFields, iikoJson } from './_lib/iiko-client.js';
+
 function corsHeaders(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...corsHeaders()}})}
-function clean(v){return String(v??'').trim()}
-async function sha1(s){const h=await crypto.subtle.digest('SHA-1',new TextEncoder().encode(s));return[...new Uint8Array(h)].map(x=>x.toString(16).padStart(2,'0')).join('')}
-async function auth(b){const ip=clean(b.ip),port=clean(b.port),login=clean(b.login),password=String(b.password??'');if(!ip||!port||!login||!password)throw Error('Заполните IP, порт, логин и пароль iiko');const u=`http://${ip}:${port}`,p=await sha1(password);const r=await fetch(`${u}/resto/api/auth?login=${encodeURIComponent(login)}&pass=${p}`);const t=(await r.text()).trim();if(!r.ok||!t)throw Error(`Ошибка авторизации iiko: HTTP ${r.status}`);return{u,t}}
-async function get(u,o={}){const r=await fetch(u,{...o,headers:{Accept:'application/json',...(o.headers||{})},cache:'no-store'});const t=(await r.text()).trim();let p=null;try{p=JSON.parse(t||'{}')}catch{}return{r,t,p}}
-function normalizeFields(raw){const out=[];const add=(name,meta={})=>{name=clean(name);if(!name||out.some(x=>x.name.toLowerCase()===name.toLowerCase()))return;out.push({name,title:clean(meta.title||meta.caption||meta.label||meta.displayName||meta.name||name),type:clean(meta.type||meta.dataType||meta.kind||'unknown')})};if(Array.isArray(raw))raw.forEach(x=>typeof x==='string'?add(x):x&&add(x.technicalName||x.field||x.key||x.code||x.id||x.name,x));else if(raw&&typeof raw==='object'){for(const k of['fields','columns','dimensions','measures'])if(Array.isArray(raw[k]))raw[k].forEach(x=>typeof x==='string'?add(x):x&&add(x.technicalName||x.field||x.key||x.code||x.id||x.name,x));for(const[k,v]of Object.entries(raw))if(!['fields','columns','dimensions','measures','data','items'].includes(k)&&v&&typeof v==='object'&&!Array.isArray(v))add(k,v)}return out}
-async function cols(u,t,type){const x=await get(`${u}/resto/api/v2/reports/olap/columns?key=${encodeURIComponent(t)}&reportType=${encodeURIComponent(type)}`);if(!x.r.ok||!x.p)throw Error(`OLAP ${type}: HTTP ${x.r.status}`);return normalizeFields(x.p)}
 function norm(s){return clean(s).toLowerCase().replace(/[\s._()\/-]+/g,'')}
 function findField(fs,candidates){for(const c of candidates){const q=norm(c),x=fs.find(f=>norm(f.name)===q||norm(f.title)===q);if(x)return x.name}for(const c of candidates){const q=norm(c),x=fs.find(f=>norm(f.name).includes(q)||norm(f.title).includes(q));if(x)return x.name}return null}
 function endExclusive(to){const d=new Date(`${to}T00:00:00`);d.setDate(d.getDate()+1);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function dateFilter(from,to){return{filterType:'DateRange',periodType:'CUSTOM',from,to:endExclusive(to)}}
-async function olap(u,t,type,q){const req={reportType:type,buildSummary:true,groupByRowFields:q.rows||[],groupByColFields:q.cols||[],aggregateFields:q.measures||[],filters:{...(q.filters||{})}};if(q.from&&q.to&&q.dateField)req.filters[q.dateField]=dateFilter(q.from,q.to);const x=await get(`${u}/resto/api/v2/reports/olap?key=${encodeURIComponent(t)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req)});return{request:req,ok:x.r.ok,report:x.p,error:x.r.ok?null:`HTTP ${x.r.status}: ${x.t.slice(0,2000)}`}}
+function departmentFilter(ids){return{filterType:'IncludeValues',values:[...new Set((ids||[]).map(String).filter(Boolean))]}}
+async function olap(connection,type,q){const req={reportType:type,buildSummary:true,groupByRowFields:q.rows||[],groupByColFields:q.cols||[],aggregateFields:q.measures||[],filters:{...(q.filters||{})}};if(q.from&&q.to&&q.dateField)req.filters[q.dateField]=dateFilter(q.from,q.to);if(q.departmentIds?.length&&q.departmentField)req.filters[q.departmentField]=departmentFilter(q.departmentIds);const x=await iikoJson(connection,'/resto/api/v2/reports/olap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req)});return{request:req,ok:x.ok,report:x.payload,error:x.ok?null:`HTTP ${x.status}: ${x.text.slice(0,2000)}`}}
 function number(v){if(typeof v==='number')return Number.isFinite(v)?v:0;if(v===null||v===undefined||v==='')return 0;const n=Number(String(v).replace(/\s/g,'').replace(',','.'));return Number.isFinite(n)?n:0}
 function value(row,key){return number(row?.[key]??row?.[String(key).toLowerCase()]??0)}
 function allRows(report){return Array.isArray(report?.data)?report.data:[]}
@@ -63,9 +60,16 @@ export async function onRequestPost({request}){
     const from=clean(b.from).slice(0,10),to=clean(b.to||b.from).slice(0,10);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return json({success:false,message:'Укажите корректный период'},400);
 
-    const{u,t}=await auth(b);
-    const salesFields=await cols(u,t,'SALES');
-    const transactionFields=await cols(u,t,'TRANSACTIONS');
+    const connection={ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??'')};
+    if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:'Заполните IP, порт, логин и пароль iiko'},400);
+    const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(String).filter(Boolean))]:[];
+
+    const [salesMeta,transactionMeta]=await Promise.all([
+      getOlapFields(connection,'SALES'),
+      getOlapFields(connection,'TRANSACTIONS')
+    ]);
+    const salesFields=salesMeta.fields;
+    const transactionFields=transactionMeta.fields;
 
     // ------------------------------------------------------------
     // SALES OLAP: analytics by category only.
@@ -74,19 +78,9 @@ export async function onRequestPost({request}){
     const salesBase=findField(salesFields,['DishSumInt','Сумма без учета скидок и надбавок','Сумма без скидки','Сумма без скидок','Торговая выручка без учета скидок']);
     const category=findField(salesFields,['DishCategory','DishCategory.Name','DishCategoryName','Category','Category.Name','CategoryName','Категория блюда']);
     const salesDate=findField(salesFields,['OpenDate.Typed','OpenDate','Учетный день','Дата']);
+    const salesDepartment=findField(salesFields,['Department.Id','Department.ID','DepartmentId','Department.Guid','Department.UUID','Department.Uuid']);
     if(!salesBase)throw Error('В OLAP SALES не найдено поле для суммы продаж.');
     if(!category)throw Error('В OLAP SALES не найдено поле «Категория блюда».');
-
-    const categoryQuery=await olap(u,t,'SALES',{rows:[category],measures:[salesBase],from,to,dateField:salesDate||'OpenDate.Typed'});
-    if(!categoryQuery.ok)throw Error(`OLAP SALES по категориям: ${categoryQuery.error}`);
-    const categoryRows=allRows(categoryQuery.report).map(r=>({
-      name:rowText(r,category)||'Без категории',
-      base:value(r,salesBase),
-      value:value(r,salesBase)
-    })).filter(x=>x.name&&Math.abs(x.value)>0.000001);
-    const categoryBase=sumField(categoryQuery.report,salesBase);
-    const categoryRevenue=categoryBase;
-    if(!categoryRows.length)throw Error('iiko OLAP SALES не вернул строки по категориям за выбранный период.');
 
     // ------------------------------------------------------------
     // TRANSACTIONS OLAP: P&L blocks by Account.Type.
@@ -98,14 +92,41 @@ export async function onRequestPost({request}){
     const accountType=findField(transactionFields,['Account.Type','AccountType','Account.TypeName','Account.Kind','Тип счета','Тип счёта','Type']);
     const counterAccount=findField(transactionFields,['CounterAccount.Name','CounterAccountName','Корр.Счет/Склад','Корр. Счет/Склад','CounterAccount']);
     const trDate=findField(transactionFields,['DateTime.DateTyped','DateTime.Typed','DateTime.Date','Date.Typed','Date','TransactionDate','OperationDate','OpenDate.Typed','Учетный день']);
+    const transactionDepartment=findField(transactionFields,['Department.Id','Department.ID','DepartmentId','Department.Guid','Department.UUID','Department.Uuid','Transaction.DepartmentId','Transaction.Department.Id']);
     if(!article||!amount)throw Error('В OLAP TRANSACTIONS не найдены поля «Счет» и/или «Сумма».');
     if(!accountType)throw Error('В OLAP TRANSACTIONS не найдено поле «Тип счета».');
 
+    // SALES must stay restaurant-scoped because this dimension is available on
+    // normal iiko SALES reports. TRANSACTIONS differs between iiko versions:
+    // some installations do not expose any Department.Id-like dimension at all.
+    // In that case keep the legacy working behaviour (server-wide TRANSACTIONS)
+    // instead of failing the whole P&L, but expose an explicit scope warning.
+    if(departmentIds.length&&!salesDepartment)throw Error('В OLAP SALES не найден Department.Id для фильтра выбранного ресторана.');
+    const transactionDepartmentScopeApplied=departmentIds.length>0&&!!transactionDepartment;
+    const scopeWarning=departmentIds.length&&!transactionDepartment
+      ?'iiko TRANSACTIONS не отдаёт поле Department.Id: продажи по категориям ограничены выбранным рестораном, а финансовые проводки временно получены по всему подключённому iiko Server.'
+      :null;
+
     const postingRows=[article,accountType];
     for(const f of[accountId,counterAccount])if(f&&!postingRows.includes(f))postingRows.push(f);
-    const postingQuery=await olap(u,t,'TRANSACTIONS',{rows:postingRows,measures:[amount],from,to,dateField:trDate||'DateTime.DateTyped'});
+
+    const [categoryQuery,postingQuery]=await Promise.all([
+      olap(connection,'SALES',{rows:[category],measures:[salesBase],from,to,dateField:salesDate||'OpenDate.Typed',departmentIds,departmentField:salesDepartment}),
+      olap(connection,'TRANSACTIONS',{rows:postingRows,measures:[amount],from,to,dateField:trDate||'DateTime.DateTyped',departmentIds:transactionDepartment?departmentIds:[],departmentField:transactionDepartment})
+    ]);
+    if(!categoryQuery.ok)throw Error(`OLAP SALES по категориям: ${categoryQuery.error}`);
     if(!postingQuery.ok)throw Error(`OLAP TRANSACTIONS: ${postingQuery.error}`);
 
+    const categoryRows=allRows(categoryQuery.report).map(r=>({
+      name:rowText(r,category)||'Без категории',
+      base:value(r,salesBase),
+      value:value(r,salesBase)
+    })).filter(x=>x.name&&Math.abs(x.value)>0.000001);
+    const categoryBase=sumField(categoryQuery.report,salesBase);
+    const categoryRevenue=categoryBase;
+
+    // Empty SALES rows are valid: the restaurant can have expenses/postings
+    // in a period without sales. P&L must still be generated from transactions.
     const rawPostings=allRows(postingQuery.report);
     const postings=rawPostings.map(r=>{
       const item={
@@ -185,14 +206,26 @@ export async function onRequestPost({request}){
       accounts:postings.map(x=>({...x,pnlCategory:x.role})),
       accountTypeSummary:{REVENUE:revenueAccounts,COGS:cogsAccounts,OPEX:opexAccounts,OTHER_INCOME:otherIncomeAccounts,OTHER_EXPENSE:otherExpenseAccounts},
       salesFields,transactionFields,
-      sourceNote:'iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; Account.Name берётся напрямую из iiko · P&L выручка: TRANSACTIONS · без кассовых смен',
+      sourceNote:`iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; Account.Name берётся напрямую из iiko · P&L выручка: TRANSACTIONS · без кассовых смен${scopeWarning?' · ⚠ TRANSACTIONS без фильтра ресторана':''}`,
+      meta:{
+        departmentIds,
+        departmentScopeApplied:departmentIds.length>0&&!!salesDepartment&&!!transactionDepartment,
+        salesDepartmentScopeApplied:departmentIds.length>0&&!!salesDepartment,
+        transactionDepartmentScopeApplied,
+        scopeWarning,
+        salesDepartmentField:salesDepartment||null,
+        transactionDepartmentField:transactionDepartment||null,
+        salesFieldsCacheHit:salesMeta.cacheHit,
+        transactionFieldsCacheHit:transactionMeta.cacheHit
+      },
       debug:{
         salesRequest:categoryQuery.request,
+        transactionRequest:postingQuery.request,
         salesRows:categoryRows.length,
         salesReport:categoryQuery.report,
         transactionRows:rawPostings.length,
-        selectedSalesFields:{salesBase,category,salesDate},
-        selectedTransactionFields:{article,amount,accountId,accountType,counterAccount,trDate},
+        selectedSalesFields:{salesBase,category,salesDate,salesDepartment},
+        selectedTransactionFields:{article,amount,accountId,accountType,counterAccount,trDate,transactionDepartment},
         accountTypeSummary:{REVENUE:revenueAccounts.length,COGS:cogsAccounts.length,OPEX:opexAccounts.length,OTHER_INCOME:otherIncomeAccounts.length,OTHER_EXPENSE:otherExpenseAccounts.length,UNCLASSIFIED:postings.filter(x=>x.role==='UNCLASSIFIED').length},
         revenueAccounts:revenueAccounts.map(x=>({id:x.accountId,name:x.name,type:x.accountType,value:x.value})),
         cogsAccounts:cogsAccounts.map(x=>({id:x.accountId,name:x.name,type:x.accountType,value:x.value})),

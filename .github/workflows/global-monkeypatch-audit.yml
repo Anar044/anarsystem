@@ -1,0 +1,26 @@
+name: Global Monkey Patch Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Reject global browser monkey patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -REn \
+            --include='*.js' \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude-dir=mobile \
+            'Storage\.prototype\.(getItem|setItem|removeItem)\s*=|window\.fetch\s*=|document\.addEventListener\s*=' .; then
+            echo 'Global browser monkey patch detected. Use an explicit context/API adapter instead.'
+            exit 1
+          fi
+          echo 'No global browser monkey patches found.'

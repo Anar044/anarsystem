@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Smart Horeca — Инвентарь и основные средства</title>
+  <link rel="stylesheet" href="app-shell.css">
+  <link rel="stylesheet" href="assets.css?v=20260915-1">
+  <link rel="stylesheet" href="assets-advanced.css?v=20260915-1">
+</head>
+<body data-protected="true" style="background:#0b1017">
+<div class="app-shell">
+  <aside class="sidebar"></aside>
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+        <span class="topbar-title">Инвентарь и основные средства</span>
+        <div class="topbar-sub">Имущество · амортизация · история обслуживания</div>
+      </div>
+    </header>
+
+    <div class="asset-page">
+      <section class="asset-hero">
+        <div>
+          <div class="eyebrow">УПРАВЛЕНИЕ ИМУЩЕСТВОМ</div>
+          <h1>Склад инвентаря</h1>
+          <p>Оборудование, мебель и другое имущество ресторана с автоматическим расчётом амортизации.</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><a class="ghost" href="/assets-plan/assets.html" style="text-decoration:none">⚙ План ТО и замены</a><button class="primary" id="addAsset">＋ Добавить имущество</button></div>
+      </section>
+
+      <section class="asset-kpis">
+        <article><span>Объектов</span><strong id="kpiCount">0</strong><small>в реестре</small></article>
+        <article><span>Первоначальная стоимость</span><strong id="kpiCost">0,00 ₼</strong><small>всего имущества</small></article>
+        <article class="accent"><span>Амортизация в месяц</span><strong id="kpiMonthly">0,00 ₼</strong><small>активные объекты</small></article>
+        <article><span>Остаточная стоимость</span><strong id="kpiBook">0,00 ₼</strong><small>на текущую дату</small></article>
+      </section>
+
+      <section class="asset-card controls">
+        <div class="search-wrap"><input id="search" placeholder="Поиск по названию, номеру, категории..."></div>
+        <select id="restaurantFilter"><option value="">Все рестораны</option></select>
+        <select id="statusFilter">
+          <option value="">Все статусы</option>
+          <option value="ACTIVE">В работе</option>
+          <option value="REPAIR">В ремонте</option>
+          <option value="DISPOSED">Списан</option>
+          <option value="SOLD">Продан</option>
+        </select>
+      </section>
+
+      <section class="asset-card">
+        <div class="section-head"><div><h2>Имущество</h2><span id="assetCountNote">Загрузка...</span></div></div>
+        <div class="asset-table-wrap">
+          <table class="asset-table">
+            <thead><tr><th>Объект</th><th>Ресторан / место</th><th>Стоимость</th><th>Амортизация / мес.</th><th>Остаток</th><th>Статус</th><th></th></tr></thead>
+            <tbody id="assetRows"></tbody>
+          </table>
+          <div class="empty" id="assetEmpty" hidden>Пока нет имущества. Добавьте первый объект.</div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="modal" id="assetModal">
+  <div class="modal-box wide">
+    <div class="modal-head"><div><h2 id="assetModalTitle">Новое имущество</h2><p>Финансовая карточка основного средства</p></div><button class="close" data-close="assetModal">×</button></div>
+    <form id="assetForm" class="asset-form">
+      <input type="hidden" id="assetId">
+      <div class="field span2"><label>Название *</label><input id="assetName" required placeholder="Например: Холодильник основной кухни"></div>
+      <div class="field"><label>Категория</label><input id="assetCategory" list="assetCategories" placeholder="Оборудование"></div>
+      <div class="field"><label>Ресторан *</label><select id="assetRestaurant" required></select></div>
+      <div class="field"><label>Инвентарный номер</label><input id="inventoryNumber" placeholder="INV-0001"></div>
+      <div class="field"><label>Серийный номер</label><input id="serialNumber"></div>
+      <div class="field span2"><label>Место установки</label><input id="assetLocation" placeholder="Основная кухня / бар / зал"></div>
+      <div class="field"><label>Дата покупки</label><input id="purchaseDate" type="date"></div>
+      <div class="field"><label>Ввод в эксплуатацию *</label><input id="inServiceDate" type="date" required></div>
+      <div class="field"><label>Стоимость покупки, ₼ *</label><input id="purchaseCost" type="number" min="0" step="0.01" required></div>
+      <div class="field"><label>Ликвидационная стоимость, ₼</label><input id="salvageValue" type="number" min="0" step="0.01" value="0"></div>
+      <div class="field"><label>Срок службы, месяцев *</label><input id="usefulLifeMonths" type="number" min="1" step="1" value="60" required><small id="lifeHint">60 мес. = 5 лет</small></div>
+      <div class="field"><label>Метод амортизации</label><input value="Линейный" disabled><small>Стоимость распределяется равномерно по сроку службы.</small></div>
+      <div class="field"><label>Статус</label><select id="assetStatus"><option value="ACTIVE">В работе</option><option value="REPAIR">В ремонте</option><option value="DISPOSED">Списан</option><option value="SOLD">Продан</option></select></div>
+      <div class="field"><label>Дата выбытия</label><input id="disposedAt" type="date"></div>
+      <div class="calc-preview span2" id="calcPreview"></div>
+      <div class="field span2"><label>Примечание</label><textarea id="assetNotes" placeholder="Дополнительная информация об объекте"></textarea></div>
+      <div class="modal-actions span2"><button type="button" class="ghost danger" id="deleteAsset" hidden>Удалить</button><span></span><button type="button" class="ghost" data-close="assetModal">Отмена</button><button type="submit" class="primary">Сохранить</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="modal" id="detailModal">
+  <div class="modal-box detail-box">
+    <div class="modal-head"><div><div class="eyebrow">КАРТОЧКА ИМУЩЕСТВА</div><h2 id="detailName">—</h2><p id="detailMeta"></p></div><button class="close" data-close="detailModal">×</button></div>
+    <div class="detail-kpis" id="detailKpis"></div>
+    <div class="detail-grid">
+      <section><div class="subhead"><h3>История объекта</h3><button class="small-primary" id="addEvent">＋ Событие</button></div><div class="timeline" id="eventList"></div></section>
+      <aside><h3>Данные объекта</h3><div class="facts" id="detailFacts"></div><button class="ghost full" id="editFromDetail">Редактировать карточку</button></aside>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="eventModal">
+  <div class="modal-box">
+    <div class="modal-head"><div><h2>Новое событие</h2><p>История эксплуатации и ремонта</p></div><button class="close" data-close="eventModal">×</button></div>
+    <form id="eventForm" class="event-form">
+      <div class="field"><label>Тип события</label><select id="eventType"><option value="BREAKDOWN">Поломка</option><option value="REPAIR">Ремонт</option><option value="MAINTENANCE">Обслуживание</option><option value="PART">Замена детали</option><option value="INSPECTION">Осмотр</option><option value="NOTE">Заметка</option></select></div>
+      <div class="field"><label>Дата *</label><input id="eventDate" type="date" required></div>
+      <div class="field span2"><label>Название события</label><input id="eventTitle" placeholder="Например: Замена компрессора"></div>
+      <div class="field span2"><label>Описание</label><textarea id="eventDescription"></textarea></div>
+      <div class="field"><label>Стоимость, ₼</label><input id="eventCost" type="number" min="0" step="0.01" value="0"></div>
+      <div class="field"><label>Исполнитель / сервис</label><input id="eventVendor" placeholder="Название сервиса или мастер"></div>
+      <div class="modal-actions span2"><button type="button" class="ghost" data-close="eventModal">Отмена</button><button type="submit" class="primary">Добавить в историю</button></div>
+    </form>
+  </div>
+</div>
+
+<datalist id="assetCategories"><option value="Холодильное оборудование"><option value="Тепловое оборудование"><option value="Барное оборудование"><option value="Кофейное оборудование"><option value="Вентиляция и климат"><option value="Мебель"><option value="Посуда и инвентарь"><option value="IT и кассовое оборудование"><option value="Транспорт"><option value="Прочее"></datalist>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script><script src="auth.js"></script>
+<script src="iiko-context.js?v=20260911-2"></script>
+<script src="app-shell.js"></script>
+<script src="assets.js?v=20260915-1"></script>
+<script src="assets-advanced.js?v=20260915-1"></script>
+</body></html>

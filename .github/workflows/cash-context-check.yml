@@ -1,0 +1,60 @@
+name: Cash Context Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Verify cash modules do not monkey patch browser globals
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(iiko-d1-bridge.js cash-context.js cash-order-detail-fix.js cash-high-risk.js)
+          if grep -En 'Storage\.prototype|window\.fetch\s*=|document\.addEventListener\s*=' "${files[@]}"; then
+            echo 'Cash modules reintroduced a global browser monkey patch'
+            exit 1
+          fi
+          grep -q 'SH_IikoContext' iiko-d1-bridge.js
+          grep -q 'cash-context.js' iiko-d1-bridge.js
+          grep -q 'SH_CashContext' cash-context.js
+          grep -q 'SH_CashContext' cash-order-detail-fix.js
+          grep -q 'SH_CashContext' cash-high-risk.js
+          grep -q 'normalizeRequestBody' functions/api/plugin/request.js
+          echo 'Cash context adapter check passed'
+
+  preview-smoke:
+    if: github.event_name == 'pull_request'
+    needs: static
+    runs-on: ubuntu-latest
+    env:
+      PREVIEW_BASE: https://${{ github.head_ref }}.anarsystem.pages.dev
+    steps:
+      - name: Wait for preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 24); do
+            cash_code=$(curl -sS -L -o /tmp/cash.html -w '%{http_code}' "$PREVIEW_BASE/cash/" || true)
+            context_code=$(curl -sS -L -o /tmp/cash-context.js -w '%{http_code}' "$PREVIEW_BASE/cash-context.js" || true)
+            echo "cash=$cash_code cash-context=$context_code attempt=$attempt"
+            if [ "$cash_code" = "200" ] && [ "$context_code" = "200" ]; then exit 0; fi
+            sleep 5
+          done
+          exit 1
+      - name: Verify cash adapter and plugin request route
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'iiko-d1-bridge.js' /tmp/cash.html
+          grep -q 'SH_CashContext' /tmp/cash-context.js
+          code=$(curl -sS -X OPTIONS -o /tmp/plugin-request.txt -w '%{http_code}' "$PREVIEW_BASE/api/plugin/request" || true)
+          echo "/api/plugin/request OPTIONS -> HTTP $code"
+          case "$code" in
+            2*) ;;
+            *) cat /tmp/plugin-request.txt || true; exit 1 ;;
+          esac

@@ -1,12 +1,76 @@
+import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
+
 const headers = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Content-Type": "application/json"
 };
 
 function json(data, status=200){
   return new Response(JSON.stringify(data),{status,headers});
+}
+
+function clean(value){
+  return String(value ?? "").trim();
+}
+
+function uniq(values){
+  return [...new Set((values || []).map(clean).filter(Boolean))];
+}
+
+function restaurantScope(state){
+  const identity=state?.identity&&typeof state.identity==='object'?state.identity:{};
+  const connection=state?.connection&&typeof state.connection==='object'?state.connection:{};
+  const restaurants=[];
+  const add=(id,name='')=>{
+    id=clean(id);
+    if(!id||restaurants.some(x=>x.id===id))return;
+    restaurants.push({id,name:clean(name)||id});
+  };
+
+  for(const x of Array.isArray(identity.organizations)?identity.organizations:[]) add(x?.id,x?.name||x?.code);
+  for(const x of Array.isArray(identity.departments)?identity.departments:[]) add(x?.id,x?.name||x?.code);
+  for(const x of Array.isArray(connection.organizations)?connection.organizations:[]) add(x?.id,x?.name||x?.code);
+  for(const x of Array.isArray(connection.departments)?connection.departments:[]) add(x?.id,x?.name||x?.code);
+  for(const id of Array.isArray(identity.departmentIds)?identity.departmentIds:[]) add(id);
+  for(const id of Array.isArray(connection.departmentIds)?connection.departmentIds:[]) add(id);
+  add(identity.organizationId,identity.restaurantName||identity.displayName);
+  add(connection.organizationId,connection.restaurantName||connection.displayName);
+
+  return {identity,connection,restaurants};
+}
+
+function resolveRestaurant(state,requestedIds){
+  const scope=restaurantScope(state);
+  const allowedIds=new Set(scope.restaurants.map(x=>x.id));
+  const requested=uniq(requestedIds);
+
+  if(requested.length){
+    const invalid=requested.filter(id=>!allowedIds.has(id));
+    if(invalid.length){
+      const error=new Error('Выбранный ресторан не принадлежит текущему подключению SH Server.');
+      error.status=403;
+      throw error;
+    }
+  }
+
+  const preferred=requested[0]
+    || clean(scope.identity.organizationId)
+    || clean(scope.connection.organizationId)
+    || scope.restaurants[0]?.id
+    || '';
+  const restaurant=scope.restaurants.find(x=>x.id===preferred)||null;
+  return {
+    organizationId:preferred,
+    restaurantName:restaurant?.name
+      || clean(scope.identity.restaurantName)
+      || clean(scope.identity.displayName)
+      || clean(scope.connection.restaurantName)
+      || clean(scope.connection.displayName)
+      || 'Мой ресторан',
+    allowedIds:[...allowedIds]
+  };
 }
 
 export async function onRequestOptions(){
@@ -24,15 +88,20 @@ export async function onRequestPost({request,env}){
   try{
     if(!env.DB) return json({success:false,code:"QR_MENU_DB_NOT_CONFIGURED",message:"D1 binding DB не настроен."},503);
 
-    const body=await request.json();
-    const organizationId=String(body.organizationId||"").trim();
-    const restaurantName=String(body.restaurantName||"Мой ресторан").trim()||"Мой ресторан";
-    const menu=body.menu;
+    const stored=await loadRequestIikoState(request,env);
+    if(!stored?.user?.id) return json({success:false,message:"Требуется авторизация пользователя."},401);
+    if(!stored.found||!stored.state) return json({success:false,message:"Подключение SH Server не сохранено в D1."},400);
 
-    if(!organizationId) return json({success:false,message:"Не найден ID организации iiko."},400);
+    const body=await request.json();
+    const menu=body.menu;
     if(!menu||!Array.isArray(menu.categories)||!Array.isArray(menu.dishes)){
       return json({success:false,message:"Некорректные данные QR Menu."},400);
     }
+
+    const resolved=resolveRestaurant(stored.state,Array.isArray(body.departmentIds)?body.departmentIds:[]);
+    const organizationId=resolved.organizationId;
+    if(!organizationId) return json({success:false,message:"Не найден ID ресторана в сохранённом подключении SH Server."},400);
+    const restaurantName=clean(body.restaurantName)||resolved.restaurantName||"Мой ресторан";
 
     const now=new Date().toISOString();
     const existing=await env.DB.prepare(
@@ -43,7 +112,6 @@ export async function onRequestPost({request,env}){
     const publicSlug=existing?.public_slug || crypto.randomUUID();
     const design=menu.design&&typeof menu.design==='object'?menu.design:{};
 
-    // Keep the existing schema behavior, but make the write-heavy part batched.
     await env.DB.prepare(
       `CREATE TABLE IF NOT EXISTS qr_menu_settings (menu_id TEXT PRIMARY KEY, design_json TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL)`
     ).run();
@@ -78,7 +146,11 @@ export async function onRequestPost({request,env}){
 
       const originalCat=String(d.cat||d.iikoCategoryId||"");
       const categoryId=categoryMap.get(originalCat)||null;
-      const dishId=`${menuId}:dish:${String(d.iikoId||d.id||i)}`;
+      const sourceDishId=String(d.iikoId||d.id||i);
+      // qr_dishes.id is an internal row key, not the iiko product identity.
+      // Include the current position so duplicated source ids cannot violate
+      // the D1 PRIMARY KEY. The real iiko/local id remains in iiko_id below.
+      const dishId=`${menuId}:dish:${i}:${sourceDishId}`;
       const imageCandidate=String(d.photo||d.photo_url||"").trim();
       const frontImageCandidate=String(d.frontImageId||"").trim();
       const photoUrl=imageCandidate || (frontImageCandidate.startsWith("data:image/") ? frontImageCandidate : "");
@@ -90,7 +162,7 @@ export async function onRequestPost({request,env}){
             dishId,
             menuId,
             categoryId,
-            String(d.iikoId||d.id||""),
+            sourceDishId,
             String(d.name),
             String(d.desc||d.description||""),
             String(d.composition||d.desc||""),
@@ -119,6 +191,6 @@ export async function onRequestPost({request,env}){
       dishCount:dishStatements.length
     });
   }catch(error){
-    return json({success:false,message:error?.message||"Ошибка публикации QR Menu"},500);
+    return json({success:false,message:error?.message||"Ошибка публикации QR Menu"},Number(error?.status)||500);
   }
 }

@@ -1,3 +1,5 @@
+import { iikoFetch } from "./_lib/iiko-client.js";
+
 const headers = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -7,21 +9,6 @@ const headers = {
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers });
-}
-
-async function sha1(text) {
-  const data = new TextEncoder().encode(text);
-  const hash = await crypto.subtle.digest("SHA-1", data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function auth(ip, port, login, password) {
-  const serverUrl = `http://${ip}:${port}`;
-  const passwordHash = await sha1(password);
-  const response = await fetch(`${serverUrl}/resto/api/auth?login=${encodeURIComponent(login)}&pass=${passwordHash}`);
-  const token = (await response.text()).trim();
-  if (!response.ok || !token) throw new Error(`Ошибка авторизации iiko: HTTP ${response.status}`);
-  return { serverUrl, token };
 }
 
 function arrayBufferToDataUrl(buffer, contentType) {
@@ -41,31 +28,34 @@ export async function onRequestOptions() {
 export async function onRequestPost({ request }) {
   try {
     const body = await request.json();
-    const ip = String(body.ip || "").trim();
-    const port = String(body.port || "").trim();
-    const login = String(body.login || "").trim();
-    const password = String(body.password || "");
+    const connection = {
+      ip: String(body.ip || "").trim(),
+      port: String(body.port || "").trim(),
+      login: String(body.login || "").trim(),
+      password: String(body.password || "")
+    };
     const imageId = String(body.imageId || "").trim();
 
-    if (!ip || !port || !login || !password || !imageId) {
+    if (!connection.ip || !connection.port || !connection.login || !connection.password || !imageId) {
       return json({ success: false, message: "Не хватает параметров iiko или imageId." }, 400);
     }
 
-    const { serverUrl, token } = await auth(ip, port, login, password);
-
     // Different iiko/Syrve Server builds expose the stored product image
     // through slightly different image routes. Try the common variants.
+    const encoded = encodeURIComponent(imageId);
     const candidates = [
-      `${serverUrl}/resto/api/v2/images/${encodeURIComponent(imageId)}?key=${encodeURIComponent(token)}`,
-      `${serverUrl}/resto/api/v2/images/${encodeURIComponent(imageId)}/download?key=${encodeURIComponent(token)}`,
-      `${serverUrl}/resto/api/images/${encodeURIComponent(imageId)}?key=${encodeURIComponent(token)}`,
-      `${serverUrl}/resto/api/v2/entities/products/image/${encodeURIComponent(imageId)}?key=${encodeURIComponent(token)}`
+      `/resto/api/v2/images/${encoded}`,
+      `/resto/api/v2/images/${encoded}/download`,
+      `/resto/api/images/${encoded}`,
+      `/resto/api/v2/entities/products/image/${encoded}`
     ];
 
     const attempts = [];
-    for (const url of candidates) {
+    for (const path of candidates) {
       try {
-        const response = await fetch(url, { headers: { Accept: "image/*,*/*;q=0.8" } });
+        const { response, auth } = await iikoFetch(connection, path, {
+          headers: { Accept: "image/*,*/*;q=0.8" }
+        });
         const contentType = response.headers.get("content-type") || "";
         if (response.ok && contentType.toLowerCase().startsWith("image/")) {
           const buffer = await response.arrayBuffer();
@@ -74,13 +64,17 @@ export async function onRequestPost({ request }) {
               success: true,
               imageId,
               mimeType: contentType.split(";")[0] || "image/jpeg",
-              dataUrl: arrayBufferToDataUrl(buffer, contentType.split(";")[0] || "image/jpeg")
+              dataUrl: arrayBufferToDataUrl(buffer, contentType.split(";")[0] || "image/jpeg"),
+              meta: {
+                sharedIikoClient: true,
+                authCacheHit: auth?.cacheHit === true
+              }
             });
           }
         }
-        attempts.push(`${new URL(url).pathname}: HTTP ${response.status} ${contentType}`);
+        attempts.push(`${path}: HTTP ${response.status} ${contentType}`);
       } catch (error) {
-        attempts.push(`${new URL(url).pathname}: ${error?.message || error}`);
+        attempts.push(`${path}: ${error?.message || error}`);
       }
     }
 

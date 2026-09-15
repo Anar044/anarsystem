@@ -1,0 +1,299 @@
+name: Syntax Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  javascript:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=0
+          while IFS= read -r file; do
+            echo "Checking $file"
+            node --input-type=module --check < "$file"
+            count=$((count + 1))
+          done < <(find . -type f -name '*.js' \
+            -not -path './.git/*' \
+            -not -path './node_modules/*' \
+            -not -path './mobile/*' \
+            | sort)
+          echo "Checked $count JavaScript files"
+
+      - name: Verify public iiko state hides password
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { publicState, SERVER_PASSWORD_MARKER } from './functions/api/iiko/_lib/user-state.js';
+          const secret = 'ci-real-iiko-password';
+          const safe = publicState({
+            connection: { ip: '127.0.0.1', port: '8080', login: 'user', password: secret },
+            identity: { organizationId: 'test' }
+          });
+          const encoded = JSON.stringify(safe);
+          if (encoded.includes(secret)) throw new Error('publicState leaked the real iiko password');
+          if (safe.connection.password !== SERVER_PASSWORD_MARKER) throw new Error('publicState did not return the server marker');
+          if (safe.connection.passwordStored !== true) throw new Error('publicState did not expose passwordStored=true');
+          console.log('iiko public state credential test passed');
+          NODE
+
+      - name: Verify OLAP Reports has no global transport or DOM patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -En 'Storage\.prototype|window\.fetch\s*=|document\.addEventListener\s*=' reports-context.js reports-default-filters.js reports-loader.js; then
+            echo 'OLAP Reports reintroduced a global browser monkey patch'
+            exit 1
+          fi
+          if grep -q 'reports-fields-clean.js' reports.html; then
+            echo 'Legacy reports-fields-clean.js is active again'
+            exit 1
+          fi
+          if grep -q '<script src="reports.js' reports.html; then
+            echo 'reports.js must be loaded only by reports-loader.js'
+            exit 1
+          fi
+          grep -q 'reports-loader.js' reports.html
+          echo 'OLAP Reports bootstrap cleanup check passed'
+
+      - name: Verify OLAP endpoint uses shared client
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=functions/api/iiko/olap.js
+          grep -q './_lib/iiko-client.js' "$file"
+          grep -q 'getOlapFields' "$file"
+          grep -q 'iikoJson' "$file"
+          if grep -Eq '/resto/api/auth|async function authenticate\(|async function sha1\(' "$file"; then
+            echo 'OLAP endpoint reintroduced manual iiko authentication'
+            exit 1
+          fi
+          grep -q 'rawResponse' "$file"
+          grep -q 'groupByRowFields' "$file"
+          grep -q 'groupByColFields' "$file"
+          grep -q 'aggregateFields' "$file"
+          echo 'OLAP shared client contract check passed'
+
+      - name: Verify P&L uses direct iiko context
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Eq 'pnl-d1-loader\.js|iiko-unified-bridge\.js' pnl.html; then
+            echo 'P&L legacy bridge is active again'
+            exit 1
+          fi
+          if grep -Eq 'localStorage|getItem\(['"'"']iikoConnection|Storage\.prototype' pnl.js; then
+            echo 'P&L reintroduced browser-side iiko connection storage'
+            exit 1
+          fi
+          grep -q 'SH_IikoContext.getBinding' pnl.js
+          grep -q 'departmentIds' pnl.js
+          grep -q '/api/assets' pnl.js
+          grep -q 'Амортизация основных средств' pnl.js
+          echo 'P&L direct context and depreciation check passed'
+
+      - name: Verify fixed assets module uses authenticated D1 API
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'getUser' functions/api/assets.js
+          grep -q 'fixed_assets' functions/api/assets.js
+          grep -q 'fixed_asset_events' functions/api/assets.js
+          grep -q "action==='depreciation'" functions/api/assets.js
+          grep -q 'Authorization' assets.js
+          grep -q 'SH_IikoContext.getBinding' assets.js
+          grep -q 'fixed_asset_meta' functions/api/asset-meta.js
+          grep -q 'repairCost12m' assets-advanced.js
+          grep -q 'ASSET_FILES' functions/api/asset-files.js
+          grep -q 'fixed_asset_files' functions/api/asset-files.js
+          grep -q 'assets-advanced.js' assets.html
+          grep -q '/assets-plan/assets.html' assets.html
+          grep -q '/api/asset-meta' assets-plan.js
+          grep -q '/api/assets' assets-plan.js
+          if grep -Eq '/resto/api/|iikoFetch|getIikoAuth' functions/api/assets.js functions/api/asset-meta.js functions/api/asset-files.js; then
+            echo 'Fixed assets module must not call iiko Server'
+            exit 1
+          fi
+          echo 'Fixed assets D1, R2 and planning contract check passed'
+
+      - name: Verify QR Menu uses safe context adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Eq 'iiko-unified-bridge\.js|qr-menu-d1-fix\.js' qr-menu.html; then
+            echo 'QR Menu legacy bridge is active again'
+            exit 1
+          fi
+          grep -q 'qr-menu-context.js' qr-menu.html
+          if grep -En 'Storage\.prototype|window\.fetch\s*=|document\.addEventListener\s*=' qr-menu-context.js; then
+            echo 'QR Menu context adapter contains a global monkey patch'
+            exit 1
+          fi
+          grep -q 'SH_IikoContext.get' qr-menu-context.js
+          echo 'QR Menu safe context adapter check passed'
+
+      - name: Verify unified bridge HTML allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t refs < <(grep -Rl --include='*.html' 'iiko-unified-bridge.js' . | sed 's#^\./##' | sort || true)
+          echo 'HTML references to iiko-unified-bridge.js:'
+          printf '  %s\n' "${refs[@]:-<none>}"
+          unexpected=0
+          for file in "${refs[@]}"; do
+            case "$file" in
+              index.html) ;; # inactive on Cloudflare: _redirects rewrites it to dashboard.html
+              *) echo "Unexpected unified bridge reference: $file"; unexpected=1 ;;
+            esac
+          done
+          test "$unexpected" = "0"
+          grep -q '^/index.html /dashboard.html 200$' _redirects
+          echo 'Unified bridge allowlist check passed'
+
+      - name: Verify document routes use shared iiko authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            functions/api/iiko/connect.js
+            functions/api/iiko/incoming-invoices.js
+            functions/api/iiko/outgoing-invoices.js
+            functions/api/iiko/references.js
+          )
+          for file in "${files[@]}"; do
+            if grep -Eq '/resto/api/auth|async function auth\(' "$file"; then
+              echo "Manual iiko authentication reintroduced in $file"
+              exit 1
+            fi
+            grep -q './_lib/iiko-client.js' "$file"
+          done
+          grep -q 'getIikoAuth' functions/api/iiko/incoming-invoices.js
+          grep -q 'getIikoAuth' functions/api/iiko/outgoing-invoices.js
+          grep -q 'getIikoAuth' functions/api/iiko/references.js
+          grep -q 'iikoText' functions/api/iiko/connect.js
+          echo 'Shared iiko authentication check passed'
+
+      - name: Verify iiko authentication is centralized
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t manual < <(grep -Rl --include='*.js' '/resto/api/auth' functions/api/iiko | sort || true)
+          echo 'Files containing /resto/api/auth:'
+          printf '  %s\n' "${manual[@]:-<none>}"
+          test "${#manual[@]}" -eq 1
+          test "${manual[0]}" = 'functions/api/iiko/_lib/iiko-client.js'
+          echo 'iiko authentication is centralized in the shared client'
+
+  preview-smoke:
+    if: github.event_name == 'pull_request'
+    needs: javascript
+    runs-on: ubuntu-latest
+    env:
+      PREVIEW_BASE: https://${{ github.head_ref }}.anarsystem.pages.dev
+    steps:
+      - name: Wait for current Cloudflare Pages preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 24); do
+            home_code=$(curl -sS -L -o /tmp/preview-home.html -w '%{http_code}' "$PREVIEW_BASE/" || true)
+            state_code=$(curl -sS -o /tmp/preview-state.json -w '%{http_code}' "$PREVIEW_BASE/api/iiko/state" || true)
+            echo "Preview probe: home=$home_code state=$state_code attempt=$attempt"
+            if [ "$home_code" = "200" ] && [ "$state_code" = "401" ]; then
+              echo "Current preview ready: $PREVIEW_BASE"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Cloudflare Pages preview did not reach the expected current version"
+          cat /tmp/preview-state.json || true
+          exit 1
+
+      - name: Smoke test application pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          pages=(
+            "/"
+            "/dashboard.html"
+            "/reports.html"
+            "/abc-xyz.html"
+            "/pnl.html"
+            "/finance.html"
+            "/supplier-balances.html"
+            "/cash-shifts.html"
+            "/settings.html"
+            "/qr-menu.html"
+            "/assets.html"
+            "/assets-plan/assets.html"
+            "/nakladnye.html"
+            "/rashodnye-nakladnye.html"
+            "/akty-spisaniya.html"
+          )
+          for path in "${pages[@]}"; do
+            code=$(curl -sS -L -o /tmp/page.html -w '%{http_code}' "$PREVIEW_BASE$path")
+            echo "$path -> HTTP $code"
+            test "$code" = "200"
+          done
+
+      - name: Smoke test changed iiko API routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          routes=(
+            "/api/iiko/dashboard"
+            "/api/iiko/dashboard-summary"
+            "/api/iiko/pnl"
+            "/api/iiko/abc"
+            "/api/iiko/finance-data"
+            "/api/iiko/cash-shifts"
+            "/api/iiko/cash-shift-detail"
+            "/api/iiko/nomenclature"
+            "/api/iiko/qr-menu"
+            "/api/iiko/qr-image"
+            "/api/iiko/accounts"
+            "/api/iiko/supplier-balances"
+            "/api/iiko/contractors"
+            "/api/iiko/chain"
+            "/api/iiko/connect"
+            "/api/iiko/debug"
+            "/api/iiko/events"
+            "/api/iiko/olap"
+            "/api/iiko/orders"
+            "/api/iiko/sales"
+            "/api/iiko/incoming-invoices"
+            "/api/iiko/outgoing-invoices"
+            "/api/iiko/references"
+            "/api/iiko/documents"
+            "/api/iiko/document-action"
+            "/api/iiko/document-by-number"
+            "/api/iiko/state"
+            "/api/assets"
+            "/api/asset-meta"
+            "/api/asset-files"
+          )
+          for path in "${routes[@]}"; do
+            code=$(curl -sS -X OPTIONS -o /tmp/api.txt -w '%{http_code}' "$PREVIEW_BASE$path" || true)
+            echo "$path -> HTTP $code"
+            case "$code" in
+              2*) ;;
+              *) cat /tmp/api.txt || true; exit 1 ;;
+            esac
+          done
+
+      - name: Verify iiko state requires authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/state.json -w '%{http_code}' "$PREVIEW_BASE/api/iiko/state" || true)
+          echo "/api/iiko/state unauthenticated -> HTTP $code"
+          cat /tmp/state.json || true
+          test "$code" = "401"

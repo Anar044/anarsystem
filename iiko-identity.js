@@ -2,6 +2,7 @@
     "use strict";
 
     const $ = id => document.getElementById(id);
+    const SERVER_PASSWORD_MARKER = "__SH_SERVER_STORED__";
 
     function esc(value) {
         return String(value ?? "").replace(/[&<>"']/g, char => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[char]));
@@ -85,7 +86,13 @@
             if(connection.ip) $("iiko-ip").value=connection.ip;
             if(connection.port) $("iiko-port").value=connection.port;
             if(connection.login) $("iiko-login").value=connection.login;
-            if($("iiko-password")) $("iiko-password").value=connection.password||"";
+            const passwordInput=$("iiko-password");
+            if(passwordInput){
+                const stored=connection.passwordStored===true||connection.password===SERVER_PASSWORD_MARKER;
+                passwordInput.value="";
+                passwordInput.dataset.serverStored=stored?"1":"0";
+                passwordInput.placeholder=stored?"Сохранён на сервере — оставьте пустым":"Пароль";
+            }
             if($("remember-iiko")) $("remember-iiko").checked=true;
             const restaurantCount=organizations.length||departments.length;
             setStatus(chain
@@ -117,10 +124,26 @@
         if(!response.ok||data.success===false) throw new Error(data.message||`HTTP ${response.status}`);
     }
 
+    async function callConnectionEndpoint(path, credentials) {
+        const auth=await authHeaders();
+        const headers={"Content-Type":"application/json","Accept":"application/json"};
+        if(auth?.Authorization)headers.Authorization=auth.Authorization;
+        const response=await fetch(path,{
+            method:"POST",
+            headers,
+            body:JSON.stringify(credentials)
+        });
+        const data=await safeJson(response);
+        if(!response.ok||data.success===false)throw new Error(data.message||`HTTP ${response.status}`);
+        return data;
+    }
+
     async function handleIdentityConnection(event){
         event.preventDefault();
-        event.stopImmediatePropagation();
-        const ip=$("iiko-ip")?.value.trim(), port=$("iiko-port")?.value.trim(), login=$("iiko-login")?.value.trim(), password=$("iiko-password")?.value||"";
+        const ip=$("iiko-ip")?.value.trim(), port=$("iiko-port")?.value.trim(), login=$("iiko-login")?.value.trim();
+        const passwordInput=$("iiko-password");
+        const enteredPassword=passwordInput?.value||"";
+        const password=enteredPassword||(passwordInput?.dataset.serverStored==="1"?SERVER_PASSWORD_MARKER:"");
         const requestedChain=$("is-chain")?.checked===true;
         if(!ip||!port||!login||!password){setStatus("🟠 Заполните IP, порт, логин и пароль");return;}
         const button=$("connect-iiko"); if(button)button.disabled=true;
@@ -128,52 +151,83 @@
         const card=$("iiko-identity"), list=$("iiko-identity-list");
         if(card&&list){card.hidden=false;list.innerHTML=`<div class="iiko-identity-empty">Определяем тип сервера и загружаем структуру...</div>`;}
         try{
-            const response=await fetch("/api/iiko/connect",{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify({ip,port,login,password})});
-            const data=await safeJson(response);
-            if(!response.ok||data.success===false)throw new Error(data.message||`HTTP ${response.status}`);
-
-            // Primary connection endpoint is authoritative when it returned real departments.
-            // Chain enrichment is optional: an empty Chain response must NEVER erase valid departments.
-            let departments=Array.isArray(data.departments)?data.departments.filter(x=>x?.id):[];
-            let organizations=Array.isArray(data.organizations)?data.organizations.filter(x=>x?.id):[];
+            const credentials={ip,port,login,password};
+            let departments=[];
+            let organizations=[];
             let chainStructure=null;
-            let serverMode=String(data.detectedMode||data.mode||"").toUpperCase();
+            let primaryData=null;
+            let serverMode="";
+            let discoverySource="chain";
 
             try{
-                const chainResponse=await fetch("/api/iiko/chain",{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify({ip,port,login,password})});
-                const candidate=await safeJson(chainResponse);
-                if(chainResponse.ok&&candidate.success!==false){
-                    chainStructure=candidate;
-                    serverMode=String(candidate.detectedMode||candidate.mode||serverMode||"").toUpperCase();
-                    const chainDepartments=Array.isArray(candidate.departments)?candidate.departments.filter(x=>x?.id):[];
-                    const chainRestaurants=Array.isArray(candidate.restaurants)?candidate.restaurants.filter(x=>x?.id):[];
-                    if(chainDepartments.length) departments=chainDepartments;
-                    if(chainRestaurants.length) organizations=chainRestaurants;
-                    console.info("SH Chain lookup:",{
-                        departments:chainDepartments.length,
-                        restaurants:chainRestaurants.length,
-                        groups:Array.isArray(candidate.groups)?candidate.groups.length:0
-                    });
-                }
+                const candidate=await callConnectionEndpoint("/api/iiko/chain",credentials);
+                chainStructure=candidate;
+                serverMode=String(candidate.detectedMode||candidate.mode||"").toUpperCase();
+                departments=Array.isArray(candidate.departments)?candidate.departments.filter(x=>x?.id):[];
+                organizations=Array.isArray(candidate.restaurants)?candidate.restaurants.filter(x=>x?.id):[];
             }catch(error){
-                console.warn("SH Chain structure lookup failed; using primary server response",error);
+                console.warn("SH corporation structure lookup failed; trying connection fallback",error);
             }
 
+            if(!departments.length){
+                discoverySource="connect-fallback";
+                primaryData=await callConnectionEndpoint("/api/iiko/connect",credentials);
+                departments=Array.isArray(primaryData.departments)?primaryData.departments.filter(x=>x?.id):[];
+                organizations=Array.isArray(primaryData.organizations)?primaryData.organizations.filter(x=>x?.id):[];
+                serverMode=String(primaryData.detectedMode||primaryData.mode||serverMode||"").toUpperCase();
+            }
+
+            if(!departments.length)throw new Error("SH Server подключён, но Department ID не найден.");
             if(serverMode!=="CHAIN"&&serverMode!=="RMS")serverMode=departments.length>1?"CHAIN":"RMS";
+
             const isChain=serverMode==="CHAIN"||requestedChain;
             const detectedMode=serverMode;
             const checkedAt=new Date().toISOString();
-            const organizationId=String(data.organizationId||organizations[0]?.id||departments[0]?.id||"");
+            const organizationId=String(primaryData?.organizationId||organizations[0]?.id||departments[0]?.id||"");
             const networkName=clean(chainStructure?.organization?.name||chainStructure?.organization?.Name||"");
-            const restaurantName=clean(organizations[0]?.name||departments[0]?.name||data.restaurantName||"");
+            const restaurantName=clean(organizations[0]?.name||departments[0]?.name||primaryData?.restaurantName||"");
             const displayName=isChain?(networkName||restaurantName):restaurantName;
             const restaurantList=organizations.length?organizations:departments.map(x=>({id:x.id,name:x.name,code:x.code,parentId:x.parentId}));
 
-            const identity={mode:isChain?"CHAIN":"RMS",detectedMode,organizationId,displayName,networkName,restaurantName,organizations:restaurantList,departmentIds:departments.map(x=>String(x.id)),departments,hierarchy:chainStructure?.hierarchy||[],groups:chainStructure?.groups||[],pointsOfSale:chainStructure?.pointsOfSale||[],restaurantSections:chainStructure?.restaurantSections||[],server:{ip,port},checkedAt};
-            const connection={ip,port,login,password,connectionType:isChain?"CHAIN":"RMS",isChain,detectedMode,organizationId,displayName,networkName,restaurantName,departmentIds:identity.departmentIds,departments,organizations:restaurantList,hierarchy:identity.hierarchy,groups:identity.groups,pointsOfSale:identity.pointsOfSale,restaurantSections:identity.restaurantSections,connectedAt:checkedAt};
+            const identity={
+                mode:isChain?"CHAIN":"RMS",
+                detectedMode,
+                organizationId,
+                displayName,
+                networkName,
+                restaurantName,
+                organizations:restaurantList,
+                departmentIds:departments.map(x=>String(x.id)),
+                departments,
+                hierarchy:chainStructure?.hierarchy||[],
+                groups:chainStructure?.groups||[],
+                pointsOfSale:chainStructure?.pointsOfSale||[],
+                restaurantSections:chainStructure?.restaurantSections||[],
+                server:{ip,port},
+                checkedAt,
+                discoverySource
+            };
+            const connection={
+                ip,port,login,password,
+                connectionType:isChain?"CHAIN":"RMS",
+                isChain,detectedMode,organizationId,displayName,networkName,restaurantName,
+                departmentIds:identity.departmentIds,
+                departments,
+                organizations:restaurantList,
+                hierarchy:identity.hierarchy,
+                groups:identity.groups,
+                pointsOfSale:identity.pointsOfSale,
+                restaurantSections:identity.restaurantSections,
+                connectedAt:checkedAt
+            };
 
             await saveIikoState(connection,identity);
 
+            if(passwordInput){
+                passwordInput.value="";
+                passwordInput.dataset.serverStored="1";
+                passwordInput.placeholder="Сохранён на сервере — оставьте пустым";
+            }
             const checkbox=$("is-chain"), hint=$("chain-hint");
             if(checkbox)checkbox.checked=isChain;
             if(hint&&checkbox)hint.classList.toggle("visible",checkbox.checked);
@@ -181,7 +235,7 @@
             setStatus(isChain
                 ? `🟢 SH Chain сохранён в D1 • сеть: ${displayName||"—"} • ресторанов: ${restaurantList.length}`
                 : `🟢 SH RMS сохранён в D1 • ресторан: ${displayName||"—"} • Department ID: ${organizationId||"—"}`);
-            console.info("SH D1 SAVED:",identity);
+            console.info("SH D1 SAVED:",{mode:identity.mode,departmentIds:identity.departmentIds,discoverySource});
         }catch(error){
             setStatus("🔴 Ошибка соединения");
             if(list)list.innerHTML=`<div class="iiko-identity-empty">${esc(error?.message||error)}</div>`;
@@ -194,6 +248,8 @@
         try{
             await clearIikoState();
             ["iikoConnection","iikoDepartmentIdentity"].forEach(key=>localStorage.removeItem(key));
+            const passwordInput=$("iiko-password");
+            if(passwordInput){passwordInput.value="";delete passwordInput.dataset.serverStored;passwordInput.placeholder="Пароль";}
             const card=$("iiko-identity"); if(card)card.hidden=true;
             setStatus("⚪ Подключение iiko удалено из D1");
         }catch(error){setStatus("🔴 " + (error?.message||error));}
@@ -203,12 +259,12 @@
         const button=$("connect-iiko");
         if(button&&button.dataset.identityBound!=="1"){
             button.dataset.identityBound="1";
-            button.addEventListener("click",handleIdentityConnection,true);
+            button.addEventListener("click",handleIdentityConnection);
         }
         const clear=$("clear-iiko-data");
         if(clear&&clear.dataset.identityClearBound!=="1"){
             clear.dataset.identityClearBound="1";
-            clear.addEventListener("click",handleClear,true);
+            clear.addEventListener("click",handleClear);
         }
     }
 

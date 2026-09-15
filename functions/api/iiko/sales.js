@@ -1,3 +1,5 @@
+import { clean, getOlapFields, iikoText } from "./_lib/iiko-client.js";
+
 function corsHeaders() {
     return {
         "Access-Control-Allow-Origin": "*",
@@ -8,7 +10,7 @@ function corsHeaders() {
 
 function jsonResponse(data, status = 200) {
     return new Response(JSON.stringify(data), {
-        status: status,
+        status,
         headers: {
             "Content-Type": "application/json",
             ...corsHeaders()
@@ -16,60 +18,19 @@ function jsonResponse(data, status = 200) {
     });
 }
 
-
-// ==========================================
-// SHA-1
-// ==========================================
-
-async function sha1(text) {
-    const data = new TextEncoder().encode(text);
-
-    const hash = await crypto.subtle.digest(
-        "SHA-1",
-        data
-    );
-
-    return Array.from(new Uint8Array(hash))
-        .map(byte => byte.toString(16).padStart(2, "0"))
-        .join("");
-}
-
-
-// ==========================================
-// IIKO AUTH
-// ==========================================
-
-async function getToken(ip, port, login, password) {
-
-    const serverUrl = `http://${ip}:${port}`;
-
-    const passwordHash = await sha1(password);
-
-    const authUrl =
-        `${serverUrl}/resto/api/auth` +
-        `?login=${encodeURIComponent(login)}` +
-        `&pass=${passwordHash}`;
-
-    const response = await fetch(authUrl);
-
-    const token = (await response.text()).trim();
-
-    if (!response.ok || !token) {
-        throw new Error(
-            `Ошибка авторизации iiko: HTTP ${response.status}`
-        );
+function fieldName(fields, candidates) {
+    const norm = value => clean(value).toLowerCase().replace(/[\s._()-]+/g, "");
+    for (const candidate of candidates) {
+        const item = fields.find(field => norm(field.name) === norm(candidate) || norm(field.title) === norm(candidate));
+        if (item) return item.name;
     }
-
-    return {
-        serverUrl,
-        token
-    };
+    for (const candidate of candidates) {
+        const q = norm(candidate);
+        const item = fields.find(field => norm(field.name).includes(q) || norm(field.title).includes(q));
+        if (item) return item.name;
+    }
+    return null;
 }
-
-
-// ==========================================
-// OPTIONS
-// ==========================================
 
 export async function onRequestOptions() {
     return new Response(null, {
@@ -78,231 +39,123 @@ export async function onRequestOptions() {
     });
 }
 
-
-// ==========================================
-// SALES
-// ==========================================
-
 export async function onRequestPost(context) {
-
     try {
-
         const body = await context.request.json();
+        const connection = {
+            ip: clean(body.ip),
+            port: clean(body.port),
+            login: clean(body.login),
+            password: String(body.password || "")
+        };
+        const from = clean(body.from);
+        const to = clean(body.to);
+        const departmentIds = [...new Set((Array.isArray(body.departmentIds) ? body.departmentIds : []).map(clean).filter(Boolean))];
 
-        const ip = String(body.ip || "").trim();
-        const port = String(body.port || "").trim();
-        const login = String(body.login || "").trim();
-        const password = String(body.password || "");
-
-        const from = String(body.from || "").trim();
-        const to = String(body.to || "").trim();
-
-
-        // ======================================
-        // CHECK INPUT
-        // ======================================
-
-        if (!ip || !port || !login || !password) {
-
-            return jsonResponse({
-                success: false,
-                message: "Заполните данные подключения"
-            }, 400);
+        if (!connection.ip || !connection.port || !connection.login || !connection.password) {
+            return jsonResponse({ success: false, message: "Заполните данные подключения" }, 400);
         }
 
         if (!from || !to) {
-
-            return jsonResponse({
-                success: false,
-                message: "Укажите период отчёта"
-            }, 400);
+            return jsonResponse({ success: false, message: "Укажите период отчёта" }, 400);
         }
 
         if (from > to) {
-
-            return jsonResponse({
-                success: false,
-                message: "Дата начала больше даты окончания"
-            }, 400);
+            return jsonResponse({ success: false, message: "Дата начала больше даты окончания" }, 400);
         }
 
-
-        // ======================================
-        // LOGIN
-        // ======================================
-
-        const {
-            serverUrl,
-            token
-        } = await getToken(
-            ip,
-            port,
-            login,
-            password
-        );
-
-
-        // ======================================
-        // END DATE
-        // ======================================
-
         const endDate = new Date(`${to}T00:00:00`);
-
-        endDate.setDate(
-            endDate.getDate() + 1
-        );
-
+        endDate.setDate(endDate.getDate() + 1);
         const endDateString =
             `${endDate.getFullYear()}-` +
             `${String(endDate.getMonth() + 1).padStart(2, "0")}-` +
             `${String(endDate.getDate()).padStart(2, "0")}`;
 
+        let departmentField = null;
+        let fieldsCacheHit = null;
+        if (departmentIds.length) {
+            const fieldResult = await getOlapFields(connection, "SALES");
+            fieldsCacheHit = fieldResult.cacheHit === true;
+            departmentField = fieldName(fieldResult.fields, ["Department.Id", "DepartmentId", "Department.ID"]);
+            if (!departmentField) {
+                return jsonResponse({
+                    success: false,
+                    message: "Не найдено OLAP-поле Department.Id — нельзя безопасно ограничить продажи выбранным рестораном"
+                }, 502);
+            }
+        }
 
-        // ======================================
-        // OLAP URL
-        // ======================================
-
-        const reportUrl =
-            `${serverUrl}/resto/api/v2/reports/olap` +
-            `?key=${encodeURIComponent(token)}`;
-
-
-        // ======================================
-        // OLAP REQUEST
-        // ======================================
-
-        const reportBody = {
-
-            reportType: "SALES",
-
-            buildSummary: true,
-
-            groupByRowFields: [
-                "OpenDate.Typed"
-            ],
-
-            aggregateFields: [
-                "DishSumInt",
-                "UniqOrderId"
-            ],
-
-            filters: {
-
-                "OpenDate.Typed": {
-
-                    filterType: "DateRange",
-
-                    periodType: "CUSTOM",
-
-                    from: from,
-
-                    to: endDateString
-                }
+        const filters = {
+            "OpenDate.Typed": {
+                filterType: "DateRange",
+                periodType: "CUSTOM",
+                from,
+                to: endDateString
             }
         };
+        if (departmentField) {
+            filters[departmentField] = {
+                filterType: "IncludeValues",
+                values: departmentIds
+            };
+        }
 
+        const reportBody = {
+            reportType: "SALES",
+            buildSummary: true,
+            groupByRowFields: ["OpenDate.Typed"],
+            aggregateFields: ["DishSumInt", "UniqOrderId"],
+            filters
+        };
 
-        console.log(
-            "IIKO OLAP REQUEST:",
-            JSON.stringify(reportBody)
-        );
-
-
-        // ======================================
-        // REQUEST
-        // ======================================
-
-        const reportResponse = await fetch(
-            reportUrl,
+        const reportResponse = await iikoText(
+            connection,
+            "/resto/api/v2/reports/olap",
             {
                 method: "POST",
-
-                headers: {
-                    "Content-Type": "application/json"
-                },
-
+                headers: { "Content-Type": "application/json", "Accept": "application/json" },
                 body: JSON.stringify(reportBody)
             }
         );
 
-
-        const text = await reportResponse.text();
-
-
-        console.log(
-            "IIKO OLAP RESPONSE:",
-            text
-        );
-
-
-        // ======================================
-        // IIKO ERROR
-        // ======================================
-
+        const text = reportResponse.text;
         if (!reportResponse.ok) {
-
             return jsonResponse({
-
                 success: false,
-
-                message:
-                    `iiko Server вернул HTTP ${reportResponse.status}`,
-
-                details:
-                    text.substring(0, 3000)
-
+                message: `iiko Server вернул HTTP ${reportResponse.status}`,
+                details: text.substring(0, 3000)
             }, 502);
         }
 
-
-        // ======================================
-        // PARSE JSON
-        // ======================================
-
         let data;
-
         try {
             data = JSON.parse(text);
         } catch {
             data = text;
         }
 
-
-        // ======================================
-        // RESPONSE
-        // ======================================
-
         return jsonResponse({
-
             success: true,
-
             report: data,
-
             debug: {
                 requestedFrom: from,
                 requestedTo: to,
                 actualTo: endDateString,
                 rawResponse: text
+            },
+            meta: {
+                sharedIikoClient: true,
+                authCacheHit: reportResponse.auth?.cacheHit === true,
+                olapFieldsCacheHit: fieldsCacheHit,
+                departmentScopeApplied: departmentIds.length > 0,
+                departmentField,
+                departmentIds
             }
-
         });
-
-
     } catch (error) {
-
-        console.error(
-            "IIKO SALES ERROR:",
-            error
-        );
-
         return jsonResponse({
-
             success: false,
-
-            message:
-                error.message ||
-                "Ошибка получения отчёта"
-
+            message: error.message || "Ошибка получения отчёта"
         }, 502);
     }
 }
