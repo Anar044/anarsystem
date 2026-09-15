@@ -9,6 +9,7 @@
     }
 
     const clean = value => String(value ?? "").trim();
+    const brand = value => String(value ?? "").replace(/iiko/gi, "SH");
 
     async function safeJson(response) {
         const text = await response.text();
@@ -30,14 +31,14 @@
                 Authorization: `Bearer ${token}`
             };
         } catch (error) {
-            console.warn("SH iiko auth token failed", error);
+            console.warn("SH auth token failed", error);
             return null;
         }
     }
 
     function setStatus(text) {
         const e=$("iiko-status");
-        if(e)e.textContent=text;
+        if(e)e.textContent=brand(text);
     }
 
     function renderIdentity(departments, organizations, server, chain, groups, pointsOfSale) {
@@ -105,14 +106,14 @@
 
     async function saveIikoState(connection, identity) {
         const headers=await authHeaders();
-        if(!headers) throw new Error("Не удалось получить сессию пользователя для сохранения iiko в D1.");
+        if(!headers) throw new Error("Не удалось получить сессию пользователя для сохранения SH в D1.");
         const response=await fetch("/api/iiko/state",{
             method:"POST",
             headers,
             body:JSON.stringify({connection,identity})
         });
         const data=await safeJson(response);
-        if(!response.ok||data.success===false) throw new Error(data.message||`Ошибка сохранения iiko в D1: HTTP ${response.status}`);
+        if(!response.ok||data.success===false) throw new Error(brand(data.message||`Ошибка сохранения SH в D1: HTTP ${response.status}`));
         return data;
     }
 
@@ -121,7 +122,7 @@
         if(!headers) throw new Error("Не удалось получить сессию пользователя.");
         const response=await fetch("/api/iiko/state",{method:"DELETE",headers});
         const data=await safeJson(response);
-        if(!response.ok||data.success===false) throw new Error(data.message||`HTTP ${response.status}`);
+        if(!response.ok||data.success===false) throw new Error(brand(data.message||`HTTP ${response.status}`));
     }
 
     async function callConnectionEndpoint(path, credentials) {
@@ -134,7 +135,7 @@
             body:JSON.stringify(credentials)
         });
         const data=await safeJson(response);
-        if(!response.ok||data.success===false)throw new Error(data.message||`HTTP ${response.status}`);
+        if(!response.ok||data.success===false)throw new Error(brand(data.message||`HTTP ${response.status}`));
         return data;
     }
 
@@ -238,7 +239,7 @@
             console.info("SH D1 SAVED:",{mode:identity.mode,departmentIds:identity.departmentIds,discoverySource});
         }catch(error){
             setStatus("🔴 Ошибка соединения");
-            if(list)list.innerHTML=`<div class="iiko-identity-empty">${esc(error?.message||error)}</div>`;
+            if(list)list.innerHTML=`<div class="iiko-identity-empty">${esc(brand(error?.message||error))}</div>`;
             console.warn("SH CONNECTION FAILED:",error);
         }finally{if(button)button.disabled=false;}
     }
@@ -251,8 +252,8 @@
             const passwordInput=$("iiko-password");
             if(passwordInput){passwordInput.value="";delete passwordInput.dataset.serverStored;passwordInput.placeholder="Пароль";}
             const card=$("iiko-identity"); if(card)card.hidden=true;
-            setStatus("⚪ Подключение iiko удалено из D1");
-        }catch(error){setStatus("🔴 " + (error?.message||error));}
+            setStatus("⚪ Подключение SH удалено из D1");
+        }catch(error){setStatus("🔴 " + brand(error?.message||error));}
     }
 
     function bindIdentityLookup(){
