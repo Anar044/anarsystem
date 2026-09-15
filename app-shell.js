@@ -16,8 +16,45 @@
   const CANONICAL=['/index.html','/finance.html','/reports.html','/abc-xyz.html','/pnl.html','/supplier-balances.html','/cash','/cash-shifts.html','/qr-menu.html','/settings.html'];
   function normalizeUnifiedSidebar(){const sidebar=document.querySelector('.sidebar');const nav=sidebar?.querySelector('.unified-main-nav');if(!nav)return;const seen=new Set();nav.querySelectorAll(':scope > a').forEach(a=>{const href=(a.getAttribute('href')||'').split('#')[0].split('?')[0].replace(/\/$/,'').toLowerCase();if(!CANONICAL.includes(href)||seen.has(href)){a.remove();return}seen.add(href)});const page=currentPage();nav.querySelectorAll(':scope > a[data-unified-nav-item]').forEach(a=>a.classList.toggle('active',String(a.dataset.unifiedNavItem||'').toLowerCase()===page));const sub=nav.querySelector('.documents-subnav');const group=nav.querySelector('.documents-nav-group');const toggle=group?.querySelector('.documents-nav-toggle');const doc=sub?.querySelector(`a[data-unified-nav-item="${page}"]`);sub?.querySelectorAll('a[data-unified-nav-item]').forEach(a=>a.classList.toggle('active',a===doc));if(doc){group?.classList.add('open');toggle?.classList.add('active');toggle?.setAttribute('aria-expanded','true');if(sub)sub.hidden=false}else{group?.classList.remove('open');toggle?.classList.remove('active');toggle?.setAttribute('aria-expanded','false');if(sub)sub.hidden=true}}
   function buildUnifiedSidebar(){const sidebar=document.querySelector('.sidebar');if(!sidebar||sidebar.dataset.unifiedSidebar==='1')return;const page=currentPage();const active=x=>x===page?' class="active"':'';sidebar.innerHTML=`<div class="brand unified-brand"><div class="unified-logo">SH</div><div class="brand-copy"><b>Smart Horeca</b><small>Restaurant Management</small></div></div><div class="nav-title">ОСНОВНОЕ</div><nav class="side-nav nav unified-main-nav"><a href="/index.html" data-unified-nav-item="index.html"${active('index.html')}><span class="side-icon">⌂</span><span>Dashboard</span></a><a href="/abc-xyz.html" data-unified-nav-item="abc-xyz.html"${active('abc-xyz.html')}><span class="side-icon">◫</span><span>ABC / XYZ анализ</span></a><a href="/supplier-balances.html" data-unified-nav-item="supplier-balances.html"${active('supplier-balances.html')}><span class="side-icon">◈</span><span>Баланс по поставщикам</span></a><a href="/cash" data-unified-nav-item="cash.html"${active('cash.html')}><span class="side-icon">▣</span><span>Кассы</span></a><a href="/cash-shifts.html" data-unified-nav-item="cash-shifts.html"${active('cash-shifts.html')}><span class="side-icon">▤</span><span>Кассовые смены</span></a><div class="documents-nav-group"><button type="button" class="documents-nav-toggle" aria-expanded="false"><span class="documents-nav-toggle-left"><span class="documents-nav-folder">▣</span><span>Склад и справочники</span></span><span class="documents-nav-chevron">⌄</span></button><nav class="side-nav nav documents-subnav" hidden><a href="/nomenclature.html" data-unified-nav-item="nomenclature.html"><span class="side-icon">▦</span><span>Номенклатура</span></a><a href="/assets.html" data-unified-nav-item="assets.html"><span class="side-icon">▣</span><span>Инвентарь и основные средства</span></a><a href="/nakladnye.html" data-unified-nav-item="nakladnye.html"><span class="side-icon">▤</span><span>Приходные накладные</span></a><a href="/rashodnye-nakladnye.html" data-unified-nav-item="rashodnye-nakladnye.html"><span class="side-icon">▧</span><span>Расходные накладные</span></a><a href="/akty-spisaniya.html" data-unified-nav-item="akty-spisaniya.html"><span class="side-icon">▥</span><span>Акты списания</span></a><a href="/vnutrennie-peremescheniya.html" data-unified-nav-item="vnutrennie-peremescheniya.html"><span class="side-icon">⇄</span><span>Внутренние перемещения</span></a></nav></div><a href="/finance.html" data-unified-nav-item="finance.html"${active('finance.html')}><span class="side-icon">₽</span><span>Финансы</span></a><a href="/pnl.html" data-unified-nav-item="pnl.html"${active('pnl.html')}><span class="side-icon">▤</span><span>Прибыли и убытки</span></a><a href="/reports.html" data-unified-nav-item="reports.html"${active('reports.html')}><span class="side-icon">▥</span><span>OLAP Отчёты</span></a><a href="/qr-menu.html" data-unified-nav-item="qr-menu.html"${active('qr-menu.html')}><span class="side-icon">▦</span><span>QR Menu</span></a><a href="/settings.html" data-unified-nav-item="settings.html"${active('settings.html')}><span class="side-icon">⚙</span><span>Настройки</span></a></nav><div class="sidebar-spacer"></div>`;sidebar.dataset.unifiedSidebar='1';const group=sidebar.querySelector('.documents-nav-group'),toggle=group?.querySelector('.documents-nav-toggle'),sub=group?.querySelector('.documents-subnav');const activeDoc=sub?.querySelector(`a[data-unified-nav-item="${page}"]`);if(activeDoc){group.classList.add('open');toggle.classList.add('active');toggle.setAttribute('aria-expanded','true');sub.hidden=false;activeDoc.classList.add('active')}else if(sub){sub.hidden=true}toggle?.addEventListener('click',()=>{const open=toggle.getAttribute('aria-expanded')!=='true';toggle.setAttribute('aria-expanded',String(open));group.classList.toggle('open',open);sub.hidden=!open});normalizeUnifiedSidebar()}
-  function applySHBranding(){const replaceVisibleText=node=>{if(node.nodeType===Node.TEXT_NODE){const parent=node.parentElement;if(parent&&!['SCRIPT','STYLE','PRE','CODE','NOSCRIPT'].includes(parent.tagName))node.nodeValue=node.nodeValue.replace(/iiko/gi,'SH');return}if(node.nodeType!==Node.ELEMENT_NODE||['SCRIPT','STYLE','PRE','CODE','NOSCRIPT'].includes(node.tagName))return;const walker=document.createTreeWalker(node,NodeFilter.SHOW_TEXT);const texts=[];while(walker.nextNode())texts.push(walker.currentNode);texts.forEach(replaceVisibleText)};replaceVisibleText(document.body)}
+  function applySHBranding(){
+    const blocked=new Set(['SCRIPT','STYLE','PRE','CODE','NOSCRIPT']);
+    const brand=value=>String(value??'').replace(/iiko/gi,'SH');
+    const attrs=['title','aria-label','placeholder','alt'];
+    const brandElement=el=>{
+      if(!el||el.nodeType!==Node.ELEMENT_NODE||blocked.has(el.tagName))return;
+      attrs.forEach(name=>{
+        if(!el.hasAttribute(name))return;
+        const before=el.getAttribute(name)||'';
+        const after=brand(before);
+        if(after!==before)el.setAttribute(name,after);
+      });
+    };
+    const brandText=node=>{
+      if(!node||node.nodeType!==Node.TEXT_NODE)return;
+      const parent=node.parentElement;
+      if(!parent||blocked.has(parent.tagName))return;
+      const before=node.nodeValue||'';
+      if(!/iiko/i.test(before))return;
+      node.nodeValue=brand(before);
+    };
+    if(document.body){
+      brandElement(document.body);
+      const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT|NodeFilter.SHOW_ELEMENT);
+      while(walker.nextNode())walker.currentNode.nodeType===Node.TEXT_NODE?brandText(walker.currentNode):brandElement(walker.currentNode);
+    }
+    document.title=brand(document.title);
+  }
+  function scheduleSHBranding(){[0,700,2500,6000].forEach(ms=>setTimeout(applySHBranding,ms))}
+  function installSHBrandingRefresh(){
+    if(window.__shBrandingRefreshInstalled)return;
+    window.__shBrandingRefreshInstalled=true;
+    const afterInteraction=()=>{setTimeout(applySHBranding,250);setTimeout(applySHBranding,1800);setTimeout(applySHBranding,4500)};
+    document.addEventListener('click',afterInteraction,true);
+    document.addEventListener('change',afterInteraction,true);
+    window.addEventListener('sh:iiko-selection-changed',afterInteraction);
+    window.addEventListener('load',scheduleSHBranding,{once:true});
+  }
   function reveal(){root.classList.remove('hc-loading');root.style.visibility='visible'}
-  function init(){ensureMasterStyles().then(()=>{installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();applySHBranding();reveal();const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');if(menu&&side)menu.onclick=()=>side.classList.toggle('open')})}
+  function init(){ensureMasterStyles().then(()=>{installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();applySHBranding();installSHBrandingRefresh();scheduleSHBranding();reveal();const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');if(menu&&side)menu.onclick=()=>side.classList.toggle('open')})}
   init();
 })();
