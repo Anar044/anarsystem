@@ -24,3 +24,15 @@
 
 /qr-menu-sync-context.js
   Cache-Control: no-cache, max-age=0, must-revalidate
+
+/assets.html
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/assets.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/assets.css
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/pnl.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
