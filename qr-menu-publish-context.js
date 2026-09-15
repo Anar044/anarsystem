@@ -3,6 +3,7 @@
 
   const MENU_KEY = 'horeca_qr_menu_v1';
   let publishing = false;
+  const scriptLoads = new Map();
 
   function readMenuState() {
     try {
@@ -15,6 +16,45 @@
 
   function saveMenuState(state) {
     try { localStorage.setItem(MENU_KEY, JSON.stringify(state)); } catch (_) {}
+  }
+
+  function loadScript(src, id) {
+    if (id && document.getElementById(id)) return Promise.resolve();
+    if (scriptLoads.has(src)) return scriptLoads.get(src);
+    const promise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      if (id) script.id = id;
+      script.src = src;
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error(`Не удалось загрузить ${src}`));
+      document.head.appendChild(script);
+    }).finally(() => scriptLoads.delete(src));
+    scriptLoads.set(src, promise);
+    return promise;
+  }
+
+  async function ensureSyncController() {
+    if (window.SH_QRMenuSyncContextLoaded) return;
+    const before = localStorage.getItem(MENU_KEY) || '';
+    try {
+      await loadScript('/qr-menu-sync-context.js?v=20260915-2', 'qr-menu-sync-context-loader');
+      const after = localStorage.getItem(MENU_KEY) || '';
+      if (before !== after && document.readyState !== 'loading') location.reload();
+    } catch (error) {
+      console.warn('QR Menu sync controller failed to load', error);
+    }
+  }
+
+  async function ensureQrLibrary() {
+    if (window.QRCode) return true;
+    try {
+      await loadScript('https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js', 'qr-code-library');
+      return Boolean(window.QRCode);
+    } catch (error) {
+      console.warn('QR library failed to load', error);
+      return false;
+    }
   }
 
   function ensureStyles() {
@@ -64,7 +104,7 @@
     }
   }
 
-  function renderPublished(url) {
+  async function renderPublished(url) {
     url = String(url || '').trim();
     if (!url) return;
 
@@ -74,7 +114,8 @@
     if (!qrbox || !panel) return;
 
     qrbox.innerHTML = '';
-    if (window.QRCode) {
+    const qrReady = await ensureQrLibrary();
+    if (qrReady) {
       try {
         new window.QRCode(qrbox, {
           text: url,
@@ -92,12 +133,13 @@
       qrbox.textContent = 'QR';
     }
 
+    const safeUrl = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
     panel.innerHTML = `
       <div class="qr-publish-title">Меню опубликовано</div>
-      <input class="qr-publish-link" type="text" readonly value="${url.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">
+      <input class="qr-publish-link" type="text" readonly value="${safeUrl}">
       <div class="qr-publish-actions">
         <button type="button" class="primary" data-copy-public-link>Копировать ссылку</button>
-        <a href="${url.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" target="_blank" rel="noopener">Открыть меню</a>
+        <a href="${safeUrl}" target="_blank" rel="noopener">Открыть меню</a>
       </div>`;
 
     const input = panel.querySelector('.qr-publish-link');
@@ -167,7 +209,7 @@
       state.publicUrl = data.publicUrl;
       state.organizationId = data.organizationId;
       saveMenuState(state);
-      renderPublished(data.publicUrl);
+      await renderPublished(data.publicUrl);
     } catch (error) {
       alert(`Ошибка публикации:\n${error?.message || error}`);
     } finally {
@@ -179,8 +221,10 @@
 
   function restorePublishedResult() {
     const state = readMenuState();
-    if (state?.publicUrl) renderPublished(state.publicUrl);
+    if (state?.publicUrl) renderPublished(state.publicUrl).catch(error => console.warn('Published QR restore failed', error));
   }
+
+  ensureSyncController();
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', restorePublishedResult, { once: true });
