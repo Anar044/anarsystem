@@ -3,7 +3,7 @@ const DEFAULT_SUPABASE_KEY = "sb_publishable_OODMzFTaHq6DIoorXb85nQ_2FfwBXAS";
 
 export const SERVER_PASSWORD_MARKER = "__SH_SERVER_STORED__";
 export const IIKO_SESSION_COOKIE = "sh_iiko_session";
-export const IIKO_STATE_ENCRYPTION_ENV = "IIKO_STATE_ENCRYPTION_KEY";
+export const SMART_HORECA_STATE_ENCRYPTION_ENV = "SMART_HORECA_STATE_ENCRYPTION_KEY";
 
 const ENCRYPTED_STATE_MARKER = "SH_IKO_STATE_AES_GCM";
 const textEncoder = new TextEncoder();
@@ -44,7 +44,7 @@ function base64ToBytes(value) {
 }
 
 function encryptionSecret(env) {
-  return clean(env?.[IIKO_STATE_ENCRYPTION_ENV]);
+  return clean(env?.[SMART_HORECA_STATE_ENCRYPTION_ENV]);
 }
 
 async function encryptionKey(secret) {
@@ -92,7 +92,7 @@ export async function decodeStoredIikoState(rawValue, userId, env = {}) {
 
   const secret = encryptionSecret(env);
   if (!secret) {
-    throw new Error(`${IIKO_STATE_ENCRYPTION_ENV} не настроен, но сохранённое подключение iiko зашифровано.`);
+    throw new Error(`${SMART_HORECA_STATE_ENCRYPTION_ENV} не настроен, но сохранённое подключение iiko зашифровано.`);
   }
 
   try {
@@ -109,7 +109,7 @@ export async function decodeStoredIikoState(rawValue, userId, env = {}) {
     const parsed = JSON.parse(textDecoder.decode(decrypted) || "{}");
     return { state: parsed && typeof parsed === "object" ? parsed : {}, encrypted: true };
   } catch (error) {
-    throw new Error(`Не удалось расшифровать подключение iiko. Проверьте ${IIKO_STATE_ENCRYPTION_ENV}.`);
+    throw new Error(`Не удалось расшифровать подключение iiko. Проверьте ${SMART_HORECA_STATE_ENCRYPTION_ENV}.`);
   }
 }
 
