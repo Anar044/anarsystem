@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Horeca — Матрица BCG / Меню-инжиниринг</title>
+  <link rel="stylesheet" href="app-shell.css">
+  <link rel="stylesheet" href="bcg-abc-xyz.css?v=20260916-1">
+</head>
+<body data-protected="true" style="background:#0b1017">
+  <div class="app-shell">
+    <aside class="sidebar"></aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+          <div>
+            <span class="topbar-title">Матрица BCG / Меню-инжиниринг</span>
+            <div class="topbar-sub">Популярность блюд × маржа на одну проданную позицию</div>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-content">
+        <section class="bcg-page">
+          <div class="bcg-head">
+            <div>
+              <h1>Матрица BCG / Меню-инжиниринг</h1>
+              <p>Классифицирует блюда по популярности и марже, чтобы понять, что продвигать, оптимизировать или пересматривать.</p>
+            </div>
+            <div class="bcg-head-actions">
+              <span id="bcgStatus" class="bcg-status">Готово</span>
+              <button id="bcgRun" class="bcg-primary">↻ Обновить</button>
+              <button id="bcgExport" class="bcg-secondary">Экспорт CSV</button>
+            </div>
+          </div>
+
+          <section class="bcg-filter-card">
+            <div class="bcg-filter-grid">
+              <label>Период
+                <div class="bcg-date-range">
+                  <input id="bcgFrom" type="date">
+                  <span>—</span>
+                  <input id="bcgTo" type="date">
+                </div>
+              </label>
+              <label>Группа
+                <select id="bcgGroup"><option value="">Все группы</option></select>
+              </label>
+              <label>Категория
+                <select id="bcgCategory"><option value="">Все категории</option></select>
+              </label>
+              <label>Порог популярности
+                <div class="bcg-input-suffix">
+                  <input id="bcgPopularityFactor" type="number" min="10" max="150" step="5" value="70">
+                  <span>% от среднего</span>
+                </div>
+              </label>
+            </div>
+            <div class="bcg-search-row">
+              <div class="bcg-search-wrap">
+                <input id="bcgSearch" type="search" placeholder="Поиск блюда...">
+                <button id="bcgClearSearch" type="button">Очистить</button>
+              </div>
+              <div id="bcgRowCount" class="bcg-row-count">0 блюд</div>
+            </div>
+          </section>
+
+          <div id="bcgError" class="bcg-error" hidden></div>
+
+          <section id="bcgSummary" class="bcg-summary-grid"></section>
+
+          <section class="bcg-method-card">
+            <div class="bcg-card-title">Как считается матрица</div>
+            <div class="bcg-method-grid">
+              <div><span>Высокие продажи</span><strong id="bcgPopularityThreshold">—</strong><small>Количество продаж ≥ порога популярности</small></div>
+              <div><span>Высокая маржа</span><strong id="bcgMarginThreshold">—</strong><small>Прибыль на 1 блюдо ≥ средней по меню</small></div>
+              <div><span>Средние продажи</span><strong id="bcgAverageQty">—</strong><small>Среднее количество продаж на одну позицию</small></div>
+              <div><span>Позиций в анализе</span><strong id="bcgAnalyzedCount">—</strong><small>После фильтров группы и категории</small></div>
+            </div>
+          </section>
+
+          <section class="bcg-matrix-card">
+            <div class="bcg-card-title-row">
+              <div>
+                <div class="bcg-card-title">Карта блюд</div>
+                <div class="bcg-card-sub">По горизонтали — количество продаж, по вертикали — прибыль на одну проданную позицию</div>
+              </div>
+              <div class="bcg-legend">
+                <span class="star">Звёзды</span>
+                <span class="workhorse">Рабочие лошадки</span>
+                <span class="puzzle">Загадки</span>
+                <span class="dog">Собаки</span>
+              </div>
+            </div>
+            <div id="bcgMatrix" class="bcg-matrix"></div>
+          </section>
+
+          <section class="bcg-table-card">
+            <div class="bcg-card-title-row">
+              <div>
+                <div class="bcg-card-title">Детализация по блюдам</div>
+                <div class="bcg-card-sub">Маржа на блюдо = прибыль ÷ количество продаж</div>
+              </div>
+            </div>
+            <div class="bcg-table-scroll">
+              <table id="bcgTable">
+                <thead>
+                  <tr>
+                    <th>№</th>
+                    <th class="text-left">Блюдо</th>
+                    <th>Группа</th>
+                    <th>Категория</th>
+                    <th>Продажи</th>
+                    <th>Выручка</th>
+                    <th>Себестоимость</th>
+                    <th>Прибыль</th>
+                    <th>Маржа / блюдо</th>
+                    <th>Маржинальность</th>
+                    <th>Класс</th>
+                    <th class="text-left">Рекомендация</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+                <tfoot></tfoot>
+              </table>
+            </div>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth-config.js"></script>
+  <script src="auth.js"></script>
+  <script src="iiko-context.js?v=20260911-2"></script>
+  <script src="app-shell.js"></script>
+  <script src="mobile-responsive.js?v=1"></script>
+  <script src="documents-nav.js?v=10"></script>
+  <script src="menu-engineering.js?v=20260916-1"></script>
+</body>
+</html>
