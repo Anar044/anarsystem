@@ -1,7 +1,10 @@
 (() => {
   'use strict';
 
+  window.SH_QRMenuSyncContextLoaded = true;
+
   const MENU_KEY = 'horeca_qr_menu_v1';
+  const DEFAULT_LOCAL_CATEGORY_IDS = new Set(['main', 'salads', 'pizza', 'drinks', 'desserts']);
   let syncing = false;
 
   const cleanName = value => String(value ?? '')
@@ -105,14 +108,32 @@
       }
     }
 
-    const validCategoryIds = new Set(canonical.map(category => String(category.id)));
+    const dishCountByCategory = new Map();
+    for (const dish of mergedDishes) {
+      const categoryId = String(dish.cat || '');
+      if (!categoryId) continue;
+      dishCountByCategory.set(categoryId, (dishCountByCategory.get(categoryId) || 0) + 1);
+    }
+
+    const hasIikoCategories = canonical.some(category => isIikoCategory(category));
+    const visibleCategories = hasIikoCategories
+      ? canonical.filter(category => {
+          const id = String(category.id || '');
+          const isEmptyDefaultPlaceholder = DEFAULT_LOCAL_CATEGORY_IDS.has(id)
+            && !isIikoCategory(category)
+            && (dishCountByCategory.get(id) || 0) === 0;
+          return !isEmptyDefaultPlaceholder;
+        })
+      : canonical;
+
+    const validCategoryIds = new Set(visibleCategories.map(category => String(category.id)));
     const mappedActive = categoryIdMap.get(String(originalActive || '')) || String(originalActive || '');
 
     return {
       ...state,
-      categories: canonical,
+      categories: visibleCategories,
       dishes: mergedDishes,
-      active: validCategoryIds.has(mappedActive) ? mappedActive : (canonical[0]?.id || '')
+      active: validCategoryIds.has(mappedActive) ? mappedActive : (visibleCategories[0]?.id || '')
     };
   }
 
