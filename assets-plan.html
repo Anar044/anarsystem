@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Smart Horeca — План ТО и замены</title>
+  <link rel="stylesheet" href="app-shell.css">
+  <link rel="stylesheet" href="assets.css?v=20260915-1">
+  <link rel="stylesheet" href="assets-plan.css?v=20260915-1">
+</head>
+<body data-protected="true" style="background:#0b1017">
+<div class="app-shell">
+  <aside class="sidebar"></aside>
+  <main class="main">
+    <header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">План ТО и замены</span><div class="topbar-sub">Обслуживание · ремонты · гарантия · план обновления оборудования</div></div></header>
+    <div class="asset-page plan-page">
+      <section class="asset-hero plan-hero"><div><div class="eyebrow">УПРАВЛЕНИЕ ИМУЩЕСТВОМ</div><h1>План обслуживания и замены</h1><p>Что обслужить сейчас, какое оборудование дороже всего ремонтировать и что уже пора планировать к замене.</p></div><div class="hero-actions"><a class="ghost plan-link" href="/assets.html">← Реестр имущества</a><button class="primary" id="refreshPlan">↻ Обновить</button></div></section>
+
+      <section class="plan-kpis">
+        <article><span>Активных объектов</span><strong id="kpiActive">0</strong><small>в эксплуатации</small></article>
+        <article class="warn"><span>ТО требует внимания</span><strong id="kpiService">0</strong><small>просрочено или ≤ 30 дней</small></article>
+        <article><span>Гарантия заканчивается</span><strong id="kpiWarranty">0</strong><small>в течение 60 дней</small></article>
+        <article class="danger"><span>Проверить замену</span><strong id="kpiReplace">0</strong><small>по затратам и сроку службы</small></article>
+        <article><span>Ремонты за 12 мес.</span><strong id="kpiRepair12">0,00 ₼</strong><small>по активному имуществу</small></article>
+      </section>
+
+      <section class="asset-card plan-controls"><div class="search-wrap"><input id="planSearch" placeholder="Поиск по оборудованию..."></div><select id="planRestaurant"><option value="">Все рестораны</option></select><select id="planFilter"><option value="">Все рекомендации</option><option value="REVIEW_REPLACE">Проверить замену</option><option value="SERVICE_DUE">Требуется ТО</option><option value="WARRANTY">На гарантии</option><option value="KEEP">Эксплуатировать дальше</option></select></section>
+
+      <div class="plan-grid">
+        <section class="asset-card plan-section"><div class="section-head"><div><h2>Напоминания</h2><span>ТО и гарантия по ближайшим датам</span></div><b id="alertsCount">0</b></div><div id="alertsList" class="alerts-list"></div></section>
+        <section class="asset-card plan-section"><div class="section-head"><div><h2>Самые дорогие в обслуживании</h2><span>Ремонты, обслуживание и замены деталей за 12 месяцев</span></div></div><div id="repairRanking" class="repair-ranking"></div></section>
+      </div>
+
+      <section class="asset-card plan-section"><div class="section-head"><div><h2>План замены оборудования</h2><span>Приоритет рассчитывается как управленческая подсказка, а не как автоматическое решение</span></div><span id="replaceCount">0 объектов</span></div><div class="replacement-wrap"><table class="replacement-table"><thead><tr><th>Приоритет</th><th>Объект</th><th>Ресторан</th><th>Срок использован</th><th>Остаток</th><th>Ремонты 12 мес.</th><th>Новый аналог</th><th>Рекомендация</th></tr></thead><tbody id="replacementRows"></tbody></table><div class="empty" id="replacementEmpty" hidden>Нет объектов по выбранным фильтрам.</div></div></section>
+    </div>
+  </main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script><script src="auth.js"></script>
+<script src="iiko-context.js?v=20260911-2"></script>
+<script src="app-shell.js"></script>
+<script src="assets-plan.js?v=20260915-1"></script>
+</body></html>
