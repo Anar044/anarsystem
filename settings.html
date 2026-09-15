@@ -33,7 +33,7 @@
 <section class="app-content settings-page">
  <div class="settings-card">
   <h1>Подключение к SH Server</h1>
-  <p class="lead">Настройте подключение один раз — параметры iiko и структура ресторана будут сохранены в D1 и доступны вашему аккаунту на всех страницах.</p>
+  <p class="lead">Настройте подключение один раз — параметры SH и структура ресторана будут сохранены в D1 и доступны вашему аккаунту на всех страницах.</p>
   <div class="settings-grid">
    <div class="form-group"><label for="iiko-ip">IP адрес / домен</label><input id="iiko-ip" type="text" placeholder="s01.smarthoreca.az"></div>
    <div class="form-group"><label for="iiko-port">Порт</label><input id="iiko-port" type="number" placeholder="Введите порт"></div>
@@ -42,14 +42,14 @@
   </div>
   <div class="connection-mode">
    <div class="connection-mode-title">Тип подключения</div>
-   <div class="connection-mode-sub">Тип определяется автоматически по структуре iiko. Для сети ресторанов система сохранит всю доступную иерархию.</div>
-   <label class="chain-toggle"><input type="checkbox" id="is-chain"><span>Это iikoChain — сеть ресторанов</span></label>
+   <div class="connection-mode-sub">Тип определяется автоматически по структуре SH. Для сети ресторанов система сохранит всю доступную иерархию.</div>
+   <label class="chain-toggle"><input type="checkbox" id="is-chain"><span>Это SH Chain — сеть ресторанов</span></label>
    <div id="chain-hint" class="chain-hint">После подключения система получит структуру сети: корпорацию, рестораны/торговые предприятия, группы, точки продаж и подразделения. Все отчёты будут работать с этой структурой.</div>
   </div>
   <button id="connect-iiko">Подключиться</button>
   <button type="button" id="clear-iiko-data">Удалить подключение из D1</button>
   <div id="iiko-status" class="iiko-status">⚪ Не подключено</div>
-  <div class="settings-note">Данные подключения и структура iiko сохраняются в D1 для текущего авторизованного аккаунта. Они не сохраняются в localStorage браузера.</div>
+  <div class="settings-note">Данные подключения и структура SH сохраняются в D1 для текущего авторизованного аккаунта. Они не сохраняются в localStorage браузера.</div>
   <div id="iiko-identity" class="iiko-identity" hidden>
    <div class="iiko-identity-title">Идентификатор SH</div>
    <div id="iiko-identity-list" class="iiko-identity-list"></div>
