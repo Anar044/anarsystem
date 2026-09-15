@@ -54,3 +54,12 @@
 
 /pnl.js
   Cache-Control: no-cache, max-age=0, must-revalidate
+
+/menu-engineering.html
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/menu-engineering.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/bcg-abc-xyz.css
+  Cache-Control: no-cache, max-age=0, must-revalidate
