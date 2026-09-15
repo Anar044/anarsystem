@@ -96,7 +96,25 @@ jobs:
           fi
           grep -q 'SH_IikoContext.getBinding' pnl.js
           grep -q 'departmentIds' pnl.js
-          echo 'P&L direct context check passed'
+          grep -q '/api/assets' pnl.js
+          grep -q 'Амортизация основных средств' pnl.js
+          echo 'P&L direct context and depreciation check passed'
+
+      - name: Verify fixed assets module uses authenticated D1 API
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'getUser' functions/api/assets.js
+          grep -q 'fixed_assets' functions/api/assets.js
+          grep -q 'fixed_asset_events' functions/api/assets.js
+          grep -q "action==='depreciation'" functions/api/assets.js
+          grep -q 'Authorization' assets.js
+          grep -q 'SH_IikoContext.getBinding' assets.js
+          if grep -Eq '/resto/api/|iikoFetch|getIikoAuth' functions/api/assets.js; then
+            echo 'Fixed assets module must not call iiko Server'
+            exit 1
+          fi
+          echo 'Fixed assets D1 contract check passed'
 
       - name: Verify QR Menu uses safe context adapter
         shell: bash
@@ -206,6 +224,7 @@ jobs:
             "/cash-shifts.html"
             "/settings.html"
             "/qr-menu.html"
+            "/assets.html"
             "/nakladnye.html"
             "/rashodnye-nakladnye.html"
             "/akty-spisaniya.html"
@@ -248,6 +267,7 @@ jobs:
             "/api/iiko/document-action"
             "/api/iiko/document-by-number"
             "/api/iiko/state"
+            "/api/assets"
           )
           for path in "${routes[@]}"; do
             code=$(curl -sS -X OPTIONS -o /tmp/api.txt -w '%{http_code}' "$PREVIEW_BASE$path" || true)
