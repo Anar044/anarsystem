@@ -129,3 +129,6 @@
 
 /api/hr/payroll-adjustments
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/api/hr/meal-transactions
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
