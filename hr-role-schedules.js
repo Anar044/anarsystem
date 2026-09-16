@@ -16,7 +16,6 @@
     <article class="hr-summary-card"><span>Сотрудники</span><strong>${Number(c.employees||0)}</strong><small>Активные сотрудники с должностью</small></article>
     <article class="hr-summary-card"><span>Шаблоны графиков</span><strong>${Number(c.schedules||0)}</strong><small>Активные варианты смен</small></article>
     <article class="hr-summary-card"><span>Без основного графика</span><strong>${Number(c.rolesWithoutDefault||0)}</strong><small>Должности, требующие настройки</small></article>`}
-  }
 
   function renderRoleSelect(){const roles=(data.roles||[]).filter(x=>!x.deleted);const current=$('rsRole').value;$('rsRole').innerHTML=roles.length?roles.map(r=>`<option value="${esc(r.code)}">${esc(r.name)} · ${esc(r.code)}</option>`).join(''):'<option value="">Сначала синхронизируйте должности</option>';if(roles.some(x=>x.code===current))$('rsRole').value=current}
 
