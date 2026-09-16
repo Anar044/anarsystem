@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Horeca — Учёт времени / Face ID</title>
+  <link rel="stylesheet" href="app-shell.css">
+  <link rel="stylesheet" href="hr-pnl.css?v=20260916-2">
+</head>
+<body data-protected="true" style="background:#0b1017">
+  <div class="app-shell">
+    <aside class="sidebar"></aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+          <div>
+            <span class="topbar-title">Учёт времени / Face ID</span>
+            <div class="topbar-sub">Устройства · сопоставление сотрудников · журнал входов/выходов</div>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-content">
+        <section class="hr-page">
+          <div class="hr-head">
+            <div>
+              <h1>Учёт рабочего времени</h1>
+              <p>Устройства фиксируют только сырые события входа и выхода. Табель и расчёт зарплаты будут строиться внутри Smart Horeca.</p>
+            </div>
+            <div class="hr-actions">
+              <span id="tcStatus" class="hr-status">Готово</span>
+              <button id="tcRefresh" class="hr-primary">↻ Обновить</button>
+            </div>
+          </div>
+
+          <section class="hr-source-grid">
+            <article class="hr-source-card"><span>Сотрудники</span><strong>SH Server</strong><small>Кадровый справочник и должности</small></article>
+            <article class="hr-source-card active"><span>Явки</span><strong>Face ID / ZKTeco</strong><small>Сырые отметки входа и выхода</small></article>
+            <article class="hr-source-card"><span>Расчёт</span><strong>Smart Horeca</strong><small>Табель · часы · доплаты · payroll</small></article>
+          </section>
+
+          <section id="tcSummary" class="hr-summary-grid"></section>
+          <div id="tcError" class="hr-error" hidden></div>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Устройства учёта времени</div>
+                <div class="hr-card-sub">Сейчас создаём логическое устройство. Реальное подключение ZKTeco будет работать через отдельный локальный connector/adapter.</div>
+              </div>
+            </div>
+            <form id="deviceForm" class="hr-form-grid">
+              <label>Провайдер<select id="deviceProvider"><option value="ZKTECO">ZKTeco / Face ID</option><option value="GENERIC">Другое устройство</option></select></label>
+              <label>Название<input id="deviceName" required placeholder="Face ID — главный вход"></label>
+              <label>Расположение<input id="deviceLocation" placeholder="Ресторан / вход"></label>
+              <label>Часовой пояс<input id="deviceTimezone" value="Asia/Baku"></label>
+              <div class="hr-form-action"><button class="hr-primary" type="submit">+ Добавить устройство</button></div>
+            </form>
+            <div id="deviceList" class="hr-device-list"></div>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Сопоставление сотрудников</div>
+                <div class="hr-card-sub">Связываем ID сотрудника из SH с ID пользователя на конкретном Face ID устройстве.</div>
+              </div>
+              <div id="bindingCount" class="hr-muted">0 связей</div>
+            </div>
+            <form id="bindingForm" class="hr-form-grid hr-form-grid-link">
+              <label>Устройство<select id="bindingDevice"></select></label>
+              <label>Сотрудник<select id="bindingEmployee"></select></label>
+              <label>ID на устройстве<input id="bindingExternalId" required placeholder="Напр. 17"></label>
+              <label>Подпись<input id="bindingLabel" placeholder="Необязательно"></label>
+              <div class="hr-form-action"><button class="hr-primary" type="submit">Связать</button></div>
+            </form>
+            <div class="hr-table-scroll">
+              <table>
+                <thead><tr><th class="text-left">Сотрудник</th><th>Устройство</th><th>Face ID</th><th>Провайдер</th><th></th></tr></thead>
+                <tbody id="bindingRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Сырой журнал входов / выходов</div>
+                <div class="hr-card-sub">Эти события не являются готовым табелем. Следующий слой нормализует их в рабочие интервалы.</div>
+              </div>
+              <div id="eventCount" class="hr-muted">0 событий</div>
+            </div>
+            <div class="hr-table-scroll">
+              <table>
+                <thead><tr><th>Время</th><th class="text-left">Сотрудник</th><th>Тип</th><th>Устройство</th><th>Внешний ID</th><th>Статус связи</th></tr></thead>
+                <tbody id="eventRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="hr-card hr-next">
+            <div class="hr-card-title">Как будет работать реальный аппарат</div>
+            <p>Локальный ZKTeco connector будет читать журнал устройства и отправлять события в защищённый ingest API Smart Horeca. Здесь уже подготовлена модель устройств, связей сотрудников и необработанных событий.</p>
+            <div class="hr-flow"><span>ZKTeco</span><b>→</b><span>Local connector</span><b>→</b><span>Raw events</span><b>→</b><span>Сопоставление ID</span><b>→</b><span>Табель</span><b>→</b><span>Payroll</span></div>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth-config.js"></script>
+  <script src="auth.js"></script>
+  <script src="app-shell.js"></script>
+  <script src="mobile-responsive.js?v=1"></script>
+  <script src="documents-nav.js?v=13"></script>
+  <script src="hr-timeclock.js?v=20260916-1"></script>
+</body>
+</html>
