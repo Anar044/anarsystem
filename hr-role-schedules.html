@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Horeca — Графики и должности</title>
+  <link rel="stylesheet" href="app-shell.css">
+  <link rel="stylesheet" href="hr-pnl.css?v=20260916-6">
+</head>
+<body data-protected="true" style="background:#0b1017">
+  <div class="app-shell">
+    <aside class="sidebar"></aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+          <div>
+            <span class="topbar-title">Графики и должности</span>
+            <div class="topbar-sub">Должности из iiko · шаблоны смен · наследование графика</div>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-content">
+        <section class="hr-page">
+          <div class="hr-head">
+            <div>
+              <h1>Графики по должностям</h1>
+              <p>Должности не создаются вручную: Smart Horeca синхронизирует их из iiko и хранит только HR-настройки графиков.</p>
+            </div>
+            <div class="hr-actions">
+              <span id="rsStatus" class="hr-status">Готово</span>
+              <button id="rsSync" class="hr-primary">↻ Синхронизировать из iiko</button>
+              <button id="rsRefresh" class="hr-link-button">Обновить</button>
+            </div>
+          </div>
+
+          <section class="hr-source-grid">
+            <article class="hr-source-card active"><span>Должности</span><strong>iiko</strong><small>ID / код / название должности</small></article>
+            <article class="hr-source-card"><span>Графики</span><strong>Smart Horeca</strong><small>Шаблоны смен по должности</small></article>
+            <article class="hr-source-card"><span>Наследование</span><strong>Сотрудник</strong><small>Основной график должности + будущие исключения</small></article>
+          </section>
+
+          <section id="rsSummary" class="hr-summary-grid"></section>
+          <div id="rsError" class="hr-error" hidden></div>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Шаблон графика</div>
+                <div class="hr-card-sub">Для одной должности можно создать несколько смен: например «Повар — смена A» и «Повар — смена B».</div>
+              </div>
+              <button id="rsReset" type="button" class="hr-link-button">Новый шаблон</button>
+            </div>
+
+            <form id="rsForm" class="hr-schedule-form">
+              <input id="rsId" type="hidden">
+              <label>Должность<select id="rsRole" required></select></label>
+              <label>Название шаблона<input id="rsName" required placeholder="Напр. Смена A"></label>
+              <label>Тип графика<select id="rsPattern"><option value="WEEKLY">По дням недели</option><option value="CYCLE">Цикл рабочих/выходных</option></select></label>
+              <label>Начало смены<input id="rsStart" type="time" value="09:00" required></label>
+              <label>Конец смены<input id="rsEnd" type="time" value="18:00" required></label>
+              <label>Перерыв, мин<input id="rsBreak" type="number" min="0" max="600" step="5" value="60"></label>
+              <label>Действует с<input id="rsValidFrom" type="date" required></label>
+              <label>Действует по<input id="rsValidTo" type="date"></label>
+
+              <div id="weeklyBox" class="hr-schedule-extra">
+                <span>Рабочие дни недели</span>
+                <div class="hr-weekdays">
+                  <label><input type="checkbox" value="1" checked><b>Пн</b></label>
+                  <label><input type="checkbox" value="2" checked><b>Вт</b></label>
+                  <label><input type="checkbox" value="3" checked><b>Ср</b></label>
+                  <label><input type="checkbox" value="4" checked><b>Чт</b></label>
+                  <label><input type="checkbox" value="5" checked><b>Пт</b></label>
+                  <label><input type="checkbox" value="6"><b>Сб</b></label>
+                  <label><input type="checkbox" value="7"><b>Вс</b></label>
+                </div>
+              </div>
+
+              <div id="cycleBox" class="hr-schedule-extra" hidden>
+                <label>Рабочих дней<input id="rsWorkDays" type="number" min="1" max="14" value="2"></label>
+                <label>Выходных дней<input id="rsOffDays" type="number" min="1" max="14" value="2"></label>
+                <label>Опорная дата<input id="rsAnchor" type="date"><small>Первый рабочий день этого цикла.</small></label>
+              </div>
+
+              <label class="hr-check-row"><input id="rsDefault" type="checkbox"><span>Основной график должности</span><small>Новые сотрудники этой должности будут наследовать его по умолчанию.</small></label>
+              <div class="hr-form-action"><button class="hr-primary" type="submit">Сохранить график</button></div>
+            </form>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Должности из iiko</div>
+                <div class="hr-card-sub">Ни одна должность не создаётся вручную. Количество сотрудников берётся из синхронизированного HR-справочника.</div>
+              </div>
+              <div id="rsRoleCount" class="hr-muted">0 должностей</div>
+            </div>
+            <div class="hr-table-scroll">
+              <table>
+                <thead><tr><th class="text-left">Должность</th><th>Код iiko</th><th>Сотрудников</th><th>Графиков</th><th>Основной график</th><th>Статус</th></tr></thead>
+                <tbody id="rsRoleRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Шаблоны графиков</div>
+                <div class="hr-card-sub">Изменение шаблона сохраняется с датой действия; старые периоды не нужно пересчитывать задним числом.</div>
+              </div>
+              <div id="rsScheduleCount" class="hr-muted">0 графиков</div>
+            </div>
+            <div class="hr-table-scroll">
+              <table>
+                <thead><tr><th class="text-left">Должность / шаблон</th><th>Режим</th><th>Смена</th><th>Перерыв</th><th>Период действия</th><th>Основной</th><th></th></tr></thead>
+                <tbody id="rsScheduleRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="hr-card hr-next">
+            <div class="hr-card-title">Как будет применяться график</div>
+            <p>Сотрудник получает основной шаблон своей должности. Для сменных команд можно создать несколько шаблонов одной должности с разной опорной датой, а позже назначать сотрудников в группу A/B. Индивидуальные исключения будут отдельным слоем и не потребуют создавать 1000 разных графиков.</p>
+            <div class="hr-flow"><span>iiko должность</span><b>→</b><span>Шаблон графика</span><b>→</b><span>Сотрудник / группа</span><b>+</b><span>Исключения</span><b>→</b><span>План</span><b>↔</b><span>Face ID факт</span></div>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth-config.js"></script>
+  <script src="auth.js"></script>
+  <script src="app-shell.js"></script>
+  <script src="mobile-responsive.js?v=1"></script>
+  <script src="documents-nav.js?v=16"></script>
+  <script src="hr-role-schedules.js?v=20260916-1"></script>
+</body>
+</html>
