@@ -80,10 +80,40 @@
     return link;
   }
 
+  function ensureHrNav(){
+    const nav=document.querySelector('.sidebar .unified-main-nav');
+    if(!nav)return null;
+    let link=nav.querySelector('a[data-unified-nav-item="hr-employees.html"]');
+    if(!link){
+      link=document.createElement('a');
+      link.href='/hr-employees.html';
+      link.dataset.unifiedNavItem='hr-employees.html';
+      link.innerHTML='<span class="side-icon">♟</span><span>Сотрудники</span>';
+      const reports=nav.querySelector('.reports-nav-group');
+      if(reports)reports.insertAdjacentElement('afterend',link);
+      else nav.appendChild(link);
+    }
+    const path=currentPath();
+    const active=path.endsWith('/hr-employees')||path.endsWith('/hr-employees.html');
+    if(active){
+      nav.querySelectorAll(':scope > a[data-unified-nav-item]').forEach(a=>a.classList.toggle('active',a===link));
+      nav.querySelectorAll('.documents-nav-group,.reports-nav-group').forEach(group=>{
+        const toggle=group.querySelector('.documents-nav-toggle');
+        const sub=group.querySelector('.documents-subnav');
+        group.classList.remove('open');
+        toggle?.classList.remove('active');
+        toggle?.setAttribute('aria-expanded','false');
+        if(sub)sub.hidden=true;
+      });
+    }
+    return link;
+  }
+
   function sync(){
     normalizeCashNav();
     ensureMenuEngineeringNav();
     ensureWaiterPerformanceNav();
+    ensureHrNav();
     return true;
   }
 
@@ -97,6 +127,7 @@
         if(path==='/cash'||path.endsWith('/cash.html')||path.endsWith('/cash/index.html'))return'cash.html';
         if(path.endsWith('/menu-engineering')||path.endsWith('/menu-engineering.html'))return'menu-engineering.html';
         if(path.endsWith('/waiter-performance')||path.endsWith('/waiter-performance.html'))return'waiter-performance.html';
+        if(path.endsWith('/hr-employees')||path.endsWith('/hr-employees.html'))return'hr-employees.html';
         return null;
       }
     };
