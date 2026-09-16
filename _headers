@@ -112,5 +112,17 @@
 /hr-payroll.js
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
 
+/hr-payroll-adjustments
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/hr-payroll-adjustments.html
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/hr-payroll-adjustments.js
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
 /api/hr/payroll
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/api/hr/payroll-adjustments
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
