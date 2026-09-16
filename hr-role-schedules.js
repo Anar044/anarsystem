@@ -10,6 +10,9 @@
   function roleName(code){const r=(data.roles||[]).find(x=>x.code===code);return r?.name||code||'—'}
   function fmtDate(v){if(!v)return'∞';const [y,m,d]=String(v).split('-');return `${d}.${m}.${y}`}
   function fmtPattern(s){if(s.patternType==='CYCLE')return `${s.workDays}/${s.offDays}${s.anchorDate?' · от '+fmtDate(s.anchorDate):''}`;const names={1:'Пн',2:'Вт',3:'Ср',4:'Чт',5:'Пт',6:'Сб',7:'Вс'};return (s.weekdays||[]).map(x=>names[x]||x).join(', ')}
+  function today(){const d=new Date(),p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`}
+  function timeMinutes(v){const m=/^(\d{2}):(\d{2})$/.exec(String(v||''));return m?Number(m[1])*60+Number(m[2]):null}
+  function durationText(minutes){const n=Math.max(0,Math.round(Number(minutes)||0)),h=Math.floor(n/60),m=n%60;return [h?`${h} ч`:'',m?`${m} мин`:''].filter(Boolean).join(' ')||'0 мин'}
 
   function renderSummary(){const c=data.counts||{};$('rsSummary').innerHTML=`
     <article class="hr-summary-card"><span>Должности iiko</span><strong>${Number(c.roles||0)}</strong><small>Активные должности</small></article>
@@ -41,24 +44,50 @@
     $('rsScheduleRows').querySelectorAll('[data-disable]').forEach(b=>b.onclick=()=>disableSchedule(b.dataset.disable));
   }
 
-  function render(){renderSummary();renderRoleSelect();renderRoles();renderSchedules()}
   function weekdays(){return [...document.querySelectorAll('#weeklyBox input[type="checkbox"]:checked')].map(x=>Number(x.value))}
   function setWeekdays(values){const set=new Set((values||[]).map(Number));document.querySelectorAll('#weeklyBox input[type="checkbox"]').forEach(x=>x.checked=set.has(Number(x.value)))}
-  function updatePattern(){const cycle=$('rsPattern').value==='CYCLE';$('weeklyBox').hidden=cycle;$('cycleBox').hidden=!cycle;$('rsAnchor').required=cycle}
-  function today(){const d=new Date(),p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`}
+  function weekdayText(values){const v=values||[];if(v.length===5&&v.every((x,i)=>x===i+1))return'Пн–Пт';if(v.length===7)return'Каждый день';const names={1:'Пн',2:'Вт',3:'Ср',4:'Чт',5:'Пт',6:'Сб',7:'Вс'};return v.map(x=>names[x]||x).join(', ')||'Дни не выбраны'}
+
+  function updateLivePreview(){
+    const start=$('rsStart').value||'—',end=$('rsEnd').value||'—',breakMinutes=Math.max(0,Number($('rsBreak').value||0));
+    const startMin=timeMinutes(start),endMin=timeMinutes(end);let net=0;
+    if(startMin!==null&&endMin!==null){let span=endMin-startMin;if(span<=0)span+=1440;net=Math.max(0,span-breakMinutes)}
+    $('rsShiftDuration').textContent=durationText(net);
+    const cycle=$('rsPattern').value==='CYCLE';
+    const pattern=cycle?`${Number($('rsWorkDays').value||0)}/${Number($('rsOffDays').value||0)}`:weekdayText(weekdays());
+    $('rsPatternHint').textContent=cycle?'Укажите рабочие и выходные дни цикла':'Выберите дни недели';
+    const parts=[pattern,`${start}–${end}`,durationText(net)];if(breakMinutes)parts.push(`перерыв ${breakMinutes} мин`);
+    $('rsLiveSummary').textContent=parts.join(' · ');
+  }
+
+  function updatePattern(){const cycle=$('rsPattern').value==='CYCLE';$('weeklyBox').hidden=cycle;$('cycleBox').hidden=!cycle;$('rsAnchor').required=cycle;updateLivePreview()}
+
+  function applyPreset(name){
+    if(name==='WEEKLY_5_2'){$('rsPattern').value='WEEKLY';setWeekdays([1,2,3,4,5])}
+    if(name==='CYCLE_2_2'){$('rsPattern').value='CYCLE';$('rsWorkDays').value='2';$('rsOffDays').value='2';if(!$('rsAnchor').value)$('rsAnchor').value=today()}
+    if(name==='CYCLE_3_3'){$('rsPattern').value='CYCLE';$('rsWorkDays').value='3';$('rsOffDays').value='3';if(!$('rsAnchor').value)$('rsAnchor').value=today()}
+    updatePattern();
+  }
+
+  function render(){renderSummary();renderRoleSelect();renderRoles();renderSchedules();updateLivePreview()}
 
   function resetForm(){
     $('rsId').value='';$('rsName').value='';$('rsPattern').value='WEEKLY';$('rsStart').value='09:00';$('rsEnd').value='18:00';$('rsBreak').value='60';$('rsValidFrom').value=today();$('rsValidTo').value='';$('rsWorkDays').value='2';$('rsOffDays').value='2';$('rsAnchor').value=today();$('rsDefault').checked=false;setWeekdays([1,2,3,4,5]);updatePattern();
   }
 
-  function editSchedule(id){const s=(data.schedules||[]).find(x=>x.id===id);if(!s)return;$('rsId').value=s.id;$('rsRole').value=s.roleCode;$('rsName').value=s.name;$('rsPattern').value=s.patternType;$('rsStart').value=s.shiftStart;$('rsEnd').value=s.shiftEnd;$('rsBreak').value=s.breakMinutes;$('rsValidFrom').value=s.validFrom;$('rsValidTo').value=s.validTo||'';$('rsWorkDays').value=s.workDays||2;$('rsOffDays').value=s.offDays||2;$('rsAnchor').value=s.anchorDate||today();$('rsDefault').checked=Boolean(s.isDefault);setWeekdays(s.weekdays||[]);updatePattern();document.querySelector('.hr-schedule-form')?.scrollIntoView({behavior:'smooth',block:'center'});setStatus('Редактирование графика','loading')}
+  function editSchedule(id){const s=(data.schedules||[]).find(x=>x.id===id);if(!s)return;$('rsId').value=s.id;$('rsRole').value=s.roleCode;$('rsName').value=s.name;$('rsPattern').value=s.patternType;$('rsStart').value=s.shiftStart;$('rsEnd').value=s.shiftEnd;$('rsBreak').value=s.breakMinutes;$('rsValidFrom').value=s.validFrom;$('rsValidTo').value=s.validTo||'';$('rsWorkDays').value=s.workDays||2;$('rsOffDays').value=s.offDays||2;$('rsAnchor').value=s.anchorDate||today();$('rsDefault').checked=Boolean(s.isDefault);setWeekdays(s.weekdays||[]);updatePattern();document.querySelector('.hr-schedule-builder')?.scrollIntoView({behavior:'smooth',block:'start'});setStatus('Редактирование графика','loading')}
 
   async function load(){if(busy)return;try{busy=true;$('rsRefresh').disabled=true;$('rsError').hidden=true;setStatus('Загрузка…','loading');data=await api();render();if(!$('rsValidFrom').value)resetForm();setStatus('Готово','ok')}catch(e){$('rsError').hidden=false;$('rsError').textContent=e.message;setStatus('Ошибка','error')}finally{busy=false;$('rsRefresh').disabled=false}}
   async function syncRoles(){if(busy)return;try{busy=true;$('rsSync').disabled=true;$('rsError').hidden=true;setStatus('Синхронизация iiko…','loading');data=await api({action:'syncRoles'});render();setStatus('Должности синхронизированы','ok')}catch(e){$('rsError').hidden=false;$('rsError').textContent=e.message;setStatus('Ошибка','error')}finally{busy=false;$('rsSync').disabled=false}}
   async function save(ev){ev.preventDefault();try{setStatus('Сохраняем график…','loading');const body={action:'saveSchedule',id:$('rsId').value,roleCode:$('rsRole').value,name:$('rsName').value,patternType:$('rsPattern').value,shiftStart:$('rsStart').value,shiftEnd:$('rsEnd').value,breakMinutes:Number($('rsBreak').value||0),validFrom:$('rsValidFrom').value,validTo:$('rsValidTo').value,isDefault:$('rsDefault').checked,weekdays:weekdays(),workDays:Number($('rsWorkDays').value||2),offDays:Number($('rsOffDays').value||2),anchorDate:$('rsAnchor').value};data=await api(body);render();resetForm();setStatus('График сохранён','ok')}catch(e){$('rsError').hidden=false;$('rsError').textContent=e.message;setStatus('Ошибка','error')}}
   async function disableSchedule(id){const s=(data.schedules||[]).find(x=>x.id===id);if(!confirm(`Отключить график «${s?.name||''}»? История останется в базе.`))return;try{setStatus('Отключаем…','loading');data=await api({action:'disableSchedule',id});render();if($('rsId').value===id)resetForm();setStatus('График отключён','ok')}catch(e){$('rsError').hidden=false;$('rsError').textContent=e.message;setStatus('Ошибка','error')}}
 
-  function bind(){$('rsRefresh').onclick=load;$('rsSync').onclick=syncRoles;$('rsReset').onclick=resetForm;$('rsPattern').onchange=updatePattern;$('rsForm').onsubmit=save}
+  function bind(){
+    $('rsRefresh').onclick=load;$('rsSync').onclick=syncRoles;$('rsReset').onclick=resetForm;$('rsClear').onclick=resetForm;$('rsPattern').onchange=updatePattern;$('rsForm').onsubmit=save;
+    document.querySelectorAll('[data-schedule-preset]').forEach(b=>b.onclick=()=>applyPreset(b.dataset.schedulePreset));
+    ['rsRole','rsName','rsStart','rsEnd','rsBreak','rsWorkDays','rsOffDays','rsAnchor','rsValidFrom','rsValidTo','rsDefault'].forEach(id=>{$(id)?.addEventListener('input',updateLivePreview);$(id)?.addEventListener('change',updateLivePreview)});
+    document.querySelectorAll('#weeklyBox input[type="checkbox"]').forEach(x=>x.addEventListener('change',updateLivePreview));
+  }
   async function init(){bind();resetForm();await load()}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
