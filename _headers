@@ -72,3 +72,6 @@
 
 /waiter-performance.css
   Cache-Control: no-cache, max-age=0, must-revalidate
+
+/waiter-pnl.css
+  Cache-Control: no-cache, max-age=0, must-revalidate
