@@ -5,10 +5,8 @@ function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-M
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
 function clean(v){return String(v??'').trim()}
 function money(v){const n=Number(v);return Number.isFinite(n)?Math.round(Math.max(0,n)*100)/100:0}
-function signed(v){const n=Number(v);return Number.isFinite(n)?Math.round(n*100)/100:0}
 function monthOnly(v){return /^\d{4}-\d{2}$/.test(clean(v))?clean(v):''}
-function monthBounds(month){const[y,m]=month.split('-').map(Number),last=new Date(Date.UTC(y,m,0)).getUTCDate();return{from:`${month}-01`,to:`${month}-${String(last).padStart(2,'0')}`}}
-function previousDate(v){const d=new Date(`${v}T00:00:00Z`);d.setUTCDate(d.getUTCDate()-1);return d.toISOString().slice(0,10)}
+function monthBounds(month){const[y,m]=month.split('-').map(Number),last=new Date(Date.UTC(y,m,0)).getUTCDate();return{from:`${month}-01`,to:`${month}-${String(last).padStart(2,'0')}`,yearStart:`${y}-01-01`}}
 function nextDate(v){const d=new Date(`${v}T00:00:00Z`);d.setUTCDate(d.getUTCDate()+1);return d.toISOString().slice(0,10)}
 function now(){return new Date().toISOString()}
 function norm(v){return clean(v).toLowerCase().replace(/ё/g,'е').replace(/[\s._()\/-]+/g,'')}
@@ -21,7 +19,9 @@ function rowNumber(row,field){return field?numeric(row?.[field]??row?.[String(fi
 function unique(items){return[...new Set(items.filter(Boolean))]}
 function mealAccountName(v){const n=norm(v);return n.includes(norm('Текущие расчеты с сотрудниками'))||n.includes(norm('Текущие расчёты с сотрудниками'))||n.includes(norm('Задолженность сотрудников'))||n.includes(norm('Кредиты сотрудникам'))||n.includes('employeesettlement')||n.includes('employeedebt')||n.includes('employeecredit')}
 function transactionKind(v){const raw=clean(v).toUpperCase().replace(/\s+/g,'');const latin=raw.replace(/КРЕД/g,'KRED');if(['CRED','KRED','CREDIT','CLOSEMP'].includes(latin))return latin;return''}
+function transactionClass(kind){return kind==='CLOSEMP'?'REPAY':'CHARGE'}
 function mealAmount(row,fields){const vals=[rowNumber(row,fields.sum),rowNumber(row,fields.incoming),rowNumber(row,fields.outgoing)].filter(v=>Math.abs(v)>0.000001);return vals.length?money(Math.abs(vals[0])):0}
+function dateKey(v){const m=clean(v).match(/(\d{4})-(\d{2})-(\d{2})/);return m?`${m[1]}-${m[2]}-${m[3]}`:''}
 
 async function ensure(db){
   if(!db)throw new Error('D1 binding DB не настроен.');
@@ -49,43 +49,33 @@ async function accountCandidates(connection){
   return{all,matched,ids:new Set(matched.map(a=>a.id)),names:new Set(matched.map(a=>norm(a.name)))};
 }
 
-async function counteragentBalances(connection,timestamp){
-  const r=await iikoJson(connection,`/resto/api/v2/reports/balance/counteragents?timestamp=${encodeURIComponent(timestamp)}`);
-  if(!r.ok||!r.payload)throw new Error(`iiko balance/counteragents HTTP ${r.status}: ${r.text.slice(0,300)}`);
-  return asArray(r.payload);
-}
-function balanceEmployeeId(r){return idValue(r?.counteragentId??r?.counteragent??r?.contractorId??r?.contractor??r?.employeeId??r?.employee??r?.personId??r?.person)}
-function balanceAccountId(r){return idValue(r?.accountId??r?.account??r?.accountUuid??r?.Account)}
-function balanceAmount(r){for(const k of['sum','balance','amount','value','Sum'])if(r?.[k]!=null&&clean(r[k])!=='')return signed(r[k]);return 0}
-function aggregateBalances(rows,employeeIds,accountIds){const out=new Map();let matched=0;for(const r of rows){const eid=balanceEmployeeId(r),aid=balanceAccountId(r);if(!employeeIds.has(eid)||!accountIds.has(aid))continue;out.set(eid,(out.get(eid)||0)+balanceAmount(r));matched++}return{out,matched}}
-
 async function transactionFields(connection){
   const meta=await getOlapFields(connection,'TRANSACTIONS'),fs=meta.fields||[];
   const f={
     accountId:findField(fs,['Account.Id','Account.ID','AccountId','Account.Guid','Account.UUID']),
     accountName:findField(fs,['Account.Name','AccountName','Счет','Счёт','Account']),
+    counterAccountId:findField(fs,['Contr-Account.Id','Contr-Account.ID','CounterAccount.Id','CounterAccount.ID','CounterAccountId','CounterAccount.Guid','CounterAccount.UUID']),
+    counterAccount:findField(fs,['Contr-Account.Name','CounterAccount.Name','CounterAccountName','Корр.Счет/Склад','Корр. Счет/Склад']),
     counteragentId:findField(fs,['Counteragent.Id','Counteragent.ID','CounteragentId','Counteragent.Guid','Counteragent.UUID','Contractor.Id','ContractorId']),
     counteragentName:findField(fs,['Counteragent.Name','CounteragentName','Contractor.Name','ContractorName','Сотрудник','Контрагент']),
     type:findField(fs,['TransactionType.Code','TransactionType','Transaction.Type','TransactionTypeCode','Тип проводки','Тип']),
     date:findField(fs,['DateTime.DateTyped','DateTime.Typed','DateTime.Date','Date.Typed','Date','TransactionDate','OperationDate']),
     sum:findField(fs,['Sum','TransactionSum','Amount','Сумма']),
     incoming:findField(fs,['Sum.Incoming','IncomingSum','Debit','Дебет']),
-    outgoing:findField(fs,['Sum.Outgoing','OutgoingSum','Credit','Кредит']),
-    counterAccount:findField(fs,['Contr-Account.Name','CounterAccount.Name','CounterAccountName','Корр.Счет/Склад','Корр. Счет/Склад'])
+    outgoing:findField(fs,['Sum.Outgoing','OutgoingSum','Credit','Кредит'])
   };
   if(!f.type)throw new Error('В OLAP TRANSACTIONS не найдено поле TransactionType.');
+  if(!f.date)throw new Error('В OLAP TRANSACTIONS не найдено поле даты проводки.');
   if(!f.counteragentId&&!f.counteragentName)throw new Error('В OLAP TRANSACTIONS не найден сотрудник/контрагент.');
   if(!f.sum&&!f.incoming&&!f.outgoing)throw new Error('В OLAP TRANSACTIONS не найдено поле суммы.');
   return f;
 }
 
-async function transactionRows(connection,fields,accounts,bounds){
-  const rows=unique([fields.accountId,fields.accountName,fields.counteragentId,fields.counteragentName,fields.type,fields.counterAccount]);
+async function transactionRows(connection,fields,bounds){
+  const rows=unique([fields.date,fields.accountId,fields.accountName,fields.counterAccountId,fields.counterAccount,fields.counteragentId,fields.counteragentName,fields.type]);
   const measures=unique([fields.sum,fields.incoming,fields.outgoing]);
   const filters={};
-  if(fields.date)filters[fields.date]={filterType:'DateRange',periodType:'CUSTOM',from:bounds.from,to:nextDate(bounds.to),includeLow:true,includeHigh:false};
-  if(fields.accountId)filters[fields.accountId]={filterType:'IncludeValues',values:[...accounts.ids]};
-  else if(fields.accountName)filters[fields.accountName]={filterType:'IncludeValues',values:accounts.matched.map(a=>a.name)};
+  filters[fields.date]={filterType:'DateRange',periodType:'CUSTOM',from:bounds.yearStart,to:nextDate(bounds.to),includeLow:true,includeHigh:false};
   const request={reportType:'TRANSACTIONS',buildSummary:false,groupByRowFields:rows,groupByColFields:[],aggregateFields:measures,filters};
   const r=await iikoJson(connection,'/resto/api/v2/reports/olap',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(request)});
   if(!r.ok||!r.payload)throw new Error(`OLAP TRANSACTIONS HTTP ${r.status}: ${r.text.slice(0,1000)}`);
@@ -97,44 +87,49 @@ function employeeNameMap(list){
   for(const e of list){for(const raw of[e.name,e.displayName,e.code]){const key=norm(raw);if(!key)continue;const old=m.get(key);if(old&&old!==e.idKey)m.set(key,'');else if(!m.has(key))m.set(key,e.idKey)}}
   return m;
 }
+function sideMatches(row,fields,accounts){
+  const aid=fields.accountId?idValue(rowText(row,fields.accountId)):'';
+  const aname=fields.accountName?norm(rowText(row,fields.accountName)):'';
+  const cid=fields.counterAccountId?idValue(rowText(row,fields.counterAccountId)):'';
+  const cname=fields.counterAccount?norm(rowText(row,fields.counterAccount)):'';
+  return Boolean((aid&&accounts.ids.has(aid))||(aname&&accounts.names.has(aname))||(cid&&accounts.ids.has(cid))||(cname&&accounts.names.has(cname)));
+}
 
 async function sync(request,env,userId,month){
   const state=await loadRequestIikoState(request,env);if(!state?.user||String(state.user.id)!==String(userId))throw new Error('Требуется авторизация');
   if(!state.found||!hasPrivateConnection(state.state))throw new Error('Сначала подключите SH Server в настройках.');
   const connection=privateConnection(state.state),bounds=monthBounds(month),list=await employees(env.DB,userId),employeeIds=new Set(list.map(e=>e.idKey)),nameMap=employeeNameMap(list);
-  const accounts=await accountCandidates(connection),fields=await transactionFields(connection);
-  const [tx,openRows,closeRows]=await Promise.all([
-    transactionRows(connection,fields,accounts,bounds),
-    counteragentBalances(connection,`${previousDate(bounds.from)}T23:59:59`),
-    counteragentBalances(connection,`${bounds.to}T23:59:59`)
-  ]);
-  const open=aggregateBalances(openRows,employeeIds,accounts.ids),close=aggregateBalances(closeRows,employeeIds,accounts.ids);
-  const spent=new Map(),typeCounts=new Map(),unmatched=[],matchedRows=[];
+  const accounts=await accountCandidates(connection),fields=await transactionFields(connection),tx=await transactionRows(connection,fields,bounds);
+  const spent=new Map(),repaid=new Map(),beforeCharges=new Map(),beforeRepayments=new Map(),currentTypes=new Map(),historyTypes=new Map(),unmatched=[],matchedRows=[];
+  let matchedHistoryTransactions=0,matchedCurrentTransactions=0;
   for(const row of tx.rows){
     const kind=transactionKind(rowText(row,fields.type));
-    if(!kind)continue;
-    const aid=fields.accountId?idValue(rowText(row,fields.accountId)):'';
-    const aname=fields.accountName?norm(rowText(row,fields.accountName)):'';
-    if(aid&&!accounts.ids.has(aid))continue;
-    if(!aid&&aname&&!accounts.names.has(aname))continue;
+    if(!kind||!sideMatches(row,fields,accounts))continue;
+    const day=dateKey(rowText(row,fields.date));if(!day)continue;
     let eid=fields.counteragentId?idValue(rowText(row,fields.counteragentId)):'';
     const employeeName=fields.counteragentName?rowText(row,fields.counteragentName):'';
     if(!employeeIds.has(eid)){const byName=nameMap.get(norm(employeeName));eid=byName||''}
-    const amount=mealAmount(row,fields);
-    typeCounts.set(kind,(typeCounts.get(kind)||0)+1);
-    if(!eid||!employeeIds.has(eid)){if(unmatched.length<20)unmatched.push({employeeName,type:kind,amount,account:rowText(row,fields.accountName),counterAccount:rowText(row,fields.counterAccount)});continue}
-    if(amount<=0)continue;
-    spent.set(eid,(spent.get(eid)||0)+amount);
-    if(matchedRows.length<30)matchedRows.push({employeeId:eid,employeeName,type:kind,amount,counterAccount:rowText(row,fields.counterAccount)});
+    const amount=mealAmount(row,fields);if(amount<=0)continue;
+    historyTypes.set(kind,(historyTypes.get(kind)||0)+1);
+    if(!eid||!employeeIds.has(eid)){if(unmatched.length<20)unmatched.push({date:day,employeeName,type:kind,amount,account:rowText(row,fields.accountName),counterAccount:rowText(row,fields.counterAccount)});continue}
+    matchedHistoryTransactions++;
+    const cls=transactionClass(kind),isBefore=day<bounds.from,isCurrent=day>=bounds.from&&day<=bounds.to;
+    if(isBefore){const target=cls==='CHARGE'?beforeCharges:beforeRepayments;target.set(eid,(target.get(eid)||0)+amount)}
+    if(isCurrent){
+      matchedCurrentTransactions++;currentTypes.set(kind,(currentTypes.get(kind)||0)+1);
+      const target=cls==='CHARGE'?spent:repaid;target.set(eid,(target.get(eid)||0)+amount);
+      if(matchedRows.length<40)matchedRows.push({date:day,employeeId:eid,employeeName,type:kind,class:cls,amount,account:rowText(row,fields.accountName),counterAccount:rowText(row,fields.counterAccount)});
+    }
   }
   const t=now(),statements=[];
   for(const e of list){
-    const opening=money(Math.abs(open.out.get(e.idKey)||0)),closing=money(Math.abs(close.out.get(e.idKey)||0)),used=money(spent.get(e.idKey)||0),repaid=money(Math.max(0,opening+used-closing));
-    const details={spent:used,repaid,openingDebt:opening,closingDebt:closing,transactionTypes:Object.fromEntries(typeCounts),mealAccountIds:[...accounts.ids],mealAccounts:accounts.matched,olapFields:fields,syncedAt:t};
-    statements.push(env.DB.prepare(`INSERT INTO hr_employee_meal_monthly(user_id,iiko_employee_id,month,opening_debt,closing_debt,month_net_increase,source,synced_at,details_json) VALUES(?1,?2,?3,?4,?5,?6,'IIKO_TRANSACTIONS_CREDIT',?7,?8) ON CONFLICT(user_id,iiko_employee_id,month) DO UPDATE SET opening_debt=excluded.opening_debt,closing_debt=excluded.closing_debt,month_net_increase=excluded.month_net_increase,source=excluded.source,synced_at=excluded.synced_at,details_json=excluded.details_json`).bind(userId,e.id,month,opening,closing,used,t,JSON.stringify(details)));
+    const historicalCharges=money(beforeCharges.get(e.idKey)||0),historicalRepayments=money(beforeRepayments.get(e.idKey)||0);
+    const opening=money(Math.max(0,historicalCharges-historicalRepayments)),used=money(spent.get(e.idKey)||0),paid=money(repaid.get(e.idKey)||0),closing=money(Math.max(0,opening+used-paid));
+    const details={mode:'KRED_ONLY_V2',spent:used,repaid:paid,openingDebt:opening,closingDebt:closing,historicalCharges,historicalRepayments,transactionTypes:Object.fromEntries(currentTypes),historyTransactionTypes:Object.fromEntries(historyTypes),mealAccountIds:[...accounts.ids],mealAccounts:accounts.matched,olapFields:fields,historyFrom:bounds.yearStart,syncedAt:t};
+    statements.push(env.DB.prepare(`INSERT INTO hr_employee_meal_monthly(user_id,iiko_employee_id,month,opening_debt,closing_debt,month_net_increase,source,synced_at,details_json) VALUES(?1,?2,?3,?4,?5,?6,'IIKO_MEAL_TRANSACTIONS',?7,?8) ON CONFLICT(user_id,iiko_employee_id,month) DO UPDATE SET opening_debt=excluded.opening_debt,closing_debt=excluded.closing_debt,month_net_increase=excluded.month_net_increase,source=excluded.source,synced_at=excluded.synced_at,details_json=excluded.details_json`).bind(userId,e.id,month,opening,closing,used,t,JSON.stringify(details)));
   }
   for(let i=0;i<statements.length;i+=50)await env.DB.batch(statements.slice(i,i+50));
-  return{matchedTransactions:matchedRows.length,totalTransactionRows:tx.rows.length,transactionTypes:Object.fromEntries(typeCounts),unmatched,matchedSample:matchedRows,matchedOpeningRows:open.matched,matchedClosingRows:close.matched,mealAccounts:accounts.matched,fields,request:tx.request};
+  return{matchedTransactions:matchedCurrentTransactions,matchedHistoryTransactions,totalTransactionRows:tx.rows.length,transactionTypes:Object.fromEntries(currentTypes),historyTransactionTypes:Object.fromEntries(historyTypes),unmatched,matchedSample:matchedRows,mealAccounts:accounts.matched,fields,historyFrom:bounds.yearStart,balanceEndpointUsed:false,request:tx.request};
 }
 
 async function records(db,userId,month){
