@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Smart Horeca — Условия оплаты</title>
+  <link rel="stylesheet" href="app-shell.css">
+  <link rel="stylesheet" href="hr-pnl.css?v=20260916-10">
+  <link rel="stylesheet" href="hr-compensation.css?v=20260916-6" data-hcp-style="1">
+  <style>
+    .hcp-form [hidden]{display:none!important}
+    .hcp-asof{display:flex;flex-direction:column;gap:5px}
+  </style>
+</head>
+<body data-protected="true" style="background:#0b1017">
+  <div class="app-shell">
+    <aside class="sidebar"></aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+          <div>
+            <span class="topbar-title">Условия оплаты</span>
+            <div class="topbar-sub">Должность → наследование → индивидуальное исключение</div>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-content">
+        <section class="hr-page">
+          <div class="hr-head">
+            <div>
+              <h1>Условия оплаты сотрудников</h1>
+              <p>Базовые условия задаются один раз на должность. Сотрудник наследует их автоматически, а индивидуальная настройка используется только как исключение.</p>
+            </div>
+            <div class="hr-actions">
+              <a class="hr-link-button" href="/hr-payroll-tax-settings.html">Настройки налогов</a>
+              <label class="hcp-asof">Расчёт на дату<input id="hcpAsOf" type="date"></label>
+              <span id="hcpStatus" class="hr-status">Готово</span>
+              <button id="hcpRefresh" class="hr-link-button" type="button">Обновить</button>
+            </div>
+          </div>
+
+          <section id="hcpSummary" class="hr-summary-grid"></section>
+          <div id="hcpError" class="hr-error" hidden></div>
+
+          <section class="hr-card hcp-editor">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Настройка условий оплаты</div>
+                <div class="hr-card-sub">Приоритет: индивидуальные условия сотрудника → условия должности → не настроено.</div>
+              </div>
+              <button id="hcpReset" type="button" class="hr-link-button">+ Новые условия</button>
+            </div>
+
+            <form id="hcpForm" class="hcp-form">
+              <input id="hcpId" type="hidden">
+
+              <div class="hcp-scope-card">
+                <label>Применить к
+                  <select id="hcpScope">
+                    <option value="ROLE">Должности — для всех сотрудников</option>
+                    <option value="EMPLOYEE">Конкретному сотруднику — исключение</option>
+                  </select>
+                </label>
+
+                <label id="hcpRoleWrap">Должность
+                  <select id="hcpRole"></select>
+                  <small>Все сотрудники этой должности унаследуют условия автоматически.</small>
+                </label>
+
+                <label id="hcpEmployeeWrap" hidden>Сотрудник
+                  <select id="hcpEmployee"></select>
+                  <small>Показываются только сотрудники выбранной должности.</small>
+                </label>
+
+                <div class="hcp-inheritance">
+                  <span>Логика</span>
+                  <strong>Должность → Сотрудник</strong>
+                  <small>Исключение не меняет условия остальных сотрудников.</small>
+                </div>
+              </div>
+
+              <div class="hcp-form-grid">
+                <label>Действует с<input id="hcpFrom" type="date" required></label>
+                <label>Действует по<input id="hcpTo" type="date"><small>Можно оставить пустым</small></label>
+                <label>Официальная часть, Gross<input id="hcpOfficialGross" type="number" min="0" step="0.01" value="0" required><small>Сумма до удержаний</small></label>
+                <label>Дополнительная выплата<input id="hcpAdditional" type="number" min="0" step="0.01" value="0"><small>Отдельная часть выплаты</small></label>
+                <label>Способ доп. выплаты
+                  <select id="hcpMethod">
+                    <option value="CASH">Наличными</option>
+                    <option value="BANK">Банк</option>
+                    <option value="OTHER">Другое</option>
+                  </select>
+                </label>
+                <label>Налоговый режим доп. выплаты
+                  <select id="hcpTaxTreatment">
+                    <option value="TAXABLE">Облагаемая выплата</option>
+                    <option value="EXEMPT_WITH_BASIS">Не облагается — есть законное основание</option>
+                  </select>
+                </label>
+                <label id="hcpBasisWrap" class="hcp-span-2" hidden>Законное основание
+                  <input id="hcpBasis" placeholder="Укажите норму/вид компенсации">
+                  <small>Обязательно, если выплата исключается из налоговых и страховых баз.</small>
+                </label>
+                <label class="hcp-span-2">Комментарий<input id="hcpNote" placeholder="Например: условия с октября 2026"></label>
+              </div>
+
+              <div class="hcp-preview">
+                <div class="hcp-preview-head"><strong>Предварительный расчёт</strong><span id="hcpRuleBadge">AZ · 2026</span></div>
+                <div class="hcp-preview-grid">
+                  <div class="hcp-panel">
+                    <h3>Официальная часть</h3>
+                    <div class="hcp-line"><span>Gross</span><strong id="pvOfficialGross">0.00 ₼</strong></div>
+                    <div class="hcp-line"><span>Подоходный налог</span><strong id="pvIncomeTax">0.00 ₼</strong></div>
+                    <div class="hcp-line"><span>Соц. страхование сотрудника</span><strong id="pvEmployeeSocial">0.00 ₼</strong></div>
+                    <div class="hcp-line"><span>Страхование от безработицы</span><strong id="pvEmployeeUnemployment">0.00 ₼</strong></div>
+                    <div class="hcp-line"><span>Медицинское страхование</span><strong id="pvEmployeeMedical">0.00 ₼</strong></div>
+                    <div class="hcp-line total"><span>Официально к выплате Net</span><strong id="pvOfficialNet">0.00 ₼</strong></div>
+                  </div>
+
+                  <div class="hcp-panel">
+                    <h3>Дополнительная выплата</h3>
+                    <div class="hcp-line"><span>Сумма</span><strong id="pvAdditionalGross">0.00 ₼</strong></div>
+                    <div class="hcp-line"><span>Доп. удержания сотрудника</span><strong id="pvAdditionalDeductions">0.00 ₼</strong></div>
+                    <div class="hcp-line"><span>Доп. взносы работодателя</span><strong id="pvAdditionalEmployer">0.00 ₼</strong></div>
+                    <div class="hcp-line total"><span>Доп. выплата Net</span><strong id="pvAdditionalNet">0.00 ₼</strong></div>
+                    <div id="pvTaxNote" class="hcp-tax-note"></div>
+                  </div>
+
+                  <div class="hcp-panel accent">
+                    <h3>Итог сотруднику</h3>
+                    <div class="hcp-big"><span>Получает всего</span><strong id="pvEmployeeTotal">0.00 ₼</strong></div>
+                    <h3 class="hcp-space">Взносы работодателя</h3>
+                    <div class="hcp-line"><span>Соц. страхование</span><strong id="pvEmployerSocial">0.00 ₼</strong></div>
+                    <div class="hcp-line"><span>Страхование от безработицы</span><strong id="pvEmployerUnemployment">0.00 ₼</strong></div>
+                    <div class="hcp-line"><span>Медицинское страхование</span><strong id="pvEmployerMedical">0.00 ₼</strong></div>
+                    <div class="hcp-line total"><span>Полная стоимость для ресторана</span><strong id="pvEmployerCost">0.00 ₼</strong></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="hcp-actions">
+                <div class="hcp-law-note">Финальный Payroll позже будет учитывать табель, отпуска, больничные, праздничные, ночные и сверхурочные.</div>
+                <button class="hr-primary" type="submit">Сохранить условия</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Условия по должностям</div>
+                <div class="hr-card-sub">Настрой один раз — все сотрудники должности получат эти условия, если у них нет индивидуального исключения.</div>
+              </div>
+              <div id="hcpRoleCount" class="hr-muted">0 должностей</div>
+            </div>
+            <div class="hr-table-scroll">
+              <table class="hcp-role-table">
+                <thead><tr><th class="text-left">Должность</th><th>Сотрудников</th><th>Gross</th><th>Official Net</th><th>Доп. выплата</th><th>Итого получает</th><th>Стоимость</th><th>Статус</th><th></th></tr></thead>
+                <tbody id="hcpRoleRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Сотрудники и структура выплаты</div>
+                <div class="hr-card-sub">Строка показывает эффективные условия на выбранную дату и источник, откуда они унаследованы.</div>
+              </div>
+              <div id="hcpRowCount" class="hr-muted">0 сотрудников</div>
+            </div>
+            <div class="hr-table-scroll">
+              <table class="hcp-table">
+                <thead><tr><th class="text-left">Сотрудник</th><th>Источник</th><th>Gross</th><th>Налог</th><th>Соц.</th><th>Безработица</th><th>Мед.</th><th>Official Net</th><th>Доп. выплата</th><th>Итого получает</th><th>Взносы работодателя</th><th>Стоимость</th><th></th></tr></thead>
+                <tbody id="hcpRows"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth-config.js"></script>
+  <script src="auth.js"></script>
+  <script src="app-shell.js"></script>
+  <script src="mobile-responsive.js?v=1"></script>
+  <script src="documents-nav.js?v=17"></script>
+  <script src="hr-compensation-v2.js?v=20260916-7"></script>
+  <script src="hr-compensation-tax-sync.js?v=20260917-1"></script>
+</body>
+</html>

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Horeca — Графики и должности</title>
+  <link rel="stylesheet" href="app-shell.css">
+  <link rel="stylesheet" href="hr-pnl.css?v=20260916-8">
+  <link rel="stylesheet" href="hr-role-schedules-legal.css?v=20260916-1">
+</head>
+<body data-protected="true" style="background:#0b1017">
+  <div class="app-shell">
+    <aside class="sidebar"></aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+          <div>
+            <span class="topbar-title">Графики и должности</span>
+            <div class="topbar-sub">Должности из iiko · шаблоны смен · законодательство Азербайджана</div>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-content">
+        <section class="hr-page">
+          <div class="hr-head">
+            <div>
+              <h1>Графики по должностям</h1>
+              <p>Должности синхронизируются из iiko. Smart Horeca хранит графики и проверяет базовые ограничения рабочего времени по законодательству Азербайджана.</p>
+            </div>
+            <div class="hr-actions">
+              <span id="rsStatus" class="hr-status">Готово</span>
+              <button id="rsSync" class="hr-primary">↻ Синхронизировать из iiko</button>
+              <button id="rsRefresh" class="hr-link-button">Обновить</button>
+            </div>
+          </div>
+
+          <section class="hr-source-grid">
+            <article class="hr-source-card active"><span>Должности</span><strong>iiko</strong><small>ID / код / название должности</small></article>
+            <article class="hr-source-card"><span>Графики</span><strong>Smart Horeca</strong><small>Шаблоны и серверная проверка</small></article>
+            <article class="hr-source-card"><span>Правила</span><strong>AZ Labor</strong><small>Норма · 6/1 · суммированный учёт</small></article>
+          </section>
+
+          <section id="rsSummary" class="hr-summary-grid"></section>
+          <div id="rsError" class="hr-error" hidden></div>
+
+          <section class="hr-card hr-schedule-builder">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Шаблон графика</div>
+                <div class="hr-card-sub">Выберите должность, режим и время смены. Сервер не даст сохранить график, нарушающий базовые ограничения рабочего времени.</div>
+              </div>
+              <button id="rsReset" type="button" class="hr-link-button">+ Новый шаблон</button>
+            </div>
+
+            <form id="rsForm" class="hr-schedule-form">
+              <input id="rsId" type="hidden">
+
+              <div class="hr-schedule-section hr-schedule-main">
+                <div class="hr-schedule-section-head">
+                  <span class="hr-step">1</span>
+                  <div><strong>Основные параметры</strong><small>К какой должности относится этот вариант графика</small></div>
+                </div>
+                <div class="hr-schedule-grid hr-schedule-grid-main">
+                  <label class="hr-field-wide">Должность<select id="rsRole" required></select></label>
+                  <label class="hr-field-wide">Название шаблона<input id="rsName" required placeholder="Например: Смена A"></label>
+                  <label>Тип графика<select id="rsPattern"><option value="WEEKLY">По дням недели</option><option value="CYCLE">Цикл / суммированный учёт</option></select></label>
+                </div>
+                <div class="hr-presets">
+                  <span>Быстрый выбор</span>
+                  <button type="button" data-schedule-preset="WEEKLY_5_2">5/2</button>
+                  <button type="button" data-schedule-preset="WEEKLY_6_1">6/1</button>
+                  <button type="button" data-schedule-preset="CYCLE_2_2">2/2</button>
+                  <button type="button" data-schedule-preset="CYCLE_3_3">3/3</button>
+                </div>
+              </div>
+
+              <div class="hr-schedule-section">
+                <div class="hr-schedule-section-head">
+                  <span class="hr-step">2</span>
+                  <div><strong>Базовое время смены</strong><small>Используется для новых выбранных дней и для циклического графика</small></div>
+                </div>
+                <div class="hr-schedule-grid hr-shift-grid">
+                  <label>Начало смены<input id="rsStart" type="time" value="09:00" required></label>
+                  <label>Конец смены<input id="rsEnd" type="time" value="18:00" required></label>
+                  <label>Перерыв, минут<input id="rsBreak" type="number" min="0" max="600" step="5" value="60"></label>
+                  <div class="hr-duration-card">
+                    <span>Рабочее время</span>
+                    <strong id="rsShiftDuration">8 ч</strong>
+                    <small>после вычета перерыва</small>
+                  </div>
+                </div>
+              </div>
+
+              <div class="hr-schedule-section">
+                <div class="hr-schedule-section-head">
+                  <span class="hr-step">3</span>
+                  <div><strong>Рабочие дни</strong><small id="rsPatternHint">Выберите дни недели</small></div>
+                </div>
+
+                <div id="weeklyBox" class="hr-schedule-extra hr-weekly-box">
+                  <div class="hr-weekdays">
+                    <label><input type="checkbox" value="1" checked><b>Пн</b></label>
+                    <label><input type="checkbox" value="2" checked><b>Вт</b></label>
+                    <label><input type="checkbox" value="3" checked><b>Ср</b></label>
+                    <label><input type="checkbox" value="4" checked><b>Чт</b></label>
+                    <label><input type="checkbox" value="5" checked><b>Пт</b></label>
+                    <label><input type="checkbox" value="6"><b>Сб</b></label>
+                    <label><input type="checkbox" value="7"><b>Вс</b></label>
+                  </div>
+                  <div class="hr-day-rules-head"><span>Время по дням</span><small>Для 6/1 это позволяет корректно задать укороченный день перед выходным.</small></div>
+                  <div id="rsDayRules" class="hr-day-rules"></div>
+                </div>
+
+                <div id="cycleBox" class="hr-schedule-extra hr-cycle-box" hidden>
+                  <label>Рабочих дней<input id="rsWorkDays" type="number" min="1" max="14" value="2"></label>
+                  <div class="hr-cycle-divider">работа</div>
+                  <label>Выходных дней<input id="rsOffDays" type="number" min="1" max="14" value="2"></label>
+                  <div class="hr-cycle-divider">отдых</div>
+                  <label>Первый рабочий день<input id="rsAnchor" type="date"><small>От этой даты считается цикл.</small></label>
+                  <label>Учётный период, мес.<input id="rsAccountingMonths" type="number" min="1" max="12" value="1"><small>По закону — не более 12 месяцев.</small></label>
+                </div>
+              </div>
+
+              <div class="hr-schedule-section">
+                <div class="hr-schedule-section-head">
+                  <span class="hr-step">4</span>
+                  <div><strong>Период действия</strong><small>Старые периоды останутся привязаны к прежним правилам</small></div>
+                </div>
+                <div class="hr-schedule-grid hr-validity-grid">
+                  <label>Действует с<input id="rsValidFrom" type="date" required></label>
+                  <label>Действует по<input id="rsValidTo" type="date"><small>Можно оставить пустым.</small></label>
+                  <label class="hr-default-switch">
+                    <input id="rsDefault" type="checkbox">
+                    <span class="hr-switch-ui"></span>
+                    <span class="hr-switch-copy"><b>Основной график должности</b><small>Будет применяться по умолчанию к сотрудникам этой должности.</small></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="hr-legal-note">
+                <strong>Правовая проверка AZ</strong>
+                <span>5-дневная неделя: до 8 ч/день и 40 ч/нед. · 6-дневная: до 7 ч/день, перед еженедельным выходным — до 6 ч, до 40 ч/нед. · суммированный учёт: смена до 12 ч, учётный период до 1 года.</span>
+              </div>
+
+              <div class="hr-schedule-footer">
+                <div class="hr-live-summary">
+                  <span>Итог</span>
+                  <strong id="rsLiveSummary">Пн–Пт · 40 ч/нед.</strong>
+                </div>
+                <div class="hr-schedule-actions">
+                  <button type="button" id="rsClear" class="hr-link-button">Очистить</button>
+                  <button class="hr-primary" type="submit">Сохранить график</button>
+                </div>
+              </div>
+            </form>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row"><div><div class="hr-card-title">Должности из iiko</div><div class="hr-card-sub">Количество сотрудников берётся из синхронизированного HR-справочника.</div></div><div id="rsRoleCount" class="hr-muted">0 должностей</div></div>
+            <div class="hr-table-scroll"><table><thead><tr><th class="text-left">Должность</th><th>Код iiko</th><th>Сотрудников</th><th>Графиков</th><th>Основной график</th><th>Статус</th></tr></thead><tbody id="rsRoleRows"></tbody></table></div>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row"><div><div class="hr-card-title">Шаблоны графиков</div><div class="hr-card-sub">Каждый сохранённый шаблон проходит серверную правовую проверку.</div></div><div id="rsScheduleCount" class="hr-muted">0 графиков</div></div>
+            <div class="hr-table-scroll"><table><thead><tr><th class="text-left">Должность / шаблон</th><th>Режим</th><th>Смена / норма</th><th>Учёт</th><th>Период действия</th><th>Основной</th><th></th></tr></thead><tbody id="rsScheduleRows"></tbody></table></div>
+          </section>
+
+          <section class="hr-card hr-next">
+            <div class="hr-card-title">Как будет применяться график</div>
+            <p>Производственный календарь конкретного года будет накладываться на шаблон автоматически: сокращённые предпраздничные дни, официальная норма периода и дальнейший расчёт ночных, праздников и сверхурочных не будут зашиваться вручную в график должности.</p>
+            <div class="hr-flow"><span>iiko должность</span><b>→</b><span>Законный шаблон</span><b>+</b><span>Календарь AZ</span><b>→</b><span>План</span><b>↔</b><span>Face ID факт</span><b>→</b><span>Payroll</span></div>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth-config.js"></script>
+  <script src="auth.js"></script>
+  <script src="app-shell.js"></script>
+  <script src="mobile-responsive.js?v=1"></script>
+  <script src="documents-nav.js?v=16"></script>
+  <script src="hr-role-schedules.js?v=20260916-4"></script>
+</body>
+</html>

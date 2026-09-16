@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Horeca — Производственный календарь</title>
+  <link rel="stylesheet" href="app-shell.css">
+  <link rel="stylesheet" href="hr-pnl.css?v=20260916-5">
+  <link rel="stylesheet" href="hr-calendar.css?v=20260916-1">
+</head>
+<body data-protected="true" style="background:#0b1017">
+  <div class="app-shell">
+    <aside class="sidebar"></aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+          <div>
+            <span class="topbar-title">Производственный календарь</span>
+            <div class="topbar-sub">Норма рабочего времени · праздники · переносы · сокращённые дни</div>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-content">
+        <section class="hr-page">
+          <div class="hr-head">
+            <div>
+              <h1>Производственный календарь Азербайджана</h1>
+              <p>Официальная норма используется как базовый слой для табеля, суммированного учёта рабочего времени и будущего payroll.</p>
+            </div>
+            <div class="hr-actions">
+              <span id="calStatus" class="hr-status">Готово</span>
+              <button id="calRefresh" class="hr-primary">↻ Обновить</button>
+            </div>
+          </div>
+
+          <section class="hr-source-grid">
+            <article class="hr-source-card active"><span>Источник</span><strong>ƏƏSMN / Минтруда</strong><small>Официальный производственный календарь</small></article>
+            <article class="hr-source-card"><span>База расчёта</span><strong>40 часов / неделя</strong><small>Пятидневная рабочая неделя</small></article>
+            <article class="hr-source-card"><span>Используется в</span><strong>Табель → Payroll</strong><small>Норма · отклонения · праздники · доплаты</small></article>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-toolbar hr-calendar-toolbar">
+              <label>Год<select id="calYear"><option value="2026">2026</option></select></label>
+              <div class="hr-calendar-source">
+                <span>Официальный источник</span>
+                <a id="calSource" href="#" target="_blank" rel="noopener">Открыть календарь Минтруда ↗</a>
+              </div>
+            </div>
+          </section>
+
+          <section id="calSummary" class="hr-summary-grid"></section>
+          <div id="calError" class="hr-error" hidden></div>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Норма по месяцам</div>
+                <div class="hr-card-sub">Часы рассчитаны по официальной пятидневной 40-часовой неделе с учётом сокращённых дней.</div>
+              </div>
+              <div id="calMonthCount" class="hr-muted">12 месяцев</div>
+            </div>
+            <div class="hr-table-scroll">
+              <table>
+                <thead><tr><th class="text-left">Месяц</th><th>Календарных дней</th><th>Рабочих дней</th><th>Нерабочих дней</th><th>Сокращённых</th><th>Норма часов</th></tr></thead>
+                <tbody id="calMonthRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Праздники и переносы</div>
+                <div class="hr-card-sub">Показываем именно те даты, которые влияют на норму рабочего времени 2026 года.</div>
+              </div>
+              <div id="calSpecialCount" class="hr-muted">0 дат</div>
+            </div>
+            <div class="hr-calendar-events" id="calSpecialDays"></div>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Правила, заложенные в календарь</div>
+                <div class="hr-card-sub">Это пока только базовые правила рабочего времени. Зарплатные ставки и доплаты будут отдельным версионируемым слоем.</div>
+              </div>
+            </div>
+            <div id="calLegalNotes" class="hr-rule-grid"></div>
+          </section>
+
+          <section class="hr-card hr-next">
+            <div class="hr-card-title">Как это будет связано с сотрудником</div>
+            <p>Фактические интервалы из Face ID сравниваются не с условными «8 часами каждый день», а с нормой соответствующего периода и графиком сотрудника. Это особенно важно для ресторанных графиков 2/2 и длинных смен.</p>
+            <div class="hr-flow"><span>Производственный календарь</span><b>+</b><span>График сотрудника</span><b>+</b><span>Face ID факт</span><b>→</b><span>Табель</span><b>→</b><span>Отклонения</span><b>→</b><span>Payroll</span></div>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth-config.js"></script>
+  <script src="auth.js"></script>
+  <script src="app-shell.js"></script>
+  <script src="mobile-responsive.js?v=1"></script>
+  <script src="documents-nav.js?v=15"></script>
+  <script src="hr-calendar.js?v=20260916-1"></script>
+</body>
+</html>
