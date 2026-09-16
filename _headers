@@ -102,3 +102,15 @@
 
 /hr-compensation-v2.js
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/hr-payroll
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/hr-payroll.html
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/hr-payroll.js
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/api/hr/payroll
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
