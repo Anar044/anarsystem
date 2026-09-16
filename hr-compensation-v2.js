@@ -1,6 +1,6 @@
 (()=>{
 'use strict';
-const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
+const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function ensureCompensationStyle(){
   let link=document.querySelector('link[data-hcp-style="1"]');
   if(link)return;
@@ -42,10 +42,43 @@ function editRole(code){const r=(state.roles||[]).find(x=>x.code===code);if(!r?.
 function newEmployee(id){reset('EMPLOYEE');if(id)$('hcpEmployee').value=id;const e=(state.employees||[]).find(x=>x.id===id);if(e?.term){$('hcpOfficialGross').value=e.term.officialGross;$('hcpAdditional').value=e.term.additionalAmount;$('hcpMethod').value=e.term.additionalPaymentMethod||'CASH';$('hcpTaxTreatment').value=e.term.additionalTaxTreatment||'TAXABLE';$('hcpBasis').value=e.term.additionalLegalBasis||'';$('hcpNote').value='Индивидуальное исключение';preview()}document.querySelector('.hcp-editor')?.scrollIntoView({behavior:'smooth',block:'start'})}
 function editEmployee(id){const e=(state.employees||[]).find(x=>x.id===id);if(!e?.individualTerm)return newEmployee(id);$('hcpScope').value='EMPLOYEE';scope();$('hcpEmployee').value=id;fill(e.individualTerm)}
 async function load(){if(busy)return;try{busy=true;$('hcpRefresh').disabled=true;error();status('Загрузка…','loading');state=await api();render();status('Готово','ok')}catch(e){error(e.message);status('Ошибка','error')}finally{busy=false;$('hcpRefresh').disabled=false}}
-async function save(ev){ev.preventDefault();try{error();status('Сохраняем…','loading');if($('hcpTaxTreatment').value==='EXEMPT_WITH_BASIS'&&!$('hcpBasis').value.trim())throw new Error('Укажите законное основание');const s=$('hcpScope').value;state=await api({action:'saveTerm',scopeType:s,id:$('hcpId').value,roleCode:$('hcpRole').value,employeeId:$('hcpEmployee').value,effectiveFrom:$('hcpFrom').value,effectiveTo:$('hcpTo').value,officialGross:Number($('hcpOfficialGross').value||0),additionalAmount:Number($('hcpAdditional').value||0),additionalPaymentMethod:$('hcpMethod').value,additionalTaxTreatment:$('hcpTaxTreatment').value,additionalLegalBasis:$('hcpBasis').value,note:$('hcpNote').value});render();reset(s);status(s==='ROLE'?'Условия должности сохранены':'Индивидуальные условия сохранены','ok')}catch(e){error(e.message);status('Ошибка','error')}}
+async function save(ev){
+  ev.preventDefault();
+  try{
+    error();status('Сохраняем…','loading');
+    if($('hcpTaxTreatment').value==='EXEMPT_WITH_BASIS'&&!$('hcpBasis').value.trim())throw new Error('Укажите законное основание');
+    const s=$('hcpScope').value;
+    const employeeId=$('hcpEmployee').value;
+    const effectiveFrom=$('hcpFrom').value;
+    const effectiveTo=$('hcpTo').value;
+    if(s==='EMPLOYEE'&&!employeeId)throw new Error('Выберите сотрудника');
+    const payload={action:'saveTerm',scopeType:s,id:$('hcpId').value,roleCode:$('hcpRole').value,employeeId,effectiveFrom,effectiveTo,officialGross:Number($('hcpOfficialGross').value||0),additionalAmount:Number($('hcpAdditional').value||0),additionalPaymentMethod:$('hcpMethod').value,additionalTaxTreatment:$('hcpTaxTreatment').value,additionalLegalBasis:$('hcpBasis').value,note:$('hcpNote').value};
+    state=await api(payload);
+    if(s==='EMPLOYEE'){
+      const currentAsOf=$('hcpAsOf').value||today();
+      const shouldBeActive=effectiveFrom<=currentAsOf&&(!effectiveTo||effectiveTo>=currentAsOf);
+      if(!shouldBeActive&&effectiveFrom>currentAsOf){
+        $('hcpAsOf').value=effectiveFrom;
+        state=await api();
+      }else{
+        let saved=(state.employees||[]).find(e=>String(e.id)===String(employeeId));
+        if(!saved||saved.sourceType!=='EMPLOYEE'){
+          await new Promise(resolve=>setTimeout(resolve,200));
+          state=await api();
+          saved=(state.employees||[]).find(e=>String(e.id)===String(employeeId));
+        }
+        if(!saved||saved.sourceType!=='EMPLOYEE')throw new Error('Индивидуальные условия сохранились, но не стали активными. Проверьте дату начала действия и повторите сохранение.');
+      }
+    }
+    render();
+    const savedEmployee=s==='EMPLOYEE'?(state.employees||[]).find(e=>String(e.id)===String(employeeId)):null;
+    reset(s);
+    status(s==='ROLE'?'Условия должности сохранены':`Индивидуальные условия применены${savedEmployee?.name?' · '+savedEmployee.name:''}`,'ok');
+  }catch(e){error(e.message);status('Ошибка','error')}
+}
 async function inherit(id){const e=(state.employees||[]).find(x=>x.id===id);if(!e?.individualTerm)return;if(!confirm(`Убрать индивидуальные условия у «${e.name}» и вернуть условия должности?`))return;try{state=await api({action:'disableTerm',scopeType:'EMPLOYEE',id:e.individualTerm.id});render();status('Сотрудник снова наследует условия должности','ok')}catch(x){error(x.message);status('Ошибка','error')}}
 async function disableRole(code){const r=(state.roles||[]).find(x=>x.code===code);if(!r?.term)return;if(!confirm(`Отключить условия должности «${r.name}»?`))return;try{state=await api({action:'disableTerm',scopeType:'ROLE',id:r.term.id});render();status('Условия должности отключены','ok')}catch(x){error(x.message);status('Ошибка','error')}}
-function bind(){$('hcpRefresh').onclick=load;$('hcpReset').onclick=()=>reset('ROLE');$('hcpAsOf').onchange=load;$('hcpScope').onchange=()=>{scope();$('hcpId').value=''};$('hcpForm').onsubmit=save;['hcpOfficialGross','hcpAdditional','hcpTaxTreatment','hcpBasis'].forEach(id=>{$(id).addEventListener('input',preview);$(id).addEventListener('change',preview)})}
+function bind(){$('hcpRefresh').onclick=load;$('hcpReset').onclick=()=>reset('ROLE');$('hcpAsOf').onchange=load;$('hcpScope').onchange=()=>{scope();$('hcpId').value=''};$('hcpEmployee').onchange=()=>{$('hcpId').value=''};$('hcpRole').onchange=()=>{if($('hcpScope').value==='ROLE')$('hcpId').value=''};$('hcpForm').onsubmit=save;['hcpOfficialGross','hcpAdditional','hcpTaxTreatment','hcpBasis'].forEach(id=>{$(id).addEventListener('input',preview);$(id).addEventListener('change',preview)})}
 async function init(){ensureCompensationStyle();$('hcpAsOf').value=today();bind();reset('ROLE');await load()}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
