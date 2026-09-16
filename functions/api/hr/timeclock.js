@@ -7,6 +7,8 @@ function now(){return new Date().toISOString()}
 function uid(prefix='id'){return `${prefix}_${crypto.randomUUID()}`}
 function direction(v){const s=clean(v).toUpperCase();if(['IN','ENTRY','CHECKIN','0'].includes(s))return'IN';if(['OUT','EXIT','CHECKOUT','1'].includes(s))return'OUT';return'UNKNOWN'}
 function iso(v){const d=new Date(v);return Number.isNaN(d.getTime())?'':d.toISOString()}
+async function sha256(value){const bytes=new TextEncoder().encode(String(value||''));const digest=await crypto.subtle.digest('SHA-256',bytes);return Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join('')}
+function randomDeviceToken(){const bytes=crypto.getRandomValues(new Uint8Array(32));let binary='';for(const b of bytes)binary+=String.fromCharCode(b);return `shd_${btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}`}
 
 async function ensure(db){
   if(!db)throw new Error('D1 binding DB не настроен.');
@@ -72,37 +74,49 @@ async function ensure(db){
       UNIQUE(user_id,device_id,source_uid)
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_events_time ON hr_attendance_events(user_id,event_time DESC)`),
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_events_employee ON hr_attendance_events(user_id,iiko_employee_id,event_time DESC)`)
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_events_employee ON hr_attendance_events(user_id,iiko_employee_id,event_time DESC)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_device_tokens (
+      user_id TEXT NOT NULL,
+      device_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      rotated_at TEXT NOT NULL,
+      last_used_at TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY(user_id,device_id),
+      UNIQUE(token_hash)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_device_tokens_hash ON hr_device_tokens(token_hash)`)
   ]);
 }
 
 async function auth(request,env){const a=await getUser(request,env);if(!a)return null;await ensure(env.DB);return a}
-
 async function device(db,userId,deviceId){return db.prepare(`SELECT * FROM hr_devices WHERE user_id=?1 AND device_id=?2 LIMIT 1`).bind(userId,deviceId).first()}
 
 async function snapshot(db,userId){
-  const [devices,employees,bindings,events]=await Promise.all([
+  const [devices,employees,bindings,events,tokens]=await Promise.all([
     db.prepare(`SELECT * FROM hr_devices WHERE user_id=?1 ORDER BY is_active DESC,name COLLATE NOCASE`).bind(userId).all(),
-    db.prepare(`SELECT * FROM hr_employees WHERE user_id=?1 ORDER BY is_deleted,last_name COLLATE NOCASE,first_name COLLATE NOCASE,display_name COLLATE NOCASE`).bind(userId).all(),
+    db.prepare(`SELECT * FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY is_deleted,last_name COLLATE NOCASE,first_name COLLATE NOCASE,display_name COLLATE NOCASE`).bind(userId).all(),
     db.prepare(`SELECT * FROM hr_employee_device_bindings WHERE user_id=?1 ORDER BY updated_at DESC`).bind(userId).all(),
     db.prepare(`SELECT e.*,COALESCE(h.display_name,'') AS employee_name,COALESCE(h.employee_code,'') AS employee_code
       FROM hr_attendance_events e LEFT JOIN hr_employees h ON h.user_id=e.user_id AND h.iiko_employee_id=e.iiko_employee_id
-      WHERE e.user_id=?1 ORDER BY e.event_time DESC LIMIT 300`).bind(userId).all()
+      WHERE e.user_id=?1 ORDER BY e.event_time DESC LIMIT 300`).bind(userId).all(),
+    db.prepare(`SELECT device_id,last_used_at,rotated_at FROM hr_device_tokens WHERE user_id=?1`).bind(userId).all()
   ]);
-  const ds=devices.results||[],es=employees.results||[],bs=bindings.results||[],ev=events.results||[];
+  const ds=devices.results||[],es=employees.results||[],bs=bindings.results||[],ev=events.results||[],ts=tokens.results||[];
+  const tokenMap=new Map(ts.map(x=>[String(x.device_id),x]));
   return{
-    devices:ds.map(x=>({id:x.device_id,provider:x.provider,name:x.name,location:x.location,connectionMode:x.connection_mode,timezone:x.timezone,active:Boolean(x.is_active),lastSyncAt:x.last_sync_at||''})),
+    devices:ds.map(x=>{const token=tokenMap.get(String(x.device_id));return{id:x.device_id,provider:x.provider,name:x.name,location:x.location,connectionMode:x.connection_mode,timezone:x.timezone,active:Boolean(x.is_active),lastSyncAt:x.last_sync_at||'',tokenConfigured:Boolean(token),tokenLastUsedAt:token?.last_used_at||'',tokenRotatedAt:token?.rotated_at||''}}),
     employees:es.map(x=>({id:x.iiko_employee_id,code:x.employee_code,name:x.display_name,firstName:x.first_name,lastName:x.last_name,roleName:x.role_name,departmentCode:x.department_code,deleted:Boolean(x.is_deleted),fireDate:x.fire_date||''})),
     bindings:bs.map(x=>({deviceId:x.device_id,employeeId:x.iiko_employee_id,provider:x.provider,externalEmployeeId:x.external_employee_id,externalLabel:x.external_label||''})),
     events:ev.map(x=>({id:x.event_id,deviceId:x.device_id,provider:x.provider,sourceUid:x.source_uid,externalEmployeeId:x.external_employee_id,employeeId:x.iiko_employee_id,employeeName:x.employee_name||'',employeeCode:x.employee_code||'',eventTime:x.event_time,eventType:x.event_type,importedAt:x.imported_at})),
-    counts:{devices:ds.filter(x=>x.is_active).length,employees:es.filter(x=>!x.is_deleted&&!x.fire_date).length,bindings:bs.length,events:ev.length,unmatchedEvents:ev.filter(x=>!x.iiko_employee_id).length}
+    counts:{devices:ds.filter(x=>x.is_active).length,employees:es.filter(x=>!x.is_deleted&&!x.fire_date).length,bindings:bs.length,events:ev.length,unmatchedEvents:ev.filter(x=>!x.iiko_employee_id).length,deviceTokens:ts.length}
   };
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
 
 export async function onRequestGet({request,env}){
-  try{const a=await auth(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);return json({success:true,attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',...(await snapshot(env.DB,a.user.id))})}
+  try{const a=await auth(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);return json({success:true,attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',ingestPath:'/api/hr/device-ingest',...(await snapshot(env.DB,a.user.id))})}
   catch(e){console.error('[HR-TIMECLOCK-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
 }
 
@@ -117,24 +131,38 @@ export async function onRequestPost({request,env}){
         VALUES(?1,?2,?3,?4,?5,?6,?7,1,?8,?8)
         ON CONFLICT(user_id,device_id) DO UPDATE SET provider=excluded.provider,name=excluded.name,location=excluded.location,connection_mode=excluded.connection_mode,timezone=excluded.timezone,updated_at=excluded.updated_at`)
         .bind(userId,id,provider,name,location,mode,timezone,t).run();
-      return json({success:true,deviceId:id,...await snapshot(env.DB,userId)});
+      return json({success:true,deviceId:id,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId)});
+    }
+    if(action==='rotateDeviceToken'){
+      const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
+      const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);
+      const token=randomDeviceToken(),hash=await sha256(token),t=now();
+      await env.DB.prepare(`INSERT INTO hr_device_tokens(user_id,device_id,token_hash,created_at,rotated_at,last_used_at)
+        VALUES(?1,?2,?3,?4,?4,'') ON CONFLICT(user_id,device_id) DO UPDATE SET token_hash=excluded.token_hash,rotated_at=excluded.rotated_at,last_used_at=''`)
+        .bind(userId,deviceId,hash,t).run();
+      return json({success:true,deviceId,deviceToken:token,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId)});
+    }
+    if(action==='revokeDeviceToken'){
+      const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
+      await env.DB.prepare(`DELETE FROM hr_device_tokens WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId).run();
+      return json({success:true,deviceId,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId)});
     }
     if(action==='linkEmployee'){
       const deviceId=clean(b.deviceId),employeeId=clean(b.employeeId),externalId=clean(b.externalEmployeeId),label=clean(b.externalLabel);
       if(!deviceId||!employeeId||!externalId)return json({success:false,message:'Укажите устройство, сотрудника и ID сотрудника на устройстве'},400);
       const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);
-      const e=await env.DB.prepare(`SELECT iiko_employee_id FROM hr_employees WHERE user_id=?1 AND iiko_employee_id=?2 LIMIT 1`).bind(userId,employeeId).first();if(!e)return json({success:false,message:'Сотрудник не найден. Сначала синхронизируйте справочник.'},404);
+      const e=await env.DB.prepare(`SELECT iiko_employee_id FROM hr_employees WHERE user_id=?1 AND iiko_employee_id=?2 AND TRIM(employee_code)<>'' LIMIT 1`).bind(userId,employeeId).first();if(!e)return json({success:false,message:'Сотрудник не найден. Сначала синхронизируйте справочник.'},404);
       const t=now();
       await env.DB.prepare(`INSERT INTO hr_employee_device_bindings(user_id,device_id,iiko_employee_id,provider,external_employee_id,external_label,created_at,updated_at)
         VALUES(?1,?2,?3,?4,?5,?6,?7,?7)
         ON CONFLICT(user_id,device_id,iiko_employee_id) DO UPDATE SET provider=excluded.provider,external_employee_id=excluded.external_employee_id,external_label=excluded.external_label,updated_at=excluded.updated_at`)
         .bind(userId,deviceId,employeeId,d.provider,externalId,label,t).run();
-      return json({success:true,...await snapshot(env.DB,userId)});
+      return json({success:true,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId)});
     }
     if(action==='unlinkEmployee'){
       const deviceId=clean(b.deviceId),employeeId=clean(b.employeeId);if(!deviceId||!employeeId)return json({success:false,message:'Не указана связь'},400);
       await env.DB.prepare(`DELETE FROM hr_employee_device_bindings WHERE user_id=?1 AND device_id=?2 AND iiko_employee_id=?3`).bind(userId,deviceId,employeeId).run();
-      return json({success:true,...await snapshot(env.DB,userId)});
+      return json({success:true,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId)});
     }
     if(action==='importEvents'){
       const deviceId=clean(b.deviceId),items=Array.isArray(b.events)?b.events:[];const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);
@@ -152,7 +180,7 @@ export async function onRequestPost({request,env}){
       }
       for(let i=0;i<stm.length;i+=50)await env.DB.batch(stm.slice(i,i+50));
       await env.DB.prepare(`UPDATE hr_devices SET last_sync_at=?3,updated_at=?3 WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId,t).run();
-      return json({success:true,imported:accepted,skipped,...await snapshot(env.DB,userId)});
+      return json({success:true,imported:accepted,skipped,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId)});
     }
     return json({success:false,message:'Неизвестное действие'},400);
   }catch(e){console.error('[HR-TIMECLOCK-POST]',e);return json({success:false,message:e?.message||String(e)},500)}
