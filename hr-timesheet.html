@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Horeca — Табель</title>
+  <link rel="stylesheet" href="app-shell.css">
+  <link rel="stylesheet" href="hr-pnl.css?v=20260916-4">
+</head>
+<body data-protected="true" style="background:#0b1017">
+  <div class="app-shell">
+    <aside class="sidebar"></aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+          <div>
+            <span class="topbar-title">Табель</span>
+            <div class="topbar-sub">Нормализация Face ID отметок · фактические интервалы · контроль ошибок</div>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-content">
+        <section class="hr-page">
+          <div class="hr-head">
+            <div>
+              <h1>Табель рабочего времени</h1>
+              <p>Smart Horeca строит рабочие интервалы из неизменённого журнала Face ID. Сырые отметки не редактируются и остаются источником аудита.</p>
+            </div>
+            <div class="hr-actions">
+              <span id="tsStatus" class="hr-status">Готово</span>
+              <button id="tsRefresh" class="hr-primary">↻ Пересчитать</button>
+            </div>
+          </div>
+
+          <section class="hr-source-grid">
+            <article class="hr-source-card"><span>Источник</span><strong>Face ID / ZKTeco</strong><small>Неизменённые IN / OUT события</small></article>
+            <article class="hr-source-card active"><span>Нормализация</span><strong>Smart Horeca</strong><small>Пары вход → выход и фактические минуты</small></article>
+            <article class="hr-source-card"><span>Следующий слой</span><strong>Payroll</strong><small>Норма · ночь · сверхурочные · начисления</small></article>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-toolbar hr-timesheet-toolbar">
+              <label>С даты<input id="tsFrom" type="date"></label>
+              <label>По дату<input id="tsTo" type="date"></label>
+              <label>Сотрудник<select id="tsEmployee"><option value="">Все сотрудники</option></select></label>
+            </div>
+          </section>
+
+          <section id="tsSummary" class="hr-summary-grid"></section>
+          <div id="tsError" class="hr-error" hidden></div>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Дневной табель</div>
+                <div class="hr-card-sub">Одна строка = один сотрудник за один рабочий день. Смена через полночь относится к дате входа.</div>
+              </div>
+              <div id="tsDayCount" class="hr-muted">0 строк</div>
+            </div>
+            <div class="hr-table-scroll">
+              <table>
+                <thead><tr><th>Дата</th><th class="text-left">Сотрудник</th><th>Первый вход</th><th>Последний выход</th><th>Интервалы</th><th>Факт</th><th>Ошибки</th><th>Статус</th></tr></thead>
+                <tbody id="tsDayRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Рабочие интервалы</div>
+                <div class="hr-card-sub">Каждый корректный интервал строится только из пары IN → OUT.</div>
+              </div>
+              <div id="tsIntervalCount" class="hr-muted">0 интервалов</div>
+            </div>
+            <div class="hr-table-scroll">
+              <table>
+                <thead><tr><th>Дата</th><th class="text-left">Сотрудник</th><th>Вход</th><th>Выход</th><th>Длительность</th><th>Статус</th></tr></thead>
+                <tbody id="tsIntervalRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Проблемы журнала</div>
+                <div class="hr-card-sub">Ошибки не исправляются автоматически: они показываются отдельно, чтобы табель можно было проверить перед расчётом зарплаты.</div>
+              </div>
+              <div id="tsIssueCount" class="hr-muted">0 ошибок</div>
+            </div>
+            <div class="hr-table-scroll">
+              <table>
+                <thead><tr><th>Дата / время</th><th class="text-left">Сотрудник</th><th>Проблема</th><th>Событие</th></tr></thead>
+                <tbody id="tsIssueRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="hr-card hr-next">
+            <div class="hr-card-title">Что считается на этом этапе</div>
+            <p>Табель пока считает только фактические интервалы присутствия. Норма часов, перерывы, ночные, праздничные, сверхурочные и зарплата будут отдельным следующим слоем — после проверки реальных Face ID данных.</p>
+            <div class="hr-flow"><span>Raw IN / OUT</span><b>→</b><span>Интервалы</span><b>→</b><span>Дневной табель</span><b>→</b><span>Проверка ошибок</span><b>→</b><span>Рабочие правила</span><b>→</b><span>Payroll</span></div>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth-config.js"></script>
+  <script src="auth.js"></script>
+  <script src="app-shell.js"></script>
+  <script src="mobile-responsive.js?v=1"></script>
+  <script src="documents-nav.js?v=14"></script>
+  <script src="hr-timesheet.js?v=20260916-1"></script>
+</body>
+</html>
