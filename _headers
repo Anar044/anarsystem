@@ -82,5 +82,11 @@
 /hr-employees.js
   Cache-Control: no-cache, max-age=0, must-revalidate
 
+/hr-timeclock.html
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/hr-timeclock.js
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
 /hr-pnl.css
   Cache-Control: no-cache, max-age=0, must-revalidate
