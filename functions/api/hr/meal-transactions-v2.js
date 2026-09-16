@@ -58,12 +58,19 @@ function discover(meta){
   const dateFields=fieldNames(fs,f=>{const k=fieldKey(f),t=norm(f.type);return k.includes('date')||k.includes('дата')||t.includes('date')||t.includes('time')},8);
   const accountFields=fieldNames(fs,f=>{const k=fieldKey(f);return (k.includes('account')||k.includes('счет')||k.includes('счёт'))&&!k.includes('counteragent')&&!k.includes('contractor')},16);
   const agentFields=fieldNames(fs,f=>{const k=fieldKey(f);return k.includes('counteragent')||k.includes('contractor')||k.includes('контрагент')||k.includes('сотрудник')||k.includes('employee')},16);
-  let amountFields=fieldNames(fs,f=>{const k=fieldKey(f);return includesAny(k,['sum.incoming','sum.outgoing','incoming sum','outgoing sum','debit','credit','дебет','кредит','transactionsum','amount'])||k==='sum'||k.endsWith('sum')},12);
+  const safeAmountName=n=>{
+    const k=norm(n);
+    if(k.includes('transactionside')||k.includes('side')||k.includes('type')||k.includes('name')||k.includes('code')||k.endsWith('id'))return false;
+    return ['sumincoming','sumoutgoing','sum','transactionsum','amount','debit','credit','incoming','outgoing','дебет','кредит'].includes(k)
+      || /^sum(incoming|outgoing)$/.test(k)
+      || /^(incoming|outgoing)sum$/.test(k);
+  };
+  let amountFields=unique(fs.filter(f=>safeAmountName(f.name)).map(f=>f.name));
   const preferredAmount=['Sum.Incoming','Sum.Outgoing','Debit','Credit','Sum','TransactionSum','Amount'];
   amountFields=unique([...preferredAmount.filter(n=>fs.some(f=>String(f.name).toLowerCase()===n.toLowerCase())),...amountFields]);
   let preferredDate=dateFields.find(n=>/DateTime\.DateTyped/i.test(n))||dateFields.find(n=>/DateTyped/i.test(n))||dateFields.find(n=>/TransactionDate|OperationDate/i.test(n))||dateFields[0]||'';
   if(!preferredDate)throw new Error('В TRANSACTIONS не найдено поле даты.');
-  if(!amountFields.length)throw new Error('В TRANSACTIONS не найдены поля суммы/дебета/кредита.');
+  if(!amountFields.length)throw new Error('В TRANSACTIONS не найдены безопасные поля суммы/дебета/кредита.');
   if(!typeFields.length)throw new Error('В TRANSACTIONS не найдены поля типа проводки.');
   return{typeFields,dateFields,preferredDate,accountFields,agentFields,amountFields};
 }
@@ -127,8 +134,8 @@ async function sync(request,env,userId,month){
   const t=now(),stmts=[];
   for(const e of list){
     const opening=money(Math.max(0,(beforeSpent.get(e.idKey)||0)-(beforeRepaid.get(e.idKey)||0))),used=money(spent.get(e.idKey)||0),paid=money(repaid.get(e.idKey)||0),closing=money(Math.max(0,opening+used-paid));
-    const details={mode:'KRED_ROBUST_V3',spent:used,repaid:paid,openingDebt:opening,closingDebt:closing,rawKinds:Object.fromEntries(rawKinds),discovery:d,mealAccounts:accounts.matched,historyFrom:bounds.yearStart,syncedAt:t};
-    stmts.push(env.DB.prepare(`INSERT INTO hr_employee_meal_monthly(user_id,iiko_employee_id,month,opening_debt,closing_debt,month_net_increase,source,synced_at,details_json) VALUES(?1,?2,?3,?4,?5,?6,'IIKO_MEAL_TRANSACTIONS_V3',?7,?8) ON CONFLICT(user_id,iiko_employee_id,month) DO UPDATE SET opening_debt=excluded.opening_debt,closing_debt=excluded.closing_debt,month_net_increase=excluded.month_net_increase,source=excluded.source,synced_at=excluded.synced_at,details_json=excluded.details_json`).bind(userId,e.id,month,opening,closing,used,t,JSON.stringify(details)));
+    const details={mode:'KRED_ROBUST_V4',spent:used,repaid:paid,openingDebt:opening,closingDebt:closing,rawKinds:Object.fromEntries(rawKinds),discovery:d,mealAccounts:accounts.matched,historyFrom:bounds.yearStart,syncedAt:t};
+    stmts.push(env.DB.prepare(`INSERT INTO hr_employee_meal_monthly(user_id,iiko_employee_id,month,opening_debt,closing_debt,month_net_increase,source,synced_at,details_json) VALUES(?1,?2,?3,?4,?5,?6,'IIKO_MEAL_TRANSACTIONS_V4',?7,?8) ON CONFLICT(user_id,iiko_employee_id,month) DO UPDATE SET opening_debt=excluded.opening_debt,closing_debt=excluded.closing_debt,month_net_increase=excluded.month_net_increase,source=excluded.source,synced_at=excluded.synced_at,details_json=excluded.details_json`).bind(userId,e.id,month,opening,closing,used,t,JSON.stringify(details)));
   }
   for(let i=0;i<stmts.length;i+=50)await env.DB.batch(stmts.slice(i,i+50));
   return{matchedTransactions:matched.length,totalRows:tx.rows.length,accountRows,kredRows,rawKinds:Object.fromEntries(rawKinds),matchedSample:matched,unmatched,fields:d,mealAccounts:accounts.matched,request:tx.request};
