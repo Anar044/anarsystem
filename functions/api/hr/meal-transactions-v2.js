@@ -20,7 +20,13 @@ function fieldKey(f){return norm(`${f?.name||''} ${f?.title||''}`)}
 function fieldNames(fields,predicate,limit=20){return unique((fields||[]).filter(predicate).map(f=>f.name)).slice(0,limit)}
 function includesAny(s,parts){return parts.some(p=>s.includes(norm(p)))}
 function mealAccountName(v){const n=norm(v);return includesAny(n,['Текущие расчеты с сотрудниками','Текущие расчёты с сотрудниками','Задолженность сотрудников','Кредиты сотрудникам','employee settlement','employee debt','employee credit'])}
-function txKind(v){let s=clean(v).toUpperCase().replace(/\s+/g,'').replace(/[._-]+/g,'');s=s.replace(/КРЕДИТ/g,'CREDIT').replace(/КРЕД/g,'KRED');if(s==='CRED'||s==='KRED'||s==='CREDIT')return'CHARGE';if(s==='CLOSEMP'||s.includes('CLOSEMP'))return'REPAY';return''}
+function txKind(v){
+  let s=clean(v).toUpperCase().replace(/\s+/g,'').replace(/[._-]+/g,'');
+  if(s==='КРЕД')s='KRED';
+  if(s==='CRED'||s==='KRED')return'CHARGE';
+  if(s==='CLOSEMP'||s.includes('CLOSEMP'))return'REPAY';
+  return'';
+}
 
 async function ensure(db){
   if(!db)throw new Error('D1 binding DB не настроен.');
@@ -87,9 +93,13 @@ async function loadTransactions(connection,d,bounds){
 }
 
 function detectKind(row,d){
-  for(const f of d.typeFields){const k=txKind(rowValue(row,f));if(k)return{k,raw:clean(rowValue(row,f)),field:f}}
-  for(const[k,v]of Object.entries(row||{})){const kind=txKind(v);if(kind)return{k:kind,raw:clean(v),field:k}}
-  return{k:'',raw:'',field:''}
+  for(const f of d.typeFields){const raw=clean(rowValue(row,f)),k=txKind(raw);if(k)return{k,raw,field:f}}
+  for(const[k,v]of Object.entries(row||{})){
+    const key=norm(k);
+    if(!(key.includes('transactiontype')||key.includes('operationtype')||key.includes('типпроводк')||key==='тип'||key.endsWith('тип')))continue;
+    const kind=txKind(v);if(kind)return{k:kind,raw:clean(v),field:k};
+  }
+  return{k:'',raw:'',field:''};
 }
 function detectDate(row,d){
   for(const f of unique([d.preferredDate,...d.dateFields])){const x=dateKey(rowValue(row,f));if(x)return x}
@@ -135,8 +145,8 @@ async function sync(request,env,userId,month){
   const t=now(),stmts=[];
   for(const e of list){
     const opening=money(Math.max(0,(beforeSpent.get(e.idKey)||0)-(beforeRepaid.get(e.idKey)||0))),used=money(spent.get(e.idKey)||0),paid=money(repaid.get(e.idKey)||0),closing=money(Math.max(0,opening+used-paid));
-    const details={mode:'KRED_ROBUST_V5',spent:used,repaid:paid,openingDebt:opening,closingDebt:closing,rawKinds:Object.fromEntries(rawKinds),discovery:d,mealAccounts:accounts.matched,historyFrom:bounds.yearStart,syncedAt:t};
-    stmts.push(env.DB.prepare(`INSERT INTO hr_employee_meal_monthly(user_id,iiko_employee_id,month,opening_debt,closing_debt,month_net_increase,source,synced_at,details_json) VALUES(?1,?2,?3,?4,?5,?6,'IIKO_MEAL_TRANSACTIONS_V5',?7,?8) ON CONFLICT(user_id,iiko_employee_id,month) DO UPDATE SET opening_debt=excluded.opening_debt,closing_debt=excluded.closing_debt,month_net_increase=excluded.month_net_increase,source=excluded.source,synced_at=excluded.synced_at,details_json=excluded.details_json`).bind(userId,e.id,month,opening,closing,used,t,JSON.stringify(details)));
+    const details={mode:'KRED_ROBUST_V6',spent:used,repaid:paid,openingDebt:opening,closingDebt:closing,rawKinds:Object.fromEntries(rawKinds),discovery:d,mealAccounts:accounts.matched,historyFrom:bounds.yearStart,syncedAt:t};
+    stmts.push(env.DB.prepare(`INSERT INTO hr_employee_meal_monthly(user_id,iiko_employee_id,month,opening_debt,closing_debt,month_net_increase,source,synced_at,details_json) VALUES(?1,?2,?3,?4,?5,?6,'IIKO_MEAL_TRANSACTIONS_V6',?7,?8) ON CONFLICT(user_id,iiko_employee_id,month) DO UPDATE SET opening_debt=excluded.opening_debt,closing_debt=excluded.closing_debt,month_net_increase=excluded.month_net_increase,source=excluded.source,synced_at=excluded.synced_at,details_json=excluded.details_json`).bind(userId,e.id,month,opening,closing,used,t,JSON.stringify(details)));
   }
   for(let i=0;i<stmts.length;i+=50)await env.DB.batch(stmts.slice(i,i+50));
   return{matchedTransactions:matched.length,totalRows:tx.rows.length,accountRows,kredRows,rawKinds:Object.fromEntries(rawKinds),matchedSample:matched,unmatched,fields:d,mealAccounts:accounts.matched,request:tx.request};
