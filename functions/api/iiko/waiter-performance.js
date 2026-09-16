@@ -17,7 +17,12 @@ function candidateNames(fields,candidates){
   for(const c of candidates){const q=norm(c);for(const f of fields){if((norm(f?.name).includes(q)||norm(f?.title).includes(q))&&f?.name&&!out.includes(f.name))out.push(f.name);}}
   return out;
 }
-function endDate(value){const d=new Date(`${value}T00:00:00`);d.setDate(d.getDate()+1);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function parseDate(value){return new Date(`${value}T00:00:00Z`);}
+function dateString(date){return date.toISOString().slice(0,10);}
+function shiftDate(value,days){const d=parseDate(value);d.setUTCDate(d.getUTCDate()+days);return dateString(d);}
+function inclusiveDays(from,to){return Math.max(1,Math.round((parseDate(to)-parseDate(from))/86400000)+1);}
+function previousPeriod(from,to){const days=inclusiveDays(from,to);const previousTo=shiftDate(from,-1);return{from:shiftDate(previousTo,-days+1),to:previousTo,days};}
+function endDate(value){return shiftDate(value,1);}
 function rowObject(row,columns){if(!Array.isArray(row))return row&&typeof row==='object'?row:{};const out={};row.forEach((value,index)=>{const col=columns?.[index];const name=typeof col==='string'?col:col?.name||col?.field||col?.key||`col${index}`;out[name]=value;});return out;}
 function extractRows(report){
   if(!report)return[];
@@ -48,6 +53,7 @@ function parseUpsellProducts(value){
 function normalizeProductName(value){return clean(value).toLowerCase().replace(/\s+/g,' ');}
 function waiterKey(value){return clean(value)||'Без официанта';}
 function isGroupingError(error){return /grouping\s+is\s+not\s+allowed|grouping.*not.*allowed|illegalargumentexception/i.test(String(error?.message||error||''));}
+function deltaPercent(current,previous){current=num(current);previous=num(previous);if(previous===0)return current===0?0:null;return(current-previous)/Math.abs(previous)*100;}
 
 async function loadOrderCounts({connection,fields,waiterField,dateField,revenueField,filters}){
   const orderCountField=fieldName(fields,['UniqOrderId','UniqueOrderCount','UniqOrderCount','OrderCount','OrdersCount','OrderCountInt']);
@@ -84,6 +90,62 @@ async function loadOrderCounts({connection,fields,waiterField,dateField,revenueF
     }
   }
   throw new Error(`Не удалось определить количество заказов по официантам${lastError?`: ${lastError.message}`:''}`);
+}
+
+async function loadPeriodByWaiter({connection,fields,waiterField,dateField,revenueField,quantityField,profitField,departmentField,departmentIds,from,to,orderCountHint}){
+  const filters=buildFilters({fields,dateField,from,to,departmentField,departmentIds});
+  const measures=unique([revenueField,quantityField,profitField,orderCountHint?.mode==='unique_order_measure'?orderCountHint.field:null]);
+  const result=await query(connection,{reportType:'SALES',buildSummary:false,groupByRowFields:[waiterField],groupByColFields:[],aggregateFields:measures,filters});
+  const map=new Map();
+  for(const raw of extractRows(result.payload)){
+    const key=waiterKey(raw[waiterField]);
+    map.set(key,{waiter:key,revenue:num(raw[revenueField]),quantity:num(raw[quantityField]),profit:profitField?num(raw[profitField]):0,orders:orderCountHint?.mode==='unique_order_measure'?Math.max(0,num(raw[orderCountHint.field])):0});
+  }
+  if(orderCountHint?.mode!=='unique_order_measure'){
+    const counts=await loadOrderCounts({connection,fields,waiterField,dateField,revenueField,filters});
+    for(const [key,count] of counts.counts){
+      if(!map.has(key))map.set(key,{waiter:key,revenue:0,quantity:0,profit:0,orders:0});
+      map.get(key).orders=Math.max(0,num(count));
+    }
+  }
+  const rows=[...map.values()].map(item=>({
+    ...item,
+    averageCheck:item.orders?item.revenue/item.orders:0,
+    checkDepth:item.orders?item.quantity/item.orders:0,
+    marginPct:item.revenue?item.profit/item.revenue*100:0
+  }));
+  return{rows,map:new Map(rows.map(row=>[row.waiter,row])),authCacheHit:result.authCacheHit};
+}
+
+async function loadDaily({connection,fields,waiterField,dateField,revenueField,quantityField,profitField,departmentField,departmentIds,from,to,orderCountHint}){
+  const filters=buildFilters({fields,dateField,from,to,departmentField,departmentIds});
+  if(orderCountHint?.mode==='unique_order_measure'){
+    const measures=unique([revenueField,quantityField,profitField,orderCountHint.field]);
+    const result=await query(connection,{reportType:'SALES',buildSummary:false,groupByRowFields:[dateField,waiterField],groupByColFields:[],aggregateFields:measures,filters});
+    const byDate=new Map();
+    for(const raw of extractRows(result.payload)){
+      const date=clean(raw[dateField]).slice(0,10);if(!date)continue;
+      if(!byDate.has(date))byDate.set(date,{date,revenue:0,quantity:0,profit:0,orders:0});
+      const row=byDate.get(date);row.revenue+=num(raw[revenueField]);row.quantity+=num(raw[quantityField]);row.profit+=profitField?num(raw[profitField]):0;row.orders+=Math.max(0,num(raw[orderCountHint.field]));
+    }
+    return[...byDate.values()].sort((a,b)=>a.date.localeCompare(b.date)).map(row=>({...row,averageCheck:row.orders?row.revenue/row.orders:0,checkDepth:row.orders?row.quantity/row.orders:0}));
+  }
+
+  const dimension=orderCountHint?.field;
+  if(!dimension)return[];
+  try{
+    const result=await query(connection,{reportType:'SALES',buildSummary:false,groupByRowFields:unique([dateField,waiterField,dimension]),groupByColFields:[],aggregateFields:unique([revenueField,quantityField,profitField]),filters});
+    const byDate=new Map();
+    for(const raw of extractRows(result.payload)){
+      const date=clean(raw[dateField]).slice(0,10);if(!date)continue;
+      if(!byDate.has(date))byDate.set(date,{date,revenue:0,quantity:0,profit:0,orderKeys:new Set()});
+      const row=byDate.get(date);row.revenue+=num(raw[revenueField]);row.quantity+=num(raw[quantityField]);row.profit+=profitField?num(raw[profitField]):0;row.orderKeys.add(`${waiterKey(raw[waiterField])}¦${clean(raw[dimension])}`);
+    }
+    return[...byDate.values()].sort((a,b)=>a.date.localeCompare(b.date)).map(row=>{const orders=row.orderKeys.size;return{date:row.date,revenue:row.revenue,quantity:row.quantity,profit:row.profit,orders,averageCheck:orders?row.revenue/orders:0,checkDepth:orders?row.quantity/orders:0};});
+  }catch(error){
+    console.warn('[WAITER-PERFORMANCE] daily dynamics unavailable',error?.message||error);
+    return[];
+  }
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()});}
@@ -183,7 +245,7 @@ export async function onRequestPost(context){
     }
 
     const totalOrders=[...map.values()].reduce((s,item)=>s+Math.max(0,num(item.orders)),0);
-    const waiters=[...map.values()].map(item=>{
+    let waiters=[...map.values()].map(item=>{
       const orders=Math.max(0,num(item.orders));
       const averageCheck=orders?item.revenue/orders:0;
       const checkDepth=orders?item.quantity/orders:0;
@@ -193,15 +255,44 @@ export async function onRequestPost(context){
       const tips=tipsAvailable?num(item.tips):null;
       const tipsPerOrder=tipsAvailable&&orders?tips/orders:null;
       return{waiter:item.waiter,revenue:item.revenue,revenueShare,orders,averageCheck,quantity:item.quantity,checkDepth,profit:item.profit,marginPct,upsellQuantity:item.upsellQuantity,upsellRevenue:item.upsellRevenue,upsellPerOrder,tips,tipsPerOrder};
-    }).filter(row=>row.revenue!==0||row.quantity!==0||row.orders!==0||num(row.tips)!==0).sort((a,b)=>b.revenue-a.revenue).map((row,index)=>({...row,rank:index+1}));
+    }).filter(row=>row.revenue!==0||row.quantity!==0||row.orders!==0||num(row.tips)!==0).sort((a,b)=>b.revenue-a.revenue);
 
+    const comparisonPeriod=previousPeriod(from,to);
+    let comparison={available:false,period:{from:comparisonPeriod.from,to:comparisonPeriod.to},summary:null};
+    try{
+      const previous=await loadPeriodByWaiter({connection,fields,waiterField,dateField,revenueField,quantityField,profitField,departmentField,departmentIds,from:comparisonPeriod.from,to:comparisonPeriod.to,orderCountHint:orderCounts});
+      const prevRevenue=previous.rows.reduce((s,r)=>s+r.revenue,0);
+      const prevQuantity=previous.rows.reduce((s,r)=>s+r.quantity,0);
+      const prevProfit=previous.rows.reduce((s,r)=>s+r.profit,0);
+      const prevOrders=previous.rows.reduce((s,r)=>s+r.orders,0);
+      const prevAverageCheck=prevOrders?prevRevenue/prevOrders:0;
+      const prevCheckDepth=prevOrders?prevQuantity/prevOrders:0;
+      comparison={
+        available:true,
+        period:{from:comparisonPeriod.from,to:comparisonPeriod.to},
+        summary:{
+          revenue:prevRevenue,orders:prevOrders,quantity:prevQuantity,profit:prevProfit,averageCheck:prevAverageCheck,checkDepth:prevCheckDepth,
+          revenueDeltaPct:deltaPercent(totalRevenue,prevRevenue),ordersDeltaPct:deltaPercent(totalOrders,prevOrders),averageCheckDeltaPct:deltaPercent(totalOrders?totalRevenue/totalOrders:0,prevAverageCheck),checkDepthDeltaPct:deltaPercent(totalOrders?totalQuantity/totalOrders:0,prevCheckDepth),profitDeltaPct:deltaPercent(totalProfit,prevProfit)
+        }
+      };
+      waiters=waiters.map(row=>{
+        const prev=previous.map.get(row.waiter)||{revenue:0,orders:0,averageCheck:0,checkDepth:0,profit:0};
+        return{...row,previous:{revenue:prev.revenue,orders:prev.orders,averageCheck:prev.averageCheck,checkDepth:prev.checkDepth,profit:prev.profit},delta:{revenuePct:deltaPercent(row.revenue,prev.revenue),ordersPct:deltaPercent(row.orders,prev.orders),averageCheckPct:deltaPercent(row.averageCheck,prev.averageCheck),checkDepthPct:deltaPercent(row.checkDepth,prev.checkDepth),profitPct:deltaPercent(row.profit,prev.profit)}};
+      });
+    }catch(error){
+      console.warn('[WAITER-PERFORMANCE] previous period unavailable',error?.message||error);
+      comparison.message=error?.message||'Не удалось получить предыдущий период';
+    }
+
+    waiters=waiters.map((row,index)=>({...row,rank:index+1}));
     const totalTips=tipsAvailable?waiters.reduce((s,r)=>s+num(r.tips),0):null;
     const averageCheck=totalOrders?totalRevenue/totalOrders:0;
     const checkDepth=totalOrders?totalQuantity/totalOrders:0;
     const averageRevenuePerWaiter=waiters.length?totalRevenue/waiters.length:0;
+    const daily=await loadDaily({connection,fields,waiterField,dateField,revenueField,quantityField,profitField,departmentField,departmentIds,from,to,orderCountHint:orderCounts});
 
     return jsonResponse({
-      success:true,requestId,from,to,waiters,
+      success:true,requestId,from,to,waiters,daily,comparison,
       summary:{waiters:waiters.length,orders:totalOrders,revenue:totalRevenue,quantity:totalQuantity,profit:totalProfit,averageCheck,checkDepth,averageRevenuePerWaiter,totalTips},
       upsell:{mode:upsellMode,configuredProducts:upsellProducts,autoMarginThreshold,profitAvailable:Boolean(profitField)},
       tips:{available:tipsAvailable,message:tipsMessage,field:tipField},
