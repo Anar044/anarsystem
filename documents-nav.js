@@ -47,7 +47,19 @@
     const path=currentPath();let link=null;if(path.endsWith('/hr-employees')||path.endsWith('/hr-employees.html'))link=group.querySelector('a[data-unified-nav-item="hr-employees.html"]');if(path.endsWith('/hr-role-schedules')||path.endsWith('/hr-role-schedules.html'))link=group.querySelector('a[data-unified-nav-item="hr-role-schedules.html"]');if(path.endsWith('/hr-compensation')||path.endsWith('/hr-compensation.html'))link=group.querySelector('a[data-unified-nav-item="hr-compensation.html"]');if(path.endsWith('/hr-timeclock')||path.endsWith('/hr-timeclock.html'))link=group.querySelector('a[data-unified-nav-item="hr-timeclock.html"]');if(path.endsWith('/hr-timesheet')||path.endsWith('/hr-timesheet.html'))link=group.querySelector('a[data-unified-nav-item="hr-timesheet.html"]');if(path.endsWith('/hr-calendar')||path.endsWith('/hr-calendar.html'))link=group.querySelector('a[data-unified-nav-item="hr-calendar.html"]');if(link)activateHr(group,link);return group;
   }
 
-  function sync(){normalizeCashNav();ensureMenuEngineeringNav();ensureWaiterPerformanceNav();ensureHrNav();return true}
+  function ensureCompensationRoleAutoRefresh(){
+    const path=currentPath();if(!(path.endsWith('/hr-compensation')||path.endsWith('/hr-compensation.html')))return;
+    const role=document.getElementById('hcpRole');if(!role||role.dataset.autoRefreshBound==='1')return;
+    role.dataset.autoRefreshBound='1';
+    role.addEventListener('change',()=>{
+      window.setTimeout(()=>{
+        const refresh=document.getElementById('hcpRefresh');
+        if(refresh&&!refresh.disabled)refresh.click();
+      },0);
+    });
+  }
+
+  function sync(){normalizeCashNav();ensureMenuEngineeringNav();ensureWaiterPerformanceNav();ensureHrNav();ensureCompensationRoleAutoRefresh();return true}
   sync();
 
   if(!window.SH_SidebarNav){window.SH_SidebarNav={sync,currentPage(){const path=currentPath();if(path==='/cash'||path.endsWith('/cash.html')||path.endsWith('/cash/index.html'))return'cash.html';if(path.endsWith('/menu-engineering')||path.endsWith('/menu-engineering.html'))return'menu-engineering.html';if(path.endsWith('/waiter-performance')||path.endsWith('/waiter-performance.html'))return'waiter-performance.html';if(path.endsWith('/hr-employees')||path.endsWith('/hr-employees.html'))return'hr-employees.html';if(path.endsWith('/hr-role-schedules')||path.endsWith('/hr-role-schedules.html'))return'hr-role-schedules.html';if(path.endsWith('/hr-compensation')||path.endsWith('/hr-compensation.html'))return'hr-compensation.html';if(path.endsWith('/hr-timeclock')||path.endsWith('/hr-timeclock.html'))return'hr-timeclock.html';if(path.endsWith('/hr-timesheet')||path.endsWith('/hr-timesheet.html'))return'hr-timesheet.html';if(path.endsWith('/hr-calendar')||path.endsWith('/hr-calendar.html'))return'hr-calendar.html';return null}}}
