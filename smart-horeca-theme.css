@@ -1,0 +1,14 @@
+/* SmartHoreca 2026 design system. Loaded after app-shell so it can safely theme all pages. */
+html[data-theme="light"]{--bg:#f4f7fb;--sidebar:#ffffff;--top:rgba(255,255,255,.94);--card:#ffffff;--card2:#f8fbfd;--input:#ffffff;--border:#e2e9ef;--border2:#d5e0e8;--text:#14212b;--muted:#718293;--green:#00c17a;--green-soft:#e9faf4;--blue:#1a9fff;--cyan:#00e0ff;--success:#00c17a;--surface:#ffffff;--surface2:#f8fbfd;--line:#e2e9ef}
+html[data-theme="dark"]{--green:#26d995;--blue:#22a9ff;--cyan:#17dff3;--green-soft:#123127}
+html[data-theme="light"],html[data-theme="light"] body{background:#f4f7fb!important;color:#14212b!important}
+html[data-theme="light"] .app,html[data-theme="light"] .app-shell,html[data-theme="light"] .main,html[data-theme="light"] .content,html[data-theme="light"] .page,html[data-theme="light"] .reports-page,html[data-theme="light"] .settings-page,html[data-theme="light"] .hr-page{background:#f4f7fb!important;color:#14212b!important}
+html[data-theme="light"] .sidebar{background:#fff!important;border-right:1px solid #e5ebf0!important;box-shadow:12px 0 34px rgba(20,33,43,.045)!important}
+html[data-theme="light"] .topbar{background:rgba(255,255,255,.92)!important;border-bottom:1px solid #e6edf2!important;box-shadow:0 4px 18px rgba(20,33,43,.035)!important;backdrop-filter:blur(18px)!important}
+html[data-theme="light"] .topbar-title,html[data-theme="light"] .title,html[data-theme="light"] h1,html[data-theme="light"] h2,html[data-theme="light"] h3,html[data-theme="light"] h4{color:#13212b!important}
+html[data-theme="light"] .topbar-sub,html[data-theme="light"] .crumb,html[data-theme="light"] .muted,html[data-theme="light"] small{color:#718293!important}
+
+/* Brand */
+.sidebar .unified-brand.sh-brand{display:grid!important;grid-template-columns:44px minmax(0,1fr)!important;gap:11px!important;align-items:center!important;padding:8px 8px 22px!important;margin:0!important}
+.sidebar .unified-brand.sh-brand:before{display:none!important;content:none!important}
+.sh-brand-logo{width:44px!important;height:44px!important;border-radius:13px!important;background:#07121b url("data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAkGBwgHBgkIBwgKCgkLDRYPDQwMDRsUFRAWIB0iIiAdHx8k
