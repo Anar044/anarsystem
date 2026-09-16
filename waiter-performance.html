@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Horeca — Рейтинг официантов</title>
+  <link rel="stylesheet" href="app-shell.css">
+  <link rel="stylesheet" href="waiter-pnl.css?v=20260916-3">
+</head>
+<body data-protected="true" style="background:#0b1017">
+  <div class="app-shell">
+    <aside class="sidebar"></aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+          <div>
+            <span class="topbar-title">Рейтинг официантов / Средний чек</span>
+            <div class="topbar-sub">Server Performance · средний чек · глубина чека · Upsell</div>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-content">
+        <section class="wp-page">
+          <div class="wp-head">
+            <div>
+              <h1>Рейтинг официантов</h1>
+              <p>Сравнение официантов по выручке, среднему чеку, глубине чека, марже и продажам Upsell-позиций.</p>
+            </div>
+            <div class="wp-head-actions">
+              <span id="wpStatus" class="wp-status">Готово</span>
+              <button id="wpRun" class="wp-primary">↻ Обновить</button>
+              <button id="wpExport" class="wp-secondary">Экспорт CSV</button>
+            </div>
+          </div>
+
+          <section class="wp-filter-card">
+            <div class="wp-filter-grid">
+              <label>Период
+                <div class="wp-date-range"><input id="wpFrom" type="date"><span>—</span><input id="wpTo" type="date"></div>
+              </label>
+              <label class="wp-upsell-field">Upsell / спецпредложения
+                <input id="wpUpsellProducts" type="text" placeholder="Напр.: Лимонад; Десерт дня">
+                <small>Укажите блюда через «;». Если поле пустое, система автоматически считает продажи высокомаржинальных позиций.</small>
+              </label>
+              <label>Поиск официанта
+                <input id="wpSearch" type="search" placeholder="Имя официанта...">
+              </label>
+            </div>
+          </section>
+
+          <div id="wpError" class="wp-error" hidden></div>
+          <div id="wpInfo" class="wp-info" hidden></div>
+
+          <section id="wpSummary" class="wp-summary-grid"></section>
+
+          <section class="wp-card wp-trend-card">
+            <div class="wp-card-title-row">
+              <div>
+                <div class="wp-card-title">Динамика по дням</div>
+                <div class="wp-card-sub">Высота столбца — выручка за день. Наведите курсор, чтобы увидеть заказы, средний чек и глубину чека.</div>
+              </div>
+              <div id="wpTrendPeriod" class="wp-row-count"></div>
+            </div>
+            <div id="wpTrend" class="wp-trend"></div>
+            <div class="wp-trend-legend"><span><i></i> Выручка</span><span>Под датой — средний чек</span></div>
+          </section>
+
+          <section class="wp-grid-2">
+            <article class="wp-card">
+              <div class="wp-card-title">Выручка по официантам</div>
+              <div class="wp-card-sub">Рейтинг по общей выручке за выбранный период</div>
+              <div id="wpRevenueBars" class="wp-bars"></div>
+            </article>
+            <article class="wp-card">
+              <div class="wp-card-title">Средний чек</div>
+              <div class="wp-card-sub">Средняя сумма одного заказа по официанту</div>
+              <div id="wpCheckBars" class="wp-bars"></div>
+            </article>
+          </section>
+
+          <section class="wp-card">
+            <div class="wp-card-title-row">
+              <div>
+                <div class="wp-card-title">Рейтинг и эффективность</div>
+                <div class="wp-card-sub">Изменения считаются относительно предыдущего периода той же длины. Глубина чека = позиции ÷ заказы.</div>
+              </div>
+              <div id="wpRowCount" class="wp-row-count">0 официантов</div>
+            </div>
+            <div class="wp-table-scroll">
+              <table id="wpTable">
+                <thead>
+                  <tr>
+                    <th>Место</th>
+                    <th class="text-left">Официант</th>
+                    <th>Выручка</th>
+                    <th>Δ выручки</th>
+                    <th>Доля</th>
+                    <th>Заказы</th>
+                    <th>Средний чек</th>
+                    <th>Δ ср. чека</th>
+                    <th>Позиций</th>
+                    <th>Глубина чека</th>
+                    <th>Прибыль</th>
+                    <th>Маржинальность</th>
+                    <th>Upsell, шт.</th>
+                    <th>Upsell / заказ</th>
+                    <th>Чаевые</th>
+                    <th class="text-left">Комментарий</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+                <tfoot></tfoot>
+              </table>
+            </div>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth-config.js"></script>
+  <script src="auth.js"></script>
+  <script src="iiko-context.js?v=20260911-2"></script>
+  <script src="app-shell.js"></script>
+  <script src="mobile-responsive.js?v=1"></script>
+  <script src="documents-nav.js?v=11"></script>
+  <script src="waiter-performance.js?v=20260916-2"></script>
+</body>
+</html>
