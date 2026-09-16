@@ -18,7 +18,7 @@ function parseEmployees(xml){
     mainRoleCode:tag(x,'mainRoleCode'),roleCodes:tags(x,'roleCodes').filter(Boolean),hireDate:dateOnly(tag(x,'hireDate')),fireDate:dateOnly(tag(x,'fireDate')),
     preferredDepartmentCode:tag(x,'preferredDepartmentCode'),departmentCodes:tags(x,'departmentCodes').filter(Boolean),deleted:bool(tag(x,'deleted')),
     isEmployee:tag(x,'employee')===''?true:bool(tag(x,'employee'))
-  })).filter(x=>x.id&&x.isEmployee);
+  })).filter(x=>x.id&&x.isEmployee&&clean(x.code));
 }
 function parseRoles(xml){return blocks(xml,'role').map(x=>({id:tag(x,'id'),code:tag(x,'code'),name:tag(x,'name'),deleted:bool(tag(x,'deleted'))})).filter(x=>x.code)}
 
@@ -39,8 +39,19 @@ async function ensure(db){
   ]);
 }
 
+async function removeSystemAccounts(db,userId){
+  const emptyCodeIds=`SELECT iiko_employee_id FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)=''`;
+  await db.batch([
+    db.prepare(`DELETE FROM hr_employee_device_bindings WHERE user_id=?1 AND iiko_employee_id IN (${emptyCodeIds})`).bind(userId),
+    db.prepare(`DELETE FROM hr_employee_device_links WHERE user_id=?1 AND iiko_employee_id IN (${emptyCodeIds})`).bind(userId),
+    db.prepare(`DELETE FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)=''`).bind(userId)
+  ]);
+}
+
 async function syncEmployees(db,userId,employees,roleMap){
-  await ensure(db);const syncedAt=now();const statements=[];
+  await ensure(db);
+  await removeSystemAccounts(db,userId);
+  const syncedAt=now();const statements=[];
   for(const e of employees){
     const role=roleMap.get(e.mainRoleCode)||null;const roleCode=e.mainRoleCode||e.roleCodes[0]||'';const fullName=[e.lastName,e.firstName,e.middleName].filter(Boolean).join(' ')||e.displayName||e.code||e.id;
     statements.push(db.prepare(`INSERT INTO hr_employees(user_id,iiko_employee_id,employee_code,first_name,middle_name,last_name,display_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted,synced_at)
@@ -52,7 +63,7 @@ async function syncEmployees(db,userId,employees,roleMap){
   const rows=await db.prepare(`SELECT e.*,
       COALESCE((SELECT b.provider FROM hr_employee_device_bindings b WHERE b.user_id=e.user_id AND b.iiko_employee_id=e.iiko_employee_id ORDER BY b.updated_at DESC LIMIT 1),(SELECT l.provider FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_provider,
       COALESCE((SELECT b.external_employee_id FROM hr_employee_device_bindings b WHERE b.user_id=e.user_id AND b.iiko_employee_id=e.iiko_employee_id ORDER BY b.updated_at DESC LIMIT 1),(SELECT l.external_employee_id FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_external_id
-    FROM hr_employees e WHERE e.user_id=?1 ORDER BY e.is_deleted ASC,e.last_name COLLATE NOCASE,e.first_name COLLATE NOCASE,e.display_name COLLATE NOCASE`).bind(userId).all();
+    FROM hr_employees e WHERE e.user_id=?1 AND TRIM(e.employee_code)<>'' ORDER BY e.is_deleted ASC,e.last_name COLLATE NOCASE,e.first_name COLLATE NOCASE,e.display_name COLLATE NOCASE`).bind(userId).all();
   return{syncedAt,rows:rows.results||[]};
 }
 
