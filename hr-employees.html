@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Horeca — Сотрудники</title>
+  <link rel="stylesheet" href="app-shell.css">
+  <link rel="stylesheet" href="hr-pnl.css?v=20260916-1">
+</head>
+<body data-protected="true" style="background:#0b1017">
+  <div class="app-shell">
+    <aside class="sidebar"></aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+          <div>
+            <span class="topbar-title">Сотрудники</span>
+            <div class="topbar-sub">HR · учёт времени · зарплата</div>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-content">
+        <section class="hr-page">
+          <div class="hr-head">
+            <div>
+              <h1>Сотрудники</h1>
+              <p>Справочник сотрудников синхронизируется из SH Server. Журнал входов/выходов и расчёт зарплаты будут храниться и рассчитываться в Smart Horeca.</p>
+            </div>
+            <div class="hr-actions">
+              <span id="hrStatus" class="hr-status">Готово</span>
+              <button id="hrRefresh" class="hr-primary">↻ Синхронизировать</button>
+            </div>
+          </div>
+
+          <section class="hr-source-grid">
+            <article class="hr-source-card active"><span>Справочник сотрудников</span><strong>SH Server</strong><small>Имя · фамилия · должность · подразделение</small></article>
+            <article class="hr-source-card"><span>Журнал явок</span><strong>Face ID / ZKTeco</strong><small>Следующий этап · отдельный адаптер устройства</small></article>
+            <article class="hr-source-card"><span>Расчёт зарплаты</span><strong>Smart Horeca</strong><small>Рабочее время · доплаты · налоги · Net</small></article>
+          </section>
+
+          <section id="hrSummary" class="hr-summary-grid"></section>
+
+          <section class="hr-card hr-toolbar">
+            <label>Поиск
+              <input id="hrSearch" type="search" placeholder="Имя, фамилия, табельный номер...">
+            </label>
+            <label>Должность
+              <select id="hrRoleFilter"><option value="">Все должности</option></select>
+            </label>
+            <label>Статус
+              <select id="hrStatusFilter"><option value="ACTIVE">Активные</option><option value="">Все</option><option value="FIRED">Уволенные</option></select>
+            </label>
+          </section>
+
+          <div id="hrError" class="hr-error" hidden></div>
+
+          <section class="hr-card">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Справочник сотрудников</div>
+                <div class="hr-card-sub">Источник персональных данных: SH Server. Ставки и начисления из SH не используются для payroll.</div>
+              </div>
+              <div id="hrRowCount" class="hr-muted">0 сотрудников</div>
+            </div>
+            <div class="hr-table-scroll">
+              <table id="hrTable">
+                <thead><tr>
+                  <th class="text-left">Сотрудник</th>
+                  <th>Табельный №</th>
+                  <th class="text-left">Должность</th>
+                  <th>Подразделение</th>
+                  <th>Дата приёма</th>
+                  <th>Дата увольнения</th>
+                  <th>Face ID</th>
+                  <th>Статус</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="hr-card hr-next">
+            <div class="hr-card-title">Следующий этап</div>
+            <p>Подключение источника проходов через независимый attendance-adapter. Для каждого сотрудника Smart Horeca будет хранить связь <b>SH employee ID ↔ Face ID employee ID</b>, а затем формировать собственный табель.</p>
+            <div class="hr-flow"><span>SH сотрудник</span><b>→</b><span>Связь ID</span><b>→</b><span>ZKTeco / Face ID</span><b>→</b><span>Журнал событий</span><b>→</b><span>Табель</span><b>→</b><span>Payroll</span></div>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth-config.js"></script>
+  <script src="auth.js"></script>
+  <script src="iiko-context.js?v=20260911-2"></script>
+  <script src="app-shell.js"></script>
+  <script src="mobile-responsive.js?v=1"></script>
+  <script src="documents-nav.js?v=12"></script>
+  <script src="hr-employees.js?v=20260916-1"></script>
+</body>
+</html>
