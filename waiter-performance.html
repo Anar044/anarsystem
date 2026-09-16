@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Smart Horeca — Рейтинг официантов</title>
   <link rel="stylesheet" href="app-shell.css">
-  <link rel="stylesheet" href="waiter-pnl.css?v=20260916-2">
+  <link rel="stylesheet" href="waiter-pnl.css?v=20260916-3">
 </head>
 <body data-protected="true" style="background:#0b1017">
   <div class="app-shell">
@@ -55,6 +55,18 @@
 
           <section id="wpSummary" class="wp-summary-grid"></section>
 
+          <section class="wp-card wp-trend-card">
+            <div class="wp-card-title-row">
+              <div>
+                <div class="wp-card-title">Динамика по дням</div>
+                <div class="wp-card-sub">Высота столбца — выручка за день. Наведите курсор, чтобы увидеть заказы, средний чек и глубину чека.</div>
+              </div>
+              <div id="wpTrendPeriod" class="wp-row-count"></div>
+            </div>
+            <div id="wpTrend" class="wp-trend"></div>
+            <div class="wp-trend-legend"><span><i></i> Выручка</span><span>Под датой — средний чек</span></div>
+          </section>
+
           <section class="wp-grid-2">
             <article class="wp-card">
               <div class="wp-card-title">Выручка по официантам</div>
@@ -72,7 +84,7 @@
             <div class="wp-card-title-row">
               <div>
                 <div class="wp-card-title">Рейтинг и эффективность</div>
-                <div class="wp-card-sub">Глубина чека = количество проданных позиций ÷ количество заказов</div>
+                <div class="wp-card-sub">Изменения считаются относительно предыдущего периода той же длины. Глубина чека = позиции ÷ заказы.</div>
               </div>
               <div id="wpRowCount" class="wp-row-count">0 официантов</div>
             </div>
@@ -83,9 +95,11 @@
                     <th>Место</th>
                     <th class="text-left">Официант</th>
                     <th>Выручка</th>
+                    <th>Δ выручки</th>
                     <th>Доля</th>
                     <th>Заказы</th>
                     <th>Средний чек</th>
+                    <th>Δ ср. чека</th>
                     <th>Позиций</th>
                     <th>Глубина чека</th>
                     <th>Прибыль</th>
@@ -113,6 +127,6 @@
   <script src="app-shell.js"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=11"></script>
-  <script src="waiter-performance.js?v=20260916-1"></script>
+  <script src="waiter-performance.js?v=20260916-2"></script>
 </body>
 </html>
