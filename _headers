@@ -91,11 +91,14 @@
 /hr-pnl.css
   Cache-Control: no-cache, max-age=0, must-revalidate
 
+/hr-compensation
+  Cache-Control: no-store, max-age=0
+
 /hr-compensation.html
-  Cache-Control: no-cache, max-age=0, must-revalidate
+  Cache-Control: no-store, max-age=0
 
 /hr-compensation.css
-  Cache-Control: no-cache, max-age=0, must-revalidate
+  Cache-Control: no-store, max-age=0
 
 /hr-compensation-v2.js
-  Cache-Control: no-cache, max-age=0, must-revalidate
+  Cache-Control: no-store, max-age=0
