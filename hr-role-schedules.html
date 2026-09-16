@@ -5,8 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Smart Horeca — Графики и должности</title>
   <link rel="stylesheet" href="app-shell.css">
-  <link rel="stylesheet" href="hr-pnl.css?v=20260916-6">
-  <link rel="stylesheet" href="hr-role-schedules.css?v=20260916-2">
+  <link rel="stylesheet" href="hr-pnl.css?v=20260916-8">
 </head>
 <body data-protected="true" style="background:#0b1017">
   <div class="app-shell">
@@ -17,7 +16,7 @@
           <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
           <div>
             <span class="topbar-title">Графики и должности</span>
-            <div class="topbar-sub">Должности из iiko · шаблоны смен · наследование графика</div>
+            <div class="topbar-sub">Должности из iiko · шаблоны смен · законодательство Азербайджана</div>
           </div>
         </div>
       </header>
@@ -27,7 +26,7 @@
           <div class="hr-head">
             <div>
               <h1>Графики по должностям</h1>
-              <p>Должности не создаются вручную: Smart Horeca синхронизирует их из iiko и хранит только HR-настройки графиков.</p>
+              <p>Должности синхронизируются из iiko. Smart Horeca хранит графики и проверяет базовые ограничения рабочего времени по законодательству Азербайджана.</p>
             </div>
             <div class="hr-actions">
               <span id="rsStatus" class="hr-status">Готово</span>
@@ -38,8 +37,8 @@
 
           <section class="hr-source-grid">
             <article class="hr-source-card active"><span>Должности</span><strong>iiko</strong><small>ID / код / название должности</small></article>
-            <article class="hr-source-card"><span>Графики</span><strong>Smart Horeca</strong><small>Шаблоны смен по должности</small></article>
-            <article class="hr-source-card"><span>Наследование</span><strong>Сотрудник</strong><small>Основной график должности + будущие исключения</small></article>
+            <article class="hr-source-card"><span>Графики</span><strong>Smart Horeca</strong><small>Шаблоны и серверная проверка</small></article>
+            <article class="hr-source-card"><span>Правила</span><strong>AZ Labor</strong><small>Норма · 6/1 · суммированный учёт</small></article>
           </section>
 
           <section id="rsSummary" class="hr-summary-grid"></section>
@@ -49,7 +48,7 @@
             <div class="hr-card-title-row">
               <div>
                 <div class="hr-card-title">Шаблон графика</div>
-                <div class="hr-card-sub">Выберите должность, режим и время смены. Для одной должности можно создать несколько вариантов.</div>
+                <div class="hr-card-sub">Выберите должность, режим и время смены. Сервер не даст сохранить график, нарушающий базовые ограничения рабочего времени.</div>
               </div>
               <button id="rsReset" type="button" class="hr-link-button">+ Новый шаблон</button>
             </div>
@@ -65,11 +64,12 @@
                 <div class="hr-schedule-grid hr-schedule-grid-main">
                   <label class="hr-field-wide">Должность<select id="rsRole" required></select></label>
                   <label class="hr-field-wide">Название шаблона<input id="rsName" required placeholder="Например: Смена A"></label>
-                  <label>Тип графика<select id="rsPattern"><option value="WEEKLY">По дням недели</option><option value="CYCLE">Цикл рабочих/выходных</option></select></label>
+                  <label>Тип графика<select id="rsPattern"><option value="WEEKLY">По дням недели</option><option value="CYCLE">Цикл / суммированный учёт</option></select></label>
                 </div>
                 <div class="hr-presets">
                   <span>Быстрый выбор</span>
                   <button type="button" data-schedule-preset="WEEKLY_5_2">5/2</button>
+                  <button type="button" data-schedule-preset="WEEKLY_6_1">6/1</button>
                   <button type="button" data-schedule-preset="CYCLE_2_2">2/2</button>
                   <button type="button" data-schedule-preset="CYCLE_3_3">3/3</button>
                 </div>
@@ -78,7 +78,7 @@
               <div class="hr-schedule-section">
                 <div class="hr-schedule-section-head">
                   <span class="hr-step">2</span>
-                  <div><strong>Время смены</strong><small>Смена может переходить через полночь</small></div>
+                  <div><strong>Базовое время смены</strong><small>Используется для новых выбранных дней и для циклического графика</small></div>
                 </div>
                 <div class="hr-schedule-grid hr-shift-grid">
                   <label>Начало смены<input id="rsStart" type="time" value="09:00" required></label>
@@ -108,6 +108,8 @@
                     <label><input type="checkbox" value="6"><b>Сб</b></label>
                     <label><input type="checkbox" value="7"><b>Вс</b></label>
                   </div>
+                  <div class="hr-day-rules-head"><span>Время по дням</span><small>Для 6/1 это позволяет корректно задать укороченный день перед выходным.</small></div>
+                  <div id="rsDayRules" class="hr-day-rules"></div>
                 </div>
 
                 <div id="cycleBox" class="hr-schedule-extra hr-cycle-box" hidden>
@@ -116,6 +118,7 @@
                   <label>Выходных дней<input id="rsOffDays" type="number" min="1" max="14" value="2"></label>
                   <div class="hr-cycle-divider">отдых</div>
                   <label>Первый рабочий день<input id="rsAnchor" type="date"><small>От этой даты считается цикл.</small></label>
+                  <label>Учётный период, мес.<input id="rsAccountingMonths" type="number" min="1" max="12" value="1"><small>По закону — не более 12 месяцев.</small></label>
                 </div>
               </div>
 
@@ -135,10 +138,15 @@
                 </div>
               </div>
 
+              <div class="hr-legal-note">
+                <strong>Правовая проверка AZ</strong>
+                <span>5-дневная неделя: до 8 ч/день и 40 ч/нед. · 6-дневная: до 7 ч/день, перед еженедельным выходным — до 6 ч, до 40 ч/нед. · суммированный учёт: смена до 12 ч, учётный период до 1 года.</span>
+              </div>
+
               <div class="hr-schedule-footer">
                 <div class="hr-live-summary">
                   <span>Итог</span>
-                  <strong id="rsLiveSummary">Пн–Пт · 09:00–18:00 · 8 ч</strong>
+                  <strong id="rsLiveSummary">Пн–Пт · 40 ч/нед.</strong>
                 </div>
                 <div class="hr-schedule-actions">
                   <button type="button" id="rsClear" class="hr-link-button">Очистить</button>
@@ -149,41 +157,19 @@
           </section>
 
           <section class="hr-card">
-            <div class="hr-card-title-row">
-              <div>
-                <div class="hr-card-title">Должности из iiko</div>
-                <div class="hr-card-sub">Ни одна должность не создаётся вручную. Количество сотрудников берётся из синхронизированного HR-справочника.</div>
-              </div>
-              <div id="rsRoleCount" class="hr-muted">0 должностей</div>
-            </div>
-            <div class="hr-table-scroll">
-              <table>
-                <thead><tr><th class="text-left">Должность</th><th>Код iiko</th><th>Сотрудников</th><th>Графиков</th><th>Основной график</th><th>Статус</th></tr></thead>
-                <tbody id="rsRoleRows"></tbody>
-              </table>
-            </div>
+            <div class="hr-card-title-row"><div><div class="hr-card-title">Должности из iiko</div><div class="hr-card-sub">Количество сотрудников берётся из синхронизированного HR-справочника.</div></div><div id="rsRoleCount" class="hr-muted">0 должностей</div></div>
+            <div class="hr-table-scroll"><table><thead><tr><th class="text-left">Должность</th><th>Код iiko</th><th>Сотрудников</th><th>Графиков</th><th>Основной график</th><th>Статус</th></tr></thead><tbody id="rsRoleRows"></tbody></table></div>
           </section>
 
           <section class="hr-card">
-            <div class="hr-card-title-row">
-              <div>
-                <div class="hr-card-title">Шаблоны графиков</div>
-                <div class="hr-card-sub">Изменение шаблона сохраняется с датой действия; старые периоды не нужно пересчитывать задним числом.</div>
-              </div>
-              <div id="rsScheduleCount" class="hr-muted">0 графиков</div>
-            </div>
-            <div class="hr-table-scroll">
-              <table>
-                <thead><tr><th class="text-left">Должность / шаблон</th><th>Режим</th><th>Смена</th><th>Перерыв</th><th>Период действия</th><th>Основной</th><th></th></tr></thead>
-                <tbody id="rsScheduleRows"></tbody>
-              </table>
-            </div>
+            <div class="hr-card-title-row"><div><div class="hr-card-title">Шаблоны графиков</div><div class="hr-card-sub">Каждый сохранённый шаблон проходит серверную правовую проверку.</div></div><div id="rsScheduleCount" class="hr-muted">0 графиков</div></div>
+            <div class="hr-table-scroll"><table><thead><tr><th class="text-left">Должность / шаблон</th><th>Режим</th><th>Смена / норма</th><th>Учёт</th><th>Период действия</th><th>Основной</th><th></th></tr></thead><tbody id="rsScheduleRows"></tbody></table></div>
           </section>
 
           <section class="hr-card hr-next">
             <div class="hr-card-title">Как будет применяться график</div>
-            <p>Сотрудник получает основной шаблон своей должности. Для сменных команд можно создать несколько шаблонов одной должности с разной опорной датой, а позже назначать сотрудников в группу A/B. Индивидуальные исключения будут отдельным слоем и не потребуют создавать 1000 разных графиков.</p>
-            <div class="hr-flow"><span>iiko должность</span><b>→</b><span>Шаблон графика</span><b>→</b><span>Сотрудник / группа</span><b>+</b><span>Исключения</span><b>→</b><span>План</span><b>↔</b><span>Face ID факт</span></div>
+            <p>Производственный календарь конкретного года будет накладываться на шаблон автоматически: сокращённые предпраздничные дни, официальная норма периода и дальнейший расчёт ночных, праздников и сверхурочных не будут зашиваться вручную в график должности.</p>
+            <div class="hr-flow"><span>iiko должность</span><b>→</b><span>Законный шаблон</span><b>+</b><span>Календарь AZ</span><b>→</b><span>План</span><b>↔</b><span>Face ID факт</span><b>→</b><span>Payroll</span></div>
           </section>
         </section>
       </div>
@@ -196,6 +182,6 @@
   <script src="app-shell.js"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=16"></script>
-  <script src="hr-role-schedules.js?v=20260916-3"></script>
+  <script src="hr-role-schedules.js?v=20260916-4"></script>
 </body>
 </html>
