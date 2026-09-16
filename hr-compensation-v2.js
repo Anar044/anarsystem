@@ -1,6 +1,16 @@
 (()=>{
 'use strict';
-const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
+function ensureCompensationStyle(){
+  let link=document.querySelector('link[data-hcp-style="1"]');
+  if(link)return;
+  link=document.createElement('link');
+  link.rel='stylesheet';
+  link.href='/hr-compensation.css?v=20260916-4';
+  link.dataset.hcpStyle='1';
+  document.head.appendChild(link);
+}
+ensureCompensationStyle();
 let state={employees:[],roles:[],counts:{},totals:{}},busy=false;
 const money=v=>`${(Number(v)||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})} ₼`;
 function today(){const d=new Date(),p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`}
@@ -36,6 +46,6 @@ async function save(ev){ev.preventDefault();try{error();status('Сохраняе
 async function inherit(id){const e=(state.employees||[]).find(x=>x.id===id);if(!e?.individualTerm)return;if(!confirm(`Убрать индивидуальные условия у «${e.name}» и вернуть условия должности?`))return;try{state=await api({action:'disableTerm',scopeType:'EMPLOYEE',id:e.individualTerm.id});render();status('Сотрудник снова наследует условия должности','ok')}catch(x){error(x.message);status('Ошибка','error')}}
 async function disableRole(code){const r=(state.roles||[]).find(x=>x.code===code);if(!r?.term)return;if(!confirm(`Отключить условия должности «${r.name}»?`))return;try{state=await api({action:'disableTerm',scopeType:'ROLE',id:r.term.id});render();status('Условия должности отключены','ok')}catch(x){error(x.message);status('Ошибка','error')}}
 function bind(){$('hcpRefresh').onclick=load;$('hcpReset').onclick=()=>reset('ROLE');$('hcpAsOf').onchange=load;$('hcpScope').onchange=()=>{scope();$('hcpId').value=''};$('hcpForm').onsubmit=save;['hcpOfficialGross','hcpAdditional','hcpTaxTreatment','hcpBasis'].forEach(id=>{$(id).addEventListener('input',preview);$(id).addEventListener('change',preview)})}
-async function init(){$('hcpAsOf').value=today();bind();reset('ROLE');await load()}
+async function init(){ensureCompensationStyle();$('hcpAsOf').value=today();bind();reset('ROLE');await load()}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
