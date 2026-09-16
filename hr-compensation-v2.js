@@ -41,12 +41,23 @@ function preview(){
   const ex=$('hcpTaxTreatment').value==='EXEMPT_WITH_BASIS';$('hcpBasisWrap').hidden=!ex;$('hcpBasis').required=ex;$('pvTaxNote').textContent=ex?'Исключено из баз только по указанному законному основанию.':'Включено в налоговые и страховые базы.';$('hcpRuleBadge').textContent=`AZ · ${yearOf($('hcpAsOf').value||today())}`;
 }
 function summary(){const c=state.counts||{},t=state.totals||{};$('hcpSummary').innerHTML=`<article class="hr-summary-card"><span>Сотрудники</span><strong>${Number(c.employees||0)}</strong><small>С условиями: ${Number(c.configured||0)} · без: ${Number(c.withoutTerms||0)}</small></article><article class="hr-summary-card"><span>Должности настроены</span><strong>${Number(c.rolesConfigured||0)} / ${Number(c.roles||0)}</strong><small>Базовые условия</small></article><article class="hr-summary-card"><span>Индивидуальные исключения</span><strong>${Number(c.individualOverrides||0)}</strong><small>Приоритет над должностью</small></article><article class="hr-summary-card"><span>Стоимость для ресторана</span><strong class="hr-text-value">${money(t.employerCost||0)}</strong><small>По эффективным условиям</small></article>`}
+function employeesForRole(roleCode){
+  const code=String(roleCode||'');
+  return (state.employees||[]).filter(e=>String(e.roleCode||'')===code);
+}
+function renderEmployeeOptions(preferredId=''){
+  const roleCode=$('hcpRole').value;
+  const list=employeesForRole(roleCode);
+  const current=String(preferredId||$('hcpEmployee').value||'');
+  $('hcpEmployee').innerHTML=list.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}${e.roleName?' · '+esc(e.roleName):''}</option>`).join('')||'<option value="">Нет сотрудников этой должности</option>';
+  if(list.some(e=>String(e.id)===current))$('hcpEmployee').value=current;
+  else if(list.length)$('hcpEmployee').value=String(list[0].id);
+}
 function selectors(){
   const ec=$('hcpEmployee').value,rc=$('hcpRole').value;
-  $('hcpEmployee').innerHTML=(state.employees||[]).map(e=>`<option value="${esc(e.id)}">${esc(e.name)}${e.roleName?' · '+esc(e.roleName):''}</option>`).join('')||'<option value="">Нет сотрудников</option>';
   $('hcpRole').innerHTML=(state.roles||[]).map(r=>`<option value="${esc(r.code)}">${esc(r.name)} · ${Number(r.employeeCount||0)} сотр.</option>`).join('')||'<option value="">Нет должностей</option>';
-  if((state.employees||[]).some(e=>e.id===ec))$('hcpEmployee').value=ec;
-  if((state.roles||[]).some(r=>r.code===rc))$('hcpRole').value=rc;
+  if((state.roles||[]).some(r=>String(r.code)===String(rc)))$('hcpRole').value=rc;
+  renderEmployeeOptions(ec);
 }
 const taxBadge=t=>!t?'<span class="hr-badge pending">Не настроено</span>':t.additionalTaxTreatment==='EXEMPT_WITH_BASIS'?'<span class="hr-badge">Есть основание</span>':'<span class="hr-badge active">Облагается</span>';
 function sourceBadge(e){if(e.sourceType==='EMPLOYEE')return'<span class="hcp-source individual">Индивидуально</span>';if(e.sourceType==='ROLE')return`<span class="hcp-source inherited">По должности</span><div class="hr-sub">${esc(e.roleName||e.roleCode||'')}</div>`;return'<span class="hr-badge pending">Не настроено</span>'}
@@ -60,7 +71,13 @@ function employeeRows(){
   $('hcpRows').innerHTML=l.map(e=>{if(!e.term||!e.calculation){const a=e.roleCode?`<button class="hr-link-button" data-rnew="${esc(e.roleCode)}">Для должности</button>`:`<button class="hr-link-button" data-ind="${esc(e.id)}">Индивидуально</button>`;return `<tr><td class="text-left"><div class="hr-name">${esc(e.name)}</div><div class="hr-sub">${esc(e.roleName||'Без должности')} · ${esc(e.code||'')}</div></td><td>${sourceBadge(e)}</td><td colspan="10" class="text-left"><span class="hr-badge pending">Условия не настроены</span></td><td>${a}</td></tr>`}const c=e.calculation,o=c.official,a=e.sourceType==='EMPLOYEE'?`<div class="hcp-row-actions"><button class="hr-link-button" data-eedit="${esc(e.id)}">Изменить</button><button class="hr-link-button" data-inherit="${esc(e.id)}">Вернуть к должности</button></div>`:`<button class="hr-link-button" data-ind="${esc(e.id)}">Индивидуально</button>`;return `<tr><td class="text-left"><div class="hr-name">${esc(e.name)}</div><div class="hr-sub">${esc(e.roleName||'Без должности')} · ${esc(e.code||'')}</div></td><td>${sourceBadge(e)}</td><td>${money(o.gross)}</td><td>${money(o.employee.incomeTax)}</td><td>${money(o.employee.socialInsurance)}</td><td>${money(o.employee.unemploymentInsurance)}</td><td>${money(o.employee.medicalInsurance)}</td><td><b>${money(o.net)}</b></td><td>${money(e.term.additionalAmount)}</td><td><b>${money(c.totalEmployeeReceives)}</b></td><td>${money(c.combined.employer.total)}</td><td><b>${money(c.totalEmployerCost)}</b></td><td>${a}</td></tr>`}).join('')||'<tr><td colspan="13" class="hr-empty">Сотрудники не найдены.</td></tr>';
   $('hcpRows').querySelectorAll('[data-ind]').forEach(b=>b.onclick=()=>newEmployee(b.dataset.ind));$('hcpRows').querySelectorAll('[data-eedit]').forEach(b=>b.onclick=()=>editEmployee(b.dataset.eedit));$('hcpRows').querySelectorAll('[data-inherit]').forEach(b=>b.onclick=()=>inherit(b.dataset.inherit));$('hcpRows').querySelectorAll('[data-rnew]').forEach(b=>b.onclick=()=>newRole(b.dataset.rnew));
 }
-function scope(){const r=$('hcpScope').value==='ROLE';$('hcpRoleWrap').hidden=!r;$('hcpEmployeeWrap').hidden=r;$('hcpRole').required=r;$('hcpEmployee').required=!r}
+function scope(){
+  const roleMode=$('hcpScope').value==='ROLE';
+  $('hcpRoleWrap').hidden=false;
+  $('hcpEmployeeWrap').hidden=roleMode;
+  $('hcpRole').required=true;
+  $('hcpEmployee').required=!roleMode;
+}
 function render(){summary();selectors();roleRows();employeeRows();scope();preview()}
 function clearFields(scopeType='ROLE'){
   $('hcpId').value='';$('hcpScope').value=scopeType;$('hcpFrom').value=$('hcpAsOf').value||today();$('hcpTo').value='';$('hcpOfficialGross').value=0;$('hcpAdditional').value=0;$('hcpMethod').value='CASH';$('hcpTaxTreatment').value='TAXABLE';$('hcpBasis').value='';$('hcpNote').value='';scope();preview();
@@ -68,14 +85,21 @@ function clearFields(scopeType='ROLE'){
 function fill(t){forceNew=false;$('hcpId').value=t.id||'';$('hcpFrom').value=t.effectiveFrom||($('hcpAsOf').value||today());$('hcpTo').value=t.effectiveTo||'';$('hcpOfficialGross').value=t.officialGross??0;$('hcpAdditional').value=t.additionalAmount??0;$('hcpMethod').value=t.additionalPaymentMethod||'CASH';$('hcpTaxTreatment').value=t.additionalTaxTreatment||'TAXABLE';$('hcpBasis').value=t.additionalLegalBasis||'';$('hcpNote').value=t.note||'';preview()}
 function newRole(code){forceNew=true;const selected=code||$('hcpRole').value;clearFields('ROLE');if(selected)$('hcpRole').value=selected;document.querySelector('.hcp-editor')?.scrollIntoView({behavior:'smooth',block:'start'})}
 function editRole(code){const r=(state.roles||[]).find(x=>x.code===code);$('hcpScope').value='ROLE';scope();if(code)$('hcpRole').value=code;if(r?.term)fill(r.term);else newRole(code);document.querySelector('.hcp-editor')?.scrollIntoView({behavior:'smooth',block:'start'})}
+function selectEmployeeAndRole(id){
+  const e=(state.employees||[]).find(x=>String(x.id)===String(id));
+  if(e?.roleCode)$('hcpRole').value=String(e.roleCode);
+  renderEmployeeOptions(id);
+  if(id&&employeesForRole($('hcpRole').value).some(x=>String(x.id)===String(id)))$('hcpEmployee').value=String(id);
+  return e;
+}
 function newEmployee(id){
-  forceNew=true;const selected=id||$('hcpEmployee').value;clearFields('EMPLOYEE');if(selected)$('hcpEmployee').value=selected;
-  const e=(state.employees||[]).find(x=>String(x.id)===String(selected));const base=e?.term;
+  forceNew=true;const selected=id||$('hcpEmployee').value;const e=selectEmployeeAndRole(selected);clearFields('EMPLOYEE');selectEmployeeAndRole(selected);
+  const base=e?.term;
   if(base){$('hcpOfficialGross').value=base.officialGross??0;$('hcpAdditional').value=base.additionalAmount??0;$('hcpMethod').value=base.additionalPaymentMethod||'CASH';$('hcpTaxTreatment').value=base.additionalTaxTreatment||'TAXABLE';$('hcpBasis').value=base.additionalLegalBasis||'';$('hcpNote').value='Индивидуальное исключение';preview()}
   document.querySelector('.hcp-editor')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
 function editEmployee(id){
-  const e=(state.employees||[]).find(x=>String(x.id)===String(id));$('hcpScope').value='EMPLOYEE';scope();if(id)$('hcpEmployee').value=id;
+  const e=selectEmployeeAndRole(id);$('hcpScope').value='EMPLOYEE';scope();selectEmployeeAndRole(id);
   if(e?.individualTerm)fill(e.individualTerm);else newEmployee(id);
   document.querySelector('.hcp-editor')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -112,15 +136,15 @@ async function save(ev){
     render();loadRoleContext();status('Условия должности сохранены','ok');
   }catch(e){error(e.message);status('Ошибка','error')}
 }
-async function inherit(id){const e=(state.employees||[]).find(x=>x.id===id);if(!e?.individualTerm)return;if(!confirm(`Убрать индивидуальные условия у «${e.name}» и вернуть условия должности?`))return;try{state=await api({action:'disableTerm',scopeType:'EMPLOYEE',id:e.individualTerm.id});render();$('hcpEmployee').value=id;loadEmployeeContext();status('Сотрудник снова наследует условия должности','ok')}catch(x){error(x.message);status('Ошибка','error')}}
+async function inherit(id){const e=(state.employees||[]).find(x=>x.id===id);if(!e?.individualTerm)return;if(!confirm(`Убрать индивидуальные условия у «${e.name}» и вернуть условия должности?`))return;try{state=await api({action:'disableTerm',scopeType:'EMPLOYEE',id:e.individualTerm.id});render();selectEmployeeAndRole(id);loadEmployeeContext();status('Сотрудник снова наследует условия должности','ok')}catch(x){error(x.message);status('Ошибка','error')}}
 async function disableRole(code){const r=(state.roles||[]).find(x=>x.code===code);if(!r?.term)return;if(!confirm(`Отключить условия должности «${r.name}»?`))return;try{state=await api({action:'disableTerm',scopeType:'ROLE',id:r.term.id});render();status('Условия должности отключены','ok')}catch(x){error(x.message);status('Ошибка','error')}}
 function bind(){
   $('hcpRefresh').onclick=load;
   $('hcpReset').onclick=()=>{$('hcpScope').value==='EMPLOYEE'?newEmployee($('hcpEmployee').value):newRole($('hcpRole').value)};
   $('hcpAsOf').onchange=load;
-  $('hcpScope').onchange=()=>{scope();$('hcpScope').value==='EMPLOYEE'?loadEmployeeContext():loadRoleContext()};
+  $('hcpScope').onchange=()=>{scope();if($('hcpScope').value==='EMPLOYEE'){renderEmployeeOptions($('hcpEmployee').value);loadEmployeeContext()}else loadRoleContext()};
   $('hcpEmployee').onchange=loadEmployeeContext;
-  $('hcpRole').onchange=loadRoleContext;
+  $('hcpRole').onchange=()=>{if($('hcpScope').value==='EMPLOYEE'){renderEmployeeOptions();loadEmployeeContext()}else loadRoleContext()};
   $('hcpForm').onsubmit=save;
   ['hcpOfficialGross','hcpAdditional','hcpTaxTreatment','hcpBasis'].forEach(id=>{$(id).addEventListener('input',preview);$(id).addEventListener('change',preview)});
 }
