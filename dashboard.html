@@ -4,7 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Smart Horeca Control — Dashboard</title>
+<script>
+(function(){try{const k='shThemeV2Initialized';if(!localStorage.getItem(k)){localStorage.setItem('shReportsTheme','light');localStorage.setItem(k,'1')}document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();
+</script>
 <link rel="stylesheet" href="app-shell.css">
+<link rel="stylesheet" href="dashboard.css?v=20260917-5">
+<link rel="stylesheet" href="dashboard-light.css?v=20260917-1">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <script defer src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js"></script>
 </head>
@@ -30,8 +35,6 @@
 <script src="auth.js"></script>
 <script src="iiko-context.js?v=20260911-4"></script>
 <script src="app-shell.js"></script>
-<script src="smart-horeca-theme-loader.js?v=20260917-2"></script>
-<script src="dashboard-style-loader.js?v=4"></script>
 <script src="mobile-responsive.js?v=1"></script>
 <script src="dashboard-optimized.js?v=20260911-7"></script>
 <script src="dashboard-assets.js?v=20260915-1"></script>
