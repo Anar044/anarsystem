@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Smart Horeca — Учёт времени / Face ID</title>
   <link rel="stylesheet" href="app-shell.css">
-  <link rel="stylesheet" href="hr-pnl.css?v=20260916-2">
+  <link rel="stylesheet" href="hr-pnl.css?v=20260916-3">
 </head>
 <body data-protected="true" style="background:#0b1017">
   <div class="app-shell">
@@ -47,7 +47,7 @@
             <div class="hr-card-title-row">
               <div>
                 <div class="hr-card-title">Устройства учёта времени</div>
-                <div class="hr-card-sub">Сейчас создаём логическое устройство. Реальное подключение ZKTeco будет работать через отдельный локальный connector/adapter.</div>
+                <div class="hr-card-sub">Каждое устройство получает отдельный секретный ключ. Реальный ZKTeco connector отправляет события только через защищённый ingest API.</div>
               </div>
             </div>
             <form id="deviceForm" class="hr-form-grid">
@@ -58,6 +58,18 @@
               <div class="hr-form-action"><button class="hr-primary" type="submit">+ Добавить устройство</button></div>
             </form>
             <div id="deviceList" class="hr-device-list"></div>
+            <div id="deviceTokenPanel" class="hr-token-panel" hidden>
+              <div>
+                <span>Ключ устройства</span>
+                <strong id="deviceTokenTitle">Новый device token</strong>
+                <small>Показывается только сейчас. Скопируйте его в локальный connector. В базе Smart Horeca хранится только SHA-256 hash.</small>
+              </div>
+              <code id="deviceTokenValue"></code>
+              <div class="hr-token-actions">
+                <button id="copyDeviceToken" type="button" class="hr-primary">Копировать</button>
+                <button id="closeDeviceToken" type="button" class="hr-link-button">Скрыть</button>
+              </div>
+            </div>
           </section>
 
           <section class="hr-card">
@@ -101,8 +113,8 @@
 
           <section class="hr-card hr-next">
             <div class="hr-card-title">Как будет работать реальный аппарат</div>
-            <p>Локальный ZKTeco connector будет читать журнал устройства и отправлять события в защищённый ingest API Smart Horeca. Здесь уже подготовлена модель устройств, связей сотрудников и необработанных событий.</p>
-            <div class="hr-flow"><span>ZKTeco</span><b>→</b><span>Local connector</span><b>→</b><span>Raw events</span><b>→</b><span>Сопоставление ID</span><b>→</b><span>Табель</span><b>→</b><span>Payroll</span></div>
+            <p>Локальный ZKTeco connector будет читать журнал устройства и отправлять события в защищённый endpoint <b>/api/hr/device-ingest</b> с индивидуальным ключом устройства. Ключ можно в любой момент перевыпустить или отозвать.</p>
+            <div class="hr-flow"><span>ZKTeco</span><b>→</b><span>Local connector</span><b>→</b><span>Device token</span><b>→</b><span>Raw events</span><b>→</b><span>Табель</span><b>→</b><span>Payroll</span></div>
           </section>
         </section>
       </div>
@@ -115,6 +127,6 @@
   <script src="app-shell.js"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=13"></script>
-  <script src="hr-timeclock.js?v=20260916-1"></script>
+  <script src="hr-timeclock.js?v=20260916-2"></script>
 </body>
 </html>
