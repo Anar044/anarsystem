@@ -1,0 +1,18 @@
+{
+  "smartHoreca": {
+    "baseUrl": "https://smarthoreca.pages.dev",
+    "deviceConfigPath": "/api/hr/device-config",
+    "ingestPath": "/api/hr/device-ingest",
+    "requestTimeoutMs": 15000
+  },
+  "deviceToken": "shd_REPLACE_WITH_TOKEN_FROM_SMARTHORECA",
+  "pollIntervalMs": 10000,
+  "deviceTimeoutMs": 10000,
+  "udpInPort": 5200,
+  "commKey": 0,
+  "initialSync": "FROM_NOW",
+  "storage": {
+    "stateFile": "./data/local-agent-state.json",
+    "logFile": "./data/local-agent.log"
+  }
+}
