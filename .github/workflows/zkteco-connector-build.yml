@@ -27,11 +27,17 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Restore
+      - name: Restore Connector
         run: dotnet restore connectors/zkteco/SmartHoreca.ZKTeco.Connector.csproj
 
-      - name: Publish single-file EXE
+      - name: Restore Tray
+        run: dotnet restore connectors/zkteco/Tray/SmartHoreca.ZKTeco.Tray.csproj
+
+      - name: Publish Connector EXE
         run: dotnet publish connectors/zkteco/SmartHoreca.ZKTeco.Connector.csproj -c Release -r ${{ matrix.runtime }} --self-contained true -o artifacts/${{ matrix.runtime }}
+
+      - name: Publish Tray EXE
+        run: dotnet publish connectors/zkteco/Tray/SmartHoreca.ZKTeco.Tray.csproj -c Release -r ${{ matrix.runtime }} --self-contained true -o artifacts/${{ matrix.runtime }}
 
       - name: Copy setup files
         shell: pwsh

@@ -33,17 +33,20 @@ catch (Exception ex)
     return;
 }
 
+var logPath = Path.Combine(config.DataDirectory, "connector.log");
 var builder = Host.CreateDefaultBuilder(args)
     .UseWindowsService(options => options.ServiceName = "SmartHoreca ZKTeco Connector")
     .ConfigureLogging(logging =>
     {
         logging.SetMinimumLevel(LogLevel.Information);
+        logging.AddProvider(new SimpleFileLoggerProvider(logPath));
     })
     .ConfigureServices(services =>
     {
         services.AddSingleton(config);
         services.AddSingleton(new ConnectorRuntime(configPath));
         services.AddSingleton<EventQueue>();
+        services.AddSingleton<ConnectorStatusStore>();
         services.AddSingleton(new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(Math.Clamp(config.Server.TimeoutSeconds, 5, 120))
@@ -52,6 +55,7 @@ var builder = Host.CreateDefaultBuilder(args)
         services.AddHostedService<ZkemkeeperPoller>();
         services.AddHostedService<TaPushListener>();
         services.AddHostedService<SyncWorker>();
+        services.AddHostedService<ConnectorStatusWorker>();
     });
 
 await builder.Build().RunAsync();

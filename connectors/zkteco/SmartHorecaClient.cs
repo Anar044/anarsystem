@@ -7,7 +7,7 @@ namespace SmartHoreca.ZKTeco.Connector;
 
 public sealed class SmartHorecaClient
 {
-    private const string ConnectorVersion = "1.1.0";
+    private const string ConnectorVersion = ConnectorStatusStore.ConnectorVersion;
     private readonly ConnectorConfig _config;
     private readonly HttpClient _http;
     private readonly ILogger<SmartHorecaClient> _logger;

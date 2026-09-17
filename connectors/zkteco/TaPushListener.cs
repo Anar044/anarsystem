@@ -10,14 +10,16 @@ public sealed class TaPushListener : BackgroundService
 {
     private readonly ConnectorConfig _config;
     private readonly EventQueue _queue;
+    private readonly ConnectorStatusStore _status;
     private readonly ILogger<TaPushListener> _logger;
     private readonly Dictionary<string, DeviceOptions> _bySerial;
     private HttpListener? _listener;
 
-    public TaPushListener(ConnectorConfig config, EventQueue queue, ILogger<TaPushListener> logger)
+    public TaPushListener(ConnectorConfig config, EventQueue queue, ConnectorStatusStore status, ILogger<TaPushListener> logger)
     {
         _config = config;
         _queue = queue;
+        _status = status;
         _logger = logger;
         _bySerial = config.Devices
             .Where(x => x.Enabled && x.Adapter == "TA_PUSH")
@@ -81,6 +83,8 @@ public sealed class TaPushListener : BackgroundService
                 await WriteAsync(context.Response, 403, "UNEXPECTED SOURCE");
                 return;
             }
+
+            _status.MarkDeviceSeen(device.Key);
 
             if (path.EndsWith("/iclock/cdata", StringComparison.Ordinal))
             {
@@ -169,7 +173,10 @@ public sealed class TaPushListener : BackgroundService
         }
 
         if (accepted > 0)
+        {
+            _status.MarkDeviceEvent(device.Key);
             _logger.LogInformation("{Device}: received {Accepted} new attendance event(s) over local TA Push.", device.Name, accepted);
+        }
         return accepted;
     }
 

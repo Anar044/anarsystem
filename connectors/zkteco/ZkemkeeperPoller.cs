@@ -9,13 +9,15 @@ public sealed class ZkemkeeperPoller : BackgroundService
 {
     private readonly ConnectorConfig _config;
     private readonly EventQueue _queue;
+    private readonly ConnectorStatusStore _status;
     private readonly ILogger<ZkemkeeperPoller> _logger;
     private readonly Dictionary<string, DateTimeOffset> _nextPoll = new(StringComparer.OrdinalIgnoreCase);
 
-    public ZkemkeeperPoller(ConnectorConfig config, EventQueue queue, ILogger<ZkemkeeperPoller> logger)
+    public ZkemkeeperPoller(ConnectorConfig config, EventQueue queue, ConnectorStatusStore status, ILogger<ZkemkeeperPoller> logger)
     {
         _config = config;
         _queue = queue;
+        _status = status;
         _logger = logger;
     }
 
@@ -41,11 +43,13 @@ public sealed class ZkemkeeperPoller : BackgroundService
                 try
                 {
                     var imported = await PollDeviceAsync(device, stoppingToken);
+                    if (imported > 0) _status.MarkDeviceEvent(device.Key);
                     _logger.LogInformation("{Device}: local SDK scan completed, {Imported} new event(s) queued.", device.Name, imported);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
                 catch (Exception ex)
                 {
+                    _status.MarkDeviceError(device.Key, ex.Message);
                     _logger.LogWarning(ex, "{Device}: ZKTeco SDK poll failed.", device.Name);
                 }
             }
@@ -68,6 +72,7 @@ public sealed class ZkemkeeperPoller : BackgroundService
             zk = Activator.CreateInstance(comType) ?? throw new InvalidOperationException("Cannot create zkemkeeper COM object.");
             connected = zk.Connect_Net(device.IpAddress, device.Port);
             if (!connected) throw new InvalidOperationException($"Cannot connect to {device.IpAddress}:{device.Port}.");
+            _status.MarkDeviceSeen(device.Key);
 
             var machine = device.MachineNumber <= 0 ? 1 : device.MachineNumber;
             var serial = device.SerialNumber;
