@@ -1,7 +1,7 @@
 (()=>{
   'use strict';
 
-  const SRC='/assets/brand/smarthoreca-logo-user-exact.jpeg?v=20260917-1';
+  const SRC='/assets/brand/smarthoreca-logo-sidebar.jpg?v=20260917-3';
 
   function installExactSidebarLogo(){
     const brand=document.querySelector('.sidebar .unified-brand');
@@ -36,7 +36,7 @@
       body.dashboard-page .sidebar .unified-brand .sh-user-exact-logo{
         display:block!important;
         width:62px!important;
-        height:68px!important;
+        height:69px!important;
         object-fit:contain!important;
         object-position:center!important;
         margin:0!important;
