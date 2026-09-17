@@ -1,0 +1,29 @@
+{
+  "listen": {
+    "host": "0.0.0.0",
+    "port": 8088
+  },
+  "smartHoreca": {
+    "baseUrl": "https://smarthoreca.pages.dev",
+    "ingestPath": "/api/hr/device-ingest",
+    "requestTimeoutMs": 15000
+  },
+  "attendance": {
+    "timezone": "Asia/Baku",
+    "utcOffset": "+04:00",
+    "flushIntervalMs": 5000,
+    "maxBatchSize": 200
+  },
+  "storage": {
+    "queueFile": "./data/pending-events.jsonl",
+    "logFile": "./data/connector.log"
+  },
+  "devices": {
+    "YOUR_DEVICE_SERIAL": {
+      "enabled": true,
+      "name": "Main entrance",
+      "model": "SenseFace 3A",
+      "deviceToken": "shd_REPLACE_WITH_TOKEN_FROM_SMARTHORECA"
+    }
+  }
+}
