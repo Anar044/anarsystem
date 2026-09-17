@@ -1,0 +1,10 @@
+{
+  "devices": [
+    {
+      "serial": "PUT_DEVICE_SERIAL_HERE",
+      "name": "Главный вход",
+      "model": "SenseFace 3A",
+      "token": "shd_REPLACE_WITH_TOKEN_FROM_SMARTHORECA"
+    }
+  ]
+}

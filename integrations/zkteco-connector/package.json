@@ -1,0 +1,14 @@
+{
+  "name": "smarthoreca-zkteco-connector",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local ZKTeco ADMS/Push connector for SmartHoreca attendance",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js"
+  }
+}
