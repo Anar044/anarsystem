@@ -12,6 +12,6 @@
   const link=document.createElement('link');
   link.id='sh-brand-theme';
   link.rel='stylesheet';
-  link.href='/smart-horeca-theme.css?v=20260917-4';
+  link.href='/smart-horeca-theme.css?v=20260917-6';
   document.head.appendChild(link);
 })();
