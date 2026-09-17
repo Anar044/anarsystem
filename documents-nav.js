@@ -5,6 +5,29 @@
   // Keep route-specific fixes here without observers or repeated DOM mutations.
   function currentPath(){return location.pathname.toLowerCase().replace(/\/+$/,'')}
 
+  function ensureBrandTheme(){
+    if(document.getElementById('sh-brand-theme'))return;
+    const link=document.createElement('link');link.id='sh-brand-theme';link.rel='stylesheet';link.href='/smart-horeca-theme.css?v=20260917-1';document.head.appendChild(link);
+  }
+  function ensureThemePreference(){
+    const root=document.documentElement,key='shThemeV2Initialized';
+    if(!localStorage.getItem(key)){localStorage.setItem('shReportsTheme','light');localStorage.setItem(key,'1')}
+    root.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light';
+  }
+  function enhanceBrand(){
+    const brand=document.querySelector('.sidebar .unified-brand');if(!brand)return;
+    brand.classList.add('sh-brand');
+    brand.innerHTML='<span class="sh-brand-logo" aria-hidden="true"></span><span class="sh-brand-copy"><strong><span class="smart">Smart</span><span class="horeca">Horeca</span></strong><small>Управляй рестораном легко</small></span>';
+  }
+  function updateThemeButton(btn){
+    if(!btn)return;const dark=document.documentElement.dataset.theme==='dark';btn.innerHTML=`<span class="theme-icon">${dark?'☀':'◐'}</span><span>${dark?'Светлая тема':'Тёмная тема'}</span>`;
+  }
+  function ensureThemeToggle(){
+    const side=document.querySelector('.sidebar');if(!side)return;let btn=side.querySelector('.sh-theme-toggle');
+    if(!btn){btn=document.createElement('button');btn.type='button';btn.className='sh-theme-toggle';const spacer=side.querySelector('.sidebar-spacer');if(spacer)spacer.insertAdjacentElement('beforebegin',btn);else side.appendChild(btn);btn.addEventListener('click',()=>{const root=document.documentElement,next=root.dataset.theme==='dark'?'light':'dark';root.dataset.theme=next;localStorage.setItem('shReportsTheme',next);updateThemeButton(btn)})}
+    updateThemeButton(btn);
+  }
+
   function normalizeCashNav(){
     const nav=document.querySelector('.sidebar .unified-main-nav');if(!nav)return;
     const cash=nav.querySelector('a[data-unified-nav-item="cash.html"]');if(cash)cash.setAttribute('href','/cash/index.html');
@@ -59,7 +82,7 @@
     });
   }
 
-  function sync(){normalizeCashNav();ensureMenuEngineeringNav();ensureWaiterPerformanceNav();ensureHrNav();ensureCompensationRoleAutoRefresh();return true}
+  function sync(){ensureBrandTheme();ensureThemePreference();normalizeCashNav();ensureMenuEngineeringNav();ensureWaiterPerformanceNav();ensureHrNav();ensureCompensationRoleAutoRefresh();enhanceBrand();ensureThemeToggle();return true}
   sync();
 
   if(!window.SH_SidebarNav){window.SH_SidebarNav={sync,currentPage(){const path=currentPath();if(path==='/cash'||path.endsWith('/cash.html')||path.endsWith('/cash/index.html'))return'cash.html';if(path.endsWith('/menu-engineering')||path.endsWith('/menu-engineering.html'))return'menu-engineering.html';if(path.endsWith('/waiter-performance')||path.endsWith('/waiter-performance.html'))return'waiter-performance.html';if(path.endsWith('/hr-employees')||path.endsWith('/hr-employees.html'))return'hr-employees.html';if(path.endsWith('/hr-role-schedules')||path.endsWith('/hr-role-schedules.html'))return'hr-role-schedules.html';if(path.endsWith('/hr-compensation')||path.endsWith('/hr-compensation.html'))return'hr-compensation.html';if(path.endsWith('/hr-payroll-adjustments')||path.endsWith('/hr-payroll-adjustments.html'))return'hr-payroll-adjustments.html';if(path.endsWith('/hr-payroll')||path.endsWith('/hr-payroll.html'))return'hr-payroll.html';if(path.endsWith('/hr-timeclock')||path.endsWith('/hr-timeclock.html'))return'hr-timeclock.html';if(path.endsWith('/hr-timesheet')||path.endsWith('/hr-timesheet.html'))return'hr-timesheet.html';if(path.endsWith('/hr-calendar')||path.endsWith('/hr-calendar.html'))return'hr-calendar.html';return null}}}

@@ -1,0 +1,1 @@
+SmartHoreca brand assets. The dashboard uses the original user-supplied logo image stored in this directory.
