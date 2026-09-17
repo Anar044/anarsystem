@@ -11,6 +11,7 @@ public sealed class SyncWorker : BackgroundService
     private readonly ILogger<SyncWorker> _logger;
     private readonly Dictionary<string, int> _failures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _nextAttempt = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTimeOffset> _nextHeartbeat = new(StringComparer.OrdinalIgnoreCase);
     private DateTimeOffset _nextPrune = DateTimeOffset.MinValue;
 
     public SyncWorker(ConnectorConfig config, EventQueue queue, SmartHorecaClient client, ILogger<SyncWorker> logger)
@@ -30,6 +31,14 @@ public sealed class SyncWorker : BackgroundService
         {
             foreach (var device in devices)
             {
+                if (!_nextHeartbeat.TryGetValue(device.Key, out var heartbeatAt) || heartbeatAt <= DateTimeOffset.UtcNow)
+                {
+                    var heartbeat = await _client.HeartbeatAsync(device, stoppingToken);
+                    _nextHeartbeat[device.Key] = DateTimeOffset.UtcNow.AddSeconds(30);
+                    if (!heartbeat.Success)
+                        _logger.LogDebug("{Device}: heartbeat failed: {Error}", device.Name, heartbeat.Error);
+                }
+
                 if (_nextAttempt.TryGetValue(device.Key, out var next) && next > DateTimeOffset.UtcNow) continue;
                 var batch = await _queue.GetPendingAsync(device.Key, _config.Queue.BatchSize, stoppingToken);
                 if (batch.Count == 0) continue;
@@ -40,6 +49,7 @@ public sealed class SyncWorker : BackgroundService
                     await _queue.MarkSentAsync(batch.Select(x => x.QueueId), stoppingToken);
                     _failures.Remove(device.Key);
                     _nextAttempt.Remove(device.Key);
+                    _nextHeartbeat[device.Key] = DateTimeOffset.UtcNow.AddSeconds(30);
                     var remaining = await _queue.CountPendingAsync(stoppingToken);
                     _logger.LogInformation("{Device}: uploaded {Count} event(s) to SmartHoreca. Pending locally: {Pending}.", device.Name, batch.Count, remaining);
                 }
