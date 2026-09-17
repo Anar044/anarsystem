@@ -34,7 +34,7 @@
               <label>Serial Number<input id="deviceSerial" required placeholder="SN с экрана устройства"></label>
               <label>Название<input id="deviceName" required placeholder="Главный вход"></label>
               <label>Расположение<input id="deviceLocation" placeholder="Ресторан / вход"></label>
-              <label>Режим подключения<select id="deviceProtocol"><option value="PUSH_ADMS">Push / ADMS</option><option value="DIRECT_TCP">Direct TCP</option></select></label>
+              <label>Режим подключения<select id="deviceProtocol"><option value="PUSH_ADMS">Push / ADMS</option><option value="DIRECT_TCP" disabled>Direct TCP — после теста F18</option></select></label>
               <label>IP устройства<input id="deviceIp" placeholder="192.168.1.50"></label>
               <label>Порт устройства<input id="devicePort" type="number" min="1" max="65535" value="4370"></label>
               <label>Адрес ADMS / Connector<input id="deviceConnectorHost" placeholder="192.168.1.10 или публичный домен/IP"></label>
@@ -42,7 +42,7 @@
               <label>Часовой пояс<input id="deviceTimezone" value="Asia/Baku"></label>
               <div class="hr-form-action"><button class="hr-primary" type="submit">+ Добавить устройство</button></div>
             </form>
-            <div class="hr-muted" style="margin:10px 0 18px">Push / ADMS: терминал сам отправляет события на адрес ADMS/Connector; его собственный IP не используется для маршрутизации через интернет. Direct TCP: IP устройства должен быть доступен из сети connector-а, например через LAN или VPN.</div>
+            <div class="hr-muted" style="margin:10px 0 18px">Push / ADMS: терминал сам отправляет события на адрес ADMS/Connector; его собственный IP не используется для маршрутизации через интернет. Direct TCP потребует доступного IP устройства через LAN/VPN и будет включён после проверки реального F18.</div>
             <div id="deviceList" class="hr-device-list"></div>
             <div id="deviceTokenPanel" class="hr-token-panel" hidden>
               <div><span>Ключ устройства</span><strong id="deviceTokenTitle">Новый device token</strong><small>Показывается только сейчас. В базе Smart Horeca хранится только SHA-256 hash.</small></div>
