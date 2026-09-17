@@ -7,7 +7,7 @@ function clean(v){return String(v??'').trim()}
 async function auth(request,env){return await getUser(request,env)}
 function gatewayConfig(env){return{url:clean(env.ZK_GATEWAY_URL).replace(/\/$/,''),key:clean(env.ZK_GATEWAY_ADMIN_KEY)}}
 async function ownedDevice(env,userId,deviceId){
-  return env.DB.prepare(`SELECT d.device_id,d.name,d.location,d.timezone,m.model,m.serial_number,m.protocol_mode,m.device_ip,m.device_port,m.gateway_host,m.gateway_port
+  return env.DB.prepare(`SELECT d.device_id,d.name,d.location,d.timezone,m.model,m.serial_number,m.protocol_mode,m.device_ip,m.device_port,m.connector_host,m.connector_port
     FROM hr_devices d LEFT JOIN hr_zkteco_device_meta m ON m.user_id=d.user_id AND m.device_id=d.device_id
     WHERE d.user_id=?1 AND d.device_id=?2 LIMIT 1`).bind(userId,deviceId).first();
 }
@@ -30,7 +30,7 @@ export async function onRequestPost({request,env}){
     const serial=clean(d.serial_number);if(!serial)return json({success:false,message:'У устройства не указан Serial Number'},400);
     if(action==='register'){
       const deviceToken=clean(b.deviceToken);if(!deviceToken)return json({success:false,message:'Не указан новый device token'},400);
-      const result=await callGateway(env,'/admin/devices',{serialNumber:serial,deviceToken,deviceId:d.device_id,tenantId:a.user.id,name:d.name||'',location:d.location||'',model:d.model||'',protocolMode:d.protocol_mode||'PUSH_ADMS',deviceIp:d.device_ip||'',devicePort:Number(d.device_port||4370),enabled:true});
+      const result=await callGateway(env,'/admin/devices',{serialNumber:serial,deviceToken,deviceId:d.device_id,tenantId:a.user.id,name:d.name||'',location:d.location||'',model:d.model||'',protocolMode:d.protocol_mode||'PUSH_ADMS',deviceIp:d.device_ip||'',devicePort:Number(d.device_port||4370),gatewayHost:d.connector_host||'',gatewayPort:Number(d.connector_port||80),enabled:true});
       return json({success:true,registered:true,serialNumber:serial,gateway:result.device||null});
     }
     if(action==='revoke'){
