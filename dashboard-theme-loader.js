@@ -7,7 +7,7 @@
     const brand=document.querySelector('.sidebar .unified-brand');
     if(!brand||brand.dataset.sketchBrand==='1')return;
     brand.dataset.sketchBrand='1';
-    brand.innerHTML='<div class="sketch-brand-logo" aria-label="SmartHoreca"></div>';
+    brand.innerHTML='<div class="sketch-brand-mark" aria-label="SmartHoreca"></div><div class="sketch-brand-copy"><strong>Smart<span>Horeca</span></strong><small>Управляй рестораном легко</small></div>';
   }
 
   function installThemeToggle(){
@@ -41,8 +41,12 @@
 
       /* dark branded sidebar */
       html[data-theme="light"] body.dashboard-page .sidebar{background:radial-gradient(circle at 100% 15%,rgba(0,223,244,.09),transparent 28%),linear-gradient(180deg,var(--sk-side) 0%,#061b2d 55%,#041522 100%)!important;border-right:1px solid #10364a!important;box-shadow:14px 0 36px rgba(5,31,48,.08)!important;padding:18px 14px 16px!important}
-      html[data-theme="light"] body.dashboard-page .sidebar .unified-brand{padding:2px 4px 22px!important;height:auto!important;display:block!important}
-      .sketch-brand-logo{width:100%!important;height:92px!important;background:url('/smart-horeca-brand.svg?v=3') left center/contain no-repeat!important;filter:drop-shadow(0 7px 16px rgba(0,223,244,.08))}
+      html[data-theme="light"] body.dashboard-page .sidebar .unified-brand{padding:2px 5px 22px!important;height:auto!important;display:grid!important;grid-template-columns:62px minmax(0,1fr)!important;gap:11px!important;align-items:center!important}
+      .sketch-brand-mark{width:62px!important;height:62px!important;border-radius:17px!important;background:#071724 url('/smart-horeca-user-logo.svg?v=1') center/cover no-repeat!important;box-shadow:0 8px 26px rgba(0,223,244,.16)!important;overflow:hidden!important}
+      .sketch-brand-copy{min-width:0!important;display:flex!important;flex-direction:column!important;justify-content:center!important;line-height:1!important}
+      .sketch-brand-copy strong{display:block!important;color:#f7fbff!important;font-size:17px!important;font-weight:800!important;letter-spacing:-.35px!important;white-space:nowrap!important}
+      .sketch-brand-copy strong span{color:#20e4bc!important;margin-left:2px!important}
+      .sketch-brand-copy small{display:block!important;margin-top:6px!important;color:#9cb0c0!important;font-size:8.5px!important;font-weight:600!important;line-height:1.25!important;white-space:normal!important}
       html[data-theme="light"] body.dashboard-page .sidebar .nav-title{color:#7692a7!important;font-size:10px!important;font-weight:800!important;letter-spacing:.14em!important;margin:2px 10px 9px!important}
       html[data-theme="light"] body.dashboard-page .sidebar .side-nav>a,
       html[data-theme="light"] body.dashboard-page .sidebar .documents-nav-toggle{color:#c3d2df!important;background:transparent!important;border:1px solid transparent!important;border-radius:12px!important;min-height:44px!important;margin:2px 0!important;font-weight:620!important}
@@ -61,7 +65,11 @@
       html[data-theme="light"] body.dashboard-page .topbar{height:78px!important;background:rgba(255,255,255,.98)!important;border-bottom:1px solid #e1eaf1!important;box-shadow:0 4px 20px rgba(31,59,83,.045)!important;color:var(--sk-text)!important;padding:0 30px!important}
       html[data-theme="light"] body.dashboard-page .topbar .title{font-size:18px!important;font-weight:850!important;color:#0e2541!important}
       html[data-theme="light"] body.dashboard-page .topbar .crumb{color:#6c8198!important}
-      html[data-theme="light"] body.dashboard-page .topbar .avatar{background:#0b352d!important;border-color:#d8e5e8!important;color:#fff!important}
+      html[data-theme="light"] body.dashboard-page .topbar .topbar-spacer{flex:1 1 auto!important}
+      html[data-theme="light"] body.dashboard-page .topbar .avatar{background:#0b352d!important;border-color:#d8e5e8!important;color:#fff!important;margin-left:10px!important}
+      html[data-theme="light"] body.dashboard-page .dashboard-user-meta{display:flex!important;flex-direction:column!important;min-width:0!important;margin-left:8px!important;line-height:1.15!important}
+      html[data-theme="light"] body.dashboard-page .dashboard-user-meta strong{color:#102942!important;font-size:12px!important;font-weight:800!important;max-width:190px!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+      html[data-theme="light"] body.dashboard-page .dashboard-user-meta span{color:#71859b!important;font-size:9.5px!important;max-width:190px!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;margin-top:3px!important}
       html[data-theme="light"] body.dashboard-page .asset-notify-btn{background:#fff!important;border-color:#dbe6ed!important;color:#3d5d73!important}
 
       /* page hero */
