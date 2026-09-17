@@ -4,21 +4,19 @@
   const root=document.documentElement;
   const LOGO='/assets/brand/smarthoreca-logo-sidebar.jpg?v=20260917-3';
   let applying=false;
-  let observer=null;
 
   function readTheme(){
     try{return localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){return 'light'}
   }
 
   function ensureStyle(){
-    let style=document.getElementById('sh-exact-brand-style');
-    if(style)return;
-    style=document.createElement('style');
+    if(document.getElementById('sh-exact-brand-style'))return;
+    const style=document.createElement('style');
     style.id='sh-exact-brand-style';
     style.textContent=`
-      .sidebar .unified-brand{display:grid!important;grid-template-columns:62px minmax(0,1fr)!important;column-gap:14px!important;row-gap:0!important;align-items:center!important;padding:2px 8px 23px!important;height:auto!important}
+      .sidebar .unified-brand{display:grid!important;grid-template-columns:62px minmax(0,1fr)!important;column-gap:22px!important;row-gap:0!important;align-items:center!important;padding:2px 8px 23px!important;height:auto!important}
       .sidebar .sh-exact-brand-logo{display:block!important;width:62px!important;height:69px!important;object-fit:contain!important;object-position:center!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:transparent!important}
-      .sidebar .sh-exact-brand-copy{display:flex!important;flex-direction:column!important;align-items:flex-start!important;justify-content:center!important;min-width:0!important;margin:0 0 0 12px!important;padding:0!important;line-height:1!important}
+      .sidebar .sh-exact-brand-copy{display:flex!important;flex-direction:column!important;align-items:flex-start!important;justify-content:center!important;min-width:0!important;margin:0!important;padding:0!important;line-height:1!important}
       .sidebar .sh-exact-brand-copy strong{display:flex!important;align-items:baseline!important;margin:0!important;padding:0!important;white-space:nowrap!important;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif!important;font-size:20px!important;font-weight:850!important;letter-spacing:-.55px!important;line-height:1!important;text-shadow:0 1px 14px rgba(255,255,255,.05)!important}
       .sidebar .sh-exact-brand-copy .smart{color:#f7fbff!important}
       .sidebar .sh-exact-brand-copy .horeca{margin-left:2px!important;color:#37e9c2!important;background:linear-gradient(90deg,#1edcff 0%,#42efc5 48%,#7cffb4 100%)!important;-webkit-background-clip:text!important;background-clip:text!important;-webkit-text-fill-color:transparent!important;filter:drop-shadow(0 0 8px rgba(54,232,203,.18))!important}
@@ -93,7 +91,10 @@
     const btn=document.querySelector('.sidebar .sh-theme-toggle');
     if(!btn)return;
     const dark=root.dataset.theme==='dark';
-    btn.innerHTML=`<span class="theme-icon">${dark?'☀':'◐'}</span><span>${dark?'Светлая тема':'Тёмная тема'}</span><span class="theme-arrow">›</span>`;
+    const wanted=dark?'Светлая тема':'Тёмная тема';
+    const label=btn.querySelector('.theme-label');
+    if(label){label.textContent=wanted;return;}
+    btn.innerHTML=`<span class="theme-icon">${dark?'☀':'◐'}</span><span class="theme-label">${wanted}</span><span class="theme-arrow">›</span>`;
   }
 
   function setTheme(next){
@@ -133,18 +134,6 @@
     }finally{applying=false}
   }
 
-  function watchSidebar(){
-    const side=document.querySelector('.sidebar');
-    if(!side||observer)return;
-    observer=new MutationObserver(()=>{
-      if(applying)return;
-      const brand=side.querySelector('.unified-brand');
-      if(brand && !brandIsExact(brand))queueMicrotask(install);
-      else syncButton();
-    });
-    observer.observe(side,{subtree:true,childList:true});
-  }
-
   document.addEventListener('click',(event)=>{
     const btn=event.target.closest?.('.sidebar .sh-theme-toggle');
     if(!btn)return;
@@ -157,10 +146,9 @@
   function start(){
     root.dataset.theme=readTheme();
     install();
-    watchSidebar();
-    setTimeout(()=>{install();watchSidebar();},100);
-    setTimeout(()=>{install();watchSidebar();},500);
-    setTimeout(()=>{install();watchSidebar();},1200);
+    setTimeout(install,100);
+    setTimeout(install,500);
+    setTimeout(install,1200);
   }
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});
