@@ -3,6 +3,9 @@
     "host": "0.0.0.0",
     "port": 8088
   },
+  "admin": {
+    "key": "CHANGE_ME_OR_SET_ZK_GATEWAY_ADMIN_KEY"
+  },
   "smartHoreca": {
     "baseUrl": "https://smarthoreca.pages.dev",
     "ingestPath": "/api/hr/device-ingest",
@@ -16,17 +19,11 @@
   },
   "storage": {
     "queueFile": "./data/pending-events.jsonl",
-    "logFile": "./data/connector.log"
+    "logFile": "./data/gateway.log",
+    "registryFile": "./data/device-registry.json"
   },
-  "devices": {
-    "YOUR_DEVICE_SERIAL": {
-      "enabled": true,
-      "name": "Main entrance",
-      "model": "SenseFace 3A",
-      "mode": "PUSH_ADMS",
-      "deviceIp": "192.168.1.50",
-      "devicePort": 4370,
-      "deviceToken": "shd_REPLACE_WITH_TOKEN_FROM_SMARTHORECA"
-    }
-  }
+  "simulation": {
+    "enabled": false
+  },
+  "devices": {}
 }
