@@ -2,14 +2,18 @@ import http from 'node:http';
 import {config,DeviceRegistry} from './config.js';
 import {PersistentQueue} from './queue.js';
 import {buildInitialOptions,parseAttLog,parseRegistryPayload,queryMeta} from './adms.js';
-import {sendEvents} from './smarthoreca.js';
+import {sendEvents,sendHeartbeat} from './smarthoreca.js';
 
+const VERSION='0.2.0';
 const registry=new DeviceRegistry();
 const queue=new PersistentQueue(config.dataDir,config.maxQueueItems);
 const devices=new Map();
 let flushRunning=false;
+let heartbeatRunning=false;
 let lastFlushAt='';
 let lastFlushError='';
+let lastHeartbeatAt='';
+let lastHeartbeatError='';
 let totalForwarded=0;
 
 function stamp(){return new Date().toISOString();}
@@ -17,6 +21,10 @@ function log(level,...args){
   const order={debug:10,info:20,warn:30,error:40};
   if((order[level]??20)<(order[config.logLevel]??20))return;
   console.log(`[${stamp()}] [${level.toUpperCase()}]`,...args);
+}
+
+function normalizeIp(value=''){
+  return String(value||'').replace(/^::ffff:/,'');
 }
 
 function touch(serial,req,extra={}){
@@ -27,7 +35,7 @@ function touch(serial,req,extra={}){
     ...extra,
     serial,
     lastSeen:stamp(),
-    remoteAddress:req.socket?.remoteAddress||'',
+    remoteAddress:normalizeIp(req.socket?.remoteAddress||''),
     userAgent:req.headers['user-agent']||''
   });
 }
@@ -123,6 +131,69 @@ async function flushQueue(){
   }
 }
 
+function deviceHeartbeatPayload(serial){
+  const configured=registry.resolve(serial);
+  if(!configured?.token)return null;
+  const live=devices.get(serial)||{};
+  const options=live.registry||{};
+  const queueSize=queue.items.filter(x=>x.serial===serial).length;
+  return{
+    token:configured.token,
+    payload:{
+      connectorVersion:VERSION,
+      serial,
+      model:configured.model||options.DeviceName||options.DeviceType||'',
+      ipAddress:configured.ipAddress||options.IPAddress||live.remoteAddress||'',
+      port:Number(configured.port)||0,
+      protocol:configured.protocol||'ADMS_TA_PUSH',
+      queueSize,
+      terminalLastSeenAt:live.lastSeen||'',
+      firmware:options.FirmVer||options.FWVersion||'',
+      platform:options.Platform||'',
+      userAgent:live.userAgent||''
+    }
+  };
+}
+
+async function sendHeartbeats(){
+  if(heartbeatRunning)return;
+  heartbeatRunning=true;
+  try{
+    const serials=new Set([
+      ...registry.publicList().map(x=>x.serial),
+      ...devices.keys()
+    ].filter(Boolean));
+    if(!serials.size){
+      lastHeartbeatAt=stamp();
+      return;
+    }
+    let sent=0;
+    const errors=[];
+    for(const serial of serials){
+      const item=deviceHeartbeatPayload(serial);
+      if(!item)continue;
+      try{
+        await sendHeartbeat({
+          baseUrl:config.shBaseUrl,
+          heartbeatPath:config.shHeartbeatPath,
+          token:item.token,
+          payload:item.payload,
+          timeoutMs:config.httpTimeoutMs
+        });
+        sent++;
+      }catch(error){
+        errors.push(`${serial}: ${error?.message||String(error)}`);
+      }
+    }
+    lastHeartbeatAt=stamp();
+    lastHeartbeatError=errors.join('; ').slice(0,1000);
+    if(errors.length)log('warn','Heartbeat:',lastHeartbeatError);
+    else if(sent)log('debug',`Heartbeat sent for ${sent} device(s)`);
+  }finally{
+    heartbeatRunning=false;
+  }
+}
+
 function publicDevices(){
   return[...devices.values()].map(row=>({
     serial:row.serial,
@@ -158,6 +229,7 @@ async function handleCData(req,res,url){
     touch(meta.serial,req,{lastTable:'ATTLOG',lastUploadAt:stamp(),lastUploadCount:parsed.events.length,lastInvalidCount:parsed.invalid.length});
     log('info',`ATTLOG ${meta.serial||'(no SN)'}: received=${parsed.events.length}, queued=${queued.added}, duplicate=${queued.duplicates}, invalid=${parsed.invalid.length}`);
     void flushQueue();
+    void sendHeartbeats();
     writeText(res,200,'OK');
     return;
   }
@@ -174,7 +246,9 @@ async function handleRegistry(req,res,url){
   const meta=queryMeta(url);
   const body=req.method==='POST'?await readBody(req):'';
   const payload={...Object.fromEntries(url.searchParams.entries()),...parseRegistryPayload(body)};
-  touch(meta.serial||payload.SN||payload.sn,req,{registry:payload,lastTable:'REGISTRY'});
+  const serial=meta.serial||payload.SN||payload.sn;
+  touch(serial,req,{registry:payload,lastTable:'REGISTRY'});
+  void sendHeartbeats();
   writeText(res,200,'OK');
 }
 
@@ -182,27 +256,30 @@ async function handleRequest(req,res){
   try{
     const url=new URL(req.url||'/',`http://${req.headers.host||'localhost'}`);
     if(url.pathname==='/health'){
-      writeJson(res,200,{ok:true,service:'SmartHoreca ZKTeco Connector',version:'0.1.0',time:stamp(),queue:queue.stats(),devices:publicDevices().length});
+      writeJson(res,200,{ok:true,service:'SmartHoreca ZKTeco Connector',version:VERSION,time:stamp(),queue:queue.stats(),devices:publicDevices().length});
       return;
     }
     if(url.pathname==='/api/status'){
       writeJson(res,200,{
         ok:true,
-        version:'0.1.0',
+        version:VERSION,
         listen:{host:config.host,port:config.port},
-        smartHoreca:{baseUrl:config.shBaseUrl,ingestPath:config.shIngestPath},
+        smartHoreca:{baseUrl:config.shBaseUrl,ingestPath:config.shIngestPath,heartbeatPath:config.shHeartbeatPath},
         configuredDevices:registry.publicList(),
         discoveredDevices:publicDevices(),
         queue:queue.stats(),
         lastFlushAt,
         lastFlushError,
+        lastHeartbeatAt,
+        lastHeartbeatError,
         totalForwarded
       });
       return;
     }
     if(url.pathname==='/api/flush'&&req.method==='POST'){
       await flushQueue();
-      writeJson(res,200,{ok:true,queue:queue.stats(),lastFlushAt,lastFlushError,totalForwarded});
+      await sendHeartbeats();
+      writeJson(res,200,{ok:true,queue:queue.stats(),lastFlushAt,lastFlushError,lastHeartbeatAt,lastHeartbeatError,totalForwarded});
       return;
     }
     if(url.pathname==='/iclock/cdata'){
@@ -242,20 +319,26 @@ async function handleRequest(req,res){
 }
 
 const server=http.createServer((req,res)=>void handleRequest(req,res));
-const timer=setInterval(()=>void flushQueue(),config.flushIntervalMs);
-timer.unref();
+const flushTimer=setInterval(()=>void flushQueue(),config.flushIntervalMs);
+const heartbeatTimer=setInterval(()=>void sendHeartbeats(),config.heartbeatIntervalMs);
+flushTimer.unref();
+heartbeatTimer.unref();
 
 server.listen(config.port,config.host,()=>{
-  log('info',`SmartHoreca ZKTeco Connector 0.1.0 listening on http://${config.host}:${config.port}`);
+  log('info',`SmartHoreca ZKTeco Connector ${VERSION} listening on http://${config.host}:${config.port}`);
   log('info',`ADMS endpoint: http://<connector-ip>:${config.port}/iclock/cdata`);
-  log('info',`SmartHoreca target: ${config.shBaseUrl}${config.shIngestPath}`);
+  log('info',`SmartHoreca events: ${config.shBaseUrl}${config.shIngestPath}`);
+  log('info',`SmartHoreca heartbeat: ${config.shBaseUrl}${config.shHeartbeatPath}`);
   const q=queue.stats();
   if(q.queued)log('info',`Recovered ${q.queued} queued event(s) from disk`);
+  void flushQueue();
+  void sendHeartbeats();
 });
 
 function shutdown(signal){
   log('info',`${signal}: shutting down`);
-  clearInterval(timer);
+  clearInterval(flushTimer);
+  clearInterval(heartbeatTimer);
   server.close(()=>process.exit(0));
   setTimeout(()=>process.exit(1),5000).unref();
 }
