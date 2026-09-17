@@ -10,17 +10,19 @@
       link=document.createElement('link');
       link.id='dashboard-theme-css';
       link.rel='stylesheet';
-      link.href='/dashboard.css?v=20260917-9';
       document.head.appendChild(link);
     }
+    link.href='/dashboard.css?v=20260917-9';
+
     let brand=document.getElementById('sh-brand-theme');
     if(!brand){
       brand=document.createElement('link');
       brand.id='sh-brand-theme';
       brand.rel='stylesheet';
-      brand.href='/smart-horeca-theme.css?v=20260917-5';
       document.head.appendChild(brand);
     }
+    brand.href='/smart-horeca-theme.css?v=20260917-6';
+
     let s=document.getElementById('dashboard-shell-theme-fix');
     if(!s){
       s=document.createElement('style');
