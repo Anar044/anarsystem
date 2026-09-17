@@ -23,6 +23,9 @@
       "enabled": true,
       "name": "Main entrance",
       "model": "SenseFace 3A",
+      "mode": "PUSH_ADMS",
+      "deviceIp": "192.168.1.50",
+      "devicePort": 4370,
       "deviceToken": "shd_REPLACE_WITH_TOKEN_FROM_SMARTHORECA"
     }
   }
