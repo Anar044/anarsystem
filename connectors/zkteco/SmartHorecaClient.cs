@@ -7,6 +7,7 @@ namespace SmartHoreca.ZKTeco.Connector;
 
 public sealed class SmartHorecaClient
 {
+    private const string ConnectorVersion = "1.1.0";
     private readonly ConnectorConfig _config;
     private readonly HttpClient _http;
     private readonly ILogger<SmartHorecaClient> _logger;
@@ -18,11 +19,30 @@ public sealed class SmartHorecaClient
         _logger = logger;
     }
 
+    public async Task<SendResult> HeartbeatAsync(DeviceOptions device, CancellationToken ct)
+    {
+        var payload = new
+        {
+            heartbeat = true,
+            connectorVersion = ConnectorVersion,
+            device = new
+            {
+                key = device.Key,
+                name = device.Name,
+                model = device.Model,
+                adapter = device.Adapter,
+                ipAddress = device.IpAddress,
+                port = device.Port,
+                serialNumber = device.SerialNumber
+            }
+        };
+        return await PostAsync(device, payload, ct, expectEventCounts: false);
+    }
+
     public async Task<SendResult> SendAsync(DeviceOptions device, IReadOnlyCollection<QueuedAttendanceEvent> batch, CancellationToken ct)
     {
         if (batch.Count == 0) return new SendResult(true, "");
 
-        var endpoint = new Uri(new Uri(_config.Server.BaseUrl.TrimEnd('/') + "/"), _config.Server.IngestPath.TrimStart('/'));
         var payload = new
         {
             events = batch.Select(x => new
@@ -35,13 +55,19 @@ public sealed class SmartHorecaClient
                 deviceModel = device.Model,
                 deviceKey = device.Key,
                 connector = "SmartHoreca.ZKTeco.Connector",
+                connectorVersion = ConnectorVersion,
                 rawDevicePayload = x.RawJson
             })
         };
+        return await PostAsync(device, payload, ct, expectEventCounts: true, fallbackReceived: batch.Count);
+    }
 
+    private async Task<SendResult> PostAsync(DeviceOptions device, object payload, CancellationToken ct, bool expectEventCounts, int fallbackReceived = 0)
+    {
+        var endpoint = new Uri(new Uri(_config.Server.BaseUrl.TrimEnd('/') + "/"), _config.Server.IngestPath.TrimStart('/'));
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", device.DeviceToken);
-        request.Headers.TryAddWithoutValidation("X-SH-Connector-Version", "1.0.0");
+        request.Headers.TryAddWithoutValidation("X-SH-Connector-Version", ConnectorVersion);
         request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
 
         try
@@ -54,10 +80,11 @@ public sealed class SmartHorecaClient
             using var json = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text);
             var root = json.RootElement;
             var success = root.TryGetProperty("success", out var successNode) && successNode.ValueKind == JsonValueKind.True;
-            var invalid = root.TryGetProperty("invalid", out var invalidNode) && invalidNode.TryGetInt32(out var i) ? i : 0;
-            var received = root.TryGetProperty("received", out var receivedNode) && receivedNode.TryGetInt32(out var r) ? r : batch.Count;
+            if (!success) return new SendResult(false, $"Server rejected the request: {text}");
+            if (!expectEventCounts) return new SendResult(true, "");
 
-            if (!success) return new SendResult(false, $"Server rejected the batch: {text}", received, invalid);
+            var invalid = root.TryGetProperty("invalid", out var invalidNode) && invalidNode.TryGetInt32(out var i) ? i : 0;
+            var received = root.TryGetProperty("received", out var receivedNode) && receivedNode.TryGetInt32(out var r) ? r : fallbackReceived;
             if (invalid > 0) return new SendResult(false, $"Server marked {invalid} event(s) invalid: {text}", received, invalid);
             return new SendResult(true, "", received, invalid);
         }
@@ -67,7 +94,7 @@ public sealed class SmartHorecaClient
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "SmartHoreca ingest request failed for {DeviceKey}", device.Key);
+            _logger.LogDebug(ex, "SmartHoreca request failed for {DeviceKey}", device.Key);
             return new SendResult(false, ex.Message);
         }
     }
