@@ -1,12 +1,13 @@
 {
-  "name": "smarthoreca-zkteco-connector",
-  "version": "0.1.0",
+  "name": "smarthoreca-zkteco-gateway",
+  "version": "1.0.0",
   "private": true,
-  "description": "Local ZKTeco Push/ADMS connector for SmartHoreca attendance",
+  "description": "Central ZKTeco Push/ADMS gateway for SmartHoreca attendance",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
-    "check": "node --check src/index.js"
+    "start": "node src/gateway.js",
+    "start:local": "node src/index.js",
+    "check": "node --check src/gateway.js && node --check src/index.js"
   },
   "engines": {
     "node": ">=20"
