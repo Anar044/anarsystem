@@ -1,18 +1,52 @@
 (()=>{
   'use strict';
-  const LOGO='data:image/jpeg;base64,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';
-  const apply=()=>{
+  const SRC='/assets/brand/smarthoreca-logo-original.jpg?v=20260917-2';
+
+  function apply(){
     const mark=document.querySelector('.sketch-brand-mark');
     if(!mark)return false;
-    mark.style.setProperty('background-color','#071724','important');
-    mark.style.setProperty('background-image',`url("${LOGO}")`,'important');
-    mark.style.setProperty('background-position','center','important');
-    mark.style.setProperty('background-size','contain','important');
-    mark.style.setProperty('background-repeat','no-repeat','important');
+
+    mark.style.setProperty('background','transparent','important');
+    mark.style.setProperty('width','62px','important');
+    mark.style.setProperty('height','70px','important');
+    mark.style.setProperty('border-radius','12px','important');
+    mark.style.setProperty('box-shadow','none','important');
+    mark.style.setProperty('overflow','hidden','important');
+    mark.style.setProperty('display','flex','important');
+    mark.style.setProperty('align-items','center','important');
+    mark.style.setProperty('justify-content','center','important');
+
+    let img=mark.querySelector('img[data-exact-smarthoreca-logo]');
+    if(!img){
+      mark.replaceChildren();
+      img=document.createElement('img');
+      img.setAttribute('data-exact-smarthoreca-logo','1');
+      img.alt='Smart Horeca';
+      mark.appendChild(img);
+    }
+
+    img.src=SRC;
+    img.style.width='100%';
+    img.style.height='100%';
+    img.style.objectFit='contain';
+    img.style.objectPosition='center';
+    img.style.display='block';
+    img.style.border='0';
+    img.style.borderRadius='10px';
+    img.style.background='transparent';
     return true;
-  };
-  apply();
-  document.addEventListener('DOMContentLoaded',apply,{once:true});
-  setTimeout(apply,120);
-  setTimeout(apply,500);
+  }
+
+  function boot(){
+    if(apply())return;
+    let tries=0;
+    const timer=setInterval(()=>{
+      tries+=1;
+      if(apply()||tries>30)clearInterval(timer);
+    },100);
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});
+  else boot();
+  setTimeout(apply,700);
 })();
