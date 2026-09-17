@@ -28,6 +28,7 @@ export const config={
   host:process.env.BIND_HOST||'0.0.0.0',
   shBaseUrl:(process.env.SH_BASE_URL||'https://smarthoreca.pages.dev').replace(/\/$/,''),
   shIngestPath:process.env.SH_INGEST_PATH||'/api/hr/device-ingest',
+  shHeartbeatPath:process.env.SH_HEARTBEAT_PATH||'/api/hr/device-heartbeat',
   fallbackToken:(process.env.SH_DEVICE_TOKEN||'').trim(),
   utcOffsetMinutes:num('DEVICE_UTC_OFFSET_MINUTES',240,-720,840),
   admsTimezone:num('ADMS_TIMEZONE',4,-12,14),
@@ -35,6 +36,7 @@ export const config={
   devicesFile:path.resolve(cwd,process.env.DEVICES_FILE||'./devices.json'),
   flushIntervalMs:num('FLUSH_INTERVAL_MS',3000,500,60000),
   flushBatchSize:num('FLUSH_BATCH_SIZE',300,1,2000),
+  heartbeatIntervalMs:num('HEARTBEAT_INTERVAL_MS',30000,5000,300000),
   httpTimeoutMs:num('HTTP_TIMEOUT_MS',10000,1000,120000),
   maxQueueItems:num('MAX_QUEUE_ITEMS',50000,1000,500000),
   logLevel:(process.env.LOG_LEVEL||'info').toLowerCase()
@@ -56,7 +58,7 @@ export class DeviceRegistry{
       const rows=Array.isArray(json?.devices)?json.devices:[];
       this.devices=new Map(rows.filter(x=>String(x?.serial||'').trim()).map(x=>{
         const serial=String(x.serial).trim();
-        return[serial,{serial,name:String(x.name||serial),model:String(x.model||''),token:String(x.token||'').trim()}];
+        return[serial,{serial,name:String(x.name||serial),model:String(x.model||''),token:String(x.token||'').trim(),ipAddress:String(x.ipAddress||''),port:Number(x.port)||0,protocol:String(x.protocol||'ADMS_TA_PUSH')}];
       }));
       this.mtimeMs=stat.mtimeMs;
     }catch(error){
@@ -68,7 +70,7 @@ export class DeviceRegistry{
     this.reload(false);
     const row=this.devices.get(String(serial||'').trim());
     if(row)return row;
-    if(this.fallbackToken)return{serial:String(serial||''),name:String(serial||''),model:'',token:this.fallbackToken,fallback:true};
+    if(this.fallbackToken)return{serial:String(serial||''),name:String(serial||''),model:'',token:this.fallbackToken,ipAddress:'',port:0,protocol:'ADMS_TA_PUSH',fallback:true};
     return null;
   }
   publicList(){
