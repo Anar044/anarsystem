@@ -14,9 +14,8 @@
 <header class="topbar">
   <div class="topbar-title-group"><div class="title">Dashboard</div><div class="crumb">Smart Horeca Control / <span>Обзор ресторана</span></div></div>
   <div class="topbar-spacer"></div>
-  <label class="dashboard-search"><span>⌕</span><input type="search" placeholder="Поиск по отчётам, товарам, сотрудникам..." aria-label="Поиск"></label>
   <button class="avatar" data-auth-logout title="Выйти"><span data-auth-avatar>A</span></button>
-  <div class="dashboard-user-meta"><strong>Администратор</strong><span>Ресторан</span></div>
+  <div class="dashboard-user-meta"><strong data-auth-name>Пользователь</strong><span data-auth-email></span></div>
 </header>
 <section class="content">
 <div class="pagehead"><div><h1>Обзор ресторана</h1><p>Данные напрямую из SH OLAP, без кассового плагина.</p></div><div class="period-picker" aria-label="Выбор периода"><div class="period-range"><input id="periodFrom" type="date" aria-label="Дата от"><span>—</span><input id="periodTo" type="date" aria-label="Дата по"><button id="applyPeriod" type="button">↻ Обновить</button></div></div></div>
@@ -32,7 +31,7 @@
 <script src="iiko-context.js?v=20260911-4"></script>
 <script src="app-shell.js"></script>
 <script src="smart-horeca-theme-loader.js?v=20260917-5"></script>
-<script src="dashboard-theme-loader.js?v=20260917-4"></script>
+<script src="dashboard-theme-loader.js?v=20260917-5"></script>
 <script src="mobile-responsive.js?v=1"></script>
 <script src="dashboard-optimized.js?v=20260917-9"></script>
 <script src="dashboard-assets.js?v=20260915-1"></script>
