@@ -1,40 +1,75 @@
 (()=>{
   'use strict';
 
-  function removeSidebarLogo(){
+  const SRC='/assets/brand/smarthoreca-logo-user-exact.jpeg?v=20260917-1';
+
+  function installExactSidebarLogo(){
     const brand=document.querySelector('.sidebar .unified-brand');
     if(!brand)return false;
 
-    brand.dataset.sketchBrand='1';
-    brand.innerHTML='<div class="sketch-brand-copy"><strong>Smart<span>Horeca</span></strong><small>Управляй рестораном легко</small></div>';
-    brand.style.setProperty('display','block','important');
-    brand.style.setProperty('grid-template-columns','1fr','important');
-    brand.style.setProperty('padding','8px 10px 22px','important');
+    const current=brand.querySelector('img.sh-user-exact-logo');
+    if(current && current.getAttribute('src')===SRC)return true;
 
-    let style=document.getElementById('dashboard-no-logo-style');
+    brand.dataset.sketchBrand='1';
+    brand.innerHTML=`
+      <img class="sh-user-exact-logo" src="${SRC}" alt="Smart Horeca">
+      <div class="sketch-brand-copy">
+        <strong>Smart<span>Horeca</span></strong>
+        <small>Управляй рестораном легко</small>
+      </div>`;
+
+    let style=document.getElementById('dashboard-exact-logo-style');
     if(!style){
       style=document.createElement('style');
-      style.id='dashboard-no-logo-style';
+      style.id='dashboard-exact-logo-style';
       document.head.appendChild(style);
     }
     style.textContent=`
-      body.dashboard-page .sidebar .unified-brand .sketch-brand-mark,
-      body.dashboard-page .sidebar .unified-brand img,
-      body.dashboard-page .sidebar .unified-brand svg,
-      body.dashboard-page .sidebar .unified-brand .brand-logo,
-      body.dashboard-page .sidebar .unified-brand [class*="logo"]{display:none!important;background:none!important;background-image:none!important}
-      body.dashboard-page .sidebar .unified-brand{display:block!important;grid-template-columns:1fr!important;padding:8px 10px 22px!important;height:auto!important}
-      body.dashboard-page .sidebar .unified-brand .sketch-brand-copy{display:flex!important;flex-direction:column!important;align-items:flex-start!important;justify-content:center!important;margin:0!important;padding:0!important}
+      body.dashboard-page .sidebar .unified-brand{
+        display:grid!important;
+        grid-template-columns:62px minmax(0,1fr)!important;
+        gap:11px!important;
+        align-items:center!important;
+        padding:2px 5px 22px!important;
+        height:auto!important;
+      }
+      body.dashboard-page .sidebar .unified-brand .sh-user-exact-logo{
+        display:block!important;
+        width:62px!important;
+        height:68px!important;
+        object-fit:contain!important;
+        object-position:center!important;
+        margin:0!important;
+        padding:0!important;
+        border:0!important;
+        border-radius:0!important;
+        box-shadow:none!important;
+        background:transparent!important;
+      }
+      body.dashboard-page .sidebar .unified-brand .sketch-brand-copy{
+        display:flex!important;
+        flex-direction:column!important;
+        align-items:flex-start!important;
+        justify-content:center!important;
+        min-width:0!important;
+        margin:0!important;
+        padding:0!important;
+      }
     `;
     return true;
   }
 
-  removeSidebarLogo();
-  document.addEventListener('DOMContentLoaded',removeSidebarLogo,{once:true});
-  setTimeout(removeSidebarLogo,100);
-  setTimeout(removeSidebarLogo,500);
-  setTimeout(removeSidebarLogo,1200);
+  installExactSidebarLogo();
+  document.addEventListener('DOMContentLoaded',installExactSidebarLogo,{once:true});
+  setTimeout(installExactSidebarLogo,100);
+  setTimeout(installExactSidebarLogo,500);
+  setTimeout(installExactSidebarLogo,1200);
 
-  const observer=new MutationObserver(()=>removeSidebarLogo());
-  observer.observe(document.documentElement,{subtree:true,childList:true});
+  const sidebar=document.querySelector('.sidebar');
+  if(sidebar){
+    new MutationObserver(()=>{
+      const brand=sidebar.querySelector('.unified-brand');
+      if(brand && !brand.querySelector('img.sh-user-exact-logo'))installExactSidebarLogo();
+    }).observe(sidebar,{subtree:true,childList:true});
+  }
 })();
