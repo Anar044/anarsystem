@@ -14,9 +14,9 @@
     const style=document.createElement('style');
     style.id='sh-exact-brand-style';
     style.textContent=`
-      .sidebar .unified-brand{display:grid!important;grid-template-columns:62px minmax(0,1fr)!important;column-gap:22px!important;row-gap:0!important;align-items:center!important;padding:2px 8px 23px!important;height:auto!important}
+      .sidebar .unified-brand{display:grid!important;grid-template-columns:62px minmax(0,1fr)!important;column-gap:14px!important;row-gap:0!important;align-items:center!important;padding:2px 8px 23px!important;height:auto!important}
       .sidebar .sh-exact-brand-logo{display:block!important;width:62px!important;height:69px!important;object-fit:contain!important;object-position:center!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:transparent!important}
-      .sidebar .sh-exact-brand-copy{display:flex!important;flex-direction:column!important;align-items:flex-start!important;justify-content:center!important;min-width:0!important;margin:0!important;padding:0!important;line-height:1!important}
+      html body[data-protected="true"] .sidebar .unified-brand .sh-exact-brand-copy{display:flex!important;flex-direction:column!important;align-items:flex-start!important;justify-content:center!important;min-width:0!important;margin:0!important;padding:0!important;line-height:1!important;position:relative!important;left:14px!important;transform:translateX(0)!important}
       .sidebar .sh-exact-brand-copy strong{display:flex!important;align-items:baseline!important;margin:0!important;padding:0!important;white-space:nowrap!important;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif!important;font-size:20px!important;font-weight:850!important;letter-spacing:-.55px!important;line-height:1!important;text-shadow:0 1px 14px rgba(255,255,255,.05)!important}
       .sidebar .sh-exact-brand-copy .smart{color:#f7fbff!important}
       .sidebar .sh-exact-brand-copy .horeca{margin-left:2px!important;color:#37e9c2!important;background:linear-gradient(90deg,#1edcff 0%,#42efc5 48%,#7cffb4 100%)!important;-webkit-background-clip:text!important;background-clip:text!important;-webkit-text-fill-color:transparent!important;filter:drop-shadow(0 0 8px rgba(54,232,203,.18))!important}
