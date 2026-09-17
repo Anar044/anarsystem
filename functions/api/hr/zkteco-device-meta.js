@@ -7,7 +7,7 @@ function now(){return new Date().toISOString()}
 
 async function ensure(db){
   if(!db)throw new Error('D1 binding DB не настроен.');
-  await db.exec(`CREATE TABLE IF NOT EXISTS hr_zkteco_device_meta (
+  await db.prepare(`CREATE TABLE IF NOT EXISTS hr_zkteco_device_meta (
     user_id TEXT NOT NULL,
     device_id TEXT NOT NULL,
     model TEXT NOT NULL DEFAULT '',
@@ -17,8 +17,8 @@ async function ensure(db){
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     PRIMARY KEY(user_id,device_id)
-  )`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_hr_zkteco_meta_serial ON hr_zkteco_device_meta(user_id,serial_number)`);
+  )`).run();
+  await db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_zkteco_meta_serial ON hr_zkteco_device_meta(user_id,serial_number)`).run();
 }
 
 async function auth(request,env){const a=await getUser(request,env);if(!a)return null;await ensure(env.DB);return a}
