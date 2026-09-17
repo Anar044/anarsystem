@@ -1,0 +1,48 @@
+name: ZKTeco Connector Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - zkteco-local-connector
+    paths:
+      - 'connectors/zkteco/**'
+      - '.github/workflows/zkteco-connector-build.yml'
+  pull_request:
+    paths:
+      - 'connectors/zkteco/**'
+      - '.github/workflows/zkteco-connector-build.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        runtime: [win-x64, win-x86]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore connectors/zkteco/SmartHoreca.ZKTeco.Connector.csproj
+
+      - name: Publish single-file EXE
+        run: dotnet publish connectors/zkteco/SmartHoreca.ZKTeco.Connector.csproj -c Release -r ${{ matrix.runtime }} --self-contained true -o artifacts/${{ matrix.runtime }}
+
+      - name: Copy setup files
+        shell: pwsh
+        run: |
+          Copy-Item connectors/zkteco/connector.example.json artifacts/${{ matrix.runtime }}/connector.example.json
+          Copy-Item connectors/zkteco/README.md artifacts/${{ matrix.runtime }}/README.md
+          Copy-Item connectors/zkteco/scripts/install-service.ps1 artifacts/${{ matrix.runtime }}/install-service.ps1
+          Copy-Item connectors/zkteco/scripts/uninstall-service.ps1 artifacts/${{ matrix.runtime }}/uninstall-service.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SmartHoreca-ZKTeco-Connector-${{ matrix.runtime }}
+          path: artifacts/${{ matrix.runtime }}/
+          if-no-files-found: error
