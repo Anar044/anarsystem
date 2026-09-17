@@ -11,23 +11,29 @@
   function deviceName(id){return (data.devices||[]).find(x=>x.id===id)?.name||id||'—'}
   function localDate(v){if(!v)return'';try{return new Date(v).toLocaleString('ru-RU')}catch{return String(v)}}
 
-  function renderSummary(){const c=data.counts||{};$('tcSummary').innerHTML=`
-    <article class="hr-summary-card"><span>Устройства</span><strong>${Number(c.devices||0)}</strong><small>Активные источники отметок</small></article>
+  function renderSummary(){const c=data.counts||{};const devices=Number(c.devices||0),online=Number(c.connectorsOnline||0);$('tcSummary').innerHTML=`
+    <article class="hr-summary-card"><span>Устройства</span><strong>${devices}</strong><small>Активные источники отметок</small></article>
     <article class="hr-summary-card"><span>Сотрудники</span><strong>${Number(c.employees||0)}</strong><small>Из кадрового справочника SH</small></article>
     <article class="hr-summary-card"><span>Связано с Face ID</span><strong>${Number(c.bindings||0)}</strong><small>Сопоставления employee ID</small></article>
-    <article class="hr-summary-card"><span>Ключи connector</span><strong>${Number(c.deviceTokens||0)}</strong><small>${Number(c.unmatchedEvents||0)} неопознанных событий</small></article>`}
+    <article class="hr-summary-card"><span>Connector online</span><strong>${online}/${devices}</strong><small>${Number(c.deviceTokens||0)} ключей · ${Number(c.unmatchedEvents||0)} неопознанных событий</small></article>`}
 
   function renderDevices(){
     const box=$('deviceList'),list=data.devices||[];
-    box.innerHTML=list.length?list.map(d=>`<article class="hr-device-card">
-      <div><span>${esc(d.provider)}</span><strong>${esc(d.name)}</strong><small>${esc(d.location||'Место не указано')} · ${esc(d.timezone||'Asia/Baku')}</small></div>
+    box.innerHTML=list.length?list.map(d=>{
+      const deviceLine=[d.model,d.serialNumber?`SN ${d.serialNumber}`:''].filter(Boolean).join(' · ');
+      const network=[d.ipAddress,d.port?`:${d.port}`:'',d.protocol].filter(Boolean).join(' ');
+      return `<article class="hr-device-card">
+      <div><span>${esc(d.provider)}${d.model?' · '+esc(d.model):''}</span><strong>${esc(d.name)}</strong><small>${esc(d.location||'Место не указано')} · ${esc(d.timezone||'Asia/Baku')}</small>${deviceLine?`<small>${esc(deviceLine)}</small>`:''}${network?`<small>${esc(network)}</small>`:''}</div>
       <div class="hr-device-meta">
-        <div class="hr-device-badges"><span class="hr-badge ${d.active?'active':'fired'}">${d.active?'Активно':'Отключено'}</span><span class="hr-badge ${d.tokenConfigured?'linked':'pending'}">${d.tokenConfigured?'Ключ настроен':'Нет ключа'}</span></div>
-        <small>${d.lastSyncAt?'Последняя синхронизация: '+esc(localDate(d.lastSyncAt)):'События ещё не загружались'}</small>
+        <div class="hr-device-badges"><span class="hr-badge ${d.active?'active':'fired'}">${d.active?'Активно':'Отключено'}</span><span class="hr-badge ${d.connectorOnline?'active':'pending'}">${d.connectorOnline?'Connector online':'Connector offline'}</span><span class="hr-badge ${d.tokenConfigured?'linked':'pending'}">${d.tokenConfigured?'Ключ настроен':'Нет ключа'}</span></div>
+        <small>${d.connectorLastSeenAt?'Connector: '+esc(localDate(d.connectorLastSeenAt)):'Connector ещё не подключался'}${d.connectorVersion?` · v${esc(d.connectorVersion)}`:''}</small>
+        ${d.terminalLastSeenAt?`<small>Терминал: ${esc(localDate(d.terminalLastSeenAt))}</small>`:''}
+        ${d.lastSyncAt?`<small>Последнее событие: ${esc(localDate(d.lastSyncAt))}</small>`:'<small>События ещё не загружались</small>'}
+        ${Number(d.queueSize)>0?`<small>Offline queue: ${Number(d.queueSize)} событий</small>`:''}
         ${d.tokenLastUsedAt?`<small>Ключ использован: ${esc(localDate(d.tokenLastUsedAt))}</small>`:''}
         <div class="hr-device-actions"><button type="button" class="hr-link-button" data-token-device="${esc(d.id)}">${d.tokenConfigured?'Перевыпустить ключ':'Создать ключ'}</button>${d.tokenConfigured?`<button type="button" class="hr-link-button danger" data-revoke-device="${esc(d.id)}">Отозвать</button>`:''}</div>
       </div>
-    </article>`).join(''):'<div class="hr-empty">Устройства пока не добавлены</div>';
+    </article>`}).join(''):'<div class="hr-empty">Устройства пока не добавлены</div>';
     box.querySelectorAll('[data-token-device]').forEach(btn=>btn.onclick=()=>rotateDeviceToken(btn.dataset.tokenDevice));
     box.querySelectorAll('[data-revoke-device]').forEach(btn=>btn.onclick=()=>revokeDeviceToken(btn.dataset.revokeDevice));
   }
