@@ -117,6 +117,20 @@
     }
   }
 
+  function hasUsefulRemoteState(state) {
+    if (!state || typeof state !== "object") return false;
+    if (state.horecaQrPublic) return true;
+    if (state.qrMenu && typeof state.qrMenu === "object") return true;
+    if (state.qr && typeof state.qr === "object" && Object.keys(state.qr).length) return true;
+    return Array.isArray(state.savedOlapReports) && state.savedOlapReports.length > 0;
+  }
+
+  function hydrationReloadKey(updatedAt) {
+    const user = window.SH_CURRENT_USER || {};
+    const userId = String(user.id || user.email || "local");
+    return `shAccountHydrated:${userId}:${updatedAt || "snapshot"}`;
+  }
+
   async function loadRemote() {
     const headers = await authHeaders();
     if (!headers) return;
@@ -124,11 +138,33 @@
     if (!response.ok) throw new Error(`Account state HTTP ${response.status}`);
     const data = await response.json();
     remoteFound = !!data.found;
+
     if (data.found && data.state && !initialLocalHadData) {
       await applyRemote(data.state);
-      setTimeout(() => location.reload(), 250);
+
+      // A page reload is only needed when cloud hydration actually supplied
+      // browser-managed QR/report data. Empty account snapshots must never
+      // cause a reload loop for a newly signed-in user.
+      if (hasUsefulRemoteState(data.state)) {
+        const key = hydrationReloadKey(data.updatedAt);
+        let alreadyHydrated = false;
+        try {
+          alreadyHydrated = sessionStorage.getItem(key) === "1";
+          if (!alreadyHydrated) sessionStorage.setItem(key, "1");
+        } catch (_) {}
+
+        if (!alreadyHydrated) {
+          setTimeout(() => location.reload(), 250);
+          return;
+        }
+      }
+
+      document.dispatchEvent(new CustomEvent("sh-account-state-applied", {
+        detail: { found: true, updatedAt: data.updatedAt || null }
+      }));
       return;
     }
+
     if (!data.found && initialLocalHadData) await saveRemote();
   }
 
