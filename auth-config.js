@@ -10,7 +10,7 @@ window.SH_AUTH_CONFIG = {
     if (!document.getElementById("sh-account-sync-script")) {
         const script = document.createElement("script");
         script.id = "sh-account-sync-script";
-        script.src = "account-sync.js?v=1";
+        script.src = "account-sync.js?v=20260918-1";
         document.head.appendChild(script);
     }
     if (!document.getElementById("sh-cash-shifts-nav-script")) {
