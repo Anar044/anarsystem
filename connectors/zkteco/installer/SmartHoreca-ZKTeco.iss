@@ -158,8 +158,8 @@ var
 begin
   ServiceExe := ExpandConstant('{app}\\SmartHoreca.ZKTeco.Connector.exe');
 
-  ; The installer path is fixed under ProgramData and contains no spaces,
-  ; which keeps the Windows service ImagePath simple and reliable.
+  // The installer path is fixed under ProgramData and contains no spaces,
+  // which keeps the Windows service ImagePath simple and reliable.
   Params :=
     'create ' + ServiceName +
     ' binPath= ' + ServiceExe +
