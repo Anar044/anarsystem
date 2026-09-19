@@ -5,7 +5,7 @@ namespace SmartHoreca.ZKTeco.Connector;
 
 public sealed class ConnectorStatusStore
 {
-    public const string ConnectorVersion = "1.2.0";
+    public const string ConnectorVersion = "1.3.0";
 
     private readonly object _gate = new();
     private readonly string _statusPath;
