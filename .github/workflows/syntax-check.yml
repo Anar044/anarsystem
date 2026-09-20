@@ -196,9 +196,15 @@ jobs:
     if: github.event_name == 'pull_request'
     needs: javascript
     runs-on: ubuntu-latest
-    env:
-      PREVIEW_BASE: https://${{ github.head_ref }}.smarthoreca.pages.dev
     steps:
+      - name: Resolve Cloudflare Pages preview URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="${GITHUB_HEAD_REF//\//-}"
+          echo "PREVIEW_BASE=https://${branch}.smarthoreca.pages.dev" >> "$GITHUB_ENV"
+          echo "Preview URL: https://${branch}.smarthoreca.pages.dev"
+
       - name: Wait for current Cloudflare Pages preview
         shell: bash
         run: |
@@ -234,6 +240,7 @@ jobs:
             "/qr-menu.html"
             "/assets.html"
             "/assets-plan/assets.html"
+            "/stock-balances.html"
             "/nakladnye.html"
             "/rashodnye-nakladnye.html"
             "/akty-spisaniya.html"
@@ -257,6 +264,7 @@ jobs:
             "/api/iiko/cash-shifts"
             "/api/iiko/cash-shift-detail"
             "/api/iiko/nomenclature"
+            "/api/iiko/stock-balances"
             "/api/iiko/qr-menu"
             "/api/iiko/qr-image"
             "/api/iiko/accounts"
