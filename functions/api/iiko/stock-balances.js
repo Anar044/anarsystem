@@ -28,13 +28,7 @@ function xmlBlocks(source,names){
   while((m=open.exec(text))){
     const fullName=m[1];
     if(!wanted.has(localName(fullName)))continue;
-    const escaped=fullName.replace(/[.*+?^$()|[\]\\]/g,"\\function escXml(s){return String(s??"").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&")}
-function xmlTag(block,names){for(const name of names){const m=String(block||"").match(new RegExp("<"+name+"(?:\\\\s[^>]*)?>([\\\\s\\\\S]*?)</"+name+">","i"));if(m)return escXml(m[1].trim())}return""}
-function xmlBlocks(source,names){const out=[];for(const name of names){const re=new RegExp("<"+name+"(?:\\\\s[^>]*)?>[\\\\s\\\\S]*?</"+name+">","gi");let m;while((m=re.exec(String(source||""))))out.push(m[0])}return out}
-function idOf(x){return key(x?.id??x?.uuid??x?.entityId??x?.productId??x?.storeId)}
-function nameOf(x){return clean(x?.name??x?.title??x?.description??x?.fullName)}
-function refId(v){if(v&&typeof v==="object")return key(v.id??v.uuid??v.entityId);return key(v)}
-function unitName(v){if(v&&typeof v==="object")return clean(v.name??v.shortName??v.code??v.id);return clean(v)}");
+    const escaped=fullName.replace(/[.*+?^$()|[\]\\]/g,"\\$&");
     const close=new RegExp("</"+escaped+">","ig");
     const tail=text.slice(open.lastIndex);
     const cm=close.exec(tail);
