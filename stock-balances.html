@@ -1,0 +1,37 @@
+<!doctype html><html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Smart Horeca — Остатки на складах</title><script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='light'?'light':'dark'}catch(e){document.documentElement.dataset.theme='dark'}})();</script><link rel="stylesheet" href="/app-shell.css?v=8"><link rel="stylesheet" href="/stock-balances.css?v=1"></head><body data-protected="true" style="background:#0b1017"><div class="app-shell"><aside class="sidebar"></aside><main class="main"><header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Остатки на складах</span><div class="topbar-sub">Склад · количество, себестоимость и контроль остатков</div></div><div class="top-actions"><span class="user-chip"><span class="user-avatar" data-auth-avatar>A</span><span data-auth-name>Пользователь</span></span><button class="icon-btn" data-auth-logout>Выйти</button></div></header><div class="app-content"><section class="stock-page">
+<section class="stock-hero"><div><div class="eyebrow">СКЛАДСКОЙ КОНТРОЛЬ</div><h1>Остатки на складах</h1><p>Фактический срез запасов iiko на выбранную дату: количество, стоимость и проблемные позиции.</p></div><div class="hero-actions"><span id="stock-status" class="status-pill">Готов к загрузке</span><button id="stock-export" class="btn secondary">Экспорт CSV</button><button id="stock-refresh" class="btn primary">↻ Обновить</button></div></section>
+
+<section class="stock-toolbar">
+<div class="field"><label>Дата</label><input id="stock-date" type="date"></div>
+<div class="field"><label>Склад</label><select id="stock-store"><option value="">Все склады</option></select></div>
+<div class="field"><label>Категория / группа</label><select id="stock-category"><option value="">Все категории</option></select></div>
+<div class="field search"><label>Поиск</label><input id="stock-search" placeholder="Название, артикул, код…"></div>
+</section>
+
+<section class="stock-kpis">
+<article class="kpi"><span>Стоимость запасов</span><strong id="kpi-value">0,00 ₼</strong><small>по текущему фильтру</small></article>
+<article class="kpi"><span>Позиций</span><strong id="kpi-positions">0</strong><small>товар × склад</small></article>
+<article class="kpi danger"><span>Отрицательный остаток</span><strong id="kpi-negative">0</strong><small>требует проверки</small></article>
+<article class="kpi warning"><span>Ниже минимума</span><strong id="kpi-low">0</strong><small id="kpi-low-note">если iiko отдаёт min</small></article>
+</section>
+
+<section class="stock-card">
+<div class="stock-card-head"><div><h2>Складские остатки</h2><p id="stock-source">Источник: /resto/api/v2/reports/balance/stores</p></div><div id="stock-result-meta" class="result-meta">—</div></div>
+<div id="stock-message" class="stock-message">Нажмите «Обновить», чтобы получить остатки.</div>
+<div class="quick-filters" id="stock-status-filters">
+<button data-status="all" class="active">Все <b id="count-all">0</b></button>
+<button data-status="positive">В наличии <b id="count-positive">0</b></button>
+<button data-status="zero">Нулевые <b id="count-zero">0</b></button>
+<button data-status="negative">Отрицательные <b id="count-negative">0</b></button>
+<button data-status="belowMin">Ниже min <b id="count-low">0</b></button>
+</div>
+<div class="table-wrap"><table id="stock-table"><thead><tr><th>Товар</th><th>Группа</th><th>Склад</th><th>Ед.</th><th class="num">Количество</th><th class="num">Себест./ед.</th><th class="num">Стоимость</th><th class="num">Min</th><th class="num">Max</th><th>Статус</th></tr></thead><tbody></tbody></table></div>
+<div id="stock-limit-note" class="limit-note"></div>
+</section>
+
+<section class="stock-note"><b>Важно:</b> iiko не возвращает строку для товара с нулевым остатком. SmartHoreca дополняет такие строки из активной номенклатуры для складов, которые присутствуют в реальном ответе. Отрицательные остатки показываются как есть и не исправляются автоматически.</section>
+</section></div></main></div>
+
+<div id="stock-modal" class="modal-backdrop" hidden><div class="stock-modal"><button id="stock-modal-close" class="modal-close">×</button><div class="eyebrow">КАРТОЧКА ОСТАТКА</div><h2 id="stock-modal-title">—</h2><div id="stock-modal-grid" class="modal-grid"></div><div class="modal-foot">Детальное движение товара добавим следующим этапом на базе складских операций iiko.</div></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/auth-config.js"></script><script src="/auth.js"></script><script src="/iiko-context.js?v=20260910-2"></script><script src="/app-shell.js"></script><script src="/smart-horeca-sidebar-brand.js?v=20260920-1"></script><script src="/mobile-responsive.js?v=1"></script><script src="/stock-balances.js?v=1"></script><script src="/documents-nav.js?v=8"></script></body></html>
