@@ -1,0 +1,43 @@
+<!doctype html><html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Smart Horeca — Фудкост и отклонения</title><script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='light'?'light':'dark'}catch(e){}})();</script><link rel="stylesheet" href="/app-shell.css?v=8"><link rel="stylesheet" href="/food-cost.css?v=1"></head><body data-protected="true"><div class="app-shell"><aside class="sidebar"></aside><main class="main"><header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Фудкост и отклонения</span><div class="topbar-sub">Theoretical vs Actual Food Cost</div></div><div class="top-actions"><span class="user-chip"><span class="user-avatar" data-auth-avatar>A</span><span data-auth-name>Пользователь</span></span><button class="icon-btn" data-auth-logout>Выйти</button></div></header><div class="app-content"><section class="fc-page">
+<section class="fc-hero"><div><div class="eyebrow">FOOD COST CONTROL</div><h1>Фудкост и отклонения</h1><p>Сравнение теоретического расхода по продажам и техкартам с фактическим расходом склада.</p></div><div class="hero-actions"><span id="fc-status" class="status-pill">Готов к расчёту</span><button id="fc-export" class="btn secondary">Экспорт CSV</button><button id="fc-refresh" class="btn primary">↻ Рассчитать</button></div></section>
+
+<section class="fc-toolbar">
+<div class="field"><label>С</label><input id="fc-from" type="date"></div>
+<div class="field"><label>По</label><input id="fc-to" type="date"></div>
+<div class="field"><label>Склад</label><select id="fc-store"><option value="">Все склады</option></select></div>
+<div class="field"><label>Группа / категория</label><select id="fc-category"><option value="">Все категории</option></select></div>
+<div class="field search"><label>Поиск ингредиента</label><input id="fc-search" placeholder="Название, артикул, код…"></div>
+</section>
+
+<section class="fc-kpis">
+<article class="kpi revenue"><span>Выручка</span><strong id="kpi-revenue">0,00 ₼</strong><small>SALES OLAP</small></article>
+<article class="kpi theory"><span>Теоретический Food Cost</span><strong id="kpi-theory">0,00 ₼</strong><small id="kpi-theory-pct">0,00%</small></article>
+<article class="kpi actual"><span>Фактический Food Cost</span><strong id="kpi-actual">0,00 ₼</strong><small id="kpi-actual-pct">0,00%</small></article>
+<article class="kpi variance"><span>Отклонение</span><strong id="kpi-variance">0,00 ₼</strong><small id="kpi-variance-pct">0,00%</small></article>
+</section>
+
+<section class="fc-explain">
+<article><span>Остаток на начало</span><strong id="ex-open">0,00 ₼</strong></article>
+<article><span>Приходы</span><strong id="ex-in">0,00 ₼</strong></article>
+<article><span>Остаток на конец</span><strong id="ex-close">0,00 ₼</strong></article>
+<article><span>Документированные списания</span><strong id="ex-writeoff">0,00 ₼</strong></article>
+<article><span>Необъяснённое отклонение</span><strong id="ex-unexplained">0,00 ₼</strong></article>
+<article><span>Покрытие техкарт</span><strong id="ex-coverage">0%</strong></article>
+</section>
+
+<section class="source-card"><div class="source-title">Источники</div><div id="fc-sources" class="source-chips">После расчёта появится статус источников iiko.</div></section>
+
+<section class="fc-card">
+<div class="fc-card-head"><div><h2>Отклонения по ингредиентам</h2><p id="fc-period">—</p></div><div id="fc-result-meta" class="result-meta">0 строк</div></div>
+<div id="fc-message" class="fc-message">Нажмите «Рассчитать».</div>
+<div class="quick-filters" id="fc-quick"><button data-q="all" class="active">Все <b id="count-all">0</b></button><button data-q="problem">Только отклонения <b id="count-problem">0</b></button><button data-q="positive">Перерасход <b id="count-positive">0</b></button><button data-q="negative">Экономия <b id="count-negative">0</b></button></div>
+<div class="table-wrap"><table id="fc-table"><thead><tr><th>Ингредиент</th><th>Группа</th><th>Ед.</th><th class="num">Теория</th><th class="num">Факт</th><th class="num">Отклонение</th><th class="num">Себест./ед.</th><th class="num">Теория ₼</th><th class="num">Факт ₼</th><th class="num">Отклонение ₼</th><th class="num">%</th><th>Статус</th></tr></thead><tbody></tbody></table></div>
+<div id="fc-limit-note" class="limit-note"></div>
+</section>
+
+<section class="fc-note"><b>Формула Actual:</b> остаток на начало + приходы − внешний расход ± внутренние перемещения − остаток на конец. Для всех складов внутренние перемещения взаимно исключаются. Теория строится по SALES OLAP и техкартам iiko; при наличии поля себестоимости итоговый Theoretical Food Cost берётся из SALES OLAP.</section>
+</section></div></main></div>
+
+<div id="fc-modal" class="modal-backdrop" hidden><div class="fc-modal"><button id="fc-modal-close" class="modal-close">×</button><div class="eyebrow">РАСЧЁТ ИНГРЕДИЕНТА</div><h2 id="fc-modal-title">—</h2><div id="fc-modal-grid" class="modal-grid"></div><div class="formula" id="fc-modal-formula"></div></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/auth-config.js"></script><script src="/auth.js"></script><script src="/iiko-context.js?v=20260910-2"></script><script src="/app-shell.js"></script><script src="/smart-horeca-sidebar-brand.js?v=20260920-1"></script><script src="/mobile-responsive.js?v=1"></script><script src="/food-cost.js?v=1"></script><script src="/documents-nav.js?v=8"></script></body></html>
