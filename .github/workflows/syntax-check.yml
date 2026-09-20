@@ -202,6 +202,7 @@ jobs:
         run: |
           set -euo pipefail
           branch="${GITHUB_HEAD_REF//\//-}"
+          branch="${branch:0:28}"
           echo "PREVIEW_BASE=https://${branch}.smarthoreca.pages.dev" >> "$GITHUB_ENV"
           echo "Preview URL: https://${branch}.smarthoreca.pages.dev"
 
