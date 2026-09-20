@@ -230,8 +230,7 @@ export async function onRequestPost({request}){
     const theoryQty=new Map();let soldQty=0,coveredQty=0,revenue=0,olapCost=0;
     for(const s of sales.rows){
       const q=Math.abs(s.quantity);soldQty+=q;revenue+=s.revenue;olapCost+=s.cost;
-      if(!s.dishId)continue;
-      const before=[...theoryQty.entries()].reduce((a,[,v])=>a+v,0);
+      if(!s.dishId||!chooseChart(meta.charts,s.dishId,s.date||from))continue;
       const ok=expandRecipe(meta.charts,s.dishId,q,s.date||from,theoryQty);
       if(ok)coveredQty+=q;
     }
