@@ -75,7 +75,15 @@ function parseProducts(payload,groups,categories,units){
 function chartProductId(c){return key(c?.assembledProduct??c?.product??c?.dish??c?.assembledProductId??c?.productId??c?.dishId)}
 function chartItems(c){for(const v of [c?.items,c?.ingredients,c?.ingredientItems,c?.components,c?.composition])if(Array.isArray(v))return v;return[]}
 function chartItemProductId(x){return key(x?.product??x?.nomenclatureItem??x?.ingredient??x?.item??x?.productId??x?.nomenclatureItemId??x?.ingredientId??x?.itemId)}
-function chartItemAmount(x){return Math.abs(num(x?.amount??x?.quantity??x?.qty??x?.grossAmount??x?.netAmount??x?.productAmount))}
+function chartItemAmount(x){
+  const amountIn=Math.abs(num(x?.amountIn));
+  if(amountIn>1e-12)return amountIn;
+  const amountMiddle=Math.abs(num(x?.amountMiddle));
+  if(amountMiddle>1e-12)return amountMiddle;
+  const amountOut=Math.abs(num(x?.amountOut));
+  if(amountOut>1e-12)return amountOut;
+  return Math.abs(num(x?.amount??x?.quantity??x?.qty??x?.grossAmount??x?.netAmount??x?.productAmount));
+}
 function chartOutput(c){const n=Math.abs(num(c?.amount??c?.output??c?.outputAmount??c?.assembledAmount??c?.yield??c?.productAmount));return n>1e-12?n:1}
 function chartFrom(c){return dateOnly(c?.dateFrom??c?.startDate??c?.from??c?.effectiveFrom)}
 function chartTo(c){return dateOnly(c?.dateTo??c?.endDate??c?.to??c?.effectiveTo)}
@@ -101,10 +109,24 @@ function expandRecipe(chartMap,productId,qty,date,out,visited=new Set(),depth=0)
   if(depth>8||visited.has(pid)){out.set(pid,(out.get(pid)||0)+qty);return false}
   const chart=chooseChart(chartMap,pid,date);
   if(!chart){out.set(pid,(out.get(pid)||0)+qty);return false}
+
+  // DIRECT means iiko writes off the assembled product itself rather than recipe ingredients.
+  if(clean(chart?.productWriteoffStrategy).toUpperCase()==="DIRECT"){
+    out.set(pid,(out.get(pid)||0)+qty);
+    return true;
+  }
+
   const items=chartItems(chart).filter(x=>chartItemProductId(x)&&chartItemAmount(x)>0);
-  if(!items.length){out.set(pid,(out.get(pid)||0)+qty);return false}
+  if(!items.length)return false;
+
   const next=new Set(visited);next.add(pid);const divisor=chartOutput(chart);
-  for(const item of items){const iid=chartItemProductId(item),iq=qty*chartItemAmount(item)/divisor;expandRecipe(chartMap,iid,iq,date,out,next,depth+1)}
+  for(const item of items){
+    const iid=chartItemProductId(item);
+    const iq=qty*chartItemAmount(item)/divisor;
+    const nested=chooseChart(chartMap,iid,date);
+    if(nested)expandRecipe(chartMap,iid,iq,date,out,next,depth+1);
+    else out.set(iid,(out.get(iid)||0)+iq);
+  }
   return true;
 }
 
