@@ -13,7 +13,17 @@ function setMessage(v,error=false){const e=$('fc-message');e.textContent=v;e.cla
 async function binding(){if(window.SH_IikoContext?.getBinding)return await window.SH_IikoContext.getBinding();return null}
 function defaultPeriod(){const to=new Date(),from=new Date();from.setDate(from.getDate()-30);$('fc-from').value=ymd(from);$('fc-to').value=ymd(to)}
 function populate(select,items,label){const old=select.value;select.innerHTML='<option value="">'+esc(label)+'</option>'+items.map(x=>'<option value="'+esc(x.value)+'">'+esc(x.label)+'</option>').join('');if([...select.options].some(x=>x.value===old))select.value=old}
-function isProblem(r){return Math.abs(Number(r.varianceValue||0))>=0.01||Math.abs(Number(r.varianceQty||0))>=0.001}
+function varianceClass(r){
+  if(r?.varianceClass)return r.varianceClass;
+  const tq=Number(r?.theoreticalQty||0),aq=Number(r?.actualQty||0),vv=Number(r?.varianceValue||0);
+  if(aq<-1e-6)return'stock_increase';
+  if(Math.abs(tq)<=1e-6&&aq>1e-6)return'unplanned_usage';
+  if(Math.abs(tq)<=1e-6&&Math.abs(aq)<=1e-6)return'neutral';
+  if(vv>0.01)return'overuse';
+  if(vv<-0.01)return'saving';
+  return'normal';
+}
+function isProblem(r){return !['normal','neutral'].includes(varianceClass(r))}
 function baseFiltered(){
   const category=$('fc-category').value,q=($('fc-search').value||'').trim().toLowerCase();
   return rows.filter(r=>{
@@ -25,14 +35,18 @@ function baseFiltered(){
 function filtered(){
   const base=baseFiltered();
   if(quick==='problem')return base.filter(isProblem);
-  if(quick==='positive')return base.filter(r=>Number(r.varianceValue||0)>0.01);
-  if(quick==='negative')return base.filter(r=>Number(r.varianceValue||0)<-0.01);
+  if(quick==='overuse')return base.filter(r=>varianceClass(r)==='overuse');
+  if(quick==='saving')return base.filter(r=>varianceClass(r)==='saving');
+  if(quick==='unplanned')return base.filter(r=>varianceClass(r)==='unplanned_usage');
+  if(quick==='adjustment')return base.filter(r=>varianceClass(r)==='stock_increase');
   return base;
 }
 function statusBadge(r){
-  const v=Number(r.varianceValue||0);
-  if(v>0.01)return'<span class="badge bad">Перерасход</span>';
-  if(v<-0.01)return'<span class="badge good">Экономия</span>';
+  const cls=varianceClass(r);
+  if(cls==='overuse')return'<span class="badge bad">Перерасход</span>';
+  if(cls==='saving')return'<span class="badge good">Экономия</span>';
+  if(cls==='unplanned_usage')return'<span class="badge warn">Расход без теории</span>';
+  if(cls==='stock_increase')return'<span class="badge info">Рост остатка / корректировка</span>';
   return'<span class="badge neutral">Норма</span>';
 }
 function vclass(v){return Number(v||0)>0?'v-pos':Number(v||0)<0?'v-neg':''}
@@ -57,10 +71,26 @@ function updateSources(){
     const s=sources?.[k],ok=s?.ok!==false,extra=s?.rows??s?.count??s?.documents;
     return'<span class="source-chip '+(ok?'ok':'warn')+'">'+esc(label)+' · '+(ok?'OK':'недоступно')+(extra!==undefined?' · '+esc(extra):'')+'</span>';
   }).join('');
+  const uncovered=Array.isArray(sources?.sales?.unmatched)?sources.sales.unmatched:[];
+  const coverage=Number(summary.recipeCoveragePct||0);
+  const box=$('fc-uncovered');
+  if(!box)return;
+  if(coverage>=99.5||!uncovered.length){
+    box.style.display='none';box.innerHTML='';return;
+  }
+  const namesList=uncovered.slice(0,8).map(x=>'<b>'+esc(x.dishName||'Без названия')+'</b> · '+amount(x.quantity)+' шт').join(' · ');
+  box.style.display='block';
+  box.innerHTML='<strong>Не покрыто техкартами: '+pct(100-coverage)+'</strong><span>'+namesList+(uncovered.length>8?' · …':'')+'</span>';
 }
 function render(){
-  const base=baseFiltered(),problem=base.filter(isProblem).length,pos=base.filter(r=>Number(r.varianceValue||0)>0.01).length,neg=base.filter(r=>Number(r.varianceValue||0)<-0.01).length;
-  $('count-all').textContent=base.length;$('count-problem').textContent=problem;$('count-positive').textContent=pos;$('count-negative').textContent=neg;
+  const base=baseFiltered(),problem=base.filter(isProblem).length;
+  const overuse=base.filter(r=>varianceClass(r)==='overuse').length;
+  const saving=base.filter(r=>varianceClass(r)==='saving').length;
+  const unplanned=base.filter(r=>varianceClass(r)==='unplanned_usage').length;
+  const adjustment=base.filter(r=>varianceClass(r)==='stock_increase').length;
+  $('count-all').textContent=base.length;$('count-problem').textContent=problem;
+  $('count-overuse').textContent=overuse;$('count-saving').textContent=saving;
+  $('count-unplanned').textContent=unplanned;$('count-adjustment').textContent=adjustment;
   const data=filtered();shown=data.slice(0,2000);
   $('fc-table').querySelector('tbody').innerHTML=shown.map((r,i)=>{
     const code=[r.productNum,r.productCode].filter(Boolean).join(' · ');
@@ -91,7 +121,9 @@ function openModal(r){
     ['Отклонение в деньгах',(Number(r.varianceValue||0)>0?'+':'')+money(r.varianceValue)]
   ];
   $('fc-modal-grid').innerHTML=items.map(x=>'<div class="modal-item"><span>'+esc(x[0])+'</span><strong>'+esc(x[1])+'</strong></div>').join('');
-  $('fc-modal-formula').textContent='Actual = '+amount(r.openingQty)+' + '+amount(r.incomingQty)+' '+(Number(r.transferQty||0)>=0?'+ ':'− ')+amount(Math.abs(Number(r.transferQty||0)))+' − '+amount(r.closingQty)+' = '+amount(r.actualQty)+' '+(r.unit||'')+'. Расходная накладная '+amount(r.outgoingQty)+' '+(r.unit||'')+' показана справочно и второй раз из Actual не вычитается.';
+  const cls=varianceClass(r);
+  const explain=cls==='stock_increase'?'Отрицательный Actual означает рост остатка: производство, корректировку или другое внутреннее движение. Это не «экономия».':cls==='unplanned_usage'?'Фактический расход есть, но теоретическая норма для этой позиции равна нулю — проверьте техкарту/способ списания.':'';
+  $('fc-modal-formula').textContent='Actual = '+amount(r.openingQty)+' + '+amount(r.incomingQty)+' '+(Number(r.transferQty||0)>=0?'+ ':'− ')+amount(Math.abs(Number(r.transferQty||0)))+' − '+amount(r.closingQty)+' = '+amount(r.actualQty)+' '+(r.unit||'')+'. '+explain;
   $('fc-modal').hidden=false;
 }
 function exportCsv(){
