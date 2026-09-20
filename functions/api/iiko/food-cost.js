@@ -304,6 +304,10 @@ export async function onRequestPost({request}){
     rows.sort((a,b)=>Math.abs(b.varianceValue)-Math.abs(a.varianceValue)||a.productName.localeCompare(b.productName,"ru"));
 
     const recipeTheoryValue=rows.reduce((s,x)=>s+x.theoreticalValue,0),actualValue=rows.reduce((s,x)=>s+x.actualValue,0),theoreticalCost=sales.fields.costField?olapCost:recipeTheoryValue,varianceValue=actualValue-theoreticalCost;
+    const openingValueAtCost=rows.reduce((s,x)=>s+Number(x.openingQty||0)*Number(x.unitCost||0),0);
+    const incomingValueAtCost=rows.reduce((s,x)=>s+Number(x.incomingQty||0)*Number(x.unitCost||0),0);
+    const closingValueAtCost=rows.reduce((s,x)=>s+Number(x.closingQty||0)*Number(x.unitCost||0),0);
+    const transferAdjustmentValueAtCost=rows.reduce((s,x)=>s+Number(x.transferQty||0)*Number(x.unitCost||0),0);
     const writeoffValue=rows.reduce((s,x)=>s+Number(x.writeoffValueAtCost||0),0);
     const outgoingValueAtCost=rows.reduce((s,x)=>s+Number(x.outgoingValueAtCost||0),0);
     const unexplainedVariance=varianceValue-writeoffValue;
@@ -313,8 +317,8 @@ export async function onRequestPost({request}){
       summary:{
         revenue,theoreticalCost,recipeTheoryValue,actualCost:actualValue,varianceValue,variancePct:percent(varianceValue,theoreticalCost),
         theoreticalFoodCostPct:percent(theoreticalCost,revenue),actualFoodCostPct:percent(actualValue,revenue),
-        openingValue:[...opening.byProduct.values()].reduce((s,x)=>s+x.sum,0),closingValue:[...closing.byProduct.values()].reduce((s,x)=>s+x.sum,0),
-        incomingValue:sumMap(inMap,"value"),outgoingValue:outgoingValueAtCost,transferAdjustmentValue:sumMap(transferMap,"value"),
+        openingValue:openingValueAtCost,closingValue:closingValueAtCost,
+        incomingValue:incomingValueAtCost,outgoingValue:outgoingValueAtCost,transferAdjustmentValue:transferAdjustmentValueAtCost,
         documentedWriteoffValue:writeoffValue,unexplainedVariance,soldQty,coveredQty,recipeCoveragePct:soldQty?coveredQty/soldQty*100:0,
         ingredientCount:rows.length
       },
