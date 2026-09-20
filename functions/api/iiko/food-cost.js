@@ -108,8 +108,8 @@ function expandRecipe(chartMap,productId,qty,date,out,visited=new Set(),depth=0)
   return true;
 }
 
-async function loadMeta(connection){
-  const ck=[connection.ip,connection.port,connection.login].join("|").toLowerCase(),cached=cache.get(ck);
+async function loadMeta(connection,from,to){
+  const ck=[connection.ip,connection.port,connection.login,from,to].join("|").toLowerCase(),cached=cache.get(ck);
   if(cached&&cached.expiresAt>Date.now())return{...cached.data,cacheHit:true};
   const [storesRaw,productsRaw,groupsRaw,catsRaw,unitsRaw,chartsRaw]=await Promise.all([
     iikoText(connection,"/resto/api/corporation/stores?revisionFrom=-1",{headers:{Accept:"application/xml,text/xml,application/json,*/*"}}),
@@ -117,7 +117,12 @@ async function loadMeta(connection){
     iikoJson(connection,"/resto/api/v2/entities/products/group/list?includeDeleted=false"),
     iikoJson(connection,"/resto/api/v2/entities/products/category/list?includeDeleted=false"),
     iikoJson(connection,"/resto/api/v2/entities/list?rootType=MeasureUnit"),
-    iikoJson(connection,"/resto/api/v2/assemblyCharts/getAll",{timeoutMs:60000})
+    iikoJson(connection,"/resto/api/v2/assemblyCharts/getAll?"+new URLSearchParams({
+      dateFrom:from,
+      dateTo:to,
+      includeDeletedProducts:"true",
+      includePreparedCharts:"false"
+    }).toString(),{timeoutMs:60000})
   ]);
   let sp=null;try{sp=JSON.parse(storesRaw.text||"null")}catch(_){}
   const groups=parseSimpleMap(groupsRaw.payload),categories=parseSimpleMap(catsRaw.payload),units=parseSimpleMap(unitsRaw.payload),products=parseProducts(productsRaw.payload,groups,categories,units),stores=parseStores(storesRaw.text,sp),storeMap=new Map(stores.map(x=>[x.id,x])),charts=makeChartMap(chartsRaw.payload);
@@ -211,7 +216,7 @@ export async function onRequestPost({request}){
     if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Нет подключения к iiko Server",requestId},400);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return json({success:false,message:"Проверьте период",requestId},400);
 
-    const meta=await loadMeta(connection);
+    const meta=await loadMeta(connection,from,to);
     const startTs=from+"T00:00:00",endTs=to+"T23:59:59";
     const [sales,opening,closing,incoming,outgoing,transfers,writeoffs]=await Promise.all([
       loadSales(connection,from,to,departmentIds,meta.productByName),
@@ -266,7 +271,7 @@ export async function onRequestPost({request}){
       },
       sources:{
         sales:{ok:true,rows:sales.rows.length,costField:sales.fields.costField||null},
-        recipes:{ok:meta.chartStatus>=200&&meta.chartStatus<300,count:meta.chartCount},
+        recipes:{ok:meta.chartStatus>=200&&meta.chartStatus<300,count:meta.chartCount,status:meta.chartStatus,from,to},
         openingBalance:{ok:true,rows:opening.rows.length,timestamp:startTs},
         closingBalance:{ok:true,rows:closing.rows.length,timestamp:endTs},
         incoming:{ok:incoming.ok,status:incoming.status,documents:incoming.docs.length},
