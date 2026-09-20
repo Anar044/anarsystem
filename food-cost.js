@@ -78,9 +78,11 @@ function updateSources(){
   if(coverage>=99.5||!uncovered.length){
     box.style.display='none';box.innerHTML='';return;
   }
-  const namesList=uncovered.slice(0,8).map(x=>'<b>'+esc(x.dishName||'Без названия')+'</b> · '+amount(x.quantity)+' шт').join(' · ');
+  const reasonLabel=r=>r==='MISSING_CHART'?'нет техкарты':r==='EMPTY_CHART'?'пустая техкарта':'не сопоставлено';
+  const namesList=uncovered.slice(0,8).map(x=>'<b>'+esc(x.dishName||'Без названия')+'</b> · '+esc(x.productType||'—')+' · '+reasonLabel(x.reason)+' · '+amount(x.quantity)+' шт').join(' · ');
+  const direct=Number(sources?.sales?.directQty||0),excluded=Number(sources?.sales?.excludedQty||0);
   box.style.display='block';
-  box.innerHTML='<strong>Не покрыто техкартами: '+pct(100-coverage)+'</strong><span>'+namesList+(uncovered.length>8?' · …':'')+'</span>';
+  box.innerHTML='<strong>Не покрыто техкартами: '+pct(100-coverage)+'</strong><span>'+namesList+(uncovered.length>8?' · …':'')+'</span><small>Прямые товары учтены автоматически: '+amount(direct)+' ед. · исключено из покрытия (услуги/нескладские позиции): '+amount(excluded)+' ед.</small>';
 }
 function render(){
   const base=baseFiltered(),problem=base.filter(isProblem).length;
