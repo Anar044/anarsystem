@@ -3,6 +3,10 @@ const $=id=>document.getElementById(id);
 let rows=[],renderedRows=[],statusFilter='all',zeroTruncated=false;
 
 function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function isGuidLike(v){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v??'').trim())}
+function shortRef(v,prefix='ID'){const s=String(v??'').trim();return s?(prefix+' · …'+s.slice(-6)):prefix}
+function storeLabel(r){const n=String(r?.storeName||'').trim();return n&&!isGuidLike(n)?n:shortRef(r?.storeId,'Склад iiko')}
+function unitLabel(r){const n=String(r?.unit||'').trim();return n&&!isGuidLike(n)?n:'—'}
 function ymd(d=new Date()){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function snapshotTime(date){const n=new Date();return date===ymd(n)?String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0')+':'+String(n.getSeconds()).padStart(2,'0'):'23:59:59'}
 function money(v){return Number(v||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₼'}
@@ -85,8 +89,8 @@ function render(){
     return'<tr data-row="'+i+'">'+
       '<td class="product-cell"><strong>'+esc(r.productName||r.productId)+'</strong><small>'+esc(code||r.productId)+'</small></td>'+
       '<td>'+esc(r.categoryName||r.groupName||'—')+'</td>'+
-      '<td>'+esc(r.storeName||r.storeId)+'</td>'+
-      '<td>'+esc(r.unit||'—')+'</td>'+
+      '<td>'+esc(storeLabel(r))+'</td>'+
+      '<td>'+esc(unitLabel(r))+'</td>'+
       '<td class="num">'+amount(r.amount)+'</td>'+
       '<td class="num">'+cost(r.unitCost)+'</td>'+
       '<td class="num">'+money(r.sum)+'</td>'+
@@ -106,8 +110,8 @@ function render(){
 function openModal(r){
   $('stock-modal-title').textContent=r.productName||r.productId;
   const items=[
-    ['Склад',r.storeName||r.storeId],
-    ['Количество',amount(r.amount)+' '+(r.unit||'')],
+    ['Склад',storeLabel(r)],
+    ['Количество',amount(r.amount)+(unitLabel(r)==='—'?'':' '+unitLabel(r))],
     ['Себестоимость единицы',cost(r.unitCost)],
     ['Стоимость остатка',money(r.sum)],
     ['Группа',r.groupName||'—'],
@@ -127,7 +131,7 @@ function exportCsv(){
   const head=['Товар','Артикул','Код','Категория','Группа','Склад','Ед.','Количество','Себест./ед.','Стоимость','Min','Max','Статус'];
   const quote=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
   const body=visible.map(r=>[
-    r.productName,r.productNum,r.productCode,r.categoryName,r.groupName,r.storeName,r.unit,
+    r.productName,r.productNum,r.productCode,r.categoryName,r.groupName,storeLabel(r),unitLabel(r),
     Number(r.amount||0),r.unitCost??'',Number(r.sum||0),r.minAmount??'',r.maxAmount??'',
     Number(r.amount||0)<0?'Отрицательный':r.belowMin?'Ниже min':Math.abs(Number(r.amount||0))<=1e-12?'Нулевой':'В наличии'
   ].map(quote).join(';'));
@@ -147,7 +151,7 @@ async function load(){
     rows=Array.isArray(j.rows)?j.rows:[];
     zeroTruncated=!!j.meta?.zeroExpansionTruncated;
 
-    populateSelect($('stock-store'),(j.warehouses||[]).map(x=>({value:String(x.id),label:x.name||x.id})),'Все склады');
+    populateSelect($('stock-store'),(j.warehouses||[]).map(x=>({value:String(x.id),label:(x.name&&!isGuidLike(x.name))?x.name:shortRef(x.id,'Склад iiko')})),'Все склады');
     const cats=[...new Set(rows.map(catOf).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru'));
     populateSelect($('stock-category'),cats.map(x=>({value:x,label:x})),'Все категории');
 
