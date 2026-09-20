@@ -1,0 +1,34 @@
+<!doctype html><html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Smart Horeca — Labor Cost & SPLH</title><script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='light'?'light':'dark'}catch(e){}})();</script><link rel="stylesheet" href="/app-shell.css?v=8"><link rel="stylesheet" href="/labor-cost.css?v=1"></head><body data-protected="true"><div class="app-shell"><aside class="sidebar"></aside><main class="main"><header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Лаборкост и производительность</span><div class="topbar-sub">Labor Cost % & SPLH</div></div><div class="top-actions"><span class="user-chip"><span class="user-avatar" data-auth-avatar>A</span><span data-auth-name>Пользователь</span></span><button class="icon-btn" data-auth-logout>Выйти</button></div></header><div class="app-content"><section class="lc-page">
+
+<section class="lc-hero"><div><div class="eyebrow">LABOR PRODUCTIVITY</div><h1>Лаборкост и производительность</h1><p>Доля расходов на персонал в выручке и производительность по фактическим человеко-часам.</p></div><div class="hero-actions"><span id="lc-status" class="status-pill">Готов к загрузке</span><button id="lc-export" class="btn secondary">Экспорт CSV</button><button id="lc-refresh" class="btn primary">↻ Обновить</button></div></section>
+
+<section class="lc-toolbar">
+<div class="field"><label>Месяц</label><input id="lc-month" type="month" min="2026-01" max="2026-12"></div>
+<div class="field"><label>Должность</label><select id="lc-role"><option value="">Все должности</option></select></div>
+<div class="field search"><label>Поиск сотрудника</label><input id="lc-search" placeholder="Имя, код, должность…"></div>
+</section>
+
+<section class="lc-kpis">
+<article class="kpi sales"><span>Выручка</span><strong id="kpi-sales">0,00 ₼</strong><small>SALES OLAP</small></article>
+<article class="kpi labor"><span>ФОТ работодателя</span><strong id="kpi-labor">0,00 ₼</strong><small>Payroll employer cost</small></article>
+<article class="kpi percent"><span>Labor Cost %</span><strong id="kpi-percent">—</strong><small>ФОТ / выручка</small></article>
+<article class="kpi hours"><span>Человеко-часы</span><strong id="kpi-hours">0,0 ч</strong><small>фактический табель</small></article>
+<article class="kpi splh"><span>SPLH</span><strong id="kpi-splh">—</strong><small>выручка / человеко-час</small></article>
+<article class="kpi avg"><span>Стоимость часа</span><strong id="kpi-hour-cost">—</strong><small>ФОТ / человеко-часы</small></article>
+</section>
+
+<section id="lc-warning" class="lc-warning" hidden></section>
+
+<section class="lc-card">
+<div class="lc-card-head"><div><h2>Динамика по дням</h2><p id="lc-period">—</p></div><div id="lc-day-meta" class="result-meta">0 дней</div></div>
+<div class="table-wrap"><table id="lc-day-table"><thead><tr><th>Дата</th><th class="num">Выручка</th><th class="num">Заказы</th><th class="num">Человеко-часы</th><th class="num">Сотрудников</th><th class="num">ФОТ, оценка</th><th class="num">Labor Cost %</th><th class="num">SPLH</th></tr></thead><tbody></tbody></table></div>
+</section>
+
+<section class="lc-card employees">
+<div class="lc-card-head"><div><h2>Сотрудники</h2><p>Фактические часы и стоимость работодателя из Payroll.</p></div><div id="lc-employee-meta" class="result-meta">0 сотрудников</div></div>
+<div class="table-wrap"><table id="lc-employee-table"><thead><tr><th>Сотрудник</th><th>Должность</th><th class="num">Факт часов</th><th class="num">План часов</th><th class="num">Отклонение</th><th class="num">ФОТ работодателя</th><th class="num">Стоимость часа</th><th class="num">Доля ФОТ</th><th>Статус</th></tr></thead><tbody></tbody></table></div>
+</section>
+
+<section class="lc-note"><b>Методика:</b> Labor Cost % = полная стоимость персонала для работодателя / выручка × 100. SPLH = выручка / фактические человеко-часы. Дневной ФОТ — аналитическое распределение месячного employer cost по фактическим часам каждого сотрудника; общий месячный ФОТ остаётся точным значением Payroll.</section>
+
+</section></div></main></div><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/auth-config.js"></script><script src="/auth.js"></script><script src="/iiko-context.js?v=20260910-2"></script><script src="/app-shell.js"></script><script src="/smart-horeca-sidebar-brand.js?v=20260920-1"></script><script src="/mobile-responsive.js?v=1"></script><script src="/labor-cost.js?v=1"></script><script src="/documents-nav.js?v=8"></script></body></html>

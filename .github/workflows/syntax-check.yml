@@ -244,6 +244,7 @@ jobs:
             "/stock-balances.html"
             "/stock-movements.html"
             "/food-cost.html"
+            "/labor-cost.html"
             "/nakladnye.html"
             "/rashodnye-nakladnye.html"
             "/akty-spisaniya.html"
