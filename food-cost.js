@@ -81,7 +81,7 @@ function openModal(r){
   const items=[
     ['Остаток на начало',amount(r.openingQty)+' '+(r.unit||'')],
     ['Приход',amount(r.incomingQty)+' '+(r.unit||'')],
-    ['Внешний расход',amount(r.outgoingQty)+' '+(r.unit||'')],
+    ['Расходная накладная (справочно)',amount(r.outgoingQty)+' '+(r.unit||'')],
     ['Перемещение',amount(r.transferQty)+' '+(r.unit||'')],
     ['Остаток на конец',amount(r.closingQty)+' '+(r.unit||'')],
     ['Теория',amount(r.theoreticalQty)+' '+(r.unit||'')],
@@ -91,7 +91,7 @@ function openModal(r){
     ['Отклонение в деньгах',(Number(r.varianceValue||0)>0?'+':'')+money(r.varianceValue)]
   ];
   $('fc-modal-grid').innerHTML=items.map(x=>'<div class="modal-item"><span>'+esc(x[0])+'</span><strong>'+esc(x[1])+'</strong></div>').join('');
-  $('fc-modal-formula').textContent='Actual = '+amount(r.openingQty)+' + '+amount(r.incomingQty)+' − '+amount(r.outgoingQty)+' '+(Number(r.transferQty||0)>=0?'+ ':'− ')+amount(Math.abs(Number(r.transferQty||0)))+' − '+amount(r.closingQty)+' = '+amount(r.actualQty)+' '+(r.unit||'');
+  $('fc-modal-formula').textContent='Actual = '+amount(r.openingQty)+' + '+amount(r.incomingQty)+' '+(Number(r.transferQty||0)>=0?'+ ':'− ')+amount(Math.abs(Number(r.transferQty||0)))+' − '+amount(r.closingQty)+' = '+amount(r.actualQty)+' '+(r.unit||'')+'. Расходная накладная '+amount(r.outgoingQty)+' '+(r.unit||'')+' показана справочно и второй раз из Actual не вычитается.';
   $('fc-modal').hidden=false;
 }
 function exportCsv(){
