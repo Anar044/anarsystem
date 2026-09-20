@@ -13,15 +13,8 @@ function localName(name){return String(name||"").split(":").pop().toLowerCase()}
 function xmlTag(block,names){
   const source=String(block||"");
   for(const rawName of (Array.isArray(names)?names:[names])){
-    const name=String(rawName||"").replace(/[.*+?^$()|[\]\\]/g,"\\function xmlTag(block,names){
-  const wanted=new Set((Array.isArray(names)?names:[names]).map(localName));
-  const re=/<([A-Za-z][\w:.-]*)\b[^>]*>([\s\S]*?)<\/\1>/gi;
-  let m;
-  while((m=re.exec(String(block||"")))){
-    if(wanted.has(localName(m[1])))return escXml(m[2].replace(/<[^>]*>/g,"").trim());
-  }
-  return"";
-}");
+    const raw=String(rawName||"");
+    const name=raw.replace(/[.*+?^$()|[\]\\]/g,ch=>"\\"+ch);
     if(!name)continue;
     const re=new RegExp("<(?:[A-Za-z][\\w.-]*:)?"+name+"(?:\\s[^>]*)?>([\\s\\S]*?)</(?:[A-Za-z][\\w.-]*:)?"+name+">","i");
     const m=source.match(re);
