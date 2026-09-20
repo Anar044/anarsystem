@@ -278,15 +278,21 @@ export async function onRequestPost({request}){
     for(const id of productIds){
       const p=meta.products.get(id)||{id,name:"Товар · …"+id.slice(-6),num:"",code:"",unit:"",groupName:"",categoryName:"",type:""};
       const op=get(opening.byProduct,id),cl=get(closing.byProduct,id),inc=get(inMap,id),out=get(outMap,id),tr=get(transferMap,id);
-      const actualQty=op.amount+inc.amount-out.amount+tr.amount-cl.amount;
+      const activeChart=chooseChart(meta.charts,id,to);
+      const isInternalAssembled=activeChart&&clean(activeChart?.productWriteoffStrategy).toUpperCase()!=="DIRECT";
       const tq=theoryQty.get(id)||0;
+      // ASSEMBLE dishes / semi-finished products are internal production, not leaf ingredients.
+      // Theory is already expanded to their raw ingredients, so do not compare their own stock movement.
+      if(isInternalAssembled&&Math.abs(tq)<1e-12)continue;
+      // Actual physical usage from inventory reconciliation. Explicit outgoing/writeoff documents
+      // already affect the closing balance and therefore must not be subtracted a second time.
+      const actualQty=op.amount+inc.amount+tr.amount-cl.amount;
       const basisQty=Math.abs(op.amount)+Math.abs(cl.amount)+Math.abs(inc.amount);
       const basisValue=Math.abs(op.sum)+Math.abs(cl.sum)+Math.abs(inc.value);
       const fallbackQty=Math.abs(op.amount)+Math.abs(inc.amount)+Math.abs(cl.amount);
       const fallbackValue=Math.abs(op.sum)+Math.abs(inc.value)+Math.abs(cl.sum);
       const unitCost=basisQty>1e-12?basisValue/basisQty:(fallbackQty>1e-12?fallbackValue/fallbackQty:0);
-      // External outgoing invoices affect quantity, but their document amount can be a sale/issue price,
-      // not warehouse cost. Value the calculated physical usage at warehouse cost to keep qty/value consistent.
+      // Value the reconciled physical usage at warehouse cost so quantity and money stay consistent.
       const actualValue=actualQty*unitCost;
       const theoreticalValue=tq*unitCost,varianceQty=actualQty-tq,varianceValue=actualValue-theoreticalValue,variancePct=Math.abs(theoreticalValue)>1e-12?varianceValue/Math.abs(theoreticalValue)*100:null;
       if(Math.abs(actualQty)<1e-9&&Math.abs(tq)<1e-9&&Math.abs(actualValue)<0.005)continue;
