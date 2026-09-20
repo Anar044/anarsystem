@@ -9,43 +9,121 @@ function key(v){return String(v??"").trim().replace(/^\{+|\}+$/g,"").toLowerCase
 function num(v){if(v===null||v===undefined||v==="")return null;const n=Number(String(v).replace(/\s/g,"").replace(",","."));return Number.isFinite(n)?n:null}
 function list(v){if(Array.isArray(v))return v;if(Array.isArray(v?.items))return v.items;if(Array.isArray(v?.data))return v.data;if(Array.isArray(v?.response))return v.response;if(Array.isArray(v?.results))return v.results;return[]}
 function escXml(s){return String(s??"").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&")}
+function localName(name){return String(name||"").split(":").pop().toLowerCase()}
+function xmlTag(block,names){
+  const wanted=new Set((Array.isArray(names)?names:[names]).map(localName));
+  const re=/<([A-Za-z][\w:.-]*)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  let m;
+  while((m=re.exec(String(block||"")))){
+    if(wanted.has(localName(m[1])))return escXml(m[2].replace(/<[^>]*>/g,"").trim());
+  }
+  return"";
+}
+function xmlBlocks(source,names){
+  const wanted=new Set((Array.isArray(names)?names:[names]).map(localName));
+  const text=String(source||"");
+  const out=[];
+  const open=/<([A-Za-z][\w:.-]*)\b[^>]*>/gi;
+  let m;
+  while((m=open.exec(text))){
+    const fullName=m[1];
+    if(!wanted.has(localName(fullName)))continue;
+    const escaped=fullName.replace(/[.*+?^$()|[\]\\]/g,"\\function escXml(s){return String(s??"").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&")}
 function xmlTag(block,names){for(const name of names){const m=String(block||"").match(new RegExp("<"+name+"(?:\\\\s[^>]*)?>([\\\\s\\\\S]*?)</"+name+">","i"));if(m)return escXml(m[1].trim())}return""}
 function xmlBlocks(source,names){const out=[];for(const name of names){const re=new RegExp("<"+name+"(?:\\\\s[^>]*)?>[\\\\s\\\\S]*?</"+name+">","gi");let m;while((m=re.exec(String(source||""))))out.push(m[0])}return out}
 function idOf(x){return key(x?.id??x?.uuid??x?.entityId??x?.productId??x?.storeId)}
 function nameOf(x){return clean(x?.name??x?.title??x?.description??x?.fullName)}
 function refId(v){if(v&&typeof v==="object")return key(v.id??v.uuid??v.entityId);return key(v)}
-function unitName(v){if(v&&typeof v==="object")return clean(v.name??v.shortName??v.code??v.id);return clean(v)}
+function unitName(v){if(v&&typeof v==="object")return clean(v.name??v.shortName??v.code??v.id);return clean(v)}");
+    const close=new RegExp("</"+escaped+">","ig");
+    const tail=text.slice(open.lastIndex);
+    const cm=close.exec(tail);
+    if(cm)out.push(text.slice(m.index,open.lastIndex+cm.index+cm[0].length));
+  }
+  return out;
+}
+function idOf(x){return key(x?.id??x?.uuid??x?.entityId??x?.productId??x?.storeId)}
+function nameOf(x){return clean(x?.name??x?.title??x?.description??x?.fullName)}
+function refId(v){if(v&&typeof v==="object")return key(v.id??v.uuid??v.entityId??v.storeId??v.productId);return key(v)}
+function inlineName(v){if(v&&typeof v==="object")return clean(v.name??v.title??v.description??v.fullName??v.shortName??v.code);return""}
+function isGuidLike(v){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean(v))}
+function visibleText(v){const s=clean(v);return s&&!isGuidLike(s)?s:""}
+function unitRaw(v){if(v&&typeof v==="object")return clean(v.name??v.shortName??v.symbol??v.code??v.measureUnit??v.value??v.id);return clean(v)}
+function compactStoreName(id){const s=key(id);return s?"Склад iiko · …"+s.slice(-6):"Склад iiko"}
+function compactProductName(id){const s=key(id);return s?"Товар · …"+s.slice(-6):"Товар"}
+function collectNamedRefs(value,out){
+  if(Array.isArray(value)){for(const x of value)collectNamedRefs(x,out);return}
+  if(!value||typeof value!=="object")return;
+  const id=idOf(value),name=nameOf(value);
+  if(id&&name)out.push({id,name,parentId:refId(value.parent??value.parentId??value.department??value.departmentId)});
+  for(const v of Object.values(value))if(v&&typeof v==="object")collectNamedRefs(v,out);
+}
+function dedupeRefs(rows){
+  const map=new Map();
+  for(const x of rows||[])if(x?.id&&x?.name&&!map.has(x.id))map.set(x.id,x);
+  return [...map.values()];
+}
 
 function normalizeStores(rawText,payload){
-  const rows=list(payload).map(x=>({
+  const jsonRows=[];
+  collectNamedRefs(payload,jsonRows);
+  const direct=list(payload).map(x=>({
     id:idOf(x),
     name:nameOf(x),
     parentId:refId(x.parent??x.parentId??x.department??x.departmentId)
   })).filter(x=>x.id&&x.name);
-  if(rows.length)return rows;
-  return xmlBlocks(rawText,["corporateItemDto","store","storeDto","department"]).map(b=>({
-    id:key(xmlTag(b,["id","uuid","entityId","storeId"])),
-    name:clean(xmlTag(b,["name","title","description"])),
+  const xmlRows=xmlBlocks(rawText,["corporateItemDto","store","storeDto","warehouse","department","item"]).map(b=>({
+    id:key(xmlTag(b,["id","uuid","entityId","storeId","warehouseId"])),
+    name:clean(xmlTag(b,["name","title","description","fullName"])),
     parentId:key(xmlTag(b,["parent","parentId","department","departmentId"]))
   })).filter(x=>x.id&&x.name);
+  return dedupeRefs([...direct,...jsonRows,...xmlRows]);
 }
 
-function normalizeProducts(payload,groupMap,categoryMap){
+function legacyUnitMap(rawText){
+  const map=new Map();
+  const add=(id,unit)=>{
+    const pid=key(id),name=visibleText(unit);
+    if(pid&&name&&!map.has(pid))map.set(pid,name);
+  };
+  const source=String(rawText||"").trim();
+  if(source[0]==="{"||source[0]==="["){
+    try{
+      const walk=v=>{
+        if(Array.isArray(v)){v.forEach(walk);return}
+        if(!v||typeof v!=="object")return;
+        const id=v.id??v.uuid??v.entityId??v.productId;
+        const unit=unitRaw(v.mainUnit??v.unit??v.measureUnit);
+        if(id&&unit)add(id,unit);
+        for(const x of Object.values(v))if(x&&typeof x==="object")walk(x);
+      };
+      walk(JSON.parse(source));
+    }catch(_){}
+  }
+  for(const block of xmlBlocks(source,["productDto","product"])){
+    add(xmlTag(block,["id","uuid","entityId","productId"]),xmlTag(block,["mainUnit","measureUnit","unit"]));
+  }
+  return map;
+}
+
+function normalizeProducts(payload,groupMap,categoryMap,legacyUnits){
   return list(payload).map(x=>{
     const id=idOf(x);
     const parentId=refId(x.parent??x.parentId??x.group??x.groupId);
     const categoryId=refId(x.category??x.categoryId);
+    const rawUnit=unitRaw(x.mainUnit??x.unit??x.measureUnit);
+    const unit=visibleText(rawUnit)||visibleText(legacyUnits.get(id));
     return{
       id,
-      name:nameOf(x)||id,
+      name:visibleText(nameOf(x))||compactProductName(id),
       num:clean(x.num??x.number??x.article??x.productNum),
       code:clean(x.code??x.quickCode),
       type:clean(x.type??x.productType).toUpperCase(),
-      unit:unitName(x.mainUnit??x.unit??x.measureUnit),
+      unit,
       groupId:parentId,
-      groupName:groupMap.get(parentId)||"",
+      groupName:visibleText(groupMap.get(parentId)),
       categoryId,
-      categoryName:categoryMap.get(categoryId)||"",
+      categoryName:visibleText(categoryMap.get(categoryId)),
       deleted:Boolean(x.deleted??x.isDeleted),
       notInStoreMovement:Boolean(x.notInStoreMovement)
     }
@@ -62,9 +140,10 @@ async function loadMetadata(connection){
     iikoText(connection,"/resto/api/corporation/stores",{headers:{Accept:"application/json, application/xml, text/xml, */*"}}),
     iikoJson(connection,"/resto/api/v2/entities/products/list?includeDeleted=false"),
     iikoJson(connection,"/resto/api/v2/entities/products/group/list?includeDeleted=false"),
-    iikoJson(connection,"/resto/api/v2/entities/products/category/list?includeDeleted=false")
+    iikoJson(connection,"/resto/api/v2/entities/products/category/list?includeDeleted=false"),
+    iikoText(connection,"/resto/api/products?includeDeleted=false",{headers:{Accept:"application/xml, text/xml, application/json, */*"}})
   ]);
-  const storesRaw=results[0],productsRaw=results[1],groupsRaw=results[2],categoriesRaw=results[3];
+  const storesRaw=results[0],productsRaw=results[1],groupsRaw=results[2],categoriesRaw=results[3],legacyProductsRaw=results[4];
 
   if(!storesRaw.ok)throw new Error("Список складов: HTTP "+storesRaw.status);
   if(!productsRaw.ok||!productsRaw.payload)throw new Error("Номенклатура: HTTP "+productsRaw.status);
@@ -77,16 +156,22 @@ async function loadMetadata(connection){
   const groupMap=new Map(groups.map(x=>[idOf(x),nameOf(x)]).filter(x=>x[0]&&x[1]));
   const categoryMap=new Map(categories.map(x=>[idOf(x),nameOf(x)]).filter(x=>x[0]&&x[1]));
   const stores=normalizeStores(storesRaw.text,storePayload);
-  const products=normalizeProducts(productsRaw.payload,groupMap,categoryMap);
+  const legacyUnits=legacyProductsRaw?.ok?legacyUnitMap(legacyProductsRaw.text):new Map();
+  const products=normalizeProducts(productsRaw.payload,groupMap,categoryMap,legacyUnits);
 
-  const data={stores,products};
+  const data={stores,products,legacyUnitCount:legacyUnits.size};
   metaCache.set(cacheKey,{data,expiresAt:Date.now()+META_TTL_MS});
   return{...data,cacheHit:false};
 }
 
 function balanceList(payload){return list(payload).map(x=>({
-  storeId:key(x.store??x.storeId??x.warehouse??x.warehouseId),
-  productId:key(x.product??x.productId),
+  storeId:refId(x.store??x.storeId??x.warehouse??x.warehouseId),
+  storeName:visibleText(x.storeName??x.warehouseName??inlineName(x.store)??inlineName(x.warehouse)),
+  productId:refId(x.product??x.productId),
+  productName:visibleText(x.productName??inlineName(x.product)),
+  productNum:clean(x.productNum??x.num),
+  productCode:clean(x.productCode??x.code),
+  unit:visibleText(unitRaw(x.unit??x.measureUnit??x.productMeasureUnit)),
   amount:num(x.amount??x.quantity??x.qty)??0,
   sum:num(x.sum??x.costSum??x.value)??0,
   minAmount:num(x.minAmount??x.minimum??x.min),
@@ -134,11 +219,14 @@ export async function onRequestPost({request}){
     const seen=new Set();
 
     for(const x of balances){
-      const p=productMap.get(x.productId)||{id:x.productId,name:x.productId,num:"",code:"",type:"",unit:"",groupId:"",groupName:"",categoryId:"",categoryName:""};
-      const s=storeMap.get(x.storeId)||{id:x.storeId,name:x.storeId,parentId:""};
+      const p=productMap.get(x.productId)||{id:x.productId,name:"",num:"",code:"",type:"",unit:"",groupId:"",groupName:"",categoryId:"",categoryName:""};
+      const s=storeMap.get(x.storeId)||{id:x.storeId,name:"",parentId:""};
+      const productName=visibleText(x.productName)||visibleText(p.name)||compactProductName(x.productId);
+      const storeName=visibleText(x.storeName)||visibleText(s.name)||compactStoreName(x.storeId);
+      const unit=visibleText(x.unit)||visibleText(p.unit)||"";
       const unitCost=Math.abs(x.amount)>1e-12?x.sum/x.amount:null;
       const belowMin=x.minAmount!==null&&x.amount<x.minAmount;
-      rows.push({...x,productName:p.name,productNum:p.num,productCode:p.code,productType:p.type,unit:p.unit,groupId:p.groupId,groupName:p.groupName,categoryId:p.categoryId,categoryName:p.categoryName,storeName:s.name,storeParentId:s.parentId,unitCost,belowMin,syntheticZero:false});
+      rows.push({...x,productName,productNum:x.productNum||p.num,productCode:x.productCode||p.code,productType:p.type,unit,groupId:p.groupId,groupName:p.groupName,categoryId:p.categoryId,categoryName:p.categoryName,storeName,storeParentId:s.parentId,unitCost,belowMin,syntheticZero:false});
       seen.add(x.storeId+"|"+x.productId);
     }
 
@@ -149,12 +237,13 @@ export async function onRequestPost({request}){
     let syntheticCount=0;
     if(b.includeZero!==false&&activeStores.length){
       outer:for(const storeId of activeStores){
-        const s=storeMap.get(storeId)||{id:storeId,name:storeId,parentId:""};
+        const s=storeMap.get(storeId)||{id:storeId,name:"",parentId:""};
+        const storeName=visibleText(s.name)||compactStoreName(storeId);
         for(const p of inventoryProducts){
           const k=storeId+"|"+p.id;
           if(seen.has(k))continue;
           if(syntheticCount>=ZERO_LIMIT){zeroExpansionTruncated=true;break outer}
-          rows.push({storeId,productId:p.id,amount:0,sum:0,minAmount:null,maxAmount:null,productName:p.name,productNum:p.num,productCode:p.code,productType:p.type,unit:p.unit,groupId:p.groupId,groupName:p.groupName,categoryId:p.categoryId,categoryName:p.categoryName,storeName:s.name,storeParentId:s.parentId,unitCost:null,belowMin:false,syntheticZero:true});
+          rows.push({storeId,productId:p.id,amount:0,sum:0,minAmount:null,maxAmount:null,productName:p.name,productNum:p.num,productCode:p.code,productType:p.type,unit:visibleText(p.unit),groupId:p.groupId,groupName:p.groupName,categoryId:p.categoryId,categoryName:p.categoryName,storeName,storeParentId:s.parentId,unitCost:null,belowMin:false,syntheticZero:true});
           syntheticCount++;
         }
       }
@@ -184,6 +273,8 @@ export async function onRequestPost({request}){
         syntheticZeroRows:syntheticCount,
         zeroExpansionTruncated,
         metadataCacheHit:meta.cacheHit===true,
+        resolvedStoreCount:meta.stores.length,
+        resolvedLegacyUnitCount:Number(meta.legacyUnitCount||0),
         authCacheHit:balanceResult.auth?.cacheHit===true
       }
     });
