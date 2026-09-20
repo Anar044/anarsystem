@@ -67,7 +67,7 @@ function parseProducts(payload,groups,categories,units){
   for(const x of list(payload)){
     const id=key(x);if(!id)continue;
     const groupId=key(x.parent??x.parentId??x.group??x.groupId),categoryId=key(x.category??x.categoryId),unitRef=x.mainUnit??x.unit??x.measureUnit,unitId=key(unitRef);
-    const p={id,name:visible(nameOf(x))||("Товар · …"+id.slice(-6)),num:clean(x.num??x.number??x.article??x.productNum),code:clean(x.code??x.quickCode),type:clean(x.type??x.productType).toUpperCase(),unit:visible(inlineName(unitRef))||visible(units.get(unitId))||visible(unitRaw(unitRef)),groupId,groupName:groups.get(groupId)||"",categoryId,categoryName:categories.get(categoryId)||""};
+    const p={id,name:visible(nameOf(x))||("Товар · …"+id.slice(-6)),num:clean(x.num??x.number??x.article??x.productNum),code:clean(x.code??x.quickCode),type:clean(x.type??x.productType).toUpperCase(),notInStoreMovement:Boolean(x.notInStoreMovement),unit:visible(inlineName(unitRef))||visible(units.get(unitId))||visible(unitRaw(unitRef)),groupId,groupName:groups.get(groupId)||"",categoryId,categoryName:categories.get(categoryId)||""};
     map.set(id,p);const nk=norm(p.name);if(nk&&!byName.has(nk))byName.set(nk,id);else if(nk)byName.set(nk,null);
   }
   return{map,byName};
@@ -276,13 +276,55 @@ export async function onRequestPost({request}){
     const inMap=aggregateDocs(incoming.docs,"incoming",storeId,relevantStores),outMap=aggregateDocs(outgoing.docs,"outgoing",storeId,relevantStores),transferMap=aggregateTransfers(transfers.docs,storeId);
     const writeoffMap=aggregateDocs(writeoffs.docs,"writeoff",storeId,relevantStores);
 
-    const theoryQty=new Map();let soldQty=0,coveredQty=0,revenue=0,olapCost=0;
+    const theoryQty=new Map();
+    let soldQty=0,eligibleQty=0,coveredQty=0,directQty=0,excludedQty=0,revenue=0,olapCost=0;
+    const coverageIssuesMap=new Map();
+    const addCoverageIssue=(s,p,q,reason)=>{
+      const k=s.dishId||norm(s.dishName)||s.rawDishId||"unknown";
+      const prev=coverageIssuesMap.get(k)||{
+        dishName:s.dishName||p?.name||"Без названия",
+        productId:s.dishId||"",
+        productType:p?.type||"",
+        reason,
+        quantity:0,
+        revenue:0,
+        rows:0
+      };
+      prev.quantity+=q;
+      prev.revenue+=Number(s.revenue||0);
+      prev.rows++;
+      coverageIssuesMap.set(k,prev);
+    };
     for(const s of sales.rows){
       const q=Math.abs(s.quantity);soldQty+=q;revenue+=s.revenue;olapCost+=s.cost;
-      if(!s.dishId||!chooseChart(meta.charts,s.dishId,s.date||from))continue;
-      const ok=expandRecipe(meta.charts,s.dishId,q,s.date||from,theoryQty);
-      if(ok)coveredQty+=q;
+      const p=s.dishId?meta.products.get(s.dishId):null;
+      const chart=s.dishId?chooseChart(meta.charts,s.dishId,s.date||from):null;
+
+      if(chart){
+        eligibleQty+=q;
+        const ok=expandRecipe(meta.charts,s.dishId,q,s.date||from,theoryQty);
+        if(ok)coveredQty+=q;
+        else addCoverageIssue(s,p,q,"EMPTY_CHART");
+        continue;
+      }
+
+      if(p?.notInStoreMovement||p?.type==="SERVICE"){
+        excludedQty+=q;
+        continue;
+      }
+
+      if(p&&["GOODS","OUTER","MODIFIER"].includes(p.type)){
+        eligibleQty+=q;
+        coveredQty+=q;
+        directQty+=q;
+        theoryQty.set(p.id,(theoryQty.get(p.id)||0)+q);
+        continue;
+      }
+
+      eligibleQty+=q;
+      addCoverageIssue(s,p,q,p?.type==="DISH"||p?.type==="PREPARED"?"MISSING_CHART":"UNMAPPED_PRODUCT");
     }
+    const coverageIssues=[...coverageIssuesMap.values()].sort((a,b)=>b.quantity-a.quantity||b.revenue-a.revenue).slice(0,20);
 
     const productIds=new Set([...opening.byProduct.keys(),...closing.byProduct.keys(),...inMap.keys(),...outMap.keys(),...transferMap.keys(),...writeoffMap.keys(),...theoryQty.keys()]);
     const rows=[];
@@ -341,7 +383,7 @@ export async function onRequestPost({request}){
         theoreticalFoodCostPct:percent(theoreticalCost,revenue),actualFoodCostPct:percent(actualValue,revenue),
         openingValue:openingValueAtCost,closingValue:closingValueAtCost,
         incomingValue:incomingValueAtCost,outgoingValue:outgoingValueAtCost,transferAdjustmentValue:transferAdjustmentValueAtCost,
-        documentedWriteoffValue:writeoffValue,unexplainedVariance,soldQty,coveredQty,uncoveredQty:Math.max(0,soldQty-coveredQty),recipeCoveragePct:soldQty?coveredQty/soldQty*100:0,
+        documentedWriteoffValue:writeoffValue,unexplainedVariance,soldQty,eligibleQty,coveredQty,directQty,excludedQty,uncoveredQty:Math.max(0,eligibleQty-coveredQty),recipeCoveragePct:eligibleQty?coveredQty/eligibleQty*100:100,
         ingredientCount:rows.length,
         overuseCount:rows.filter(x=>x.varianceClass==="overuse").length,
         savingCount:rows.filter(x=>x.varianceClass==="saving").length,
@@ -349,7 +391,7 @@ export async function onRequestPost({request}){
         stockIncreaseCount:rows.filter(x=>x.varianceClass==="stock_increase").length
       },
       sources:{
-        sales:{ok:true,rows:sales.rows.length,costField:sales.fields.costField||null,matchStats:sales.matchStats,unmatched:sales.unmatched},
+        sales:{ok:true,rows:sales.rows.length,costField:sales.fields.costField||null,matchStats:sales.matchStats,unmatched:coverageIssues,directQty,excludedQty,eligibleQty},
         recipes:{ok:meta.chartStatus>=200&&meta.chartStatus<300,count:meta.chartCount,status:meta.chartStatus,from,to},
         openingBalance:{ok:true,rows:opening.rows.length,timestamp:startTs},
         closingBalance:{ok:true,rows:closing.rows.length,timestamp:endTs},
