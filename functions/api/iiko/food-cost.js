@@ -156,7 +156,7 @@ async function loadV2Docs(connection,path,from,to){
   const q=new URLSearchParams({dateFrom:from,dateTo:to}),r=await iikoJson(connection,path+"?"+q.toString(),{timeoutMs:60000});
   return{ok:r.ok,status:r.status,docs:r.ok?normalizeV2Docs(r.payload):[]};
 }
-async function loadSales(connection,from,to,departmentIds,productByName){
+async function loadSales(connection,from,to,departmentIds,productByName,products,chartMap){
   const meta=await getOlapFields(connection,"SALES"),fields=meta.fields||[];
   const dateField=fieldName(fields,["OpenDate.Typed","OpenDate"]);
   const dishIdField=fieldName(fields,["Dish.Id","DishId","Product.Id","ProductId"]);
@@ -179,11 +179,22 @@ async function loadSales(connection,from,to,departmentIds,productByName){
     r=await iikoJson(connection,"/resto/api/v2/reports/olap",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify(req)});
   }
   if(!r.ok)throw new Error("SALES OLAP HTTP "+r.status+": "+String(r.text||"").slice(0,500));
+  const matchStats={chartById:0,chartByName:0,productById:0,productByName:0,unmapped:0};
   const rows=extractRows(r.payload).map(raw=>{
-    const dishName=clean(dishNameField?raw[dishNameField]:""),rawId=key(dishIdField?raw[dishIdField]:""),mapped=rawId||productByName.get(norm(dishName))||"";
-    return{date:dateOnly(raw[dateField]),dishId:mapped,dishName,quantity:num(raw[qtyField]),revenue:num(raw[revenueField]),cost:costField?num(raw[costField]):0};
+    const dishName=clean(dishNameField?raw[dishNameField]:"");
+    const rawId=key(dishIdField?raw[dishIdField]:"");
+    const nameId=productByName.get(norm(dishName))||"";
+    let mapped="",matchMode="unmapped";
+    if(rawId&&chartMap.has(rawId)){mapped=rawId;matchMode="chartById"}
+    else if(nameId&&chartMap.has(nameId)){mapped=nameId;matchMode="chartByName"}
+    else if(rawId&&products.has(rawId)){mapped=rawId;matchMode="productById"}
+    else if(nameId){mapped=nameId;matchMode="productByName"}
+    else if(rawId){mapped=rawId}
+    if(matchMode==="unmapped")matchStats.unmapped++;else matchStats[matchMode]++;
+    return{date:dateOnly(raw[dateField]),dishId:mapped,dishName,rawDishId:rawId,matchMode,quantity:num(raw[qtyField]),revenue:num(raw[revenueField]),cost:costField?num(raw[costField]):0};
   }).filter(x=>x.quantity!==0||x.revenue!==0||x.cost!==0);
-  return{rows,fields:{dateField,dishIdField,dishNameField,qtyField,revenueField,costField,departmentField},fieldsCacheHit:meta.cacheHit===true,authCacheHit:r.auth?.cacheHit===true};
+  const unmatched=rows.filter(x=>!x.dishId||!chartMap.has(x.dishId)).slice(0,12).map(x=>({dishName:x.dishName,rawDishId:x.rawDishId,mappedDishId:x.dishId,matchMode:x.matchMode}));
+  return{rows,matchStats,unmatched,fields:{dateField,dishIdField,dishNameField,qtyField,revenueField,costField,departmentField},fieldsCacheHit:meta.cacheHit===true,authCacheHit:r.auth?.cacheHit===true};
 }
 function aggregateDocs(docs,kind,storeId,relevantStores){
   const map=new Map(),includeStore=sid=>storeId?sid===storeId:(!relevantStores.size||!sid||relevantStores.has(sid));
@@ -219,7 +230,7 @@ export async function onRequestPost({request}){
     const meta=await loadMeta(connection,from,to);
     const startTs=from+"T00:00:00",endTs=to+"T23:59:59";
     const [sales,opening,closing,incoming,outgoing,transfers,writeoffs]=await Promise.all([
-      loadSales(connection,from,to,departmentIds,meta.productByName),
+      loadSales(connection,from,to,departmentIds,meta.productByName,meta.products,meta.charts),
       balance(connection,startTs,departmentIds,storeId),
       balance(connection,endTs,departmentIds,storeId),
       loadInvoices(connection,"incoming",from,to),
@@ -246,18 +257,28 @@ export async function onRequestPost({request}){
       const p=meta.products.get(id)||{id,name:"Товар · …"+id.slice(-6),num:"",code:"",unit:"",groupName:"",categoryName:"",type:""};
       const op=get(opening.byProduct,id),cl=get(closing.byProduct,id),inc=get(inMap,id),out=get(outMap,id),tr=get(transferMap,id);
       const actualQty=op.amount+inc.amount-out.amount+tr.amount-cl.amount;
-      const actualValue=op.sum+inc.value-out.value+tr.value-cl.sum;
       const tq=theoryQty.get(id)||0;
-      const basisQty=Math.abs(op.amount)+Math.abs(cl.amount)+Math.abs(inc.amount),basisValue=Math.abs(op.sum)+Math.abs(cl.sum)+Math.abs(inc.value);
-      const unitCost=basisQty>1e-12?basisValue/basisQty:(Math.abs(actualQty)>1e-12?Math.abs(actualValue/actualQty):0);
+      const basisQty=Math.abs(op.amount)+Math.abs(cl.amount)+Math.abs(inc.amount);
+      const basisValue=Math.abs(op.sum)+Math.abs(cl.sum)+Math.abs(inc.value);
+      const fallbackQty=Math.abs(op.amount)+Math.abs(inc.amount)+Math.abs(cl.amount);
+      const fallbackValue=Math.abs(op.sum)+Math.abs(inc.value)+Math.abs(cl.sum);
+      const unitCost=basisQty>1e-12?basisValue/basisQty:(fallbackQty>1e-12?fallbackValue/fallbackQty:0);
+      // External outgoing invoices affect quantity, but their document amount can be a sale/issue price,
+      // not warehouse cost. Value the calculated physical usage at warehouse cost to keep qty/value consistent.
+      const actualValue=actualQty*unitCost;
       const theoreticalValue=tq*unitCost,varianceQty=actualQty-tq,varianceValue=actualValue-theoreticalValue,variancePct=Math.abs(theoreticalValue)>1e-12?varianceValue/Math.abs(theoreticalValue)*100:null;
       if(Math.abs(actualQty)<1e-9&&Math.abs(tq)<1e-9&&Math.abs(actualValue)<0.005)continue;
-      rows.push({productId:id,productName:p.name,productNum:p.num,productCode:p.code,unit:p.unit,groupName:p.groupName,categoryName:p.categoryName,productType:p.type,openingQty:op.amount,incomingQty:inc.amount,outgoingQty:out.amount,transferQty:tr.amount,closingQty:cl.amount,theoreticalQty:tq,actualQty,varianceQty,unitCost,theoreticalValue,actualValue,varianceValue,variancePct});
+      const outgoingValueAtCost=out.amount*unitCost;
+      const writeoffQty=get(writeoffMap,id).amount;
+      const writeoffValueAtCost=writeoffQty*unitCost;
+      rows.push({productId:id,productName:p.name,productNum:p.num,productCode:p.code,unit:p.unit,groupName:p.groupName,categoryName:p.categoryName,productType:p.type,openingQty:op.amount,incomingQty:inc.amount,outgoingQty:out.amount,outgoingValueAtCost,transferQty:tr.amount,closingQty:cl.amount,theoreticalQty:tq,actualQty,varianceQty,unitCost,theoreticalValue,actualValue,varianceValue,variancePct,writeoffQty,writeoffValueAtCost});
     }
     rows.sort((a,b)=>Math.abs(b.varianceValue)-Math.abs(a.varianceValue)||a.productName.localeCompare(b.productName,"ru"));
 
     const recipeTheoryValue=rows.reduce((s,x)=>s+x.theoreticalValue,0),actualValue=rows.reduce((s,x)=>s+x.actualValue,0),theoreticalCost=sales.fields.costField?olapCost:recipeTheoryValue,varianceValue=actualValue-theoreticalCost;
-    const writeoffValue=sumMap(writeoffMap,"value"),unexplainedVariance=varianceValue-writeoffValue;
+    const writeoffValue=rows.reduce((s,x)=>s+Number(x.writeoffValueAtCost||0),0);
+    const outgoingValueAtCost=rows.reduce((s,x)=>s+Number(x.outgoingValueAtCost||0),0);
+    const unexplainedVariance=varianceValue-writeoffValue;
     const stores=meta.stores.map(x=>({id:x.id,name:x.name})).sort((a,b)=>a.name.localeCompare(b.name,"ru"));
     return json({
       success:true,requestId,from,to,storeId:storeId||null,rows,stores,
@@ -265,12 +286,12 @@ export async function onRequestPost({request}){
         revenue,theoreticalCost,recipeTheoryValue,actualCost:actualValue,varianceValue,variancePct:percent(varianceValue,theoreticalCost),
         theoreticalFoodCostPct:percent(theoreticalCost,revenue),actualFoodCostPct:percent(actualValue,revenue),
         openingValue:[...opening.byProduct.values()].reduce((s,x)=>s+x.sum,0),closingValue:[...closing.byProduct.values()].reduce((s,x)=>s+x.sum,0),
-        incomingValue:sumMap(inMap,"value"),outgoingValue:sumMap(outMap,"value"),transferAdjustmentValue:sumMap(transferMap,"value"),
+        incomingValue:sumMap(inMap,"value"),outgoingValue:outgoingValueAtCost,transferAdjustmentValue:sumMap(transferMap,"value"),
         documentedWriteoffValue:writeoffValue,unexplainedVariance,soldQty,coveredQty,recipeCoveragePct:soldQty?coveredQty/soldQty*100:0,
         ingredientCount:rows.length
       },
       sources:{
-        sales:{ok:true,rows:sales.rows.length,costField:sales.fields.costField||null},
+        sales:{ok:true,rows:sales.rows.length,costField:sales.fields.costField||null,matchStats:sales.matchStats,unmatched:sales.unmatched},
         recipes:{ok:meta.chartStatus>=200&&meta.chartStatus<300,count:meta.chartCount,status:meta.chartStatus,from,to},
         openingBalance:{ok:true,rows:opening.rows.length,timestamp:startTs},
         closingBalance:{ok:true,rows:closing.rows.length,timestamp:endTs},
@@ -279,7 +300,7 @@ export async function onRequestPost({request}){
         transfers:{ok:transfers.ok,status:transfers.status,documents:transfers.docs.length},
         writeoffs:{ok:writeoffs.ok,status:writeoffs.status,documents:writeoffs.docs.length}
       },
-      meta:{departmentIds,departmentScopeApplied:departmentIds.length>0,metadataCacheHit:meta.cacheHit===true,olapFieldsCacheHit:sales.fieldsCacheHit,theoreticalCostSource:sales.fields.costField?"SALES_OLAP_COST":"RECIPE_ESTIMATE",salesFields:sales.fields}
+      meta:{departmentIds,departmentScopeApplied:departmentIds.length>0,metadataCacheHit:meta.cacheHit===true,olapFieldsCacheHit:sales.fieldsCacheHit,theoreticalCostSource:sales.fields.costField?"SALES_OLAP_COST":"RECIPE_ESTIMATE",salesFields:sales.fields,salesMatchStats:sales.matchStats}
     });
   }catch(e){
     console.error("[FOOD-COST]",requestId,e);
