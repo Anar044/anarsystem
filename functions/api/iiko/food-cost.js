@@ -251,7 +251,7 @@ export async function onRequestPost({request}){
       if(ok)coveredQty+=q;
     }
 
-    const productIds=new Set([...opening.byProduct.keys(),...closing.byProduct.keys(),...inMap.keys(),...outMap.keys(),...transferMap.keys(),...theoryQty.keys()]);
+    const productIds=new Set([...opening.byProduct.keys(),...closing.byProduct.keys(),...inMap.keys(),...outMap.keys(),...transferMap.keys(),...writeoffMap.keys(),...theoryQty.keys()]);
     const rows=[];
     for(const id of productIds){
       const p=meta.products.get(id)||{id,name:"Товар · …"+id.slice(-6),num:"",code:"",unit:"",groupName:"",categoryName:"",type:""};
