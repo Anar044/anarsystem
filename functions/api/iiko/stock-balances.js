@@ -36,6 +36,17 @@ function xmlBlocks(source,names){
   }
   return out;
 }
+function xmlRootChildren(source){
+  let text=String(source||"").replace(/^\uFEFF/,"").trim();
+  text=text.replace(/^<\?xml[\s\S]*?\?>\s*/i,"").trim();
+  const root=text.match(/^<([A-Za-z][\w:.-]*)\b[^>]*>([\s\S]*)<\/\1>\s*$/i);
+  const body=root?root[2]:text;
+  const out=[];
+  const re=/<([A-Za-z][\w:.-]*)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  let m;
+  while((m=re.exec(body)))out.push(m[0]);
+  return out;
+}
 function idOf(x){return key(x?.id??x?.uuid??x?.entityId??x?.productId??x?.storeId)}
 function nameOf(x){return clean(x?.name??x?.title??x?.description??x?.fullName)}
 function refId(v){if(v&&typeof v==="object")return key(v.id??v.uuid??v.entityId??v.storeId??v.productId);return key(v)}
@@ -66,47 +77,36 @@ function normalizeStores(rawText,payload){
     name:nameOf(x),
     parentId:refId(x.parent??x.parentId??x.department??x.departmentId)
   })).filter(x=>x.id&&x.name);
-  const xmlRows=xmlBlocks(rawText,["corporateItemDto","store","storeDto","warehouse","department","item"]).map(b=>({
+  const parseStoreBlock=b=>({
     id:key(xmlTag(b,["id","uuid","entityId","storeId","warehouseId"])),
     name:clean(xmlTag(b,["name","title","description","fullName"])),
     parentId:key(xmlTag(b,["parent","parentId","department","departmentId"]))
-  })).filter(x=>x.id&&x.name);
-  return dedupeRefs([...direct,...jsonRows,...xmlRows]);
+  });
+  const topLevelRows=xmlRootChildren(rawText).map(parseStoreBlock).filter(x=>x.id&&x.name);
+  const namedRows=xmlBlocks(rawText,["corporateItemDto","corporateItem","store","storeDto","warehouse","department","item"]).map(parseStoreBlock).filter(x=>x.id&&x.name);
+  return dedupeRefs([...direct,...jsonRows,...topLevelRows,...namedRows]);
 }
 
-function legacyUnitMap(rawText){
+function normalizeUnitMap(payload){
+  const rows=list(payload);
   const map=new Map();
-  const add=(id,unit)=>{
-    const pid=key(id),name=visibleText(unit);
-    if(pid&&name&&!map.has(pid))map.set(pid,name);
-  };
-  const source=String(rawText||"").trim();
-  if(source[0]==="{"||source[0]==="["){
-    try{
-      const walk=v=>{
-        if(Array.isArray(v)){v.forEach(walk);return}
-        if(!v||typeof v!=="object")return;
-        const id=v.id??v.uuid??v.entityId??v.productId;
-        const unit=unitRaw(v.mainUnit??v.unit??v.measureUnit);
-        if(id&&unit)add(id,unit);
-        for(const x of Object.values(v))if(x&&typeof x==="object")walk(x);
-      };
-      walk(JSON.parse(source));
-    }catch(_){}
-  }
-  for(const block of xmlBlocks(source,["productDto","product"])){
-    add(xmlTag(block,["id","uuid","entityId","productId"]),xmlTag(block,["mainUnit","measureUnit","unit"]));
+  for(const x of rows){
+    const id=idOf(x);
+    const name=visibleText(nameOf(x))||visibleText(x?.code);
+    if(id&&name&&!map.has(id))map.set(id,name);
   }
   return map;
 }
 
-function normalizeProducts(payload,groupMap,categoryMap,legacyUnits){
+function normalizeProducts(payload,groupMap,categoryMap,unitMap){
   return list(payload).map(x=>{
     const id=idOf(x);
     const parentId=refId(x.parent??x.parentId??x.group??x.groupId);
     const categoryId=refId(x.category??x.categoryId);
-    const rawUnit=unitRaw(x.mainUnit??x.unit??x.measureUnit);
-    const unit=visibleText(rawUnit)||visibleText(legacyUnits.get(id));
+    const unitRef=x.mainUnit??x.unit??x.measureUnit;
+    const unitId=refId(unitRef);
+    const rawUnit=unitRaw(unitRef);
+    const unit=visibleText(inlineName(unitRef))||visibleText(unitMap.get(unitId))||visibleText(rawUnit);
     return{
       id,
       name:visibleText(nameOf(x))||compactProductName(id),
@@ -131,13 +131,13 @@ async function loadMetadata(connection){
   if(cached&&cached.expiresAt>Date.now())return{...cached.data,cacheHit:true};
 
   const results=await Promise.all([
-    iikoText(connection,"/resto/api/corporation/stores",{headers:{Accept:"application/json, application/xml, text/xml, */*"}}),
+    iikoText(connection,"/resto/api/corporation/stores?revisionFrom=-1",{headers:{Accept:"application/xml, text/xml, application/json, */*"}}),
     iikoJson(connection,"/resto/api/v2/entities/products/list?includeDeleted=false"),
     iikoJson(connection,"/resto/api/v2/entities/products/group/list?includeDeleted=false"),
     iikoJson(connection,"/resto/api/v2/entities/products/category/list?includeDeleted=false"),
-    iikoText(connection,"/resto/api/products?includeDeleted=false",{headers:{Accept:"application/xml, text/xml, application/json, */*"}})
+    iikoJson(connection,"/resto/api/v2/entities/list?rootType=MeasureUnit")
   ]);
-  const storesRaw=results[0],productsRaw=results[1],groupsRaw=results[2],categoriesRaw=results[3],legacyProductsRaw=results[4];
+  const storesRaw=results[0],productsRaw=results[1],groupsRaw=results[2],categoriesRaw=results[3],unitsRaw=results[4];
 
   if(!storesRaw.ok)throw new Error("Список складов: HTTP "+storesRaw.status);
   if(!productsRaw.ok||!productsRaw.payload)throw new Error("Номенклатура: HTTP "+productsRaw.status);
@@ -150,10 +150,16 @@ async function loadMetadata(connection){
   const groupMap=new Map(groups.map(x=>[idOf(x),nameOf(x)]).filter(x=>x[0]&&x[1]));
   const categoryMap=new Map(categories.map(x=>[idOf(x),nameOf(x)]).filter(x=>x[0]&&x[1]));
   const stores=normalizeStores(storesRaw.text,storePayload);
-  const legacyUnits=legacyProductsRaw?.ok?legacyUnitMap(legacyProductsRaw.text):new Map();
-  const products=normalizeProducts(productsRaw.payload,groupMap,categoryMap,legacyUnits);
+  const unitMap=unitsRaw?.ok&&unitsRaw.payload?normalizeUnitMap(unitsRaw.payload):new Map();
+  const products=normalizeProducts(productsRaw.payload,groupMap,categoryMap,unitMap);
 
-  const data={stores,products,legacyUnitCount:legacyUnits.size};
+  const data={
+    stores,
+    products,
+    unitCount:unitMap.size,
+    storeReferenceStatus:storesRaw.status,
+    unitReferenceStatus:unitsRaw?.status??0
+  };
   metaCache.set(cacheKey,{data,expiresAt:Date.now()+META_TTL_MS});
   return{...data,cacheHit:false};
 }
@@ -268,7 +274,9 @@ export async function onRequestPost({request}){
         zeroExpansionTruncated,
         metadataCacheHit:meta.cacheHit===true,
         resolvedStoreCount:meta.stores.length,
-        resolvedLegacyUnitCount:Number(meta.legacyUnitCount||0),
+        resolvedUnitCount:Number(meta.unitCount||0),
+        storeReferenceStatus:Number(meta.storeReferenceStatus||0),
+        unitReferenceStatus:Number(meta.unitReferenceStatus||0),
         authCacheHit:balanceResult.auth?.cacheHit===true
       }
     });
