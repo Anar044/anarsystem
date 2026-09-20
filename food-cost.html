@@ -35,9 +35,9 @@
 <div id="fc-limit-note" class="limit-note"></div>
 </section>
 
-<section class="fc-note"><b>Формула Actual:</b> остаток на начало + приходы − внешний расход ± внутренние перемещения − остаток на конец. Для всех складов внутренние перемещения взаимно исключаются. Теория строится по SALES OLAP и техкартам iiko; при наличии поля себестоимости итоговый Theoretical Food Cost берётся из SALES OLAP.</section>
+<section class="fc-note"><b>Формула Actual:</b> остаток на начало + приходы ± внутренние перемещения − остаток на конец. Расходные накладные и списания уже отражены в конечном остатке и отдельно второй раз из Actual не вычитаются; они используются для объяснения отклонений. Внутренние блюда и полуфабрикаты с ASSEMBLE-техкартой исключаются из сравнения — теория раскрывает их до конечного сырья. Теория строится по SALES OLAP и техкартам iiko.</section>
 </section></div></main></div>
 
 <div id="fc-modal" class="modal-backdrop" hidden><div class="fc-modal"><button id="fc-modal-close" class="modal-close">×</button><div class="eyebrow">РАСЧЁТ ИНГРЕДИЕНТА</div><h2 id="fc-modal-title">—</h2><div id="fc-modal-grid" class="modal-grid"></div><div class="formula" id="fc-modal-formula"></div></div></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/auth-config.js"></script><script src="/auth.js"></script><script src="/iiko-context.js?v=20260910-2"></script><script src="/app-shell.js"></script><script src="/smart-horeca-sidebar-brand.js?v=20260920-1"></script><script src="/mobile-responsive.js?v=1"></script><script src="/food-cost.js?v=1"></script><script src="/documents-nav.js?v=8"></script></body></html>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/auth-config.js"></script><script src="/auth.js"></script><script src="/iiko-context.js?v=20260910-2"></script><script src="/app-shell.js"></script><script src="/smart-horeca-sidebar-brand.js?v=20260920-1"></script><script src="/mobile-responsive.js?v=1"></script><script src="/food-cost.js?v=2"></script><script src="/documents-nav.js?v=8"></script></body></html>
