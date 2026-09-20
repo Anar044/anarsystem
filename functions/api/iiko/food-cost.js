@@ -215,7 +215,18 @@ async function loadSales(connection,from,to,departmentIds,productByName,products
     if(matchMode==="unmapped")matchStats.unmapped++;else matchStats[matchMode]++;
     return{date:dateOnly(raw[dateField]),dishId:mapped,dishName,rawDishId:rawId,matchMode,quantity:num(raw[qtyField]),revenue:num(raw[revenueField]),cost:costField?num(raw[costField]):0};
   }).filter(x=>x.quantity!==0||x.revenue!==0||x.cost!==0);
-  const unmatched=rows.filter(x=>!x.dishId||!chartMap.has(x.dishId)).slice(0,12).map(x=>({dishName:x.dishName,rawDishId:x.rawDishId,mappedDishId:x.dishId,matchMode:x.matchMode}));
+  const unmatchedMap=new Map();
+  for(const x of rows){
+    if(x.dishId&&chartMap.has(x.dishId))continue;
+    const k=norm(x.dishName)||x.rawDishId||x.dishId||"unknown";
+    const prev=unmatchedMap.get(k)||{dishName:x.dishName||"Без названия",rawDishId:x.rawDishId,mappedDishId:x.dishId,quantity:0,revenue:0,cost:0,rows:0};
+    prev.quantity+=Math.abs(Number(x.quantity||0));
+    prev.revenue+=Number(x.revenue||0);
+    prev.cost+=Number(x.cost||0);
+    prev.rows++;
+    unmatchedMap.set(k,prev);
+  }
+  const unmatched=[...unmatchedMap.values()].sort((a,b)=>b.quantity-a.quantity||b.revenue-a.revenue).slice(0,20);
   return{rows,matchStats,unmatched,fields:{dateField,dishIdField,dishNameField,qtyField,revenueField,costField,departmentField},fieldsCacheHit:meta.cacheHit===true,authCacheHit:r.auth?.cacheHit===true};
 }
 function aggregateDocs(docs,kind,storeId,relevantStores){
@@ -299,9 +310,20 @@ export async function onRequestPost({request}){
       const outgoingValueAtCost=out.amount*unitCost;
       const writeoffQty=get(writeoffMap,id).amount;
       const writeoffValueAtCost=writeoffQty*unitCost;
-      rows.push({productId:id,productName:p.name,productNum:p.num,productCode:p.code,unit:p.unit,groupName:p.groupName,categoryName:p.categoryName,productType:p.type,openingQty:op.amount,incomingQty:inc.amount,outgoingQty:out.amount,outgoingValueAtCost,transferQty:tr.amount,closingQty:cl.amount,theoreticalQty:tq,actualQty,varianceQty,unitCost,theoreticalValue,actualValue,varianceValue,variancePct,writeoffQty,writeoffValueAtCost});
+      let varianceClass="normal";
+      const qtyEps=1e-6,valEps=0.01;
+      if(actualQty<-qtyEps)varianceClass="stock_increase";
+      else if(Math.abs(tq)<=qtyEps&&actualQty>qtyEps)varianceClass="unplanned_usage";
+      else if(Math.abs(tq)<=qtyEps&&Math.abs(actualQty)<=qtyEps)varianceClass="neutral";
+      else if(varianceValue>valEps)varianceClass="overuse";
+      else if(varianceValue<-valEps)varianceClass="saving";
+      rows.push({productId:id,productName:p.name,productNum:p.num,productCode:p.code,unit:p.unit,groupName:p.groupName,categoryName:p.categoryName,productType:p.type,openingQty:op.amount,incomingQty:inc.amount,outgoingQty:out.amount,outgoingValueAtCost,transferQty:tr.amount,closingQty:cl.amount,theoreticalQty:tq,actualQty,varianceQty,unitCost,theoreticalValue,actualValue,varianceValue,variancePct,writeoffQty,writeoffValueAtCost,varianceClass});
     }
-    rows.sort((a,b)=>Math.abs(b.varianceValue)-Math.abs(a.varianceValue)||a.productName.localeCompare(b.productName,"ru"));
+    const rank={overuse:0,saving:1,normal:2,unplanned_usage:3,stock_increase:4,neutral:5};
+    rows.sort((a,b)=>{
+      const ah=Math.abs(Number(a.theoreticalQty||0))>1e-9?0:1,bh=Math.abs(Number(b.theoreticalQty||0))>1e-9?0:1;
+      return ah-bh||(rank[a.varianceClass]??9)-(rank[b.varianceClass]??9)||Math.abs(b.varianceValue)-Math.abs(a.varianceValue)||a.productName.localeCompare(b.productName,"ru");
+    });
 
     const recipeTheoryValue=rows.reduce((s,x)=>s+x.theoreticalValue,0),actualValue=rows.reduce((s,x)=>s+x.actualValue,0),theoreticalCost=sales.fields.costField?olapCost:recipeTheoryValue,varianceValue=actualValue-theoreticalCost;
     const openingValueAtCost=rows.reduce((s,x)=>s+Number(x.openingQty||0)*Number(x.unitCost||0),0);
@@ -319,8 +341,12 @@ export async function onRequestPost({request}){
         theoreticalFoodCostPct:percent(theoreticalCost,revenue),actualFoodCostPct:percent(actualValue,revenue),
         openingValue:openingValueAtCost,closingValue:closingValueAtCost,
         incomingValue:incomingValueAtCost,outgoingValue:outgoingValueAtCost,transferAdjustmentValue:transferAdjustmentValueAtCost,
-        documentedWriteoffValue:writeoffValue,unexplainedVariance,soldQty,coveredQty,recipeCoveragePct:soldQty?coveredQty/soldQty*100:0,
-        ingredientCount:rows.length
+        documentedWriteoffValue:writeoffValue,unexplainedVariance,soldQty,coveredQty,uncoveredQty:Math.max(0,soldQty-coveredQty),recipeCoveragePct:soldQty?coveredQty/soldQty*100:0,
+        ingredientCount:rows.length,
+        overuseCount:rows.filter(x=>x.varianceClass==="overuse").length,
+        savingCount:rows.filter(x=>x.varianceClass==="saving").length,
+        unplannedUsageCount:rows.filter(x=>x.varianceClass==="unplanned_usage").length,
+        stockIncreaseCount:rows.filter(x=>x.varianceClass==="stock_increase").length
       },
       sources:{
         sales:{ok:true,rows:sales.rows.length,costField:sales.fields.costField||null,matchStats:sales.matchStats,unmatched:sales.unmatched},
