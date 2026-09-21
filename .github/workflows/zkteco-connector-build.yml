@@ -1,0 +1,104 @@
+name: ZKTeco Connector Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - zkteco-local-connector
+    paths:
+      - 'connectors/zkteco/**'
+      - '.github/workflows/zkteco-connector-build.yml'
+  pull_request:
+    paths:
+      - 'connectors/zkteco/**'
+      - '.github/workflows/zkteco-connector-build.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        runtime: [win-x64, win-x86]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore Connector
+        run: dotnet restore connectors/zkteco/SmartHoreca.ZKTeco.Connector.csproj
+
+      - name: Restore Tray
+        run: dotnet restore connectors/zkteco/Tray/SmartHoreca.ZKTeco.Tray.csproj
+
+      - name: Publish Connector EXE
+        run: dotnet publish connectors/zkteco/SmartHoreca.ZKTeco.Connector.csproj -c Release -r ${{ matrix.runtime }} --self-contained true -o artifacts/${{ matrix.runtime }}
+
+      - name: Publish Tray EXE
+        run: dotnet publish connectors/zkteco/Tray/SmartHoreca.ZKTeco.Tray.csproj -c Release -r ${{ matrix.runtime }} --self-contained true -o artifacts/${{ matrix.runtime }}
+
+      - name: Copy package files
+        shell: pwsh
+        run: |
+          Copy-Item connectors/zkteco/connector.example.json artifacts/${{ matrix.runtime }}/connector.example.json
+          Copy-Item connectors/zkteco/README.md artifacts/${{ matrix.runtime }}/README.md
+          Copy-Item connectors/zkteco/scripts/install-service.ps1 artifacts/${{ matrix.runtime }}/install-service.ps1
+          Copy-Item connectors/zkteco/scripts/uninstall-service.ps1 artifacts/${{ matrix.runtime }}/uninstall-service.ps1
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build one-click Setup EXE
+        shell: pwsh
+        run: |
+          $source = (Resolve-Path "artifacts/${{ matrix.runtime }}").Path
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found: $iscc" }
+          & $iscc "/DSourceDir=$source" "/DRuntime=${{ matrix.runtime }}" "connectors\zkteco\installer\SmartHoreca-ZKTeco.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+
+      - name: Verify Setup installs service without PowerShell
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path "connectors/zkteco/installer/output/SmartHoreca-ZKTeco-Setup-${{ matrix.runtime }}.exe").Path
+          $proc = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Setup returned $($proc.ExitCode)" }
+
+          Start-Sleep -Seconds 3
+          $service = Get-Service -Name "SmartHorecaZKTecoConnector" -ErrorAction Stop
+          if ($service.Status -ne "Running") {
+            throw "Connector service is not running. Current status: $($service.Status)"
+          }
+
+          $urlAcl = (& netsh http show urlacl url=http://+:8088/) 2>&1 | Out-String
+          if ($urlAcl -notmatch "8088") { throw "URL ACL for port 8088 was not created." }
+
+          $fw = Get-NetFirewallRule -DisplayName "SmartHoreca ZKTeco TA Push" -ErrorAction Stop
+          if (-not $fw.Enabled) { throw "Firewall rule is not enabled." }
+
+          Write-Host "One-click installer verified: service RUNNING, URL ACL present, firewall rule present."
+
+      - name: Cleanup installer smoke test
+        if: always()
+        shell: pwsh
+        run: |
+          $uninstaller = "C:\ProgramData\SmartHoreca\ZKTecoConnector\App\unins000.exe"
+          if (Test-Path $uninstaller) {
+            Start-Process -FilePath $uninstaller -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+          }
+          sc.exe stop SmartHorecaZKTecoConnector 2>$null | Out-Null
+          sc.exe delete SmartHorecaZKTecoConnector 2>$null | Out-Null
+          netsh http delete urlacl url=http://+:8088/ 2>$null | Out-Null
+          netsh advfirewall firewall delete rule name="SmartHoreca ZKTeco TA Push" 2>$null | Out-Null
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SmartHoreca-ZKTeco-Connector-${{ matrix.runtime }}
+          path: |
+            artifacts/${{ matrix.runtime }}/
+            connectors/zkteco/installer/output/SmartHoreca-ZKTeco-Setup-${{ matrix.runtime }}.exe
+          if-no-files-found: error

@@ -1,0 +1,45 @@
+{
+  "Server": {
+    "BaseUrl": "https://YOUR-SMARTHORECA-DOMAIN",
+    "IngestPath": "/api/hr/device-ingest",
+    "TimeoutSeconds": 30,
+    "SyncIntervalSeconds": 5
+  },
+  "Queue": {
+    "BatchSize": 200,
+    "RetentionDays": 90
+  },
+  "TaPushListenPort": 8088,
+  "UtcOffsetMinutes": 240,
+  "DataDirectory": "",
+  "Devices": [
+    {
+      "Key": "main-entrance",
+      "Name": "Main entrance",
+      "Model": "SenseFace 3A",
+      "Adapter": "TA_PUSH",
+      "IpAddress": "192.168.1.150",
+      "Port": 4370,
+      "SerialNumber": "PUT_DEVICE_SERIAL_HERE",
+      "MachineNumber": 1,
+      "PollSeconds": 60,
+      "LookbackDays": 90,
+      "DeviceToken": "PUT_SMARTHORECA_DEVICE_TOKEN_HERE",
+      "Enabled": true
+    },
+    {
+      "Key": "staff-door-f18",
+      "Name": "Staff door F18",
+      "Model": "F18",
+      "Adapter": "ZKEMKEEPER",
+      "IpAddress": "192.168.1.151",
+      "Port": 4370,
+      "SerialNumber": "",
+      "MachineNumber": 1,
+      "PollSeconds": 60,
+      "LookbackDays": 90,
+      "DeviceToken": "PUT_SMARTHORECA_DEVICE_TOKEN_HERE",
+      "Enabled": false
+    }
+  ]
+}

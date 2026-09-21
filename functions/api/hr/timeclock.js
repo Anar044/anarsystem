@@ -9,84 +9,51 @@ function direction(v){const s=clean(v).toUpperCase();if(['IN','ENTRY','CHECKIN',
 function iso(v){const d=new Date(v);return Number.isNaN(d.getTime())?'':d.toISOString()}
 async function sha256(value){const bytes=new TextEncoder().encode(String(value||''));const digest=await crypto.subtle.digest('SHA-256',bytes);return Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join('')}
 function randomDeviceToken(){const bytes=crypto.getRandomValues(new Uint8Array(32));let binary='';for(const b of bytes)binary+=String.fromCharCode(b);return `shd_${btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}`}
+function connectorState(value){
+  if(!value)return{status:'OFFLINE',label:'Нет связи',ageSeconds:null};
+  const ms=Date.parse(value);if(!Number.isFinite(ms))return{status:'OFFLINE',label:'Нет связи',ageSeconds:null};
+  const age=Math.max(0,Math.floor((Date.now()-ms)/1000));
+  if(age<=90)return{status:'ONLINE',label:'Connector online',ageSeconds:age};
+  if(age<=600)return{status:'STALE',label:'Связь устарела',ageSeconds:age};
+  return{status:'OFFLINE',label:'Нет связи',ageSeconds:age};
+}
+
+async function ensureColumn(db,table,column,definition){
+  const info=await db.prepare(`PRAGMA table_info(${table})`).all();
+  if((info.results||[]).some(x=>String(x.name)===column))return;
+  await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+}
 
 async function ensure(db){
   if(!db)throw new Error('D1 binding DB не настроен.');
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_employees (
-      user_id TEXT NOT NULL,
-      iiko_employee_id TEXT NOT NULL,
-      employee_code TEXT NOT NULL DEFAULT '',
-      first_name TEXT NOT NULL DEFAULT '',
-      middle_name TEXT NOT NULL DEFAULT '',
-      last_name TEXT NOT NULL DEFAULT '',
-      display_name TEXT NOT NULL DEFAULT '',
-      role_code TEXT NOT NULL DEFAULT '',
-      role_name TEXT NOT NULL DEFAULT '',
-      department_code TEXT NOT NULL DEFAULT '',
-      hire_date TEXT NOT NULL DEFAULT '',
-      fire_date TEXT NOT NULL DEFAULT '',
-      is_deleted INTEGER NOT NULL DEFAULT 0,
-      synced_at TEXT NOT NULL,
-      PRIMARY KEY(user_id,iiko_employee_id)
+      user_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,employee_code TEXT NOT NULL DEFAULT '',first_name TEXT NOT NULL DEFAULT '',middle_name TEXT NOT NULL DEFAULT '',last_name TEXT NOT NULL DEFAULT '',display_name TEXT NOT NULL DEFAULT '',role_code TEXT NOT NULL DEFAULT '',role_name TEXT NOT NULL DEFAULT '',department_code TEXT NOT NULL DEFAULT '',hire_date TEXT NOT NULL DEFAULT '',fire_date TEXT NOT NULL DEFAULT '',is_deleted INTEGER NOT NULL DEFAULT 0,synced_at TEXT NOT NULL,PRIMARY KEY(user_id,iiko_employee_id)
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_devices (
-      user_id TEXT NOT NULL,
-      device_id TEXT NOT NULL,
-      provider TEXT NOT NULL DEFAULT 'ZKTECO',
-      name TEXT NOT NULL,
-      location TEXT NOT NULL DEFAULT '',
-      connection_mode TEXT NOT NULL DEFAULT 'LOCAL_CONNECTOR',
-      timezone TEXT NOT NULL DEFAULT 'Asia/Baku',
-      is_active INTEGER NOT NULL DEFAULT 1,
-      last_sync_at TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY(user_id,device_id)
+      user_id TEXT NOT NULL,device_id TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'ZKTECO',name TEXT NOT NULL,location TEXT NOT NULL DEFAULT '',connection_mode TEXT NOT NULL DEFAULT 'LOCAL_CONNECTOR',timezone TEXT NOT NULL DEFAULT 'Asia/Baku',is_active INTEGER NOT NULL DEFAULT 1,last_sync_at TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,device_id)
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_devices_user ON hr_devices(user_id,is_active,name)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_device_bindings (
-      user_id TEXT NOT NULL,
-      device_id TEXT NOT NULL,
-      iiko_employee_id TEXT NOT NULL,
-      provider TEXT NOT NULL DEFAULT 'ZKTECO',
-      external_employee_id TEXT NOT NULL,
-      external_label TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY(user_id,device_id,iiko_employee_id),
-      UNIQUE(user_id,device_id,external_employee_id)
+      user_id TEXT NOT NULL,device_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'ZKTECO',external_employee_id TEXT NOT NULL,external_label TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,device_id,iiko_employee_id),UNIQUE(user_id,device_id,external_employee_id)
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_bindings_employee ON hr_employee_device_bindings(user_id,iiko_employee_id)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_attendance_events (
-      user_id TEXT NOT NULL,
-      event_id TEXT NOT NULL,
-      device_id TEXT NOT NULL,
-      provider TEXT NOT NULL DEFAULT 'ZKTECO',
-      source_uid TEXT NOT NULL,
-      external_employee_id TEXT NOT NULL DEFAULT '',
-      iiko_employee_id TEXT NOT NULL DEFAULT '',
-      event_time TEXT NOT NULL,
-      event_type TEXT NOT NULL DEFAULT 'UNKNOWN',
-      raw_payload TEXT NOT NULL DEFAULT '{}',
-      imported_at TEXT NOT NULL,
-      PRIMARY KEY(user_id,event_id),
-      UNIQUE(user_id,device_id,source_uid)
+      user_id TEXT NOT NULL,event_id TEXT NOT NULL,device_id TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'ZKTECO',source_uid TEXT NOT NULL,external_employee_id TEXT NOT NULL DEFAULT '',iiko_employee_id TEXT NOT NULL DEFAULT '',event_time TEXT NOT NULL,event_type TEXT NOT NULL DEFAULT 'UNKNOWN',raw_payload TEXT NOT NULL DEFAULT '{}',imported_at TEXT NOT NULL,PRIMARY KEY(user_id,event_id),UNIQUE(user_id,device_id,source_uid)
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_events_time ON hr_attendance_events(user_id,event_time DESC)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_events_employee ON hr_attendance_events(user_id,iiko_employee_id,event_time DESC)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_device_tokens (
-      user_id TEXT NOT NULL,
-      device_id TEXT NOT NULL,
-      token_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      rotated_at TEXT NOT NULL,
-      last_used_at TEXT NOT NULL DEFAULT '',
-      PRIMARY KEY(user_id,device_id),
-      UNIQUE(token_hash)
+      user_id TEXT NOT NULL,device_id TEXT NOT NULL,token_hash TEXT NOT NULL,created_at TEXT NOT NULL,rotated_at TEXT NOT NULL,last_used_at TEXT NOT NULL DEFAULT '',PRIMARY KEY(user_id,device_id),UNIQUE(token_hash)
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_device_tokens_hash ON hr_device_tokens(token_hash)`)
   ]);
+  await ensureColumn(db,'hr_devices','model',"TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(db,'hr_devices','connector_adapter',"TEXT NOT NULL DEFAULT 'TA_PUSH'");
+  await ensureColumn(db,'hr_devices','ip_address',"TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(db,'hr_devices','port',"INTEGER NOT NULL DEFAULT 4370");
+  await ensureColumn(db,'hr_devices','serial_number',"TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(db,'hr_devices','last_connector_at',"TEXT NOT NULL DEFAULT ''");
 }
 
 async function auth(request,env){const a=await getUser(request,env);if(!a)return null;await ensure(env.DB);return a}
@@ -105,18 +72,23 @@ async function snapshot(db,userId){
   const ds=devices.results||[],es=employees.results||[],bs=bindings.results||[],ev=events.results||[],ts=tokens.results||[];
   const tokenMap=new Map(ts.map(x=>[String(x.device_id),x]));
   return{
-    devices:ds.map(x=>{const token=tokenMap.get(String(x.device_id));return{id:x.device_id,provider:x.provider,name:x.name,location:x.location,connectionMode:x.connection_mode,timezone:x.timezone,active:Boolean(x.is_active),lastSyncAt:x.last_sync_at||'',tokenConfigured:Boolean(token),tokenLastUsedAt:token?.last_used_at||'',tokenRotatedAt:token?.rotated_at||''}}),
+    devices:ds.map(x=>{const token=tokenMap.get(String(x.device_id)),state=connectorState(x.last_connector_at);return{
+      id:x.device_id,provider:x.provider,name:x.name,location:x.location,connectionMode:x.connection_mode,timezone:x.timezone,
+      model:x.model||'',adapter:x.connector_adapter||'TA_PUSH',ipAddress:x.ip_address||'',port:Number(x.port||4370),serialNumber:x.serial_number||'',
+      active:Boolean(x.is_active),lastSyncAt:x.last_sync_at||'',connectorLastSeenAt:x.last_connector_at||'',connectorStatus:state.status,connectorStatusLabel:state.label,connectorAgeSeconds:state.ageSeconds,
+      tokenConfigured:Boolean(token),tokenLastUsedAt:token?.last_used_at||'',tokenRotatedAt:token?.rotated_at||''
+    }}),
     employees:es.map(x=>({id:x.iiko_employee_id,code:x.employee_code,name:x.display_name,firstName:x.first_name,lastName:x.last_name,roleName:x.role_name,departmentCode:x.department_code,deleted:Boolean(x.is_deleted),fireDate:x.fire_date||''})),
     bindings:bs.map(x=>({deviceId:x.device_id,employeeId:x.iiko_employee_id,provider:x.provider,externalEmployeeId:x.external_employee_id,externalLabel:x.external_label||''})),
     events:ev.map(x=>({id:x.event_id,deviceId:x.device_id,provider:x.provider,sourceUid:x.source_uid,externalEmployeeId:x.external_employee_id,employeeId:x.iiko_employee_id,employeeName:x.employee_name||'',employeeCode:x.employee_code||'',eventTime:x.event_time,eventType:x.event_type,importedAt:x.imported_at})),
-    counts:{devices:ds.filter(x=>x.is_active).length,employees:es.filter(x=>!x.is_deleted&&!x.fire_date).length,bindings:bs.length,events:ev.length,unmatchedEvents:ev.filter(x=>!x.iiko_employee_id).length,deviceTokens:ts.length}
+    counts:{devices:ds.filter(x=>x.is_active).length,onlineConnectors:ds.filter(x=>connectorState(x.last_connector_at).status==='ONLINE').length,employees:es.filter(x=>!x.is_deleted&&!x.fire_date).length,bindings:bs.length,events:ev.length,unmatchedEvents:ev.filter(x=>!x.iiko_employee_id).length,deviceTokens:ts.length}
   };
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
 
 export async function onRequestGet({request,env}){
-  try{const a=await auth(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);return json({success:true,attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',ingestPath:'/api/hr/device-ingest',...(await snapshot(env.DB,a.user.id))})}
+  try{const a=await auth(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);return json({success:true,attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',ingestPath:'/api/hr/device-ingest',connectorHeartbeatSeconds:30,...(await snapshot(env.DB,a.user.id))})}
   catch(e){console.error('[HR-TIMECLOCK-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
 }
 
@@ -126,12 +98,28 @@ export async function onRequestPost({request,env}){
     const b=await request.json().catch(()=>({}));const action=clean(b.action);const userId=a.user.id;
     if(action==='saveDevice'){
       const id=clean(b.id)||uid('dev'),provider=(clean(b.provider)||'ZKTECO').toUpperCase(),name=clean(b.name),location=clean(b.location),mode=clean(b.connectionMode)||'LOCAL_CONNECTOR',timezone=clean(b.timezone)||'Asia/Baku';
+      const model=clean(b.model),adapter=(clean(b.adapter)||'TA_PUSH').toUpperCase(),ipAddress=clean(b.ipAddress),serialNumber=clean(b.serialNumber);const port=Number(b.port||4370);
       if(!name)return json({success:false,message:'Укажите название устройства'},400);
-      const t=now();await env.DB.prepare(`INSERT INTO hr_devices(user_id,device_id,provider,name,location,connection_mode,timezone,is_active,created_at,updated_at)
-        VALUES(?1,?2,?3,?4,?5,?6,?7,1,?8,?8)
-        ON CONFLICT(user_id,device_id) DO UPDATE SET provider=excluded.provider,name=excluded.name,location=excluded.location,connection_mode=excluded.connection_mode,timezone=excluded.timezone,updated_at=excluded.updated_at`)
-        .bind(userId,id,provider,name,location,mode,timezone,t).run();
+      if(!['TA_PUSH','ZKEMKEEPER'].includes(adapter))return json({success:false,message:'Неподдерживаемый режим connector'},400);
+      if(!Number.isInteger(port)||port<1||port>65535)return json({success:false,message:'Порт должен быть от 1 до 65535'},400);
+      if(adapter==='TA_PUSH'&&!serialNumber)return json({success:false,message:'Для TA Push укажите Serial Number терминала'},400);
+      if(adapter==='ZKEMKEEPER'&&!ipAddress)return json({success:false,message:'Для ZKEMKEEPER укажите IP терминала'},400);
+      const t=now();await env.DB.prepare(`INSERT INTO hr_devices(user_id,device_id,provider,name,location,connection_mode,timezone,is_active,last_sync_at,created_at,updated_at,model,connector_adapter,ip_address,port,serial_number,last_connector_at)
+        VALUES(?1,?2,?3,?4,?5,?6,?7,1,'',?8,?8,?9,?10,?11,?12,?13,'')
+        ON CONFLICT(user_id,device_id) DO UPDATE SET provider=excluded.provider,name=excluded.name,location=excluded.location,connection_mode=excluded.connection_mode,timezone=excluded.timezone,model=excluded.model,connector_adapter=excluded.connector_adapter,ip_address=excluded.ip_address,port=excluded.port,serial_number=excluded.serial_number,updated_at=excluded.updated_at`)
+        .bind(userId,id,provider,name,location,mode,timezone,t,model,adapter,ipAddress,port,serialNumber).run();
       return json({success:true,deviceId:id,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId)});
+    }
+    if(action==='setDeviceActive'){
+      const deviceId=clean(b.deviceId),active=b.active?1:0;if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
+      await env.DB.prepare(`UPDATE hr_devices SET is_active=?3,updated_at=?4 WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId,active,now()).run();
+      return json({success:true,deviceId,...await snapshot(env.DB,userId)});
+    }
+    if(action==='checkConnector'){
+      const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
+      const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);
+      const state=connectorState(d.last_connector_at);
+      return json({success:true,deviceId,connectorStatus:state.status,connectorStatusLabel:state.label,connectorLastSeenAt:d.last_connector_at||'',connectorAgeSeconds:state.ageSeconds,...await snapshot(env.DB,userId)});
     }
     if(action==='rotateDeviceToken'){
       const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);

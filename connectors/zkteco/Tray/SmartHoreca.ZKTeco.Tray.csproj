@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishTrimmed>false</PublishTrimmed>
+    <AssemblyName>SmartHoreca.ZKTeco.Tray</AssemblyName>
+    <RootNamespace>SmartHoreca.ZKTeco.Tray</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../RuntimeStatusModels.cs" Link="RuntimeStatusModels.cs" />
+  </ItemGroup>
+</Project>
