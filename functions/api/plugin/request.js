@@ -1,4 +1,4 @@
-const VPS_API = "http://68-233-120-197.nip.io";
+import { pluginVpsBase, upstreamHeaders } from "./_lib/upstream.js";
 
 function corsHeaders() {
   return {
@@ -57,6 +57,7 @@ export async function onRequestOptions() {
 
 export async function onRequestPost(context) {
   try {
+    const VPS_API = pluginVpsBase(context.env);
     const body = normalizeRequestBody(await context.request.json());
 
     if (!body?.action) {
@@ -68,10 +69,10 @@ export async function onRequestPost(context) {
 
     const response = await fetch(`${VPS_API}/api/plugin/request`, {
       method: "POST",
-      headers: {
+      headers: upstreamHeaders(context.env, {
         "Content-Type": "application/json",
         "Accept": "application/json"
-      },
+      }),
       body: JSON.stringify(body)
     });
 

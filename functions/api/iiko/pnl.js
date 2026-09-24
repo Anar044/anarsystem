@@ -63,6 +63,12 @@ export async function onRequestPost({request}){
     const connection={ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??'')};
     if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:'Заполните IP, порт, логин и пароль iiko'},400);
     const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(String).filter(Boolean))]:[];
+    const allDepartmentIds=Array.isArray(b.allDepartmentIds)?[...new Set(b.allDepartmentIds.map(String).filter(Boolean))]:departmentIds;
+    const selectedSet=new Set(departmentIds);
+    const allSet=new Set(allDepartmentIds);
+    const isPartialRestaurantSelection=allSet.size>0&&selectedSet.size>0&&(
+      selectedSet.size!==allSet.size||[...selectedSet].some(id=>!allSet.has(id))
+    );
 
     const [salesMeta,transactionMeta]=await Promise.all([
       getOlapFields(connection,'SALES'),
@@ -75,7 +81,7 @@ export async function onRequestPost({request}){
     // SALES OLAP: analytics by category only.
     // P&L revenue amounts are NOT taken from SALES.
     // ------------------------------------------------------------
-    const salesBase=findField(salesFields,['DishSumInt','Сумма без учета скидок и надбавок','Сумма без скидки','Сумма без скидок','Торговая выручка без учета скидок']);
+    const salesBase=findField(salesFields,['DishDiscountSumInt','Сумма со скидкой','Сумма с учетом скидок','DishSumInt','Сумма без учета скидок и надбавок','Сумма без скидки','Сумма без скидок','Торговая выручка без учета скидок']);
     const category=findField(salesFields,['DishCategory','DishCategory.Name','DishCategoryName','Category','Category.Name','CategoryName','Категория блюда']);
     const salesDate=findField(salesFields,['OpenDate.Typed','OpenDate','Учетный день','Дата']);
     const salesDepartment=findField(salesFields,['Department.Id','Department.ID','DepartmentId','Department.Guid','Department.UUID','Department.Uuid']);
@@ -96,16 +102,21 @@ export async function onRequestPost({request}){
     if(!article||!amount)throw Error('В OLAP TRANSACTIONS не найдены поля «Счет» и/или «Сумма».');
     if(!accountType)throw Error('В OLAP TRANSACTIONS не найдено поле «Тип счета».');
 
-    // SALES must stay restaurant-scoped because this dimension is available on
-    // normal iiko SALES reports. TRANSACTIONS differs between iiko versions:
-    // some installations do not expose any Department.Id-like dimension at all.
-    // In that case keep the legacy working behaviour (server-wide TRANSACTIONS)
-    // instead of failing the whole P&L, but expose an explicit scope warning.
+    // SALES must stay restaurant-scoped. Some iiko TRANSACTIONS versions do
+    // not expose Department.Id. Server-wide TRANSACTIONS is acceptable only
+    // when the user selected the entire known restaurant scope; otherwise the
+    // report would mix one restaurant's SALES with the whole network finances.
     if(departmentIds.length&&!salesDepartment)throw Error('В OLAP SALES не найден Department.Id для фильтра выбранного ресторана.');
+    if(isPartialRestaurantSelection&&!transactionDepartment){
+      return json({
+        success:false,
+        code:'PNL_TRANSACTION_SCOPE_UNSAFE',
+        message:'Нельзя построить P&L для части сети: SH TRANSACTIONS не отдаёт Department.Id. Выберите все рестораны либо используйте SH Server, где финансовые проводки содержат подразделение.'
+      },409);
+    }
     const transactionDepartmentScopeApplied=departmentIds.length>0&&!!transactionDepartment;
-    const scopeWarning=departmentIds.length&&!transactionDepartment
-      ?'iiko TRANSACTIONS не отдаёт поле Department.Id: продажи по категориям ограничены выбранным рестораном, а финансовые проводки временно получены по всему подключённому iiko Server.'
-      :null;
+    const serverWideAllRestaurants=departmentIds.length>0&&!transactionDepartment&&!isPartialRestaurantSelection;
+    const scopeWarning=null;
 
     const postingRows=[article,accountType];
     for(const f of[accountId,counterAccount])if(f&&!postingRows.includes(f))postingRows.push(f);
@@ -206,10 +217,13 @@ export async function onRequestPost({request}){
       accounts:postings.map(x=>({...x,pnlCategory:x.role})),
       accountTypeSummary:{REVENUE:revenueAccounts,COGS:cogsAccounts,OPEX:opexAccounts,OTHER_INCOME:otherIncomeAccounts,OTHER_EXPENSE:otherExpenseAccounts},
       salesFields,transactionFields,
-      sourceNote:`iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; Account.Name берётся напрямую из iiko · P&L выручка: TRANSACTIONS · без кассовых смен${scopeWarning?' · ⚠ TRANSACTIONS без фильтра ресторана':''}`,
+      sourceNote:`iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; Account.Name берётся напрямую из iiko · P&L выручка: TRANSACTIONS · без кассовых смен${serverWideAllRestaurants?' · TRANSACTIONS: вся выбранная сеть':''}`,
       meta:{
         departmentIds,
-        departmentScopeApplied:departmentIds.length>0&&!!salesDepartment&&!!transactionDepartment,
+        allDepartmentIds,
+        isPartialRestaurantSelection,
+        serverWideAllRestaurants,
+        departmentScopeApplied:departmentIds.length>0&&!!salesDepartment&&(!!transactionDepartment||serverWideAllRestaurants),
         salesDepartmentScopeApplied:departmentIds.length>0&&!!salesDepartment,
         transactionDepartmentScopeApplied,
         scopeWarning,
@@ -217,19 +231,6 @@ export async function onRequestPost({request}){
         transactionDepartmentField:transactionDepartment||null,
         salesFieldsCacheHit:salesMeta.cacheHit,
         transactionFieldsCacheHit:transactionMeta.cacheHit
-      },
-      debug:{
-        salesRequest:categoryQuery.request,
-        transactionRequest:postingQuery.request,
-        salesRows:categoryRows.length,
-        salesReport:categoryQuery.report,
-        transactionRows:rawPostings.length,
-        selectedSalesFields:{salesBase,category,salesDate,salesDepartment},
-        selectedTransactionFields:{article,amount,accountId,accountType,counterAccount,trDate,transactionDepartment},
-        accountTypeSummary:{REVENUE:revenueAccounts.length,COGS:cogsAccounts.length,OPEX:opexAccounts.length,OTHER_INCOME:otherIncomeAccounts.length,OTHER_EXPENSE:otherExpenseAccounts.length,UNCLASSIFIED:postings.filter(x=>x.role==='UNCLASSIFIED').length},
-        revenueAccounts:revenueAccounts.map(x=>({id:x.accountId,name:x.name,type:x.accountType,value:x.value})),
-        cogsAccounts:cogsAccounts.map(x=>({id:x.accountId,name:x.name,type:x.accountType,value:x.value})),
-        opexAccounts:opexAccounts.map(x=>({id:x.accountId,name:x.name,type:x.accountType,value:x.value}))
       }
     });
   }catch(e){console.error('IIKO P&L ERROR',e);return json({success:false,message:e.message||'Ошибка P&L'},502)}

@@ -13,6 +13,7 @@ function jsonResponse(data, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
       ...corsHeaders()
     }
   });
@@ -320,7 +321,6 @@ async function runQuery(connection, body, rid) {
       iikoStatusText: result.statusText,
       request,
       report,
-      rawResponse: text.slice(0, 30000),
       meta: {
         sharedIikoClient: true,
         authCacheHit: result.auth?.cacheHit === true
@@ -344,7 +344,6 @@ async function runQuery(connection, body, rid) {
       iikoHttpStatus: result.status,
       request,
       report,
-      rawResponse: text.slice(0, 30000),
       meta: {
         sharedIikoClient: true,
         authCacheHit: result.auth?.cacheHit === true
@@ -358,7 +357,6 @@ async function runQuery(connection, body, rid) {
     iikoHttpStatus: result.status,
     request,
     report,
-    rawResponse: text.slice(0, 30000),
     meta: {
       sharedIikoClient: true,
       authCacheHit: result.auth?.cacheHit === true
@@ -370,43 +368,12 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: corsHeaders() });
 }
 
-export async function onRequestGet(context) {
-  const rid = requestId();
-  try {
-    const url = new URL(context.request.url);
-    const body = {
-      ip: url.searchParams.get("ip") || "",
-      port: url.searchParams.get("port") || "",
-      login: url.searchParams.get("login") || "",
-      password: url.searchParams.get("password") || "",
-      reportType: url.searchParams.get("reportType") || "SALES"
-    };
-    const connection = credentials(body);
-    const reportType = clean(body.reportType).toUpperCase();
-    const result = await getOlapColumns(connection, reportType, rid);
-
-    return jsonResponse({
-      success: true,
-      action: "fields",
-      requestId: rid,
-      reportType,
-      count: result.fields.length,
-      fields: result.fields,
-      raw: result.raw,
-      meta: {
-        sharedIikoClient: true,
-        olapFieldsCacheHit: result.cacheHit
-      }
-    });
-  } catch (error) {
-    console.error(`[OLAP][${rid}] GET ERROR`, error);
-    return jsonResponse({
-      success: false,
-      requestId: rid,
-      type: "FIELDS_ERROR",
-      message: error?.message || "Ошибка OLAP fields"
-    }, 502);
-  }
+export async function onRequestGet() {
+  return jsonResponse({
+    success: false,
+    type: "METHOD_NOT_ALLOWED",
+    message: "OLAP GET отключён. Используйте авторизованный POST-запрос."
+  }, 405);
 }
 
 export async function onRequestPost(context) {
@@ -467,7 +434,6 @@ export async function onRequestPost(context) {
       requestId: rid,
       type: "FUNCTION_ERROR",
       message: error?.message || "Ошибка OLAP Function",
-      stack: error?.stack || null
     }, 502);
   }
 }

@@ -76,7 +76,11 @@ jobs:
             echo 'OLAP endpoint reintroduced manual iiko authentication'
             exit 1
           fi
-          grep -q 'rawResponse' "$file"
+          if grep -Eq 'rawResponse|error\?\.stack|error\.stack' "$file"; then
+            echo 'OLAP endpoint exposes raw upstream data or stack traces'
+            exit 1
+          fi
+          grep -q 'METHOD_NOT_ALLOWED' "$file"
           grep -q 'groupByRowFields' "$file"
           grep -q 'groupByColFields' "$file"
           grep -q 'aggregateFields' "$file"
@@ -191,6 +195,23 @@ jobs:
           test "${#manual[@]}" -eq 1
           test "${manual[0]}" = 'functions/api/iiko/_lib/iiko-client.js'
           echo 'iiko authentication is centralized in the shared client'
+
+      - name: Verify API hardening contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'getUser(request, env)' functions/api/iiko/_middleware.js
+          grep -q 'Запрошено подразделение' functions/api/iiko/_middleware.js
+          grep -q 'window.__SH_ACCOUNT_SYNC_BOOTSTRAPPED__' account-sync.js
+          ! grep -q 'account-sync.js' reports.html
+          ! grep -q '/account-sync.js' cash/index.html
+          grep -q 'X-SH-Allowed-Departments' functions/api/plugin/_middleware.js
+          grep -q 'PLUGIN_INGEST_TOKEN' functions/api/plugin/_lib/upstream.js
+          grep -q 'https://68-233-120-197.nip.io' functions/api/plugin/_lib/upstream.js
+          grep -q 'PNL_TRANSACTION_SCOPE_UNSAFE' functions/api/iiko/pnl.js
+          grep -q 'loadPrivateIikoState' functions/api/assets.js
+          grep -q 'iikoQueryCount' functions/api/iiko/dashboard.js
+          echo 'API hardening contract check passed'
 
   preview-smoke:
     if: github.event_name == 'pull_request'

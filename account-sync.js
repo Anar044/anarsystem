@@ -1,6 +1,9 @@
 (function () {
   "use strict";
 
+  if (window.__SH_ACCOUNT_SYNC_BOOTSTRAPPED__) return;
+  window.__SH_ACCOUNT_SYNC_BOOTSTRAPPED__ = true;
+
   const API = "/api/account/state";
   const OWNER_KEY = "shAccountOwnerId";
   const MENU_KEY = "horeca_qr_menu_v1";
