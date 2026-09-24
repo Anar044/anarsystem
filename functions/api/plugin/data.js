@@ -1,4 +1,4 @@
-const VPS_API = "http://68-233-120-197.nip.io";
+import { pluginVpsBase, upstreamHeaders } from "./_lib/upstream.js";
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -13,6 +13,7 @@ function jsonResponse(data, status = 200) {
 
 export async function onRequestGet(context) {
   try {
+    const VPS_API = pluginVpsBase(context.env);
     // Preserve the caller's Department filter when proxying to the VPS.
     // Without this, the VPS receives /api/plugin/data without departmentIds
     // and can return plugins belonging to other iiko Servers.
@@ -21,9 +22,9 @@ export async function onRequestGet(context) {
 
     const response = await fetch(upstreamUrl, {
       method: "GET",
-      headers: {
+      headers: upstreamHeaders(context.env, {
         "Accept": "application/json"
-      }
+      })
     });
 
     const text = await response.text();
