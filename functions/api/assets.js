@@ -1,4 +1,4 @@
-import { getUser } from './iiko/_lib/user-state.js';
+import { getUser, loadPrivateIikoState } from './iiko/_lib/user-state.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -68,14 +68,10 @@ function collectRestaurantIds(state){
   return [...new Set(values.map(v=>clean(v)).filter(Boolean))];
 }
 
-async function privateState(db,userId){
-  try{
-    const row=await db.prepare(`SELECT state_json FROM iiko_connections WHERE user_id=?1 LIMIT 1`).bind(userId).first();
-    if(!row?.state_json)return null;
-    const parsed=JSON.parse(row.state_json);
-    if(parsed?.marker==='SH_IKO_STATE_AES_GCM')return null;
-    return parsed;
-  }catch{return null}
+async function allowedRestaurantIds(env,userId){
+  if(!env?.DB)return[];
+  const stored=await loadPrivateIikoState(env.DB,userId,env);
+  return stored.found?collectRestaurantIds(stored.state):[];
 }
 
 function assetMath(asset,asOf=new Date().toISOString().slice(0,10)){
@@ -144,14 +140,20 @@ export async function onRequestPost({request,env}){
     const b=await request.json().catch(()=>({}));
     const action=clean(b.action||'saveAsset');
     const userId=auth.user.id;
+    const allowedRestaurants=await allowedRestaurantIds(env,userId);
+    const allowedRestaurantSet=new Set(allowedRestaurants);
 
     if(action==='depreciation'){
       const from=dateOnly(b.from),to=dateOnly(b.to||b.from);
       if(!from||!to||from>to)return json({success:false,message:'Укажите корректный период'},400);
       const requested=Array.isArray(b.restaurantIds)?[...new Set(b.restaurantIds.map(clean).filter(Boolean))]:[];
+      if(!allowedRestaurants.length)return json({success:false,message:'Для аккаунта не настроены доступные рестораны.'},403);
+      const invalid=requested.filter(id=>!allowedRestaurantSet.has(id));
+      if(invalid.length)return json({success:false,message:'Запрошен ресторан, который не принадлежит текущему аккаунту.'},403);
+      const effective=requested.length?requested:allowedRestaurants;
       let sql=`SELECT * FROM fixed_assets WHERE user_id=?1 AND status<>'DRAFT'`;
       const binds=[userId];
-      if(requested.length){sql+=` AND restaurant_id IN (${requested.map((_,i)=>`?${i+2}`).join(',')})`;binds.push(...requested)}
+      if(effective.length){sql+=` AND restaurant_id IN (${effective.map((_,i)=>`?${i+2}`).join(',')})`;binds.push(...effective)}
       const result=await env.DB.prepare(sql).bind(...binds).all();
       const items=(result.results||[]).map(asset=>{const amount=depreciationForPeriod(asset,from,to);return{id:asset.id,name:asset.name,restaurantId:asset.restaurant_id,amount,monthlyDepreciation:assetMath(asset,to).monthlyDepreciation}}).filter(x=>x.amount>0.000001);
       return json({success:true,from,to,total:items.reduce((s,x)=>s+x.amount,0),items});
@@ -166,6 +168,8 @@ export async function onRequestPost({request,env}){
       const life=Math.max(1,int(b.usefulLifeMonths));
       const inService=dateOnly(b.inServiceDate);
       if(!restaurantId||!name||!inService)return json({success:false,message:'Укажите ресторан, название и дату ввода в эксплуатацию'},400);
+      if(!allowedRestaurants.length)return json({success:false,message:'Для аккаунта не настроены доступные рестораны.'},403);
+      if(!allowedRestaurantSet.has(restaurantId))return json({success:false,message:'Выбранный ресторан не принадлежит текущему аккаунту.'},403);
       if(salvageValue>purchaseCost)return json({success:false,message:'Ликвидационная стоимость не может быть выше стоимости покупки'},400);
       const existing=await env.DB.prepare(`SELECT id FROM fixed_assets WHERE id=?1 AND user_id=?2`).bind(id,userId).first();
       const now=isoNow();
