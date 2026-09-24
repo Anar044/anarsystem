@@ -1,3 +1,5 @@
+import { verifyPluginToken } from "./_lib/upstream.js";
+
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
@@ -19,6 +21,10 @@ export async function onRequestOptions() {
 
 export async function onRequestPost(context) {
   try {
+    const pluginAuth = verifyPluginToken(context.request, context.env);
+    if (!pluginAuth.ok) {
+      return jsonResponse({ success: false, accepted: false, message: pluginAuth.message }, pluginAuth.status);
+    }
     const body = await context.request.json();
     const departmentId = body?.departmentId == null ? null : String(body.departmentId);
     const pluginId = body?.pluginId == null ? null : String(body.pluginId);
