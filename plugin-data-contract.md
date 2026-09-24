@@ -114,3 +114,12 @@ When the real plugin payload is connected:
 `plugin.departmentId === iikoServer.departmentId` → accept
 
 Otherwise → reject/isolate the event and do not mix it into the restaurant's data.
+
+
+## Security requirements
+
+Browser-facing plugin endpoints are authenticated with the current Smart Horeca user session and are scoped on the server to Department IDs stored for that account. Department IDs supplied by browser code are treated only as a requested subset and cannot expand the account scope.
+
+Plugin-to-cloud endpoints `/api/plugin/ingest` and `/api/plugin/heartbeat` require the `X-Plugin-Token` header. Configure `PLUGIN_INGEST_TOKEN` in Cloudflare and use the same secret in the restaurant connector/plugin.
+
+Cloudflare-to-VPS traffic uses `PLUGIN_VPS_API` and requires HTTPS by default. The optional `PLUGIN_VPS_SERVICE_TOKEN` is forwarded as `X-SH-Service-Token` so the VPS can authenticate requests from Smart Horeca. Plain HTTP is accepted only when `PLUGIN_ALLOW_INSECURE_VPS=1` is explicitly configured for a temporary migration.
