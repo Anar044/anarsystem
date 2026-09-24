@@ -1,3 +1,5 @@
+import { verifyPluginToken } from "./_lib/upstream.js";
+
 // ANAR plugin ingest endpoint. Supports both Supabase secret and legacy service_role keys.
 
 function corsHeaders() {
@@ -95,6 +97,10 @@ export async function onRequestOptions() {
 
 export async function onRequestPost(context) {
   try {
+    const pluginAuth = verifyPluginToken(context.request, context.env);
+    if (!pluginAuth.ok) {
+      return jsonResponse({ success: false, accepted: false, message: pluginAuth.message }, pluginAuth.status);
+    }
     const body = await context.request.json();
     const envelope = normalizeEnvelope(body);
     const errors = validate(envelope);
