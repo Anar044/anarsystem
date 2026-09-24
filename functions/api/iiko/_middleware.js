@@ -12,6 +12,16 @@ const OLAP_DEFAULT_FILTERS = {
   OrderDeleted: { filterType: "IncludeValues", values: ["NOT_DELETED"] }
 };
 
+function apiError(message, status = 400) {
+  return new Response(JSON.stringify({ success: false, message }), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store"
+    }
+  });
+}
+
 function isJsonRequest(request) {
   return (request.headers.get("content-type") || "").toLowerCase().includes("application/json");
 }
@@ -60,6 +70,9 @@ function allowedDepartmentIds(state) {
     ...(Array.isArray(identity.departmentIds) ? identity.departmentIds : []),
     ...(Array.isArray(identity.departments) ? identity.departments.map(x => x?.id) : []),
     ...(Array.isArray(identity.organizations) ? identity.organizations.map(x => x?.id) : []),
+    ...(Array.isArray(connection.departmentIds) ? connection.departmentIds : []),
+    ...(Array.isArray(connection.departments) ? connection.departments.map(x => x?.id) : []),
+    ...(Array.isArray(connection.organizations) ? connection.organizations.map(x => x?.id) : []),
     identity.organizationId,
     connection.organizationId
   ];
@@ -147,11 +160,36 @@ export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
 
-  // /state owns authentication/session-cookie handling itself.
-  if (url.pathname === "/api/iiko/state" || request.method === "OPTIONS") {
+  if (request.method === "OPTIONS") {
     return context.next();
   }
 
+  // /state owns authentication and session-cookie handling itself.
+  if (url.pathname === "/api/iiko/state") {
+    return context.next();
+  }
+
+  // Every other iiko endpoint is private. A valid Supabase session can be
+  // supplied either as Bearer auth or through the HttpOnly API session cookie.
+  const auth = await getUser(request, env);
+  if (!auth) {
+    return apiError("Необходима авторизация.", 401);
+  }
+
+  let storedState = null;
+  let storedConnection = null;
+
+  if (env.DB) {
+    const stored = await loadPrivateIikoState(env.DB, auth.user.id, env);
+    if (stored.found) {
+      storedState = stored.state;
+      if (hasPrivateConnection(stored.state)) {
+        storedConnection = privateConnection(stored.state);
+      }
+    }
+  }
+
+  // GET/HEAD still require authentication, but have no JSON body to rewrite.
   if (request.method === "GET" || request.method === "HEAD" || !isJsonRequest(request)) {
     return context.next();
   }
@@ -163,25 +201,20 @@ export async function onRequest(context) {
     return context.next();
   }
 
-  let storedState = null;
-  let storedConnection = null;
-
-  if (env.DB) {
-    const auth = await getUser(request, env);
-    if (auth) {
-      const stored = await loadPrivateIikoState(env.DB, auth.user.id, env);
-      if (stored.found) {
-        storedState = stored.state;
-        if (hasPrivateConnection(stored.state)) storedConnection = privateConnection(stored.state);
-      }
+  // Do not trust restaurant scope supplied by the browser.
+  if (storedState && Array.isArray(body?.departmentIds)) {
+    const allowed = new Set(allowedDepartmentIds(storedState));
+    const requested = [...new Set(body.departmentIds.map(String).map(x => x.trim()).filter(Boolean))];
+    const invalid = requested.filter(id => !allowed.has(id));
+    if (invalid.length) {
+      return apiError("Запрошено подразделение, которое не принадлежит текущему аккаунту.", 403);
     }
   }
 
   let rewrittenBody = applyOlapPolicy(body, storedState, request);
 
-  // Settings discovery may intentionally use a brand-new unsaved connection.
-  // If a real password is supplied, preserve it. For saved connections the
-  // real password is injected only inside Cloudflare.
+  // A brand-new connection from Settings may contain real credentials.
+  // Saved credentials are otherwise injected only inside Cloudflare.
   if (needsServerCredentials(rewrittenBody) && storedConnection) {
     rewrittenBody = injectConnection(rewrittenBody, storedConnection);
   }
