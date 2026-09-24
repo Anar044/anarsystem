@@ -123,7 +123,7 @@ export function getAccessToken(request) {
 }
 
 export function sessionCookie(token, maxAge = 3600) {
-  return `${IIKO_SESSION_COOKIE}=${encodeURIComponent(token || "")}; Path=/api/iiko; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.max(0, Number(maxAge) || 0)}`;
+  return `${IIKO_SESSION_COOKIE}=${encodeURIComponent(token || "")}; Path=/api; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.max(0, Number(maxAge) || 0)}`;
 }
 
 export async function getUser(request, env) {
