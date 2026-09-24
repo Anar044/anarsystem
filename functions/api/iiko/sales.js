@@ -71,22 +71,24 @@ export async function onRequestPost(context) {
             `${String(endDate.getMonth() + 1).padStart(2, "0")}-` +
             `${String(endDate.getDate()).padStart(2, "0")}`;
 
-        let departmentField = null;
-        let fieldsCacheHit = null;
-        if (departmentIds.length) {
-            const fieldResult = await getOlapFields(connection, "SALES");
-            fieldsCacheHit = fieldResult.cacheHit === true;
-            departmentField = fieldName(fieldResult.fields, ["Department.Id", "DepartmentId", "Department.ID"]);
-            if (!departmentField) {
-                return jsonResponse({
-                    success: false,
-                    message: "Не найдено OLAP-поле Department.Id — нельзя безопасно ограничить продажи выбранным рестораном"
-                }, 502);
-            }
+        const fieldResult = await getOlapFields(connection, "SALES");
+        const fieldsCacheHit = fieldResult.cacheHit === true;
+        const revenueField = fieldName(fieldResult.fields, ["DishDiscountSumInt", "DishSumInt", "Sales"]);
+        const dateField = fieldName(fieldResult.fields, ["OpenDate.Typed", "OpenDate"]);
+        const orderField = fieldName(fieldResult.fields, ["UniqOrderId", "UniqOrderId.Id"]);
+        const departmentField = fieldName(fieldResult.fields, ["Department.Id", "DepartmentId", "Department.ID"]);
+        if (!revenueField || !dateField) {
+            return jsonResponse({ success: false, message: "Не найдены необходимые SALES OLAP поля даты/выручки" }, 502);
+        }
+        if (departmentIds.length && !departmentField) {
+            return jsonResponse({
+                success: false,
+                message: "Не найдено OLAP-поле Department.Id — нельзя безопасно ограничить продажи выбранным рестораном"
+            }, 502);
         }
 
         const filters = {
-            "OpenDate.Typed": {
+            [dateField]: {
                 filterType: "DateRange",
                 periodType: "CUSTOM",
                 from,
@@ -103,8 +105,8 @@ export async function onRequestPost(context) {
         const reportBody = {
             reportType: "SALES",
             buildSummary: true,
-            groupByRowFields: ["OpenDate.Typed"],
-            aggregateFields: ["DishSumInt", "UniqOrderId"],
+            groupByRowFields: [dateField],
+            aggregateFields: [revenueField, ...(orderField ? [orderField] : [])],
             filters
         };
 
@@ -137,19 +139,16 @@ export async function onRequestPost(context) {
         return jsonResponse({
             success: true,
             report: data,
-            debug: {
-                requestedFrom: from,
-                requestedTo: to,
-                actualTo: endDateString,
-                rawResponse: text
-            },
             meta: {
                 sharedIikoClient: true,
                 authCacheHit: reportResponse.auth?.cacheHit === true,
                 olapFieldsCacheHit: fieldsCacheHit,
                 departmentScopeApplied: departmentIds.length > 0,
                 departmentField,
-                departmentIds
+                departmentIds,
+                revenueField,
+                dateField,
+                orderField
             }
         });
     } catch (error) {
