@@ -1,3 +1,5 @@
+import { getUser } from "../iiko/_lib/user-state.js";
+
 // Authenticated read endpoint for the plugin event monitor.
 // The browser sends the Supabase access token; the server uses the service key only for the database read.
 
@@ -16,22 +18,12 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-async function getAuthenticatedUser(env, accessToken) {
-  const url = env?.SUPABASE_URL || env?.SUPABASE_PROJECT_URL;
-  const key = env?.SUPABASE_PUBLISHABLE_KEY || env?.SUPABASE_ANON_KEY || env?.SUPABASE_SERVICE_ROLE_KEY || env?.SUPABASE_SERVICE_KEY;
-  if (!url || !key || !accessToken) return null;
-
-  const response = await fetch(`${url.replace(/\/$/, "")}/auth/v1/user`, {
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${accessToken}`
-    }
-  });
-  if (!response.ok) return null;
-  return response.json();
+function allowedDepartments(request) {
+  return [...new Set(String(request.headers.get("X-SH-Allowed-Departments") || "")
+    .split(",").map(x => x.trim()).filter(Boolean))];
 }
 
-async function readEvents(env, request) {
+async function readEvents(env, request, allowed) {
   const url = env?.SUPABASE_URL || env?.SUPABASE_PROJECT_URL;
   const key = env?.SUPABASE_SERVICE_ROLE_KEY || env?.SUPABASE_SERVICE_KEY;
   if (!url || !key) throw new Error("Supabase server credentials are not configured");
@@ -50,7 +42,14 @@ async function readEvents(env, request) {
   });
   if (eventType) params.set("event_type", `eq.${eventType}`);
   if (pluginId) params.set("plugin_id", `eq.${pluginId}`);
-  if (departmentId) params.set("department_id", `eq.${departmentId}`);
+  if (departmentId) {
+    if (!allowed.includes(departmentId)) throw new Error("Department is not allowed for this account");
+    params.set("department_id", `eq.${departmentId}`);
+  } else if (allowed.length) {
+    params.set("department_id", `in.(${allowed.join(",")})`);
+  } else {
+    return [];
+  }
 
   const response = await fetch(`${url.replace(/\/$/, "")}/rest/v1/plugin_events?${params}`, {
     headers: {
@@ -69,16 +68,16 @@ export async function onRequestOptions() {
 
 export async function onRequestGet(context) {
   try {
-    const authHeader = context.request.headers.get("Authorization") || "";
-    const match = authHeader.match(/^Bearer\s+(.+)$/i);
-    if (!match) return jsonResponse({ success: false, error: "Authentication required" }, 401);
+    const auth = await getUser(context.request, context.env);
+    if (!auth?.user?.id) return jsonResponse({ success: false, error: "Authentication required" }, 401);
 
-    const user = await getAuthenticatedUser(context.env, match[1]);
-    if (!user?.id) return jsonResponse({ success: false, error: "Invalid or expired session" }, 401);
+    const allowed = allowedDepartments(context.request);
+    if (!allowed.length) return jsonResponse({ success: true, events: [], count: 0 });
 
-    const events = await readEvents(context.env, context.request);
+    const events = await readEvents(context.env, context.request, allowed);
     return jsonResponse({ success: true, events, count: events.length });
   } catch (error) {
-    return jsonResponse({ success: false, error: error?.message || "Unable to read plugin events" }, 500);
+    const status = /not allowed/i.test(String(error?.message || "")) ? 403 : 500;
+    return jsonResponse({ success: false, error: error?.message || "Unable to read plugin events" }, status);
   }
 }
