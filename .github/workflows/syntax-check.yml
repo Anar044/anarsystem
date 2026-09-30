@@ -286,6 +286,7 @@ jobs:
             "/api/iiko/incoming-invoices"
             "/api/iiko/outgoing-invoices"
             "/api/iiko/references"
+            "/api/iiko/invoice-reference-data"
             "/api/iiko/documents"
             "/api/iiko/document-action"
             "/api/iiko/document-by-number"
