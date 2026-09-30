@@ -84,15 +84,16 @@
           '<div id="inc-items"></div>' +
           '<button id="inc-add" class="inc-btn" type="button" style="margin-top:10px">＋ Добавить позицию</button>' +
           '<datalist id="inc-product-options"></datalist>' +
-          '<div class="inc-note">Сначала создаём документ в iiko BackOffice без автоматического проведения по складу. После проверки добавим отдельное действие «Сохранить и провести».</div>' +
-          '<div class="inc-actions"><button id="inc-cancel" class="inc-btn" type="button">Отмена</button><button id="inc-save" class="inc-btn inc-primary" type="button">Сохранить в iiko</button></div>' +
+          '<div class="inc-note">«Сохранить» создаёт/обновляет накладную без проведения. «Сохранить и провести» сразу проводит документ по складу в iiko.</div>' +
+          '<div class="inc-actions"><button id="inc-cancel" class="inc-btn" type="button">Отмена</button><button id="inc-save" class="inc-btn" type="button">Сохранить</button><button id="inc-save-process" class="inc-btn inc-primary" type="button">Сохранить и провести</button></div>' +
         '</div>' +
       '</div>';
     document.body.appendChild(wrap);
     $('inc-close').onclick = closeEditor;
     $('inc-cancel').onclick = closeEditor;
     $('inc-add').onclick = function () { addItem({}); };
-    $('inc-save').onclick = save;
+    $('inc-save').onclick = function () { save(false); };
+    $('inc-save-process').onclick = function () { save(true); };
   }
 
   function closeEditor() {
@@ -208,6 +209,7 @@
     $('inc-editor').hidden = false;
     $('inc-title').textContent = doc ? 'Редактирование приходной накладной' : 'Новая приходная накладная';
     $('inc-save').disabled = true;
+    $('inc-save-process').disabled = true;
     try {
       await loadReferences(false);
       $('inc-id').value = doc && doc.id ? doc.id : '';
@@ -225,15 +227,18 @@
       var items = doc && Array.isArray(doc.items) && doc.items.length ? doc.items : [{}];
       items.forEach(addItem);
       $('inc-save').disabled = false;
+      $('inc-save-process').disabled = false;
     } catch (error) {
       setEditorStatus(error.message || 'Не удалось загрузить справочники iiko', 'error');
     }
   }
 
-  async function save() {
-    var button = $('inc-save');
+  async function save(processAfterSave) {
+    var button = processAfterSave ? $('inc-save-process') : $('inc-save');
+    var otherButton = processAfterSave ? $('inc-save') : $('inc-save-process');
     try {
       button.disabled = true;
+      otherButton.disabled = true;
       setEditorStatus('Проверяем накладную…', 'loading');
       var c = await getConn();
       var supplierId = $('inc-supplier').value;
@@ -268,11 +273,11 @@
         items: items
       };
 
-      setEditorStatus('Отправляем накладную в iiko BackOffice…', 'loading');
+      setEditorStatus(processAfterSave ? 'Сохраняем и проводим накладную в iiko BackOffice…' : 'Сохраняем накладную в iiko BackOffice…', 'loading');
       var response = await fetch('/api/iiko/document-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ connection: c, type: 'incoming', action: 'save', document: documentData }),
+        body: JSON.stringify({ connection: c, type: 'incoming', action: processAfterSave ? 'save-and-process' : 'save', document: documentData }),
         cache: 'no-store'
       });
       var data = await response.json().catch(function () { return {}; });
@@ -289,6 +294,7 @@
     } catch (error) {
       setEditorStatus(error.message || 'Ошибка сохранения накладной', 'error');
       button.disabled = false;
+      otherButton.disabled = false;
     }
   }
 
