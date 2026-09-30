@@ -298,39 +298,83 @@
     }
   }
 
+  async function loadDocumentByNumber(number) {
+    var c = await getConn();
+    var response = await fetch('/api/iiko/document-by-number', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ connection: c, type: 'incoming', number: number, currentYear: false, from: '2000-01-01', to: today() }),
+      cache: 'no-store'
+    });
+    var data = await response.json().catch(function () { return {}; });
+    if (!response.ok || data.success === false || !data.document) throw new Error(data.message || 'Документ не найден');
+    return { connection: c, document: data.document };
+  }
+
+  function selectedDocument() {
+    return window.SHIncomingInvoices && typeof window.SHIncomingInvoices.getSelected === 'function'
+      ? window.SHIncomingInvoices.getSelected()
+      : (window.SHIncomingInvoices && window.SHIncomingInvoices.selected) || null;
+  }
+
+  function selectedNumber() {
+    var selected = selectedDocument();
+    if (selected && selected.documentNumber) return String(selected.documentNumber).trim();
+    var title = $('invoice-details-title') ? $('invoice-details-title').textContent : '';
+    var match = title.match(/№\s*(.+)$/);
+    return match ? match[1].trim() : '';
+  }
+
+  function actionError(data, response) {
+    var detail = data && data.validation && (data.validation.errorMessage || data.validation.additionalInfo);
+    var raw = String(data && data.rawResponse || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return detail || (raw ? raw.slice(0, 700) : '') || (data && data.message) || ('HTTP ' + response.status);
+  }
+
   async function openByNumber(number) {
     try {
-      var c = await getConn();
       setEditorStatus('Загружаем документ из iiko…', 'loading');
-      var response = await fetch('/api/iiko/document-by-number', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ connection: c, type: 'incoming', number: number, currentYear: false, from: '2000-01-01', to: today() }),
-        cache: 'no-store'
-      });
-      var data = await response.json().catch(function () { return {}; });
-      if (!response.ok || data.success === false || !data.document) throw new Error(data.message || 'Документ не найден');
-      await openEditor(data.document);
+      var loaded = await loadDocumentByNumber(number);
+      await openEditor(loaded.document);
     } catch (error) {
       alert(error.message || 'Ошибка загрузки документа');
     }
   }
 
-  async function unprocess() {
+  async function processSelected() {
     try {
-      var title = $('invoice-details-title') ? $('invoice-details-title').textContent : '';
-      var match = title.match(/№\s*(.+)$/);
-      if (!match) throw new Error('Не найден номер документа.');
-      if (!confirm('Распровести накладную №' + match[1].trim() + '?')) return;
-      var c = await getConn();
+      var number = selectedNumber();
+      if (!number) throw new Error('Не найден номер документа.');
+      if (!confirm('Провести накладную №' + number + '?')) return;
+      var loaded = await loadDocumentByNumber(number);
       var response = await fetch('/api/iiko/document-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ connection: c, type: 'incoming', action: 'unprocess', document: { documentNumber: match[1].trim() } }),
+        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'save-and-process', document: loaded.document }),
         cache: 'no-store'
       });
       var data = await response.json().catch(function () { return {}; });
-      if (!response.ok || data.success === false) throw new Error(data.message || ('HTTP ' + response.status));
+      if (!response.ok || data.success === false) throw new Error(actionError(data, response));
+      location.reload();
+    } catch (error) {
+      alert(error.message || 'Ошибка проведения');
+    }
+  }
+
+  async function unprocess() {
+    try {
+      var number = selectedNumber();
+      if (!number) throw new Error('Не найден номер документа.');
+      if (!confirm('Распровести накладную №' + number + '?')) return;
+      var loaded = await loadDocumentByNumber(number);
+      var response = await fetch('/api/iiko/document-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'unprocess', document: loaded.document }),
+        cache: 'no-store'
+      });
+      var data = await response.json().catch(function () { return {}; });
+      if (!response.ok || data.success === false) throw new Error(actionError(data, response));
       location.reload();
     } catch (error) {
       alert(error.message || 'Ошибка распроведения');
@@ -354,6 +398,17 @@
     button.onclick = function () { openEditor(null); };
   }
 
+  function refreshDetailActions() {
+    var selected = selectedDocument();
+    var status = String(selected && selected.status || '').toUpperCase();
+    var edit = $('inc-edit-btn');
+    var processButton = $('inc-process-btn');
+    var unprocessButton = $('inc-unprocess-btn');
+    if (edit) edit.hidden = status === 'PROCESSED';
+    if (processButton) processButton.hidden = status !== 'NEW';
+    if (unprocessButton) unprocessButton.hidden = status !== 'PROCESSED';
+  }
+
   function bindDetailActions() {
     var details = $('invoice-details');
     if (!details) return;
@@ -365,12 +420,19 @@
       edit.type = 'button';
       edit.textContent = 'Редактировать';
       edit.onclick = function () {
-        var title = $('invoice-details-title') ? $('invoice-details-title').textContent : '';
-        var match = title.match(/№\s*(.+)$/);
-        if (!match) return alert('Не найден номер документа');
-        openByNumber(match[1].trim());
+        var number = selectedNumber();
+        if (!number) return alert('Не найден номер документа');
+        openByNumber(number);
       };
       actions.insertBefore(edit, actions.firstChild);
+    }
+    if (!$('inc-process-btn')) {
+      var processButton = document.createElement('button');
+      processButton.id = 'inc-process-btn';
+      processButton.type = 'button';
+      processButton.textContent = 'Провести';
+      processButton.onclick = processSelected;
+      actions.insertBefore(processButton, actions.firstChild);
     }
     if (!$('inc-unprocess-btn')) {
       var unprocessButton = document.createElement('button');
@@ -380,6 +442,7 @@
       unprocessButton.onclick = unprocess;
       actions.insertBefore(unprocessButton, actions.firstChild);
     }
+    refreshDetailActions();
   }
 
   function init() {
@@ -390,6 +453,11 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
   else init();
+
+  window.addEventListener('sh:incoming-invoice-selected', function () {
+    bindDetailActions();
+    refreshDetailActions();
+  });
 
   var observer = new MutationObserver(function () {
     bindNewButton();
