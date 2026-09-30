@@ -32,7 +32,8 @@ function asNumber(value, fallback = 0) {
 function normalizeIncomingDocument(input = {}) {
   const d = { ...input };
   const items = Array.isArray(d.items) ? d.items : [];
-  d.status = clean(d.status || "NEW").toUpperCase();
+  if (clean(d.status)) d.status = clean(d.status).toUpperCase();
+  else delete d.status;
   d.items = items.map((item, index) => {
     const amount = asNumber(item.amount ?? item.actualAmount, 0);
     const price = asNumber(item.price, 0);
@@ -50,6 +51,7 @@ function normalizeIncomingDocument(input = {}) {
 }
 function validateIncoming(d) {
   const errors = [];
+  if (!clean(d.documentNumber)) errors.push("Не удалось сформировать номер накладной.");
   if (!clean(d.dateIncoming)) errors.push("Укажите дату накладной.");
   if (!clean(d.supplierId || d.supplier)) errors.push("Выберите поставщика.");
   if (!clean(d.defaultStore || d.defaultStoreId || d.storeId)) errors.push("Выберите склад.");
@@ -196,9 +198,17 @@ export async function onRequestPost(context) {
     const success = result.ok && !validationFailed;
 
     if (!success) {
+      const plainServerMessage = String(result.text || "")
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 700);
       const message =
         validation.errorMessage ||
         validation.additionalInfo ||
+        plainServerMessage ||
         (validationFailed ? "iiko отклонил документ" : `iiko Server вернул HTTP ${result.status}`);
       return jsonResponse(
         {
