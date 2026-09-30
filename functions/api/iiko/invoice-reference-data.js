@@ -1,4 +1,5 @@
 import { clean } from "./_lib/iiko-client.js";
+import { getIikoSuppliers } from "./_lib/iiko-suppliers.js";
 import { syncReferences } from "./references.js";
 
 function corsHeaders() {
@@ -42,21 +43,37 @@ export async function onRequestPost({ request, env }) {
 
     const authModule = await import("./_lib/iiko-client.js");
     const auth = await authModule.getIikoAuth(connection);
-    const refs = await syncReferences(env, auth.serverUrl, auth.token);
+    const [refs, supplierResult] = await Promise.all([
+      syncReferences(env, auth.serverUrl, auth.token),
+      getIikoSuppliers(connection)
+    ]);
     const maps = refs.maps || {};
+    const suppliers = (supplierResult.rows || [])
+      .map(x => ({ id: String(x.id || "").replace(/^\\{+|\\}+$/g, "").toLowerCase(), name: String(x.name || "") }))
+      .filter(x => x.id && x.name)
+      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 
     return json({
       success: true,
-      suppliers: rows(maps.suppliers),
+      suppliers,
       warehouses: rows(maps.warehouses),
       products: rows(maps.products),
       counts: {
-        suppliers: maps.suppliers?.size || 0,
+        suppliers: suppliers.length,
         warehouses: maps.warehouses?.size || 0,
         products: maps.products?.size || 0
       },
-      diagnostics: refs.diagnostics || null,
-      meta: { authCacheHit: auth.cacheHit === true }
+      diagnostics: {
+        references: refs.diagnostics || null,
+        supplierSource: {
+          endpoint: "/resto/api/suppliers?revisionFrom=-1",
+          status: supplierResult.status,
+          format: supplierResult.format,
+          recordsFound: supplierResult.recordsFound,
+          namedRecords: supplierResult.namedRecords
+        }
+      },
+      meta: { authCacheHit: auth.cacheHit === true, supplierAuthCacheHit: supplierResult.authCacheHit === true }
     });
   } catch (error) {
     return json(
