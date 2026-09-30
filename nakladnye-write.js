@@ -16,6 +16,12 @@
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
 
+  function autoDocumentNumber() {
+    var d = new Date();
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return 'SH-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  }
+
   async function getConn() {
     if (!window.SH_IikoContext || !window.SH_IikoContext.get) throw new Error('Контекст iiko не загружен.');
     var state = await window.SH_IikoContext.get();
@@ -64,7 +70,7 @@
           '<div id="inc-entry-status" class="inc-entry-status"></div>' +
           '<input id="inc-id" type="hidden">' +
           '<div class="inc-grid">' +
-            '<label>Номер документа<input id="inc-doc-number" placeholder="Можно оставить пустым"></label>' +
+            '<label>Номер документа<input id="inc-doc-number" placeholder="Создастся автоматически"></label>' +
             '<label>Дата<input id="inc-date" type="date"></label>' +
             '<label>Поставщик<select id="inc-supplier"><option value="">Загрузка…</option></select></label>' +
             '<label>Счёт-фактура<input id="inc-invoice"></label>' +
@@ -78,7 +84,7 @@
           '<div id="inc-items"></div>' +
           '<button id="inc-add" class="inc-btn" type="button" style="margin-top:10px">＋ Добавить позицию</button>' +
           '<datalist id="inc-product-options"></datalist>' +
-          '<div class="inc-note">Документ будет создан в iiko BackOffice со статусом NEW. Проведение по складу добавим после проверки на реальном документе.</div>' +
+          '<div class="inc-note">Сначала создаём документ в iiko BackOffice без автоматического проведения по складу. После проверки добавим отдельное действие «Сохранить и провести».</div>' +
           '<div class="inc-actions"><button id="inc-cancel" class="inc-btn" type="button">Отмена</button><button id="inc-save" class="inc-btn inc-primary" type="button">Сохранить в iiko</button></div>' +
         '</div>' +
       '</div>';
@@ -250,7 +256,7 @@
 
       var documentData = {
         id: $('inc-id').value || undefined,
-        documentNumber: $('inc-doc-number').value || undefined,
+        documentNumber: ($('inc-doc-number').value || '').trim() || autoDocumentNumber(),
         dateIncoming: $('inc-date').value + 'T00:00:00',
         supplierId: supplierId,
         invoice: $('inc-invoice').value,
@@ -259,7 +265,6 @@
         defaultStore: storeId,
         transportInvoiceNumber: $('inc-transport').value,
         comment: $('inc-comment').value,
-        status: 'NEW',
         items: items
       };
 
@@ -273,7 +278,9 @@
       var data = await response.json().catch(function () { return {}; });
       if (!response.ok || data.success === false) {
         var detail = data.validation && (data.validation.errorMessage || data.validation.additionalInfo);
-        throw new Error(detail || data.message || ('HTTP ' + response.status));
+        var raw = String(data.rawResponse || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        var serverDetail = raw && raw.length <= 700 ? raw : (raw ? raw.slice(0, 700) + '…' : '');
+        throw new Error(detail || serverDetail || data.message || ('HTTP ' + response.status));
       }
 
       var number = data.validation && (data.validation.documentNumber || data.validation.otherSuggestedNumber);
