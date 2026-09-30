@@ -155,7 +155,7 @@ export async function onRequestPost(context) {
     if (!["incoming", "outgoing"].includes(type)) {
       return jsonResponse({ success: false, message: "Неизвестный тип документа" }, 400);
     }
-    if (!["save", "unprocess"].includes(action)) {
+    if (!["save", "save-and-process", "unprocess"].includes(action)) {
       return jsonResponse({ success: false, message: "Неизвестная операция с документом" }, 400);
     }
 
@@ -171,8 +171,9 @@ export async function onRequestPost(context) {
     }
 
     let document = body.document || {};
-    if (type === "incoming" && action === "save") {
+    if (type === "incoming" && ["save", "save-and-process"].includes(action)) {
       document = normalizeIncomingDocument(document);
+      if (action === "save-and-process") document.status = "PROCESSED";
       const errors = validateIncoming(document);
       if (errors.length) {
         return jsonResponse({ success: false, message: errors[0], errors }, 400);
@@ -196,7 +197,7 @@ export async function onRequestPost(context) {
     });
 
     const validation = parseValidation(result.text);
-    const validationFailed = action === "save" && isFalse(validation.valid);
+    const validationFailed = ["save", "save-and-process"].includes(action) && isFalse(validation.valid);
     const success = result.ok && !validationFailed;
 
     if (!success) {
@@ -237,9 +238,11 @@ export async function onRequestPost(context) {
       message:
         action === "unprocess"
           ? "Документ распроведён"
-          : type === "incoming"
-            ? "Приходная накладная создана в iiko BackOffice"
-            : "Документ сохранён в iiko BackOffice",
+          : action === "save-and-process"
+            ? "Приходная накладная сохранена и проведена в iiko BackOffice"
+            : type === "incoming"
+              ? "Приходная накладная сохранена в iiko BackOffice"
+              : "Документ сохранён в iiko BackOffice",
       meta: { authCacheHit: Boolean(result.auth?.cacheHit) }
     });
   } catch (error) {
