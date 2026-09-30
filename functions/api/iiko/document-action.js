@@ -32,6 +32,7 @@ function asNumber(value, fallback = 0) {
 function normalizeIncomingDocument(input = {}) {
   const d = { ...input };
   const items = Array.isArray(d.items) ? d.items : [];
+  const documentStore = clean(d.defaultStore || d.defaultStoreId || d.storeId);
   if (clean(d.status)) d.status = clean(d.status).toUpperCase();
   else delete d.status;
   d.items = items.map((item, index) => {
@@ -44,7 +45,8 @@ function normalizeIncomingDocument(input = {}) {
       amount,
       actualAmount: Number.isFinite(Number(item.actualAmount)) ? Number(item.actualAmount) : amount,
       price,
-      sum
+      sum,
+      store: clean(item.store || item.storeId) || documentStore
     };
   });
   return d;
