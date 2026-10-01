@@ -8,6 +8,7 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $here
 
 if (-not (Test-Path $File)) { throw "Fayl ne nayden: $File" }
+$fullPath = (Resolve-Path $File).Path
 
 $token = ""
 if (Test-Path ".env") {
@@ -15,17 +16,10 @@ if (Test-Path ".env") {
     if ($line) { $token = ($line -replace '^LOCAL_AI_TOKEN=', '').Trim() }
 }
 
-$headers = @{}
-if ($token) { $headers["Authorization"] = "Bearer $token" }
-
 Write-Host "Otpravlyaem dokument v lokalniy OCR..." -ForegroundColor Cyan
 
-$form = @{
-    file = Get-Item $File
-    prompt = "Extract restaurant supplier invoice data. Do not invent missing values."
-    schema = "{}"
-}
+$args = @("-sS", "-X", "POST", "http://127.0.0.1:8789/process", "-F", "file=@$fullPath", "-F", "prompt=Extract restaurant supplier invoice data. Do not invent missing values.", "-F", "schema={}")
+if ($token) { $args += @("-H", "Authorization: Bearer $token") }
 
-$result = Invoke-RestMethod -Uri "http://127.0.0.1:8789/process" -Method Post -Headers $headers -Form $form -TimeoutSec 300
-
-$result | ConvertTo-Json -Depth 20
+& curl.exe @args
+if ($LASTEXITCODE -ne 0) { throw "curl zavershilsya s oshibkoy." }
