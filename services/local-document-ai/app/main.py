@@ -136,6 +136,17 @@ def ordered_lines(lines: list[OcrLine]) -> list[OcrLine]:
     return sorted(lines, key=pos)
 
 
+def _clean_supplier_name(value: str | None) -> str | None:
+    supplier = (value or "").strip()
+    if not supplier:
+        return None
+    suffixes = (" MMC", " LLC", " ASC", " OOO", " ООО")
+    for quote in ('"', "“", "”", "«", "»"):
+        for suffix in suffixes:
+            supplier = supplier.replace(quote + suffix, suffix)
+    return supplier.strip(' "“”«»') or None
+
+
 def likely_supplier(lines: list[OcrLine]) -> str | None:
     top = ordered_lines(lines)[:24]
 
@@ -147,12 +158,7 @@ def likely_supplier(lines: list[OcrLine]) -> str | None:
         if any(label in low for label in supplier_labels):
             value = re.split(r"[:：]", line.text, maxsplit=1)
             if len(value) == 2 and value[1].strip():
-                supplier = value[1].strip()
-                suffixes = (" MMC", " LLC", " ASC", " OOO", " ООО")
-                for quote in ('"', "“", "”", "«", "»"):
-                    for suffix in suffixes:
-                        supplier = supplier.replace(quote + suffix, suffix)
-                return supplier.strip(' "“”«»')
+                return _clean_supplier_name(value[1])
 
     bad = tuple(x.lower() for x in HEADER_WORDS + TOTAL_WORDS + DATE_WORDS)
     candidates: list[tuple[float, str]] = []
@@ -169,33 +175,39 @@ def likely_supplier(lines: list[OcrLine]) -> str | None:
         bonus = 0.12 if any(x in low for x in ("mmc", "llc", "asc", "şirk", "company", "market")) else 0
         candidates.append((line.score + bonus + min(len(text), 45) / 300, text))
     fallback = max(candidates, default=(0, None))[1]
-    if fallback:
-        return fallback.strip(' "“”«»')
-    return None
+    return _clean_supplier_name(fallback)
 
 
 def likely_doc_number(lines: list[OcrLine]) -> str | None:
+    ordered = ordered_lines(lines)
     keywords = (
         "nömr", "nomr", "номер", "number", "document no", "sənədin", "senedin",
         "sndin", "qaimə", "qaime", "invoice", "faktura", "накладн", "№"
     )
-    for line in ordered_lines(lines)[:40]:
+    for line in ordered[:40]:
         low = line.text.lower()
         if not any(w in low for w in keywords):
             continue
 
-        # Most supplier forms print the value after a colon.
         after = re.search(r"[:：#№]\s*([A-ZА-ЯƏÖÜĞÇŞİ0-9][A-ZА-ЯƏÖÜĞÇŞİ0-9./_-]{1,})\s*$", line.text, re.I)
         if after:
             value = after.group(1).strip()
             if not iso_date(value):
                 return value
 
-        # OCR may remove the separator: use the last plausible token.
         tokens = re.findall(r"[A-ZА-ЯƏÖÜĞÇŞİ0-9][A-ZА-ЯƏÖÜĞÇŞİ0-9./_-]{1,}", line.text, re.I)
         for value in reversed(tokens):
             if not iso_date(value) and any(ch.isdigit() for ch in value):
                 return value
+
+    # Weak OCR can drop the label but preserve ": 1025". In the document
+    # header, use the first colon-prefixed integer before the date/table.
+    for line in ordered[:20]:
+        if iso_date(line.text):
+            continue
+        m = re.fullmatch(r"\s*[:：#№]?\s*(\d{2,10})\s*", line.text)
+        if m:
+            return m.group(1)
     return None
 
 
