@@ -2,7 +2,13 @@ import { getUser, loadPrivateIikoState, privateConnection } from "./iiko/_lib/us
 import { getIikoAuth } from "./iiko/_lib/iiko-client.js";
 import { getIikoSuppliers } from "./iiko/_lib/iiko-suppliers.js";
 import { syncReferences } from "./iiko/references.js";
-import { aiProviderStatus, processPurchaseDocument } from "./iiko/_lib/ai-document-providers.js";
+import {
+  aiProviderStatus,
+  processPurchaseDocument,
+  startLocalPurchaseDocumentJob,
+  getLocalPurchaseDocumentJob,
+  localJobPayloadToProcessed
+} from "./iiko/_lib/ai-document-providers.js";
 
 function cors(){return{
   "Access-Control-Allow-Origin":"*",
@@ -96,7 +102,20 @@ async function ensure(db){
       times_used INTEGER NOT NULL DEFAULT 1,
       last_used_at TEXT NOT NULL,
       PRIMARY KEY(user_id, supplier_key, normalized_source)
-    )`)
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS ai_document_jobs (
+      document_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'LOCAL',
+      remote_job_id TEXT,
+      status TEXT NOT NULL DEFAULT 'QUEUED',
+      stage TEXT,
+      progress INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_document_jobs_user ON ai_document_jobs(user_id, updated_at DESC)`)
   ]);
 }
 async function auth(request,env){const a=await getUser(request,env);if(!a)return null;await ensure(env.DB);return a}
