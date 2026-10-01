@@ -130,12 +130,27 @@ async function openAiProvider(env, file) {
   };
 }
 
-function localDocumentEndpoint(value) {
+function localDocumentBase(value) {
   const raw = clean(value);
   if (!raw) return "";
-  const trimmed = raw.replace(/\/+$/, "");
-  if (/\/process$/i.test(trimmed)) return trimmed;
-  return trimmed + "/process";
+  return raw.replace(/\/+$/, "").replace(/\/(?:process|jobs)$/i, "");
+}
+
+function localDocumentEndpoint(value) {
+  const base = localDocumentBase(value);
+  return base ? base + "/process" : "";
+}
+
+function localJobsEndpoint(value) {
+  const base = localDocumentBase(value);
+  return base ? base + "/jobs" : "";
+}
+
+function localHeaders(env) {
+  const headers = {};
+  const token = clean(env.LOCAL_DOCUMENT_AI_TOKEN);
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
 }
 
 async function localProvider(env, file) {
@@ -145,13 +160,10 @@ async function localProvider(env, file) {
   form.set("file", file, file.name || "document");
   form.set("prompt", PROMPT);
   form.set("schema", JSON.stringify(INVOICE_SCHEMA));
-  const headers = {};
-  const token = clean(env.LOCAL_DOCUMENT_AI_TOKEN);
-  if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(url, { method: "POST", headers, body: form });
+  const response = await fetch(url, { method: "POST", headers: localHeaders(env), body: form });
   const payload = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(payload?.message || payload?.error || `Local AI HTTP ${response.status}`);
+  if (!response.ok) throw new Error(payload?.detail || payload?.message || payload?.error || `Local AI HTTP ${response.status}`);
   const data = payload?.data || payload?.document || payload;
   if (!data || typeof data !== "object") throw new Error("Local AI вернул пустой результат.");
   return {
@@ -160,6 +172,54 @@ async function localProvider(env, file) {
     data,
     usage: payload?.usage || null,
     providerResponseId: payload?.id || null
+  };
+}
+
+export async function startLocalPurchaseDocumentJob(env, file) {
+  const url = localJobsEndpoint(env.LOCAL_DOCUMENT_AI_URL);
+  if (!url) throw new Error("LOCAL_DOCUMENT_AI_URL не настроен.");
+  const form = new FormData();
+  form.set("file", file, file.name || "document");
+  form.set("prompt", PROMPT);
+  form.set("schema", JSON.stringify(INVOICE_SCHEMA));
+
+  const response = await fetch(url, { method: "POST", headers: localHeaders(env), body: form });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.detail || payload?.message || payload?.error || `Local AI jobs HTTP ${response.status}`);
+  const jobId = clean(payload?.id);
+  if (!jobId) throw new Error("Local AI не вернул jobId.");
+  return {
+    id: jobId,
+    status: clean(payload?.status) || "QUEUED",
+    stage: clean(payload?.stage) || "queued",
+    progress: Number.isFinite(Number(payload?.progress)) ? Number(payload.progress) : 0
+  };
+}
+
+export async function getLocalPurchaseDocumentJob(env, jobId) {
+  const base = localJobsEndpoint(env.LOCAL_DOCUMENT_AI_URL);
+  if (!base) throw new Error("LOCAL_DOCUMENT_AI_URL не настроен.");
+  const response = await fetch(`${base}/${encodeURIComponent(clean(jobId))}`, {
+    method: "GET",
+    headers: localHeaders(env),
+    cache: "no-store"
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.detail || payload?.message || payload?.error || `Local AI job HTTP ${response.status}`);
+  return payload || {};
+}
+
+export function localJobPayloadToProcessed(payload) {
+  const result = payload?.result;
+  if (!result || typeof result !== "object") throw new Error("Local AI job завершён без результата.");
+  const data = result?.data || result?.document || result;
+  if (!data || typeof data !== "object") throw new Error("Local AI job вернул пустой документ.");
+  return {
+    provider: "LOCAL",
+    model: clean(result?.model) || "local",
+    data,
+    usage: result?.usage || null,
+    providerResponseId: clean(result?.id) || clean(payload?.id) || null
   };
 }
 
