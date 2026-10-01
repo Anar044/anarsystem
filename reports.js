@@ -404,10 +404,78 @@
 
     function renderSelectedGroup(elementId, type, values) {
         const container = $(elementId); if (!container) return;
-        if (!values.length) { container.innerHTML = `<div class="olap-empty">Перетащите поле сюда</div>`; bindOlapDropZones(); return; }
-        container.innerHTML = values.map((item, index) => { const name = type === "measures" ? item.field : item; const field = findOlapField(name); return `<div class="olap-selected-field" draggable="true" data-type="${type}" data-index="${index}" data-field="${esc(name)}"><span><strong>${esc(field?.title || name)}</strong><small>${esc(name)}${type === "measures" ? ` • ${esc(item.aggregation)}` : ""}</small></span><button type="button" data-remove="1">×</button></div>`; }).join("");
-        container.querySelectorAll(".olap-selected-field").forEach(element => { element.addEventListener("dragstart", event => { currentDrag = { source: element.dataset.type, index: Number(element.dataset.index), field: element.dataset.field }; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", element.dataset.field); }); const removeButton = element.querySelector("[data-remove]"); if (removeButton) removeButton.onclick = () => { const index = Number(element.dataset.index); if (type === "rows") olapRows.splice(index, 1); if (type === "columns") olapColumns.splice(index, 1); if (type === "measures") olapMeasures.splice(index, 1); renderSelectedFields(); }; });
+        if (!values.length) { container.innerHTML = `<div class="olap-empty">Добавьте поле</div>`; bindOlapDropZones(); return; }
+
+        container.innerHTML = values.map((item, index) => {
+            const name = type === "measures" ? item.field : item;
+            const field = findOlapField(name);
+            return `<div class="olap-selected-field olap-v2-chip" draggable="true" data-type="${type}" data-index="${index}" data-field="${esc(name)}">
+              <span class="olap-chip-label"><strong>${esc(field?.title || name)}</strong>${type === "measures" ? `<small>${esc(item.aggregation || "SUM")}</small>` : ""}</span>
+              <button type="button" class="olap-chip-menu-btn" data-chip-menu aria-label="Меню">⋮</button>
+            </div>`;
+        }).join("");
+
+        container.querySelectorAll(".olap-selected-field").forEach(element => {
+            element.addEventListener("dragstart", event => {
+                currentDrag = { source: element.dataset.type, index: Number(element.dataset.index), field: element.dataset.field };
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", element.dataset.field);
+            });
+            element.querySelector("[data-chip-menu]")?.addEventListener("click", event => {
+                event.stopPropagation();
+                openSelectedFieldMenu(element, type, Number(element.dataset.index), element.dataset.field);
+            });
+        });
         bindOlapDropZones();
+    }
+
+    function closeSelectedFieldMenu() {
+        document.querySelectorAll(".olap-chip-menu").forEach(node => node.remove());
+        selectedFieldMenu = null;
+    }
+
+    function moveSelectedField(type,index,direction) {
+        const list = type === "rows" ? olapRows : type === "columns" ? olapColumns : olapMeasures;
+        const next = index + direction;
+        if (next < 0 || next >= list.length) return;
+        [list[index], list[next]] = [list[next], list[index]];
+        renderSelectedFields();
+    }
+
+    function removeSelectedField(type,index) {
+        if (type === "rows") olapRows.splice(index,1);
+        if (type === "columns") olapColumns.splice(index,1);
+        if (type === "measures") olapMeasures.splice(index,1);
+        renderSelectedFields();
+    }
+
+    function openSelectedFieldMenu(anchor,type,index,fieldName) {
+        closeSelectedFieldMenu();
+        const menu = document.createElement("div");
+        menu.className = "olap-chip-menu";
+        const measure = type === "measures" ? olapMeasures[index] : null;
+        menu.innerHTML = `
+          <button type="button" data-menu-filter>⌕ Фильтр</button>
+          <button type="button" data-menu-left>← Переместить левее</button>
+          <button type="button" data-menu-right>→ Переместить правее</button>
+          ${type === "measures" ? `<div class="olap-menu-section"><span>Агрегация</span>
+            <select data-menu-aggregation>
+              ${["SUM","AVG","MIN","MAX","COUNT"].map(x=>`<option value="${x}" ${String(measure?.aggregation||"SUM").toUpperCase()===x?"selected":""}>${x}</option>`).join("")}
+            </select></div>` : ""}
+          <button type="button" data-menu-remove class="danger">× Удалить поле</button>
+        `;
+        document.body.appendChild(menu);
+        const rect = anchor.getBoundingClientRect();
+        menu.style.left = Math.max(8,Math.min(window.innerWidth-menu.offsetWidth-8,rect.right-menu.offsetWidth))+"px";
+        menu.style.top = Math.min(window.innerHeight-menu.offsetHeight-8,rect.bottom+6)+"px";
+        selectedFieldMenu = menu;
+
+        menu.querySelector("[data-menu-filter]")?.addEventListener("click",()=>{closeSelectedFieldMenu();openOlapFilter(fieldName)});
+        menu.querySelector("[data-menu-left]")?.addEventListener("click",()=>{moveSelectedField(type,index,-1);closeSelectedFieldMenu()});
+        menu.querySelector("[data-menu-right]")?.addEventListener("click",()=>{moveSelectedField(type,index,1);closeSelectedFieldMenu()});
+        menu.querySelector("[data-menu-remove]")?.addEventListener("click",()=>{removeSelectedField(type,index);closeSelectedFieldMenu()});
+        const aggregation=menu.querySelector("[data-menu-aggregation]");
+        if(aggregation) aggregation.onchange=()=>{olapMeasures[index].aggregation=aggregation.value;renderSelectedFields();closeSelectedFieldMenu()};
     }
 
     function bindOlapDropZones() {
@@ -417,9 +485,62 @@
 
     function renderFilterEditor() {
         const select = $("olap-filter-field"); if (!select) return;
-        const available = olapFields.filter(field => field.filteringAllowed !== false);
+        const available = olapFields.filter(field => field.filteringAllowed !== false && (olapShowTechnical || !isTechnicalOlapField(field)));
+        const current = select.value;
         select.innerHTML = available.map(field => `<option value="${esc(field.name)}">${esc(field.title)}</option>`).join("");
+        if ([...select.options].some(o=>o.value===current)) select.value=current;
         updateFilterInputMode();
+    }
+
+    function filterValuesFromLastResult(fieldName) {
+        const values = [];
+        const seen = new Set();
+        lastOlapRowsData.forEach(row => {
+            const v = row?.[fieldName];
+            if (v === null || v === undefined || v === "") return;
+            const key = String(v);
+            if (seen.has(key)) return;
+            seen.add(key); values.push(key);
+        });
+        return values.sort((a,b)=>a.localeCompare(b,"ru")).slice(0,100);
+    }
+
+    function renderFilterSuggestions(fieldName) {
+        const host = $("olap-filter-suggestions"); if (!host) return;
+        const values = filterValuesFromLastResult(fieldName);
+        if (!values.length) {
+            host.innerHTML = '<div class="olap-filter-suggestion-empty">После первого запуска отчёта здесь появятся найденные значения для быстрого выбора.</div>';
+            return;
+        }
+        host.innerHTML = '<div class="olap-filter-suggestion-title">Значения из текущего отчёта</div><div class="olap-filter-suggestion-values">'+
+            values.map(v=>`<button type="button" data-filter-value="${esc(v)}">${esc(v)}</button>`).join("")+'</div>';
+        host.querySelectorAll("[data-filter-value]").forEach(btn=>btn.onclick=()=>{
+            const input=$("olap-filter-value"); if(!input)return;
+            const op=$("olap-filter-operator")?.value;
+            if(op==="IncludeList"||op==="ExcludeList"){
+                const current=input.value.split(",").map(x=>x.trim()).filter(Boolean);
+                if(!current.includes(btn.dataset.filterValue))current.push(btn.dataset.filterValue);
+                input.value=current.join(", ");
+            }else input.value=btn.dataset.filterValue;
+        });
+    }
+
+    function openOlapFilter(fieldName="") {
+        const modal=$("olap-filter-modal"); if(!modal)return;
+        renderFilterEditor();
+        if(fieldName && [...$("olap-filter-field").options].some(o=>o.value===fieldName)) $("olap-filter-field").value=fieldName;
+        $("olap-filter-value").value="";
+        $("olap-filter-from").value="";
+        $("olap-filter-to").value="";
+        updateFilterInputMode();
+        renderFilterSuggestions($("olap-filter-field").value);
+        modal.hidden=false;
+        document.body.classList.add("olap-modal-open");
+    }
+
+    function closeOlapFilter() {
+        const modal=$("olap-filter-modal"); if(modal)modal.hidden=true;
+        document.body.classList.remove("olap-modal-open");
     }
 
     function updateFilterInputMode() {
