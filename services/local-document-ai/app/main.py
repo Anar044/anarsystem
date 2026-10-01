@@ -988,6 +988,8 @@ def health():
         "ollamaModel": OLLAMA_MODEL if OLLAMA_URL else None,
         "parserVersion": "heuristic-v5",
         "imagePreprocessing": True,
+        "secondaryOcr": SECONDARY_OCR or None,
+        "secondaryOcrLangs": SECONDARY_OCR_LANGS if SECONDARY_OCR == "easyocr" else [],
     }
 
 
@@ -1022,6 +1024,24 @@ async def process(
             evaluated.append((candidate, candidate_lines))
 
         heuristic, lines = max(evaluated, key=lambda pair: _parser_quality(pair[0]))
+        selected_engine = "paddleocr"
+        secondary_tried = False
+        secondary_error = None
+
+        if suffix != ".pdf" and should_try_secondary_ocr(heuristic):
+            secondary_tried = True
+            try:
+                easy_lines = easyocr_document(temp_path)
+                if easy_lines:
+                    easy_candidate = heuristic_parse(easy_lines)
+                    easy_candidate["ocrPass"] = "easyocr-original"
+                    if _parser_quality(easy_candidate) > _parser_quality(heuristic):
+                        heuristic = easy_candidate
+                        lines = easy_lines
+                        selected_engine = "easyocr"
+            except Exception as exc:
+                secondary_error = str(exc)[:500]
+                heuristic["secondaryOcrError"] = secondary_error
 
         parsed = None
         parser = heuristic.get("localParser", "heuristic-v5")
@@ -1036,12 +1056,20 @@ async def process(
         data = parsed or heuristic
         return {
             "id": None,
-            "model": f"paddleocr:{OCR_VERSION}/{OCR_LANG}+{parser}",
+            "model": (
+                f"easyocr:{','.join(SECONDARY_OCR_LANGS)}+{parser}"
+                if selected_engine == "easyocr"
+                else f"paddleocr:{OCR_VERSION}/{OCR_LANG}+{parser}"
+            ),
             "data": data,
             "usage": {
                 "ocrLines": len(lines),
                 "ocrPasses": len(ocr_candidates),
                 "selectedOcrPass": heuristic.get("ocrPass"),
+                "selectedOcrEngine": selected_engine,
+                "secondaryOcr": SECONDARY_OCR or None,
+                "secondaryOcrTried": secondary_tried,
+                "secondaryOcrError": secondary_error,
                 "documentMode": data.get("documentMode") or heuristic.get("documentMode"),
                 "averageConfidence": data.get("confidence"),
                 "local": True,
