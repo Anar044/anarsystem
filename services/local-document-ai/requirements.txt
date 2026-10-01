@@ -4,3 +4,4 @@ python-multipart==0.0.20
 paddleocr==3.5.0
 requests==2.32.5
 Pillow==11.3.0
+easyocr==1.7.2
