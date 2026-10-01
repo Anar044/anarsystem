@@ -48,6 +48,12 @@ async function pollDocumentProcess(docId,{review=false}={}){
       if(review)setReviewStatus(message,j.document?.status==='ERROR'?'error':'');
       else setUploadStatus(message,j.document?.status==='ERROR'?'error':'');
       if(!j.processing){
+        if(j.interrupted){
+          const message=j.message||'Предыдущая задача была прервана. Запустите распознавание заново.';
+          if(review)setReviewStatus(message,'');
+          else setUploadStatus(message,'');
+          return j;
+        }
         if(j.document?.status==='ERROR')throw new Error(j.document.errorMessage||j.message||'Local AI завершил задачу с ошибкой.');
         return j;
       }
