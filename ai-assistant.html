@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru" data-theme="light" style="background:#f4f8fc;visibility:hidden">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Smart Horeca Control — AI Ассистент</title>
+<script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
+<link rel="stylesheet" href="/app-shell.css?v=8">
+<link rel="stylesheet" href="/ai-assistant.css?v=1">
+</head>
+<body data-protected="true">
+<div class="app-shell">
+  <aside class="sidebar"></aside>
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+        <span class="topbar-title">AI Ассистент</span>
+        <div class="topbar-sub">Аналитик SmartHoreca · отчёты и ответы по данным ресторана</div>
+      </div>
+      <div class="top-actions">
+        <span class="user-chip"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span></span>
+        <button class="icon-btn" data-auth-logout>Выйти</button>
+      </div>
+    </header>
+
+    <div class="sha-page">
+      <aside class="sha-chats">
+        <div class="sha-chats-head">
+          <div>
+            <strong>Диалоги</strong>
+            <span>AI помнит контекст внутри чата</span>
+          </div>
+          <button id="newChatBtn" class="sha-icon-btn" type="button" title="Новый чат">＋</button>
+        </div>
+        <div id="conversationList" class="sha-conversation-list"></div>
+        <div id="conversationEmpty" class="sha-empty">Диалогов пока нет.</div>
+      </aside>
+
+      <section class="sha-chat">
+        <div class="sha-chat-head">
+          <div>
+            <div class="sha-ai-mark">AI</div>
+            <div>
+              <h1 id="chatTitle">AI Ассистент SmartHoreca</h1>
+              <p>Можно спрашивать о закупках, поставщиках, продажах, товарах и доступных отчётах.</p>
+            </div>
+          </div>
+          <div class="sha-head-actions">
+            <span id="assistantState" class="sha-state">Проверяем подключение…</span>
+            <button id="deleteChatBtn" class="sha-delete" type="button" hidden>Удалить чат</button>
+          </div>
+        </div>
+
+        <div id="welcome" class="sha-welcome">
+          <div class="sha-welcome-mark">AI</div>
+          <h2>Что хотите узнать?</h2>
+          <p>Я могу собирать отчёты из доступных данных SmartHoreca, а не только из OLAP.</p>
+          <div class="sha-examples">
+            <button type="button" data-example="От каких поставщиков мы покупали помидоры за последний год и как у каждого менялась закупочная цена?">Поставщики и цены на помидоры</button>
+            <button type="button" data-example="Покажи продажи за текущий месяц по кассам и блюдам: сумма со скидкой и количество блюд.">Продажи по кассам и блюдам</button>
+            <button type="button" data-example="Какие данные и отчёты SmartHoreca ты сейчас умеешь анализировать?">Что умеет AI</button>
+          </div>
+        </div>
+
+        <div id="messages" class="sha-messages"></div>
+
+        <div class="sha-composer-wrap">
+          <div id="composerStatus" class="sha-composer-status"></div>
+          <div class="sha-composer">
+            <textarea id="messageInput" rows="1" placeholder="Например: от каких поставщиков мы покупаем помидоры и как менялась цена за год?"></textarea>
+            <button id="sendBtn" class="sha-send" type="button">Отправить</button>
+          </div>
+          <div class="sha-hint">AI работает только на чтение: сам не изменяет данные в iiko.</div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth-config.js?v=20260911-2"></script>
+<script src="/auth.js?v=20260911-3"></script>
+<script src="/iiko-context.js?v=20260911-4"></script>
+<script src="/app-shell.js?v=20261001-ai-assistant-1"></script>
+<script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
+<script src="/mobile-responsive.js?v=3"></script>
+<script src="/ai-assistant.js?v=1"></script>
+</body>
+</html>
