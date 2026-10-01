@@ -1,0 +1,367 @@
+
+/* OLAP Constructor v2 */
+.olap-v2{display:flex;flex-direction:column;gap:14px}
+.olap-v2 .olap-report-head{align-items:flex-end;gap:18px}
+.olap-v2-fields,
+.olap-v2-config,
+.olap-v2-result{
+  background:var(--card-bg,#101923);
+  border:1px solid var(--border,#243346);
+  border-radius:16px;
+}
+.olap-v2-fields{padding:14px}
+.olap-v2-field-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.olap-category-tabs{display:flex;gap:7px;overflow-x:auto;padding-bottom:2px;scrollbar-width:thin}
+.olap-category-tab{
+  flex:0 0 auto;border:1px solid #2a3b4d;background:#0e1720;color:#a9b9ca;
+  border-radius:999px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer
+}
+.olap-category-tab:hover{border-color:#3f596f;color:#dce8f4}
+.olap-category-tab.active{background:rgba(52,211,153,.14);border-color:#25b981;color:#61e7b7}
+.olap-v2-search{display:flex;align-items:center;gap:8px;margin-left:auto}
+.olap-v2-search input[type="search"]{
+  width:260px;max-width:40vw;border:1px solid #2a3b4d;background:#0b131c;color:#e5eef8;
+  border-radius:10px;padding:9px 11px;outline:none
+}
+.olap-v2-search input[type="search"]:focus{border-color:#39c891}
+.olap-technical-toggle{display:flex;align-items:center;gap:6px;color:#91a5b8;font-size:12px;white-space:nowrap}
+.olap-v2-search>button{width:36px;height:36px;border:1px solid #2a3b4d;background:#0e1720;color:#c9d7e6;border-radius:9px;cursor:pointer}
+
+.olap-v2-field-list{
+  display:grid!important;
+  grid-template-columns:repeat(auto-fill,minmax(245px,1fr));
+  gap:8px;
+  max-height:250px!important;
+  overflow:auto;
+  padding:1px!important
+}
+.olap-v2-field{
+  min-width:0!important;display:flex!important;align-items:center!important;justify-content:space-between!important;
+  gap:8px!important;padding:9px 10px!important;border:1px solid #243447!important;border-radius:10px!important;
+  background:#0d1620!important;color:#dce8f4!important;text-align:left!important
+}
+.olap-v2-field:hover{border-color:#3a546b!important;background:#111e2a!important}
+.olap-v2-field-name{display:flex;min-width:0;flex-direction:column;gap:2px}
+.olap-v2-field-name strong{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.olap-v2-field-name small{font-size:9px;color:#698095;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.olap-v2-field-actions{display:flex;align-items:center;gap:4px;flex:0 0 auto}
+.olap-v2-field-actions button{
+  border:1px solid #2b4054;background:#142231;color:#b9cada;border-radius:7px;
+  padding:5px 7px;font-size:10px;cursor:pointer
+}
+.olap-v2-field-actions button:hover:not(:disabled){border-color:#3bc992;color:#77e9bd}
+.olap-v2-field-actions button:disabled{opacity:.28;cursor:not-allowed}
+
+.olap-v2-config{display:flex;flex-direction:column;padding:10px 12px;gap:8px}
+.olap-config-lane{display:grid;grid-template-columns:110px minmax(0,1fr);gap:10px;align-items:center;min-height:46px}
+.olap-config-label{font-size:12px;font-weight:800;color:#cbd8e5;white-space:nowrap}
+.olap-v2-selected{
+  display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:7px!important;min-height:38px!important;
+  padding:5px!important;border:1px dashed #2b4054!important;border-radius:10px!important;background:#0c151e!important
+}
+.olap-v2-selected>.olap-empty{padding:4px 8px!important;font-size:11px;color:#62778b}
+.olap-v2-chip{
+  position:relative;display:inline-flex!important;align-items:center!important;gap:5px!important;
+  width:auto!important;min-width:0!important;max-width:260px!important;padding:5px 5px 5px 10px!important;
+  border:1px solid #2d4559!important;border-radius:999px!important;background:#132230!important
+}
+.olap-chip-label{display:flex;align-items:center;gap:6px;min-width:0}
+.olap-chip-label strong{font-size:11px;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.olap-chip-label small{font-size:9px;color:#65dcb0;border-left:1px solid #345064;padding-left:6px}
+.olap-chip-menu-btn{
+  width:25px;height:25px;border:0!important;background:transparent!important;color:#8da4b8!important;
+  border-radius:50%!important;cursor:pointer;font-size:15px!important;line-height:1!important;padding:0!important
+}
+.olap-chip-menu-btn:hover{background:#213446!important;color:#fff!important}
+.olap-config-actions{display:flex;justify-content:flex-end;gap:8px;border-top:1px solid #1f2e3d;padding-top:9px}
+.olap-config-actions button{border:1px solid #2c4053;background:#101b26;color:#c7d5e4;border-radius:9px;padding:8px 12px;cursor:pointer}
+.olap-config-actions .olap-filter-add{border-color:#287e61;color:#64e5b2;background:rgba(39,178,125,.08)}
+
+.olap-chip-menu{
+  position:fixed;z-index:10050;width:220px;padding:6px;background:#0e1721;border:1px solid #32485d;
+  border-radius:10px;box-shadow:0 16px 45px rgba(0,0,0,.38)
+}
+.olap-chip-menu button{width:100%;text-align:left;border:0;background:transparent;color:#d3dfeb;padding:8px 9px;border-radius:7px;cursor:pointer;font-size:12px}
+.olap-chip-menu button:hover{background:#172737}
+.olap-chip-menu button.danger{color:#ff8f9c}
+.olap-menu-section{padding:8px 9px;border-top:1px solid #203244;border-bottom:1px solid #203244;margin:4px 0}
+.olap-menu-section span{display:block;color:#71879c;font-size:10px;margin-bottom:5px}
+.olap-menu-section select{width:100%;background:#0a121a;color:#d6e2ed;border:1px solid #2a4054;border-radius:7px;padding:6px}
+
+.olap-v2-filter-chips{display:flex!important;flex-wrap:wrap;gap:7px;min-height:32px}
+.olap-v2-filter-chip{
+  display:flex!important;align-items:center;gap:8px;width:auto!important;
+  padding:6px 7px 6px 10px!important;border:1px solid #485a2c!important;border-radius:999px!important;background:rgba(167,204,71,.08)!important
+}
+.olap-v2-filter-chip span{display:flex;align-items:baseline;gap:6px}
+.olap-v2-filter-chip strong{font-size:11px;color:#dce8f3}
+.olap-v2-filter-chip small{font-size:10px;color:#a5b786}
+.olap-v2-filter-chip button{border:0;background:transparent;color:#9bad83;cursor:pointer}
+
+.olap-v2-result{overflow:hidden}
+.olap-result-heading{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #223244}
+.olap-result-hint{font-size:10px;color:#6f8498;margin-top:3px}
+.olap-v2-result .olap-result{padding:0!important}
+.olap-v2-result .report-header{padding:10px 14px!important}
+.olap-v2-result .report-table-wrapper{max-height:62vh;overflow:auto}
+.olap-v2-result .report-table{margin:0!important;border-radius:0!important}
+.olap-v2-result .report-table th{position:sticky;top:0;z-index:3;background:#13212d}
+.olap-group-toggle{border:0;background:transparent;color:#79dcb8;cursor:pointer;width:22px}
+.olap-group-row.collapsed{background:rgba(39,178,125,.06)}
+
+.olap-v2-modal[hidden]{display:none!important}
+.olap-v2-modal{position:fixed;inset:0;z-index:10060;display:grid;place-items:center}
+.olap-v2-modal-backdrop{position:absolute;inset:0;background:rgba(3,8,13,.68);backdrop-filter:blur(2px)}
+.olap-v2-modal-card{position:relative;width:min(560px,calc(100vw - 28px));max-height:85vh;overflow:auto;background:#101a24;border:1px solid #30465a;border-radius:14px;box-shadow:0 24px 80px rgba(0,0,0,.5)}
+.olap-v2-modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #223345}
+.olap-v2-modal-head button{border:0;background:transparent;color:#9eb0c2;font-size:24px;cursor:pointer}
+.olap-v2-modal-body{padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.olap-v2-modal-body label{display:flex;flex-direction:column;gap:6px;color:#8398ac;font-size:11px}
+.olap-v2-modal-body input,.olap-v2-modal-body select{border:1px solid #2c4054;background:#0a121a;color:#e3edf6;border-radius:9px;padding:9px 10px}
+.olap-filter-suggestions{grid-column:1/-1;border-top:1px solid #223345;padding-top:12px}
+.olap-filter-suggestion-title{font-size:11px;color:#8297aa;margin-bottom:7px}
+.olap-filter-suggestion-values{display:flex;flex-wrap:wrap;gap:6px;max-height:180px;overflow:auto}
+.olap-filter-suggestion-values button{border:1px solid #2b4054;background:#132230;color:#c9d8e5;border-radius:999px;padding:6px 9px;font-size:11px;cursor:pointer}
+.olap-filter-suggestion-values button:hover{border-color:#31bf88;color:#5de2ae}
+.olap-filter-suggestion-empty{font-size:11px;color:#6b8093}
+.olap-v2-modal-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid #223345}
+.olap-v2-modal-actions button{border:1px solid #2c4054;background:#101c27;color:#d2deea;border-radius:9px;padding:8px 13px;cursor:pointer}
+body.olap-modal-open{overflow:hidden}
+
+@media(max-width:1100px){
+  .olap-v2-field-toolbar{align-items:stretch}
+  .olap-category-tabs{width:100%}
+  .olap-v2-search{width:100%;margin-left:0}
+  .olap-v2-search input[type="search"]{flex:1;max-width:none}
+  .olap-config-lane{grid-template-columns:90px minmax(0,1fr)}
+}
+@media(max-width:720px){
+  .olap-v2 .olap-report-head{align-items:stretch}
+  .olap-v2 .olap-report-actions{display:grid;grid-template-columns:1fr 1fr}
+  .olap-v2 .olap-report-actions .olap-saved-wrap{grid-column:1/-1}
+  .olap-v2-field-list{grid-template-columns:1fr}
+  .olap-v2-search{flex-wrap:wrap}
+  .olap-v2-search input[type="search"]{width:100%;flex-basis:100%}
+  .olap-config-lane{grid-template-columns:1fr}
+  .olap-config-label{padding-left:3px}
+  .olap-v2-modal-body{grid-template-columns:1fr}
+}
+
+
+/* OLAP v2 desktop workspace: fields left, constructor/result right */
+@media(min-width:1001px){
+  .olap-v2{
+    display:grid!important;
+    grid-template-columns:minmax(330px,390px) minmax(0,1fr)!important;
+    grid-template-rows:auto auto auto auto minmax(320px,auto)!important;
+    gap:12px!important;
+    align-items:start!important;
+  }
+  .olap-v2>.olap-report-head{
+    grid-column:1/-1!important;
+    grid-row:1!important;
+  }
+  .olap-v2>.olap-status{
+    grid-column:1/-1!important;
+    grid-row:2!important;
+  }
+  .olap-v2>.olap-v2-fields{
+    grid-column:1!important;
+    grid-row:3/6!important;
+    position:sticky!important;
+    top:14px!important;
+    align-self:start!important;
+    max-height:calc(100vh - 175px)!important;
+    overflow:hidden!important;
+    display:flex!important;
+    flex-direction:column!important;
+    min-width:0!important;
+  }
+  .olap-v2>.olap-v2-config{
+    grid-column:2!important;
+    grid-row:3!important;
+    position:sticky!important;
+    top:14px!important;
+    z-index:7!important;
+    box-shadow:0 10px 30px rgba(0,0,0,.12)!important;
+  }
+  .olap-v2>.olap-v2-filter-chips{
+    grid-column:2!important;
+    grid-row:4!important;
+  }
+  .olap-v2>.olap-v2-result{
+    grid-column:2!important;
+    grid-row:5!important;
+    min-width:0!important;
+  }
+
+  .olap-v2-field-toolbar{
+    display:block!important;
+    margin-bottom:10px!important;
+  }
+  .olap-category-tabs{
+    display:flex!important;
+    gap:5px!important;
+    flex-wrap:wrap!important;
+    overflow:visible!important;
+    max-height:78px!important;
+    overflow-y:auto!important;
+    margin-bottom:9px!important;
+  }
+  .olap-category-tab{
+    padding:5px 9px!important;
+    font-size:10px!important;
+  }
+  .olap-v2-search{
+    width:100%!important;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) auto!important;
+    gap:7px!important;
+    margin:0!important;
+  }
+  .olap-v2-search input[type="search"]{
+    grid-column:1/-1!important;
+    width:100%!important;
+    max-width:none!important;
+  }
+  .olap-technical-toggle{
+    min-width:0!important;
+  }
+
+  .olap-v2-field-list{
+    display:flex!important;
+    flex-direction:column!important;
+    flex:1 1 auto!important;
+    min-height:220px!important;
+    max-height:none!important;
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+    padding-right:5px!important;
+  }
+  .olap-v2-field{
+    width:100%!important;
+    flex:0 0 auto!important;
+    min-height:51px!important;
+    padding:7px 8px!important;
+  }
+  .olap-v2-field-name strong{
+    font-size:11px!important;
+  }
+  .olap-v2-field-name small{
+    font-size:8px!important;
+  }
+  .olap-v2-field-actions{
+    gap:3px!important;
+  }
+  .olap-v2-field-actions button{
+    padding:4px 6px!important;
+    font-size:9px!important;
+  }
+
+  .olap-config-lane{
+    grid-template-columns:95px minmax(0,1fr)!important;
+    min-height:42px!important;
+  }
+  .olap-v2-selected{
+    min-height:34px!important;
+  }
+  .olap-config-actions{
+    padding-top:7px!important;
+  }
+  .olap-v2-result .report-table-wrapper{
+    max-height:calc(100vh - 330px)!important;
+  }
+}
+
+@media(min-width:1500px){
+  .olap-v2{
+    grid-template-columns:410px minmax(0,1fr)!important;
+  }
+}
+
+
+/* Compact OLAP tree result */
+.olap-v2-result .report-table.olap-tree-compact{
+  width:100%!important;
+  min-width:0!important;
+  table-layout:fixed!important;
+  border-collapse:separate!important;
+  border-spacing:0!important;
+}
+.olap-v2-result .olap-tree-compact col.olap-tree-main-col{width:auto!important}
+.olap-v2-result .olap-tree-compact col.olap-tree-dimension-col{width:180px!important}
+.olap-v2-result .olap-tree-compact col.olap-tree-measure-col{width:155px!important}
+.olap-v2-result .olap-tree-compact th,
+.olap-v2-result .olap-tree-compact td{
+  height:40px!important;
+  padding:0 12px!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+}
+.olap-v2-result .olap-tree-compact th{
+  font-size:11px!important;
+}
+.olap-v2-result .olap-tree-compact .olap-tree-heading{
+  text-align:left!important;
+}
+.olap-v2-result .olap-tree-compact .olap-measure-heading,
+.olap-v2-result .olap-tree-compact .olap-measure-cell{
+  text-align:right!important;
+  font-variant-numeric:tabular-nums!important;
+}
+.olap-v2-result .olap-tree-compact .olap-tree-label{
+  text-align:left!important;
+  padding-left:calc(12px + (var(--tree-level,0) * 22px))!important;
+  font-weight:650!important;
+}
+.olap-v2-result .olap-tree-compact tr[data-olap-level="0"] .olap-tree-label{
+  font-weight:850!important;
+}
+.olap-v2-result .olap-tree-compact tr[data-olap-level="0"] td{
+  background:#15271f!important;
+}
+.olap-v2-result .olap-tree-compact tr[data-olap-level="1"] td{
+  background:#0e1823!important;
+}
+.olap-v2-result .olap-tree-compact tr[data-olap-level="2"] td{
+  background:#0c151e!important;
+}
+.olap-v2-result .olap-tree-compact .olap-group-toggle{
+  width:24px!important;
+  height:24px!important;
+  margin-right:8px!important;
+  border-radius:6px!important;
+  flex:0 0 24px!important;
+}
+.olap-v2-result .olap-tree-compact .olap-tree-spacer{
+  display:inline-block!important;
+  width:24px!important;
+  margin-right:8px!important;
+}
+.olap-v2-result .olap-tree-compact .olap-tree-text{
+  vertical-align:middle!important;
+}
+.olap-v2-result .olap-tree-compact tr[hidden]{
+  display:none!important;
+}
+.olap-v2-result .olap-tree-compact .olap-grand-total td{
+  height:44px!important;
+  background:#0d4f40!important;
+  font-weight:850!important;
+}
+.olap-v2-result .olap-tree-compact .olap-grand-label{
+  padding-left:12px!important;
+}
+.olap-v2-result .olap-tree-compact.olap-flat-report th,
+.olap-v2-result .olap-tree-compact.olap-flat-report td{
+  text-align:left!important;
+}
+.olap-v2-result .report-table-wrapper{
+  overflow-x:hidden!important;
+}
+@media(max-width:1100px){
+  .olap-v2-result .olap-tree-compact col.olap-tree-dimension-col{width:145px!important}
+  .olap-v2-result .olap-tree-compact col.olap-tree-measure-col{width:130px!important}
+  .olap-v2-result .report-table-wrapper{overflow-x:auto!important}
+}

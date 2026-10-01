@@ -6,6 +6,7 @@
     if(!root)return;
     const table=root.querySelector('table.report-table');
     if(!table||!table.tBodies.length)return;
+    if(table.classList.contains('olap-tree-compact'))return;
     const tbody=table.tBodies[0];
     if(tbody.dataset.presentationVersion==='4')return;
 
