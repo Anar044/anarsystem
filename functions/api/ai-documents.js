@@ -132,17 +132,27 @@ async function referenceData(env,connection){
   return {suppliers,products,warehouses};
 }
 function bestMatch(source,rows,min=.45){
-  let best=null,second=null;
-  for(const row of rows){
-    const score=scoreText(source,row.name);
-    const candidate={...row,score:Number(score.toFixed(4))};
-    if(!best||candidate.score>best.score){second=best;best=candidate}
-    else if(!second||candidate.score>second.score)second=candidate;
-  }
-  const ranked=rows.map(r=>({...r,score:Number(scoreText(source,r.name).toFixed(4))})).sort((a,b)=>b.score-a.score).slice(0,5);
+  const sourceNorm=norm(source);
+  const ranked=rows
+    .map(r=>({...r,score:Number(scoreText(source,r.name).toFixed(4)),exact:norm(r.name)===sourceNorm}))
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,5);
+  const best=ranked[0]||null;
   if(!best||best.score<min)return {match:null,candidates:ranked};
-  const ambiguous=second&&best.score-second.score<.10&&best.score<.95;
-  return {match:ambiguous?null:best,candidates:ranked};
+
+  // Exact normalized names are safe to select automatically.
+  if(best.exact)return {match:best,candidates:ranked};
+
+  // Only auto-select a fuzzy result when it is the only genuinely plausible
+  // candidate. Generic names such as "pomidor" must not silently choose
+  // between Pomidor iri / Pomidor cherry / Pomodor yerli.
+  const plausibleFloor=Math.max(min,Math.min(.72,best.score-.16));
+  const plausible=ranked.filter(x=>x.score>=plausibleFloor);
+  if(plausible.length!==1)return {match:null,candidates:ranked};
+
+  // Fuzzy auto-selection still requires a reasonably strong unique match.
+  if(best.score<.64)return {match:null,candidates:ranked};
+  return {match:best,candidates:ranked};
 }
 async function aliasMap(db,userId,supplierKey){
   const r=await db.prepare(`SELECT normalized_source,product_id,product_name FROM ai_product_aliases WHERE user_id=?1 AND (supplier_key=?2 OR supplier_key='')`).bind(userId,supplierKey||"").all();
