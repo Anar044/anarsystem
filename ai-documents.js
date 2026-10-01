@@ -1,7 +1,7 @@
 (()=>{
 'use strict';
 const $=id=>document.getElementById(id);
-let documents=[],current=null,refs=null,chosenFile=null,previewUrl='';
+let documents=[],current=null,refs=null,chosenFile=null,previewUrl='',previewKind='',previewZoom=100,previewFitMode=true;
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 const money=v=>Number(v||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
 const today=()=>new Date().toISOString().slice(0,10);
@@ -18,7 +18,110 @@ function setUploadStatus(text,kind=''){$('uploadStatus').textContent=text||'';$(
 function setReviewStatus(text,kind=''){$('reviewStatus').textContent=text||'';$('reviewStatus').className='aid-review-status '+kind}
 async function loadAll(selectId){const j=await aiGet();documents=j.documents||[];providerStatus(j.providers);renderList();if(selectId){const d=documents.find(x=>x.id===selectId);if(d)await selectDocument(d.id)}}
 function selectOptions(rows,selected,placeholder){return `<option value="">${esc(placeholder)}</option>`+rows.map(x=>`<option value="${esc(x.id)}" ${String(x.id)===String(selected)?'selected':''}>${esc(x.name)}</option>`).join('')}
-async function loadPreview(doc){if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=''}const t=await token();const r=await fetch('/api/ai-documents?file='+encodeURIComponent(doc.id),{headers:{Authorization:`Bearer ${t}`}});if(!r.ok){$('filePreview').innerHTML='<div class="aid-empty">Не удалось открыть оригинал</div>';return}const blob=await r.blob();previewUrl=URL.createObjectURL(blob);if(String(doc.contentType||'').startsWith('image/'))$('filePreview').innerHTML=`<img src="${previewUrl}" alt="">`;else $('filePreview').innerHTML=`<iframe src="${previewUrl}" title="Документ"></iframe>`}
+async function loadPreview(doc){
+  if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=''}
+  const t=await token();
+  const r=await fetch('/api/ai-documents?file='+encodeURIComponent(doc.id),{headers:{Authorization:`Bearer ${t}`}});
+  if(!r.ok){$('filePreview').innerHTML='<div class="aid-empty">Не удалось открыть оригинал</div>';return}
+  const blob=await r.blob();
+  previewUrl=URL.createObjectURL(blob);
+  previewKind=String(doc.contentType||'').startsWith('image/')?'image':'pdf';
+  previewZoom=100;
+  previewFitMode=true;
+  if(previewKind==='image') $('filePreview').innerHTML=`<img src="${previewUrl}" alt="Оригинал документа">`;
+  else $('filePreview').innerHTML=`<iframe src="${previewUrl}#zoom=page-width" title="Документ"></iframe>`;
+  applyPreviewZoom();
+}
+
+function applyPreviewZoom(){
+  const host=$('filePreview');
+  const label=$('previewZoomLabel');
+  const fit=$('previewFit');
+  const hundred=$('previewZoom100');
+  if(!host)return;
+  if(label)label.textContent=previewFitMode?'По ширине':previewZoom+'%';
+  if(fit)fit.classList.toggle('active',previewFitMode);
+  if(hundred)hundred.classList.toggle('active',!previewFitMode&&previewZoom===100);
+  if(previewKind==='image'){
+    const img=host.querySelector('img');
+    if(!img)return;
+    img.style.width=previewFitMode?'100%':previewZoom+'%';
+    img.style.maxWidth='none';
+  }else if(previewKind==='pdf'){
+    const frame=host.querySelector('iframe');
+    if(!frame||!previewUrl)return;
+    const next=previewFitMode?previewUrl+'#zoom=page-width':previewUrl+'#zoom='+previewZoom;
+    if(frame.src!==next)frame.src=next;
+  }
+}
+function setPreviewZoom(value){
+  previewFitMode=false;
+  previewZoom=Math.max(50,Math.min(250,Math.round(value/25)*25));
+  applyPreviewZoom();
+}
+function setListCollapsed(value,persist=true){
+  const layout=document.querySelector('.aid-layout'),card=document.querySelector('.aid-list-card'),btn=$('listToggleBtn');
+  if(!layout||!card||!btn)return;
+  const collapsed=Boolean(value)&&window.innerWidth>1100;
+  layout.classList.toggle('list-collapsed',collapsed);
+  card.classList.toggle('collapsed',collapsed);
+  btn.textContent=collapsed?'›':'‹';
+  btn.title=collapsed?'Развернуть список документов':'Свернуть список документов';
+  btn.setAttribute('aria-label',btn.title);
+  if(persist){try{localStorage.setItem('shAiDocumentListCollapsed',collapsed?'1':'0')}catch(e){}}
+}
+function bindReviewWorkspace(){
+  $('previewZoomOut').onclick=()=>setPreviewZoom(previewFitMode?75:previewZoom-25);
+  $('previewZoomIn').onclick=()=>setPreviewZoom(previewFitMode?125:previewZoom+25);
+  $('previewZoom100').onclick=()=>setPreviewZoom(100);
+  $('previewFit').onclick=()=>{previewFitMode=true;applyPreviewZoom()};
+  $('previewFullscreen').onclick=async()=>{
+    const pane=$('previewPane');
+    if(!pane)return;
+    try{
+      if(document.fullscreenElement)await document.exitFullscreen();
+      else await pane.requestFullscreen();
+    }catch(e){setReviewStatus('Браузер не разрешил полноэкранный режим.','error')}
+  };
+  document.addEventListener('fullscreenchange',()=>{
+    const btn=$('previewFullscreen');
+    if(btn)btn.textContent=document.fullscreenElement?'×':'⛶';
+    if(btn)btn.title=document.fullscreenElement?'Выйти из полноэкранного режима':'На весь экран';
+  });
+
+  let dragging=false;
+  const splitter=$('reviewSplitter'),grid=document.querySelector('.aid-review-grid');
+  if(splitter&&grid){
+    splitter.addEventListener('pointerdown',e=>{
+      if(window.innerWidth<=1100)return;
+      dragging=true;
+      splitter.classList.add('dragging');
+      splitter.setPointerCapture?.(e.pointerId);
+      e.preventDefault();
+    });
+    splitter.addEventListener('pointermove',e=>{
+      if(!dragging||window.innerWidth<=1100)return;
+      const rect=grid.getBoundingClientRect(),minPreview=480,minData=430,gap=7;
+      const maxPreview=Math.max(minPreview,rect.width-minData-gap);
+      const width=Math.max(minPreview,Math.min(maxPreview,e.clientX-rect.left));
+      grid.style.setProperty('--aid-preview-width',width+'px');
+    });
+    const stop=()=>{dragging=false;splitter.classList.remove('dragging')};
+    splitter.addEventListener('pointerup',stop);
+    splitter.addEventListener('pointercancel',stop);
+    splitter.addEventListener('dblclick',()=>grid.style.removeProperty('--aid-preview-width'));
+  }
+
+  $('listToggleBtn').onclick=()=>{
+    const layout=document.querySelector('.aid-layout');
+    setListCollapsed(!layout?.classList.contains('list-collapsed'));
+  };
+  let saved=false;
+  try{saved=localStorage.getItem('shAiDocumentListCollapsed')==='1'}catch(e){}
+  setListCollapsed(saved,false);
+  window.addEventListener('resize',()=>{if(window.innerWidth<=1100)setListCollapsed(false,false)});
+}
+
 function currentMatching(){return current?.result?.matching||{}}
 function renderItems(){const m=currentMatching(),items=Array.isArray(m.items)?m.items:[];const host=$('draftItems');host.innerHTML=items.map((x,i)=>{const opts=selectOptions(refs?.products||[],x.productId,'Выберите товар iiko');return `<div class="aid-item" data-index="${i}"><div class="aid-source-wrap"><label>Из документа</label><div class="source">${esc(x.sourceName||'—')}</div>${!x.productId?'<div class="aid-match-warn">Нужно сопоставить товар</div>':''}</div><div class="aid-product-wrap"><label>Товар iiko<select data-f="product">${opts}</select></label></div><label>Кол-во<input data-f="quantity" type="number" step="0.001" value="${esc(x.quantity??'')}"></label><label>Цена<input data-f="price" type="number" step="0.01" value="${esc(x.unitPrice??'')}"></label><label>Сумма<input data-f="sum" type="number" step="0.01" value="${esc(x.total??'')}"></label></div>`}).join('');host.querySelectorAll('.aid-item').forEach(row=>{const qi=row.querySelector('[data-f="quantity"]'),pi=row.querySelector('[data-f="price"]'),si=row.querySelector('[data-f="sum"]'),sel=row.querySelector('[data-f="product"]');const recalc=()=>{const q=Number(qi.value||0),p=Number(pi.value||0);si.value=(q*p).toFixed(2);recalcTotal()};qi.oninput=recalc;pi.oninput=recalc;si.oninput=recalcTotal;sel.onchange=()=>rememberAlias(row).catch(console.error)});recalcTotal()}
 function recalcTotal(){const total=[...document.querySelectorAll('.aid-item')].reduce((s,row)=>s+Number(row.querySelector('[data-f="sum"]')?.value||0),0);$('draftTotal').textContent=money(total)+' ₼'}
@@ -31,7 +134,7 @@ async function deleteCurrent(){if(!current||!confirm('Удалить докум�
 function collectDraft(){const supplierId=$('draftSupplier').value,storeId=$('draftStore').value;if(!supplierId)throw new Error('Выберите поставщика.');if(!storeId)throw new Error('Выберите склад.');const items=[...document.querySelectorAll('.aid-item')].map((row,i)=>{const productId=row.querySelector('[data-f="product"]').value,amount=Number(row.querySelector('[data-f="quantity"]').value||0),price=Number(row.querySelector('[data-f="price"]').value||0),sum=Number(row.querySelector('[data-f="sum"]').value||0);if(!productId)throw new Error('Строка '+(i+1)+': выберите товар iiko.');if(!(amount>0))throw new Error('Строка '+(i+1)+': количество должно быть больше 0.');return{num:i+1,productId,amount,actualAmount:amount,price,sum}});if(!items.length)throw new Error('В документе нет товарных строк.');return{documentNumber:$('draftNumber').value||undefined,dateIncoming:($('draftDate').value||today())+'T00:00:00',supplierId,defaultStore:storeId,invoice:$('draftInvoice').value,incomingDocumentNumber:$('draftIncoming').value,dueDate:$('draftDue').value,comment:'Создано через SmartHoreca AI Document Inbox',items}}
 async function importToIiko(processed){if(!current)throw new Error('Документ не выбран.');if(current.status==='IMPORTED')throw new Error('Этот документ уже импортирован в iiko.');const c=await connection(),documentData=collectDraft(),action=processed?'save-and-process':'save';setReviewStatus(processed?'Сохраняем и проводим в iiko…':'Сохраняем в iiko…');$('saveDraftBtn').disabled=true;$('saveProcessBtn').disabled=true;try{const r=await fetch('/api/iiko/document-action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({connection:c,type:'incoming',action,document:documentData}),cache:'no-store'});const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false){const detail=j.validation&&(j.validation.errorMessage||j.validation.additionalInfo);throw new Error(detail||j.message||`HTTP ${r.status}`)}const number=j.validation&&(j.validation.documentNumber||j.validation.otherSuggestedNumber)||documentData.documentNumber||'';await aiPost({action:'markImported',id:current.id,documentNumber:number,processed});setReviewStatus('Готово: накладная создана в iiko'+(number?' · № '+number:''),'ok');await loadAll(current.id)}catch(e){setReviewStatus(e.message||'Ошибка iiko','error');throw e}finally{if(current?.status!=='IMPORTED'){$('saveDraftBtn').disabled=false;$('saveProcessBtn').disabled=false}}}
 function bindUpload(){const dz=$('dropzone'),input=$('fileInput');dz.onclick=()=>input.click();input.onchange=()=>{chosenFile=input.files?.[0]||null;if(chosenFile){dz.querySelector('strong').textContent=chosenFile.name;dz.querySelector('span').textContent=(chosenFile.size/1024/1024).toFixed(2)+' МБ'}};['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag')}));['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag')}));dz.addEventListener('drop',e=>{const f=e.dataTransfer?.files?.[0];if(f){chosenFile=f;dz.querySelector('strong').textContent=f.name;dz.querySelector('span').textContent=(f.size/1024/1024).toFixed(2)+' МБ'}})}
-function bind(){bindUpload();$('uploadBtn').onclick=()=>uploadAndProcess().catch(e=>setUploadStatus(e.message,'error'));$('refreshBtn').onclick=()=>loadAll().catch(e=>setUploadStatus(e.message,'error'));$('reprocessBtn').onclick=()=>reprocess().catch(e=>setReviewStatus(e.message,'error'));$('deleteBtn').onclick=()=>deleteCurrent().catch(e=>setReviewStatus(e.message,'error'));$('saveDraftBtn').onclick=()=>importToIiko(false).catch(()=>{});$('saveProcessBtn').onclick=()=>importToIiko(true).catch(()=>{})}
+function bind(){bindUpload();bindReviewWorkspace();$('uploadBtn').onclick=()=>uploadAndProcess().catch(e=>setUploadStatus(e.message,'error'));$('refreshBtn').onclick=()=>loadAll().catch(e=>setUploadStatus(e.message,'error'));$('reprocessBtn').onclick=()=>reprocess().catch(e=>setReviewStatus(e.message,'error'));$('deleteBtn').onclick=()=>deleteCurrent().catch(e=>setReviewStatus(e.message,'error'));$('saveDraftBtn').onclick=()=>importToIiko(false).catch(()=>{});$('saveProcessBtn').onclick=()=>importToIiko(true).catch(()=>{})}
 async function init(){try{bind();await Promise.all([loadRefs(),loadAll()])}catch(e){setUploadStatus(e.message||String(e),'error')}}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
