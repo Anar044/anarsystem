@@ -1,0 +1,247 @@
+import { getUser, loadPrivateIikoState, privateConnection } from "./iiko/_lib/user-state.js";
+import { getIikoAuth } from "./iiko/_lib/iiko-client.js";
+import { getIikoSuppliers } from "./iiko/_lib/iiko-suppliers.js";
+import { syncReferences } from "./iiko/references.js";
+import { aiProviderStatus, processPurchaseDocument } from "./iiko/_lib/ai-document-providers.js";
+
+function cors(){return{
+  "Access-Control-Allow-Origin":"*",
+  "Access-Control-Allow-Methods":"GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers":"Content-Type, Authorization"
+}}
+function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store",...cors()}})}
+function clean(v){return String(v??"").trim()}
+function id(){return crypto.randomUUID()}
+function safeName(name){return clean(name).replace(/[^a-zA-Z0-9._-]+/g,"-").replace(/-+/g,"-").slice(0,120)||"document"}
+function key(v){return clean(v).replace(/^\{+|\}+$/g,"").toLowerCase()}
+function norm(v){return clean(v).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/[^\p{L}\p{N}]+/gu," ").trim()}
+function tokens(v){return new Set(norm(v).split(/\s+/).filter(x=>x.length>1))}
+function scoreText(a,b){
+  const x=norm(a),y=norm(b); if(!x||!y)return 0;
+  if(x===y)return 1;
+  if(x.includes(y)||y.includes(x))return Math.min(x.length,y.length)/Math.max(x.length,y.length)*.92;
+  const A=tokens(x),B=tokens(y); if(!A.size||!B.size)return 0;
+  let inter=0; for(const t of A)if(B.has(t))inter++;
+  const union=new Set([...A,...B]).size;
+  return union?inter/union:0;
+}
+async function ensure(db){
+  if(!db)throw new Error("D1 binding DB не настроен.");
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS ai_documents (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      object_key TEXT NOT NULL,
+      size INTEGER NOT NULL DEFAULT 0,
+      provider_requested TEXT NOT NULL DEFAULT 'AUTO',
+      provider_used TEXT,
+      model TEXT,
+      status TEXT NOT NULL DEFAULT 'UPLOADED',
+      document_type TEXT,
+      supplier_name TEXT,
+      supplier_id TEXT,
+      document_number TEXT,
+      invoice_number TEXT,
+      incoming_number TEXT,
+      document_date TEXT,
+      due_date TEXT,
+      currency TEXT,
+      total REAL,
+      vat_total REAL,
+      confidence REAL,
+      result_json TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_documents_user_created ON ai_documents(user_id, created_at DESC)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS ai_product_aliases (
+      user_id TEXT NOT NULL,
+      supplier_key TEXT NOT NULL DEFAULT '',
+      source_name TEXT NOT NULL,
+      normalized_source TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      product_name TEXT NOT NULL,
+      times_used INTEGER NOT NULL DEFAULT 1,
+      last_used_at TEXT NOT NULL,
+      PRIMARY KEY(user_id, supplier_key, normalized_source)
+    )`)
+  ]);
+}
+async function auth(request,env){const a=await getUser(request,env);if(!a)return null;await ensure(env.DB);return a}
+function publicRow(r){
+  if(!r)return null;
+  let result=null; try{result=r.result_json?JSON.parse(r.result_json):null}catch{}
+  return {
+    id:r.id,fileName:r.file_name,contentType:r.content_type,size:r.size,
+    providerRequested:r.provider_requested,providerUsed:r.provider_used,model:r.model,
+    status:r.status,documentType:r.document_type,supplierName:r.supplier_name,supplierId:r.supplier_id,
+    documentNumber:r.document_number,invoiceNumber:r.invoice_number,incomingNumber:r.incoming_number,
+    documentDate:r.document_date,dueDate:r.due_date,currency:r.currency,total:r.total,vatTotal:r.vat_total,
+    confidence:r.confidence,result,errorMessage:r.error_message,createdAt:r.created_at,updatedAt:r.updated_at
+  };
+}
+async function loadPrivateConnection(env,userId){
+  const stored=await loadPrivateIikoState(env.DB,userId,env);
+  if(!stored?.found)throw new Error("Подключение iiko не найдено.");
+  const connection=privateConnection(stored.state);
+  if(!connection.ip||!connection.port||!connection.login||!connection.password)throw new Error("Подключение iiko заполнено не полностью.");
+  return connection;
+}
+async function referenceData(env,connection){
+  const auth=await getIikoAuth(connection);
+  const [refs,supplierResult]=await Promise.all([
+    syncReferences(env,auth.serverUrl,auth.token),
+    getIikoSuppliers(connection)
+  ]);
+  const maps=refs.maps||{};
+  const suppliers=(supplierResult.rows||[]).map(x=>({id:key(x.id),name:clean(x.name)})).filter(x=>x.id&&x.name);
+  const products=[...(maps.products?.entries?.()||[])].map(([pid,name])=>({id:key(pid),name:clean(name)})).filter(x=>x.id&&x.name);
+  const warehouses=[...(maps.warehouses?.entries?.()||[])].map(([wid,name])=>({id:key(wid),name:clean(name)})).filter(x=>x.id&&x.name);
+  return {suppliers,products,warehouses};
+}
+function bestMatch(source,rows,min=.45){
+  let best=null,second=null;
+  for(const row of rows){
+    const score=scoreText(source,row.name);
+    const candidate={...row,score:Number(score.toFixed(4))};
+    if(!best||candidate.score>best.score){second=best;best=candidate}
+    else if(!second||candidate.score>second.score)second=candidate;
+  }
+  if(!best||best.score<min)return {match:null,candidates:rows.map(r=>({...r,score:scoreText(source,r.name)})).sort((a,b)=>b.score-a.score).slice(0,5)};
+  const ambiguous=second&&best.score-second.score<.08&&best.score<.93;
+  return {match:ambiguous?null:best,candidates:[best,second].filter(Boolean)};
+}
+async function aliasMap(db,userId,supplierKey){
+  const r=await db.prepare(`SELECT normalized_source,product_id,product_name FROM ai_product_aliases WHERE user_id=?1 AND (supplier_key=?2 OR supplier_key='')`).bind(userId,supplierKey||"").all();
+  return new Map((r.results||[]).map(x=>[x.normalized_source,{id:key(x.product_id),name:x.product_name,score:1,source:"MEMORY"}]));
+}
+async function enrich(env,userId,raw){
+  const connection=await loadPrivateConnection(env,userId);
+  const refs=await referenceData(env,connection);
+  const supplierResult=bestMatch(raw.supplierName||"",refs.suppliers,.42);
+  const supplier=supplierResult.match;
+  const aliases=await aliasMap(env.DB,userId,supplier?.id||"");
+  const items=(Array.isArray(raw.items)?raw.items:[]).map((x,index)=>{
+    const sourceName=clean(x?.sourceName);
+    const remembered=aliases.get(norm(sourceName));
+    const productResult=remembered?{match:remembered,candidates:[remembered]}:bestMatch(sourceName,refs.products,.48);
+    return {
+      index:index+1,
+      sourceName,
+      article:clean(x?.article),
+      quantity:Number.isFinite(Number(x?.quantity))?Number(x.quantity):null,
+      unit:clean(x?.unit),
+      unitPrice:Number.isFinite(Number(x?.unitPrice))?Number(x.unitPrice):null,
+      total:Number.isFinite(Number(x?.total))?Number(x.total):null,
+      vatPercent:Number.isFinite(Number(x?.vatPercent))?Number(x.vatPercent):null,
+      confidence:Number.isFinite(Number(x?.confidence))?Number(x.confidence):null,
+      productId:productResult.match?.id||null,
+      productName:productResult.match?.name||null,
+      matchScore:productResult.match?.score??null,
+      matchSource:productResult.match?.source||"FUZZY",
+      candidates:(productResult.candidates||[]).slice(0,5)
+    };
+  });
+  const unresolved=items.filter(x=>!x.productId).length;
+  const store=refs.warehouses.length===1?refs.warehouses[0]:null;
+  return {
+    extracted:raw,
+    matching:{
+      supplierId:supplier?.id||null,
+      supplierName:supplier?.name||raw.supplierName||null,
+      supplierMatchScore:supplier?.score??null,
+      supplierCandidates:(supplierResult.candidates||[]).slice(0,5),
+      defaultStoreId:store?.id||null,
+      defaultStoreName:store?.name||null,
+      warehouses:refs.warehouses,
+      items,
+      unresolvedItems:unresolved,
+      ready:Boolean(supplier?.id&&store?.id&&items.length&&!unresolved)
+    }
+  };
+}
+async function rowById(db,userId,docId){return db.prepare(`SELECT * FROM ai_documents WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(docId,userId).first()}
+async function objectAsFile(env,row){
+  if(!env.ASSET_FILES)throw new Error("R2 binding ASSET_FILES не настроен.");
+  const obj=await env.ASSET_FILES.get(row.object_key); if(!obj)throw new Error("Файл не найден в R2.");
+  const bytes=await obj.arrayBuffer();
+  return new File([bytes],row.file_name,{type:row.content_type||"application/octet-stream"});
+}
+export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
+export async function onRequestGet({request,env}){
+  try{
+    const a=await auth(request,env); if(!a)return json({success:false,message:"Требуется авторизация"},401);
+    const u=new URL(request.url),docId=clean(u.searchParams.get("id")),fileId=clean(u.searchParams.get("file"));
+    if(fileId){
+      const row=await rowById(env.DB,a.user.id,fileId); if(!row)return json({success:false,message:"Документ не найден"},404);
+      if(!env.ASSET_FILES)return json({success:false,message:"R2 binding ASSET_FILES не настроен"},503);
+      const obj=await env.ASSET_FILES.get(row.object_key); if(!obj)return json({success:false,message:"Файл отсутствует в R2"},404);
+      return new Response(obj.body,{headers:{"Content-Type":row.content_type||"application/octet-stream","Content-Disposition":`inline; filename="${safeName(row.file_name)}"`,"Cache-Control":"private, max-age=300",...cors()}});
+    }
+    if(docId){
+      const row=await rowById(env.DB,a.user.id,docId); if(!row)return json({success:false,message:"Документ не найден"},404);
+      return json({success:true,document:publicRow(row),providers:aiProviderStatus(env),storageConfigured:Boolean(env.ASSET_FILES)});
+    }
+    const r=await env.DB.prepare(`SELECT * FROM ai_documents WHERE user_id=?1 ORDER BY created_at DESC LIMIT 100`).bind(a.user.id).all();
+    return json({success:true,documents:(r.results||[]).map(publicRow),providers:aiProviderStatus(env),storageConfigured:Boolean(env.ASSET_FILES)});
+  }catch(e){return json({success:false,message:e.message||String(e)},500)}
+}
+export async function onRequestPost({request,env}){
+  try{
+    const a=await auth(request,env); if(!a)return json({success:false,message:"Требуется авторизация"},401);
+    const contentType=request.headers.get("Content-Type")||"";
+    if(contentType.includes("multipart/form-data")){
+      if(!env.ASSET_FILES)return json({success:false,message:"R2 binding ASSET_FILES не настроен."},503);
+      const form=await request.formData(),file=form.get("file"),provider=clean(form.get("provider")||"AUTO").toUpperCase();
+      if(!(file instanceof File))return json({success:false,message:"Выберите PDF или изображение."},400);
+      const type=clean(file.type)||"application/octet-stream";
+      if(!(type==="application/pdf"||type.startsWith("image/")))return json({success:false,message:"Поддерживаются PDF и изображения."},400);
+      if(file.size>20*1024*1024)return json({success:false,message:"Максимальный размер документа 20 МБ."},400);
+      if(!["AUTO","LOCAL","OPENAI"].includes(provider))return json({success:false,message:"Неизвестный AI-провайдер."},400);
+      const docId=id(),now=new Date().toISOString(),objectKey=`ai-documents/${a.user.id}/${docId}-${safeName(file.name)}`;
+      await env.ASSET_FILES.put(objectKey,await file.arrayBuffer(),{httpMetadata:{contentType:type},customMetadata:{userId:a.user.id,documentId:docId}});
+      await env.DB.prepare(`INSERT INTO ai_documents(id,user_id,file_name,content_type,object_key,size,provider_requested,status,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,'UPLOADED',?8,?8)`)
+        .bind(docId,a.user.id,clean(file.name),type,objectKey,file.size,provider,now).run();
+      const row=await rowById(env.DB,a.user.id,docId);
+      return json({success:true,document:publicRow(row)},201);
+    }
+
+    const b=await request.json().catch(()=>({})),action=clean(b.action);
+    if(action==="process"){
+      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row)return json({success:false,message:"Документ не найден"},404);
+      const provider=clean(b.provider||row.provider_requested||"AUTO").toUpperCase(),now=new Date().toISOString();
+      await env.DB.prepare(`UPDATE ai_documents SET status='PROCESSING',provider_requested=?1,error_message=NULL,updated_at=?2 WHERE id=?3 AND user_id=?4`).bind(provider,now,docId,a.user.id).run();
+      try{
+        const file=await objectAsFile(env,row);
+        const processed=await processPurchaseDocument(env,file,provider);
+        const result=await enrich(env,a.user.id,processed.data||{});
+        const raw=result.extracted||{},matching=result.matching||{};
+        const status=matching.ready?"READY":(matching.items?.length?"REVIEW":"REVIEW");
+        await env.DB.prepare(`UPDATE ai_documents SET provider_used=?1,model=?2,status=?3,document_type=?4,supplier_name=?5,supplier_id=?6,document_number=?7,invoice_number=?8,incoming_number=?9,document_date=?10,due_date=?11,currency=?12,total=?13,vat_total=?14,confidence=?15,result_json=?16,error_message=NULL,updated_at=?17 WHERE id=?18 AND user_id=?19`)
+          .bind(processed.provider,processed.model,status,clean(raw.documentType),clean(matching.supplierName||raw.supplierName),clean(matching.supplierId),clean(raw.documentNumber),clean(raw.invoiceNumber),clean(raw.incomingNumber),clean(raw.date),clean(raw.dueDate),clean(raw.currency),raw.total??null,raw.vatTotal??null,raw.confidence??null,JSON.stringify({...result,provider:{name:processed.provider,model:processed.model,usage:processed.usage||null,responseId:processed.providerResponseId||null}}),new Date().toISOString(),docId,a.user.id).run();
+      }catch(error){
+        await env.DB.prepare(`UPDATE ai_documents SET status='ERROR',error_message=?1,updated_at=?2 WHERE id=?3 AND user_id=?4`).bind(String(error?.message||error).slice(0,1500),new Date().toISOString(),docId,a.user.id).run();
+      }
+      const updated=await rowById(env.DB,a.user.id,docId);
+      return json({success:updated.status!=="ERROR",document:publicRow(updated),message:updated.error_message||null},updated.status==="ERROR"?422:200);
+    }
+    if(action==="saveAlias"){
+      const sourceName=clean(b.sourceName),productId=key(b.productId),productName=clean(b.productName),supplierKey=key(b.supplierId);
+      if(!sourceName||!productId||!productName)return json({success:false,message:"Недостаточно данных для запоминания сопоставления."},400);
+      const n=norm(sourceName),now=new Date().toISOString();
+      await env.DB.prepare(`INSERT INTO ai_product_aliases(user_id,supplier_key,source_name,normalized_source,product_id,product_name,times_used,last_used_at) VALUES(?1,?2,?3,?4,?5,?6,1,?7) ON CONFLICT(user_id,supplier_key,normalized_source) DO UPDATE SET product_id=excluded.product_id,product_name=excluded.product_name,times_used=ai_product_aliases.times_used+1,last_used_at=excluded.last_used_at`)
+        .bind(a.user.id,supplierKey,sourceName,n,productId,productName,now).run();
+      return json({success:true});
+    }
+    if(action==="delete"){
+      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row)return json({success:false,message:"Документ не найден"},404);
+      if(env.ASSET_FILES)await env.ASSET_FILES.delete(row.object_key);
+      await env.DB.prepare(`DELETE FROM ai_documents WHERE id=?1 AND user_id=?2`).bind(docId,a.user.id).run();
+      return json({success:true});
+    }
+    return json({success:false,message:"Неизвестное действие"},400);
+  }catch(e){return json({success:false,message:e.message||String(e)},500)}
+}
