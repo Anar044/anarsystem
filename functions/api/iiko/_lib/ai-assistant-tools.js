@@ -295,6 +295,21 @@ async function supplierBalances(connection, timestamp) {
   return { timestamp, rows };
 }
 
+function compactForAi(value, depth = 0) {
+  if (depth > 8) return "[depth limit]";
+  if (Array.isArray(value)) {
+    const limited = value.slice(0, 250).map(item => compactForAi(item, depth + 1));
+    if (value.length > 250) limited.push({ _truncated: true, _remaining: value.length - 250 });
+    return limited;
+  }
+  if (!value || typeof value !== "object") return value;
+  const out = {};
+  const entries = Object.entries(value).slice(0, 120);
+  for (const [name, child] of entries) out[name] = compactForAi(child, depth + 1);
+  if (Object.keys(value).length > entries.length) out._truncatedKeys = Object.keys(value).length - entries.length;
+  return out;
+}
+
 function olapFieldRows(raw) {
   const out = [];
   const seen = new Set();
@@ -611,7 +626,7 @@ export async function executeAssistantTool(name, args, context) {
     if (!result.ok) {
       return { success: false, status: result.status, message: result.text.slice(0, 1200), request };
     }
-    return { success: true, request, report: result.payload };
+    return { success: true, request, report: compactForAi(result.payload) };
   }
 
   throw new Error(`Неизвестный инструмент AI: ${name}`);
