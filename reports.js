@@ -653,6 +653,7 @@
         const report = data.report || data; let raw = report.rawResponse || report.response || report.data || data.data || [];
         if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch (_) { raw = []; } }
         const rowsData = Array.isArray(raw) ? raw : raw && Array.isArray(raw.data) ? raw.data : [];
+        lastOlapRowsData = rowsData;
         if (!rowsData.length) { result.innerHTML = `<div class="report-header"><strong>Отчёт выполнен</strong></div><div class="olap-empty">iiko не вернул строки данных.</div>`; return; }
         const rowFields = [...olapRows], columnFields = [...olapColumns], measures = [...olapMeasures];
         const keys = [...new Set([...rowFields, ...columnFields, ...measures.map(item => item.field)])];
@@ -670,6 +671,43 @@
         if (rowFields.length) renderLevel(root, 0, rowsData); else renderLeafRows(rowsData);
         if (measures.length && rowFields.length) htmlRows.push(`<tr class="olap-grand-total">${visibleKeys.map((key, index) => { if (index === 0) return `<td class="olap-total-label" colspan="${Math.max(1, rowFields.length)}"><strong>Итого</strong></td>`; if (rowFields.includes(key)) return ""; const measure = measures.find(item => item.field === key); return measure ? `<td><strong>${esc(format(aggregate(rowsData, measure)))}</strong></td>` : `<td></td>`; }).join("")}</tr>`);
         result.innerHTML = `<div class="report-header"><strong>Результат OLAP</strong><span>${rowsData.length} строк</span></div><div class="report-table-wrapper"><table class="report-table olap-grouped-report"><thead><tr>${visibleKeys.map(key => `<th>${esc(fieldTitle(key))}</th>`).join("")}</tr></thead><tbody>${htmlRows.join("")}</tbody></table></div>`;
+        bindOlapResultInteractions();
+    }
+
+    function bindOlapResultInteractions() {
+        const table = $("olap-result")?.querySelector(".olap-grouped-report");
+        if (!table) return;
+
+        const groupRows = [...table.querySelectorAll("tr.olap-group-row")];
+        groupRows.forEach(row => {
+            const toggle = row.querySelector(".olap-group-toggle");
+            if (!toggle) return;
+            toggle.tabIndex = 0;
+            toggle.onclick = event => {
+                event.stopPropagation();
+                const level = Number(row.dataset.olapLevel || 0);
+                const collapsed = row.classList.toggle("collapsed");
+                toggle.textContent = collapsed ? "▶" : "▼";
+                toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+
+                let next = row.nextElementSibling;
+                while (next) {
+                    if (next.classList.contains("olap-grand-total")) break;
+                    if (next.classList.contains("olap-group-row")) {
+                        const nextLevel = Number(next.dataset.olapLevel || 0);
+                        if (nextLevel <= level) break;
+                    }
+                    if (collapsed) {
+                        next.dataset.olapHiddenBy = String(level);
+                        next.style.display = "none";
+                    } else if (next.dataset.olapHiddenBy === String(level)) {
+                        delete next.dataset.olapHiddenBy;
+                        next.style.display = "";
+                    }
+                    next = next.nextElementSibling;
+                }
+            };
+        });
     }
 
     async function connectIiko() {
