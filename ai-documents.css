@@ -138,3 +138,16 @@ html[data-theme="light"] .aid-suggestion.selected{background:#e9f8f1;border-colo
   border-color:rgba(239,68,68,.85);
   background:rgba(239,68,68,.08);
 }
+
+
+.aid-fix-total{
+  margin-top:10px;
+  padding:8px 12px;
+  border:1px solid rgba(245,158,11,.55);
+  border-radius:8px;
+  background:rgba(245,158,11,.14);
+  color:#fbbf24;
+  font-weight:700;
+  cursor:pointer;
+}
+.aid-fix-total:hover{background:rgba(245,158,11,.22)}
