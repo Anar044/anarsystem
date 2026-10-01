@@ -20,8 +20,13 @@ OCR_VERSION = os.getenv("OCR_VERSION", "PP-OCRv5").strip() or "PP-OCRv5"
 LOCAL_AI_TOKEN = os.getenv("LOCAL_AI_TOKEN", "").strip()
 OLLAMA_URL = os.getenv("OLLAMA_URL", "").strip().rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b").strip() or "qwen2.5:7b"
+SECONDARY_OCR = os.getenv("SECONDARY_OCR", "easyocr").strip().lower()
+SECONDARY_OCR_LANGS = [
+    x.strip() for x in os.getenv("SECONDARY_OCR_LANGS", "az,en").split(",") if x.strip()
+] or ["az", "en"]
 
 _ocr: PaddleOCR | None = None
+_easyocr_reader: Any | None = None
 
 DATE_PATTERNS = [
     re.compile(r"\b(20\d{2})[-./](0?[1-9]|1[0-2])[-./]([0-2]?\d|3[01])\b"),
@@ -66,6 +71,20 @@ def get_ocr() -> PaddleOCR:
             use_textline_orientation=False,
         )
     return _ocr
+
+
+def get_easyocr_reader():
+    global _easyocr_reader
+    if SECONDARY_OCR != "easyocr":
+        return None
+    if _easyocr_reader is None:
+        import easyocr
+        _easyocr_reader = easyocr.Reader(
+            SECONDARY_OCR_LANGS,
+            gpu=False,
+            verbose=False,
+        )
+    return _easyocr_reader
 
 
 def num(value: str | None) -> float | None:
@@ -136,6 +155,50 @@ def ocr_document(path: str) -> list[OcrLine]:
                     box = None
             output.append(OcrLine(page=page_no, text=clean_text, score=score, box=box))
     return output
+
+
+def easyocr_document(path: str) -> list[OcrLine]:
+    reader = get_easyocr_reader()
+    if reader is None:
+        return []
+
+    raw = reader.readtext(path, detail=1, paragraph=False)
+    output: list[OcrLine] = []
+    for item in raw:
+        try:
+            box_points, text, score = item
+            clean_text = str(text or "").strip()
+            if not clean_text:
+                continue
+            xs = [float(point[0]) for point in box_points]
+            ys = [float(point[1]) for point in box_points]
+            box = [min(xs), min(ys), max(xs), max(ys)]
+            output.append(
+                OcrLine(
+                    page=0,
+                    text=clean_text,
+                    score=float(score or 0.0),
+                    box=box,
+                )
+            )
+        except Exception:
+            continue
+    return output
+
+
+def should_try_secondary_ocr(parsed: dict[str, Any]) -> bool:
+    if SECONDARY_OCR != "easyocr":
+        return False
+    items = parsed.get("items") or []
+    confidence = float(parsed.get("confidence") or 0.0)
+    mode = parsed.get("documentMode")
+    supplier = parsed.get("supplierName")
+    return (
+        len(items) == 0
+        or confidence < 0.82
+        or (mode == "freeform" and len(items) < 2)
+        or (mode == "freeform" and not supplier)
+    )
 
 
 def ordered_lines(lines: list[OcrLine]) -> list[OcrLine]:
