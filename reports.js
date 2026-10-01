@@ -554,16 +554,44 @@
     function addOlapFilter() {
         const field = $("olap-filter-field")?.value; const operator = $("olap-filter-operator")?.value || "Include";
         if (!field) throw new Error("Выберите поле для фильтра");
-        if (operator === "DateRange") { const from = $("olap-filter-from")?.value; const to = $("olap-filter-to")?.value; if (!from || !to) throw new Error("Укажите обе даты фильтра"); if (from > to) throw new Error("Неверный диапазон дат"); olapFilters.push({ field, operator, from, to }); }
-        else { const value = ($("olap-filter-value")?.value || "").trim(); if (!value) throw new Error("Укажите значение фильтра"); if (operator === "IncludeList" || operator === "ExcludeList") { const values = value.split(",").map(item => item.trim()).filter(Boolean); if (!values.length) throw new Error("Укажите значения"); olapFilters.push({ field, operator, values }); } else olapFilters.push({ field, operator, value }); }
-        const valueElement = $("olap-filter-value"); if (valueElement) valueElement.value = ""; renderOlapFilters();
+        if (operator === "DateRange") {
+            const from = $("olap-filter-from")?.value; const to = $("olap-filter-to")?.value;
+            if (!from || !to) throw new Error("Укажите обе даты фильтра");
+            if (from > to) throw new Error("Неверный диапазон дат");
+            olapFilters.push({ field, operator, from, to });
+        } else {
+            const value = ($("olap-filter-value")?.value || "").trim();
+            if (!value) throw new Error("Укажите значение фильтра");
+            if (operator === "IncludeList" || operator === "ExcludeList") {
+                const values = value.split(",").map(item => item.trim()).filter(Boolean);
+                if (!values.length) throw new Error("Укажите значения");
+                olapFilters.push({ field, operator, values });
+            } else olapFilters.push({ field, operator, value });
+        }
+        const valueElement = $("olap-filter-value"); if (valueElement) valueElement.value = "";
+        renderOlapFilters();
+        closeOlapFilter();
     }
 
     function renderOlapFilters() {
         const container = $("olap-filters"); if (!container) return;
         if (!olapFilters.length) { container.innerHTML = `<div class="olap-empty">Фильтры не заданы</div>`; return; }
-        container.innerHTML = olapFilters.map((filter, index) => { const field = findOlapField(filter.field); let operator = "Равно"; let value = filter.value || ""; if (filter.operator === "Exclude") operator = "Не равно"; if (filter.operator === "IncludeList") { operator = "В списке"; value = filter.values.join(", "); } if (filter.operator === "ExcludeList") { operator = "Не в списке"; value = filter.values.join(", "); } if (filter.operator === "DateRange") { operator = "Диапазон"; value = `${filter.from} — ${filter.to}`; } return `<div class="olap-filter-item"><div><strong>${esc(field?.title || filter.field)}</strong><small>${esc(operator)} • ${esc(value)}</small></div><button type="button" data-filter-index="${index}">×</button></div>`; }).join("");
-        container.querySelectorAll("[data-filter-index]").forEach(button => button.onclick = () => { olapFilters.splice(Number(button.dataset.filterIndex), 1); renderOlapFilters(); });
+        container.innerHTML = olapFilters.map((filter, index) => {
+            const field = findOlapField(filter.field);
+            let operator = "Равно"; let value = filter.value || "";
+            if (filter.operator === "Exclude") operator = "Не равно";
+            if (filter.operator === "IncludeList") { operator = "В списке"; value = (filter.values||[]).join(", "); }
+            if (filter.operator === "ExcludeList") { operator = "Не в списке"; value = (filter.values||[]).join(", "); }
+            if (filter.operator === "DateRange") { operator = "Диапазон"; value = `${filter.from} — ${filter.to}`; }
+            return `<div class="olap-filter-item olap-v2-filter-chip">
+              <span><strong>${esc(field?.title || filter.field)}</strong><small>${esc(operator)} · ${esc(value)}</small></span>
+              <button type="button" data-filter-index="${index}" title="Удалить фильтр">×</button>
+            </div>`;
+        }).join("");
+        container.querySelectorAll("[data-filter-index]").forEach(button => button.onclick = () => {
+            olapFilters.splice(Number(button.dataset.filterIndex), 1);
+            renderOlapFilters();
+        });
     }
 
     function clearOlap() { olapRows = []; olapColumns = []; olapMeasures = []; olapFilters = []; renderSelectedFields(); renderOlapFilters(); }
@@ -691,14 +719,43 @@
 
     function bindOlapEvents() {
         const search = $("olap-search"); if (search) search.addEventListener("input", renderOlapFields);
-        const refresh = $("olap-refresh-fields"); if (refresh) refresh.onclick = async () => { try { await loadOlapFields({ force: true, maxAttempts: 3 }); } catch (error) { setOlapStatus("🔴 " + error.message); } };
+        const technical = $("olap-show-technical"); if (technical) technical.onchange = () => {
+            olapShowTechnical = technical.checked;
+            renderOlapFields();
+            renderFilterEditor();
+        };
+        const refresh = $("olap-refresh-fields"); if (refresh) refresh.onclick = async () => {
+            try { await loadOlapFields({ force: true, maxAttempts: 3 }); }
+            catch (error) { setOlapStatus("🔴 " + error.message); }
+        };
         const clear = $("olap-clear"); if (clear) clear.onclick = clearOlap;
-        const operator = $("olap-filter-operator"); if (operator) operator.onchange = updateFilterInputMode;
-        const addFilter = $("olap-add-filter"); if (addFilter) addFilter.onclick = () => { try { addOlapFilter(); } catch (error) { setOlapStatus("🔴 " + error.message); } };
+
+        const operator = $("olap-filter-operator"); if (operator) operator.onchange = () => {
+            updateFilterInputMode();
+            renderFilterSuggestions($("olap-filter-field")?.value || "");
+        };
+        const filterField = $("olap-filter-field"); if (filterField) filterField.onchange = () => renderFilterSuggestions(filterField.value);
+        const addFilter = $("olap-add-filter"); if (addFilter) addFilter.onclick = () => openOlapFilter();
+        const applyFilter = $("olap-apply-filter"); if (applyFilter) applyFilter.onclick = () => {
+            try { addOlapFilter(); } catch (error) { setOlapStatus("🔴 " + error.message); }
+        };
+        document.querySelectorAll("[data-close-filter]").forEach(node => node.addEventListener("click", closeOlapFilter));
+
         const saved = $("olap-saved-reports"); if (saved) saved.onchange = () => loadSavedOlapReport(saved.value);
         const save = $("olap-save-report"); if (save) save.onclick = saveCurrentOlapReport;
         const exportButton = $("olap-export"); if (exportButton) exportButton.onclick = exportOlapCsv;
-        renderSavedReports(); const run = $("olap-run"); if (run) run.onclick = runOlap; bindOlapDropZones();
+        const run = $("olap-run"); if (run) run.onclick = runOlap;
+
+        document.addEventListener("click", event => {
+            if (selectedFieldMenu && !selectedFieldMenu.contains(event.target)) closeSelectedFieldMenu();
+        });
+        document.addEventListener("keydown", event => {
+            if (event.key === "Escape") { closeSelectedFieldMenu(); closeOlapFilter(); }
+        });
+
+        renderSavedReports();
+        renderOlapFilters();
+        bindOlapDropZones();
     }
 
     async function restoreOlapConnectionAndFields() {
