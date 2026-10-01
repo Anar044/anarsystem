@@ -151,3 +151,53 @@ html[data-theme="light"] .aid-suggestion.selected{background:#e9f8f1;border-colo
   cursor:pointer;
 }
 .aid-fix-total:hover{background:rgba(245,158,11,.22)}
+
+.aid-ocr-diagnostics{
+  margin:10px 0 14px;
+  border:1px solid var(--border,#294154);
+  border-radius:10px;
+  background:rgba(10,22,33,.55);
+  overflow:hidden;
+}
+.aid-ocr-diagnostics summary{
+  cursor:pointer;
+  padding:10px 12px;
+  font-weight:700;
+}
+.aid-ocr-diagnostics[open] summary{
+  border-bottom:1px solid var(--border,#294154);
+}
+.aid-ocr-diagnostics>div{
+  padding:10px 12px 12px;
+}
+.aid-ocr-meta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px 14px;
+  font-size:12px;
+  opacity:.9;
+}
+.aid-ocr-error{
+  margin-top:8px;
+  padding:8px 10px;
+  border-radius:8px;
+  background:rgba(179,54,54,.16);
+  color:#ffb4b4;
+  font-size:12px;
+}
+.aid-ocr-caption{
+  margin-top:10px;
+  font-size:12px;
+}
+.aid-ocr-text{
+  margin:6px 0 0;
+  max-height:190px;
+  overflow:auto;
+  white-space:pre-wrap;
+  word-break:break-word;
+  padding:9px 10px;
+  border-radius:8px;
+  background:rgba(0,0,0,.22);
+  font-size:11px;
+  line-height:1.45;
+}
