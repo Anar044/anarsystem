@@ -350,7 +350,7 @@
       var response = await fetch('/api/iiko/document-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'save-and-process', document: loaded.document }),
+        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'process', document: loaded.document }),
         cache: 'no-store'
       });
       var data = await response.json().catch(function () { return {}; });
