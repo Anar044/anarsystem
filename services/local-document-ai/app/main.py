@@ -290,12 +290,20 @@ def _nearest_numeric(cells: list[OcrLine], target_x: float | None, min_x: float 
 def row_candidates(lines: list[OcrLine]) -> list[dict[str, Any]]:
     ordered = ordered_lines(lines)
 
-    name_header = next((x for x in ordered if _header_match(x.text, ("nomenklatura", "наименование", "məhsul", "malın adı"))), None)
-    code_header = next((x for x in ordered if _header_match(x.text, ("kod", "code", "артикул"))), None)
-    unit_header = next((x for x in ordered if _header_match(x.text, ("ölçü", "vah.", "ед.", "unit"))), None)
-    qty_header = next((x for x in ordered if _header_match(x.text, ("miqdar", "колич", "quantity"))), None)
+    name_header = next((x for x in ordered if _header_match(x.text, (
+        "nomenklatura", "наименование", "продукт", "товар", "product", "məhsul", "malın adı"
+    ))), None)
+    code_header = next((x for x in ordered if _header_match(x.text, ("kod", "code", "код", "артикул"))), None)
+    unit_header = next((x for x in ordered if _header_match(x.text, (
+        "ölçü", "vah.", "ед.", "ед. изм", "ед изм", "unit"
+    ))), None)
+    qty_header = next((x for x in ordered if _header_match(x.text, (
+        "miqdar", "колич", "кол-во", "кол во", "колво", "quantity", "qty"
+    ))), None)
 
-    price_headers = [x for x in ordered if _header_match(x.text, ("qiym", "цена", "price"))]
+    price_headers = [x for x in ordered if _header_match(x.text, (
+        "qiym", "цена", "стоим", "price", "cost"
+    ))]
     price_headers = sorted([x for x in price_headers if _cx(x) is not None], key=lambda x: _cx(x) or 0)
 
     header_lines = [x for x in (name_header, code_header, unit_header, qty_header, *price_headers) if x and x.box]
@@ -362,6 +370,26 @@ def row_candidates(lines: list[OcrLine]) -> list[dict[str, Any]]:
         name = " ".join(x.text.strip() for x in product_cells).strip()
         if len(name) < 2:
             continue
+
+        # Once a product-name header is known, accept only text that really
+        # sits in that table column. This blocks comments such as
+        # "Примечание: 22 cafe" from becoming fake purchase rows.
+        if name_x is not None and product_cells:
+            product_center = sum((_cx(x) or 0) for x in product_cells) / len(product_cells)
+            column_tolerance = 180
+            if abs(product_center - name_x) > column_tolerance:
+                continue
+
+        # A normal purchase row should have table evidence to the left of
+        # the product name (row number and/or supplier article/code).
+        if name_x is not None:
+            left_numeric = [
+                x for x in cells
+                if (_cx(x) is not None and (_cx(x) or 0) < name_x - 20)
+                and len(line_numbers(x.text)) == 1
+            ]
+            if not left_numeric and code_x is not None:
+                continue
 
         # Quantity must come from the Miqdar/Quantity column. This avoids
         # confusing row numbers 1,2,3... with quantities.
@@ -458,7 +486,7 @@ def heuristic_parse(lines: list[OcrLine]) -> dict[str, Any]:
             {"page": x.page, "text": x.text, "confidence": round(x.score, 4), "box": x.box}
             for x in ordered
         ],
-        "localParser": "heuristic-v2",
+        "localParser": "heuristic-v3",
     }
 
 
@@ -556,7 +584,7 @@ async def process(
         heuristic = heuristic_parse(lines)
 
         parsed = None
-        parser = heuristic.get("localParser", "heuristic-v2")
+        parser = heuristic.get("localParser", "heuristic-v3")
         if OLLAMA_URL:
             try:
                 parsed = ollama_parse(heuristic, schema, prompt)
