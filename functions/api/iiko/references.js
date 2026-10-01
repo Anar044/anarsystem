@@ -66,22 +66,75 @@ async function ensure(db){if(!db)throw new Error("D1 binding DB не настр�
 async function readMap(db,table,idCol,nameCol,scope){const r=await db.prepare(`SELECT ${idCol} id,${nameCol} name FROM ${table} WHERE scope_id=?1`).bind(scope).all();return new Map((r.results||[]).filter(x=>x?.id&&x?.name).map(x=>[cleanId(x.id),cleanName(x.name)]));}
 async function save(db,table,idCol,nameCol,scope,rows){if(!rows.length)return;const now=new Date().toISOString();for(let i=0;i<rows.length;i+=50)await db.batch(rows.slice(i,i+50).map(x=>db.prepare(`INSERT INTO ${table}(scope_id,${idCol},${nameCol},updated_at) VALUES(?1,?2,?3,?4) ON CONFLICT(scope_id,${idCol}) DO UPDATE SET ${nameCol}=excluded.${nameCol},updated_at=excluded.updated_at`).bind(scope,cleanId(x.id),cleanName(x.name),now)));}
 async function loadRef(serverUrl,token,paths,parser){const all=[];const diagnostics=[];for(const path of paths){try{const r=await request(serverUrl,path,token);const rows=r.ok?parser(r.text):[];diagnostics.push({path,status:r.status,ok:r.ok,contentType:r.contentType,rawLength:r.text.length,parsedCount:rows.length});if(r.ok&&rows.length)all.push(...rows);}catch(e){diagnostics.push({path,status:0,ok:false,contentType:"",rawLength:0,parsedCount:0,error:String(e?.message||e)});}}const seen=new Set();const rows=all.filter(x=>{const id=cleanId(x.id);if(!id||seen.has(id))return false;seen.add(id);return true;});const last=diagnostics[diagnostics.length-1]||{};return {rows,status:diagnostics.find(x=>x.parsedCount>0)?.status||last.status||0,contentType:last.contentType||"",rawLength:diagnostics.reduce((s,x)=>s+Number(x.rawLength||0),0),path:paths.join(" + "),error:rows.length?null:diagnostics.map(x=>`${x.path}: HTTP ${x.status}`).join("; "),attempts:diagnostics};}
+async function loadWarehouses(serverUrl,token){
+  const all=[];
+  const diagnostics=[];
+  const seen=new Set();
+  const addRows=(rows,source)=>{
+    for(const row of rows||[]){
+      const id=cleanId(row?.id),name=cleanName(row?.name);
+      if(!id||!name||seen.has(id))continue;
+      seen.add(id);
+      all.push({id,name,source});
+    }
+  };
+
+  const storePaths=[
+    "/resto/api/corporation/stores?revisionFrom=-1",
+    "/resto/api/corporation/stores/?revisionFrom=-1",
+    "/resto/api/corporation/stores"
+  ];
+  for(const path of storePaths){
+    try{
+      const r=await request(serverUrl,path,token);
+      // The stores endpoint itself is authoritative: every returned entity is a warehouse.
+      const rows=r.ok?parseReferenceList(r.text):[];
+      diagnostics.push({
+        path,status:r.status,ok:r.ok,contentType:r.contentType,
+        rawLength:r.text.length,parsedCount:rows.length,
+        parsedNames:rows.slice(0,20).map(x=>x.name)
+      });
+      if(r.ok)addRows(rows,"stores");
+    }catch(e){
+      diagnostics.push({path,status:0,ok:false,contentType:"",rawLength:0,parsedCount:0,error:String(e?.message||e)});
+    }
+  }
+
+  const departmentPaths=[
+    "/resto/api/corporation/departments?revisionFrom=-1",
+    "/resto/api/corporation/departments/?revisionFrom=-1",
+    "/resto/api/corporation/departments"
+  ];
+  for(const path of departmentPaths){
+    try{
+      const r=await request(serverUrl,path,token);
+      const rows=r.ok?parseStoreList(r.text):[];
+      diagnostics.push({
+        path,status:r.status,ok:r.ok,contentType:r.contentType,
+        rawLength:r.text.length,parsedCount:rows.length,
+        parsedNames:rows.slice(0,20).map(x=>x.name)
+      });
+      if(r.ok)addRows(rows,"departments");
+    }catch(e){
+      diagnostics.push({path,status:0,ok:false,contentType:"",rawLength:0,parsedCount:0,error:String(e?.message||e)});
+    }
+  }
+
+  return {
+    rows:all,
+    status:diagnostics.find(x=>x.parsedCount>0)?.status||diagnostics.at(-1)?.status||0,
+    contentType:diagnostics.at(-1)?.contentType||"",
+    rawLength:diagnostics.reduce((s,x)=>s+Number(x.rawLength||0),0),
+    path:[...storePaths,...departmentPaths].join(" + "),
+    error:all.length?null:diagnostics.map(x=>`${x.path}: HTTP ${x.status}`).join("; "),
+    attempts:diagnostics
+  };
+}
+
 async function resolveSupplier(serverUrl,token,id){const sid=cleanId(id);if(!sid)return null;const paths=[`/resto/api/v2/entities/contractors/${encodeURIComponent(sid)}`,`/resto/api/v2/entities/contractors?id=${encodeURIComponent(sid)}`];for(const path of paths){try{const r=await request(serverUrl,path,token);if(!r.ok)continue;const rows=parseSupplierList(r.text);const exact=rows.find(x=>cleanId(x.id)===sid);if(exact)return exact;try{const v=JSON.parse(r.text);const raw=[];parseJsonSupplierRefs(v,raw);const x=raw.find(y=>cleanId(y.id)===sid);if(x&&x.name)return {id:sid,name:cleanName(x.name)};}catch{}}catch{}}return null;}
 async function resolveMissingSuppliers(serverUrl,token,rows){const ids=[...new Set(rows.map(x=>cleanId(x.id)).filter(Boolean))];const resolved=[];for(const id of ids){const x=await resolveSupplier(serverUrl,token,id);if(x)resolved.push(x);}return resolved;}
 async function syncReferences(env,serverUrl,token,neededSupplierIds=[]){await ensure(env.DB);const scope=await sha1(serverUrl.toLowerCase());const refs={};refs.suppliers=await loadRef(serverUrl,token,["/resto/api/suppliers?revisionFrom=-1","/resto/api/v2/entities/contractors","/resto/api/suppliers","/resto/api/corporation/suppliers"],parseSupplierList);const missing=[...new Set(neededSupplierIds.map(cleanId).filter(Boolean))].filter(id=>!refs.suppliers.rows.some(x=>cleanId(x.id)===id));if(missing.length){const extra=await resolveMissingSuppliers(serverUrl,token,missing.map(id=>({id})));refs.suppliers.rows.push(...extra);}
-refs.warehouses=await loadRef(
-  serverUrl,
-  token,
-  [
-    "/resto/api/corporation/stores?revisionFrom=-1",
-    "/resto/api/corporation/stores/?revisionFrom=-1",
-    "/resto/api/corporation/departments?revisionFrom=-1",
-    "/resto/api/corporation/departments/?revisionFrom=-1",
-    "/resto/api/corporation/stores",
-    "/resto/api/corporation/departments"
-  ],
-  parseStoreList
-);refs.products=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/list?includeDeleted=true","/resto/api/products"],parseReferenceList);refs.groups=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/group/list?includeDeleted=true"],parseReferenceList);refs.categories=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/category/list?includeDeleted=true"],parseReferenceList);await Promise.all([save(env.DB,"sh_iiko_suppliers","supplier_id","supplier_name",scope,refs.suppliers.rows),save(env.DB,"sh_iiko_warehouses","warehouse_id","warehouse_name",scope,refs.warehouses.rows),save(env.DB,"sh_iiko_products","product_id","product_name",scope,refs.products.rows),save(env.DB,"sh_iiko_product_groups","group_id","group_name",scope,refs.groups.rows),save(env.DB,"sh_iiko_product_categories","category_id","category_name",scope,refs.categories.rows)]);const maps={suppliers:await readMap(env.DB,"sh_iiko_suppliers","supplier_id","supplier_name",scope),warehouses:await readMap(env.DB,"sh_iiko_warehouses","warehouse_id","warehouse_name",scope),products:await readMap(env.DB,"sh_iiko_products","product_id","product_name",scope),groups:await readMap(env.DB,"sh_iiko_product_groups","group_id","group_name",scope),categories:await readMap(env.DB,"sh_iiko_product_categories","category_id","category_name",scope)};return {maps,diagnostics:Object.fromEntries(Object.entries(refs).map(([k,v])=>[k,{httpStatus:v.status,contentType:v.contentType,rawLength:v.rawLength,parsedCount:v.rows.length,path:v.path,error:v.error||null,attempts:v.attempts||[]}]))};}
+refs.warehouses=await loadWarehouses(serverUrl,token);refs.products=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/list?includeDeleted=true","/resto/api/products"],parseReferenceList);refs.groups=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/group/list?includeDeleted=true"],parseReferenceList);refs.categories=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/category/list?includeDeleted=true"],parseReferenceList);await Promise.all([save(env.DB,"sh_iiko_suppliers","supplier_id","supplier_name",scope,refs.suppliers.rows),save(env.DB,"sh_iiko_warehouses","warehouse_id","warehouse_name",scope,refs.warehouses.rows),save(env.DB,"sh_iiko_products","product_id","product_name",scope,refs.products.rows),save(env.DB,"sh_iiko_product_groups","group_id","group_name",scope,refs.groups.rows),save(env.DB,"sh_iiko_product_categories","category_id","category_name",scope,refs.categories.rows)]);const maps={suppliers:await readMap(env.DB,"sh_iiko_suppliers","supplier_id","supplier_name",scope),warehouses:await readMap(env.DB,"sh_iiko_warehouses","warehouse_id","warehouse_name",scope),products:await readMap(env.DB,"sh_iiko_products","product_id","product_name",scope),groups:await readMap(env.DB,"sh_iiko_product_groups","group_id","group_name",scope),categories:await readMap(env.DB,"sh_iiko_product_categories","category_id","category_name",scope)};return {maps,diagnostics:Object.fromEntries(Object.entries(refs).map(([k,v])=>[k,{httpStatus:v.status,contentType:v.contentType,rawLength:v.rawLength,parsedCount:v.rows.length,path:v.path,error:v.error||null,attempts:v.attempts||[]}]))};}
 export {syncReferences};
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()});}
 export async function onRequestPost({request,env}){try{const b=await request.json();const connection={ip:String(b.ip||"").trim(),port:String(b.port||"").trim(),login:String(b.login||"").trim(),password:String(b.password||"")};if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Заполните IP, порт, логин и пароль SH Server"},400);const auth=await getIikoAuth(connection);const refs=await syncReferences(env,auth.serverUrl,auth.token);return json({success:true,source:"iiko-sync+d1",supplierCount:refs.maps.suppliers.size,warehouseCount:refs.maps.warehouses.size,productCount:refs.maps.products.size,diagnostics:refs.diagnostics,meta:{sharedIikoClient:true,authCacheHit:auth.cacheHit===true}});}catch(e){return json({success:false,message:e?.message||"Ошибка загрузки справочников iiko"},502);}}
