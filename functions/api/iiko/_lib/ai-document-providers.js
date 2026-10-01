@@ -130,8 +130,16 @@ async function openAiProvider(env, file) {
   };
 }
 
+function localDocumentEndpoint(value) {
+  const raw = clean(value);
+  if (!raw) return "";
+  const trimmed = raw.replace(/\/+$/, "");
+  if (/\/process$/i.test(trimmed)) return trimmed;
+  return trimmed + "/process";
+}
+
 async function localProvider(env, file) {
-  const url = clean(env.LOCAL_DOCUMENT_AI_URL);
+  const url = localDocumentEndpoint(env.LOCAL_DOCUMENT_AI_URL);
   if (!url) throw new Error("LOCAL_DOCUMENT_AI_URL не настроен.");
   const form = new FormData();
   form.set("file", file, file.name || "document");
