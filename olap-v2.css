@@ -146,3 +146,135 @@ body.olap-modal-open{overflow:hidden}
   .olap-config-label{padding-left:3px}
   .olap-v2-modal-body{grid-template-columns:1fr}
 }
+
+
+/* OLAP v2 desktop workspace: fields left, constructor/result right */
+@media(min-width:1001px){
+  .olap-v2{
+    display:grid!important;
+    grid-template-columns:minmax(330px,390px) minmax(0,1fr)!important;
+    grid-template-rows:auto auto auto auto minmax(320px,auto)!important;
+    gap:12px!important;
+    align-items:start!important;
+  }
+  .olap-v2>.olap-report-head{
+    grid-column:1/-1!important;
+    grid-row:1!important;
+  }
+  .olap-v2>.olap-status{
+    grid-column:1/-1!important;
+    grid-row:2!important;
+  }
+  .olap-v2>.olap-v2-fields{
+    grid-column:1!important;
+    grid-row:3/6!important;
+    position:sticky!important;
+    top:14px!important;
+    align-self:start!important;
+    max-height:calc(100vh - 175px)!important;
+    overflow:hidden!important;
+    display:flex!important;
+    flex-direction:column!important;
+    min-width:0!important;
+  }
+  .olap-v2>.olap-v2-config{
+    grid-column:2!important;
+    grid-row:3!important;
+    position:sticky!important;
+    top:14px!important;
+    z-index:7!important;
+    box-shadow:0 10px 30px rgba(0,0,0,.12)!important;
+  }
+  .olap-v2>.olap-v2-filter-chips{
+    grid-column:2!important;
+    grid-row:4!important;
+  }
+  .olap-v2>.olap-v2-result{
+    grid-column:2!important;
+    grid-row:5!important;
+    min-width:0!important;
+  }
+
+  .olap-v2-field-toolbar{
+    display:block!important;
+    margin-bottom:10px!important;
+  }
+  .olap-category-tabs{
+    display:flex!important;
+    gap:5px!important;
+    flex-wrap:wrap!important;
+    overflow:visible!important;
+    max-height:78px!important;
+    overflow-y:auto!important;
+    margin-bottom:9px!important;
+  }
+  .olap-category-tab{
+    padding:5px 9px!important;
+    font-size:10px!important;
+  }
+  .olap-v2-search{
+    width:100%!important;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) auto!important;
+    gap:7px!important;
+    margin:0!important;
+  }
+  .olap-v2-search input[type="search"]{
+    grid-column:1/-1!important;
+    width:100%!important;
+    max-width:none!important;
+  }
+  .olap-technical-toggle{
+    min-width:0!important;
+  }
+
+  .olap-v2-field-list{
+    display:flex!important;
+    flex-direction:column!important;
+    flex:1 1 auto!important;
+    min-height:220px!important;
+    max-height:none!important;
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+    padding-right:5px!important;
+  }
+  .olap-v2-field{
+    width:100%!important;
+    flex:0 0 auto!important;
+    min-height:51px!important;
+    padding:7px 8px!important;
+  }
+  .olap-v2-field-name strong{
+    font-size:11px!important;
+  }
+  .olap-v2-field-name small{
+    font-size:8px!important;
+  }
+  .olap-v2-field-actions{
+    gap:3px!important;
+  }
+  .olap-v2-field-actions button{
+    padding:4px 6px!important;
+    font-size:9px!important;
+  }
+
+  .olap-config-lane{
+    grid-template-columns:95px minmax(0,1fr)!important;
+    min-height:42px!important;
+  }
+  .olap-v2-selected{
+    min-height:34px!important;
+  }
+  .olap-config-actions{
+    padding-top:7px!important;
+  }
+  .olap-v2-result .report-table-wrapper{
+    max-height:calc(100vh - 330px)!important;
+  }
+}
+
+@media(min-width:1500px){
+  .olap-v2{
+    grid-template-columns:410px minmax(0,1fr)!important;
+  }
+}
