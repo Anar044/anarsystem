@@ -6,7 +6,7 @@
 <title>Smart Horeca Control — AI Документы</title>
 <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
 <link rel="stylesheet" href="/app-shell.css?v=20260911-7">
-<link rel="stylesheet" href="/ai-documents.css?v=20261001-1">
+<link rel="stylesheet" href="/ai-documents.css?v=20261001-2">
 </head>
 <body data-protected="true">
 <div class="app-shell">
@@ -57,9 +57,12 @@
 
       <div class="aid-layout">
         <section class="aid-list-card">
-          <div class="aid-card-head">
+          <div class="aid-card-head aid-list-head">
             <div><strong>Входящие документы</strong><span id="docCount">0</span></div>
-            <button id="refreshBtn" type="button">Обновить</button>
+            <div class="aid-list-head-actions">
+              <button id="refreshBtn" type="button">Обновить</button>
+              <button id="listToggleBtn" class="aid-icon-action" type="button" title="Свернуть список" aria-label="Свернуть список">‹</button>
+            </div>
           </div>
           <div id="documentList" class="aid-document-list"></div>
           <div id="documentEmpty" class="aid-empty">Документов пока нет.</div>
@@ -83,10 +86,22 @@
             </div>
 
             <div class="aid-review-grid">
-              <div class="aid-preview-pane">
-                <div class="aid-pane-title">Оригинал</div>
+              <div class="aid-preview-pane" id="previewPane">
+                <div class="aid-pane-title aid-preview-title">
+                  <span>Оригинал</span>
+                  <div class="aid-preview-tools">
+                    <button id="previewZoomOut" type="button" title="Уменьшить">−</button>
+                    <button id="previewZoom100" type="button">100%</button>
+                    <button id="previewFit" type="button">По ширине</button>
+                    <button id="previewZoomIn" type="button" title="Увеличить">+</button>
+                    <span id="previewZoomLabel">По ширине</span>
+                    <button id="previewFullscreen" type="button" title="На весь экран">⛶</button>
+                  </div>
+                </div>
                 <div id="filePreview" class="aid-file-preview"></div>
               </div>
+
+              <div id="reviewSplitter" class="aid-review-splitter" title="Потяните, чтобы изменить ширину" aria-label="Изменить ширину областей"></div>
 
               <div class="aid-data-pane">
                 <div class="aid-pane-title">Данные накладной</div>
@@ -130,6 +145,6 @@
 <script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
 <script src="/documents-nav.js?v=20261001-ai1"></script>
 <script src="/mobile-responsive.js?v=3"></script>
-<script src="/ai-documents.js?v=20261001-1"></script>
+<script src="/ai-documents.js?v=20261001-2"></script>
 </body>
 </html>
