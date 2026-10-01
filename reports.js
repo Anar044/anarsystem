@@ -671,10 +671,9 @@
         if (rowFields.length) renderLevel(root, 0, rowsData); else renderLeafRows(rowsData);
         if (measures.length && rowFields.length) htmlRows.push(`<tr class="olap-grand-total">${visibleKeys.map((key, index) => { if (index === 0) return `<td class="olap-total-label" colspan="${Math.max(1, rowFields.length)}"><strong>Итого</strong></td>`; if (rowFields.includes(key)) return ""; const measure = measures.find(item => item.field === key); return measure ? `<td><strong>${esc(format(aggregate(rowsData, measure)))}</strong></td>` : `<td></td>`; }).join("")}</tr>`);
         result.innerHTML = `<div class="report-header"><strong>Результат OLAP</strong><span>${rowsData.length} строк</span></div><div class="report-table-wrapper"><table class="report-table olap-grouped-report"><thead><tr>${visibleKeys.map(key => `<th>${esc(fieldTitle(key))}</th>`).join("")}</tr></thead><tbody>${htmlRows.join("")}</tbody></table></div>`;
-        bindOlapResultInteractions();
     }
 
-    function bindOlapResultInteractions() {
+    function __unusedBindOlapResultInteractions() {
         const table = $("olap-result")?.querySelector(".olap-grouped-report");
         if (!table) return;
 
