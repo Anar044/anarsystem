@@ -405,12 +405,46 @@
         renderSavedReports(); const run = $("olap-run"); if (run) run.onclick = runOlap; bindOlapDropZones();
     }
 
+    async function restoreOlapConnectionAndFields() {
+        let restoredFromServer = false;
+
+        try {
+            const connection = await refreshIikoConnectionFromServer(false);
+            restoredFromServer = Boolean(connection?.ip && connection?.port && connection?.login && connection?.password);
+        } catch (error) {
+            console.warn("Cannot restore iiko connection from server context", error);
+        }
+
+        // Keep legacy localStorage only as a fallback for older accounts/sessions.
+        if (!restoredFromServer) loadSavedIikoData();
+
+        if (!iikoConnection) {
+            setOlapStatus("🔴 Подключение iiko не найдено. Откройте настройки и переподключите iiko.");
+            const container = $("olap-fields");
+            if (container) container.innerHTML = `<div class="olap-empty">Подключение iiko не найдено.</div>`;
+            return;
+        }
+
+        setIikoStatus("🟢 iiko подключение восстановлено");
+        try {
+            await loadOlapFields({ force: true, maxAttempts: 3 });
+            setIikoStatus("🟢 iiko подключён");
+        } catch (error) {
+            console.warn("Cannot restore OLAP fields", error);
+            setIikoStatus("🟡 iiko подключён, но OLAP-поля пока недоступны");
+        }
+    }
+
     async function init() {
         if (window.SHAuth) { const user = await window.SHAuth.getUser(); if (!user) return; window.SH_CURRENT_USER = user; }
-        createOlapBuilder(); loadSavedIikoData(); setDefaultPeriods();
+        createOlapBuilder();
+        setDefaultPeriods();
+
         const connect = $("connect-iiko"); if (connect) connect.onclick = connectIiko;
         const clear = $("clear-iiko-data"); if (clear) clear.onclick = clearSavedIikoData;
         const sales = $("load-sales"); if (sales) sales.onclick = loadSalesReport;
+
+        await restoreOlapConnectionAndFields();
     }
 
     if (document.readyState === "loading") {
