@@ -590,6 +590,74 @@ def row_candidates(lines: list[OcrLine]) -> list[dict[str, Any]]:
 
 
 
+
+def _visual_rows(lines: list[OcrLine]) -> list[list[OcrLine]]:
+    rows: list[list[OcrLine]] = []
+    for line in ordered_lines([x for x in lines if x.box]):
+        cy = _cy(line)
+        if cy is None:
+            continue
+        matched = None
+        for row in reversed(rows[-12:]):
+            if not row or row[0].page != line.page:
+                continue
+            centers = [_cy(x) for x in row if _cy(x) is not None]
+            heights = [max(10.0, x.box[3] - x.box[1]) for x in row if x.box]
+            if not centers:
+                continue
+            row_y = sum(centers) / len(centers)
+            avg_h = sum(heights) / len(heights) if heights else 24.0
+            tolerance = max(16.0, min(44.0, avg_h * 0.8))
+            if abs(row_y - cy) <= tolerance:
+                matched = row
+                break
+        if matched is None:
+            rows.append([line])
+        else:
+            matched.append(line)
+    for row in rows:
+        row.sort(key=lambda x: _cx(x) or 0)
+    return rows
+
+
+def _row_text(row: list[OcrLine]) -> str:
+    return " ".join(x.text.strip() for x in row if x.text.strip())
+
+
+def _clean_freeform_name(value: str) -> str:
+    value = re.sub(r"^[\s\-–—:;,.>→=]+|[\s\-–—:;,.>→=]+$", "", value or "")
+    return re.sub(r"\s+", " ", value).strip()[:240]
+
+
+def _freeform_supplier(lines: list[OcrLine]) -> str | None:
+    pattern = re.compile(
+        r"(?:təchizatçı|techizatci|techizatçı|tchizatçı|tchizatci|поставщик|supplier)"
+        r"\s*(?:[:=\-–—>→]+)?\s*(.+)$",
+        re.I,
+    )
+    for row in _visual_rows(lines)[:16]:
+        text = _row_text(row)
+        low = text.lower()
+        if not any(label in low for label in SUPPLIER_LABELS):
+            continue
+        match = pattern.search(text)
+        if match:
+            candidate = _clean_supplier_name(_clean_freeform_name(match.group(1)))
+            if candidate and sum(ch.isalpha() for ch in candidate) >= 2:
+                return candidate
+        label_cells = [x for x in row if any(label in x.text.lower() for label in SUPPLIER_LABELS)]
+        if label_cells:
+            right_edge = max((x.box[2] for x in label_cells if x.box), default=0)
+            right_text = " ".join(
+                x.text.strip() for x in row
+                if x.box and x.box[0] > right_edge and x.text.strip()
+            )
+            candidate = _clean_supplier_name(_clean_freeform_name(right_text))
+            if candidate and sum(ch.isalpha() for ch in candidate) >= 2:
+                return candidate
+    return None
+
+
 def heuristic_parse(lines: list[OcrLine]) -> dict[str, Any]:
     ordered = ordered_lines(lines)
     all_text = "\n".join(x.text for x in ordered)
