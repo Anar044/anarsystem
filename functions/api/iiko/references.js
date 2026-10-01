@@ -10,6 +10,54 @@ function textTag(block,names){const wanted=new Set((Array.isArray(names)?names:[
 function elementBlocks(source,names){const wanted=new Set((Array.isArray(names)?names:[names]).map(localName));const text=String(source||"");const out=[];const open=/<([A-Za-z][\w:.-]*)\b[^>]*>/gi;let m;while((m=open.exec(text))){const fullName=m[1];if(!wanted.has(localName(fullName)))continue;const esc=fullName.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");const close=new RegExp(`</${esc}>`,'ig');const tail=text.slice(open.lastIndex);const cm=close.exec(tail);if(cm)out.push(text.slice(m.index,open.lastIndex+cm.index+cm[0].length));}return out;}
 function openingAttrs(block){const m=String(block||"").match(/^<([A-Za-z][\w:.-]*)\b([^>]*)>/i);const a={};if(!m)return a;const re=/([A-Za-z][\w:.-]*)\s*=\s*(["'])(.*?)\2/g;let q;while((q=re.exec(m[2])))a[localName(q[1])]=xmlDecode(q[3]);return a;}
 function innerText(block){return xmlDecode(String(block||"").replace(/^<[A-Za-z][\w:.-]*\b[^>]*>/i,"").replace(/<\/[A-Za-z][\w:.-]*>\s*$/i,"").trim());}
+function xmlRootChildren(source){
+  let text=String(source||"").replace(/^\uFEFF/,"").trim();
+  text=text.replace(/^<\?xml[\s\S]*?\?>\s*/i,"").trim();
+  const root=text.match(/^<([A-Za-z][\w:.-]*)\b[^>]*>([\s\S]*)<\/\1>\s*$/i);
+  const body=root?root[2]:text;
+  const out=[];
+  const re=/<([A-Za-z][\w:.-]*)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  let m;
+  while((m=re.exec(body)))out.push(m[0]);
+  return out;
+}
+function parseWarehouseBlock(block){
+  const a=openingAttrs(block);
+  return {
+    id:cleanId(textTag(block,["id","uuid","entityId","storeId","warehouseId"])||a.id||a.uuid||a.entityid||a.storeid||a.warehouseid),
+    name:cleanName(textTag(block,["name","title","description","fullName"])||a.name||a.title||a.description||a.fullname),
+    type:String(textTag(block,["type","entityType","kind"])||a.type||a.entitytype||a.kind||"").trim().toUpperCase()
+  };
+}
+function parseWarehouseEndpoint(value){
+  const source=String(value||"").trim();
+  const rows=[];
+  const seen=new Set();
+  const addRow=x=>{
+    const id=cleanId(x?.id),name=cleanName(x?.name);
+    if(id&&name&&!seen.has(id)){seen.add(id);rows.push({id,name,type:String(x?.type||"").toUpperCase()});}
+  };
+  if(!source)return rows;
+  if(source[0]==="{"||source[0]==="["){
+    try{
+      const walk=v=>{
+        if(Array.isArray(v)){v.forEach(walk);return;}
+        if(!v||typeof v!=="object")return;
+        const id=v.id??v.uuid??v.entityId??v.storeId??v.warehouseId;
+        const name=v.name??v.title??v.description??v.fullName;
+        const type=v.type??v.entityType??v.kind;
+        if(id&&name)addRow({id,name,type});
+        Object.values(v).forEach(x=>{if(x&&typeof x==="object")walk(x);});
+      };
+      walk(JSON.parse(source));
+    }catch{}
+  }
+  xmlRootChildren(source).forEach(b=>addRow(parseWarehouseBlock(b)));
+  elementBlocks(source,["corporateItemDto","corporateItem","store","storeDto","warehouse","department","item"])
+    .forEach(b=>addRow(parseWarehouseBlock(b)));
+  return rows;
+}
+
 function jsonField(value,names){if(!value||typeof value!=="object"||Array.isArray(value))return undefined;const wanted=new Set(names.map(x=>String(x).toLowerCase()));for(const [k,v] of Object.entries(value))if(wanted.has(String(k).toLowerCase()))return v;return undefined;}
 function scalarText(value){if(value==null)return"";if(typeof value==="string"||typeof value==="number"||typeof value==="boolean")return String(value).trim();if(Array.isArray(value)){for(const x of value){const s=scalarText(x);if(s)return s;}return"";}if(typeof value==="object"){for(const n of ["value","text","name","companyName","fullName","shortName","title","id","uuid","guid","code"]){const x=jsonField(value,[n]);const s=scalarText(x);if(s)return s;}}return"";}
 function parseJsonSupplierRefs(value,out){if(Array.isArray(value)){for(const x of value)parseJsonSupplierRefs(x,out);return;}if(!value||typeof value!=="object")return;const name=scalarText(jsonField(value,["name","title","description","fullName","companyName","shortName"]));const supplier=jsonField(value,["supplier"]);if(supplier&&typeof supplier==="object"){const sid=scalarText(jsonField(supplier,["id","uuid","guid","entityId","supplierId","contractorId","counteragentId"]));const sn=scalarText(jsonField(supplier,["name","title","description","fullName","companyName","shortName"]))||name;if(sid&&sn)out.push({id:sid,name:sn});}else if(typeof supplier==="string"&&name){out.push({id:supplier,name});}const id=scalarText(jsonField(value,["supplierId","supplier_id","id","uuid","guid","entityId","contractorId","counteragentId"]));if(id&&name)out.push({id,name});for(const v of Object.values(value))if(v&&typeof v==="object")parseJsonSupplierRefs(v,out);}
@@ -21,15 +69,172 @@ return result;}
 function parseReferenceList(value){const source=String(value||"").trim();const result=[];const seen=new Set();const add=(id,name)=>{const sid=cleanId(id),sname=cleanName(name);if(sid&&sname&&!seen.has(sid)){seen.add(sid);result.push({id:sid,name:sname});}};if(!source)return result;if(source[0]==="{"||source[0]==="["){try{const walk=v=>{if(Array.isArray(v)){v.forEach(walk);return;}if(!v||typeof v!=="object")return;const id=v.id??v.uuid??v.entityId??v.storeId??v.warehouseId??v.productId;const name=v.name??v.title??v.description;if(id&&name)add(id,name);Object.values(v).forEach(x=>{if(x&&typeof x==="object")walk(x);});};walk(JSON.parse(source));if(result.length)return result;}catch{}}
 const re=/<([A-Za-z][\w:.-]*)\b([^>]*)>/gi;let m;while((m=re.exec(source))){const n=localName(m[1]);if(!["store","storedto","warehouse","department","product","productdto","entity","entitydto","corporateitemdto","item"].includes(n))continue;const a={};const ar=/([A-Za-z][\w:.-]*)\s*=\s*(["'])(.*?)\2/g;let q;while((q=ar.exec(m[2])))a[localName(q[1])]=xmlDecode(q[3]);add(a.id||a.uuid||a.entityid||a.storeid||a.warehouseid||a.productid,a.name||a.title||a.description);}
 for(const b of elementBlocks(source,["store","storeDto","warehouse","department","product","productDto","entity","entityDto","corporateItemDto","item"])){const a=openingAttrs(b);add(textTag(b,["id","uuid","entityId","storeId","warehouseId","productId"])||a.id||a.uuid||a.entityid||a.storeid||a.warehouseid||a.productid,textTag(b,["name","title","description"])||a.name||a.title||a.description);}return result;}
+function parseStoreList(value){
+  const source=String(value||"").trim(),result=[],seen=new Set();
+  const add=(id,name,type)=>{
+    const sid=cleanId(id),sname=cleanName(name),stype=String(type||"").trim().toUpperCase();
+    if(!sid||!sname||seen.has(sid))return;
+    if(stype&& !["STORE","CENTRALSTORE","WAREHOUSE"].includes(stype))return;
+    seen.add(sid);result.push({id:sid,name:sname,type:stype||"STORE"});
+  };
+  if(!source)return result;
+
+  if(source[0]==="{"||source[0]==="["){
+    try{
+      const walk=v=>{
+        if(Array.isArray(v)){v.forEach(walk);return;}
+        if(!v||typeof v!=="object")return;
+        const id=v.id??v.uuid??v.entityId??v.storeId??v.warehouseId;
+        const name=v.name??v.title??v.description;
+        const type=v.type??v.entityType??v.kind;
+        if(id&&name)add(id,name,type);
+        Object.values(v).forEach(x=>{if(x&&typeof x==="object")walk(x);});
+      };
+      walk(JSON.parse(source));
+      if(result.length)return result;
+    }catch{}
+  }
+
+  for(const b of elementBlocks(source,["store","storeDto","warehouse","corporateItemDto","department"])){
+    const a=openingAttrs(b);
+    const id=textTag(b,["id","uuid","entityId","storeId","warehouseId"])||a.id||a.uuid||a.entityid||a.storeid||a.warehouseid;
+    const name=textTag(b,["name","title","description"])||a.name||a.title||a.description;
+    const type=textTag(b,["type","entityType","kind"])||a.type||a.entitytype||a.kind;
+    const node=localName((String(b).match(/^<([A-Za-z][\w:.-]*)/i)||[])[1]||"");
+    // /corporation/stores can omit type on some builds; explicit store/warehouse
+    // nodes are still valid warehouse records.
+    const inferredType=type||(["store","storedto","warehouse"].includes(node)?"STORE":"");
+    add(id,name,inferredType);
+  }
+  return result;
+}
+
 async function request(serverUrl,path,token){const r=await fetch(`${serverUrl}${path}${path.includes("?")?"&":"?"}key=${encodeURIComponent(token)}`,{cache:"no-store",headers:{Accept:"application/json, application/xml, text/xml, */*"}});return {ok:r.ok,status:r.status,text:await r.text(),contentType:r.headers.get("content-type")||""};}
 async function ensure(db){if(!db)throw new Error("D1 binding DB не настроен");await db.batch([db.prepare(`CREATE TABLE IF NOT EXISTS sh_iiko_suppliers (scope_id TEXT NOT NULL,supplier_id TEXT NOT NULL,supplier_name TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope_id,supplier_id))`),db.prepare(`CREATE TABLE IF NOT EXISTS sh_iiko_warehouses (scope_id TEXT NOT NULL,warehouse_id TEXT NOT NULL,warehouse_name TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope_id,warehouse_id))`),db.prepare(`CREATE TABLE IF NOT EXISTS sh_iiko_products (scope_id TEXT NOT NULL,product_id TEXT NOT NULL,product_name TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope_id,product_id))`),db.prepare(`CREATE TABLE IF NOT EXISTS sh_iiko_product_groups (scope_id TEXT NOT NULL,group_id TEXT NOT NULL,group_name TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope_id,group_id))`),db.prepare(`CREATE TABLE IF NOT EXISTS sh_iiko_product_categories (scope_id TEXT NOT NULL,category_id TEXT NOT NULL,category_name TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope_id,category_id))`)]);}
 async function readMap(db,table,idCol,nameCol,scope){const r=await db.prepare(`SELECT ${idCol} id,${nameCol} name FROM ${table} WHERE scope_id=?1`).bind(scope).all();return new Map((r.results||[]).filter(x=>x?.id&&x?.name).map(x=>[cleanId(x.id),cleanName(x.name)]));}
 async function save(db,table,idCol,nameCol,scope,rows){if(!rows.length)return;const now=new Date().toISOString();for(let i=0;i<rows.length;i+=50)await db.batch(rows.slice(i,i+50).map(x=>db.prepare(`INSERT INTO ${table}(scope_id,${idCol},${nameCol},updated_at) VALUES(?1,?2,?3,?4) ON CONFLICT(scope_id,${idCol}) DO UPDATE SET ${nameCol}=excluded.${nameCol},updated_at=excluded.updated_at`).bind(scope,cleanId(x.id),cleanName(x.name),now)));}
 async function loadRef(serverUrl,token,paths,parser){const all=[];const diagnostics=[];for(const path of paths){try{const r=await request(serverUrl,path,token);const rows=r.ok?parser(r.text):[];diagnostics.push({path,status:r.status,ok:r.ok,contentType:r.contentType,rawLength:r.text.length,parsedCount:rows.length});if(r.ok&&rows.length)all.push(...rows);}catch(e){diagnostics.push({path,status:0,ok:false,contentType:"",rawLength:0,parsedCount:0,error:String(e?.message||e)});}}const seen=new Set();const rows=all.filter(x=>{const id=cleanId(x.id);if(!id||seen.has(id))return false;seen.add(id);return true;});const last=diagnostics[diagnostics.length-1]||{};return {rows,status:diagnostics.find(x=>x.parsedCount>0)?.status||last.status||0,contentType:last.contentType||"",rawLength:diagnostics.reduce((s,x)=>s+Number(x.rawLength||0),0),path:paths.join(" + "),error:rows.length?null:diagnostics.map(x=>`${x.path}: HTTP ${x.status}`).join("; "),attempts:diagnostics};}
+async function loadWarehouses(serverUrl,token){
+  const all=[];
+  const diagnostics=[];
+  const seen=new Set();
+  const addRows=(rows,source)=>{
+    for(const row of rows||[]){
+      const id=cleanId(row?.id),name=cleanName(row?.name);
+      if(!id||!name||seen.has(id))continue;
+      seen.add(id);
+      all.push({id,name,source});
+    }
+  };
+
+  const storePaths=[
+    "/resto/api/corporation/stores?revisionFrom=-1",
+    "/resto/api/corporation/stores/?revisionFrom=-1",
+    "/resto/api/corporation/stores"
+  ];
+  for(const path of storePaths){
+    try{
+      const r=await request(serverUrl,path,token);
+      // The stores endpoint itself is authoritative: every returned entity is a warehouse.
+      const rows=r.ok?parseWarehouseEndpoint(r.text):[];
+      diagnostics.push({
+        path,status:r.status,ok:r.ok,contentType:r.contentType,
+        rawLength:r.text.length,parsedCount:rows.length,
+        parsedNames:rows.slice(0,20).map(x=>x.name)
+      });
+      if(r.ok)addRows(rows,"stores");
+    }catch(e){
+      diagnostics.push({path,status:0,ok:false,contentType:"",rawLength:0,parsedCount:0,error:String(e?.message||e)});
+    }
+  }
+
+  const departmentPaths=[
+    "/resto/api/corporation/departments?revisionFrom=-1",
+    "/resto/api/corporation/departments/?revisionFrom=-1",
+    "/resto/api/corporation/departments"
+  ];
+  for(const path of departmentPaths){
+    try{
+      const r=await request(serverUrl,path,token);
+      const rows=r.ok?parseWarehouseEndpoint(r.text).filter(x=>["STORE","CENTRALSTORE","WAREHOUSE"].includes(String(x.type||"").toUpperCase())):[];
+      diagnostics.push({
+        path,status:r.status,ok:r.ok,contentType:r.contentType,
+        rawLength:r.text.length,parsedCount:rows.length,
+        parsedNames:rows.slice(0,20).map(x=>x.name)
+      });
+      if(r.ok)addRows(rows,"departments");
+    }catch(e){
+      diagnostics.push({path,status:0,ok:false,contentType:"",rawLength:0,parsedCount:0,error:String(e?.message||e)});
+    }
+  }
+
+  return {
+    rows:all,
+    status:diagnostics.find(x=>x.parsedCount>0)?.status||diagnostics.at(-1)?.status||0,
+    contentType:diagnostics.at(-1)?.contentType||"",
+    rawLength:diagnostics.reduce((s,x)=>s+Number(x.rawLength||0),0),
+    path:[...storePaths,...departmentPaths].join(" + "),
+    error:all.length?null:diagnostics.map(x=>`${x.path}: HTTP ${x.status}`).join("; "),
+    attempts:diagnostics
+  };
+}
+
+
+function parseBalanceWarehouses(value){
+  const source=String(value||"").trim(),out=[],seen=new Set();
+  const add=(id,name)=>{
+    const sid=cleanId(id),sname=cleanName(name);
+    if(sid&&sname&&!seen.has(sid)){seen.add(sid);out.push({id:sid,name:sname,source:"balance"});}
+  };
+  if(!source)return out;
+  try{
+    const payload=JSON.parse(source);
+    const walk=v=>{
+      if(Array.isArray(v)){v.forEach(walk);return;}
+      if(!v||typeof v!=="object")return;
+      const store=v.store??v.storeId??v.warehouse??v.warehouseId;
+      const storeName=v.storeName??v.warehouseName;
+      if(store&&typeof store==="object")add(store.id??store.uuid??store.entityId,store.name??store.title??store.description??storeName);
+      else if(store)add(store,storeName);
+      Object.values(v).forEach(x=>{if(x&&typeof x==="object")walk(x);});
+    };
+    walk(payload);
+  }catch{}
+  return out;
+}
+async function loadWarehousesFromBalances(serverUrl,token){
+  const timestamp=new Date().toISOString().slice(0,19);
+  const path="/resto/api/v2/reports/balance/stores?timestamp="+encodeURIComponent(timestamp);
+  try{
+    const r=await request(serverUrl,path,token);
+    const rows=r.ok?parseBalanceWarehouses(r.text):[];
+    return {
+      rows,
+      attempt:{
+        path,status:r.status,ok:r.ok,contentType:r.contentType,
+        rawLength:r.text.length,parsedCount:rows.length,
+        parsedNames:rows.slice(0,20).map(x=>x.name)
+      }
+    };
+  }catch(e){
+    return {rows:[],attempt:{path,status:0,ok:false,contentType:"",rawLength:0,parsedCount:0,error:String(e?.message||e)}};
+  }
+}
 async function resolveSupplier(serverUrl,token,id){const sid=cleanId(id);if(!sid)return null;const paths=[`/resto/api/v2/entities/contractors/${encodeURIComponent(sid)}`,`/resto/api/v2/entities/contractors?id=${encodeURIComponent(sid)}`];for(const path of paths){try{const r=await request(serverUrl,path,token);if(!r.ok)continue;const rows=parseSupplierList(r.text);const exact=rows.find(x=>cleanId(x.id)===sid);if(exact)return exact;try{const v=JSON.parse(r.text);const raw=[];parseJsonSupplierRefs(v,raw);const x=raw.find(y=>cleanId(y.id)===sid);if(x&&x.name)return {id:sid,name:cleanName(x.name)};}catch{}}catch{}}return null;}
 async function resolveMissingSuppliers(serverUrl,token,rows){const ids=[...new Set(rows.map(x=>cleanId(x.id)).filter(Boolean))];const resolved=[];for(const id of ids){const x=await resolveSupplier(serverUrl,token,id);if(x)resolved.push(x);}return resolved;}
 async function syncReferences(env,serverUrl,token,neededSupplierIds=[]){await ensure(env.DB);const scope=await sha1(serverUrl.toLowerCase());const refs={};refs.suppliers=await loadRef(serverUrl,token,["/resto/api/suppliers?revisionFrom=-1","/resto/api/v2/entities/contractors","/resto/api/suppliers","/resto/api/corporation/suppliers"],parseSupplierList);const missing=[...new Set(neededSupplierIds.map(cleanId).filter(Boolean))].filter(id=>!refs.suppliers.rows.some(x=>cleanId(x.id)===id));if(missing.length){const extra=await resolveMissingSuppliers(serverUrl,token,missing.map(id=>({id})));refs.suppliers.rows.push(...extra);}
-refs.warehouses=await loadRef(serverUrl,token,["/resto/api/corporation/stores"],parseReferenceList);refs.products=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/list?includeDeleted=true","/resto/api/products"],parseReferenceList);refs.groups=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/group/list?includeDeleted=true"],parseReferenceList);refs.categories=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/category/list?includeDeleted=true"],parseReferenceList);await Promise.all([save(env.DB,"sh_iiko_suppliers","supplier_id","supplier_name",scope,refs.suppliers.rows),save(env.DB,"sh_iiko_warehouses","warehouse_id","warehouse_name",scope,refs.warehouses.rows),save(env.DB,"sh_iiko_products","product_id","product_name",scope,refs.products.rows),save(env.DB,"sh_iiko_product_groups","group_id","group_name",scope,refs.groups.rows),save(env.DB,"sh_iiko_product_categories","category_id","category_name",scope,refs.categories.rows)]);const maps={suppliers:await readMap(env.DB,"sh_iiko_suppliers","supplier_id","supplier_name",scope),warehouses:await readMap(env.DB,"sh_iiko_warehouses","warehouse_id","warehouse_name",scope),products:await readMap(env.DB,"sh_iiko_products","product_id","product_name",scope),groups:await readMap(env.DB,"sh_iiko_product_groups","group_id","group_name",scope),categories:await readMap(env.DB,"sh_iiko_product_categories","category_id","category_name",scope)};return {maps,diagnostics:Object.fromEntries(Object.entries(refs).map(([k,v])=>[k,{httpStatus:v.status,contentType:v.contentType,rawLength:v.rawLength,parsedCount:v.rows.length,path:v.path,error:v.error||null,attempts:v.attempts||[]}]))};}
+refs.warehouses=await loadWarehouses(serverUrl,token);
+if(refs.warehouses.rows.length<=1){
+  const balanceWarehouses=await loadWarehousesFromBalances(serverUrl,token);
+  const known=new Set(refs.warehouses.rows.map(x=>cleanId(x.id)));
+  for(const row of balanceWarehouses.rows){
+    const id=cleanId(row.id);
+    if(id&&!known.has(id)){known.add(id);refs.warehouses.rows.push(row);}
+  }
+  refs.warehouses.attempts=[...(refs.warehouses.attempts||[]),balanceWarehouses.attempt];
+  if(balanceWarehouses.rows.length)refs.warehouses.path+=" + "+balanceWarehouses.attempt.path;
+}
+refs.products=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/list?includeDeleted=true","/resto/api/products"],parseReferenceList);refs.groups=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/group/list?includeDeleted=true"],parseReferenceList);refs.categories=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/category/list?includeDeleted=true"],parseReferenceList);await Promise.all([save(env.DB,"sh_iiko_suppliers","supplier_id","supplier_name",scope,refs.suppliers.rows),save(env.DB,"sh_iiko_warehouses","warehouse_id","warehouse_name",scope,refs.warehouses.rows),save(env.DB,"sh_iiko_products","product_id","product_name",scope,refs.products.rows),save(env.DB,"sh_iiko_product_groups","group_id","group_name",scope,refs.groups.rows),save(env.DB,"sh_iiko_product_categories","category_id","category_name",scope,refs.categories.rows)]);const maps={suppliers:await readMap(env.DB,"sh_iiko_suppliers","supplier_id","supplier_name",scope),warehouses:await readMap(env.DB,"sh_iiko_warehouses","warehouse_id","warehouse_name",scope),products:await readMap(env.DB,"sh_iiko_products","product_id","product_name",scope),groups:await readMap(env.DB,"sh_iiko_product_groups","group_id","group_name",scope),categories:await readMap(env.DB,"sh_iiko_product_categories","category_id","category_name",scope)};return {maps,diagnostics:Object.fromEntries(Object.entries(refs).map(([k,v])=>[k,{httpStatus:v.status,contentType:v.contentType,rawLength:v.rawLength,parsedCount:v.rows.length,path:v.path,error:v.error||null,attempts:v.attempts||[]}]))};}
 export {syncReferences};
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()});}
 export async function onRequestPost({request,env}){try{const b=await request.json();const connection={ip:String(b.ip||"").trim(),port:String(b.port||"").trim(),login:String(b.login||"").trim(),password:String(b.password||"")};if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Заполните IP, порт, логин и пароль SH Server"},400);const auth=await getIikoAuth(connection);const refs=await syncReferences(env,auth.serverUrl,auth.token);return json({success:true,source:"iiko-sync+d1",supplierCount:refs.maps.suppliers.size,warehouseCount:refs.maps.warehouses.size,productCount:refs.maps.products.size,diagnostics:refs.diagnostics,meta:{sharedIikoClient:true,authCacheHit:auth.cacheHit===true}});}catch(e){return json({success:false,message:e?.message||"Ошибка загрузки справочников iiko"},502);}}

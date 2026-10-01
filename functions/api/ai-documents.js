@@ -15,15 +15,44 @@ function id(){return crypto.randomUUID()}
 function safeName(name){return clean(name).replace(/[^a-zA-Z0-9._-]+/g,"-").replace(/-+/g,"-").slice(0,120)||"document"}
 function key(v){return clean(v).replace(/^\{+|\}+$/g,"").toLowerCase()}
 function norm(v){return clean(v).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/[^\p{L}\p{N}]+/gu," ").trim()}
-function tokens(v){return new Set(norm(v).split(/\s+/).filter(x=>x.length>1))}
+function tokenList(v){return norm(v).split(/\s+/).filter(x=>x.length>1)}
+function tokens(v){return new Set(tokenList(v))}
+function editSimilarity(a,b){
+  const x=norm(a),y=norm(b); if(!x||!y)return 0;
+  const m=x.length,n=y.length,prev=Array.from({length:n+1},(_,i)=>i),cur=new Array(n+1);
+  for(let i=1;i<=m;i++){
+    cur[0]=i;
+    for(let j=1;j<=n;j++)cur[j]=Math.min(cur[j-1]+1,prev[j]+1,prev[j-1]+(x[i-1]===y[j-1]?0:1));
+    for(let j=0;j<=n;j++)prev[j]=cur[j];
+  }
+  return 1-prev[n]/Math.max(m,n);
+}
+function tokenSimilarity(a,b){
+  const A=tokenList(a),B=tokenList(b); if(!A.length||!B.length)return 0;
+  let sum=0;
+  for(const x of A){
+    let best=0;
+    for(const y of B){
+      let s=editSimilarity(x,y);
+      if(x===y)s=1;
+      else if(x.startsWith(y)||y.startsWith(x))s=Math.max(s,.88*Math.min(x.length,y.length)/Math.max(x.length,y.length));
+      if(s>best)best=s;
+    }
+    sum+=best;
+  }
+  return sum/Math.max(A.length,B.length);
+}
 function scoreText(a,b){
   const x=norm(a),y=norm(b); if(!x||!y)return 0;
   if(x===y)return 1;
-  if(x.includes(y)||y.includes(x))return Math.min(x.length,y.length)/Math.max(x.length,y.length)*.92;
-  const A=tokens(x),B=tokens(y); if(!A.size||!B.size)return 0;
+  if(x.includes(y)||y.includes(x))return Math.min(x.length,y.length)/Math.max(x.length,y.length)*.95;
+  const A=tokens(x),B=tokens(y);
   let inter=0; for(const t of A)if(B.has(t))inter++;
   const union=new Set([...A,...B]).size;
-  return union?inter/union:0;
+  const jaccard=union?inter/union:0;
+  const edit=editSimilarity(x,y);
+  const token=tokenSimilarity(x,y);
+  return Math.max(jaccard,edit*.92,token*.96);
 }
 async function ensure(db){
   if(!db)throw new Error("D1 binding DB не настроен.");
@@ -103,16 +132,27 @@ async function referenceData(env,connection){
   return {suppliers,products,warehouses};
 }
 function bestMatch(source,rows,min=.45){
-  let best=null,second=null;
-  for(const row of rows){
-    const score=scoreText(source,row.name);
-    const candidate={...row,score:Number(score.toFixed(4))};
-    if(!best||candidate.score>best.score){second=best;best=candidate}
-    else if(!second||candidate.score>second.score)second=candidate;
-  }
-  if(!best||best.score<min)return {match:null,candidates:rows.map(r=>({...r,score:scoreText(source,r.name)})).sort((a,b)=>b.score-a.score).slice(0,5)};
-  const ambiguous=second&&best.score-second.score<.08&&best.score<.93;
-  return {match:ambiguous?null:best,candidates:[best,second].filter(Boolean)};
+  const sourceNorm=norm(source);
+  const ranked=rows
+    .map(r=>({...r,score:Number(scoreText(source,r.name).toFixed(4)),exact:norm(r.name)===sourceNorm}))
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,5);
+  const best=ranked[0]||null;
+  if(!best||best.score<min)return {match:null,candidates:ranked};
+
+  // Exact normalized names are safe to select automatically.
+  if(best.exact)return {match:best,candidates:ranked};
+
+  // Only auto-select a fuzzy result when it is the only genuinely plausible
+  // candidate. Generic names such as "pomidor" must not silently choose
+  // between Pomidor iri / Pomidor cherry / Pomodor yerli.
+  const plausibleFloor=Math.max(min,Math.min(.72,best.score-.16));
+  const plausible=ranked.filter(x=>x.score>=plausibleFloor);
+  if(plausible.length!==1)return {match:null,candidates:ranked};
+
+  // Fuzzy auto-selection still requires a reasonably strong unique match.
+  if(best.score<.64)return {match:null,candidates:ranked};
+  return {match:best,candidates:ranked};
 }
 async function aliasMap(db,userId,supplierKey){
   const r=await db.prepare(`SELECT normalized_source,product_id,product_name FROM ai_product_aliases WHERE user_id=?1 AND (supplier_key=?2 OR supplier_key='')`).bind(userId,supplierKey||"").all();
@@ -146,7 +186,6 @@ async function enrich(env,userId,raw){
     };
   });
   const unresolved=items.filter(x=>!x.productId).length;
-  const store=refs.warehouses.length===1?refs.warehouses[0]:null;
   return {
     extracted:raw,
     matching:{
@@ -154,12 +193,16 @@ async function enrich(env,userId,raw){
       supplierName:supplier?.name||raw.supplierName||null,
       supplierMatchScore:supplier?.score??null,
       supplierCandidates:(supplierResult.candidates||[]).slice(0,5),
-      defaultStoreId:store?.id||null,
-      defaultStoreName:store?.name||null,
+      // Never auto-pick a warehouse just because only one was returned.
+      // Warehouse choice changes inventory balances and must be explicit unless
+      // a future trusted rule/memory identifies it.
+      defaultStoreId:null,
+      defaultStoreName:null,
+      storeSelectionRequired:true,
       warehouses:refs.warehouses,
       items,
       unresolvedItems:unresolved,
-      ready:Boolean(supplier?.id&&store?.id&&items.length&&!unresolved)
+      ready:Boolean(supplier?.id&&items.length&&!unresolved)
     }
   };
 }

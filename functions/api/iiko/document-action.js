@@ -22,8 +22,14 @@ function esc(v) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
 }
+function nullish(v) {
+  if (v === undefined || v === null) return "";
+  const s = String(v).trim();
+  return ["", "null", "undefined", "nil", "none"].includes(s.toLowerCase()) ? "" : s;
+}
 function value(name, v) {
-  return !name || v === undefined || v === null || v === "" ? "" : `<${name}>${esc(v)}</${name}>`;
+  const normalized = nullish(v);
+  return !name || !normalized ? "" : `<${name}>${esc(normalized)}</${name}>`;
 }
 function asNumber(value, fallback = 0) {
   const n = Number(value);
@@ -32,6 +38,16 @@ function asNumber(value, fallback = 0) {
 function normalizeIncomingDocument(input = {}) {
   const d = { ...input };
   const items = Array.isArray(d.items) ? d.items : [];
+  [
+    "id","conception","conceptionCode","comment","documentNumber","dateIncoming",
+    "invoice","defaultStore","defaultStoreId","storeId","supplierId","supplier",
+    "dueDate","incomingDate","incomingDocumentNumber","transportInvoiceNumber",
+    "employeeId","employeePassToAccount","linkedOutgoingInvoiceId","distributionAlgorithm"
+  ].forEach(k => {
+    const v = nullish(d[k]);
+    if (v) d[k] = v;
+    else delete d[k];
+  });
   const documentStore = clean(d.defaultStore || d.defaultStoreId || d.storeId);
   if (clean(d.status)) d.status = clean(d.status).toUpperCase();
   else delete d.status;
@@ -155,7 +171,7 @@ export async function onRequestPost(context) {
     if (!["incoming", "outgoing"].includes(type)) {
       return jsonResponse({ success: false, message: "Неизвестный тип документа" }, 400);
     }
-    if (!["save", "save-and-process", "unprocess"].includes(action)) {
+    if (!["save", "save-and-process", "process", "unprocess"].includes(action)) {
       return jsonResponse({ success: false, message: "Неизвестная операция с документом" }, 400);
     }
 
@@ -171,17 +187,26 @@ export async function onRequestPost(context) {
     }
 
     let document = body.document || {};
-    if (type === "incoming" && ["save", "save-and-process"].includes(action)) {
+    if (type === "incoming") {
       document = normalizeIncomingDocument(document);
-      if (action === "save-and-process") document.status = "PROCESSED";
-      const errors = validateIncoming(document);
-      if (errors.length) {
-        return jsonResponse({ success: false, message: errors[0], errors }, 400);
+
+      if (["save", "save-and-process", "process"].includes(action)) {
+        if (["save-and-process", "process"].includes(action)) document.status = "PROCESSED";
+        else delete document.status;
+
+        const errors = validateIncoming(document);
+        if (errors.length) {
+          return jsonResponse({ success: false, message: errors[0], errors }, 400);
+        }
       }
     }
 
     const xml = buildXml(type, document);
     const docType = type === "incoming" ? "incomingInvoice" : "outgoingInvoice";
+
+    // iikoOffice 2023 does not expose a separate /process endpoint for
+    // incoming invoices. Processing is done by importing the same document
+    // with status=PROCESSED. Unprocessing has its own endpoint.
     const path =
       action === "unprocess"
         ? `/resto/api/documents/unprocess/${docType}`
@@ -197,7 +222,7 @@ export async function onRequestPost(context) {
     });
 
     const validation = parseValidation(result.text);
-    const validationFailed = ["save", "save-and-process"].includes(action) && isFalse(validation.valid);
+    const validationFailed = ["save", "save-and-process", "process"].includes(action) && isFalse(validation.valid);
     const success = result.ok && !validationFailed;
 
     if (!success) {
@@ -213,19 +238,17 @@ export async function onRequestPost(context) {
         validation.additionalInfo ||
         plainServerMessage ||
         (validationFailed ? "iiko отклонил документ" : `iiko Server вернул HTTP ${result.status}`);
-      return jsonResponse(
-        {
-          success: false,
-          action,
-          type,
-          status: result.status,
-          validation,
-          rawResponse: result.text.slice(0, 12000),
-          message,
-          meta: { authCacheHit: Boolean(result.auth?.cacheHit) }
-        },
-        validationFailed ? 422 : 502
-      );
+
+      return jsonResponse({
+        success: false,
+        action,
+        type,
+        status: result.status,
+        validation,
+        rawResponse: result.text.slice(0, 12000),
+        message,
+        meta: { authCacheHit: Boolean(result.auth?.cacheHit) }
+      }, validationFailed ? 422 : 502);
     }
 
     return jsonResponse({
@@ -238,12 +261,15 @@ export async function onRequestPost(context) {
       message:
         action === "unprocess"
           ? "Документ распроведён"
-          : action === "save-and-process"
-            ? "Приходная накладная сохранена и проведена в iiko BackOffice"
+          : ["save-and-process", "process"].includes(action)
+            ? "Приходная накладная проведена в iiko BackOffice"
             : type === "incoming"
               ? "Приходная накладная сохранена в iiko BackOffice"
               : "Документ сохранён в iiko BackOffice",
-      meta: { authCacheHit: Boolean(result.auth?.cacheHit) }
+      meta: {
+        processed: ["save-and-process", "process"].includes(action),
+        authCacheHit: Boolean(result.auth?.cacheHit)
+      }
     });
   } catch (error) {
     return jsonResponse(
