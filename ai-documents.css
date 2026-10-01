@@ -115,3 +115,39 @@ html[data-theme="light"] .aid-suggestions>span{color:#617285}
 html[data-theme="light"] .aid-suggestion{background:#fff;color:#24313e;border-color:#c8d5e0}
 html[data-theme="light"] .aid-suggestion:hover,
 html[data-theme="light"] .aid-suggestion.selected{background:#e9f8f1;border-color:#79c8a5;color:#176c49}
+
+
+.aid-arithmetic-warning{
+  margin:12px 0;
+  padding:12px 14px;
+  border:1px solid rgba(245,158,11,.45);
+  border-radius:10px;
+  background:rgba(245,158,11,.10);
+  color:var(--text,#e5edf7);
+  font-size:13px;
+  line-height:1.45;
+}
+.aid-arithmetic-warning strong{display:block;color:#fbbf24;margin-bottom:6px}
+.aid-arithmetic-warning ul{margin:0;padding-left:20px}
+.aid-arithmetic-warning li+li{margin-top:4px}
+.aid-item.arithmetic-error{
+  border-color:rgba(239,68,68,.70);
+  box-shadow:inset 0 0 0 1px rgba(239,68,68,.18);
+}
+.aid-item.arithmetic-error .aid-sum-wrap input{
+  border-color:rgba(239,68,68,.85);
+  background:rgba(239,68,68,.08);
+}
+
+
+.aid-fix-total{
+  margin-top:10px;
+  padding:8px 12px;
+  border:1px solid rgba(245,158,11,.55);
+  border-radius:8px;
+  background:rgba(245,158,11,.14);
+  color:#fbbf24;
+  font-weight:700;
+  cursor:pointer;
+}
+.aid-fix-total:hover{background:rgba(245,158,11,.22)}

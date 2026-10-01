@@ -35,6 +35,14 @@ function asNumber(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
+
+function moneyCents(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n * 100) : null;
+}
+function moneyText(value) {
+  return (Math.round(Number(value || 0) * 100) / 100).toFixed(2).replace(".", ",");
+}
 function normalizeIncomingDocument(input = {}) {
   const d = { ...input };
   const items = Array.isArray(d.items) ? d.items : [];
@@ -74,12 +82,51 @@ function validateIncoming(d) {
   if (!clean(d.supplierId || d.supplier)) errors.push("Выберите поставщика.");
   if (!clean(d.defaultStore || d.defaultStoreId || d.storeId)) errors.push("Выберите склад.");
   if (!Array.isArray(d.items) || !d.items.length) errors.push("Добавьте хотя бы одну позицию.");
+  let expectedDocumentCents = 0;
+  let rowSumCents = 0;
+  let arithmeticComplete = true;
+
   (d.items || []).forEach((item, index) => {
-    const label = `Строка ${index + 1}`;
-    if (!clean(item.productId || item.product)) errors.push(`${label}: не выбран товар.`);
-    if (!(Number(item.amount) > 0)) errors.push(`${label}: количество должно быть больше 0.`);
-    if (!(Number(item.price) >= 0)) errors.push(`${label}: цена не может быть отрицательной.`);
+    const label = "Строка " + (index + 1);
+    if (!clean(item.productId || item.product)) errors.push(label + ": не выбран товар.");
+    if (!(Number(item.amount) > 0)) errors.push(label + ": количество должно быть больше 0.");
+    if (!(Number(item.price) >= 0)) errors.push(label + ": цена не может быть отрицательной.");
+
+    const amount = Number(item.amount);
+    const price = Number(item.price);
+    const sourceSumCents = moneyCents(item.sum);
+    if (!Number.isFinite(amount) || !Number.isFinite(price) || sourceSumCents === null) {
+      arithmeticComplete = false;
+      return;
+    }
+
+    const expectedCents = Math.round(amount * price * 100);
+    expectedDocumentCents += expectedCents;
+    rowSumCents += sourceSumCents;
+
+    if (sourceSumCents !== expectedCents) {
+      errors.push(
+        label + ": количество × цена = " + moneyText(expectedCents / 100) +
+        ", но сумма строки = " + moneyText(sourceSumCents / 100) + ". Исправьте расхождение."
+      );
+    }
   });
+
+  const declaredCents = moneyCents(d.documentTotal ?? d.declaredTotal ?? d.sourceDocumentTotal);
+  if (declaredCents !== null && arithmeticComplete) {
+    if (declaredCents !== expectedDocumentCents) {
+      errors.push(
+        "Итого документа = " + moneyText(declaredCents / 100) +
+        ", а расчёт по количеству и цене = " + moneyText(expectedDocumentCents / 100) + "."
+      );
+    }
+    if (declaredCents !== rowSumCents) {
+      errors.push(
+        "Итого документа = " + moneyText(declaredCents / 100) +
+        ", а сумма строк = " + moneyText(rowSumCents / 100) + "."
+      );
+    }
+  }
   return errors;
 }
 function itemXml(x, type, i) {
