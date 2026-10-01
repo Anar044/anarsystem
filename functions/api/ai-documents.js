@@ -158,6 +158,75 @@ async function aliasMap(db,userId,supplierKey){
   const r=await db.prepare(`SELECT normalized_source,product_id,product_name FROM ai_product_aliases WHERE user_id=?1 AND (supplier_key=?2 OR supplier_key='')`).bind(userId,supplierKey||"").all();
   return new Map((r.results||[]).map(x=>[x.normalized_source,{id:key(x.product_id),name:x.product_name,score:1,source:"MEMORY"}]));
 }
+
+function moneyCents(value){
+  const n=Number(value);
+  return Number.isFinite(n)?Math.round(n*100):null;
+}
+function arithmeticCheck(raw,items){
+  const lineIssues=[];
+  let expectedCents=0;
+  let sourceRowsCents=0;
+  let complete=true;
+
+  (items||[]).forEach((item,index)=>{
+    const q=Number(item?.quantity),p=Number(item?.unitPrice),sourceTotal=Number(item?.total);
+    if(!Number.isFinite(q)||!Number.isFinite(p)){
+      complete=false;
+      return;
+    }
+    const expected=Math.round(q*p*100);
+    expectedCents+=expected;
+    const source=moneyCents(sourceTotal);
+    if(source===null){
+      complete=false;
+      return;
+    }
+    sourceRowsCents+=source;
+    if(source!==expected){
+      lineIssues.push({
+        index:index+1,
+        sourceName:item?.sourceName||`Строка ${index+1}`,
+        quantity:q,
+        unitPrice:p,
+        sourceTotal:source/100,
+        expectedTotal:expected/100,
+        difference:(source-expected)/100
+      });
+    }
+  });
+
+  const declared=moneyCents(raw?.total);
+  const totalIssues=[];
+  if(declared!==null&&complete){
+    if(declared!==expectedCents){
+      totalIssues.push({
+        type:"DECLARED_VS_CALCULATED",
+        declaredTotal:declared/100,
+        calculatedTotal:expectedCents/100,
+        difference:(declared-expectedCents)/100
+      });
+    }
+    if(declared!==sourceRowsCents){
+      totalIssues.push({
+        type:"DECLARED_VS_ROWS",
+        declaredTotal:declared/100,
+        rowsTotal:sourceRowsCents/100,
+        difference:(declared-sourceRowsCents)/100
+      });
+    }
+  }
+
+  return {
+    valid:lineIssues.length===0&&totalIssues.length===0,
+    checked:complete,
+    declaredTotal:declared===null?null:declared/100,
+    rowsTotal:sourceRowsCents/100,
+    calculatedTotal:expectedCents/100,
+    lineIssues,
+    totalIssues
+  };
+}
 async function enrich(env,userId,raw){
   const connection=await loadPrivateConnection(env,userId);
   const refs=await referenceData(env,connection);
@@ -186,6 +255,7 @@ async function enrich(env,userId,raw){
     };
   });
   const unresolved=items.filter(x=>!x.productId).length;
+  const arithmetic=arithmeticCheck(raw,items);
   return {
     extracted:raw,
     matching:{
@@ -202,7 +272,8 @@ async function enrich(env,userId,raw){
       warehouses:refs.warehouses,
       items,
       unresolvedItems:unresolved,
-      ready:Boolean(supplier?.id&&items.length&&!unresolved)
+      arithmetic,
+      ready:Boolean(supplier?.id&&items.length&&!unresolved&&arithmetic.valid)
     }
   };
 }
