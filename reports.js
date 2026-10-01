@@ -650,63 +650,173 @@
 
     function renderOlapResult(data) {
         const result = $("olap-result"); if (!result) return;
-        const report = data.report || data; let raw = report.rawResponse || report.response || report.data || data.data || [];
+        const report = data.report || data;
+        let raw = report.rawResponse || report.response || report.data || data.data || [];
         if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch (_) { raw = []; } }
+
         const rowsData = Array.isArray(raw) ? raw : raw && Array.isArray(raw.data) ? raw.data : [];
         lastOlapRowsData = rowsData;
-        if (!rowsData.length) { result.innerHTML = `<div class="report-header"><strong>Отчёт выполнен</strong></div><div class="olap-empty">iiko не вернул строки данных.</div>`; return; }
-        const rowFields = [...olapRows], columnFields = [...olapColumns], measures = [...olapMeasures];
-        const keys = [...new Set([...rowFields, ...columnFields, ...measures.map(item => item.field)])];
-        const visibleKeys = keys.length ? keys : [...new Set(rowsData.flatMap(row => Object.keys(row || {})))];
-        const fieldTitle = key => { const measure = measures.find(item => item.field === key); if (measure) return getOlapMeasureTitle(measure); return getOlapFieldTitle(key); };
-        const value = (row, field) => { if (!row) return ""; if (Object.prototype.hasOwnProperty.call(row, field)) return row[field]; const found = findOlapField(field); if (found?.title && Object.prototype.hasOwnProperty.call(row, found.title)) return row[found.title]; return ""; };
-        const groupKey = (row, field) => String(value(row, field) ?? "").trim();
-        const aggregate = (rows, measure) => { const vals = rows.map(row => Number(value(row, measure.field))).filter(Number.isFinite); if (!vals.length) return ""; switch (String(measure.aggregation || "SUM").toUpperCase()) { case "AVG": case "AVERAGE": return vals.reduce((a,b) => a+b, 0) / vals.length; case "MIN": return Math.min(...vals); case "MAX": return Math.max(...vals); case "COUNT": return vals.length; default: return vals.reduce((a,b) => a+b, 0); } };
+        if (!rowsData.length) {
+            result.innerHTML = `<div class="report-header"><strong>Отчёт выполнен</strong></div><div class="olap-empty">iiko не вернул строки данных.</div>`;
+            return;
+        }
+
+        const rowFields = [...olapRows];
+        const columnFields = [...olapColumns];
+        const measures = [...olapMeasures];
+
+        const value = (row, field) => {
+            if (!row) return "";
+            if (Object.prototype.hasOwnProperty.call(row, field)) return row[field];
+            const found = findOlapField(field);
+            if (found?.title && Object.prototype.hasOwnProperty.call(row, found.title)) return row[found.title];
+            return "";
+        };
+        const groupKey = (row, field) => String(value(row, field) ?? "").trim() || "Без значения";
+        const aggregate = (rows, measure) => {
+            const vals = rows.map(row => Number(value(row, measure.field))).filter(Number.isFinite);
+            if (!vals.length) return "";
+            switch (String(measure.aggregation || "SUM").toUpperCase()) {
+                case "AVG":
+                case "AVERAGE": return vals.reduce((a,b) => a+b, 0) / vals.length;
+                case "MIN": return Math.min(...vals);
+                case "MAX": return Math.max(...vals);
+                case "COUNT": return vals.length;
+                default: return vals.reduce((a,b) => a+b, 0);
+            }
+        };
         const format = v => formatOlapValue(v);
-        const buildTree = (rows, depth) => { if (depth >= rowFields.length) return { rows }; const field = rowFields[depth], map = new Map(); rows.forEach((row, index) => { const key = groupKey(row, field); if (!map.has(key)) map.set(key, { key, rows: [], order: index }); map.get(key).rows.push(row); }); return { field, groups: [...map.values()].sort((a,b) => a.order - b.order).map(group => ({ ...group, child: buildTree(group.rows, depth + 1) })) }; };
-        const root = buildTree(rowsData, 0), htmlRows = [];
-        const makeGroupTotal = (groupRows, label) => htmlRows.push(`<tr class="olap-group-total">${visibleKeys.map((key, index) => { if (index === 0) return `<td class="olap-total-label" colspan="${Math.max(1, rowFields.length)}"><strong>${esc(label)} всего</strong></td>`; if (rowFields.includes(key)) return ""; const measure = measures.find(item => item.field === key); return measure ? `<td><strong>${esc(format(aggregate(groupRows, measure)))} </strong></td>` : `<td></td>`; }).join("")}</tr>`);
-        const renderLeafRows = rows => rows.forEach(row => htmlRows.push(`<tr class="olap-data-row">${visibleKeys.map(key => rowFields.includes(key) ? `<td></td>` : `<td>${esc(format(value(row, key)))}</td>`).join("")}</tr>`));
-        const renderLevel = (node, depth, parentRows) => { if (!node || !node.groups) { renderLeafRows(node?.rows || parentRows || []); return; } node.groups.forEach(group => { htmlRows.push(`<tr class="olap-group-row" data-olap-level="${depth}">${visibleKeys.map((key, index) => { if (index === depth && rowFields.includes(key)) return `<td class="olap-group-label"><button type="button" class="olap-group-toggle" aria-expanded="true" tabindex="-1">▼</button><strong>${esc(group.key)}</strong></td>`; if (rowFields.includes(key)) return `<td></td>`; return `<td></td>`; }).join("")}</tr>`); if (group.child?.groups) renderLevel(group.child, depth + 1, group.rows); else renderLeafRows(group.child?.rows || group.rows); makeGroupTotal(group.rows, group.key, depth); }); };
-        if (rowFields.length) renderLevel(root, 0, rowsData); else renderLeafRows(rowsData);
-        if (measures.length && rowFields.length) htmlRows.push(`<tr class="olap-grand-total">${visibleKeys.map((key, index) => { if (index === 0) return `<td class="olap-total-label" colspan="${Math.max(1, rowFields.length)}"><strong>Итого</strong></td>`; if (rowFields.includes(key)) return ""; const measure = measures.find(item => item.field === key); return measure ? `<td><strong>${esc(format(aggregate(rowsData, measure)))}</strong></td>` : `<td></td>`; }).join("")}</tr>`);
-        result.innerHTML = `<div class="report-header"><strong>Результат OLAP</strong><span>${rowsData.length} строк</span></div><div class="report-table-wrapper"><table class="report-table olap-grouped-report"><thead><tr>${visibleKeys.map(key => `<th>${esc(fieldTitle(key))}</th>`).join("")}</tr></thead><tbody>${htmlRows.join("")}</tbody></table></div>`;
+
+        if (!rowFields.length) {
+            const visibleKeys = [...new Set([...columnFields, ...measures.map(x => x.field)])];
+            const keys = visibleKeys.length ? visibleKeys : [...new Set(rowsData.flatMap(row => Object.keys(row || {})))];
+            result.innerHTML = `
+              <div class="report-header"><strong>Результат OLAP</strong><span>${rowsData.length} строк</span></div>
+              <div class="report-table-wrapper">
+                <table class="report-table olap-tree-compact olap-flat-report">
+                  <thead><tr>${keys.map(key => `<th>${esc(getOlapFieldTitle(key))}</th>`).join("")}</tr></thead>
+                  <tbody>${rowsData.map(row => `<tr>${keys.map(key => `<td>${esc(format(value(row,key)))}</td>`).join("")}</tr>`).join("")}</tbody>
+                </table>
+              </div>`;
+            return;
+        }
+
+        const buildTree = (rows, depth) => {
+            if (depth >= rowFields.length) return null;
+            const field = rowFields[depth];
+            const map = new Map();
+            rows.forEach((row,index) => {
+                const key = groupKey(row,field);
+                if (!map.has(key)) map.set(key,{key,rows:[],order:index});
+                map.get(key).rows.push(row);
+            });
+            return {
+                field,
+                groups:[...map.values()]
+                    .sort((a,b)=>a.order-b.order)
+                    .map(group=>({...group,child:buildTree(group.rows,depth+1)}))
+            };
+        };
+
+        const root = buildTree(rowsData,0);
+        const htmlRows = [];
+        const renderTree = (node,depth,path=[]) => {
+            if (!node?.groups) return;
+            node.groups.forEach((group,index) => {
+                const treePath=[...path,index].join(".");
+                const hasChildren=Boolean(group.child?.groups?.length);
+                const first=group.rows[0]||{};
+                htmlRows.push(`
+                  <tr class="olap-group-row olap-tree-level-${depth}" data-olap-level="${depth}" data-tree-path="${treePath}" style="--tree-level:${depth}">
+                    <td class="olap-tree-label">
+                      ${hasChildren
+                        ? `<button type="button" class="olap-group-toggle" aria-expanded="true" title="Свернуть">▼</button>`
+                        : `<span class="olap-tree-spacer"></span>`}
+                      <span class="olap-tree-text">${esc(group.key)}</span>
+                    </td>
+                    ${columnFields.map(field=>`<td class="olap-dimension-cell">${esc(format(value(first,field)))}</td>`).join("")}
+                    ${measures.map(measure=>`<td class="olap-measure-cell">${esc(format(aggregate(group.rows,measure)))}</td>`).join("")}
+                  </tr>`);
+                if (hasChildren) renderTree(group.child,depth+1,[...path,index]);
+            });
+        };
+        renderTree(root,0,[]);
+
+        const hierarchyTitle=rowFields.map(getOlapFieldTitle).join(" → ");
+        const grandCells=[
+            `<td class="olap-tree-label olap-grand-label"><strong>Итого</strong></td>`,
+            ...columnFields.map(()=>"<td></td>"),
+            ...measures.map(measure=>`<td class="olap-measure-cell"><strong>${esc(format(aggregate(rowsData,measure)))}</strong></td>`)
+        ];
+
+        const colgroup=[
+            '<col class="olap-tree-main-col">',
+            ...columnFields.map(()=>'<col class="olap-tree-dimension-col">'),
+            ...measures.map(()=>'<col class="olap-tree-measure-col">')
+        ].join("");
+
+        result.innerHTML = `
+          <div class="report-header"><strong>Результат OLAP</strong><span>${rowsData.length} строк</span></div>
+          <div class="report-table-wrapper">
+            <table class="report-table olap-grouped-report olap-tree-compact">
+              <colgroup>${colgroup}</colgroup>
+              <thead>
+                <tr>
+                  <th class="olap-tree-heading">${esc(hierarchyTitle || "Структура")}</th>
+                  ${columnFields.map(field=>`<th>${esc(getOlapFieldTitle(field))}</th>`).join("")}
+                  ${measures.map(measure=>`<th class="olap-measure-heading">${esc(getOlapMeasureTitle(measure))}</th>`).join("")}
+                </tr>
+              </thead>
+              <tbody>
+                ${htmlRows.join("")}
+                ${measures.length ? `<tr class="olap-grand-total">${grandCells.join("")}</tr>` : ""}
+              </tbody>
+            </table>
+          </div>`;
+
+        bindCompactOlapTree();
     }
 
-    function __unusedBindOlapResultInteractions() {
-        const table = $("olap-result")?.querySelector(".olap-grouped-report");
-        if (!table) return;
+    function refreshCompactOlapTree() {
+        const table=$("olap-result")?.querySelector(".olap-tree-compact");
+        if(!table)return;
+        const groups=[...table.querySelectorAll("tbody tr.olap-group-row")];
+        const byPath=new Map(groups.map(row=>[row.dataset.treePath,row]));
 
-        const groupRows = [...table.querySelectorAll("tr.olap-group-row")];
-        groupRows.forEach(row => {
-            const toggle = row.querySelector(".olap-group-toggle");
-            if (!toggle) return;
-            toggle.tabIndex = 0;
-            toggle.onclick = event => {
+        groups.forEach(row=>{
+            const path=String(row.dataset.treePath||"");
+            const parts=path.split(".");
+            let hidden=false;
+            for(let i=1;i<parts.length;i++){
+                const ancestor=byPath.get(parts.slice(0,i).join("."));
+                if(ancestor?.classList.contains("is-collapsed")){hidden=true;break}
+            }
+            row.hidden=hidden;
+
+            const toggle=row.querySelector(".olap-group-toggle");
+            if(toggle){
+                const collapsed=row.classList.contains("is-collapsed");
+                toggle.textContent=collapsed?"▶":"▼";
+                toggle.setAttribute("aria-expanded",collapsed?"false":"true");
+                toggle.title=collapsed?"Развернуть":"Свернуть";
+            }
+        });
+    }
+
+    function bindCompactOlapTree() {
+        const table=$("olap-result")?.querySelector(".olap-tree-compact");
+        if(!table)return;
+        table.querySelectorAll(".olap-group-toggle").forEach(button=>{
+            button.onclick=event=>{
+                event.preventDefault();
                 event.stopPropagation();
-                const level = Number(row.dataset.olapLevel || 0);
-                const collapsed = row.classList.toggle("collapsed");
-                toggle.textContent = collapsed ? "▶" : "▼";
-                toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
-
-                let next = row.nextElementSibling;
-                while (next) {
-                    if (next.classList.contains("olap-grand-total")) break;
-                    if (next.classList.contains("olap-group-row")) {
-                        const nextLevel = Number(next.dataset.olapLevel || 0);
-                        if (nextLevel <= level) break;
-                    }
-                    if (collapsed) {
-                        next.dataset.olapHiddenBy = String(level);
-                        next.style.display = "none";
-                    } else if (next.dataset.olapHiddenBy === String(level)) {
-                        delete next.dataset.olapHiddenBy;
-                        next.style.display = "";
-                    }
-                    next = next.nextElementSibling;
-                }
+                const row=button.closest("tr.olap-group-row");
+                if(!row)return;
+                row.classList.toggle("is-collapsed");
+                refreshCompactOlapTree();
             };
         });
+        refreshCompactOlapTree();
     }
 
     async function connectIiko() {
