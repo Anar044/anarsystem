@@ -1,4 +1,10 @@
 import { clean, getOlapFields, iikoJson } from "./_lib/iiko-client.js";
+import {
+  isServerPasswordMarker,
+  loadRequestIikoState,
+  privateConnection,
+  hasPrivateConnection
+} from "./_lib/user-state.js";
 
 function corsHeaders() {
   return {
@@ -25,17 +31,36 @@ function requestId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function credentials(body) {
-  const connection = {
+function browserConnection(body) {
+  return {
     ip: clean(body?.ip),
     port: clean(body?.port),
     login: clean(body?.login),
     password: String(body?.password ?? "")
   };
-  if (!connection.ip || !connection.port || !connection.login || !connection.password) {
-    throw new Error("Заполните IP, порт, логин и пароль iiko");
+}
+
+async function resolveConnection(context, body) {
+  const candidate = browserConnection(body);
+  const serverStored =
+    isServerPasswordMarker(candidate.password) ||
+    !candidate.password ||
+    !candidate.ip ||
+    !candidate.port ||
+    !candidate.login;
+
+  if (!serverStored) return candidate;
+
+  if (!context?.env?.DB) {
+    throw new Error("Серверное подключение iiko недоступно: D1 binding DB не настроен.");
   }
-  return connection;
+
+  const stored = await loadRequestIikoState(context.request, context.env);
+  if (!stored?.found || !hasPrivateConnection(stored.state)) {
+    throw new Error("Сохранённое подключение iiko не найдено. Переподключите iiko в настройках.");
+  }
+
+  return privateConnection(stored.state);
 }
 
 function normalizeField(technicalName, meta, index = 0, forcedMeasure = false) {
@@ -381,7 +406,7 @@ export async function onRequestGet(context) {
       password: url.searchParams.get("password") || "",
       reportType: url.searchParams.get("reportType") || "SALES"
     };
-    const connection = credentials(body);
+    const connection = await resolveConnection(context, body);
     const reportType = clean(body.reportType).toUpperCase();
     const result = await getOlapColumns(connection, reportType, rid);
 
@@ -424,7 +449,7 @@ export async function onRequestPost(context) {
       }, 400);
     }
 
-    const connection = credentials(body);
+    const connection = await resolveConnection(context, body);
     const reportType = clean(body.reportType || "SALES").toUpperCase();
     const action = clean(body.action || "query").toLowerCase();
 
