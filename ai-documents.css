@@ -101,3 +101,17 @@ html[data-theme="light"] .aid-preview-tools button.active{background:#e8f8f0;bor
       "sum sum";
   }
 }
+
+
+/* Suggested iiko matches for unresolved OCR lines */
+.aid-suggestions{margin-top:7px;padding:8px 9px;border:1px solid #2b3a4c;border-radius:9px;background:#101922}
+.aid-suggestions>span{display:block;margin-bottom:6px;color:#8fa0b2;font-size:9px;font-weight:800}
+.aid-suggestion-list{display:flex;flex-wrap:wrap;gap:6px}
+.aid-suggestion{border:1px solid #36506a;border-radius:999px;background:#142231;color:#d7e5f1;padding:5px 9px;font-size:9px;font-weight:750;cursor:pointer}
+.aid-suggestion:hover{border-color:#4b8e70;background:#183326}
+.aid-suggestion.selected{border-color:#39c98b;background:#1c4b37;color:#9cf0c4}
+html[data-theme="light"] .aid-suggestions{background:#f5f8fb;border-color:#d6e0e9}
+html[data-theme="light"] .aid-suggestions>span{color:#617285}
+html[data-theme="light"] .aid-suggestion{background:#fff;color:#24313e;border-color:#c8d5e0}
+html[data-theme="light"] .aid-suggestion:hover,
+html[data-theme="light"] .aid-suggestion.selected{background:#e9f8f1;border-color:#79c8a5;color:#176c49}
