@@ -862,19 +862,21 @@ def _best_freeform_numeric_triplet(text: str) -> tuple[float, float, float, str 
     return quantity, price, total, unit, first_index
 
 
-def freeform_row_candidates(lines: list[OcrLine]) -> list[dict[str, Any]]:
-    output = []
-    seen = set()
-    rows = _visual_rows(lines)
+def _freeform_candidate_texts(lines: list[OcrLine]) -> list[tuple[str, list[OcrLine]]]:
+    """Return logical free-form rows using both geometry and plain OCR order.
 
+    Handwritten OCR often gives correct text but unreliable bounding boxes.
+    Geometry is useful when it works, but text order must be an independent
+    fallback so a line such as "Fazs" followed by "3AZN-10-30" still parses.
+    """
     candidates: list[tuple[str, list[OcrLine]]] = []
+
+    # Geometry-aware rows.
+    rows = _visual_rows(lines)
     for index, row in enumerate(rows):
         text = _row_text(row)
         if text:
             candidates.append((text, row))
-
-        # Some handwriting OCR splits one logical item into two rows:
-        # product name first, then "price/currency - quantity - total".
         if index + 1 < len(rows):
             next_row = rows[index + 1]
             next_text = _row_text(next_row)
@@ -884,7 +886,29 @@ def freeform_row_candidates(lines: list[OcrLine]) -> list[dict[str, Any]]:
             if current_has_letters and not current_has_triplet and next_has_triplet:
                 candidates.append((f"{text} {next_text}".strip(), [*row, *next_row]))
 
-    for original_text, row in candidates:
+    # Geometry-independent fallback using OCR reading order.
+    sequence = [x for x in ordered_lines(lines) if (x.text or "").strip()]
+    for index, line in enumerate(sequence):
+        text = line.text.strip()
+        candidates.append((text, [line]))
+        if index + 1 >= len(sequence):
+            continue
+        next_line = sequence[index + 1]
+        next_text = next_line.text.strip()
+        current_has_letters = sum(ch.isalpha() for ch in text) >= 2
+        current_has_triplet = _best_freeform_numeric_triplet(text) is not None
+        next_has_triplet = _best_freeform_numeric_triplet(next_text) is not None
+        if current_has_letters and not current_has_triplet and next_has_triplet:
+            candidates.append((f"{text} {next_text}".strip(), [line, next_line]))
+
+    return candidates
+
+
+def freeform_row_candidates(lines: list[OcrLine]) -> list[dict[str, Any]]:
+    output = []
+    seen = set()
+
+    for original_text, row in _freeform_candidate_texts(lines):
         text = _normalize_freeform_numeric_text(original_text)
         low = text.lower()
         if not text or any(label in low for label in SUPPLIER_LABELS):
@@ -998,7 +1022,7 @@ def heuristic_parse(lines: list[OcrLine]) -> dict[str, Any]:
             {"page": x.page, "text": x.text, "confidence": round(x.score, 4), "box": x.box}
             for x in ordered
         ],
-        "localParser": "heuristic-v6",
+        "localParser": "heuristic-v7",
     }
 
 
@@ -1068,7 +1092,7 @@ def health():
         "ocrVersion": OCR_VERSION,
         "ollamaConfigured": bool(OLLAMA_URL),
         "ollamaModel": OLLAMA_MODEL if OLLAMA_URL else None,
-        "parserVersion": "heuristic-v6",
+        "parserVersion": "heuristic-v7",
         "imagePreprocessing": True,
         "secondaryOcr": SECONDARY_OCR or None,
         "secondaryOcrLangs": SECONDARY_OCR_LANGS if SECONDARY_OCR == "easyocr" else [],
@@ -1147,7 +1171,7 @@ def _process_temp_path(
             heuristic["secondaryOcrError"] = secondary_error
 
     parsed = None
-    parser = heuristic.get("localParser", "heuristic-v6")
+    parser = heuristic.get("localParser", "heuristic-v7")
     if OLLAMA_URL:
         mark("ollama", 82)
         try:
