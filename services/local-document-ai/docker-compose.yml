@@ -12,9 +12,13 @@ services:
       LOCAL_AI_TOKEN: ${LOCAL_AI_TOKEN:-}
       OLLAMA_URL: ${OLLAMA_URL:-}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      SECONDARY_OCR: ${SECONDARY_OCR:-easyocr}
+      SECONDARY_OCR_LANGS: ${SECONDARY_OCR_LANGS:-az,en}
     volumes:
       - paddle-models:/root/.paddlex
+      - easyocr-models:/root/.EasyOCR
     shm_size: "2gb"
 
 volumes:
   paddle-models:
+  easyocr-models:
