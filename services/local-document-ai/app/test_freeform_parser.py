@@ -53,8 +53,27 @@ def main():
     assert second["total"] == 20.8, second
     assert split_result["total"] == 50.8, split_result
 
+    # Same OCR text with no bounding boxes at all. This protects the
+    # geometry-independent fallback used for difficult handwritten photos.
+    plain_lines = [
+        OcrLine(page=0, text="Tohzizatal -> Bravo", score=0.95, box=None),
+        OcrLine(page=0, text="Fazs", score=0.95, box=None),
+        OcrLine(page=0, text="3AZN-10-30", score=0.95, box=None),
+        OcrLine(page=0, text="tomat-4kg-5.2-20.8", score=0.95, box=None),
+        OcrLine(page=0, text="50.8", score=0.95, box=None),
+    ]
+    plain_result = heuristic_parse(plain_lines)
+    assert plain_result["documentMode"] == "freeform", plain_result
+    assert plain_result["supplierName"] == "Bravo", plain_result
+    assert len(plain_result["items"]) == 2, plain_result
+    assert plain_result["items"][0]["quantity"] == 10, plain_result
+    assert plain_result["items"][0]["unitPrice"] == 3, plain_result
+    assert plain_result["items"][1]["quantity"] == 4, plain_result
+    assert plain_result["items"][1]["unitPrice"] == 5.2, plain_result
+    assert plain_result["total"] == 50.8, plain_result
+
     print("HANDWRITTEN PARSER OK")
-    print(split_result)
+    print(plain_result)
 
 
 if __name__ == "__main__":
