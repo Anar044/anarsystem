@@ -4,7 +4,7 @@ Local-first OCR service for supplier invoices.
 
 Pipeline:
 
-PDF / photo -> PaddleOCR -> local parser -> optional Ollama -> SmartHoreca matching with iiko -> optional OpenAI fallback.
+PDF / photo -> PP-OCRv5 -> heuristic-v5 -> (if weak: EasyOCR CPU fallback) -> optional Ollama -> SmartHoreca matching with iiko -> optional OpenAI fallback.
 
 Parser v5 supports two automatic modes:
 
@@ -13,7 +13,7 @@ Parser v5 supports two automatic modes:
 
 For image files the service tries the original plus local grayscale/contrast preprocessing passes and selects the best parsed result.
 
-PaddleOCR itself does not require a paid API.
+If the best PP-OCRv5 result is weak (no rows, low confidence, or incomplete free-form recognition), the service runs EasyOCR locally on CPU and keeps whichever parsed result scores higher. Both OCR engines are local and require no paid API.
 
 ## Requirements
 
@@ -51,6 +51,8 @@ Default values:
 
     OCR_LANG=az
     OCR_VERSION=PP-OCRv5
+    SECONDARY_OCR=easyocr
+    SECONDARY_OCR_LANGS=az,en
     LOCAL_AI_TOKEN=
     OLLAMA_URL=
     OLLAMA_MODEL=qwen2.5:7b
@@ -82,7 +84,7 @@ It prints a temporary HTTPS address such as:
 
 In the SmartHoreca Cloudflare Pages Preview variables set:
 
-    LOCAL_DOCUMENT_AI_URL=https://example-random.trycloudflare.com/process
+    LOCAL_DOCUMENT_AI_URL=https://example-random.trycloudflare.com
 
 If LOCAL_AI_TOKEN is configured locally, also add the same value as a Cloudflare secret:
 
@@ -131,3 +133,21 @@ Then check:
 Expected health includes:
 
     "parserVersion": "heuristic-v5"
+
+
+## Secondary OCR fallback (EasyOCR)
+
+The secondary engine is enabled by default:
+
+    SECONDARY_OCR=easyocr
+    SECONDARY_OCR_LANGS=az,en
+
+It is loaded lazily only when the primary PP-OCRv5 result is weak. The first fallback request can take longer because EasyOCR downloads its recognition models into the persistent Docker volume `easyocr-models`.
+
+Health output should include:
+
+    "secondaryOcr": "easyocr"
+
+To disable the second engine:
+
+    SECONDARY_OCR=off
