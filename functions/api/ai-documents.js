@@ -479,22 +479,111 @@ export async function onRequestPost({request,env}){
 
     const b=await request.json().catch(()=>({})),action=clean(b.action);
     if(action==="process"){
-      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row)return json({success:false,message:"Документ не найден"},404);
-      const provider=clean(b.provider||row.provider_requested||"AUTO").toUpperCase(),now=new Date().toISOString();
-      await env.DB.prepare(`UPDATE ai_documents SET status='PROCESSING',provider_requested=?1,error_message=NULL,updated_at=?2 WHERE id=?3 AND user_id=?4`).bind(provider,now,docId,a.user.id).run();
+      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId);
+      if(!row)return json({success:false,message:"Документ не найден"},404);
+      const provider=clean(b.provider||row.provider_requested||"AUTO").toUpperCase();
+      if(!["AUTO","LOCAL","OPENAI"].includes(provider))return json({success:false,message:"Неизвестный AI-провайдер."},400);
+      const now=new Date().toISOString();
+      await env.DB.prepare(`UPDATE ai_documents SET status='PROCESSING',provider_requested=?1,error_message=NULL,updated_at=?2 WHERE id=?3 AND user_id=?4`)
+        .bind(provider,now,docId,a.user.id).run();
+
       try{
         const file=await objectAsFile(env,row);
+        const providers=aiProviderStatus(env);
+
+        // Local-first processing is asynchronous so a long OCR run never holds
+        // a Cloudflare request open long enough to hit a 524 timeout.
+        if(provider!=="OPENAI"&&providers.local.configured){
+          const remote=await startLocalPurchaseDocumentJob(env,file);
+          await saveJob(env.DB,a.user.id,docId,{
+            provider:"LOCAL",
+            remoteJobId:remote.id,
+            status:remote.status,
+            stage:remote.stage,
+            progress:remote.progress
+          });
+          await env.DB.prepare(`UPDATE ai_documents SET provider_used='LOCAL',model=NULL,status='PROCESSING',updated_at=?1 WHERE id=?2 AND user_id=?3`)
+            .bind(new Date().toISOString(),docId,a.user.id).run();
+          const updated=await rowById(env.DB,a.user.id,docId);
+          return json({
+            success:true,
+            async:true,
+            processing:true,
+            document:publicRow(updated),
+            job:publicJob(await jobByDocument(env.DB,a.user.id,docId))
+          },202);
+        }
+
+        // Explicit OpenAI mode remains synchronous for now.
         const processed=await processPurchaseDocument(env,file,provider);
-        const result=await enrich(env,a.user.id,processed.data||{});
-        const raw=result.extracted||{},matching=result.matching||{};
-        const status=matching.ready?"READY":(matching.items?.length?"REVIEW":"REVIEW");
-        await env.DB.prepare(`UPDATE ai_documents SET provider_used=?1,model=?2,status=?3,document_type=?4,supplier_name=?5,supplier_id=?6,document_number=?7,invoice_number=?8,incoming_number=?9,document_date=?10,due_date=?11,currency=?12,total=?13,vat_total=?14,confidence=?15,result_json=?16,error_message=NULL,updated_at=?17 WHERE id=?18 AND user_id=?19`)
-          .bind(processed.provider,processed.model,status,clean(raw.documentType),clean(matching.supplierName||raw.supplierName),clean(matching.supplierId),clean(raw.documentNumber),clean(raw.invoiceNumber),clean(raw.incomingNumber),clean(raw.date),clean(raw.dueDate),clean(raw.currency),raw.total??null,raw.vatTotal??null,raw.confidence??null,JSON.stringify({...result,provider:{name:processed.provider,model:processed.model,usage:processed.usage||null,responseId:processed.providerResponseId||null}}),new Date().toISOString(),docId,a.user.id).run();
+        const result=await enrichSafely(env,a.user.id,processed.data||{});
+        const updated=await persistProcessedDocument(env,a.user.id,docId,processed,result);
+        return json({success:true,async:false,processing:false,document:publicRow(updated)});
       }catch(error){
-        await env.DB.prepare(`UPDATE ai_documents SET status='ERROR',error_message=?1,updated_at=?2 WHERE id=?3 AND user_id=?4`).bind(String(error?.message||error).slice(0,1500),new Date().toISOString(),docId,a.user.id).run();
+        const message=String(error?.message||error).slice(0,1500);
+        await env.DB.prepare(`UPDATE ai_documents SET status='ERROR',error_message=?1,updated_at=?2 WHERE id=?3 AND user_id=?4`)
+          .bind(message,new Date().toISOString(),docId,a.user.id).run();
+        await updateJob(env.DB,a.user.id,docId,{status:"ERROR",stage:"error",progress:100,errorMessage:message});
+        const updated=await rowById(env.DB,a.user.id,docId);
+        return json({success:false,document:publicRow(updated),message},422);
       }
-      const updated=await rowById(env.DB,a.user.id,docId);
-      return json({success:updated.status!=="ERROR",document:publicRow(updated),message:updated.error_message||null},updated.status==="ERROR"?422:200);
+    }
+    if(action==="pollProcess"){
+      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId);
+      if(!row)return json({success:false,message:"Документ не найден"},404);
+
+      const job=await jobByDocument(env.DB,a.user.id,docId);
+      if(!job){
+        if(row.status!=="PROCESSING")return json({success:true,processing:false,document:publicRow(row),job:null});
+        return json({success:false,message:"Задача Local AI не найдена. Запустите распознавание заново."},409);
+      }
+
+      if(row.status!=="PROCESSING"&&job.status==="DONE"){
+        return json({success:true,processing:false,document:publicRow(row),job:publicJob(job)});
+      }
+
+      try{
+        const remote=await getLocalPurchaseDocumentJob(env,job.remote_job_id);
+        const remoteStatus=clean(remote.status||"RUNNING").toUpperCase();
+        const remoteStage=clean(remote.stage||"processing");
+        const remoteProgress=Number.isFinite(Number(remote.progress))?Math.max(0,Math.min(100,Math.round(Number(remote.progress)))):Number(job.progress||0);
+
+        if(remoteStatus==="ERROR"){
+          const message=clean(remote.error)||"Local AI завершил задачу с ошибкой.";
+          await updateJob(env.DB,a.user.id,docId,{status:"ERROR",stage:"error",progress:100,errorMessage:message});
+          await env.DB.prepare(`UPDATE ai_documents SET status='ERROR',error_message=?1,updated_at=?2 WHERE id=?3 AND user_id=?4`)
+            .bind(message,new Date().toISOString(),docId,a.user.id).run();
+          return json({success:true,processing:false,document:publicRow(await rowById(env.DB,a.user.id,docId)),job:publicJob(await jobByDocument(env.DB,a.user.id,docId)),message});
+        }
+
+        if(remoteStatus!=="DONE"){
+          await updateJob(env.DB,a.user.id,docId,{status:remoteStatus,stage:remoteStage,progress:remoteProgress,errorMessage:null});
+          return json({
+            success:true,
+            processing:true,
+            document:publicRow(await rowById(env.DB,a.user.id,docId)),
+            job:publicJob(await jobByDocument(env.DB,a.user.id,docId))
+          },202);
+        }
+
+        await updateJob(env.DB,a.user.id,docId,{status:"FINALIZING",stage:"matching",progress:96,errorMessage:null});
+        const processed=localJobPayloadToProcessed(remote);
+        const result=await enrichSafely(env,a.user.id,processed.data||{});
+        const updated=await persistProcessedDocument(env,a.user.id,docId,processed,result);
+        await updateJob(env.DB,a.user.id,docId,{status:"DONE",stage:"done",progress:100,errorMessage:null});
+        return json({
+          success:true,
+          processing:false,
+          document:publicRow(updated),
+          job:publicJob(await jobByDocument(env.DB,a.user.id,docId))
+        });
+      }catch(error){
+        const message=String(error?.message||error).slice(0,1500);
+        await updateJob(env.DB,a.user.id,docId,{status:"ERROR",stage:"error",progress:100,errorMessage:message});
+        await env.DB.prepare(`UPDATE ai_documents SET status='ERROR',error_message=?1,updated_at=?2 WHERE id=?3 AND user_id=?4`)
+          .bind(message,new Date().toISOString(),docId,a.user.id).run();
+        return json({success:true,processing:false,document:publicRow(await rowById(env.DB,a.user.id,docId)),job:publicJob(await jobByDocument(env.DB,a.user.id,docId)),message});
+      }
     }
     if(action==="saveAlias"){
       const sourceName=clean(b.sourceName),productId=key(b.productId),productName=clean(b.productName),supplierKey=key(b.supplierId);
