@@ -27,6 +27,13 @@ jobs:
             | sort)
           echo "Checked $count JavaScript files"
 
+      - name: Check local AI Python syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile services/local-document-ai/app/main.py
+          echo 'Local AI Python syntax passed'
+
       - name: Verify public iiko state hides password
         shell: bash
         run: |
@@ -246,6 +253,7 @@ jobs:
             "/food-cost.html"
             "/labor-cost.html"
             "/nakladnye.html"
+            "/ai-documents.html"
             "/rashodnye-nakladnye.html"
             "/akty-spisaniya.html"
           )
@@ -287,6 +295,7 @@ jobs:
             "/api/iiko/outgoing-invoices"
             "/api/iiko/references"
             "/api/iiko/invoice-reference-data"
+            "/api/ai-documents"
             "/api/iiko/documents"
             "/api/iiko/document-action"
             "/api/iiko/document-by-number"

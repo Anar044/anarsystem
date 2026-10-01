@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light" style="background:#f4f8fc">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Smart Horeca Control — AI Документы</title>
+<script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
+<link rel="stylesheet" href="/app-shell.css?v=20260911-7">
+<link rel="stylesheet" href="/ai-documents.css?v=20261001-3">
+</head>
+<body data-protected="true">
+<div class="app-shell">
+  <aside class="sidebar"></aside>
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+        <span class="topbar-title">AI Документы</span>
+        <div class="topbar-sub">Фото/PDF → распознавание → проверка → iiko BackOffice</div>
+      </div>
+      <div class="top-actions">
+        <span class="user-chip"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span></span>
+        <button class="icon-btn" data-auth-logout>Выйти</button>
+      </div>
+    </header>
+
+    <section class="aid-page">
+      <div class="aid-titlebar">
+        <div>
+          <h1>AI Document Inbox</h1>
+          <p>Загружайте накладные поставщиков. SmartHoreca извлечёт данные, сопоставит их с iiko и подготовит документ.</p>
+        </div>
+        <div class="aid-provider-state" id="providerState">Проверяем AI…</div>
+      </div>
+
+      <section class="aid-upload-card">
+        <div class="aid-dropzone" id="dropzone">
+          <input id="fileInput" type="file" accept="application/pdf,image/*" hidden>
+          <div class="aid-drop-icon">AI</div>
+          <div>
+            <strong>Перетащите PDF или фото сюда</strong>
+            <span>или нажмите, чтобы выбрать файл · до 20 МБ</span>
+          </div>
+        </div>
+        <div class="aid-upload-controls">
+          <label>AI-провайдер
+            <select id="providerSelect">
+              <option value="AUTO">Auto — выбрать автоматически</option>
+              <option value="LOCAL">Local AI</option>
+              <option value="OPENAI">OpenAI</option>
+            </select>
+          </label>
+          <button id="uploadBtn" class="aid-primary" type="button">Загрузить и распознать</button>
+        </div>
+        <div class="aid-progress" id="uploadStatus"></div>
+      </section>
+
+      <div class="aid-layout">
+        <section class="aid-list-card">
+          <div class="aid-card-head aid-list-head">
+            <div><strong>Входящие документы</strong><span id="docCount">0</span></div>
+            <div class="aid-list-head-actions">
+              <button id="refreshBtn" type="button">Обновить</button>
+              <button id="listToggleBtn" class="aid-icon-action" type="button" title="Свернуть список" aria-label="Свернуть список">‹</button>
+            </div>
+          </div>
+          <div id="documentList" class="aid-document-list"></div>
+          <div id="documentEmpty" class="aid-empty">Документов пока нет.</div>
+        </section>
+
+        <section class="aid-review-card" id="reviewCard">
+          <div class="aid-review-empty" id="reviewEmpty">
+            <strong>Выберите документ</strong>
+            <span>Здесь появятся оригинал, распознанные данные и сопоставление с iiko.</span>
+          </div>
+          <div id="reviewContent" hidden>
+            <div class="aid-card-head aid-review-head">
+              <div>
+                <strong id="reviewTitle">Документ</strong>
+                <span id="reviewMeta"></span>
+              </div>
+              <div class="aid-review-head-actions">
+                <button id="reprocessBtn" type="button">Распознать заново</button>
+                <button id="deleteBtn" class="aid-danger" type="button">Удалить</button>
+              </div>
+            </div>
+
+            <div class="aid-review-grid">
+              <div class="aid-preview-pane" id="previewPane">
+                <div class="aid-pane-title aid-preview-title">
+                  <span>Оригинал</span>
+                  <div class="aid-preview-tools">
+                    <button id="previewZoomOut" type="button" title="Уменьшить">−</button>
+                    <button id="previewZoom100" type="button">100%</button>
+                    <button id="previewFit" type="button">По ширине</button>
+                    <button id="previewZoomIn" type="button" title="Увеличить">+</button>
+                    <span id="previewZoomLabel">По ширине</span>
+                    <button id="previewFullscreen" type="button" title="На весь экран">⛶</button>
+                  </div>
+                </div>
+                <div id="filePreview" class="aid-file-preview"></div>
+              </div>
+
+              <div id="reviewSplitter" class="aid-review-splitter" title="Потяните, чтобы изменить ширину" aria-label="Изменить ширину областей"></div>
+
+              <div class="aid-data-pane">
+                <div class="aid-pane-title">Данные накладной</div>
+                <div id="reviewStatus" class="aid-review-status"></div>
+
+                <div class="aid-form-grid">
+                  <label>Номер документа<input id="draftNumber"></label>
+                  <label>Дата<input id="draftDate" type="date"></label>
+                  <label>Поставщик<select id="draftSupplier"></select></label>
+                  <label>Склад<select id="draftStore"></select></label>
+                  <label>Счёт-фактура<input id="draftInvoice"></label>
+                  <label>Входящий №<input id="draftIncoming"></label>
+                  <label>Срок оплаты<input id="draftDue" type="date"></label>
+                  <label>Валюта<input id="draftCurrency" readonly></label>
+                </div>
+
+                <div class="aid-lines-head">
+                  <strong>Позиции</strong>
+                  <span id="draftTotal">0,00 ₼</span>
+                </div>
+                <div id="draftItems" class="aid-items"></div>
+
+                <div class="aid-review-actions">
+                  <button id="saveDraftBtn" type="button">Сохранить в iiko</button>
+                  <button id="saveProcessBtn" class="aid-primary" type="button">Сохранить и провести</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth-config.js?v=20260911-2"></script>
+<script src="/auth.js?v=20260911-3"></script>
+<script src="/iiko-context.js?v=20260911-4"></script>
+<script src="/app-shell.js?v=20261001-ai1"></script>
+<script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
+<script src="/documents-nav.js?v=20261001-ai1"></script>
+<script src="/mobile-responsive.js?v=3"></script>
+<script src="/ai-documents.js?v=20261001-3"></script>
+</body>
+</html>
