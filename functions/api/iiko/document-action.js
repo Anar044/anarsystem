@@ -22,8 +22,14 @@ function esc(v) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
 }
+function nullish(v) {
+  if (v === undefined || v === null) return "";
+  const s = String(v).trim();
+  return ["", "null", "undefined", "nil", "none"].includes(s.toLowerCase()) ? "" : s;
+}
 function value(name, v) {
-  return !name || v === undefined || v === null || v === "" ? "" : `<${name}>${esc(v)}</${name}>`;
+  const normalized = nullish(v);
+  return !name || !normalized ? "" : `<${name}>${esc(normalized)}</${name}>`;
 }
 function asNumber(value, fallback = 0) {
   const n = Number(value);
@@ -32,6 +38,16 @@ function asNumber(value, fallback = 0) {
 function normalizeIncomingDocument(input = {}) {
   const d = { ...input };
   const items = Array.isArray(d.items) ? d.items : [];
+  [
+    "id","conception","conceptionCode","comment","documentNumber","dateIncoming",
+    "invoice","defaultStore","defaultStoreId","storeId","supplierId","supplier",
+    "dueDate","incomingDate","incomingDocumentNumber","transportInvoiceNumber",
+    "employeeId","employeePassToAccount","linkedOutgoingInvoiceId","distributionAlgorithm"
+  ].forEach(k => {
+    const v = nullish(d[k]);
+    if (v) d[k] = v;
+    else delete d[k];
+  });
   const documentStore = clean(d.defaultStore || d.defaultStoreId || d.storeId);
   if (clean(d.status)) d.status = clean(d.status).toUpperCase();
   else delete d.status;
@@ -155,7 +171,7 @@ export async function onRequestPost(context) {
     if (!["incoming", "outgoing"].includes(type)) {
       return jsonResponse({ success: false, message: "Неизвестный тип документа" }, 400);
     }
-    if (!["save", "save-and-process", "unprocess"].includes(action)) {
+    if (!["save", "save-and-process", "process", "unprocess"].includes(action)) {
       return jsonResponse({ success: false, message: "Неизвестная операция с документом" }, 400);
     }
 
@@ -171,36 +187,41 @@ export async function onRequestPost(context) {
     }
 
     let document = body.document || {};
-    if (type === "incoming" && ["save", "save-and-process"].includes(action)) {
+    if (type === "incoming") {
       document = normalizeIncomingDocument(document);
-      if (action === "save-and-process") document.status = "PROCESSED";
-      const errors = validateIncoming(document);
-      if (errors.length) {
-        return jsonResponse({ success: false, message: errors[0], errors }, 400);
+      if (["save", "save-and-process"].includes(action)) {
+        delete document.status;
+        const errors = validateIncoming(document);
+        if (errors.length) {
+          return jsonResponse({ success: false, message: errors[0], errors }, 400);
+        }
       }
     }
 
-    const xml = buildXml(type, document);
     const docType = type === "incoming" ? "incomingInvoice" : "outgoingInvoice";
-    const path =
-      action === "unprocess"
-        ? `/resto/api/documents/unprocess/${docType}`
-        : `/resto/api/documents/import/${docType}`;
+    const requestDocument = async (operation, doc) => {
+      const xml = buildXml(type, doc);
+      const path =
+        operation === "process"
+          ? `/resto/api/documents/process/${docType}`
+          : operation === "unprocess"
+            ? `/resto/api/documents/unprocess/${docType}`
+            : `/resto/api/documents/import/${docType}`;
+      const result = await iikoText(connection, path, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/xml; charset=utf-8",
+          Accept: "application/xml,text/xml,*/*"
+        },
+        body: xml
+      });
+      const validation = parseValidation(result.text);
+      const validationFailed = operation === "save" && isFalse(validation.valid);
+      return { result, validation, validationFailed, xml, path };
+    };
 
-    const result = await iikoText(connection, path, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/xml; charset=utf-8",
-        Accept: "application/xml,text/xml,*/*"
-      },
-      body: xml
-    });
-
-    const validation = parseValidation(result.text);
-    const validationFailed = ["save", "save-and-process"].includes(action) && isFalse(validation.valid);
-    const success = result.ok && !validationFailed;
-
-    if (!success) {
+    const failureResponse = (stage, packet, saved = false) => {
+      const { result, validation, validationFailed } = packet;
       const plainServerMessage = String(result.text || "")
         .replace(/<script[\s\S]*?<\/script>/gi, " ")
         .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -213,37 +234,78 @@ export async function onRequestPost(context) {
         validation.additionalInfo ||
         plainServerMessage ||
         (validationFailed ? "iiko отклонил документ" : `iiko Server вернул HTTP ${result.status}`);
-      return jsonResponse(
-        {
-          success: false,
-          action,
-          type,
-          status: result.status,
-          validation,
-          rawResponse: result.text.slice(0, 12000),
-          message,
-          meta: { authCacheHit: Boolean(result.auth?.cacheHit) }
-        },
-        validationFailed ? 422 : 502
-      );
+      return jsonResponse({
+        success: false,
+        action,
+        stage,
+        saved,
+        type,
+        status: result.status,
+        validation,
+        rawResponse: result.text.slice(0, 12000),
+        message,
+        meta: { authCacheHit: Boolean(result.auth?.cacheHit) }
+      }, validationFailed ? 422 : 502);
+    };
+
+    if (action === "save-and-process") {
+      const savedPacket = await requestDocument("save", document);
+      if (!savedPacket.result.ok || savedPacket.validationFailed) {
+        return failureResponse("save", savedPacket, false);
+      }
+
+      const actualNumber =
+        nullish(savedPacket.validation.documentNumber) ||
+        nullish(savedPacket.validation.otherSuggestedNumber) ||
+        nullish(document.documentNumber);
+      if (actualNumber) document.documentNumber = actualNumber;
+
+      const processPacket = await requestDocument("process", document);
+      if (!processPacket.result.ok) {
+        return failureResponse("process", processPacket, true);
+      }
+
+      return jsonResponse({
+        success: true,
+        action,
+        type,
+        status: processPacket.result.status,
+        validation: savedPacket.validation,
+        processValidation: processPacket.validation,
+        rawResponse: processPacket.result.text.slice(0, 12000),
+        message: "Приходная накладная сохранена и проведена в iiko BackOffice",
+        meta: {
+          saved: true,
+          processed: true,
+          authCacheHit: Boolean(processPacket.result.auth?.cacheHit)
+        }
+      });
     }
+
+    const operation = action === "process" ? "process" : action === "unprocess" ? "unprocess" : "save";
+    const packet = await requestDocument(operation, document);
+    const success = packet.result.ok && !packet.validationFailed;
+    if (!success) return failureResponse(operation, packet, false);
 
     return jsonResponse({
       success: true,
       action,
       type,
-      status: result.status,
-      validation,
-      rawResponse: result.text.slice(0, 12000),
+      status: packet.result.status,
+      validation: packet.validation,
+      rawResponse: packet.result.text.slice(0, 12000),
       message:
         action === "unprocess"
           ? "Документ распроведён"
-          : action === "save-and-process"
-            ? "Приходная накладная сохранена и проведена в iiko BackOffice"
+          : action === "process"
+            ? "Документ проведён"
             : type === "incoming"
               ? "Приходная накладная сохранена в iiko BackOffice"
               : "Документ сохранён в iiko BackOffice",
-      meta: { authCacheHit: Boolean(result.auth?.cacheHit) }
+      meta: {
+        processed: action === "process",
+        authCacheHit: Boolean(packet.result.auth?.cacheHit)
+      }
     });
   } catch (error) {
     return jsonResponse(
