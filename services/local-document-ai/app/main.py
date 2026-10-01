@@ -659,19 +659,31 @@ def _freeform_supplier(lines: list[OcrLine]) -> str | None:
 
 
 
-def _unit_near(text: str, match: re.Match[str]) -> str | None:
-    after = text[match.end():match.end() + 16].lower()
-    before = text[max(0, match.start() - 8):match.start()].lower()
-    for unit in FREEFORM_UNITS:
-        pattern = r"\b" + re.escape(unit) + r"\b"
-        if re.search(pattern, after, re.I) or re.search(pattern, before, re.I):
-            return unit
+def _adjacent_hint(text: str, match: re.Match[str], tokens: tuple[str, ...]) -> str | None:
+    """Return a unit/currency token only when it directly belongs to this number.
+
+    Examples:
+      "3 AZN - 10" -> AZN belongs to 3, not 10
+      "4 kg - 5.2" -> kg belongs to 4, not 5.2
+    """
+    after = text[match.end():match.end() + 18]
+    before = text[max(0, match.start() - 18):match.start()]
+
+    for token in sorted(tokens, key=len, reverse=True):
+        escaped = re.escape(token)
+        if re.search(r"^\s*" + escaped + r"(?!\w)", after, re.I):
+            return token
+        if re.search(r"(?<!\w)" + escaped + r"\s*$", before, re.I):
+            return token
     return None
 
 
+def _unit_near(text: str, match: re.Match[str]) -> str | None:
+    return _adjacent_hint(text, match, FREEFORM_UNITS)
+
+
 def _currency_near(text: str, match: re.Match[str]) -> bool:
-    around = text[max(0, match.start() - 6):match.end() + 18].lower()
-    return any(token in around for token in CURRENCY_HINTS)
+    return _adjacent_hint(text, match, CURRENCY_HINTS) is not None
 
 
 def _best_freeform_numeric_triplet(text: str) -> tuple[float, float, float, str | None, int] | None:
