@@ -10,6 +10,54 @@ function textTag(block,names){const wanted=new Set((Array.isArray(names)?names:[
 function elementBlocks(source,names){const wanted=new Set((Array.isArray(names)?names:[names]).map(localName));const text=String(source||"");const out=[];const open=/<([A-Za-z][\w:.-]*)\b[^>]*>/gi;let m;while((m=open.exec(text))){const fullName=m[1];if(!wanted.has(localName(fullName)))continue;const esc=fullName.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");const close=new RegExp(`</${esc}>`,'ig');const tail=text.slice(open.lastIndex);const cm=close.exec(tail);if(cm)out.push(text.slice(m.index,open.lastIndex+cm.index+cm[0].length));}return out;}
 function openingAttrs(block){const m=String(block||"").match(/^<([A-Za-z][\w:.-]*)\b([^>]*)>/i);const a={};if(!m)return a;const re=/([A-Za-z][\w:.-]*)\s*=\s*(["'])(.*?)\2/g;let q;while((q=re.exec(m[2])))a[localName(q[1])]=xmlDecode(q[3]);return a;}
 function innerText(block){return xmlDecode(String(block||"").replace(/^<[A-Za-z][\w:.-]*\b[^>]*>/i,"").replace(/<\/[A-Za-z][\w:.-]*>\s*$/i,"").trim());}
+function xmlRootChildren(source){
+  let text=String(source||"").replace(/^\uFEFF/,"").trim();
+  text=text.replace(/^<\?xml[\s\S]*?\?>\s*/i,"").trim();
+  const root=text.match(/^<([A-Za-z][\w:.-]*)\b[^>]*>([\s\S]*)<\/\1>\s*$/i);
+  const body=root?root[2]:text;
+  const out=[];
+  const re=/<([A-Za-z][\w:.-]*)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  let m;
+  while((m=re.exec(body)))out.push(m[0]);
+  return out;
+}
+function parseWarehouseBlock(block){
+  const a=openingAttrs(block);
+  return {
+    id:cleanId(textTag(block,["id","uuid","entityId","storeId","warehouseId"])||a.id||a.uuid||a.entityid||a.storeid||a.warehouseid),
+    name:cleanName(textTag(block,["name","title","description","fullName"])||a.name||a.title||a.description||a.fullname),
+    type:String(textTag(block,["type","entityType","kind"])||a.type||a.entitytype||a.kind||"").trim().toUpperCase()
+  };
+}
+function parseWarehouseEndpoint(value){
+  const source=String(value||"").trim();
+  const rows=[];
+  const seen=new Set();
+  const addRow=x=>{
+    const id=cleanId(x?.id),name=cleanName(x?.name);
+    if(id&&name&&!seen.has(id)){seen.add(id);rows.push({id,name,type:String(x?.type||"").toUpperCase()});}
+  };
+  if(!source)return rows;
+  if(source[0]==="{"||source[0]==="["){
+    try{
+      const walk=v=>{
+        if(Array.isArray(v)){v.forEach(walk);return;}
+        if(!v||typeof v!=="object")return;
+        const id=v.id??v.uuid??v.entityId??v.storeId??v.warehouseId;
+        const name=v.name??v.title??v.description??v.fullName;
+        const type=v.type??v.entityType??v.kind;
+        if(id&&name)addRow({id,name,type});
+        Object.values(v).forEach(x=>{if(x&&typeof x==="object")walk(x);});
+      };
+      walk(JSON.parse(source));
+    }catch{}
+  }
+  xmlRootChildren(source).forEach(b=>addRow(parseWarehouseBlock(b)));
+  elementBlocks(source,["corporateItemDto","corporateItem","store","storeDto","warehouse","department","item"])
+    .forEach(b=>addRow(parseWarehouseBlock(b)));
+  return rows;
+}
+
 function jsonField(value,names){if(!value||typeof value!=="object"||Array.isArray(value))return undefined;const wanted=new Set(names.map(x=>String(x).toLowerCase()));for(const [k,v] of Object.entries(value))if(wanted.has(String(k).toLowerCase()))return v;return undefined;}
 function scalarText(value){if(value==null)return"";if(typeof value==="string"||typeof value==="number"||typeof value==="boolean")return String(value).trim();if(Array.isArray(value)){for(const x of value){const s=scalarText(x);if(s)return s;}return"";}if(typeof value==="object"){for(const n of ["value","text","name","companyName","fullName","shortName","title","id","uuid","guid","code"]){const x=jsonField(value,[n]);const s=scalarText(x);if(s)return s;}}return"";}
 function parseJsonSupplierRefs(value,out){if(Array.isArray(value)){for(const x of value)parseJsonSupplierRefs(x,out);return;}if(!value||typeof value!=="object")return;const name=scalarText(jsonField(value,["name","title","description","fullName","companyName","shortName"]));const supplier=jsonField(value,["supplier"]);if(supplier&&typeof supplier==="object"){const sid=scalarText(jsonField(supplier,["id","uuid","guid","entityId","supplierId","contractorId","counteragentId"]));const sn=scalarText(jsonField(supplier,["name","title","description","fullName","companyName","shortName"]))||name;if(sid&&sn)out.push({id:sid,name:sn});}else if(typeof supplier==="string"&&name){out.push({id:supplier,name});}const id=scalarText(jsonField(value,["supplierId","supplier_id","id","uuid","guid","entityId","contractorId","counteragentId"]));if(id&&name)out.push({id,name});for(const v of Object.values(value))if(v&&typeof v==="object")parseJsonSupplierRefs(v,out);}
@@ -88,7 +136,7 @@ async function loadWarehouses(serverUrl,token){
     try{
       const r=await request(serverUrl,path,token);
       // The stores endpoint itself is authoritative: every returned entity is a warehouse.
-      const rows=r.ok?parseReferenceList(r.text):[];
+      const rows=r.ok?parseWarehouseEndpoint(r.text):[];
       diagnostics.push({
         path,status:r.status,ok:r.ok,contentType:r.contentType,
         rawLength:r.text.length,parsedCount:rows.length,
@@ -108,7 +156,7 @@ async function loadWarehouses(serverUrl,token){
   for(const path of departmentPaths){
     try{
       const r=await request(serverUrl,path,token);
-      const rows=r.ok?parseStoreList(r.text):[];
+      const rows=r.ok?parseWarehouseEndpoint(r.text).filter(x=>["STORE","CENTRALSTORE","WAREHOUSE"].includes(String(x.type||"").toUpperCase())):[];
       diagnostics.push({
         path,status:r.status,ok:r.ok,contentType:r.contentType,
         rawLength:r.text.length,parsedCount:rows.length,
