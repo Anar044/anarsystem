@@ -17,6 +17,7 @@
     let olapMeasures = [];
     let olapFilters = [];
     let currentDrag = null;
+    let olapFieldsLoadPromise = null;
     const STORAGE_KEY = "iikoConnection";
 
     async function safeJson(response) {
@@ -92,21 +93,108 @@
         return field ? field.name : String(value || "");
     }
 
-    async function loadOlapFields() {
-        if (!iikoConnection) throw new Error("Сначала подключитесь к iiko");
-        const response = await fetch("/api/iiko/olap", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ action: "fields", reportType: "SALES", ip: iikoConnection.ip, port: iikoConnection.port, login: iikoConnection.login, password: iikoConnection.password }) });
-        const data = await safeJson(response);
-        if (!response.ok || data.success === false) throw new Error(data.message || `OLAP fields HTTP ${response.status}`);
-        olapFields = extractOlapFields(data);
-        if (!olapFields.length) throw new Error("iiko не вернул список OLAP полей");
-        renderOlapFields(); renderFilterEditor(); setOlapStatus(`🟢 Доступные поля OLAP: ${olapFields.length}`); return olapFields;
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+    async function refreshIikoConnectionFromServer(force = false) {
+        if (!window.SH_ReportsContext?.prepare) return iikoConnection;
+        const state = await window.SH_ReportsContext.prepare(force);
+        const connection = state?.connection;
+        if (connection?.ip && connection?.port && connection?.login && connection?.password) {
+            iikoConnection = {
+                ip: String(connection.ip),
+                port: String(connection.port),
+                login: String(connection.login),
+                password: String(connection.password)
+            };
+        }
+        return iikoConnection;
+    }
+
+    async function loadOlapFields(options = {}) {
+        const force = options.force === true;
+        const maxAttempts = Math.max(1, Number(options.maxAttempts) || 3);
+        if (!force && olapFieldsLoadPromise) return olapFieldsLoadPromise;
+
+        const promise = (async () => {
+            let lastError = null;
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    if (!iikoConnection) await refreshIikoConnectionFromServer(attempt > 1);
+                    if (!iikoConnection) throw new Error("Сохранённое подключение iiko ещё не готово");
+
+                    setOlapStatus(
+                        attempt === 1
+                            ? "⏳ Загружаем поля OLAP..."
+                            : `🟡 Повторная попытка загрузки полей OLAP (${attempt}/${maxAttempts})...`
+                    );
+
+                    const response = await fetch("/api/iiko/olap", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+                        credentials: "same-origin",
+                        cache: "no-store",
+                        body: JSON.stringify({
+                            action: "fields",
+                            reportType: "SALES",
+                            ip: iikoConnection.ip,
+                            port: iikoConnection.port,
+                            login: iikoConnection.login,
+                            password: iikoConnection.password
+                        })
+                    });
+                    const data = await safeJson(response);
+                    if (!response.ok || data.success === false) {
+                        throw new Error(data.message || `OLAP fields HTTP ${response.status}`);
+                    }
+
+                    const fields = extractOlapFields(data);
+                    if (!fields.length) throw new Error("iiko не вернул список OLAP полей");
+
+                    olapFields = fields;
+                    renderOlapFields();
+                    renderFilterEditor();
+                    setOlapStatus(`🟢 Доступные поля OLAP: ${olapFields.length}`);
+                    return olapFields;
+                } catch (error) {
+                    lastError = error;
+                    console.warn(`OLAP fields attempt ${attempt}/${maxAttempts} failed`, error);
+
+                    if (attempt >= maxAttempts) break;
+
+                    try {
+                        await refreshIikoConnectionFromServer(true);
+                    } catch (contextError) {
+                        console.warn("Cannot refresh server-side iiko context", contextError);
+                    }
+
+                    await wait(attempt === 1 ? 600 : 1400);
+                }
+            }
+
+            if (!olapFields.length) {
+                const container = $("olap-fields");
+                if (container) {
+                    container.innerHTML = `<div class="olap-empty">Не удалось загрузить поля. Нажмите «Обновить поля».</div>`;
+                }
+            }
+            setOlapStatus("🔴 " + (lastError?.message || "Не удалось загрузить OLAP-поля"));
+            throw lastError || new Error("Не удалось загрузить OLAP-поля");
+        })();
+
+        olapFieldsLoadPromise = promise;
+        try {
+            return await promise;
+        } finally {
+            if (olapFieldsLoadPromise === promise) olapFieldsLoadPromise = null;
+        }
     }
 
     function createOlapBuilder() {
         const existing = $("olap-builder"); if (existing) return existing;
         const container = document.querySelector(".reports-container"); if (!container) return null;
         const builder = document.createElement("div"); builder.id = "olap-builder";
-        builder.innerHTML = `<div class="olap-shell"><div class="olap-report-head"><div><div class="olap-report-title">OLAP отчёт по продажам</div><div class="olap-report-subtitle">Конструктор аналитических отчётов</div></div><div class="olap-report-actions"><label class="olap-saved-wrap"><span>Сохранённые отчёты</span><select id="olap-saved-reports"><option value="">Выберите отчёт...</option></select></label><button type="button" id="olap-save-report" class="olap-icon-btn" title="Сохранить отчёт">💾</button><label class="olap-date-wrap"><span>Период с</span><input id="olap-from" type="date"></label><label class="olap-date-wrap"><span>по</span><input id="olap-to" type="date"></label><button type="button" id="olap-run" class="olap-primary">↻ Обновить</button><button type="button" id="olap-export" class="olap-excel">▣ Excel</button></div></div><div id="olap-status" class="olap-status">🟢 Доступные поля OLAP: 0</div><div class="olap-workspace"><aside class="olap-fields-card"><div class="olap-card-title">Доступные поля</div><div class="olap-search-wrap"><input id="olap-search" type="text" placeholder="Поиск поля..."><span>⌕</span></div><div id="olap-fields" class="olap-fields"><div class="olap-empty">Поля отсутствуют</div></div><div class="olap-field-actions"><button type="button" id="olap-refresh-fields">⟳ Обновить поля</button><button type="button" id="olap-clear">Очистить</button></div></aside><section class="olap-main-card"><div class="olap-zones"><div class="olap-zone-card"><div class="olap-card-title">☷ &nbsp;Строки</div><div id="olap-rows" class="olap-selected"><div class="olap-empty">Перетащите поле сюда</div></div></div><div class="olap-zone-card"><div class="olap-card-title">▦ &nbsp;Колонки</div><div id="olap-columns" class="olap-selected"><div class="olap-empty">Перетащите поле сюда</div></div></div><div class="olap-zone-card"><div class="olap-card-title">Σ &nbsp;Показатели</div><div id="olap-measures" class="olap-selected"><div class="olap-empty">Перетащите поле сюда</div></div></div></div><div class="olap-filters-panel"><div class="olap-filter-head"><div class="olap-card-title">⚱ &nbsp;Фильтры</div><button type="button" id="olap-add-filter">+ Добавить фильтр</button></div><div class="olap-filter-editor"><label>Поле<select id="olap-filter-field"></select></label><label>Условие<select id="olap-filter-operator"><option value="Include">Равно</option><option value="Exclude">Не равно</option><option value="IncludeList">В списке</option><option value="ExcludeList">Не в списке</option><option value="DateRange">Диапазон дат</option></select></label><label id="olap-filter-value-label">Значение<input id="olap-filter-value" type="text"></label><label id="olap-filter-from-label" style="display:none">От<input id="olap-filter-from" type="date"></label><label id="olap-filter-to-label" style="display:none">До<input id="olap-filter-to" type="date"></label></div><div id="olap-filters" class="olap-filters-list"><div class="olap-empty">Фильтры не заданы</div></div></div><section class="olap-result-card"><div class="olap-card-title">Результат отчёта</div><div id="olap-result" class="olap-result"><div class="olap-result-empty"><div class="olap-result-icon">▦</div><strong>Отчёт ещё не сформирован</strong><span>Выберите поля, задайте период и нажмите «Обновить».</span></div></div></section></section></div></div>`;
+        builder.innerHTML = `<div class="olap-shell"><div class="olap-report-head"><div><div class="olap-report-title">OLAP отчёт по продажам</div><div class="olap-report-subtitle">Конструктор аналитических отчётов</div></div><div class="olap-report-actions"><label class="olap-saved-wrap"><span>Сохранённые отчёты</span><select id="olap-saved-reports"><option value="">Выберите отчёт...</option></select></label><button type="button" id="olap-save-report" class="olap-icon-btn" title="Сохранить отчёт">💾</button><label class="olap-date-wrap"><span>Период с</span><input id="olap-from" type="date"></label><label class="olap-date-wrap"><span>по</span><input id="olap-to" type="date"></label><button type="button" id="olap-run" class="olap-primary">↻ Обновить</button><button type="button" id="olap-export" class="olap-excel">▣ Excel</button></div></div><div id="olap-status" class="olap-status">⏳ Подготавливаем поля OLAP...</div><div class="olap-workspace"><aside class="olap-fields-card"><div class="olap-card-title">Доступные поля</div><div class="olap-search-wrap"><input id="olap-search" type="text" placeholder="Поиск поля..."><span>⌕</span></div><div id="olap-fields" class="olap-fields"><div class="olap-empty">Загрузка полей...</div></div><div class="olap-field-actions"><button type="button" id="olap-refresh-fields">⟳ Обновить поля</button><button type="button" id="olap-clear">Очистить</button></div></aside><section class="olap-main-card"><div class="olap-zones"><div class="olap-zone-card"><div class="olap-card-title">☷ &nbsp;Строки</div><div id="olap-rows" class="olap-selected"><div class="olap-empty">Перетащите поле сюда</div></div></div><div class="olap-zone-card"><div class="olap-card-title">▦ &nbsp;Колонки</div><div id="olap-columns" class="olap-selected"><div class="olap-empty">Перетащите поле сюда</div></div></div><div class="olap-zone-card"><div class="olap-card-title">Σ &nbsp;Показатели</div><div id="olap-measures" class="olap-selected"><div class="olap-empty">Перетащите поле сюда</div></div></div></div><div class="olap-filters-panel"><div class="olap-filter-head"><div class="olap-card-title">⚱ &nbsp;Фильтры</div><button type="button" id="olap-add-filter">+ Добавить фильтр</button></div><div class="olap-filter-editor"><label>Поле<select id="olap-filter-field"></select></label><label>Условие<select id="olap-filter-operator"><option value="Include">Равно</option><option value="Exclude">Не равно</option><option value="IncludeList">В списке</option><option value="ExcludeList">Не в списке</option><option value="DateRange">Диапазон дат</option></select></label><label id="olap-filter-value-label">Значение<input id="olap-filter-value" type="text"></label><label id="olap-filter-from-label" style="display:none">От<input id="olap-filter-from" type="date"></label><label id="olap-filter-to-label" style="display:none">До<input id="olap-filter-to" type="date"></label></div><div id="olap-filters" class="olap-filters-list"><div class="olap-empty">Фильтры не заданы</div></div></div><section class="olap-result-card"><div class="olap-card-title">Результат отчёта</div><div id="olap-result" class="olap-result"><div class="olap-result-empty"><div class="olap-result-icon">▦</div><strong>Отчёт ещё не сформирован</strong><span>Выберите поля, задайте период и нажмите «Обновить».</span></div></div></section></section></div></div>`;
         container.appendChild(builder); bindOlapEvents(); return builder;
     }
 
@@ -307,7 +395,7 @@
 
     function bindOlapEvents() {
         const search = $("olap-search"); if (search) search.addEventListener("input", renderOlapFields);
-        const refresh = $("olap-refresh-fields"); if (refresh) refresh.onclick = async () => { try { setOlapStatus("⏳ Загружаем поля..."); await loadOlapFields(); } catch (error) { setOlapStatus("🔴 " + error.message); } };
+        const refresh = $("olap-refresh-fields"); if (refresh) refresh.onclick = async () => { try { await loadOlapFields({ force: true, maxAttempts: 3 }); } catch (error) { setOlapStatus("🔴 " + error.message); } };
         const clear = $("olap-clear"); if (clear) clear.onclick = clearOlap;
         const operator = $("olap-filter-operator"); if (operator) operator.onchange = updateFilterInputMode;
         const addFilter = $("olap-add-filter"); if (addFilter) addFilter.onclick = () => { try { addOlapFilter(); } catch (error) { setOlapStatus("🔴 " + error.message); } };
