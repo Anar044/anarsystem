@@ -739,9 +739,20 @@ def _freeform_supplier(lines: list[OcrLine]) -> str | None:
         r"\s*(?:[:=\-–—>→]+)?\s*(.+)$",
         re.I,
     )
-    for row in _visual_rows(lines)[:16]:
+    rows = _visual_rows(lines)[:16]
+    for row_index, row in enumerate(rows):
         text = _row_text(row)
         low = text.lower()
+
+        # Handwritten supplier captions are often OCR-corrupted while the arrow
+        # and supplier name survive, e.g. "Tohzizatal -> Bravo".
+        if row_index < 5:
+            arrow = re.search(r"(?:->|=>|→|➜|>)\s*([^\d]{2,80})$", text)
+            if arrow:
+                candidate = _clean_supplier_name(_clean_freeform_name(arrow.group(1)))
+                if candidate and sum(ch.isalpha() for ch in candidate) >= 2:
+                    return candidate
+
         if not any(label in low for label in SUPPLIER_LABELS):
             continue
         match = pattern.search(text)
@@ -790,7 +801,18 @@ def _currency_near(text: str, match: re.Match[str]) -> bool:
     return _adjacent_hint(text, match, CURRENCY_HINTS) is not None
 
 
+def _normalize_freeform_numeric_text(text: str) -> str:
+    # OCR commonly joins handwritten numbers with unit/currency tokens:
+    # "3AZN" / "4kg". Split only known tokens so product names stay untouched.
+    tokens = sorted(set((*FREEFORM_UNITS, *CURRENCY_HINTS)), key=len, reverse=True)
+    if not tokens:
+        return text
+    token_pattern = "|".join(re.escape(token) for token in tokens)
+    return re.sub(r"(?<=\d)(?=(?:" + token_pattern + r")\b)", " ", text, flags=re.I)
+
+
 def _best_freeform_numeric_triplet(text: str) -> tuple[float, float, float, str | None, int] | None:
+    text = _normalize_freeform_numeric_text(text)
     matches = list(MONEY_RE.finditer(text))
     if len(matches) < 3:
         return None
@@ -843,8 +865,27 @@ def _best_freeform_numeric_triplet(text: str) -> tuple[float, float, float, str 
 def freeform_row_candidates(lines: list[OcrLine]) -> list[dict[str, Any]]:
     output = []
     seen = set()
-    for row in _visual_rows(lines):
+    rows = _visual_rows(lines)
+
+    candidates: list[tuple[str, list[OcrLine]]] = []
+    for index, row in enumerate(rows):
         text = _row_text(row)
+        if text:
+            candidates.append((text, row))
+
+        # Some handwriting OCR splits one logical item into two rows:
+        # product name first, then "price/currency - quantity - total".
+        if index + 1 < len(rows):
+            next_row = rows[index + 1]
+            next_text = _row_text(next_row)
+            current_has_letters = sum(ch.isalpha() for ch in text) >= 2
+            current_has_triplet = _best_freeform_numeric_triplet(text) is not None
+            next_has_triplet = _best_freeform_numeric_triplet(next_text) is not None
+            if current_has_letters and not current_has_triplet and next_has_triplet:
+                candidates.append((f"{text} {next_text}".strip(), [*row, *next_row]))
+
+    for original_text, row in candidates:
+        text = _normalize_freeform_numeric_text(original_text)
         low = text.lower()
         if not text or any(label in low for label in SUPPLIER_LABELS):
             continue
@@ -957,7 +998,7 @@ def heuristic_parse(lines: list[OcrLine]) -> dict[str, Any]:
             {"page": x.page, "text": x.text, "confidence": round(x.score, 4), "box": x.box}
             for x in ordered
         ],
-        "localParser": "heuristic-v5",
+        "localParser": "heuristic-v6",
     }
 
 
@@ -1027,7 +1068,7 @@ def health():
         "ocrVersion": OCR_VERSION,
         "ollamaConfigured": bool(OLLAMA_URL),
         "ollamaModel": OLLAMA_MODEL if OLLAMA_URL else None,
-        "parserVersion": "heuristic-v5",
+        "parserVersion": "heuristic-v6",
         "imagePreprocessing": True,
         "secondaryOcr": SECONDARY_OCR or None,
         "secondaryOcrLangs": SECONDARY_OCR_LANGS if SECONDARY_OCR == "easyocr" else [],
@@ -1106,7 +1147,7 @@ def _process_temp_path(
             heuristic["secondaryOcrError"] = secondary_error
 
     parsed = None
-    parser = heuristic.get("localParser", "heuristic-v5")
+    parser = heuristic.get("localParser", "heuristic-v6")
     if OLLAMA_URL:
         mark("ollama", 82)
         try:
