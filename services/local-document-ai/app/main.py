@@ -148,7 +148,11 @@ def likely_supplier(lines: list[OcrLine]) -> str | None:
             value = re.split(r"[:：]", line.text, maxsplit=1)
             if len(value) == 2 and value[1].strip():
                 supplier = value[1].strip()
-                supplier = re.sub(r'^[\"“”«»]+|[\"“”«»]+
+                suffixes = (" MMC", " LLC", " ASC", " OOO", " ООО")
+                for quote in ('"', "“", "”", "«", "»"):
+                    for suffix in suffixes:
+                        supplier = supplier.replace(quote + suffix, suffix)
+                return supplier.strip(' "“”«»')
 
     bad = tuple(x.lower() for x in HEADER_WORDS + TOTAL_WORDS + DATE_WORDS)
     candidates: list[tuple[float, str]] = []
@@ -164,7 +168,10 @@ def likely_supplier(lines: list[OcrLine]) -> str | None:
             continue
         bonus = 0.12 if any(x in low for x in ("mmc", "llc", "asc", "şirk", "company", "market")) else 0
         candidates.append((line.score + bonus + min(len(text), 45) / 300, text))
-    return max(candidates, default=(0, None))[1]
+    fallback = max(candidates, default=(0, None))[1]
+    if fallback:
+        return fallback.strip(' "“”«»')
+    return None
 
 
 def likely_doc_number(lines: list[OcrLine]) -> str | None:
