@@ -11,6 +11,7 @@ from typing import Any
 import requests
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from paddleocr import PaddleOCR
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 app = FastAPI(title="SmartHoreca Local Document AI", version="1.0.0")
 
@@ -35,6 +36,15 @@ HEADER_WORDS = (
     "malın adı", "məhsul", "miqdar", "qiymət", "məbləğ", "товар", "наименование",
     "количество", "цена", "сумма", "quantity", "price", "amount"
 )
+SUPPLIER_LABELS = (
+    "təchizatçı", "techizatci", "techizatçı", "tchizatçı", "tchizatci",
+    "поставщик", "supplier"
+)
+FREEFORM_UNITS = (
+    "kg", "кг", "qram", "qr", "gr", "g", "əd", "ed", "шт", "pcs", "pc",
+    "l", "lt", "л", "ml", "мл"
+)
+CURRENCY_HINTS = ("azn", "₼", "manat", "манат")
 
 
 @dataclass
