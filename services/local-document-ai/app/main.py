@@ -210,6 +210,38 @@ def should_try_secondary_ocr(parsed: dict[str, Any]) -> bool:
     )
 
 
+def _line_center(line: OcrLine) -> tuple[float, float]:
+    if line.box and len(line.box) >= 4:
+        return ((line.box[0] + line.box[2]) / 2, (line.box[1] + line.box[3]) / 2)
+    return (0.0, 0.0)
+
+
+def merge_ocr_lines(primary: list[OcrLine], secondary: list[OcrLine]) -> list[OcrLine]:
+    """Merge two OCR engines while suppressing obvious duplicate boxes."""
+    merged: list[OcrLine] = []
+    for line in [*primary, *secondary]:
+        text_key = re.sub(r"\s+", " ", (line.text or "").strip().lower())
+        if not text_key:
+            continue
+        cx, cy = _line_center(line)
+        duplicate_index = None
+        for i, existing in enumerate(merged):
+            if existing.page != line.page:
+                continue
+            existing_key = re.sub(r"\s+", " ", (existing.text or "").strip().lower())
+            if existing_key != text_key:
+                continue
+            ex, ey = _line_center(existing)
+            if line.box and existing.box and abs(ex - cx) <= 45 and abs(ey - cy) <= 28:
+                duplicate_index = i
+                break
+        if duplicate_index is None:
+            merged.append(line)
+        elif line.score > merged[duplicate_index].score:
+            merged[duplicate_index] = line
+    return ordered_lines(merged)
+
+
 def ordered_lines(lines: list[OcrLine]) -> list[OcrLine]:
     def pos(line: OcrLine):
         if line.box and len(line.box) >= 4:
