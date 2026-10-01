@@ -26,8 +26,35 @@ def main():
     assert second["total"] == 20.8, second
     assert result["total"] == 50.8, result
 
+    # Regression: real OCR output may split the item name from its numbers
+    # and join unit/currency directly to the numeric token.
+    split_lines = [
+        line("Tohzizatal -> Bravo", 20),
+        line("Fazs", 120),
+        line("3AZN-10-30", 165),
+        line("tomat-4kg-5.2-20.8", 240),
+        line("50.8", 320),
+    ]
+    split_result = heuristic_parse(split_lines)
+    assert split_result["documentMode"] == "freeform", split_result
+    assert split_result["supplierName"] == "Bravo", split_result
+    assert len(split_result["items"]) == 2, split_result
+
+    first, second = split_result["items"]
+    assert first["sourceName"].lower() == "fazs", first
+    assert first["quantity"] == 10, first
+    assert first["unitPrice"] == 3, first
+    assert first["total"] == 30, first
+
+    assert second["sourceName"].lower() == "tomat", second
+    assert second["quantity"] == 4, second
+    assert second["unit"] == "kg", second
+    assert second["unitPrice"] == 5.2, second
+    assert second["total"] == 20.8, second
+    assert split_result["total"] == 50.8, split_result
+
     print("HANDWRITTEN PARSER OK")
-    print(result)
+    print(split_result)
 
 
 if __name__ == "__main__":
