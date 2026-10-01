@@ -278,3 +278,90 @@ body.olap-modal-open{overflow:hidden}
     grid-template-columns:410px minmax(0,1fr)!important;
   }
 }
+
+
+/* Compact OLAP tree result */
+.olap-v2-result .report-table.olap-tree-compact{
+  width:100%!important;
+  min-width:0!important;
+  table-layout:fixed!important;
+  border-collapse:separate!important;
+  border-spacing:0!important;
+}
+.olap-v2-result .olap-tree-compact col.olap-tree-main-col{width:auto!important}
+.olap-v2-result .olap-tree-compact col.olap-tree-dimension-col{width:180px!important}
+.olap-v2-result .olap-tree-compact col.olap-tree-measure-col{width:155px!important}
+.olap-v2-result .olap-tree-compact th,
+.olap-v2-result .olap-tree-compact td{
+  height:40px!important;
+  padding:0 12px!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+}
+.olap-v2-result .olap-tree-compact th{
+  font-size:11px!important;
+}
+.olap-v2-result .olap-tree-compact .olap-tree-heading{
+  text-align:left!important;
+}
+.olap-v2-result .olap-tree-compact .olap-measure-heading,
+.olap-v2-result .olap-tree-compact .olap-measure-cell{
+  text-align:right!important;
+  font-variant-numeric:tabular-nums!important;
+}
+.olap-v2-result .olap-tree-compact .olap-tree-label{
+  text-align:left!important;
+  padding-left:calc(12px + (var(--tree-level,0) * 22px))!important;
+  font-weight:650!important;
+}
+.olap-v2-result .olap-tree-compact tr[data-olap-level="0"] .olap-tree-label{
+  font-weight:850!important;
+}
+.olap-v2-result .olap-tree-compact tr[data-olap-level="0"] td{
+  background:#15271f!important;
+}
+.olap-v2-result .olap-tree-compact tr[data-olap-level="1"] td{
+  background:#0e1823!important;
+}
+.olap-v2-result .olap-tree-compact tr[data-olap-level="2"] td{
+  background:#0c151e!important;
+}
+.olap-v2-result .olap-tree-compact .olap-group-toggle{
+  width:24px!important;
+  height:24px!important;
+  margin-right:8px!important;
+  border-radius:6px!important;
+  flex:0 0 24px!important;
+}
+.olap-v2-result .olap-tree-compact .olap-tree-spacer{
+  display:inline-block!important;
+  width:24px!important;
+  margin-right:8px!important;
+}
+.olap-v2-result .olap-tree-compact .olap-tree-text{
+  vertical-align:middle!important;
+}
+.olap-v2-result .olap-tree-compact tr[hidden]{
+  display:none!important;
+}
+.olap-v2-result .olap-tree-compact .olap-grand-total td{
+  height:44px!important;
+  background:#0d4f40!important;
+  font-weight:850!important;
+}
+.olap-v2-result .olap-tree-compact .olap-grand-label{
+  padding-left:12px!important;
+}
+.olap-v2-result .olap-tree-compact.olap-flat-report th,
+.olap-v2-result .olap-tree-compact.olap-flat-report td{
+  text-align:left!important;
+}
+.olap-v2-result .report-table-wrapper{
+  overflow-x:hidden!important;
+}
+@media(max-width:1100px){
+  .olap-v2-result .olap-tree-compact col.olap-tree-dimension-col{width:145px!important}
+  .olap-v2-result .olap-tree-compact col.olap-tree-measure-col{width:130px!important}
+  .olap-v2-result .report-table-wrapper{overflow-x:auto!important}
+}
