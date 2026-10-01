@@ -1,14 +1,467 @@
-(()=>{'use strict';const $=id=>document.getElementById(id);const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let current=null;
-async function getConn(){if(!window.SH_IikoContext?.get)throw Error('D1 iiko-контекст не загружен.');const s=await window.SH_IikoContext.get();const c=s?.connection;if(!c?.ip||!c?.port||!c?.login||!c?.password)throw Error('Нет подключения SH Server в D1.');return c}
-function today(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
-function addStyles(){if($('incoming-editor-style'))return;const s=document.createElement('style');s.id='incoming-editor-style';s.textContent=`.inc-editor{position:fixed;inset:0;z-index:220;background:rgba(3,7,11,.74);backdrop-filter:blur(8px);display:grid;place-items:center;padding:18px}.inc-editor[hidden]{display:none}.inc-dialog{width:min(1000px,96vw);max-height:92vh;overflow:auto;background:#111923;border:1px solid rgba(255,255,255,.1);border-radius:18px;box-shadow:0 30px 90px rgba(0,0,0,.5)}.inc-head{display:flex;justify-content:space-between;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.07);color:#f2f6f8;font-weight:800}.inc-body{padding:18px}.inc-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.inc-body label{display:flex;flex-direction:column;gap:5px;color:#8995a5;font-size:10px;font-weight:700}.inc-body input,.inc-body textarea{border:1px solid rgba(255,255,255,.1);border-radius:9px;background:#0c131c;color:#e8edf2;padding:9px;outline:0}.inc-body textarea{min-height:60px;resize:vertical}.inc-items{margin-top:14px}.inc-item{display:grid;grid-template-columns:1.5fr .7fr .7fr .8fr auto;gap:8px;align-items:end;margin-top:8px;padding:10px;border:1px solid rgba(255,255,255,.07);border-radius:11px}.inc-btn{border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:9px 12px;background:#1a2430;color:#dfe7ee;font-weight:750;cursor:pointer}.inc-primary{background:#42d392;color:#06110b;border:0}.inc-danger{background:#3a1e25;color:#ffb7c2}.inc-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:15px}@media(max-width:700px){.inc-grid{grid-template-columns:1fr 1fr}.inc-item{grid-template-columns:1fr 1fr}}@media(max-width:480px){.inc-grid{grid-template-columns:1fr}}`;document.head.appendChild(s)}
-function ensure(){addStyles();if($('inc-editor'))return;const d=document.createElement('div');d.id='inc-editor';d.className='inc-editor';d.hidden=true;d.innerHTML=`<div class="inc-dialog"><div class="inc-head"><span id="inc-title">Новая приходная накладная</span><button id="inc-close" class="inc-btn">×</button></div><div class="inc-body"><input id="inc-id" type="hidden"><div class="inc-grid"><label>Номер документа<input id="inc-doc-number"></label><label>Дата<input id="inc-date" type="date"></label><label>Поставщик ID<input id="inc-supplier" placeholder="GUID"></label><label>Счёт-фактура<input id="inc-invoice"></label><label>Входящий номер<input id="inc-incoming-number"></label><label>Срок оплаты<input id="inc-due" type="date"></label><label>Склад ID<input id="inc-store" placeholder="GUID"></label><label>ТТН<input id="inc-transport"></label><label>Сотрудник ID<input id="inc-employee"></label></div><label style="margin-top:10px">Комментарий<textarea id="inc-comment"></textarea></label><div class="inc-items"><strong style="color:#e8edf2;font-size:12px">Позиции</strong><div id="inc-items"></div><button id="inc-add" class="inc-btn" type="button" style="margin-top:9px">＋ Добавить позицию</button></div><div class="inc-actions"><button id="inc-save" class="inc-btn inc-primary">Сохранить</button></div></div></div>`;document.body.appendChild(d);$('inc-close').onclick=()=>d.hidden=true;$('inc-add').onclick=()=>addItem();$('inc-save').onclick=save}
-function addItem(x={}){const w=document.createElement('div');w.className='inc-item';w.innerHTML=`<label>Товар ID / артикул<input data-f="product" value="${esc(x.productId||x.productArticle||'')}"></label><label>Количество<input data-f="amount" type="number" step="0.001" value="${esc(x.amount??1)}"></label><label>Цена<input data-f="price" type="number" step="0.01" value="${esc(x.price??0)}"></label><label>Сумма<input data-f="sum" type="number" step="0.01" value="${esc(x.sum??0)}"></label><button class="inc-btn inc-danger" type="button">Удалить</button>`;w.querySelector('button').onclick=()=>w.remove();$('inc-items').appendChild(w)}
-function openEditor(d=null){ensure();current=d;$('inc-title').textContent=d?'Редактирование приходной накладной':'Новая приходная накладная';$('inc-id').value=d?.id||'';$('inc-doc-number').value=d?.documentNumber||'';$('inc-date').value=d?.dateIncoming?String(d.dateIncoming).slice(0,10):today();$('inc-supplier').value=d?.supplierId||'';$('inc-invoice').value=d?.invoice||'';$('inc-incoming-number').value=d?.incomingDocumentNumber||'';$('inc-due').value=d?.dueDate?String(d.dueDate).slice(0,10):'';$('inc-store').value=d?.defaultStore||d?.storeId||'';$('inc-transport').value=d?.transportInvoiceNumber||'';$('inc-employee').value=d?.employeeId||'';$('inc-comment').value=d?.comment||'';$('inc-items').innerHTML='';(d?.items?.length?d.items:[{}]).forEach(addItem);$('inc-editor').hidden=false}
-async function save(){try{const c=await getConn();const items=[...document.querySelectorAll('#inc-items .inc-item')].map((w,i)=>{const g=n=>w.querySelector(`[data-f="${n}"]`)?.value;const amount=Number(g('amount')||0),price=Number(g('price')||0);return {num:i+1,product:g('product'),amount,price,sum:Number(g('sum')||amount*price),actualAmount:amount}}).filter(x=>x.product);if(!items.length)throw Error('Добавьте хотя бы одну позицию.');const doc={id:$('inc-id').value||undefined,documentNumber:$('inc-doc-number').value||undefined,dateIncoming:$('inc-date').value+'T00:00:00',supplierId:$('inc-supplier').value,invoice:$('inc-invoice').value,incomingDocumentNumber:$('inc-incoming-number').value,dueDate:$('inc-due').value,defaultStore:$('inc-store').value,transportInvoiceNumber:$('inc-transport').value,employeeId:$('inc-employee').value,comment:$('inc-comment').value,items};const r=await fetch('/api/iiko/document-action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({connection:c,type:'incoming',action:'save',document:doc})});const x=await r.json().catch(()=>({}));if(!r.ok||x.success===false)throw Error(x.message||`HTTP ${r.status}`);$('inc-editor').hidden=true;location.reload()}catch(e){alert(e.message||'Ошибка сохранения')}}
-async function unprocess(){try{const title=$('invoice-details-title')?.textContent||'';const m=title.match(/№\s*(.+)$/);if(!m)throw Error('Не найден номер документа.');if(!confirm(`Распровести накладную №${m[1].trim()}?`))return;const c=await getConn();const r=await fetch('/api/iiko/document-action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({connection:c,type:'incoming',action:'unprocess',document:{documentNumber:m[1].trim()}})});const x=await r.json().catch(()=>({}));if(!r.ok||x.success===false)throw Error(x.message||`HTTP ${r.status}`);location.reload()}catch(e){alert(e.message||'Ошибка распроведения')}}
-function addButton(){const host=document.querySelector('.invoices-toolbar-actions');if(!host||$('inc-new-btn'))return;const b=document.createElement('button');b.id='inc-new-btn';b.className='invoice-primary';b.type='button';b.textContent='＋ Новая приходная';b.onclick=()=>openEditor();host.appendChild(b)}
-function addDetailActions(){const details=document.getElementById('invoice-details');if(!details)return;const h=details.querySelector('.invoice-details-head');if(!h)return;const close=h.lastElementChild;if(!close)return;if(!h.querySelector('#inc-edit-btn')){const b=document.createElement('button');b.id='inc-edit-btn';b.type='button';b.className='invoice-secondary';b.textContent='Редактировать';b.onclick=()=>{const title=document.getElementById('invoice-details-title')?.textContent||'';const m=title.match(/№(.+)$/);if(!m)return alert('Не найден номер документа');openByNumber(m[1].trim())};close.insertBefore(b,close.firstChild)}if(!h.querySelector('#inc-unprocess-btn')){const b=document.createElement('button');b.id='inc-unprocess-btn';b.type='button';b.className='invoice-secondary';b.textContent='Распровести';b.onclick=unprocess;close.insertBefore(b,close.firstChild)}}
-async function openByNumber(number){try{const c=await getConn();const r=await fetch('/api/iiko/document-by-number',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({connection:c,type:'incoming',number,currentYear:false,from:'2000-01-01',to:today()})});const x=await r.json();if(!r.ok||x.success===false||!x.document)throw Error(x.message||'Документ не найден');openEditor(x.document)}catch(e){alert(e.message||'Ошибка поиска')}}
-function init(){addButton();addDetailActions()}
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();const observer=new MutationObserver(()=>{addButton();addDetailActions()});observer.observe(document.body,{childList:true,subtree:true});})();
+(function () {
+  'use strict';
+
+  var refs = { loaded: false, suppliers: [], warehouses: [], products: [], productLabelToId: new Map(), productIdToLabel: new Map() };
+  var current = null;
+  var loadingRefs = null;
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  };
+
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function autoDocumentNumber() {
+    var d = new Date();
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return 'SH-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  }
+
+  async function getConn() {
+    if (!window.SH_IikoContext || !window.SH_IikoContext.get) throw new Error('Контекст iiko не загружен.');
+    var state = await window.SH_IikoContext.get();
+    var c = state && state.connection;
+    if (!c || !c.ip || !c.port || !c.login || !c.password) throw new Error('Нет подключения к iiko Server. Откройте «Настройки».');
+    return c;
+  }
+
+  function setEditorStatus(text, kind) {
+    var el = $('inc-entry-status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'inc-entry-status ' + (kind || '');
+  }
+
+  function addStyles() {
+    if ($('incoming-entry-v2-style')) return;
+    var style = document.createElement('style');
+    style.id = 'incoming-entry-v2-style';
+    style.textContent =
+      '.inc-editor{position:fixed;inset:0;z-index:9999;background:rgba(3,7,11,.72);backdrop-filter:blur(8px);display:grid;place-items:center;padding:18px}' +
+      '.inc-editor[hidden]{display:none}.inc-dialog{width:min(1180px,97vw);max-height:94vh;overflow:auto;background:#111923;border:1px solid rgba(255,255,255,.1);border-radius:18px;box-shadow:0 30px 90px rgba(0,0,0,.5);color:#e8edf2}' +
+      '.inc-head{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.08);position:sticky;top:0;background:#111923;z-index:2}.inc-head strong{font-size:16px}.inc-head button{font-size:20px}' +
+      '.inc-body{padding:18px}.inc-entry-status{min-height:18px;margin-bottom:12px;color:#91a0af;font-size:12px}.inc-entry-status.loading{color:#e7c86f}.inc-entry-status.error{color:#ff8a8a}.inc-entry-status.success{color:#61dda0}' +
+      '.inc-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.inc-body label{display:flex;flex-direction:column;gap:6px;color:#8995a5;font-size:11px;font-weight:700}' +
+      '.inc-body input,.inc-body select,.inc-body textarea{box-sizing:border-box;width:100%;border:1px solid rgba(255,255,255,.11);border-radius:9px;background:#0c131c;color:#e8edf2;padding:10px;outline:0;font:inherit}.inc-body select{min-height:40px}.inc-body textarea{min-height:70px;resize:vertical}' +
+      '.inc-items-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px}.inc-items-head strong{font-size:13px}.inc-total{font-size:13px;color:#aab6c3}.inc-total b{color:#fff;font-size:16px}' +
+      '.inc-item{display:grid;grid-template-columns:minmax(260px,1.8fr) 120px 130px 130px auto;gap:8px;align-items:end;margin-top:8px;padding:10px;border:1px solid rgba(255,255,255,.07);border-radius:11px;background:#0e161f}' +
+      '.inc-btn{border:1px solid rgba(255,255,255,.11);border-radius:9px;padding:10px 13px;background:#1a2430;color:#dfe7ee;font-weight:750;cursor:pointer}.inc-btn:hover{filter:brightness(1.08)}.inc-btn:disabled{opacity:.5;cursor:not-allowed}' +
+      '.inc-primary{background:#42d392;color:#06110b;border-color:#42d392}.inc-danger{background:#3a1e25;color:#ffb7c2}.inc-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.inc-note{margin-top:12px;padding:10px 12px;border-radius:9px;background:#13211b;color:#9fbaae;font-size:11px}' +
+      '@media(max-width:850px){.inc-grid{grid-template-columns:1fr 1fr}.inc-item{grid-template-columns:1fr 1fr}.inc-item .inc-remove-wrap{grid-column:1/-1}}@media(max-width:520px){.inc-grid{grid-template-columns:1fr}.inc-item{grid-template-columns:1fr}}';
+    document.head.appendChild(style);
+  }
+
+  function ensureEditor() {
+    addStyles();
+    if ($('inc-editor')) return;
+    var wrap = document.createElement('div');
+    wrap.id = 'inc-editor';
+    wrap.className = 'inc-editor';
+    wrap.hidden = true;
+    wrap.innerHTML =
+      '<div class="inc-dialog">' +
+        '<div class="inc-head"><strong id="inc-title">Новая приходная накладная</strong><button id="inc-close" class="inc-btn" type="button">×</button></div>' +
+        '<div class="inc-body">' +
+          '<div id="inc-entry-status" class="inc-entry-status"></div>' +
+          '<input id="inc-id" type="hidden">' +
+          '<div class="inc-grid">' +
+            '<label>Номер документа<input id="inc-doc-number" placeholder="Создастся автоматически"></label>' +
+            '<label>Дата<input id="inc-date" type="date"></label>' +
+            '<label>Поставщик<select id="inc-supplier"><option value="">Загрузка…</option></select></label>' +
+            '<label>Счёт-фактура<input id="inc-invoice"></label>' +
+            '<label>Входящий номер<input id="inc-incoming-number"></label>' +
+            '<label>Срок оплаты<input id="inc-due" type="date"></label>' +
+            '<label>Склад<select id="inc-store"><option value="">Загрузка…</option></select></label>' +
+            '<label>ТТН<input id="inc-transport"></label>' +
+          '</div>' +
+          '<label style="margin-top:12px">Комментарий<textarea id="inc-comment"></textarea></label>' +
+          '<div class="inc-items-head"><strong>Позиции накладной</strong><span class="inc-total">Итого: <b id="inc-total">0,00</b> ₼</span></div>' +
+          '<div id="inc-items"></div>' +
+          '<button id="inc-add" class="inc-btn" type="button" style="margin-top:10px">＋ Добавить позицию</button>' +
+          '<datalist id="inc-product-options"></datalist>' +
+          '<div class="inc-note">«Сохранить» создаёт/обновляет накладную без проведения. «Сохранить и провести» сразу проводит документ по складу в iiko.</div>' +
+          '<div class="inc-actions"><button id="inc-cancel" class="inc-btn" type="button">Отмена</button><button id="inc-save" class="inc-btn" type="button">Сохранить</button><button id="inc-save-process" class="inc-btn inc-primary" type="button">Сохранить и провести</button></div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(wrap);
+    $('inc-close').onclick = closeEditor;
+    $('inc-cancel').onclick = closeEditor;
+    $('inc-add').onclick = function () { addItem({}); };
+    $('inc-save').onclick = function () { save(false); };
+    $('inc-save-process').onclick = function () { save(true); };
+  }
+
+  function closeEditor() {
+    if ($('inc-editor')) $('inc-editor').hidden = true;
+  }
+
+  function optionHtml(rows, placeholder) {
+    return '<option value="">' + esc(placeholder) + '</option>' +
+      rows.map(function (x) { return '<option value="' + esc(x.id) + '">' + esc(x.name) + '</option>'; }).join('');
+  }
+
+  function buildProductMaps() {
+    refs.productLabelToId = new Map();
+    refs.productIdToLabel = new Map();
+    var options = [];
+    refs.products.forEach(function (p) {
+      var shortId = String(p.id || '').slice(0, 8);
+      var label = p.name + (shortId ? ' · ' + shortId : '');
+      refs.productLabelToId.set(label, p.id);
+      refs.productIdToLabel.set(String(p.id).toLowerCase(), label);
+      options.push('<option value="' + esc(label) + '"></option>');
+    });
+    if ($('inc-product-options')) $('inc-product-options').innerHTML = options.join('');
+  }
+
+  async function loadReferences(force) {
+    if (refs.loaded && !force) return refs;
+    if (loadingRefs && !force) return loadingRefs;
+    loadingRefs = (async function () {
+      var c = await getConn();
+      setEditorStatus('Загружаем поставщиков, склады и номенклатуру из iiko…', 'loading');
+      var response = await fetch('/api/iiko/invoice-reference-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ connection: c }),
+        cache: 'no-store'
+      });
+      var data = await response.json().catch(function () { return {}; });
+      if (!response.ok || data.success === false) throw new Error(data.message || ('HTTP ' + response.status));
+      refs.suppliers = Array.isArray(data.suppliers) ? data.suppliers : [];
+      refs.warehouses = Array.isArray(data.warehouses) ? data.warehouses : [];
+      refs.products = Array.isArray(data.products) ? data.products : [];
+      refs.loaded = true;
+      $('inc-supplier').innerHTML = optionHtml(refs.suppliers, 'Выберите поставщика');
+      $('inc-store').innerHTML = optionHtml(refs.warehouses, 'Выберите склад');
+      buildProductMaps();
+      setEditorStatus('Справочники загружены: ' + refs.suppliers.length + ' поставщиков · ' + refs.warehouses.length + ' складов · ' + refs.products.length + ' товаров', 'success');
+      return refs;
+    })().finally(function () { loadingRefs = null; });
+    return loadingRefs;
+  }
+
+  function productLabel(id, name) {
+    var key = String(id || '').toLowerCase();
+    if (key && refs.productIdToLabel.has(key)) return refs.productIdToLabel.get(key);
+    if (name) {
+      var found = refs.products.find(function (x) { return String(x.name || '').toLowerCase() === String(name).toLowerCase(); });
+      if (found) return refs.productIdToLabel.get(String(found.id).toLowerCase()) || found.name;
+    }
+    return id || name || '';
+  }
+
+  function resolveProductId(value) {
+    var v = String(value || '').trim();
+    if (!v) return '';
+    if (refs.productLabelToId.has(v)) return refs.productLabelToId.get(v);
+    var byId = refs.products.find(function (x) { return String(x.id).toLowerCase() === v.toLowerCase(); });
+    if (byId) return byId.id;
+    var exactName = refs.products.filter(function (x) { return String(x.name || '').toLowerCase() === v.toLowerCase(); });
+    if (exactName.length === 1) return exactName[0].id;
+    return '';
+  }
+
+  function addItem(item) {
+    item = item || {};
+    var row = document.createElement('div');
+    row.className = 'inc-item';
+    row.innerHTML =
+      '<label>Товар<input data-f="product" list="inc-product-options" autocomplete="off" placeholder="Начните вводить название" value="' + esc(productLabel(item.productId || item.product, item.productName)) + '"></label>' +
+      '<label>Количество<input data-f="amount" type="number" min="0.001" step="0.001" value="' + esc(item.actualAmount != null ? item.actualAmount : (item.amount != null ? item.amount : 1)) + '"></label>' +
+      '<label>Цена<input data-f="price" type="number" min="0" step="0.01" value="' + esc(item.price != null ? item.price : 0) + '"></label>' +
+      '<label>Сумма<input data-f="sum" type="number" min="0" step="0.01" value="' + esc(item.sum != null ? item.sum : 0) + '"></label>' +
+      '<div class="inc-remove-wrap"><button class="inc-btn inc-danger" type="button">Удалить</button></div>';
+    row.querySelector('.inc-danger').onclick = function () { row.remove(); recalc(); };
+    ['amount', 'price'].forEach(function (name) {
+      row.querySelector('[data-f="' + name + '"]').addEventListener('input', function () {
+        var amount = Number(row.querySelector('[data-f="amount"]').value || 0);
+        var price = Number(row.querySelector('[data-f="price"]').value || 0);
+        row.querySelector('[data-f="sum"]').value = (amount * price).toFixed(2);
+        recalc();
+      });
+    });
+    row.querySelector('[data-f="sum"]').addEventListener('input', recalc);
+    $('inc-items').appendChild(row);
+    if (item.sum == null) {
+      var amount = Number(row.querySelector('[data-f="amount"]').value || 0);
+      var price = Number(row.querySelector('[data-f="price"]').value || 0);
+      row.querySelector('[data-f="sum"]').value = (amount * price).toFixed(2);
+    }
+    recalc();
+  }
+
+  function recalc() {
+    var total = Array.from(document.querySelectorAll('#inc-items .inc-item')).reduce(function (sum, row) {
+      return sum + Number(row.querySelector('[data-f="sum"]').value || 0);
+    }, 0);
+    if ($('inc-total')) $('inc-total').textContent = total.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  async function openEditor(doc) {
+    ensureEditor();
+    current = doc || null;
+    $('inc-editor').hidden = false;
+    $('inc-title').textContent = doc ? 'Редактирование приходной накладной' : 'Новая приходная накладная';
+    $('inc-save').disabled = true;
+    $('inc-save-process').disabled = true;
+    try {
+      await loadReferences(false);
+      $('inc-id').value = doc && doc.id ? doc.id : '';
+      $('inc-doc-number').value = doc && doc.documentNumber ? doc.documentNumber : '';
+      $('inc-date').value = doc && doc.dateIncoming ? String(doc.dateIncoming).slice(0, 10) : today();
+      $('inc-supplier').value = doc && doc.supplierId ? String(doc.supplierId).replace(/[{}]/g, '').toLowerCase() : '';
+      $('inc-invoice').value = doc && doc.invoice ? doc.invoice : '';
+      $('inc-incoming-number').value = doc && doc.incomingDocumentNumber ? doc.incomingDocumentNumber : '';
+      $('inc-due').value = doc && doc.dueDate ? String(doc.dueDate).slice(0, 10) : '';
+      var storeId = doc ? (doc.defaultStore || doc.defaultStoreId || doc.storeId || '') : '';
+      $('inc-store').value = String(storeId).replace(/[{}]/g, '').toLowerCase();
+      $('inc-transport').value = doc && doc.transportInvoiceNumber ? doc.transportInvoiceNumber : '';
+      $('inc-comment').value = doc && doc.comment ? doc.comment : '';
+      $('inc-items').innerHTML = '';
+      var items = doc && Array.isArray(doc.items) && doc.items.length ? doc.items : [{}];
+      items.forEach(addItem);
+      $('inc-save').disabled = false;
+      $('inc-save-process').disabled = false;
+    } catch (error) {
+      setEditorStatus(error.message || 'Не удалось загрузить справочники iiko', 'error');
+    }
+  }
+
+  async function save(processAfterSave) {
+    var button = processAfterSave ? $('inc-save-process') : $('inc-save');
+    var otherButton = processAfterSave ? $('inc-save') : $('inc-save-process');
+    try {
+      button.disabled = true;
+      otherButton.disabled = true;
+      setEditorStatus('Проверяем накладную…', 'loading');
+      var c = await getConn();
+      var supplierId = $('inc-supplier').value;
+      var storeId = $('inc-store').value;
+      if (!supplierId) throw new Error('Выберите поставщика.');
+      if (!storeId) throw new Error('Выберите склад.');
+
+      var items = Array.from(document.querySelectorAll('#inc-items .inc-item')).map(function (row, index) {
+        var productText = row.querySelector('[data-f="product"]').value;
+        var productId = resolveProductId(productText);
+        var amount = Number(row.querySelector('[data-f="amount"]').value || 0);
+        var price = Number(row.querySelector('[data-f="price"]').value || 0);
+        var sum = Number(row.querySelector('[data-f="sum"]').value || 0);
+        if (!productId) throw new Error('Строка ' + (index + 1) + ': выберите товар из списка iiko.');
+        if (!(amount > 0)) throw new Error('Строка ' + (index + 1) + ': количество должно быть больше 0.');
+        if (!(price >= 0)) throw new Error('Строка ' + (index + 1) + ': цена не может быть отрицательной.');
+        return { num: index + 1, productId: productId, amount: amount, actualAmount: amount, price: price, sum: sum };
+      });
+      if (!items.length) throw new Error('Добавьте хотя бы одну позицию.');
+
+      var documentData = {
+        id: $('inc-id').value || undefined,
+        documentNumber: ($('inc-doc-number').value || '').trim() || autoDocumentNumber(),
+        dateIncoming: $('inc-date').value + 'T00:00:00',
+        supplierId: supplierId,
+        invoice: $('inc-invoice').value,
+        incomingDocumentNumber: $('inc-incoming-number').value,
+        dueDate: $('inc-due').value,
+        defaultStore: storeId,
+        transportInvoiceNumber: $('inc-transport').value,
+        comment: $('inc-comment').value,
+        items: items
+      };
+
+      setEditorStatus(processAfterSave ? 'Сохраняем и проводим накладную в iiko BackOffice…' : 'Сохраняем накладную в iiko BackOffice…', 'loading');
+      var response = await fetch('/api/iiko/document-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ connection: c, type: 'incoming', action: processAfterSave ? 'save-and-process' : 'save', document: documentData }),
+        cache: 'no-store'
+      });
+      var data = await response.json().catch(function () { return {}; });
+      if (!response.ok || data.success === false) {
+        var detail = data.validation && (data.validation.errorMessage || data.validation.additionalInfo);
+        var raw = String(data.rawResponse || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        var serverDetail = raw && raw.length <= 700 ? raw : (raw ? raw.slice(0, 700) + '…' : '');
+        throw new Error(detail || serverDetail || data.message || ('HTTP ' + response.status));
+      }
+
+      var number = data.validation && (data.validation.documentNumber || data.validation.otherSuggestedNumber);
+      setEditorStatus((data.message || 'Накладная создана в iiko BackOffice') + (number ? ' · № ' + number : ''), 'success');
+      setTimeout(function () { location.reload(); }, 700);
+    } catch (error) {
+      setEditorStatus(error.message || 'Ошибка сохранения накладной', 'error');
+      button.disabled = false;
+      otherButton.disabled = false;
+    }
+  }
+
+  async function loadDocumentByNumber(number) {
+    var c = await getConn();
+    var response = await fetch('/api/iiko/document-by-number', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ connection: c, type: 'incoming', number: number, currentYear: false, from: '2000-01-01', to: today() }),
+      cache: 'no-store'
+    });
+    var data = await response.json().catch(function () { return {}; });
+    if (!response.ok || data.success === false || !data.document) throw new Error(data.message || 'Документ не найден');
+    return { connection: c, document: data.document };
+  }
+
+  function selectedDocument() {
+    return window.SHIncomingInvoices && typeof window.SHIncomingInvoices.getSelected === 'function'
+      ? window.SHIncomingInvoices.getSelected()
+      : (window.SHIncomingInvoices && window.SHIncomingInvoices.selected) || null;
+  }
+
+  function selectedNumber() {
+    var selected = selectedDocument();
+    if (selected && selected.documentNumber) return String(selected.documentNumber).trim();
+    var title = $('invoice-details-title') ? $('invoice-details-title').textContent : '';
+    var match = title.match(/№\s*(.+)$/);
+    return match ? match[1].trim() : '';
+  }
+
+  function actionError(data, response) {
+    var detail = data && data.validation && (data.validation.errorMessage || data.validation.additionalInfo);
+    var raw = String(data && data.rawResponse || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return detail || (raw ? raw.slice(0, 700) : '') || (data && data.message) || ('HTTP ' + response.status);
+  }
+
+  async function openByNumber(number) {
+    try {
+      setEditorStatus('Загружаем документ из iiko…', 'loading');
+      var loaded = await loadDocumentByNumber(number);
+      await openEditor(loaded.document);
+    } catch (error) {
+      alert(error.message || 'Ошибка загрузки документа');
+    }
+  }
+
+  async function processSelected() {
+    try {
+      var number = selectedNumber();
+      if (!number) throw new Error('Не найден номер документа.');
+      if (!confirm('Провести накладную №' + number + '?')) return;
+      var loaded = await loadDocumentByNumber(number);
+      var response = await fetch('/api/iiko/document-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'save-and-process', document: loaded.document }),
+        cache: 'no-store'
+      });
+      var data = await response.json().catch(function () { return {}; });
+      if (!response.ok || data.success === false) throw new Error(actionError(data, response));
+      location.reload();
+    } catch (error) {
+      alert(error.message || 'Ошибка проведения');
+    }
+  }
+
+  async function unprocess() {
+    try {
+      var number = selectedNumber();
+      if (!number) throw new Error('Не найден номер документа.');
+      if (!confirm('Распровести накладную №' + number + '?')) return;
+      var loaded = await loadDocumentByNumber(number);
+      var response = await fetch('/api/iiko/document-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'unprocess', document: loaded.document }),
+        cache: 'no-store'
+      });
+      var data = await response.json().catch(function () { return {}; });
+      if (!response.ok || data.success === false) throw new Error(actionError(data, response));
+      location.reload();
+    } catch (error) {
+      alert(error.message || 'Ошибка распроведения');
+    }
+  }
+
+  function bindNewButton() {
+    var button = $('inc-new-btn');
+    if (!button) {
+      var host = document.querySelector('.invoices-toolbar-actions');
+      if (!host) return;
+      button = document.createElement('button');
+      button.id = 'inc-new-btn';
+      button.className = 'invoice-primary';
+      button.type = 'button';
+      button.textContent = '＋ Новая приходная';
+      host.appendChild(button);
+    }
+    if (button.dataset.invoiceEntryBound === '1') return;
+    button.dataset.invoiceEntryBound = '1';
+    button.onclick = function () { openEditor(null); };
+  }
+
+  function refreshDetailActions() {
+    var selected = selectedDocument();
+    var status = String(selected && selected.status || '').toUpperCase();
+    var edit = $('inc-edit-btn');
+    var processButton = $('inc-process-btn');
+    var unprocessButton = $('inc-unprocess-btn');
+    if (edit) edit.hidden = status === 'PROCESSED';
+    if (processButton) processButton.hidden = status !== 'NEW';
+    if (unprocessButton) unprocessButton.hidden = status !== 'PROCESSED';
+  }
+
+  function bindDetailActions() {
+    var details = $('invoice-details');
+    if (!details) return;
+    var actions = details.querySelector('.invoice-details-actions');
+    if (!actions) return;
+    if (!$('inc-edit-btn')) {
+      var edit = document.createElement('button');
+      edit.id = 'inc-edit-btn';
+      edit.type = 'button';
+      edit.textContent = 'Редактировать';
+      edit.onclick = function () {
+        var number = selectedNumber();
+        if (!number) return alert('Не найден номер документа');
+        openByNumber(number);
+      };
+      actions.insertBefore(edit, actions.firstChild);
+    }
+    if (!$('inc-process-btn')) {
+      var processButton = document.createElement('button');
+      processButton.id = 'inc-process-btn';
+      processButton.type = 'button';
+      processButton.textContent = 'Провести';
+      processButton.onclick = processSelected;
+      actions.insertBefore(processButton, actions.firstChild);
+    }
+    if (!$('inc-unprocess-btn')) {
+      var unprocessButton = document.createElement('button');
+      unprocessButton.id = 'inc-unprocess-btn';
+      unprocessButton.type = 'button';
+      unprocessButton.textContent = 'Распровести';
+      unprocessButton.onclick = unprocess;
+      actions.insertBefore(unprocessButton, actions.firstChild);
+    }
+    refreshDetailActions();
+  }
+
+  function init() {
+    ensureEditor();
+    bindNewButton();
+    bindDetailActions();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
+  else init();
+
+  window.addEventListener('sh:incoming-invoice-selected', function () {
+    bindDetailActions();
+    refreshDetailActions();
+  });
+
+  var observer = new MutationObserver(function () {
+    bindNewButton();
+    bindDetailActions();
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+})();
