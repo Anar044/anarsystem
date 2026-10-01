@@ -28,7 +28,7 @@ DATE_PATTERNS = [
 ]
 MONEY_RE = re.compile(r"(?<!\w)(\d{1,7}(?:[ .]\d{3})*(?:[,.]\d{1,4})?)(?!\w)")
 QTY_RE = re.compile(r"(?<!\w)(\d+(?:[,.]\d{1,3})?)\s*(əd|ed|шт|pcs?|kg|кг|qram|gr|qr|g|l|lt|л|ml|мл)?\b", re.I)
-TOTAL_WORDS = ("cəmi", "yekun", "toplam", "total", "итого", "всего", "məbləğ")
+TOTAL_WORDS = ("cəmi", "cemi", "cmi", "yekun", "toplam", "total", "итого", "всего", "məbləğ")
 DATE_WORDS = ("tarix", "date", "дата")
 DOCNO_WORDS = ("qaimə", "qaimə №", "invoice", "накладн", "faktura", "faktura №", "№")
 HEADER_WORDS = (
@@ -137,7 +137,18 @@ def ordered_lines(lines: list[OcrLine]) -> list[OcrLine]:
 
 
 def likely_supplier(lines: list[OcrLine]) -> str | None:
-    top = ordered_lines(lines)[:18]
+    top = ordered_lines(lines)[:24]
+
+    # Prefer an explicit supplier label. Azerbaijani OCR commonly loses
+    # diacritics, so accept both correct and OCR-degraded variants.
+    supplier_labels = ("təchizatçı", "techizatci", "tchizatçı", "tchizatci", "поставщик", "supplier")
+    for line in top:
+        low = line.text.lower()
+        if any(label in low for label in supplier_labels):
+            value = re.split(r"[:：]", line.text, maxsplit=1)
+            if len(value) == 2 and value[1].strip():
+                return value[1].strip().strip('"').strip()
+
     bad = tuple(x.lower() for x in HEADER_WORDS + TOTAL_WORDS + DATE_WORDS)
     candidates: list[tuple[float, str]] = []
     for line in top:
@@ -156,14 +167,27 @@ def likely_supplier(lines: list[OcrLine]) -> str | None:
 
 
 def likely_doc_number(lines: list[OcrLine]) -> str | None:
-    for line in ordered_lines(lines)[:35]:
+    keywords = (
+        "nömr", "nomr", "номер", "number", "document no", "sənədin", "senedin",
+        "sndin", "qaimə", "qaime", "invoice", "faktura", "накладн", "№"
+    )
+    for line in ordered_lines(lines)[:40]:
         low = line.text.lower()
-        if any(w in low for w in DOCNO_WORDS):
-            m = re.search(r"(?:№|no|n[oº]?|qaimə|invoice|faktura|накладн[^\s:]*)?\s*[:#№-]?\s*([A-ZА-ЯƏÖÜĞÇŞİ0-9][A-ZА-ЯƏÖÜĞÇŞİ0-9./_-]{2,})", line.text, re.I)
-            if m:
-                value = m.group(1).strip()
-                if not iso_date(value):
-                    return value
+        if not any(w in low for w in keywords):
+            continue
+
+        # Most supplier forms print the value after a colon.
+        after = re.search(r"[:：#№]\s*([A-ZА-ЯƏÖÜĞÇŞİ0-9][A-ZА-ЯƏÖÜĞÇŞİ0-9./_-]{1,})\s*$", line.text, re.I)
+        if after:
+            value = after.group(1).strip()
+            if not iso_date(value):
+                return value
+
+        # OCR may remove the separator: use the last plausible token.
+        tokens = re.findall(r"[A-ZА-ЯƏÖÜĞÇŞİ0-9][A-ZА-ЯƏÖÜĞÇŞİ0-9./_-]{1,}", line.text, re.I)
+        for value in reversed(tokens):
+            if not iso_date(value) and any(ch.isdigit() for ch in value):
+                return value
     return None
 
 
@@ -176,36 +200,121 @@ def line_numbers(text: str) -> list[float]:
     return out
 
 
-def likely_total(lines: list[OcrLine]) -> float | None:
-    for line in reversed(ordered_lines(lines)):
-        low = line.text.lower()
-        if any(word in low for word in TOTAL_WORDS):
-            values = line_numbers(line.text)
-            if values:
-                return values[-1]
-    tail_values: list[float] = []
-    for line in ordered_lines(lines)[-12:]:
-        tail_values.extend(line_numbers(line.text))
-    return max(tail_values, default=None)
+def _cx(line: OcrLine) -> float | None:
+    if not line.box or len(line.box) < 4:
+        return None
+    return (line.box[0] + line.box[2]) / 2
+
+
+def _cy(line: OcrLine) -> float | None:
+    if not line.box or len(line.box) < 4:
+        return None
+    return (line.box[1] + line.box[3]) / 2
+
+
+def _is_total_label(text: str) -> bool:
+    low = text.lower().strip()
+    compact = re.sub(r"[^a-zA-Zа-яА-Яəöüğçşıİ]+", "", low)
+    return any(word in low for word in TOTAL_WORDS) or compact in {"cmi", "cemi", "cəmi", "yekun", "total", "итого"}
+
+
+def likely_total(lines: list[OcrLine], items: list[dict[str, Any]] | None = None) -> float | None:
+    ordered = ordered_lines(lines)
+
+    # Total label and amount are often separate OCR boxes on the same row.
+    for label in reversed(ordered):
+        if not _is_total_label(label.text):
+            continue
+        ly = _cy(label)
+        lx = _cx(label)
+        same_row: list[tuple[float, float]] = []
+        for candidate in ordered:
+            if candidate.page != label.page:
+                continue
+            cy = _cy(candidate)
+            cx = _cx(candidate)
+            if ly is None or cy is None or abs(cy - ly) > 24:
+                continue
+            if lx is not None and cx is not None and cx <= lx:
+                continue
+            for value in line_numbers(candidate.text):
+                same_row.append((cx or 0, value))
+        if same_row:
+            same_row.sort(key=lambda x: x[0])
+            return same_row[-1][1]
+
+        values = line_numbers(label.text)
+        if values:
+            return values[-1]
+
+    # Safer fallback than "largest number near the bottom": supplier article
+    # codes such as 0124 must never become the invoice total.
+    row_totals = [float(x["total"]) for x in (items or []) if x.get("total") is not None]
+    if row_totals:
+        return round(sum(row_totals), 4)
+    return None
+
+
+def _header_match(text: str, aliases: tuple[str, ...]) -> bool:
+    low = text.lower().strip()
+    return any(alias in low for alias in aliases)
+
+
+def _nearest_numeric(cells: list[OcrLine], target_x: float | None, min_x: float | None = None) -> tuple[OcrLine, float] | None:
+    candidates: list[tuple[float, OcrLine, float]] = []
+    for cell in cells:
+        cx = _cx(cell)
+        if cx is None:
+            continue
+        if min_x is not None and cx < min_x:
+            continue
+        values = line_numbers(cell.text)
+        if len(values) != 1:
+            continue
+        distance = abs(cx - target_x) if target_x is not None else cx
+        candidates.append((distance, cell, values[0]))
+    if not candidates:
+        return None
+    _, cell, value = min(candidates, key=lambda x: x[0])
+    return cell, value
 
 
 def row_candidates(lines: list[OcrLine]) -> list[dict[str, Any]]:
+    ordered = ordered_lines(lines)
+
+    name_header = next((x for x in ordered if _header_match(x.text, ("nomenklatura", "наименование", "məhsul", "malın adı"))), None)
+    code_header = next((x for x in ordered if _header_match(x.text, ("kod", "code", "артикул"))), None)
+    unit_header = next((x for x in ordered if _header_match(x.text, ("ölçü", "vah.", "ед.", "unit"))), None)
+    qty_header = next((x for x in ordered if _header_match(x.text, ("miqdar", "колич", "quantity"))), None)
+
+    price_headers = [x for x in ordered if _header_match(x.text, ("qiym", "цена", "price"))]
+    price_headers = sorted([x for x in price_headers if _cx(x) is not None], key=lambda x: _cx(x) or 0)
+
+    header_lines = [x for x in (name_header, code_header, unit_header, qty_header, *price_headers) if x and x.box]
+    header_bottom = max((x.box[3] for x in header_lines), default=0)
+
+    name_x = _cx(name_header) if name_header else None
+    code_x = _cx(code_header) if code_header else None
+    unit_x = _cx(unit_header) if unit_header else None
+    qty_x = _cx(qty_header) if qty_header else None
+
     # Group OCR boxes that share approximately the same Y coordinate.
     rows: list[list[OcrLine]] = []
-    for line in ordered_lines(lines):
-        if not line.box:
-            rows.append([line])
+    for line in ordered:
+        if line.box and line.box[1] <= header_bottom + 8:
             continue
-        y = (line.box[1] + line.box[3]) / 2
+        if not line.box:
+            continue
+        y = _cy(line)
         matched = None
-        for row in reversed(rows[-8:]):
+        for row in reversed(rows[-10:]):
             boxed = [x for x in row if x.box]
             if not boxed:
                 continue
-            ry = sum((x.box[1] + x.box[3]) / 2 for x in boxed) / len(boxed)
+            ry = sum(_cy(x) or 0 for x in boxed) / len(boxed)
             heights = [max(8, x.box[3] - x.box[1]) for x in boxed]
-            tolerance = max(12, sum(heights) / len(heights) * 0.75)
-            if row[0].page == line.page and abs(ry - y) <= tolerance:
+            tolerance = max(10, min(15, sum(heights) / len(heights) * 0.65))
+            if row[0].page == line.page and y is not None and abs(ry - y) <= tolerance:
                 matched = row
                 break
         if matched is None:
@@ -215,54 +324,93 @@ def row_candidates(lines: list[OcrLine]) -> list[dict[str, Any]]:
 
     output = []
     for row in rows:
-        cells = sorted(row, key=lambda x: x.box[0] if x.box else 0)
+        cells = sorted(row, key=lambda x: _cx(x) or 0)
         text = " | ".join(x.text for x in cells)
         low = text.lower()
-        if any(h in low for h in HEADER_WORDS):
+
+        if _is_total_label(text) or any(h in low for h in HEADER_WORDS):
             continue
-        numbers = line_numbers(text)
-        if len(numbers) < 2:
+        if iso_date(text):
             continue
 
-        # Name: prefer non-numeric cells on the left/middle.
-        name_parts = []
+        # Product name comes from the nomenclature column, not arbitrary
+        # alphabetic text on the page.
+        product_cells: list[OcrLine] = []
         for cell in cells:
-            t = cell.text.strip()
-            if not t or MONEY_RE.fullmatch(t.replace(" ", "")):
+            cx = _cx(cell)
+            if cx is None:
                 continue
-            if QTY_RE.fullmatch(t):
-                continue
-            if sum(ch.isalpha() for ch in t) >= 2:
-                name_parts.append(t)
-        name = " ".join(name_parts).strip()
+            left_ok = code_x is None or cx > code_x + 12
+            right_boundary = unit_x if unit_x is not None else qty_x
+            right_ok = right_boundary is None or cx < right_boundary - 25
+            if left_ok and right_ok and sum(ch.isalpha() for ch in cell.text) >= 2:
+                product_cells.append(cell)
+
+        if not product_cells and name_x is not None:
+            alpha_cells = [x for x in cells if sum(ch.isalpha() for ch in x.text) >= 2 and _cx(x) is not None]
+            if alpha_cells:
+                product_cells = [min(alpha_cells, key=lambda x: abs((_cx(x) or 0) - name_x))]
+
+        name = " ".join(x.text.strip() for x in product_cells).strip()
         if len(name) < 2:
             continue
 
-        quantity = None
+        # Quantity must come from the Miqdar/Quantity column. This avoids
+        # confusing row numbers 1,2,3... with quantities.
+        qty_pick = _nearest_numeric(cells, qty_x)
+        quantity = qty_pick[1] if qty_pick else None
+
+        # Unit is the text closest to the unit column.
         unit = None
+        if unit_x is not None:
+            unit_cells = [
+                x for x in cells
+                if _cx(x) is not None
+                and abs((_cx(x) or 0) - unit_x) <= 55
+                and any(ch.isalpha() for ch in x.text)
+            ]
+            if unit_cells:
+                unit = min(unit_cells, key=lambda x: abs((_cx(x) or 0) - unit_x)).text.strip() or None
+
+        # Supplier article/code is valuable for future exact matching.
+        article = None
+        if code_x is not None:
+            code_cells = [
+                x for x in cells
+                if _cx(x) is not None
+                and abs((_cx(x) or 0) - code_x) <= 60
+                and re.fullmatch(r"[A-Za-zА-Яа-я0-9._/-]{2,}", x.text.strip())
+            ]
+            if code_cells:
+                article = min(code_cells, key=lambda x: abs((_cx(x) or 0) - code_x)).text.strip()
+
+        # Price and line total are numeric cells to the right of quantity.
+        right_of_qty: list[tuple[float, OcrLine, float]] = []
+        threshold = (qty_x + 35) if qty_x is not None else 0
         for cell in cells:
-            m = QTY_RE.search(cell.text)
-            if m:
-                q = num(m.group(1))
-                if q is not None and q > 0:
-                    quantity = q
-                    unit = (m.group(2) or "").strip() or None
-                    break
+            cx = _cx(cell)
+            if cx is None or cx < threshold:
+                continue
+            values = line_numbers(cell.text)
+            if len(values) == 1:
+                right_of_qty.append((cx, cell, values[0]))
+        right_of_qty.sort(key=lambda x: x[0])
 
-        price = None
-        total = None
-        if len(numbers) >= 2:
-            total = numbers[-1]
-            price = numbers[-2]
-        if quantity is None and price not in (None, 0) and total is not None:
-            candidate = total / price
-            if 0 < candidate < 100000:
-                quantity = round(candidate, 3)
+        price = right_of_qty[0][2] if right_of_qty else None
+        total = right_of_qty[-1][2] if len(right_of_qty) >= 2 else None
 
-        confidence = sum(x.score for x in cells) / max(1, len(cells))
+        # Require table-like evidence. A date/header line must not become a
+        # purchase item merely because it contains several numbers.
+        if quantity is None or price is None:
+            continue
+        if total is None:
+            total = round(quantity * price, 4)
+
+        confidence_cells = list({id(x): x for x in (product_cells + [p[1] for p in right_of_qty] + ([qty_pick[0]] if qty_pick else []))}.values())
+        confidence = sum(x.score for x in confidence_cells) / max(1, len(confidence_cells))
         output.append({
             "sourceName": name[:240],
-            "article": None,
+            "article": article,
             "quantity": quantity,
             "unit": unit,
             "unitPrice": price,
@@ -281,16 +429,19 @@ def heuristic_parse(lines: list[OcrLine]) -> dict[str, Any]:
     scores = [x.score for x in ordered if x.text]
     items = row_candidates(ordered)
     confidence = sum(scores) / len(scores) if scores else 0.0
+    supplier_document_number = likely_doc_number(ordered)
     return {
         "documentType": "incoming_invoice",
         "supplierName": likely_supplier(ordered),
-        "documentNumber": likely_doc_number(ordered),
+        # SmartHoreca/iiko document number is generated by our system.
+        # The number printed by the supplier belongs in incomingNumber.
+        "documentNumber": None,
         "invoiceNumber": None,
-        "incomingNumber": None,
+        "incomingNumber": supplier_document_number,
         "date": dates[0] if dates else None,
         "dueDate": dates[1] if len(dates) > 1 else None,
-        "currency": "AZN" if re.search(r"\b(AZN|₼|MANAT)\b", all_text, re.I) else None,
-        "total": likely_total(ordered),
+        "currency": "AZN" if re.search(r"\b(AZN|₼|MANAT|MAN)\b", all_text, re.I) else None,
+        "total": likely_total(ordered, items),
         "vatTotal": None,
         "confidence": round(confidence, 4),
         "items": items,
@@ -299,7 +450,7 @@ def heuristic_parse(lines: list[OcrLine]) -> dict[str, Any]:
             {"page": x.page, "text": x.text, "confidence": round(x.score, 4), "box": x.box}
             for x in ordered
         ],
-        "localParser": "heuristic-v1",
+        "localParser": "heuristic-v2",
     }
 
 
