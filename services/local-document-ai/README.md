@@ -6,6 +6,13 @@ Pipeline:
 
 PDF / photo -> PaddleOCR -> local parser -> optional Ollama -> SmartHoreca matching with iiko -> optional OpenAI fallback.
 
+Parser v5 supports two automatic modes:
+
+- `table` - printed supplier invoices with table columns
+- `freeform` - handwritten or loosely formatted notes such as `tomat - 4 kg - 5.2 - 20.8`
+
+For image files the service tries the original plus local grayscale/contrast preprocessing passes and selects the best parsed result.
+
 PaddleOCR itself does not require a paid API.
 
 ## Requirements
@@ -93,3 +100,34 @@ For production, use a named Cloudflare Tunnel with a stable hostname.
 - Temporary OCR files are deleted after each request.
 - The source document uploaded to SmartHoreca remains in the configured R2 bucket.
 - The local service returns OCR text, positions, confidence, and a best-effort invoice structure.
+
+
+## Handwritten / free-form notes
+
+Example:
+
+    Təchizatçı -> Bravo
+    məhsul A - 3 AZN - 10 - 30
+    tomat - 4 kg - 5.2 - 20.8
+
+The free-form parser validates arithmetic before accepting a row. It supports both common layouts:
+
+    product - quantity unit - unit price - total
+    product - unit price AZN - quantity - total
+
+The second layout is detected from the currency marker near the first number.
+
+After pulling a parser update, rebuild the local Docker image:
+
+    cd C:\SmartHoreca-local-ai\services\local-document-ai
+    git pull
+    docker compose down
+    docker compose up -d --build
+
+Then check:
+
+    curl http://127.0.0.1:8789/health
+
+Expected health includes:
+
+    "parserVersion": "heuristic-v5"
