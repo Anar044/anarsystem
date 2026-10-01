@@ -227,6 +227,33 @@ function arithmeticCheck(raw,items){
     totalIssues
   };
 }
+
+function confirmedDraftFromInput(value){
+  const d=value&&typeof value==="object"?value:{};
+  const items=Array.isArray(d.items)?d.items.slice(0,500).map((x,index)=>({
+    num:Number.isFinite(Number(x?.num))?Number(x.num):index+1,
+    sourceName:clean(x?.sourceName),
+    productId:key(x?.productId),
+    productName:clean(x?.productName),
+    amount:Number.isFinite(Number(x?.amount))?Number(x.amount):null,
+    actualAmount:Number.isFinite(Number(x?.actualAmount))?Number(x.actualAmount):null,
+    price:Number.isFinite(Number(x?.price))?Number(x.price):null,
+    sum:Number.isFinite(Number(x?.sum))?Number(x.sum):null
+  })).filter(x=>x.productId&&x.amount!==null&&x.price!==null&&x.sum!==null):[];
+
+  return {
+    documentNumber:clean(d.documentNumber),
+    dateIncoming:clean(d.dateIncoming),
+    supplierId:key(d.supplierId),
+    defaultStore:key(d.defaultStore||d.defaultStoreId||d.storeId),
+    invoice:clean(d.invoice),
+    incomingDocumentNumber:clean(d.incomingDocumentNumber),
+    dueDate:clean(d.dueDate),
+    documentTotal:Number.isFinite(Number(d.documentTotal))?Number(d.documentTotal):null,
+    items
+  };
+}
+
 async function enrich(env,userId,raw){
   const connection=await loadPrivateConnection(env,userId);
   const refs=await referenceData(env,connection);
@@ -353,9 +380,35 @@ export async function onRequestPost({request,env}){
     if(action==="markImported"){
       const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row)return json({success:false,message:"Документ не найден"},404);
       const result=publicRow(row).result||{};
-      result.imported={documentNumber:clean(b.documentNumber),processed:Boolean(b.processed),at:new Date().toISOString()};
-      await env.DB.prepare(`UPDATE ai_documents SET status='IMPORTED',document_number=COALESCE(NULLIF(?1,''),document_number),result_json=?2,error_message=NULL,updated_at=?3 WHERE id=?4 AND user_id=?5`)
-        .bind(clean(b.documentNumber),JSON.stringify(result),new Date().toISOString(),docId,a.user.id).run();
+      const confirmedDraft=confirmedDraftFromInput(b.draft);
+      result.confirmedDraft=confirmedDraft;
+      result.imported={
+        documentNumber:clean(b.documentNumber)||confirmedDraft.documentNumber,
+        processed:Boolean(b.processed),
+        at:new Date().toISOString()
+      };
+      await env.DB.prepare(`UPDATE ai_documents
+        SET status='IMPORTED',
+            document_number=COALESCE(NULLIF(?1,''),document_number),
+            supplier_id=COALESCE(NULLIF(?2,''),supplier_id),
+            document_date=COALESCE(NULLIF(?3,''),document_date),
+            due_date=COALESCE(NULLIF(?4,''),due_date),
+            total=COALESCE(?5,total),
+            result_json=?6,
+            error_message=NULL,
+            updated_at=?7
+        WHERE id=?8 AND user_id=?9`)
+        .bind(
+          clean(b.documentNumber)||confirmedDraft.documentNumber,
+          confirmedDraft.supplierId,
+          confirmedDraft.dateIncoming?confirmedDraft.dateIncoming.slice(0,10):"",
+          confirmedDraft.dueDate?confirmedDraft.dueDate.slice(0,10):"",
+          confirmedDraft.documentTotal,
+          JSON.stringify(result),
+          new Date().toISOString(),
+          docId,
+          a.user.id
+        ).run();
       return json({success:true,document:publicRow(await rowById(env.DB,a.user.id,docId))});
     }
     if(action==="delete"){
