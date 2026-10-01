@@ -70,3 +70,34 @@ html[data-theme="light"] .aid-preview-tools button.active{background:#e8f8f0;bor
   .aid-preview-tools{width:100%;overflow-x:auto;padding-bottom:2px}
   .aid-file-preview{height:480px;min-height:420px}
 }
+
+
+/* Keep recognized item economics visible in the narrower data pane */
+.aid-item{
+  grid-template-columns:minmax(170px,1.6fr) 82px 92px 100px;
+  grid-template-areas:
+    "source source source source"
+    "product qty price sum";
+  gap:7px 8px;
+}
+.aid-source-wrap{grid-area:source;min-width:0}
+.aid-product-wrap{grid-area:product;min-width:0}
+.aid-qty-wrap{grid-area:qty}
+.aid-price-wrap{grid-area:price}
+.aid-sum-wrap{grid-area:sum}
+.aid-source-wrap .source{font-weight:700}
+@media(max-width:1250px){
+  .aid-item{
+    grid-template-columns:minmax(150px,1.5fr) 74px 84px 92px;
+  }
+}
+@media(max-width:720px){
+  .aid-item{
+    grid-template-columns:1fr 1fr;
+    grid-template-areas:
+      "source source"
+      "product product"
+      "qty price"
+      "sum sum";
+  }
+}
