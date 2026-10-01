@@ -151,3 +151,29 @@ Health output should include:
 To disable the second engine:
 
     SECONDARY_OCR=off
+
+
+## Async OCR jobs
+
+The web application uses background jobs so long PP-OCRv5/EasyOCR processing does not keep one Cloudflare request open.
+
+Start a job:
+
+    POST /jobs
+
+Check it:
+
+    GET /jobs/{jobId}
+
+Typical stages:
+
+    queued -> paddleocr -> easyocr (only when needed) -> ollama (optional) -> finalizing -> done
+
+The old synchronous endpoint remains available for local command-line testing:
+
+    POST /process
+
+Docker defaults to one OCR worker to avoid excessive CPU/RAM use:
+
+    OCR_JOB_WORKERS=1
+    OCR_JOB_TTL_SECONDS=7200
