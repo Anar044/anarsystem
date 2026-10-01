@@ -72,8 +72,17 @@ async function startDocumentProcess(docId,provider,{review=false}={}){
 }
 function resumePendingProcesses(){
   documents.filter(d=>d.status==='PROCESSING').forEach(d=>{
-    pollDocumentProcess(d.id,{review:current?.id===d.id})
-      .then(()=>loadAll(current?.id||d.id))
+    const shouldOpen=current?.id===d.id;
+    pollDocumentProcess(d.id,{review:shouldOpen})
+      .then(async result=>{
+        if(result?.document){
+          mergeDocument(result.document);
+          if(shouldOpen&&!result.interrupted&&result.document.status!=='PROCESSING'){
+            await fillReview(result.document);
+          }
+        }
+        await loadAll();
+      })
       .catch(error=>setUploadStatus(error.message||String(error),'error'));
   });
 }
@@ -356,8 +365,14 @@ async function uploadAndProcess(){
     setUploadStatus('Запускаем Local AI…');
     const processed=await startDocumentProcess(up.document.id,provider);
     chosenFile=null;$('fileInput').value='';
-    setUploadStatus(processed.document.status==='READY'?'Распознано и сопоставлено.':'Распознано. Требуется проверка.','success');
-    await loadAll(up.document.id);
+    if(processed.document){
+      mergeDocument(processed.document);
+      if(!processed.interrupted&&processed.document.status!=='PROCESSING'){
+        await fillReview(processed.document);
+      }
+    }
+    setUploadStatus(processed.document?.status==='READY'?'Распознано и сопоставлено.':'Распознано. Требуется проверка.','success');
+    await loadAll();
   }finally{$('uploadBtn').disabled=false}
 }
 async function reprocess(){
@@ -365,7 +380,13 @@ async function reprocess(){
   const id=current.id;
   setReviewStatus('Запускаем повторное распознавание…');
   const j=await startDocumentProcess(id,$('providerSelect').value,{review:true});
-  await loadAll(j.document?.id||id);
+  if(j.document){
+    mergeDocument(j.document);
+    if(!j.interrupted&&j.document.status!=='PROCESSING'){
+      await fillReview(j.document);
+    }
+  }
+  await loadAll();
 }
 async function deleteCurrent(){if(!current||!confirm('Удалить документ из AI Inbox?'))return;await aiPost({action:'delete',id:current.id});current=null;$('reviewContent').hidden=true;$('reviewEmpty').hidden=false;await loadAll()}
 function collectDraft(){const supplierId=$('draftSupplier').value,storeId=$('draftStore').value;if(!supplierId)throw new Error('Выберите поставщика.');if(!storeId)throw new Error('Выберите склад.');const arithmetic=validateDraftArithmetic();if(!arithmetic.valid)throw new Error('Исправьте арифметические расхождения перед сохранением.');const items=[...document.querySelectorAll('.aid-item')].map((row,i)=>{const productId=row.querySelector('[data-f="product"]').value,amount=Number(row.querySelector('[data-f="quantity"]').value||0),price=Number(row.querySelector('[data-f="price"]').value||0),sum=Number(row.querySelector('[data-f="sum"]').value||0);if(!productId)throw new Error('Строка '+(i+1)+': выберите товар iiko.');if(!(amount>0))throw new Error('Строка '+(i+1)+': количество должно быть больше 0.');const product=(refs?.products||[]).find(x=>String(x.id)===String(productId));const sourceName=currentMatching().items?.[i]?.sourceName||'';return{num:i+1,sourceName,productId,productName:product?.name||'',amount,actualAmount:amount,price,sum}});if(!items.length)throw new Error('В документе нет товарных строк.');return{documentNumber:$('draftNumber').value||undefined,dateIncoming:($('draftDate').value||today())+'T00:00:00',supplierId,defaultStore:storeId,invoice:$('draftInvoice').value,incomingDocumentNumber:$('draftIncoming').value,dueDate:$('draftDue').value,documentTotal:arithmetic.documentTotal,comment:'Создано через SmartHoreca AI Document Inbox',items}}
