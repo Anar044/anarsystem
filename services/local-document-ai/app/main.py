@@ -887,6 +887,8 @@ JSON schema:
     if isinstance(parsed, dict):
         parsed["ocrText"] = heuristic.get("ocrText", "")
         parsed["ocrLines"] = heuristic.get("ocrLines", [])
+        parsed["documentMode"] = parsed.get("documentMode") or heuristic.get("documentMode")
+        parsed["ocrPass"] = heuristic.get("ocrPass")
         parsed["localParser"] = f"ollama:{OLLAMA_MODEL}"
         return parsed
     return None
@@ -909,6 +911,8 @@ def health():
         "ocrVersion": OCR_VERSION,
         "ollamaConfigured": bool(OLLAMA_URL),
         "ollamaModel": OLLAMA_MODEL if OLLAMA_URL else None,
+        "parserVersion": "heuristic-v5",
+        "imagePreprocessing": True,
     }
 
 
@@ -935,11 +939,17 @@ async def process(
             temp.write(raw)
             temp_path = temp.name
 
-        lines = ocr_document(temp_path)
-        heuristic = heuristic_parse(lines)
+        ocr_candidates = ocr_document_candidates(temp_path)
+        evaluated = []
+        for pass_name, candidate_lines in ocr_candidates:
+            candidate = heuristic_parse(candidate_lines)
+            candidate["ocrPass"] = pass_name
+            evaluated.append((candidate, candidate_lines))
+
+        heuristic, lines = max(evaluated, key=lambda pair: _parser_quality(pair[0]))
 
         parsed = None
-        parser = heuristic.get("localParser", "heuristic-v4")
+        parser = heuristic.get("localParser", "heuristic-v5")
         if OLLAMA_URL:
             try:
                 parsed = ollama_parse(heuristic, schema, prompt)
@@ -955,6 +965,9 @@ async def process(
             "data": data,
             "usage": {
                 "ocrLines": len(lines),
+                "ocrPasses": len(ocr_candidates),
+                "selectedOcrPass": heuristic.get("ocrPass"),
+                "documentMode": data.get("documentMode") or heuristic.get("documentMode"),
                 "averageConfidence": data.get("confidence"),
                 "local": True,
                 "paidTokens": 0,
