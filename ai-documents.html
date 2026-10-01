@@ -6,7 +6,7 @@
 <title>Smart Horeca Control — AI Документы</title>
 <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
 <link rel="stylesheet" href="/app-shell.css?v=20260911-7">
-<link rel="stylesheet" href="/ai-documents.css?v=20261001-4">
+<link rel="stylesheet" href="/ai-documents.css?v=20261001-arithmetic-1?v=20261001-4">
 </head>
 <body data-protected="true">
 <div class="app-shell">
@@ -116,7 +116,10 @@
                   <label>Входящий №<input id="draftIncoming"></label>
                   <label>Срок оплаты<input id="draftDue" type="date"></label>
                   <label>Валюта<input id="draftCurrency" readonly></label>
+                  <label>Итого документа<input id="draftDeclaredTotal" type="number" step="0.01"></label>
                 </div>
+
+                <div id="arithmeticWarning" class="aid-arithmetic-warning" hidden></div>
 
                 <div class="aid-lines-head">
                   <strong>Позиции</strong>
@@ -145,6 +148,6 @@
 <script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
 <script src="/documents-nav.js?v=20261001-ai1"></script>
 <script src="/mobile-responsive.js?v=3"></script>
-<script src="/ai-documents.js?v=20261001-5"></script>
+<script src="/ai-documents.js?v=20261001-arithmetic-1"></script>
 </body>
 </html>
