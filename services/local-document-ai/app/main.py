@@ -658,6 +658,142 @@ def _freeform_supplier(lines: list[OcrLine]) -> str | None:
     return None
 
 
+
+def _unit_near(text: str, match: re.Match[str]) -> str | None:
+    after = text[match.end():match.end() + 16].lower()
+    before = text[max(0, match.start() - 8):match.start()].lower()
+    for unit in FREEFORM_UNITS:
+        pattern = r"\b" + re.escape(unit) + r"\b"
+        if re.search(pattern, after, re.I) or re.search(pattern, before, re.I):
+            return unit
+    return None
+
+
+def _currency_near(text: str, match: re.Match[str]) -> bool:
+    around = text[max(0, match.start() - 6):match.end() + 18].lower()
+    return any(token in around for token in CURRENCY_HINTS)
+
+
+def _best_freeform_numeric_triplet(text: str) -> tuple[float, float, float, str | None, int] | None:
+    matches = list(MONEY_RE.finditer(text))
+    if len(matches) < 3:
+        return None
+
+    candidates = []
+    for i in range(len(matches) - 2):
+        for j in range(i + 1, len(matches) - 1):
+            for k in range(j + 1, len(matches)):
+                a = num(matches[i].group(1))
+                b = num(matches[j].group(1))
+                total = num(matches[k].group(1))
+                if a is None or b is None or total is None:
+                    continue
+                tolerance = max(0.06, abs(total) * 0.025)
+                if abs((a * b) - total) > tolerance:
+                    continue
+
+                unit_a = _unit_near(text, matches[i])
+                unit_b = _unit_near(text, matches[j])
+                currency_a = _currency_near(text, matches[i])
+                currency_b = _currency_near(text, matches[j])
+
+                quantity = a
+                price = b
+                unit = unit_a
+                if currency_a and not currency_b:
+                    price = a
+                    quantity = b
+                    unit = unit_b
+                elif unit_b and not unit_a:
+                    price = a
+                    quantity = b
+                    unit = unit_b
+
+                score = (
+                    5.0
+                    + (2.0 if unit_a or unit_b else 0.0)
+                    + (1.5 if currency_a or currency_b else 0.0)
+                    + (0.5 if k == len(matches) - 1 else 0.0)
+                    - ((j - i - 1) + (k - j - 1)) * 0.15
+                )
+                candidates.append((quantity, price, total, unit, i, score))
+
+    if not candidates:
+        return None
+    quantity, price, total, unit, first_index, _ = max(candidates, key=lambda x: x[-1])
+    return quantity, price, total, unit, first_index
+
+
+def freeform_row_candidates(lines: list[OcrLine]) -> list[dict[str, Any]]:
+    output = []
+    seen = set()
+    for row in _visual_rows(lines):
+        text = _row_text(row)
+        low = text.lower()
+        if not text or any(label in low for label in SUPPLIER_LABELS):
+            continue
+        if _is_total_label(text) or iso_date(text):
+            continue
+
+        triplet = _best_freeform_numeric_triplet(text)
+        if not triplet:
+            continue
+        quantity, price, total, unit, first_number_index = triplet
+        number_matches = list(MONEY_RE.finditer(text))
+        if first_number_index >= len(number_matches):
+            continue
+
+        prefix = text[:number_matches[first_number_index].start()]
+        name = _clean_freeform_name(prefix)
+        name = re.sub(
+            r"\b(?:məhsul|mal|товар|product|item)\b\s*[:=\-–—>→]*\s*",
+            "",
+            name,
+            flags=re.I,
+        ).strip()
+        if len(name) < 2 or sum(ch.isalpha() for ch in name) < 2:
+            continue
+        if any(word in name.lower() for word in HEADER_WORDS):
+            continue
+
+        row_scores = [x.score for x in row if x.text]
+        confidence = sum(row_scores) / len(row_scores) if row_scores else 0.0
+        confidence = min(0.98, max(0.45, confidence * 0.92))
+
+        dedupe_key = (
+            re.sub(r"\W+", "", name.lower()),
+            round(quantity, 4),
+            round(price, 4),
+            round(total, 4),
+        )
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+
+        output.append({
+            "sourceName": name,
+            "article": None,
+            "quantity": quantity,
+            "unit": unit,
+            "unitPrice": price,
+            "total": total,
+            "vatPercent": None,
+            "confidence": round(confidence, 4),
+        })
+    return output
+
+
+def _parser_quality(parsed: dict[str, Any]) -> float:
+    items = parsed.get("items") or []
+    return (
+        len(items) * 100.0
+        + (18.0 if parsed.get("supplierName") else 0.0)
+        + (8.0 if parsed.get("date") else 0.0)
+        + (5.0 if parsed.get("total") is not None else 0.0)
+        + float(parsed.get("confidence") or 0.0) * 10.0
+    )
+
+
 def heuristic_parse(lines: list[OcrLine]) -> dict[str, Any]:
     ordered = ordered_lines(lines)
     all_text = "\n".join(x.text for x in ordered)
