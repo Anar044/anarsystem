@@ -27,6 +27,13 @@ jobs:
             | sort)
           echo "Checked $count JavaScript files"
 
+      - name: Check local AI Python syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile services/local-document-ai/app/main.py
+          echo 'Local AI Python syntax passed'
+
       - name: Verify public iiko state hides password
         shell: bash
         run: |
