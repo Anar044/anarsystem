@@ -354,7 +354,46 @@ function recalcTotal(){
   validateDraftArithmetic();
 }
 async function rememberAlias(row){if(!current)return;const i=Number(row.dataset.index),item=currentMatching().items?.[i],sel=row.querySelector('[data-f="product"]');const product=(refs?.products||[]).find(x=>String(x.id)===String(sel.value));if(!item?.sourceName||!product)return;await aiPost({action:'saveAlias',sourceName:item.sourceName,productId:product.id,productName:product.name,supplierId:$('draftSupplier').value})}
-async function fillReview(doc){await loadRefs();current=doc;renderList();$('reviewEmpty').hidden=true;$('reviewContent').hidden=false;$('reviewTitle').textContent=doc.fileName;$('reviewMeta').textContent=(statusText[doc.status]||doc.status)+(doc.providerUsed?' · '+doc.providerUsed+(doc.model?' / '+doc.model:''):'');const raw=doc.result?.extracted||{},saved=doc.result?.confirmedDraft||null,m=currentMatching();$('draftNumber').value=saved?.documentNumber||raw.documentNumber||doc.documentNumber||autoDocumentNumber();$('draftDate').value=String(saved?.dateIncoming||raw.date||doc.documentDate||today()).slice(0,10);$('draftSupplier').innerHTML=selectOptions(refs.suppliers,saved?.supplierId||m.supplierId||doc.supplierId,'Выберите поставщика');const trustedStore=saved?.defaultStore||(m.storeSelectionRequired===false?m.defaultStoreId:'');$('draftStore').innerHTML=selectOptions(refs.warehouses,trustedStore,'Выберите склад');$('draftInvoice').value=saved?.invoice||raw.invoiceNumber||doc.invoiceNumber||'';$('draftIncoming').value=saved?.incomingDocumentNumber||raw.incomingNumber||doc.incomingNumber||raw.invoiceNumber||doc.invoiceNumber||'';$('draftDue').value=String(saved?.dueDate||raw.dueDate||doc.dueDate||'').slice(0,10);$('draftCurrency').value=raw.currency||doc.currency||'AZN';const savedTotal=saved?.documentTotal;$('draftDeclaredTotal').value=Number.isFinite(Number(savedTotal))?Number(savedTotal).toFixed(2):(Number.isFinite(Number(raw.total))?Number(raw.total).toFixed(2):'');$('draftDeclaredTotal').oninput=recalcTotal;renderItems();const arithmetic=validateDraftArithmetic();if(doc.status==='ERROR')setReviewStatus(doc.errorMessage||'Ошибка AI','error');else if(doc.status==='IMPORTED')setReviewStatus('Документ уже импортирован в iiko'+(doc.result?.imported?.documentNumber?' · № '+doc.result.imported.documentNumber:''),'ok');else if(!arithmetic.valid)setReviewStatus('Обнаружено арифметическое расхождение. Исправьте данные перед сохранением.','error');else if(m.ready)setReviewStatus('Все обязательные данные сопоставлены. Можно создавать накладную в iiko.','ok');else setReviewStatus('Проверьте поставщика, склад и строки, отмеченные как несопоставленные.','');await loadPreview(doc)}
+function renderOcrDiagnostics(doc,raw,matching){
+  const box=$('ocrDiagnostics'),body=$('ocrDiagnosticsBody');
+  if(!box||!body)return;
+  const usage=doc?.result?.provider?.usage||{};
+  const items=Array.isArray(matching?.items)?matching.items:[];
+  const show=Boolean(
+    usage.secondaryOcrTried ||
+    usage.secondaryOcrError ||
+    raw?.ocrText ||
+    items.length===0
+  );
+  box.hidden=!show;
+  if(!show){body.innerHTML='';return}
+
+  const engine=usage.selectedOcrEngine||doc?.model||'—';
+  const pass=usage.selectedOcrPass||'—';
+  const secondary=usage.secondaryOcrTried?'Да':'Нет';
+  const secondaryLines=Number.isFinite(Number(usage.secondaryOcrLines))?Number(usage.secondaryOcrLines):'—';
+  const mode=usage.documentMode||raw?.documentMode||'—';
+  const qualities=[
+    usage.primaryQuality!=null?'Paddle '+Number(usage.primaryQuality).toFixed(2):'',
+    usage.secondaryQuality!=null?'EasyOCR '+Number(usage.secondaryQuality).toFixed(2):'',
+    usage.hybridQuality!=null?'Hybrid '+Number(usage.hybridQuality).toFixed(2):''
+  ].filter(Boolean).join(' · ');
+
+  body.innerHTML=
+    '<div class="aid-ocr-meta">'+
+      '<span><b>Движок:</b> '+esc(engine)+'</span>'+
+      '<span><b>Проход:</b> '+esc(pass)+'</span>'+
+      '<span><b>Режим:</b> '+esc(mode)+'</span>'+
+      '<span><b>EasyOCR запускался:</b> '+esc(secondary)+'</span>'+
+      '<span><b>Строк EasyOCR:</b> '+esc(secondaryLines)+'</span>'+
+      (qualities?'<span><b>Оценки:</b> '+esc(qualities)+'</span>':'')+
+    '</div>'+
+    (usage.secondaryOcrError?'<div class="aid-ocr-error"><b>EasyOCR:</b> '+esc(usage.secondaryOcrError)+'</div>':'')+
+    '<div class="aid-ocr-caption"><b>Распознанный текст</b></div>'+
+    '<pre class="aid-ocr-text">'+esc(raw?.ocrText||'Текст не распознан.')+'</pre>';
+}
+
+async function fillReview(doc){await loadRefs();current=doc;renderList();$('reviewEmpty').hidden=true;$('reviewContent').hidden=false;$('reviewTitle').textContent=doc.fileName;$('reviewMeta').textContent=(statusText[doc.status]||doc.status)+(doc.providerUsed?' · '+doc.providerUsed+(doc.model?' / '+doc.model:''):'');const raw=doc.result?.extracted||{},saved=doc.result?.confirmedDraft||null,m=currentMatching();renderOcrDiagnostics(doc,raw,m);$('draftNumber').value=saved?.documentNumber||raw.documentNumber||doc.documentNumber||autoDocumentNumber();$('draftDate').value=String(saved?.dateIncoming||raw.date||doc.documentDate||today()).slice(0,10);$('draftSupplier').innerHTML=selectOptions(refs.suppliers,saved?.supplierId||m.supplierId||doc.supplierId,'Выберите поставщика');const trustedStore=saved?.defaultStore||(m.storeSelectionRequired===false?m.defaultStoreId:'');$('draftStore').innerHTML=selectOptions(refs.warehouses,trustedStore,'Выберите склад');$('draftInvoice').value=saved?.invoice||raw.invoiceNumber||doc.invoiceNumber||'';$('draftIncoming').value=saved?.incomingDocumentNumber||raw.incomingNumber||doc.incomingNumber||raw.invoiceNumber||doc.invoiceNumber||'';$('draftDue').value=String(saved?.dueDate||raw.dueDate||doc.dueDate||'').slice(0,10);$('draftCurrency').value=raw.currency||doc.currency||'AZN';const savedTotal=saved?.documentTotal;$('draftDeclaredTotal').value=Number.isFinite(Number(savedTotal))?Number(savedTotal).toFixed(2):(Number.isFinite(Number(raw.total))?Number(raw.total).toFixed(2):'');$('draftDeclaredTotal').oninput=recalcTotal;renderItems();const arithmetic=validateDraftArithmetic();if(doc.status==='ERROR')setReviewStatus(doc.errorMessage||'Ошибка AI','error');else if(doc.status==='IMPORTED')setReviewStatus('Документ уже импортирован в iiko'+(doc.result?.imported?.documentNumber?' · № '+doc.result.imported.documentNumber:''),'ok');else if(!arithmetic.valid)setReviewStatus('Обнаружено арифметическое расхождение. Исправьте данные перед сохранением.','error');else if(m.ready)setReviewStatus('Все обязательные данные сопоставлены. Можно создавать накладную в iiko.','ok');else if(!(Array.isArray(m.items)&&m.items.length))setReviewStatus('OCR завершён, но товарные строки не распознаны. Откройте «Диагностика OCR».','error');else setReviewStatus('Проверьте поставщика, склад и строки, отмеченные как несопоставленные.','');await loadPreview(doc)}
 async function selectDocument(id){const d=documents.find(x=>x.id===id);if(!d)return;await fillReview(d)}
 async function uploadAndProcess(){
   if(!chosenFile)throw new Error('Сначала выберите PDF или фото.');
