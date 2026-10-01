@@ -630,7 +630,10 @@ export async function onRequestPost({request,env}){
     if(action==="delete"){
       const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row)return json({success:false,message:"Документ не найден"},404);
       if(env.ASSET_FILES)await env.ASSET_FILES.delete(row.object_key);
-      await env.DB.prepare(`DELETE FROM ai_documents WHERE id=?1 AND user_id=?2`).bind(docId,a.user.id).run();
+      await env.DB.batch([
+        env.DB.prepare(`DELETE FROM ai_document_jobs WHERE document_id=?1 AND user_id=?2`).bind(docId,a.user.id),
+        env.DB.prepare(`DELETE FROM ai_documents WHERE id=?1 AND user_id=?2`).bind(docId,a.user.id)
+      ]);
       return json({success:true});
     }
     return json({success:false,message:"Неизвестное действие"},400);
