@@ -236,6 +236,14 @@ export async function onRequestPost({request,env}){
         .bind(a.user.id,supplierKey,sourceName,n,productId,productName,now).run();
       return json({success:true});
     }
+    if(action==="markImported"){
+      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row)return json({success:false,message:"Документ не найден"},404);
+      const result=publicRow(row).result||{};
+      result.imported={documentNumber:clean(b.documentNumber),processed:Boolean(b.processed),at:new Date().toISOString()};
+      await env.DB.prepare(`UPDATE ai_documents SET status='IMPORTED',document_number=COALESCE(NULLIF(?1,''),document_number),result_json=?2,error_message=NULL,updated_at=?3 WHERE id=?4 AND user_id=?5`)
+        .bind(clean(b.documentNumber),JSON.stringify(result),new Date().toISOString(),docId,a.user.id).run();
+      return json({success:true,document:publicRow(await rowById(env.DB,a.user.id,docId))});
+    }
     if(action==="delete"){
       const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row)return json({success:false,message:"Документ не найден"},404);
       if(env.ASSET_FILES)await env.ASSET_FILES.delete(row.object_key);
