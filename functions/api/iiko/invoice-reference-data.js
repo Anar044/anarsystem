@@ -71,6 +71,73 @@ async function balanceWarehouseMap(connection) {
   };
 }
 
+function balanceWarehouseIds(payload) {
+  const ids = new Set();
+  const add = value => {
+    const id = warehouseKey(value);
+    if (id) ids.add(id);
+  };
+  const walk = value => {
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const store = value.store ?? value.storeId ?? value.warehouse ?? value.warehouseId;
+    if (store && typeof store === "object") {
+      add(store.id ?? store.uuid ?? store.entityId ?? store.storeId ?? store.warehouseId);
+    } else if (store) add(store);
+    Object.values(value).forEach(x => {
+      if (x && typeof x === "object") walk(x);
+    });
+  };
+  walk(payload);
+  return ids;
+}
+function accountStoreData(payload, wantedIds = []) {
+  const wanted = new Set((wantedIds || []).map(warehouseKey).filter(Boolean));
+  const exact = new Map();
+  const explicitStores = new Map();
+  const add = value => {
+    if (!value || typeof value !== "object") return;
+    const id = warehouseKey(value.id ?? value.uuid ?? value.entityId ?? value.accountId);
+    const name = String(value.name ?? value.title ?? value.description ?? value.fullName ?? "").trim();
+    const marker = String(
+      value.storeOrAccount ?? value.StoreOrAccount ?? value.kind ?? value.entityKind ?? ""
+    ).trim().toUpperCase();
+    if (id && name && wanted.has(id) && !exact.has(id)) exact.set(id, name);
+    if (id && name && marker === "STORE" && !explicitStores.has(id)) explicitStores.set(id, name);
+  };
+  const walk = value => {
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    add(value);
+    Object.values(value).forEach(x => {
+      if (x && typeof x === "object") walk(x);
+    });
+  };
+  walk(payload);
+  return { exact, explicitStores };
+}
+async function accountWarehouseMap(connection, wantedIds = []) {
+  const result = await iikoJson(
+    connection,
+    "/resto/api/v2/entities/list?rootType=Account&includeDeleted=false",
+    { timeoutMs: 60000 }
+  );
+  const data = result.ok && result.payload
+    ? accountStoreData(result.payload, wantedIds)
+    : { exact: new Map(), explicitStores: new Map() };
+  return {
+    ...data,
+    status: result.status,
+    ok: result.ok
+  };
+}
+
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: corsHeaders() });
 }
@@ -102,10 +169,33 @@ export async function onRequestPost({ request, env }) {
       .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 
     const warehouseMap = new Map(maps.warehouses?.entries?.() || []);
-    let balanceWarehouseResult = { map: new Map(), status: 0, ok: false, rawPreview: "" };
+    let balanceWarehouseResult = { map: new Map(), status: 0, ok: false, rawPreview: "", payload: null };
+    let accountWarehouseResult = { exact: new Map(), explicitStores: new Map(), status: 0, ok: false };
+
     if (warehouseMap.size <= 1) {
-      balanceWarehouseResult = await balanceWarehouseMap(connection);
+      const timestamp = new Date().toISOString().slice(0, 19);
+      const balanceRaw = await iikoJson(
+        connection,
+        "/resto/api/v2/reports/balance/stores?timestamp=" + encodeURIComponent(timestamp),
+        { timeoutMs: 60000 }
+      );
+      balanceWarehouseResult = {
+        map: balanceRaw.ok && balanceRaw.payload ? collectBalanceWarehouses(balanceRaw.payload) : new Map(),
+        status: balanceRaw.status,
+        ok: balanceRaw.ok,
+        rawPreview: String(balanceRaw.text || "").slice(0, 500),
+        payload: balanceRaw.payload
+      };
       for (const [id, name] of balanceWarehouseResult.map) {
+        if (!warehouseMap.has(id)) warehouseMap.set(id, name);
+      }
+
+      const balanceIds = balanceWarehouseResult.payload ? [...balanceWarehouseIds(balanceWarehouseResult.payload)] : [];
+      accountWarehouseResult = await accountWarehouseMap(connection, balanceIds);
+      for (const [id, name] of accountWarehouseResult.exact) {
+        if (!warehouseMap.has(id)) warehouseMap.set(id, name);
+      }
+      for (const [id, name] of accountWarehouseResult.explicitStores) {
         if (!warehouseMap.has(id)) warehouseMap.set(id, name);
       }
     }
@@ -135,6 +225,14 @@ export async function onRequestPost({ request, env }) {
           ok: balanceWarehouseResult.ok,
           recordsFound: balanceWarehouseResult.map.size,
           names: [...balanceWarehouseResult.map.values()]
+        },
+        warehouseAccountFallback: {
+          endpoint: "/resto/api/v2/entities/list?rootType=Account",
+          status: accountWarehouseResult.status,
+          ok: accountWarehouseResult.ok,
+          exactResolved: accountWarehouseResult.exact.size,
+          explicitStores: accountWarehouseResult.explicitStores.size,
+          names: [...new Set([...accountWarehouseResult.exact.values(), ...accountWarehouseResult.explicitStores.values()])]
         }
       },
       meta: { authCacheHit: auth.cacheHit === true, supplierAuthCacheHit: supplierResult.authCacheHit === true }
