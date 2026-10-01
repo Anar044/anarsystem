@@ -186,7 +186,6 @@ async function enrich(env,userId,raw){
     };
   });
   const unresolved=items.filter(x=>!x.productId).length;
-  const store=refs.warehouses.length===1?refs.warehouses[0]:null;
   return {
     extracted:raw,
     matching:{
@@ -194,12 +193,16 @@ async function enrich(env,userId,raw){
       supplierName:supplier?.name||raw.supplierName||null,
       supplierMatchScore:supplier?.score??null,
       supplierCandidates:(supplierResult.candidates||[]).slice(0,5),
-      defaultStoreId:store?.id||null,
-      defaultStoreName:store?.name||null,
+      // Never auto-pick a warehouse just because only one was returned.
+      // Warehouse choice changes inventory balances and must be explicit unless
+      // a future trusted rule/memory identifies it.
+      defaultStoreId:null,
+      defaultStoreName:null,
+      storeSelectionRequired:true,
       warehouses:refs.warehouses,
       items,
       unresolvedItems:unresolved,
-      ready:Boolean(supplier?.id&&store?.id&&items.length&&!unresolved)
+      ready:Boolean(supplier?.id&&items.length&&!unresolved)
     }
   };
 }
