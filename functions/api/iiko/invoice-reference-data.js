@@ -1,4 +1,4 @@
-import { clean } from "./_lib/iiko-client.js";
+import { clean, iikoJson } from "./_lib/iiko-client.js";
 import { getIikoSuppliers } from "./_lib/iiko-suppliers.js";
 import { syncReferences } from "./references.js";
 
@@ -21,6 +21,54 @@ function rows(map) {
     .map(([id, name]) => ({ id: String(id || ""), name: String(name || "") }))
     .filter(x => x.id && x.name)
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+}
+
+function warehouseKey(v) {
+  return String(v ?? "").trim().replace(/^\{+|\}+$/g, "").toLowerCase();
+}
+function collectBalanceWarehouses(payload) {
+  const map = new Map();
+  const add = (id, name) => {
+    const key = warehouseKey(id);
+    const label = String(name ?? "").trim();
+    if (key && label && !map.has(key)) map.set(key, label);
+  };
+  const walk = value => {
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const store = value.store ?? value.storeId ?? value.warehouse ?? value.warehouseId;
+    const storeName = value.storeName ?? value.warehouseName;
+    if (store && typeof store === "object") {
+      add(
+        store.id ?? store.uuid ?? store.entityId ?? store.storeId ?? store.warehouseId,
+        store.name ?? store.title ?? store.description ?? storeName
+      );
+    } else if (store) {
+      add(store, storeName);
+    }
+    Object.values(value).forEach(x => {
+      if (x && typeof x === "object") walk(x);
+    });
+  };
+  walk(payload);
+  return map;
+}
+async function balanceWarehouseMap(connection) {
+  const timestamp = new Date().toISOString().slice(0, 19);
+  const result = await iikoJson(
+    connection,
+    "/resto/api/v2/reports/balance/stores?timestamp=" + encodeURIComponent(timestamp),
+    { timeoutMs: 60000 }
+  );
+  return {
+    map: result.ok && result.payload ? collectBalanceWarehouses(result.payload) : new Map(),
+    status: result.status,
+    ok: result.ok,
+    rawPreview: String(result.text || "").slice(0, 500)
+  };
 }
 
 export async function onRequestOptions() {
@@ -53,14 +101,23 @@ export async function onRequestPost({ request, env }) {
       .filter(x => x.id && x.name)
       .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 
+    const warehouseMap = new Map(maps.warehouses?.entries?.() || []);
+    let balanceWarehouseResult = { map: new Map(), status: 0, ok: false, rawPreview: "" };
+    if (warehouseMap.size <= 1) {
+      balanceWarehouseResult = await balanceWarehouseMap(connection);
+      for (const [id, name] of balanceWarehouseResult.map) {
+        if (!warehouseMap.has(id)) warehouseMap.set(id, name);
+      }
+    }
+
     return json({
       success: true,
       suppliers,
-      warehouses: rows(maps.warehouses),
+      warehouses: rows(warehouseMap),
       products: rows(maps.products),
       counts: {
         suppliers: suppliers.length,
-        warehouses: maps.warehouses?.size || 0,
+        warehouses: warehouseMap.size,
         products: maps.products?.size || 0
       },
       diagnostics: {
@@ -71,6 +128,13 @@ export async function onRequestPost({ request, env }) {
           format: supplierResult.format,
           recordsFound: supplierResult.recordsFound,
           namedRecords: supplierResult.namedRecords
+        },
+        warehouseBalanceFallback: {
+          endpoint: "/resto/api/v2/reports/balance/stores",
+          status: balanceWarehouseResult.status,
+          ok: balanceWarehouseResult.ok,
+          recordsFound: balanceWarehouseResult.map.size,
+          names: [...balanceWarehouseResult.map.values()]
         }
       },
       meta: { authCacheHit: auth.cacheHit === true, supplierAuthCacheHit: supplierResult.authCacheHit === true }
