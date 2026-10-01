@@ -47,6 +47,37 @@ async function getBalanceWarehouses(connection){
   return {map:r.ok&&r.payload?collectBalanceWarehouses(r.payload):new Map(),status:r.status,ok:r.ok};
 }
 
+function entityList(payload){
+  if(Array.isArray(payload))return payload;
+  if(Array.isArray(payload?.items))return payload.items;
+  if(Array.isArray(payload?.data))return payload.data;
+  if(Array.isArray(payload?.response))return payload.response;
+  if(Array.isArray(payload?.results))return payload.results;
+  return [];
+}
+function accountNameMap(payload,wantedIds=[]){
+  const wanted=new Set((wantedIds||[]).map(key).filter(Boolean));
+  const map=new Map();
+  const add=v=>{
+    if(!v||typeof v!=="object")return;
+    const id=key(v.id??v.uuid??v.entityId??v.accountId);
+    const name=String(v.name??v.title??v.description??v.fullName??"").trim();
+    if(id&&name&&(!wanted.size||wanted.has(id))&&!map.has(id))map.set(id,name);
+  };
+  const walk=v=>{
+    if(Array.isArray(v)){v.forEach(walk);return;}
+    if(!v||typeof v!=="object")return;
+    add(v);
+    Object.values(v).forEach(x=>{if(x&&typeof x==="object")walk(x);});
+  };
+  walk(payload);
+  return map;
+}
+async function getAccountNames(connection,wantedIds=[]){
+  const r=await iikoJson(connection,"/resto/api/v2/entities/list?rootType=Account&includeDeleted=false",{timeoutMs:60000});
+  return {map:r.ok&&r.payload?accountNameMap(r.payload,wantedIds):new Map(),status:r.status,ok:r.ok};
+}
+
 function applyNames(docs,refs){return docs.map(d=>{const supplierName=refs.suppliers.get(key(d.supplierId))||d.supplierId||"—";const storeName=refs.warehouses.get(key(d.storeId))||d.storeId||"—";const items=Array.isArray(d.items)?d.items.map(x=>({...x,productName:refs.products.get(key(x.productId))||x.productId||"—",storeName:refs.warehouses.get(key(x.storeId))||x.storeId||"—"})):d.items;return {...d,supplierName,storeName,items};});}
 function supplierDebug(docs,maps){const ids=[...new Set(docs.map(d=>key(d.supplierId)).filter(Boolean))];const resolved=ids.filter(id=>maps.suppliers.has(id));return {invoiceSupplierIds:ids,resolvedSupplierIds:resolved,unresolvedSupplierIds:ids.filter(id=>!maps.suppliers.has(id)),supplierReferenceCount:maps.suppliers.size};}
 async function getReferences(env,auth,neededSupplierIds=[]){try{const cached=await loadCachedReferenceMaps(env,auth.serverUrl,neededSupplierIds);if(cached)return {...cached,diagnostics:{cache:{hit:true,ageMs:cached.ageMs,ttlMs:cached.ttlMs}}};const synced=await syncReferences(env,auth.serverUrl,auth.token,neededSupplierIds);return {...synced,cacheHit:false};}catch(e){return {maps:{suppliers:new Map(),warehouses:new Map(),products:new Map(),groups:new Map(),categories:new Map()},cacheHit:false,diagnostics:{error:String(e?.message||e)}};}}
@@ -55,8 +86,15 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestPost(context){try{const b=await context.request.json();const connection={ip:String(b.ip||"").trim(),port:String(b.port||"").trim(),login:String(b.login||"").trim(),password:String(b.password||"")};if(!connection.ip||!connection.port||!connection.login||!connection.password)return jsonResponse({success:false,message:"Заполните IP, порт, логин и пароль SH Server"},400);const fromFormats=dateFormats(b.from),toFormats=dateFormats(b.to);if(!fromFormats.length||!toFormats.length)return jsonResponse({success:false,message:"Укажите период в формате даты"},400);if(dateKey(b.to)<dateKey(b.from))return jsonResponse({success:false,message:"Дата «По» раньше даты «С»"},400);const result=await getInvoices(connection,b.from,b.to);const auth=await getIikoAuth(connection);const neededSupplierIds=[...new Set(result.docs.map(d=>key(d.supplierId)).filter(Boolean))];const [refs,supplierResult]=await Promise.all([getReferences(context.env,auth,neededSupplierIds),getIikoSuppliers(connection)]);const maps=refs.maps||refs;const supplierMap=new Map((supplierResult.rows||[]).map(x=>[key(x.id),String(x.name||"").trim()]).filter(x=>x[0]&&x[1]));maps.suppliers=supplierMap.size?supplierMap:(maps.suppliers||new Map());
 const unresolvedStoreIds=[...new Set(result.docs.flatMap(d=>[d.storeId,...(d.items||[]).map(x=>x.storeId)]).map(key).filter(id=>id&&!maps.warehouses.has(id)))];
 let balanceWarehouseResult={map:new Map(),status:0,ok:false};
+let accountWarehouseResult={map:new Map(),status:0,ok:false};
 if(unresolvedStoreIds.length){
   balanceWarehouseResult=await getBalanceWarehouses(connection);
   for(const [id,name] of balanceWarehouseResult.map)if(!maps.warehouses.has(id))maps.warehouses.set(id,name);
+
+  const stillMissing=unresolvedStoreIds.filter(id=>!maps.warehouses.has(id));
+  if(stillMissing.length){
+    accountWarehouseResult=await getAccountNames(connection,stillMissing);
+    for(const [id,name] of accountWarehouseResult.map)if(!maps.warehouses.has(id))maps.warehouses.set(id,name);
+  }
 }
-const debug=supplierDebug(result.docs,maps);const documents=applyNames(result.docs,maps);return jsonResponse({success:true,count:documents.length,from:b.from,to:b.to,requestedFrom:b.from,requestedTo:b.to,documents,referenceSource:supplierMap.size?"iiko-suppliers+references":(refs.cacheHit?"d1-cache":"iiko-sync+d1"),referenceCounts:{suppliers:maps.suppliers.size,warehouses:maps.warehouses.size,products:maps.products.size},supplierDebug:debug,warehouseDebug:{unresolvedBefore:unresolvedStoreIds,balanceStatus:balanceWarehouseResult.status,balanceOk:balanceWarehouseResult.ok,balanceWarehouses:[...balanceWarehouseResult.map.entries()].map(([id,name])=>({id,name}))},referenceDiagnostics:{references:refs.diagnostics||null,supplierSource:{endpoint:"/resto/api/suppliers?revisionFrom=-1",status:supplierResult.status,format:supplierResult.format,recordsFound:supplierResult.recordsFound,namedRecords:supplierResult.namedRecords}},attempts:result.attempts,serverDocuments:result.serverDocuments||result.docs.length,meta:{sharedIikoClient:true,authCacheHit:auth.cacheHit===true,supplierAuthCacheHit:supplierResult.authCacheHit===true,referenceCacheHit:refs.cacheHit===true,referenceCacheAgeMs:refs.ageMs??null}});}catch(e){return jsonResponse({success:false,message:e?.message||"Ошибка получения приходных накладных"},502);}}
+const debug=supplierDebug(result.docs,maps);const documents=applyNames(result.docs,maps);return jsonResponse({success:true,count:documents.length,from:b.from,to:b.to,requestedFrom:b.from,requestedTo:b.to,documents,referenceSource:supplierMap.size?"iiko-suppliers+references":(refs.cacheHit?"d1-cache":"iiko-sync+d1"),referenceCounts:{suppliers:maps.suppliers.size,warehouses:maps.warehouses.size,products:maps.products.size},supplierDebug:debug,warehouseDebug:{unresolvedBefore:unresolvedStoreIds,balanceStatus:balanceWarehouseResult.status,balanceOk:balanceWarehouseResult.ok,balanceWarehouses:[...balanceWarehouseResult.map.entries()].map(([id,name])=>({id,name})),accountStatus:accountWarehouseResult.status,accountOk:accountWarehouseResult.ok,accountWarehouses:[...accountWarehouseResult.map.entries()].map(([id,name])=>({id,name}))},referenceDiagnostics:{references:refs.diagnostics||null,supplierSource:{endpoint:"/resto/api/suppliers?revisionFrom=-1",status:supplierResult.status,format:supplierResult.format,recordsFound:supplierResult.recordsFound,namedRecords:supplierResult.namedRecords}},attempts:result.attempts,serverDocuments:result.serverDocuments||result.docs.length,meta:{sharedIikoClient:true,authCacheHit:auth.cacheHit===true,supplierAuthCacheHit:supplierResult.authCacheHit===true,referenceCacheHit:refs.cacheHit===true,referenceCacheAgeMs:refs.ageMs??null}});}catch(e){return jsonResponse({success:false,message:e?.message||"Ошибка получения приходных накладных"},502);}}
