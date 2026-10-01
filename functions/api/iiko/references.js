@@ -73,8 +73,11 @@ refs.warehouses=await loadRef(
   serverUrl,
   token,
   [
+    "/resto/api/corporation/stores?revisionFrom=-1",
+    "/resto/api/corporation/stores/?revisionFrom=-1",
+    "/resto/api/corporation/departments?revisionFrom=-1",
+    "/resto/api/corporation/departments/?revisionFrom=-1",
     "/resto/api/corporation/stores",
-    "/resto/api/corporation/stores/",
     "/resto/api/corporation/departments"
   ],
   parseStoreList
