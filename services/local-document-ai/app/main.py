@@ -146,6 +146,64 @@ def ordered_lines(lines: list[OcrLine]) -> list[OcrLine]:
     return sorted(lines, key=pos)
 
 
+def _image_variants(path: str) -> list[tuple[str, str]]:
+    suffix = Path(path).suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}:
+        return [("original", path)]
+
+    variants: list[tuple[str, str]] = [("original", path)]
+    try:
+        with Image.open(path) as source:
+            base = ImageOps.exif_transpose(source).convert("RGB")
+            scale = 2 if max(base.size) < 3200 else 1
+
+            gray = ImageOps.grayscale(base)
+            gray = ImageOps.autocontrast(gray, cutoff=1)
+            if scale > 1:
+                gray = gray.resize((gray.width * scale, gray.height * scale), Image.Resampling.LANCZOS)
+            gray = ImageEnhance.Contrast(gray).enhance(1.55)
+            gray = gray.filter(ImageFilter.SHARPEN)
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            tmp.close()
+            gray.save(tmp.name, "PNG")
+            variants.append(("gray-contrast", tmp.name))
+
+            strong = ImageOps.grayscale(base)
+            strong = ImageOps.autocontrast(strong, cutoff=0)
+            if scale > 1:
+                strong = strong.resize((strong.width * scale, strong.height * scale), Image.Resampling.LANCZOS)
+            strong = ImageEnhance.Contrast(strong).enhance(2.05)
+            strong = ImageEnhance.Sharpness(strong).enhance(1.8)
+            tmp2 = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            tmp2.close()
+            strong.save(tmp2.name, "PNG")
+            variants.append(("gray-strong", tmp2.name))
+    except Exception:
+        return [("original", path)]
+    return variants
+
+
+def ocr_document_candidates(path: str) -> list[tuple[str, list[OcrLine]]]:
+    variants = _image_variants(path)
+    results: list[tuple[str, list[OcrLine]]] = []
+    try:
+        for label, candidate_path in variants:
+            try:
+                results.append((label, ocr_document(candidate_path)))
+            except Exception:
+                if label == "original":
+                    raise
+    finally:
+        for label, candidate_path in variants:
+            if label == "original" or candidate_path == path:
+                continue
+            try:
+                os.unlink(candidate_path)
+            except OSError:
+                pass
+    return results or [("original", ocr_document(path))]
+
+
 def _clean_supplier_name(value: str | None) -> str | None:
     supplier = (value or "").strip()
     if not supplier:
