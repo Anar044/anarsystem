@@ -343,7 +343,7 @@
         });
     }
 
-    function renderOlapFields() {    function renderOlapFields() {
+    function renderOlapFields() {
         const container = $("olap-fields"); if (!container) return;
         const search = ($("olap-search")?.value || "").trim().toLowerCase();
         const filtered = olapFields.filter(field => {
