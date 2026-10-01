@@ -999,6 +999,8 @@ def health():
         "imagePreprocessing": True,
         "secondaryOcr": SECONDARY_OCR or None,
         "secondaryOcrLangs": SECONDARY_OCR_LANGS if SECONDARY_OCR == "easyocr" else [],
+        "asyncJobs": True,
+        "jobWorkers": getattr(_job_executor, "_max_workers", 1),
     }
 
 
