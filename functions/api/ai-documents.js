@@ -324,6 +324,114 @@ async function enrich(env,userId,raw){
   };
 }
 async function rowById(db,userId,docId){return db.prepare(`SELECT * FROM ai_documents WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(docId,userId).first()}
+async function jobByDocument(db,userId,docId){
+  return db.prepare(`SELECT * FROM ai_document_jobs WHERE document_id=?1 AND user_id=?2 LIMIT 1`).bind(docId,userId).first();
+}
+async function saveJob(db,userId,docId,job){
+  const now=new Date().toISOString();
+  await db.prepare(`INSERT INTO ai_document_jobs(document_id,user_id,provider,remote_job_id,status,stage,progress,error_message,created_at,updated_at)
+    VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?9)
+    ON CONFLICT(document_id) DO UPDATE SET
+      provider=excluded.provider,
+      remote_job_id=excluded.remote_job_id,
+      status=excluded.status,
+      stage=excluded.stage,
+      progress=excluded.progress,
+      error_message=excluded.error_message,
+      updated_at=excluded.updated_at`)
+    .bind(
+      docId,userId,clean(job.provider||"LOCAL"),clean(job.remoteJobId||job.id),
+      clean(job.status||"QUEUED"),clean(job.stage||"queued"),
+      Number.isFinite(Number(job.progress))?Math.round(Number(job.progress)):0,
+      clean(job.errorMessage||job.error)||null,now
+    ).run();
+}
+async function updateJob(db,userId,docId,changes={}){
+  const current=await jobByDocument(db,userId,docId);
+  if(!current)return null;
+  const next={
+    provider:changes.provider??current.provider,
+    remoteJobId:changes.remoteJobId??current.remote_job_id,
+    status:changes.status??current.status,
+    stage:changes.stage??current.stage,
+    progress:changes.progress??current.progress,
+    errorMessage:changes.errorMessage??current.error_message
+  };
+  await saveJob(db,userId,docId,next);
+  return jobByDocument(db,userId,docId);
+}
+function publicJob(row){
+  if(!row)return null;
+  return {
+    status:row.status,
+    stage:row.stage,
+    progress:Number(row.progress||0),
+    errorMessage:row.error_message||null,
+    updatedAt:row.updated_at
+  };
+}
+function fallbackMatching(raw,warning){
+  const items=(Array.isArray(raw?.items)?raw.items:[]).map((x,index)=>({
+    index:index+1,
+    sourceName:clean(x?.sourceName),
+    article:clean(x?.article),
+    quantity:Number.isFinite(Number(x?.quantity))?Number(x.quantity):null,
+    unit:clean(x?.unit),
+    unitPrice:Number.isFinite(Number(x?.unitPrice))?Number(x.unitPrice):null,
+    total:Number.isFinite(Number(x?.total))?Number(x.total):null,
+    vatPercent:Number.isFinite(Number(x?.vatPercent))?Number(x.vatPercent):null,
+    confidence:Number.isFinite(Number(x?.confidence))?Number(x.confidence):null,
+    productId:null,productName:null,matchScore:null,matchSource:null,candidates:[]
+  }));
+  return {
+    extracted:raw||{},
+    matching:{
+      supplierId:null,
+      supplierName:clean(raw?.supplierName)||null,
+      supplierMatchScore:null,
+      supplierCandidates:[],
+      defaultStoreId:null,
+      defaultStoreName:null,
+      storeSelectionRequired:true,
+      warehouses:[],
+      items,
+      unresolvedItems:items.length,
+      arithmetic:arithmeticCheck(raw||{},items),
+      ready:false
+    },
+    matchingWarning:clean(warning)||"Сопоставление с iiko не завершено."
+  };
+}
+async function enrichSafely(env,userId,raw,timeoutMs=18000){
+  let timer;
+  try{
+    return await Promise.race([
+      enrich(env,userId,raw),
+      new Promise((_,reject)=>{
+        timer=setTimeout(()=>reject(new Error("Сопоставление с iiko превысило лимит ожидания.")),timeoutMs);
+      })
+    ]);
+  }catch(error){
+    return fallbackMatching(raw,error?.message||String(error));
+  }finally{
+    if(timer)clearTimeout(timer);
+  }
+}
+async function persistProcessedDocument(env,userId,docId,processed,result){
+  const raw=result.extracted||{},matching=result.matching||{};
+  const status=matching.ready?"READY":"REVIEW";
+  await env.DB.prepare(`UPDATE ai_documents SET provider_used=?1,model=?2,status=?3,document_type=?4,supplier_name=?5,supplier_id=?6,document_number=?7,invoice_number=?8,incoming_number=?9,document_date=?10,due_date=?11,currency=?12,total=?13,vat_total=?14,confidence=?15,result_json=?16,error_message=NULL,updated_at=?17 WHERE id=?18 AND user_id=?19`)
+    .bind(
+      processed.provider,processed.model,status,clean(raw.documentType),
+      clean(matching.supplierName||raw.supplierName),clean(matching.supplierId),
+      clean(raw.documentNumber),clean(raw.invoiceNumber),clean(raw.incomingNumber),
+      clean(raw.date),clean(raw.dueDate),clean(raw.currency),
+      raw.total??null,raw.vatTotal??null,raw.confidence??null,
+      JSON.stringify({...result,provider:{name:processed.provider,model:processed.model,usage:processed.usage||null,responseId:processed.providerResponseId||null}}),
+      new Date().toISOString(),docId,userId
+    ).run();
+  return rowById(env.DB,userId,docId);
+}
 async function objectAsFile(env,row){
   if(!env.ASSET_FILES)throw new Error("R2 binding ASSET_FILES не настроен.");
   const obj=await env.ASSET_FILES.get(row.object_key); if(!obj)throw new Error("Файл не найден в R2.");
