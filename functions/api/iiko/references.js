@@ -21,6 +21,46 @@ return result;}
 function parseReferenceList(value){const source=String(value||"").trim();const result=[];const seen=new Set();const add=(id,name)=>{const sid=cleanId(id),sname=cleanName(name);if(sid&&sname&&!seen.has(sid)){seen.add(sid);result.push({id:sid,name:sname});}};if(!source)return result;if(source[0]==="{"||source[0]==="["){try{const walk=v=>{if(Array.isArray(v)){v.forEach(walk);return;}if(!v||typeof v!=="object")return;const id=v.id??v.uuid??v.entityId??v.storeId??v.warehouseId??v.productId;const name=v.name??v.title??v.description;if(id&&name)add(id,name);Object.values(v).forEach(x=>{if(x&&typeof x==="object")walk(x);});};walk(JSON.parse(source));if(result.length)return result;}catch{}}
 const re=/<([A-Za-z][\w:.-]*)\b([^>]*)>/gi;let m;while((m=re.exec(source))){const n=localName(m[1]);if(!["store","storedto","warehouse","department","product","productdto","entity","entitydto","corporateitemdto","item"].includes(n))continue;const a={};const ar=/([A-Za-z][\w:.-]*)\s*=\s*(["'])(.*?)\2/g;let q;while((q=ar.exec(m[2])))a[localName(q[1])]=xmlDecode(q[3]);add(a.id||a.uuid||a.entityid||a.storeid||a.warehouseid||a.productid,a.name||a.title||a.description);}
 for(const b of elementBlocks(source,["store","storeDto","warehouse","department","product","productDto","entity","entityDto","corporateItemDto","item"])){const a=openingAttrs(b);add(textTag(b,["id","uuid","entityId","storeId","warehouseId","productId"])||a.id||a.uuid||a.entityid||a.storeid||a.warehouseid||a.productid,textTag(b,["name","title","description"])||a.name||a.title||a.description);}return result;}
+function parseStoreList(value){
+  const source=String(value||"").trim(),result=[],seen=new Set();
+  const add=(id,name,type)=>{
+    const sid=cleanId(id),sname=cleanName(name),stype=String(type||"").trim().toUpperCase();
+    if(!sid||!sname||seen.has(sid))return;
+    if(stype&& !["STORE","CENTRALSTORE","WAREHOUSE"].includes(stype))return;
+    seen.add(sid);result.push({id:sid,name:sname,type:stype||"STORE"});
+  };
+  if(!source)return result;
+
+  if(source[0]==="{"||source[0]==="["){
+    try{
+      const walk=v=>{
+        if(Array.isArray(v)){v.forEach(walk);return;}
+        if(!v||typeof v!=="object")return;
+        const id=v.id??v.uuid??v.entityId??v.storeId??v.warehouseId;
+        const name=v.name??v.title??v.description;
+        const type=v.type??v.entityType??v.kind;
+        if(id&&name)add(id,name,type);
+        Object.values(v).forEach(x=>{if(x&&typeof x==="object")walk(x);});
+      };
+      walk(JSON.parse(source));
+      if(result.length)return result;
+    }catch{}
+  }
+
+  for(const b of elementBlocks(source,["store","storeDto","warehouse","corporateItemDto","department"])){
+    const a=openingAttrs(b);
+    const id=textTag(b,["id","uuid","entityId","storeId","warehouseId"])||a.id||a.uuid||a.entityid||a.storeid||a.warehouseid;
+    const name=textTag(b,["name","title","description"])||a.name||a.title||a.description;
+    const type=textTag(b,["type","entityType","kind"])||a.type||a.entitytype||a.kind;
+    const node=localName((String(b).match(/^<([A-Za-z][\w:.-]*)/i)||[])[1]||"");
+    // /corporation/stores can omit type on some builds; explicit store/warehouse
+    // nodes are still valid warehouse records.
+    const inferredType=type||(["store","storedto","warehouse"].includes(node)?"STORE":"");
+    add(id,name,inferredType);
+  }
+  return result;
+}
+
 async function request(serverUrl,path,token){const r=await fetch(`${serverUrl}${path}${path.includes("?")?"&":"?"}key=${encodeURIComponent(token)}`,{cache:"no-store",headers:{Accept:"application/json, application/xml, text/xml, */*"}});return {ok:r.ok,status:r.status,text:await r.text(),contentType:r.headers.get("content-type")||""};}
 async function ensure(db){if(!db)throw new Error("D1 binding DB не настроен");await db.batch([db.prepare(`CREATE TABLE IF NOT EXISTS sh_iiko_suppliers (scope_id TEXT NOT NULL,supplier_id TEXT NOT NULL,supplier_name TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope_id,supplier_id))`),db.prepare(`CREATE TABLE IF NOT EXISTS sh_iiko_warehouses (scope_id TEXT NOT NULL,warehouse_id TEXT NOT NULL,warehouse_name TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope_id,warehouse_id))`),db.prepare(`CREATE TABLE IF NOT EXISTS sh_iiko_products (scope_id TEXT NOT NULL,product_id TEXT NOT NULL,product_name TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope_id,product_id))`),db.prepare(`CREATE TABLE IF NOT EXISTS sh_iiko_product_groups (scope_id TEXT NOT NULL,group_id TEXT NOT NULL,group_name TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope_id,group_id))`),db.prepare(`CREATE TABLE IF NOT EXISTS sh_iiko_product_categories (scope_id TEXT NOT NULL,category_id TEXT NOT NULL,category_name TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope_id,category_id))`)]);}
 async function readMap(db,table,idCol,nameCol,scope){const r=await db.prepare(`SELECT ${idCol} id,${nameCol} name FROM ${table} WHERE scope_id=?1`).bind(scope).all();return new Map((r.results||[]).filter(x=>x?.id&&x?.name).map(x=>[cleanId(x.id),cleanName(x.name)]));}
@@ -29,7 +69,16 @@ async function loadRef(serverUrl,token,paths,parser){const all=[];const diagnost
 async function resolveSupplier(serverUrl,token,id){const sid=cleanId(id);if(!sid)return null;const paths=[`/resto/api/v2/entities/contractors/${encodeURIComponent(sid)}`,`/resto/api/v2/entities/contractors?id=${encodeURIComponent(sid)}`];for(const path of paths){try{const r=await request(serverUrl,path,token);if(!r.ok)continue;const rows=parseSupplierList(r.text);const exact=rows.find(x=>cleanId(x.id)===sid);if(exact)return exact;try{const v=JSON.parse(r.text);const raw=[];parseJsonSupplierRefs(v,raw);const x=raw.find(y=>cleanId(y.id)===sid);if(x&&x.name)return {id:sid,name:cleanName(x.name)};}catch{}}catch{}}return null;}
 async function resolveMissingSuppliers(serverUrl,token,rows){const ids=[...new Set(rows.map(x=>cleanId(x.id)).filter(Boolean))];const resolved=[];for(const id of ids){const x=await resolveSupplier(serverUrl,token,id);if(x)resolved.push(x);}return resolved;}
 async function syncReferences(env,serverUrl,token,neededSupplierIds=[]){await ensure(env.DB);const scope=await sha1(serverUrl.toLowerCase());const refs={};refs.suppliers=await loadRef(serverUrl,token,["/resto/api/suppliers?revisionFrom=-1","/resto/api/v2/entities/contractors","/resto/api/suppliers","/resto/api/corporation/suppliers"],parseSupplierList);const missing=[...new Set(neededSupplierIds.map(cleanId).filter(Boolean))].filter(id=>!refs.suppliers.rows.some(x=>cleanId(x.id)===id));if(missing.length){const extra=await resolveMissingSuppliers(serverUrl,token,missing.map(id=>({id})));refs.suppliers.rows.push(...extra);}
-refs.warehouses=await loadRef(serverUrl,token,["/resto/api/corporation/stores"],parseReferenceList);refs.products=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/list?includeDeleted=true","/resto/api/products"],parseReferenceList);refs.groups=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/group/list?includeDeleted=true"],parseReferenceList);refs.categories=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/category/list?includeDeleted=true"],parseReferenceList);await Promise.all([save(env.DB,"sh_iiko_suppliers","supplier_id","supplier_name",scope,refs.suppliers.rows),save(env.DB,"sh_iiko_warehouses","warehouse_id","warehouse_name",scope,refs.warehouses.rows),save(env.DB,"sh_iiko_products","product_id","product_name",scope,refs.products.rows),save(env.DB,"sh_iiko_product_groups","group_id","group_name",scope,refs.groups.rows),save(env.DB,"sh_iiko_product_categories","category_id","category_name",scope,refs.categories.rows)]);const maps={suppliers:await readMap(env.DB,"sh_iiko_suppliers","supplier_id","supplier_name",scope),warehouses:await readMap(env.DB,"sh_iiko_warehouses","warehouse_id","warehouse_name",scope),products:await readMap(env.DB,"sh_iiko_products","product_id","product_name",scope),groups:await readMap(env.DB,"sh_iiko_product_groups","group_id","group_name",scope),categories:await readMap(env.DB,"sh_iiko_product_categories","category_id","category_name",scope)};return {maps,diagnostics:Object.fromEntries(Object.entries(refs).map(([k,v])=>[k,{httpStatus:v.status,contentType:v.contentType,rawLength:v.rawLength,parsedCount:v.rows.length,path:v.path,error:v.error||null,attempts:v.attempts||[]}]))};}
+refs.warehouses=await loadRef(
+  serverUrl,
+  token,
+  [
+    "/resto/api/corporation/stores",
+    "/resto/api/corporation/stores/",
+    "/resto/api/corporation/departments"
+  ],
+  parseStoreList
+);refs.products=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/list?includeDeleted=true","/resto/api/products"],parseReferenceList);refs.groups=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/group/list?includeDeleted=true"],parseReferenceList);refs.categories=await loadRef(serverUrl,token,["/resto/api/v2/entities/products/category/list?includeDeleted=true"],parseReferenceList);await Promise.all([save(env.DB,"sh_iiko_suppliers","supplier_id","supplier_name",scope,refs.suppliers.rows),save(env.DB,"sh_iiko_warehouses","warehouse_id","warehouse_name",scope,refs.warehouses.rows),save(env.DB,"sh_iiko_products","product_id","product_name",scope,refs.products.rows),save(env.DB,"sh_iiko_product_groups","group_id","group_name",scope,refs.groups.rows),save(env.DB,"sh_iiko_product_categories","category_id","category_name",scope,refs.categories.rows)]);const maps={suppliers:await readMap(env.DB,"sh_iiko_suppliers","supplier_id","supplier_name",scope),warehouses:await readMap(env.DB,"sh_iiko_warehouses","warehouse_id","warehouse_name",scope),products:await readMap(env.DB,"sh_iiko_products","product_id","product_name",scope),groups:await readMap(env.DB,"sh_iiko_product_groups","group_id","group_name",scope),categories:await readMap(env.DB,"sh_iiko_product_categories","category_id","category_name",scope)};return {maps,diagnostics:Object.fromEntries(Object.entries(refs).map(([k,v])=>[k,{httpStatus:v.status,contentType:v.contentType,rawLength:v.rawLength,parsedCount:v.rows.length,path:v.path,error:v.error||null,attempts:v.attempts||[]}]))};}
 export {syncReferences};
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()});}
 export async function onRequestPost({request,env}){try{const b=await request.json();const connection={ip:String(b.ip||"").trim(),port:String(b.port||"").trim(),login:String(b.login||"").trim(),password:String(b.password||"")};if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Заполните IP, порт, логин и пароль SH Server"},400);const auth=await getIikoAuth(connection);const refs=await syncReferences(env,auth.serverUrl,auth.token);return json({success:true,source:"iiko-sync+d1",supplierCount:refs.maps.suppliers.size,warehouseCount:refs.maps.warehouses.size,productCount:refs.maps.products.size,diagnostics:refs.diagnostics,meta:{sharedIikoClient:true,authCacheHit:auth.cacheHit===true}});}catch(e){return json({success:false,message:e?.message||"Ошибка загрузки справочников iiko"},502);}}
