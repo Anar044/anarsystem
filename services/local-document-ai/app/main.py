@@ -1072,19 +1072,35 @@ def _process_temp_path(
     selected_engine = "paddleocr"
     secondary_tried = False
     secondary_error = None
+    secondary_line_count = 0
+    primary_quality = _parser_quality(heuristic)
+    secondary_quality = None
+    hybrid_quality = None
 
     if suffix != ".pdf" and should_try_secondary_ocr(heuristic):
         secondary_tried = True
         mark("easyocr", 60)
         try:
             easy_lines = easyocr_document(temp_path)
+            secondary_line_count = len(easy_lines)
+            candidates = [(heuristic, lines, "paddleocr")]
+
             if easy_lines:
                 easy_candidate = heuristic_parse(easy_lines)
                 easy_candidate["ocrPass"] = "easyocr-original"
-                if _parser_quality(easy_candidate) > _parser_quality(heuristic):
-                    heuristic = easy_candidate
-                    lines = easy_lines
-                    selected_engine = "easyocr"
+                secondary_quality = _parser_quality(easy_candidate)
+                candidates.append((easy_candidate, easy_lines, "easyocr"))
+
+                hybrid_lines = merge_ocr_lines(lines, easy_lines)
+                hybrid_candidate = heuristic_parse(hybrid_lines)
+                hybrid_candidate["ocrPass"] = "hybrid-paddle-easy"
+                hybrid_quality = _parser_quality(hybrid_candidate)
+                candidates.append((hybrid_candidate, hybrid_lines, "hybrid"))
+
+            heuristic, lines, selected_engine = max(
+                candidates,
+                key=lambda entry: _parser_quality(entry[0])
+            )
         except Exception as exc:
             secondary_error = str(exc)[:500]
             heuristic["secondaryOcrError"] = secondary_error
@@ -1105,9 +1121,13 @@ def _process_temp_path(
     return {
         "id": None,
         "model": (
-            f"easyocr:{','.join(SECONDARY_OCR_LANGS)}+{parser}"
-            if selected_engine == "easyocr"
-            else f"paddleocr:{OCR_VERSION}/{OCR_LANG}+{parser}"
+            f"hybrid:paddleocr+easyocr/{parser}"
+            if selected_engine == "hybrid"
+            else (
+                f"easyocr:{','.join(SECONDARY_OCR_LANGS)}+{parser}"
+                if selected_engine == "easyocr"
+                else f"paddleocr:{OCR_VERSION}/{OCR_LANG}+{parser}"
+            )
         ),
         "data": data,
         "usage": {
@@ -1117,7 +1137,11 @@ def _process_temp_path(
             "selectedOcrEngine": selected_engine,
             "secondaryOcr": SECONDARY_OCR or None,
             "secondaryOcrTried": secondary_tried,
+            "secondaryOcrLines": secondary_line_count,
             "secondaryOcrError": secondary_error,
+            "primaryQuality": round(primary_quality, 4),
+            "secondaryQuality": round(secondary_quality, 4) if secondary_quality is not None else None,
+            "hybridQuality": round(hybrid_quality, 4) if hybrid_quality is not None else None,
             "documentMode": data.get("documentMode") or heuristic.get("documentMode"),
             "averageConfidence": data.get("confidence"),
             "local": True,
