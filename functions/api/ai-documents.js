@@ -535,7 +535,18 @@ export async function onRequestPost({request,env}){
       const job=await jobByDocument(env.DB,a.user.id,docId);
       if(!job){
         if(row.status!=="PROCESSING")return json({success:true,processing:false,document:publicRow(row),job:null});
-        return json({success:false,message:"Задача Local AI не найдена. Запустите распознавание заново."},409);
+        const message="Предыдущая задача Local AI была прервана после обновления сервиса. Запустите распознавание заново.";
+        await env.DB.prepare(`UPDATE ai_documents SET status='REVIEW',error_message=?1,updated_at=?2 WHERE id=?3 AND user_id=?4`)
+          .bind(message,new Date().toISOString(),docId,a.user.id).run();
+        const interrupted=await rowById(env.DB,a.user.id,docId);
+        return json({
+          success:true,
+          processing:false,
+          interrupted:true,
+          document:publicRow(interrupted),
+          job:null,
+          message
+        });
       }
 
       if(row.status!=="PROCESSING"&&job.status==="DONE"){
