@@ -91,10 +91,13 @@ async function loadAll(selectId){
   documents=j.documents||[];
   providerStatus(j.providers);
   renderList();
-  if(selectId){
-    const d=documents.find(x=>x.id===selectId);
+
+  const preferredId=selectId||current?.id||documents.find(d=>d.status!=='PROCESSING')?.id||'';
+  if(preferredId){
+    const d=documents.find(x=>x.id===preferredId);
     if(d&&d.status!=='PROCESSING')await selectDocument(d.id);
   }
+
   resumePendingProcesses();
 }
 function selectOptions(rows,selected,placeholder){return `<option value="">${esc(placeholder)}</option>`+rows.map(x=>`<option value="${esc(x.id)}" ${String(x.id)===String(selected)?'selected':''}>${esc(x.name)}</option>`).join('')}
