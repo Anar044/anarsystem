@@ -1002,6 +1002,207 @@ def health():
     }
 
 
+def _validate_upload(name: str, content_type: str | None, raw: bytes) -> tuple[str, str]:
+    suffix = Path(name or "document").suffix.lower() or (".pdf" if content_type == "application/pdf" else ".png")
+    if suffix not in {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+    if len(raw) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File is larger than 20 MB")
+    return suffix, name or "document"
+
+
+def _process_temp_path(
+    temp_path: str,
+    suffix: str,
+    prompt: str,
+    schema: str,
+    progress=None,
+) -> dict[str, Any]:
+    def mark(stage: str, percent: int):
+        if progress:
+            try:
+                progress(stage, percent)
+            except Exception:
+                pass
+
+    mark("paddleocr", 10)
+    ocr_candidates = ocr_document_candidates(temp_path)
+    evaluated = []
+    for pass_index, (pass_name, candidate_lines) in enumerate(ocr_candidates, start=1):
+        candidate = heuristic_parse(candidate_lines)
+        candidate["ocrPass"] = pass_name
+        evaluated.append((candidate, candidate_lines))
+        mark("paddleocr", min(55, 10 + int(pass_index / max(1, len(ocr_candidates)) * 45)))
+
+    heuristic, lines = max(evaluated, key=lambda pair: _parser_quality(pair[0]))
+    selected_engine = "paddleocr"
+    secondary_tried = False
+    secondary_error = None
+
+    if suffix != ".pdf" and should_try_secondary_ocr(heuristic):
+        secondary_tried = True
+        mark("easyocr", 60)
+        try:
+            easy_lines = easyocr_document(temp_path)
+            if easy_lines:
+                easy_candidate = heuristic_parse(easy_lines)
+                easy_candidate["ocrPass"] = "easyocr-original"
+                if _parser_quality(easy_candidate) > _parser_quality(heuristic):
+                    heuristic = easy_candidate
+                    lines = easy_lines
+                    selected_engine = "easyocr"
+        except Exception as exc:
+            secondary_error = str(exc)[:500]
+            heuristic["secondaryOcrError"] = secondary_error
+
+    parsed = None
+    parser = heuristic.get("localParser", "heuristic-v5")
+    if OLLAMA_URL:
+        mark("ollama", 82)
+        try:
+            parsed = ollama_parse(heuristic, schema, prompt)
+            if parsed:
+                parser = parsed.get("localParser", f"ollama:{OLLAMA_MODEL}")
+        except Exception as exc:
+            heuristic["ollamaError"] = str(exc)[:500]
+
+    data = parsed or heuristic
+    mark("finalizing", 95)
+    return {
+        "id": None,
+        "model": (
+            f"easyocr:{','.join(SECONDARY_OCR_LANGS)}+{parser}"
+            if selected_engine == "easyocr"
+            else f"paddleocr:{OCR_VERSION}/{OCR_LANG}+{parser}"
+        ),
+        "data": data,
+        "usage": {
+            "ocrLines": len(lines),
+            "ocrPasses": len(ocr_candidates),
+            "selectedOcrPass": heuristic.get("ocrPass"),
+            "selectedOcrEngine": selected_engine,
+            "secondaryOcr": SECONDARY_OCR or None,
+            "secondaryOcrTried": secondary_tried,
+            "secondaryOcrError": secondary_error,
+            "documentMode": data.get("documentMode") or heuristic.get("documentMode"),
+            "averageConfidence": data.get("confidence"),
+            "local": True,
+            "paidTokens": 0,
+        },
+    }
+
+
+def _cleanup_jobs():
+    cutoff = time.time() - JOB_TTL_SECONDS
+    with _jobs_lock:
+        stale = [
+            job_id for job_id, job in _jobs.items()
+            if float(job.get("updatedEpoch") or 0) < cutoff
+            and job.get("status") in {"DONE", "ERROR"}
+        ]
+        for job_id in stale:
+            _jobs.pop(job_id, None)
+
+
+def _job_update(job_id: str, **changes):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return
+        job.update(changes)
+        job["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        job["updatedEpoch"] = time.time()
+
+
+def _job_snapshot(job_id: str) -> dict[str, Any] | None:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return None
+        return dict(job)
+
+
+def _run_job(job_id: str, temp_path: str, suffix: str, prompt: str, schema: str):
+    try:
+        _job_update(job_id, status="RUNNING", stage="paddleocr", progress=5)
+
+        def progress(stage: str, percent: int):
+            _job_update(job_id, status="RUNNING", stage=stage, progress=percent)
+
+        result = _process_temp_path(temp_path, suffix, prompt, schema, progress=progress)
+        result["id"] = job_id
+        _job_update(job_id, status="DONE", stage="done", progress=100, result=result, error=None)
+    except Exception as exc:
+        _job_update(
+            job_id,
+            status="ERROR",
+            stage="error",
+            progress=100,
+            error=str(exc)[:1500],
+        )
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        _cleanup_jobs()
+
+
+@app.post("/jobs")
+async def create_job(
+    file: UploadFile = File(...),
+    prompt: str = Form(""),
+    schema: str = Form("{}"),
+    authorization: str | None = Header(default=None),
+):
+    check_auth(authorization)
+    raw = await file.read()
+    suffix, name = _validate_upload(file.filename or "document", file.content_type, raw)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
+        temp.write(raw)
+        temp_path = temp.name
+
+    job_id = str(uuid.uuid4())
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "id": job_id,
+            "status": "QUEUED",
+            "stage": "queued",
+            "progress": 0,
+            "fileName": name,
+            "createdAt": now,
+            "updatedAt": now,
+            "updatedEpoch": time.time(),
+            "result": None,
+            "error": None,
+        }
+
+    _job_executor.submit(_run_job, job_id, temp_path, suffix, prompt, schema)
+    return {
+        "ok": True,
+        "id": job_id,
+        "status": "QUEUED",
+        "stage": "queued",
+        "progress": 0,
+    }
+
+
+@app.get("/jobs/{job_id}")
+def job_status(
+    job_id: str,
+    authorization: str | None = Header(default=None),
+):
+    check_auth(authorization)
+    _cleanup_jobs()
+    job = _job_snapshot(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job.pop("updatedEpoch", None)
+    return {"ok": True, **job}
+
+
 @app.post("/process")
 async def process(
     file: UploadFile = File(...),
@@ -1010,81 +1211,15 @@ async def process(
     authorization: str | None = Header(default=None),
 ):
     check_auth(authorization)
-    name = file.filename or "document"
-    suffix = Path(name).suffix.lower() or (".pdf" if file.content_type == "application/pdf" else ".png")
-    if suffix not in {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}:
-        raise HTTPException(status_code=400, detail="Unsupported file type")
-
     raw = await file.read()
-    if len(raw) > 20 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File is larger than 20 MB")
+    suffix, _ = _validate_upload(file.filename or "document", file.content_type, raw)
 
     temp_path = ""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
             temp.write(raw)
             temp_path = temp.name
-
-        ocr_candidates = ocr_document_candidates(temp_path)
-        evaluated = []
-        for pass_name, candidate_lines in ocr_candidates:
-            candidate = heuristic_parse(candidate_lines)
-            candidate["ocrPass"] = pass_name
-            evaluated.append((candidate, candidate_lines))
-
-        heuristic, lines = max(evaluated, key=lambda pair: _parser_quality(pair[0]))
-        selected_engine = "paddleocr"
-        secondary_tried = False
-        secondary_error = None
-
-        if suffix != ".pdf" and should_try_secondary_ocr(heuristic):
-            secondary_tried = True
-            try:
-                easy_lines = easyocr_document(temp_path)
-                if easy_lines:
-                    easy_candidate = heuristic_parse(easy_lines)
-                    easy_candidate["ocrPass"] = "easyocr-original"
-                    if _parser_quality(easy_candidate) > _parser_quality(heuristic):
-                        heuristic = easy_candidate
-                        lines = easy_lines
-                        selected_engine = "easyocr"
-            except Exception as exc:
-                secondary_error = str(exc)[:500]
-                heuristic["secondaryOcrError"] = secondary_error
-
-        parsed = None
-        parser = heuristic.get("localParser", "heuristic-v5")
-        if OLLAMA_URL:
-            try:
-                parsed = ollama_parse(heuristic, schema, prompt)
-                if parsed:
-                    parser = parsed.get("localParser", f"ollama:{OLLAMA_MODEL}")
-            except Exception as exc:
-                heuristic["ollamaError"] = str(exc)[:500]
-
-        data = parsed or heuristic
-        return {
-            "id": None,
-            "model": (
-                f"easyocr:{','.join(SECONDARY_OCR_LANGS)}+{parser}"
-                if selected_engine == "easyocr"
-                else f"paddleocr:{OCR_VERSION}/{OCR_LANG}+{parser}"
-            ),
-            "data": data,
-            "usage": {
-                "ocrLines": len(lines),
-                "ocrPasses": len(ocr_candidates),
-                "selectedOcrPass": heuristic.get("ocrPass"),
-                "selectedOcrEngine": selected_engine,
-                "secondaryOcr": SECONDARY_OCR or None,
-                "secondaryOcrTried": secondary_tried,
-                "secondaryOcrError": secondary_error,
-                "documentMode": data.get("documentMode") or heuristic.get("documentMode"),
-                "averageConfidence": data.get("confidence"),
-                "local": True,
-                "paidTokens": 0,
-            },
-        }
+        return _process_temp_path(temp_path, suffix, prompt, schema)
     finally:
         if temp_path:
             try:
