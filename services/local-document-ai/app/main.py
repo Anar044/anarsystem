@@ -739,6 +739,21 @@ def _freeform_supplier(lines: list[OcrLine]) -> str | None:
         r"\s*(?:[:=\-–—>→]+)?\s*(.+)$",
         re.I,
     )
+
+    # First use plain OCR reading order. This path does not depend on boxes.
+    for line in ordered_lines(lines)[:8]:
+        text = (line.text or "").strip()
+        arrow = re.search(r"(?:->|=>|→|➜|>)\s*([^\d]{2,80})$", text)
+        if arrow:
+            candidate = _clean_supplier_name(_clean_freeform_name(arrow.group(1)))
+            if candidate and sum(ch.isalpha() for ch in candidate) >= 2:
+                return candidate
+        match = pattern.search(text)
+        if match:
+            candidate = _clean_supplier_name(_clean_freeform_name(match.group(1)))
+            if candidate and sum(ch.isalpha() for ch in candidate) >= 2:
+                return candidate
+
     rows = _visual_rows(lines)[:16]
     for row_index, row in enumerate(rows):
         text = _row_text(row)
