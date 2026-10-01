@@ -4,6 +4,10 @@ import json
 import os
 import re
 import tempfile
+import threading
+import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,6 +31,11 @@ SECONDARY_OCR_LANGS = [
 
 _ocr: PaddleOCR | None = None
 _easyocr_reader: Any | None = None
+
+_job_executor = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("OCR_JOB_WORKERS", "1"))))
+_jobs: dict[str, dict[str, Any]] = {}
+_jobs_lock = threading.Lock()
+JOB_TTL_SECONDS = max(600, int(os.getenv("OCR_JOB_TTL_SECONDS", "7200")))
 
 DATE_PATTERNS = [
     re.compile(r"\b(20\d{2})[-./](0?[1-9]|1[0-2])[-./]([0-2]?\d|3[01])\b"),
