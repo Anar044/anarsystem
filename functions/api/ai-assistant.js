@@ -273,7 +273,14 @@ async function runAssistant(env, connection, history) {
 }
 
 export async function onRequestOptions() {
-  return new Response(null, { status: 204, headers: json({}, 204).headers });
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type,Authorization"
+    }
+  });
 }
 
 export async function onRequestGet({ request, env }) {
