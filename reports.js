@@ -665,6 +665,12 @@
         const columnFields = [...olapColumns];
         const measures = [...olapMeasures];
 
+        // Compact web mode: dimensions placed into "Columns" are appended to the
+        // hierarchy instead of showing a misleading first value per row group.
+        // This keeps every iiko combination visible without creating an unusably
+        // wide pivot table for high-cardinality fields such as Dish.
+        const hierarchyFields = [...rowFields, ...columnFields];
+
         const value = (row, field) => {
             if (!row) return "";
             if (Object.prototype.hasOwnProperty.call(row, field)) return row[field];
@@ -687,8 +693,8 @@
         };
         const format = v => formatOlapValue(v);
 
-        if (!rowFields.length) {
-            const visibleKeys = [...new Set([...columnFields, ...measures.map(x => x.field)])];
+        if (!hierarchyFields.length) {
+            const visibleKeys = [...new Set(measures.map(x => x.field))];
             const keys = visibleKeys.length ? visibleKeys : [...new Set(rowsData.flatMap(row => Object.keys(row || {})))];
             result.innerHTML = `
               <div class="report-header"><strong>Результат OLAP</strong><span>${rowsData.length} строк</span></div>
@@ -702,8 +708,8 @@
         }
 
         const buildTree = (rows, depth) => {
-            if (depth >= rowFields.length) return null;
-            const field = rowFields[depth];
+            if (depth >= hierarchyFields.length) return null;
+            const field = hierarchyFields[depth];
             const map = new Map();
             rows.forEach((row,index) => {
                 const key = groupKey(row,field);
@@ -734,7 +740,6 @@
                         : `<span class="olap-tree-spacer"></span>`}
                       <span class="olap-tree-text">${esc(group.key)}</span>
                     </td>
-                    ${columnFields.map(field=>`<td class="olap-dimension-cell">${esc(format(value(first,field)))}</td>`).join("")}
                     ${measures.map(measure=>`<td class="olap-measure-cell">${esc(format(aggregate(group.rows,measure)))}</td>`).join("")}
                   </tr>`);
                 if (hasChildren) renderTree(group.child,depth+1,[...path,index]);
@@ -742,28 +747,26 @@
         };
         renderTree(root,0,[]);
 
-        const hierarchyTitle=rowFields.map(getOlapFieldTitle).join(" → ");
+        const hierarchyTitle=hierarchyFields.map(getOlapFieldTitle).join(" → ");
+        const topGroupCount=root?.groups?.length||0;
         const grandCells=[
             `<td class="olap-tree-label olap-grand-label"><strong>Итого</strong></td>`,
-            ...columnFields.map(()=>"<td></td>"),
             ...measures.map(measure=>`<td class="olap-measure-cell"><strong>${esc(format(aggregate(rowsData,measure)))}</strong></td>`)
         ];
 
         const colgroup=[
             '<col class="olap-tree-main-col">',
-            ...columnFields.map(()=>'<col class="olap-tree-dimension-col">'),
             ...measures.map(()=>'<col class="olap-tree-measure-col">')
         ].join("");
 
         result.innerHTML = `
-          <div class="report-header"><strong>Результат OLAP</strong><span>${rowsData.length} строк</span></div>
+          <div class="report-header"><strong>Результат OLAP</strong><span>${rowsData.length} исходных строк · ${topGroupCount} групп</span></div>
           <div class="report-table-wrapper">
             <table class="report-table olap-grouped-report olap-tree-compact">
               <colgroup>${colgroup}</colgroup>
               <thead>
                 <tr>
                   <th class="olap-tree-heading">${esc(hierarchyTitle || "Структура")}</th>
-                  ${columnFields.map(field=>`<th>${esc(getOlapFieldTitle(field))}</th>`).join("")}
                   ${measures.map(measure=>`<th class="olap-measure-heading">${esc(getOlapMeasureTitle(measure))}</th>`).join("")}
                 </tr>
               </thead>
