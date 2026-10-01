@@ -200,9 +200,30 @@ function validateDraftArithmetic(){
   const warning=$('arithmeticWarning');
   if(warning){
     warning.hidden=issues.length===0;
+    const canFixDeclared=
+      issues.length>0 &&
+      rows.every(row=>!row.classList.contains('arithmetic-error')) &&
+      declaredCents!==null &&
+      complete &&
+      declaredCents!==calculatedCents;
+
     warning.innerHTML=issues.length
-      ? '<strong>⚠️ Арифметическое расхождение. Сохранение заблокировано.</strong><ul>'+issues.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>'
+      ? '<strong>⚠️ Арифметическое расхождение. Сохранение заблокировано.</strong><ul>'+
+        issues.map(x=>'<li>'+esc(x)+'</li>').join('')+
+        '</ul>'+
+        (canFixDeclared
+          ? '<button type="button" id="applyCalculatedTotal" class="aid-fix-total">Исправить итог на '+esc(money(calculatedCents/100))+' ₼</button>'
+          : '')
       : '';
+
+    const fixBtn=$('applyCalculatedTotal');
+    if(fixBtn){
+      fixBtn.onclick=()=>{
+        $('draftDeclaredTotal').value=(calculatedCents/100).toFixed(2);
+        recalcTotal();
+        setReviewStatus('Итог документа исправлен по расчёту строк.','ok');
+      };
+    }
   }
 
   const imported=current?.status==='IMPORTED';
@@ -236,7 +257,46 @@ async function uploadAndProcess(){if(!chosenFile)throw new Error('Сначала
 async function reprocess(){if(!current)return;setReviewStatus('AI повторно анализирует документ…');const j=await aiPost({action:'process',id:current.id,provider:$('providerSelect').value});await loadAll(j.document.id)}
 async function deleteCurrent(){if(!current||!confirm('Удалить документ из AI Inbox?'))return;await aiPost({action:'delete',id:current.id});current=null;$('reviewContent').hidden=true;$('reviewEmpty').hidden=false;await loadAll()}
 function collectDraft(){const supplierId=$('draftSupplier').value,storeId=$('draftStore').value;if(!supplierId)throw new Error('Выберите поставщика.');if(!storeId)throw new Error('Выберите склад.');const arithmetic=validateDraftArithmetic();if(!arithmetic.valid)throw new Error('Исправьте арифметические расхождения перед сохранением.');const items=[...document.querySelectorAll('.aid-item')].map((row,i)=>{const productId=row.querySelector('[data-f="product"]').value,amount=Number(row.querySelector('[data-f="quantity"]').value||0),price=Number(row.querySelector('[data-f="price"]').value||0),sum=Number(row.querySelector('[data-f="sum"]').value||0);if(!productId)throw new Error('Строка '+(i+1)+': выберите товар iiko.');if(!(amount>0))throw new Error('Строка '+(i+1)+': количество должно быть больше 0.');return{num:i+1,productId,amount,actualAmount:amount,price,sum}});if(!items.length)throw new Error('В документе нет товарных строк.');return{documentNumber:$('draftNumber').value||undefined,dateIncoming:($('draftDate').value||today())+'T00:00:00',supplierId,defaultStore:storeId,invoice:$('draftInvoice').value,incomingDocumentNumber:$('draftIncoming').value,dueDate:$('draftDue').value,documentTotal:arithmetic.documentTotal,comment:'Создано через SmartHoreca AI Document Inbox',items}}
-async function importToIiko(processed){if(!current)throw new Error('Документ не выбран.');if(current.status==='IMPORTED')throw new Error('Этот документ уже импортирован в iiko.');const c=await connection(),documentData=collectDraft(),action=processed?'save-and-process':'save';setReviewStatus(processed?'Сохраняем и проводим в iiko…':'Сохраняем в iiko…');$('saveDraftBtn').disabled=true;$('saveProcessBtn').disabled=true;try{const r=await fetch('/api/iiko/document-action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({connection:c,type:'incoming',action,document:documentData}),cache:'no-store'});const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false){const detail=j.validation&&(j.validation.errorMessage||j.validation.additionalInfo);const reason=detail||j.message||`HTTP ${r.status}`;if(j.saved&&j.stage==='process')throw new Error('Накладная сохранена в iiko, но провести её не удалось: '+reason);throw new Error(reason)}const number=j.validation&&(j.validation.documentNumber||j.validation.otherSuggestedNumber)||documentData.documentNumber||'';await aiPost({action:'markImported',id:current.id,documentNumber:number,processed});setReviewStatus('Готово: накладная создана в iiko'+(number?' · № '+number:''),'ok');await loadAll(current.id)}catch(e){setReviewStatus(e.message||'Ошибка iiko','error');throw e}finally{if(current?.status!=='IMPORTED'){$('saveDraftBtn').disabled=false;$('saveProcessBtn').disabled=false}}}
+async function importToIiko(processed){
+  try{
+    if(!current)throw new Error('Документ не выбран.');
+    if(current.status==='IMPORTED')throw new Error('Этот документ уже импортирован в iiko.');
+
+    const documentData=collectDraft();
+    const c=await connection();
+    const action=processed?'save-and-process':'save';
+
+    setReviewStatus(processed?'Сохраняем и проводим в iiko…':'Сохраняем в iiko…');
+    $('saveDraftBtn').disabled=true;
+    $('saveProcessBtn').disabled=true;
+
+    const r=await fetch('/api/iiko/document-action',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({connection:c,type:'incoming',action,document:documentData}),
+      cache:'no-store'
+    });
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok||j.success===false){
+      const detail=j.validation&&(j.validation.errorMessage||j.validation.additionalInfo);
+      const reason=detail||j.message||`HTTP ${r.status}`;
+      if(j.saved&&j.stage==='process')throw new Error('Накладная сохранена в iiko, но провести её не удалось: '+reason);
+      throw new Error(reason);
+    }
+
+    const number=j.validation&&(j.validation.documentNumber||j.validation.otherSuggestedNumber)||documentData.documentNumber||'';
+    await aiPost({action:'markImported',id:current.id,documentNumber:number,processed});
+    setReviewStatus('Готово: накладная создана в iiko'+(number?' · № '+number:''),'ok');
+    await loadAll(current.id);
+  }catch(e){
+    setReviewStatus(e?.message||'Ошибка iiko','error');
+    throw e;
+  }finally{
+    if(current?.status!=='IMPORTED'){
+      validateDraftArithmetic();
+    }
+  }
+}
 function bindUpload(){const dz=$('dropzone'),input=$('fileInput');dz.onclick=()=>input.click();input.onchange=()=>{chosenFile=input.files?.[0]||null;if(chosenFile){dz.querySelector('strong').textContent=chosenFile.name;dz.querySelector('span').textContent=(chosenFile.size/1024/1024).toFixed(2)+' МБ'}};['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag')}));['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag')}));dz.addEventListener('drop',e=>{const f=e.dataTransfer?.files?.[0];if(f){chosenFile=f;dz.querySelector('strong').textContent=f.name;dz.querySelector('span').textContent=(f.size/1024/1024).toFixed(2)+' МБ'}})}
 function bind(){bindUpload();bindReviewWorkspace();$('uploadBtn').onclick=()=>uploadAndProcess().catch(e=>setUploadStatus(e.message,'error'));$('refreshBtn').onclick=()=>loadAll().catch(e=>setUploadStatus(e.message,'error'));$('reprocessBtn').onclick=()=>reprocess().catch(e=>setReviewStatus(e.message,'error'));$('deleteBtn').onclick=()=>deleteCurrent().catch(e=>setReviewStatus(e.message,'error'));$('saveDraftBtn').onclick=()=>importToIiko(false).catch(()=>{});$('saveProcessBtn').onclick=()=>importToIiko(true).catch(()=>{})}
 async function init(){try{bind();await Promise.all([loadRefs(),loadAll()])}catch(e){setUploadStatus(e.message||String(e),'error')}}
