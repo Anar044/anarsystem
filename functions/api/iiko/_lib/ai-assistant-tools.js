@@ -89,17 +89,25 @@ function normalizeText(value) {
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
+function stemToken(token) {
+  let value = String(token || "");
+  if (value.length > 5 && /y$/.test(value)) value = value.slice(0, -1);
+  if (value.length > 6 && /(lar|ler)$/.test(value)) value = value.slice(0, -3);
+  return value;
+}
 function similarity(query, value) {
   const q = normalizeText(query);
   const v = normalizeText(value);
   if (!q || !v) return 0;
   if (v === q) return 1;
   if (v.includes(q) || q.includes(v)) return 0.92;
-  const qt = new Set(q.split(" ").filter(Boolean));
-  const vt = new Set(v.split(" ").filter(Boolean));
-  const intersection = [...qt].filter(token => vt.has(token)).length;
-  const union = new Set([...qt, ...vt]).size || 1;
-  return intersection / union;
+  const qt = q.split(" ").filter(Boolean).map(stemToken);
+  const vt = v.split(" ").filter(Boolean).map(stemToken);
+  let hits = 0;
+  for (const a of qt) {
+    if (vt.some(b => a === b || (Math.min(a.length, b.length) >= 5 && (a.startsWith(b) || b.startsWith(a))))) hits++;
+  }
+  return hits / Math.max(1, new Set([...qt, ...vt]).size);
 }
 function mapRows(map) {
   return [...(map?.entries?.() || [])].map(([id, name]) => ({ id: key(id), name: clean(name) }));
@@ -209,6 +217,84 @@ function groupPurchases(rows) {
     };
   }).sort((a, b) => String(a.productName).localeCompare(String(b.productName), "ru") || String(a.supplierName).localeCompare(String(b.supplierName), "ru"));
 }
+function deepList(payload) {
+  const out = [];
+  const walk = value => {
+    if (Array.isArray(value)) { out.push(...value); value.forEach(walk); return; }
+    if (!value || typeof value !== "object") return;
+    Object.values(value).forEach(walk);
+  };
+  walk(payload);
+  return out;
+}
+function objectId(value) {
+  if (value == null) return "";
+  if (typeof value !== "object") return key(value);
+  for (const name of ["id","Id","ID","uuid","UUID","guid","GUID","supplierId","supplierID","counteragentId","counteragentID","accountId"]) {
+    if (value[name] != null) {
+      const found = key(value[name]);
+      if (found) return found;
+    }
+  }
+  return "";
+}
+function scalar(value) {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value).trim();
+  if (Array.isArray(value)) {
+    for (const item of value) { const found = scalar(item); if (found) return found; }
+    return "";
+  }
+  if (typeof value === "object") {
+    for (const name of ["value","text","name","Name","title","id","uuid","guid","code"]) {
+      if (value[name] != null) { const found = scalar(value[name]); if (found) return found; }
+    }
+  }
+  return "";
+}
+async function supplierBalances(connection, timestamp) {
+  const supplierResult = await getIikoSuppliers(connection);
+  const [accountsResult, balancesResult] = await Promise.all([
+    iikoJson(connection, "/resto/api/v2/entities/accounts/list?includeDeleted=false&revisionFrom=-1", { timeoutMs: 60000 }),
+    iikoJson(connection, "/resto/api/v2/reports/balance/counteragents?timestamp=" + encodeURIComponent(timestamp), { timeoutMs: 60000 })
+  ]);
+  if (!accountsResult.ok) throw new Error("iiko accounts HTTP " + accountsResult.status);
+  if (!balancesResult.ok) throw new Error("iiko supplier balance HTTP " + balancesResult.status);
+
+  const accounts = new Map();
+  for (const row of deepList(accountsResult.payload)) {
+    if (!row || typeof row !== "object") continue;
+    const id = objectId(row);
+    const type = clean(row.type ?? row.Type);
+    if (id && type) accounts.set(id, type);
+  }
+  const suppliers = new Map((supplierResult.rows || []).map(row => [key(row.id), clean(row.name)]).filter(x => x[0] && x[1]));
+  const sums = new Map();
+  for (const row of deepList(balancesResult.payload)) {
+    if (!row || typeof row !== "object") continue;
+    const supplierId = objectId(row.counteragent) || key(scalar(row.counteragent));
+    const accountId = objectId(row.account) || key(scalar(row.account ?? row.accountId));
+    const amount = Number(row.sum ?? row.balance ?? row.amount ?? 0);
+    if (!supplierId || !Number.isFinite(amount)) continue;
+    const type = accounts.get(accountId);
+    if (!sums.has(supplierId)) sums.set(supplierId, { advance: 0, debt: 0 });
+    const target = sums.get(supplierId);
+    if (type === "ACCOUNTS_PAYABLE") target.debt += amount;
+    else if (type === "CURRENT_ASSET" || type === "OTHER_CURRENT_ASSET") target.advance += amount;
+  }
+  const rows = [...new Set([...suppliers.keys(), ...sums.keys()])].map(id => {
+    const amount = sums.get(id) || { advance: 0, debt: 0 };
+    return {
+      supplierId: id,
+      supplierName: suppliers.get(id) || id,
+      advance: Number(amount.advance.toFixed(4)),
+      debt: Number(amount.debt.toFixed(4)),
+      total: Number((amount.advance + amount.debt).toFixed(4))
+    };
+  }).sort((a,b)=>String(a.supplierName).localeCompare(String(b.supplierName),"ru"));
+  return { timestamp, rows };
+}
+
 function olapFieldRows(raw) {
   const out = [];
   const seen = new Set();
@@ -279,6 +365,21 @@ export const assistantToolDefinitions = [
   },
   {
     type: "function",
+    name: "get_supplier_balances",
+    description: "Возвращает баланс взаиморасчётов с поставщиками на указанную дату. Используй для вопросов о задолженности и авансах поставщикам.",
+    parameters: {
+      type: "object",
+      properties: {
+        timestamp: { type: "string", description: "Дата и время в формате YYYY-MM-DDTHH:mm:ss." },
+        supplier_query: { type: "string", description: "Фильтр по названию поставщика или пустая строка." }
+      },
+      required: ["timestamp", "supplier_query"],
+      additionalProperties: false
+    },
+    strict: true
+  },
+  {
+    type: "function",
     name: "search_olap_fields",
     description: "Ищет доступные поля OLAP iiko по человеческому запросу. Используй перед run_olap_report, если технические имена полей неизвестны.",
     parameters: {
@@ -337,7 +438,7 @@ export async function executeAssistantTool(name, args, context) {
         { key: "purchases", title: "Приходные накладные", supports: ["поставщики", "товары", "закупочные цены", "динамика цены", "количество закупок"] },
         { key: "nomenclature", title: "Номенклатура", supports: ["поиск товаров и сырья"] },
         { key: "olap_sales", title: "OLAP продажи", supports: ["продажи", "кассы", "блюда", "заказы", "скидки", "сотрудники", "себестоимость и другие доступные поля"] },
-        { key: "supplier_balances", title: "Баланс по поставщикам", status: "page_available_tool_pending" },
+        { key: "supplier_balances", title: "Баланс по поставщикам", supports: ["задолженность", "авансы", "взаиморасчёты"] },
         { key: "stock", title: "Остатки и движение товара", status: "page_available_tool_pending" },
         { key: "food_cost", title: "Фудкост и отклонения", status: "page_available_tool_pending" },
         { key: "labor_cost", title: "Лаборкост и производительность", status: "page_available_tool_pending" },
@@ -347,14 +448,14 @@ export async function executeAssistantTool(name, args, context) {
     };
   }
 
-  const refs = await references(env, connection);
-
   if (name === "search_products") {
+    const refs = await references(env, connection);
     const matches = matchProducts(refs.products, args.query, args.limit);
     return { query: args.query, count: matches.length, products: matches };
   }
 
   if (name === "analyze_purchase_prices") {
+    const refs = await references(env, connection);
     const range = {
       ...defaultRange(365),
       from: isoDate(args.from) || defaultRange(365).from,
@@ -422,6 +523,30 @@ export async function executeAssistantTool(name, args, context) {
       matchedPurchaseRows: rows.length,
       suppliers: [...supplierSummary.values()].sort((a, b) => String(a.supplierName).localeCompare(String(b.supplierName), "ru")),
       truncated: rows.length >= MAX_INVOICE_ROWS
+    };
+  }
+
+  if (name === "get_supplier_balances") {
+    const date = clean(args.timestamp) || (new Date().toISOString().slice(0, 10) + "T23:59:59");
+    const result = await supplierBalances(connection, date);
+    const query = clean(args.supplier_query);
+    const rows = query
+      ? result.rows.filter(row => similarity(query, row.supplierName) >= 0.25)
+      : result.rows;
+    const totals = rows.reduce((acc,row)=>({
+      advance: acc.advance + Number(row.advance || 0),
+      debt: acc.debt + Number(row.debt || 0),
+      total: acc.total + Number(row.total || 0)
+    }), { advance: 0, debt: 0, total: 0 });
+    return {
+      timestamp: result.timestamp,
+      count: rows.length,
+      rows: rows.slice(0, 200),
+      totals: {
+        advance: Number(totals.advance.toFixed(4)),
+        debt: Number(totals.debt.toFixed(4)),
+        total: Number(totals.total.toFixed(4))
+      }
     };
   }
 
