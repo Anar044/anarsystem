@@ -1,7 +1,8 @@
 (()=>{
   'use strict';
   const root=document.documentElement;
-  root.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light';
+  try{localStorage.setItem('shReportsTheme','dark')}catch(e){}
+  root.dataset.theme='dark';
 
   function installBrand(){
     const brand=document.querySelector('.sidebar .unified-brand');
@@ -11,14 +12,7 @@
   }
 
   function installThemeToggle(){
-    const side=document.querySelector('.sidebar');
-    if(!side||side.querySelector('.sh-theme-toggle'))return;
-    const btn=document.createElement('button');
-    btn.type='button';
-    btn.className='sh-theme-toggle';
-    btn.innerHTML='<span class="theme-icon">☀</span><span data-theme-label>Светлая тема</span><span class="theme-arrow">›</span>';
-    btn.onclick=()=>window.toggleSHTheme?.();
-    side.appendChild(btn);
+    document.querySelectorAll('.sh-theme-toggle,.theme-btn,[data-theme-label]').forEach(el=>el.remove());
   }
 
   function addStyles(){
