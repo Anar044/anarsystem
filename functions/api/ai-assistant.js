@@ -4,6 +4,7 @@ import {
   privateConnection,
   hasPrivateConnection
 } from "./iiko/_lib/user-state.js";
+import { resolveRestaurantScope } from "./iiko/_lib/restaurant-scope.js";
 import {
   assistantToolDefinitions,
   executeAssistantTool
@@ -255,12 +256,13 @@ async function listConversations(db, userId) {
     .bind(userId).all();
   return rows.results || [];
 }
-async function resolveIiko(env, userId) {
+async function resolveIiko(env, userId, request=null, requestedIds=null) {
   const stored = await loadPrivateIikoState(env.DB, userId, env);
   if (!stored?.found || !hasPrivateConnection(stored.state)) {
-    return { connected: false, connection: null };
+    return { connected: false, connection: null, state:null, scope:null };
   }
-  return { connected: true, connection: privateConnection(stored.state) };
+  const scope=resolveRestaurantScope({state:stored.state,request,requestedIds,strict:true});
+  return { connected: true, connection: privateConnection(stored.state), state:stored.state, scope };
 }
 function outputText(response) {
   if (clean(response?.output_text)) return clean(response.output_text);
@@ -357,7 +359,7 @@ function compactToolTrace(call, result) {
   if (result?.error) trace.error = String(result.error).slice(0, 300);
   return trace;
 }
-async function runAssistant(env, connection, history) {
+async function runAssistant(env, connection, history, scope=null) {
   const model = clean(env.OPENAI_ASSISTANT_MODEL) || DEFAULT_MODEL;
   const base = {
     model,
@@ -394,7 +396,7 @@ async function runAssistant(env, connection, history) {
         if (!connection && call.name !== "list_smart_horeca_capabilities") {
           result = { error: "iiko не подключён в SmartHoreca. Откройте Настройки и подключите iiko Server." };
         } else {
-          result = await executeAssistantTool(call.name, safeToolArgs(call.arguments), { env, connection });
+          result = await executeAssistantTool(call.name, safeToolArgs(call.arguments), { env, connection, scope });
         }
       } catch (error) {
         result = { error: String(error?.message || error).slice(0, 1200) };
@@ -526,9 +528,9 @@ export async function onRequestPost({ request, env }) {
       await touchConversation(env.DB, auth.user.id, conversationId);
     }
 
-    const iiko = await resolveIiko(env, auth.user.id);
+    const iiko = await resolveIiko(env, auth.user.id, request, Array.isArray(body.departmentIds)?body.departmentIds:null);
     const history = await recentMessages(env.DB, auth.user.id, conversationId, MAX_HISTORY_MESSAGES);
-    const answer = await runAssistant(env, iiko.connection, history);
+    const answer = await runAssistant(env, iiko.connection, history, iiko.scope);
     const meta = {
       model: answer.model,
       responseId: answer.responseId,
@@ -537,6 +539,11 @@ export async function onRequestPost({ request, env }) {
       kind: answer.kind,
       report: answer.report,
       chart: answer.chart,
+      restaurantScope: iiko.scope ? {
+        mode:iiko.scope.mode,
+        selectedDepartmentIds:iiko.scope.selectedDepartmentIds,
+        selectedRestaurants:iiko.scope.selectedRestaurants
+      } : null,
       readOnly: true
     };
     await saveMessage(env.DB, auth.user.id, conversationId, "assistant", answer.text, meta);
