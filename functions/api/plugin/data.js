@@ -1,3 +1,4 @@
+import { resolvePluginChainScope, pluginScopeMeta } from "./_lib/chain-scope.js";
 const VPS_API = "http://68-233-120-197.nip.io";
 
 function jsonResponse(data, status = 200) {
@@ -13,37 +14,29 @@ function jsonResponse(data, status = 200) {
 
 export async function onRequestGet(context) {
   try {
-    // Preserve the caller's Department filter when proxying to the VPS.
-    // Without this, the VPS receives /api/plugin/data without departmentIds
-    // and can return plugins belonging to other iiko Servers.
+    const scoped=await resolvePluginChainScope(context.request,context.env);
     const incoming = new URL(context.request.url);
-    const upstreamUrl = `${VPS_API}/api/plugin/data${incoming.search}`;
+    const target = new URL(`${VPS_API}/api/plugin/data`);
+    if(scoped.departmentIds.length)target.searchParams.set("departmentIds",scoped.departmentIds.join(","));
+    if(scoped.serverUrl)target.searchParams.set("serverUrl",scoped.serverUrl);
 
-    const response = await fetch(upstreamUrl, {
+    const response = await fetch(target.toString(), {
       method: "GET",
-      headers: {
-        "Accept": "application/json"
-      }
+      headers: { "Accept": "application/json" }
     });
 
     const text = await response.text();
-
     let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
+    try { data = JSON.parse(text); }
+    catch {
       return jsonResponse({
-        success: false,
-        error: "VPS returned invalid JSON",
-        status: response.status,
-        contentType: response.headers.get("content-type") || "",
-        raw: text.slice(0, 500)
-      }, 502);
+        success:false,error:"VPS returned invalid JSON",status:response.status,
+        contentType:response.headers.get("content-type")||"",raw:text.slice(0,500)
+      },502);
     }
 
-    const requested=[...new Set((incoming.searchParams.get("departmentIds")||"").split(",").map(x=>x.trim()).filter(Boolean))];
-    if(requested.length){
-      const allowed=new Set(requested);
+    if(scoped.departmentIds.length){
+      const allowed=new Set(scoped.departmentIds.map(String));
       const filterList=list=>(Array.isArray(list)?list:[]).filter(item=>{
         const row=item?.data&&typeof item.data==="object"?{...item,...item.data}:item;
         return allowed.has(String(row?.departmentId??""));
@@ -56,11 +49,15 @@ export async function onRequestGet(context) {
       }
     }
 
-    return jsonResponse(data, response.status);
+    if(data&&typeof data==="object"&&!Array.isArray(data)){
+      data={...data,restaurantScope:pluginScopeMeta(scoped)};
+    }
+    return jsonResponse(data,response.status);
   } catch (error) {
     return jsonResponse({
-      success: false,
-      error: error?.message || "Unable to reach VPS"
-    }, 502);
+      success:false,
+      code:error?.code||"PLUGIN_SCOPE_ERROR",
+      error:error?.message||"Unable to reach VPS"
+    },Number(error?.status)||502);
   }
 }
