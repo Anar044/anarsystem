@@ -229,3 +229,8 @@
     padding-right:10px!important;
   }
 }
+
+
+.olap-result .report-table tr.olap-tree-hidden{
+  display:none!important;
+}
