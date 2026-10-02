@@ -182,8 +182,19 @@ export async function onRequest(context) {
 
   if (storedState) {
     try {
-      const requestedIds=Array.isArray(body?.departmentIds)?body.departmentIds:null;
-      const scope=resolveRestaurantScope({state:storedState,request,requestedIds,strict:true});
+      const scope=resolveRestaurantScope({state:storedState,request,strict:true});
+      const bodyIds=Array.isArray(body?.departmentIds)?[...new Set(body.departmentIds.map(String).filter(Boolean))]:[];
+      if(bodyIds.length){
+        const selected=new Set(scope.selectedDepartmentIds||[]);
+        const outsideSelection=bodyIds.filter(id=>!selected.has(id));
+        if(outsideSelection.length){
+          const error=new Error("Запрос содержит ресторан вне текущего выбора Smart Horeca.");
+          error.status=403;
+          error.code="CHAIN_SCOPE_SELECTION_FORBIDDEN";
+          error.invalidDepartmentIds=outsideSelection;
+          throw error;
+        }
+      }
       rewrittenBody=applyDepartmentScopeToBody(rewrittenBody,scope);
     } catch (error) {
       return new Response(JSON.stringify({
