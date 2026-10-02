@@ -67,3 +67,51 @@ body{margin:0;background:var(--sha-bg);color:var(--sha-text)}
 @keyframes sha-pulse{0%,70%,100%{opacity:.3;transform:translateY(0)}35%{opacity:1;transform:translateY(-3px)}}
 @media(max-width:1000px){.sha-page{grid-template-columns:230px minmax(0,1fr)}.sha-examples{grid-template-columns:1fr}}
 @media(max-width:760px){.sha-page{display:block;padding:10px}.sha-chats{display:none}.sha-chat{min-height:calc(100dvh - 90px)}.sha-chat-head{padding:12px}.sha-chat-head p{display:none}.sha-state{display:none}.sha-messages{padding:14px}.sha-welcome{padding:30px 14px}.sha-examples{grid-template-columns:1fr}}
+
+.sha-mic{
+  flex:0 0 auto;
+  min-width:44px;
+  height:44px;
+  border:1px solid var(--sha-border);
+  border-radius:11px;
+  background:var(--sha-panel);
+  color:var(--sha-text);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  cursor:pointer;
+  padding:0 10px;
+  font-size:17px;
+  transition:.15s ease;
+}
+.sha-mic:hover{border-color:var(--sha-green);transform:translateY(-1px)}
+.sha-mic.recording{
+  border-color:#ff5968;
+  background:rgba(255,89,104,.12);
+  color:#ff7682;
+  box-shadow:0 0 0 3px rgba(255,89,104,.08);
+}
+.sha-mic.recording .sha-mic-icon{animation:sha-record-pulse 1s ease-in-out infinite}
+.sha-record-timer{font-size:11px;font-weight:800;min-width:28px}
+@keyframes sha-record-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.16)}}
+.sha-speak{
+  margin-top:8px;
+  border:1px solid var(--sha-border);
+  background:transparent;
+  color:var(--sha-muted);
+  border-radius:8px;
+  padding:5px 8px;
+  font-size:11px;
+  cursor:pointer;
+}
+.sha-speak:hover{color:var(--sha-green);border-color:var(--sha-green)}
+.sha-speak.playing{color:var(--sha-green);border-color:var(--sha-green)}
+.sha-voice-transcript{
+  font-size:11px;
+  color:var(--sha-muted);
+}
+@media(max-width:760px){
+  .sha-mic{min-width:42px;height:42px;padding:0 8px}
+  .sha-send{padding:9px 12px}
+}
