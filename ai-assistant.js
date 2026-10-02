@@ -9,7 +9,102 @@ async function get(q){const t=await token(),r=await fetch('/api/ai-assistant'+q,
 async function post(body){const t=await token(),r=await fetch('/api/ai-assistant',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+t},body:JSON.stringify(body)}),j=await r.json().catch(()=>({}));if(!r.ok||!j.success){const e=Error(j.message||('HTTP '+r.status));e.code=j.code||'';throw e}return j}
 function fmt(v){try{return new Date(v).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}catch{return''}}
 
-function reportCard(report){
+
+function chartNumber(value){
+  const n=Number(value);
+  return Number.isFinite(n)?n:0;
+}
+function chartValue(value){
+  const n=chartNumber(value);
+  return new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(n);
+}
+function chartCard(chart){
+  if(!chart||typeof chart!=='object')return'';
+  const type=['bar','horizontal_bar','line','pie'].includes(chart.type)?chart.type:'bar';
+  const series=Array.isArray(chart.series)?chart.series.filter(s=>Array.isArray(s?.data)&&s.data.length):[];
+  if(!series.length)return'';
+  const notes=Array.isArray(chart.notes)?chart.notes:[];
+  const legend=series.length>1?'<div class="sha-chart-legend">'+series.map((s,i)=>'<span><i class="sha-chart-dot s'+(i%6)+'"></i>'+esc(s.name||('Серия '+(i+1)))+'</span>').join('')+'</div>':'';
+
+  let visual='';
+  if(type==='horizontal_bar'){
+    const labels=[...new Set(series.flatMap(s=>s.data.map(p=>String(p?.label??''))))];
+    const max=Math.max(1,...series.flatMap(s=>s.data.map(p=>Math.abs(chartNumber(p?.value)))));
+    visual='<div class="sha-hbar">'+labels.map(label=>{
+      const bars=series.map((s,i)=>{
+        const point=s.data.find(p=>String(p?.label??'')===label);
+        const value=chartNumber(point?.value);
+        const width=Math.max(1,Math.abs(value)/max*100);
+        return '<div class="sha-hbar-line"><div class="sha-hbar-track"><span class="sha-hbar-fill s'+(i%6)+'" style="width:'+width.toFixed(2)+'%"></span></div><strong>'+esc(chartValue(value))+'</strong></div>';
+      }).join('');
+      return '<div class="sha-hbar-row"><div class="sha-hbar-label">'+esc(label)+'</div><div class="sha-hbar-bars">'+bars+'</div></div>';
+    }).join('')+'</div>';
+  }else if(type==='pie'){
+    const data=series[0].data.slice(0,12);
+    const total=data.reduce((sum,p)=>sum+Math.max(0,chartNumber(p?.value)),0)||1;
+    let cursor=0;
+    const stops=data.map((p,i)=>{
+      const value=Math.max(0,chartNumber(p?.value));
+      const start=cursor;
+      cursor+=value/total*100;
+      return 'var(--chart-s'+(i%6)+') '+start.toFixed(3)+'% '+cursor.toFixed(3)+'%';
+    }).join(',');
+    visual='<div class="sha-pie-layout"><div class="sha-pie" style="background:conic-gradient('+stops+')"></div><div class="sha-pie-list">'+data.map((p,i)=>{
+      const value=Math.max(0,chartNumber(p?.value));
+      const pct=value/total*100;
+      return '<div><span><i class="sha-chart-dot s'+(i%6)+'"></i>'+esc(p?.label??'')+'</span><strong>'+esc(chartValue(value))+' · '+pct.toFixed(1)+'%</strong></div>';
+    }).join('')+'</div></div>';
+  }else{
+    const labels=[...new Set(series.flatMap(s=>s.data.map(p=>String(p?.label??''))))];
+    const values=series.flatMap(s=>s.data.map(p=>chartNumber(p?.value)));
+    const max=Math.max(1,...values.map(v=>Math.abs(v)));
+    const width=Math.max(620,labels.length*84);
+    const height=280,padL=52,padR=20,padT=24,padB=58;
+    const plotW=width-padL-padR,plotH=height-padT-padB;
+    const y=v=>padT+plotH-(Math.max(0,v)/max*plotH);
+    const x=i=>labels.length<=1?padL+plotW/2:padL+(i/(labels.length-1))*plotW;
+    const grid=[0,.25,.5,.75,1].map(t=>{
+      const gy=padT+plotH-(t*plotH);
+      const val=max*t;
+      return '<line x1="'+padL+'" y1="'+gy+'" x2="'+(width-padR)+'" y2="'+gy+'" class="sha-chart-grid"></line><text x="'+(padL-8)+'" y="'+(gy+4)+'" class="sha-chart-axis-label" text-anchor="end">'+esc(chartValue(val))+'</text>';
+    }).join('');
+    const xlabels=labels.map((label,i)=>'<text x="'+x(i)+'" y="'+(height-22)+'" class="sha-chart-axis-label" text-anchor="middle">'+esc(label.length>16?label.slice(0,15)+'…':label)+'</text>').join('');
+
+    if(type==='line'){
+      const lines=series.map((s,si)=>{
+        const points=labels.map((label,i)=>{
+          const p=s.data.find(item=>String(item?.label??'')===label);
+          return [x(i),y(chartNumber(p?.value))];
+        });
+        const poly=points.map(p=>p[0]+','+p[1]).join(' ');
+        const dots=points.map((p,i)=>{
+          const point=s.data.find(item=>String(item?.label??'')===labels[i]);
+          const value=chartNumber(point?.value);
+          return '<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" class="sha-chart-point s'+(si%6)+'"><title>'+esc(labels[i]+': '+chartValue(value))+'</title></circle>';
+        }).join('');
+        return '<polyline points="'+poly+'" class="sha-chart-line s'+(si%6)+'"></polyline>'+dots;
+      }).join('');
+      visual='<div class="sha-chart-scroll"><svg class="sha-chart-svg" viewBox="0 0 '+width+' '+height+'" role="img">'+grid+xlabels+lines+'</svg></div>';
+    }else{
+      const groupW=plotW/Math.max(1,labels.length);
+      const gap=5;
+      const barW=Math.max(7,Math.min(34,(groupW-18)/Math.max(1,series.length)-gap));
+      const bars=labels.map((label,li)=>series.map((s,si)=>{
+        const point=s.data.find(p=>String(p?.label??'')===label);
+        const value=Math.max(0,chartNumber(point?.value));
+        const h=value/max*plotH;
+        const gx=padL+li*groupW+(groupW-(series.length*(barW+gap)-gap))/2+si*(barW+gap);
+        return '<rect x="'+gx.toFixed(2)+'" y="'+(padT+plotH-h).toFixed(2)+'" width="'+barW.toFixed(2)+'" height="'+h.toFixed(2)+'" rx="4" class="sha-chart-bar s'+(si%6)+'"><title>'+esc(label+': '+chartValue(value))+'</title></rect>';
+      }).join('')).join('');
+      const bxlabels=labels.map((label,i)=>'<text x="'+(padL+i*groupW+groupW/2)+'" y="'+(height-22)+'" class="sha-chart-axis-label" text-anchor="middle">'+esc(label.length>14?label.slice(0,13)+'…':label)+'</text>').join('');
+      visual='<div class="sha-chart-scroll"><svg class="sha-chart-svg" viewBox="0 0 '+width+' '+height+'" role="img">'+grid+bxlabels+bars+'</svg></div>';
+    }
+  }
+
+  return '<section class="sha-chart-card"><div class="sha-chart-head"><div><span class="sha-report-eyebrow">SMART HORECA CHART</span><h3>'+esc(chart.title||'График')+'</h3>'+(chart.subtitle?'<p>'+esc(chart.subtitle)+'</p>':'')+'</div></div>'+legend+'<div class="sha-chart-body">'+visual+'</div>'+(chart.xLabel||chart.yLabel?'<div class="sha-chart-labels">'+(chart.xLabel?'<span>X: '+esc(chart.xLabel)+'</span>':'')+(chart.yLabel?'<span>Y: '+esc(chart.yLabel)+'</span>':'')+'</div>':'')+(notes.length?'<div class="sha-report-notes">'+notes.map(note=>'<div>'+esc(note)+'</div>').join('')+'</div>':'')+'</section>';
+}
+
+function reportCard(report,chart=null){
   if(!report||typeof report!=='object')return'';
   const columns=Array.isArray(report.columns)?report.columns:[];
   const rows=Array.isArray(report.rows)?report.rows:[];
@@ -57,6 +152,7 @@ function reportCard(report){
     (report.periodLabel?'<span class="sha-report-period">'+esc(report.periodLabel)+'</span>':'')+
     '</div>'+
     (kpis.length?'<div class="sha-report-kpis">'+kpis.map(item=>'<div class="sha-report-kpi"><span>'+esc(item?.label||'')+'</span><strong>'+esc(item?.value||'')+'</strong></div>').join('')+'</div>':'')+
+    (chart?'<div class="sha-report-chart-slot">'+chartCard(chart)+'</div>':'')+
     table+
     (notes.length?'<div class="sha-report-notes">'+notes.map(note=>'<div>'+esc(note)+'</div>').join('')+'</div>':'')+
     '</section>';
@@ -66,7 +162,9 @@ function tools(meta){const map={list_smart_horeca_capabilities:'Источник
 function msg(m,index=-1){
   const ai=m.role==='assistant';
   const speak=ai&&index>=0?'<button class="sha-speak" type="button" data-speak-index="'+index+'" title="Озвучить ответ">🔊 Озвучить</button>':'';
-  const structured=ai&&m.meta?.report?reportCard(m.meta.report):'';
+  const hasReport=ai&&m.meta?.report;
+  const hasChart=ai&&m.meta?.chart;
+  const structured=hasReport?reportCard(m.meta.report,hasChart?m.meta.chart:null):(hasChart?chartCard(m.meta.chart):'');
   const text=esc(m.content).replace(/\n/g,'<br>');
   return '<article class="sha-message '+(ai?'assistant':'user')+'"><div class="sha-avatar">'+(ai?'AI':'Вы')+'</div><div class="sha-bubble '+(structured?'has-report':'')+'">'+
     (text?'<div class="sha-text">'+text+'</div>':'')+
