@@ -17,7 +17,7 @@ try {
 
 // Load the legacy OLAP UI only after the safe server-side iiko context is ready.
 // reports.js now initializes immediately when DOMContentLoaded has already fired.
-await loadClassicScript("reports.js?v=20261001-olap-retry-2");
+await loadClassicScript("reports.js?v=20261002-result-ui-1");
 await loadClassicScript("reports-default-filters.js?v=20260914-cleanup-2");
 await loadClassicScript("reports-fields-scroll-force.js?v=20260910-1");
-await loadClassicScript("reports-result.js?v=20260910-6");
+await loadClassicScript("reports-result.js?v=20261002-tree-3");

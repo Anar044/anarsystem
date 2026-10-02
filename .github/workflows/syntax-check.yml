@@ -71,6 +71,25 @@ jobs:
           grep -q 'reports-loader.js' reports.html
           echo 'OLAP Reports bootstrap cleanup check passed'
 
+      - name: Verify OLAP result tree UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'data-olap-collapse-all' reports-result.js
+          grep -q 'data-olap-expand-all' reports-result.js
+          grep -q 'olapTreeId' reports-result.js
+          grep -q 'olapAncestors' reports-result.js
+          grep -q 'applyTreeVisibility' reports-result.js
+          grep -q 'olapPresentationObserved' reports-result.js
+          grep -q 'olap-measure-cell' reports.js
+          grep -q 'reports-result.js?v=20261002-tree-3' reports-loader.js
+          grep -q 'reports-result.css?v=20261002-2' reports.html
+          if grep -q 'td:nth-last-child(-n+2){text-align:right' reports-result.css; then
+            echo 'OLAP result must align only actual measure columns'
+            exit 1
+          fi
+          echo 'OLAP result tree UI contract passed'
+
       - name: Verify OLAP endpoint uses shared client
         shell: bash
         run: |
