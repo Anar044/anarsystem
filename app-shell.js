@@ -1,6 +1,20 @@
 (()=>{
   'use strict';
   const root=document.documentElement;
+  function syncChainScopeCookie(ids=null){
+    let values=Array.isArray(ids)?ids:null;
+    if(!values){
+      try{
+        const raw=localStorage.getItem('shIikoSelectedRestaurants');
+        const parsed=raw?JSON.parse(raw):null;
+        values=Array.isArray(parsed)?parsed:[];
+      }catch(_){values=[]}
+    }
+    values=[...new Set((values||[]).map(String).map(x=>x.trim()).filter(Boolean))];
+    try{document.cookie=`sh_selected_departments=${encodeURIComponent(values.join(','))}; Path=/; SameSite=Lax; Max-Age=${values.length?31536000:0}`}catch(_){}
+  }
+  syncChainScopeCookie();
+  window.addEventListener('sh:iiko-selection-changed',event=>syncChainScopeCookie(event?.detail?.departmentIds||[]));
   root.classList.add('hc-loading');
   root.style.background='#0b1017';
   root.style.visibility='hidden';
