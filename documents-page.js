@@ -5,7 +5,16 @@
  const api='/api/iiko/documents';
  async function getIikoState(){try{if(window.SH_IikoContext?.get)return await window.SH_IikoContext.get();}catch(e){console.warn('[documents] iiko context unavailable',e)}return null;}
  async function getConnection(){const state=await getIikoState();return state?.connection||{};}
- async function getDepartmentIds(){const state=await getIikoState();const ids=state?.identity?.departmentIds||state?.connection?.departmentIds||[];return Array.isArray(ids)?[...new Set(ids.map(String).map(x=>x.trim()).filter(Boolean))]:[];}
+ async function getDepartmentIds(){
+   if(window.SH_IikoContext?.getBinding){
+     const binding=await window.SH_IikoContext.getBinding();
+     const ids=Array.isArray(binding?.departmentIds)?binding.departmentIds:[];
+     return [...new Set(ids.map(String).map(x=>x.trim()).filter(Boolean))];
+   }
+   const state=await getIikoState();
+   const ids=window.SH_IikoContext?.departmentIds?window.SH_IikoContext.departmentIds(state):[];
+   return Array.isArray(ids)?[...new Set(ids.map(String).map(x=>x.trim()).filter(Boolean))]:[];
+ }
  const $=id=>document.getElementById(id);
  function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
  function money(v){const n=Number(v);return Number.isFinite(n)?n.toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';}
