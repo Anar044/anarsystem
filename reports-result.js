@@ -1,7 +1,7 @@
 (function(){
   'use strict';
 
-  const VERSION='5';
+  const VERSION='6';
 
   function clean(value){
     return String(value||'').replace(/[▼▶▾▸]/g,'').replace(/\s+/g,' ').trim();
@@ -117,14 +117,18 @@
     [...tbody.rows].forEach(row=>{
       if(row.classList.contains('olap-group-total')||row.classList.contains('olap-rendered-into-tree')){
         row.hidden=true;
+        row.classList.add('olap-tree-hidden');
         return;
       }
       if(row.classList.contains('olap-grand-total')){
         row.hidden=false;
+        row.classList.remove('olap-tree-hidden');
         return;
       }
 
-      row.hidden=rowHasCollapsedAncestor(row,collapsed);
+      const shouldHide=rowHasCollapsedAncestor(row,collapsed);
+      row.hidden=shouldHide;
+      row.classList.toggle('olap-tree-hidden',shouldHide);
 
       if(row.classList.contains('olap-group-row')){
         const id=row.dataset.olapTreeId;
@@ -198,8 +202,30 @@
     assignTreeMetadata(tbody,rows,grand);
     ensureHeaderControls(root);
     bindControls(root);
+    bindGroupButtons(root);
     tbody.dataset.presentationVersion=VERSION;
     applyTreeVisibility(root);
+  }
+
+  function toggleGroup(root,group){
+    const id=group?.dataset.olapTreeId;
+    if(!group||!id)return;
+    const collapsed=collapsedSet(root);
+    if(collapsed.has(id))collapsed.delete(id);
+    else collapsed.add(id);
+    applyTreeVisibility(root);
+  }
+
+  function bindGroupButtons(root){
+    root.querySelectorAll('.olap-group-toggle').forEach(button=>{
+      if(button.dataset.olapDirectBound===VERSION)return;
+      button.dataset.olapDirectBound=VERSION;
+      button.addEventListener('click',event=>{
+        event.preventDefault();
+        event.stopPropagation();
+        toggleGroup(root,button.closest('tr.olap-group-row'));
+      });
+    });
   }
 
   function bindControls(root){
@@ -209,13 +235,10 @@
     root.addEventListener('click',event=>{
       const toggle=event.target.closest('.olap-group-toggle');
       if(toggle){
-        const group=toggle.closest('tr.olap-group-row');
-        const id=group?.dataset.olapTreeId;
-        if(!group||!id)return;
-        const collapsed=collapsedSet(root);
-        if(collapsed.has(id))collapsed.delete(id);
-        else collapsed.add(id);
-        applyTreeVisibility(root);
+        // Direct button handler above is the primary path.
+        // Keep delegated handling only as a fallback for dynamically replaced buttons.
+        if(toggle.dataset.olapDirectBound===VERSION)return;
+        toggleGroup(root,toggle.closest('tr.olap-group-row'));
         return;
       }
 
