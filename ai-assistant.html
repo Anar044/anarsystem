@@ -6,7 +6,7 @@
 <title>Smart Horeca Control — AI Ассистент</title>
 <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
 <link rel="stylesheet" href="/app-shell.css?v=8">
-<link rel="stylesheet" href="/ai-assistant.css?v=1">
+<link rel="stylesheet" href="/ai-assistant.css?v=2">
 </head>
 <body data-protected="true">
 <div class="app-shell">
@@ -68,10 +68,14 @@
         <div class="sha-composer-wrap">
           <div id="composerStatus" class="sha-composer-status"></div>
           <div class="sha-composer">
+            <button id="micBtn" class="sha-mic" type="button" title="Голосовой запрос" aria-label="Голосовой запрос">
+              <span class="sha-mic-icon">🎤</span>
+              <span id="recordTimer" class="sha-record-timer" hidden>0:00</span>
+            </button>
             <textarea id="messageInput" rows="1" placeholder="Например: от каких поставщиков мы покупаем помидоры и как менялась цена за год?"></textarea>
             <button id="sendBtn" class="sha-send" type="button">Отправить</button>
           </div>
-          <div class="sha-hint">AI работает только на чтение: сам не изменяет данные в iiko.</div>
+          <div class="sha-hint">🎤 Голосовой запрос: нажмите, говорите и нажмите ещё раз. Голосовой ответ озвучивается автоматически.</div>
         </div>
       </section>
     </div>
@@ -85,6 +89,6 @@
 <script src="/app-shell.js?v=20261001-ai-assistant-1"></script>
 <script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
 <script src="/mobile-responsive.js?v=3"></script>
-<script src="/ai-assistant.js?v=1"></script>
+<script src="/ai-assistant.js?v=2"></script>
 </body>
 </html>
