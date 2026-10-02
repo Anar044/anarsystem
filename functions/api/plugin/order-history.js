@@ -28,6 +28,8 @@ export async function onRequestGet(context) {
     const incoming = new URL(context.request.url);
     const orderNum = incoming.searchParams.get("orderNum");
     const pluginId = incoming.searchParams.get("pluginId");
+    const departmentIds = incoming.searchParams.get("departmentIds");
+    const serverUrl = incoming.searchParams.get("serverUrl");
 
     if (!orderNum) {
       return jsonResponse({ success: false, error: "orderNum is required" }, 400);
@@ -36,6 +38,8 @@ export async function onRequestGet(context) {
     const target = new URL(`${VPS_API}/api/plugin/order-history`);
     target.searchParams.set("orderNum", orderNum);
     if (pluginId) target.searchParams.set("pluginId", pluginId);
+    if (departmentIds) target.searchParams.set("departmentIds", departmentIds);
+    if (serverUrl) target.searchParams.set("serverUrl", serverUrl);
 
     const response = await fetch(target.toString(), {
       method: "GET",
