@@ -1,3 +1,4 @@
+import { resolveStoreScope } from "./_lib/store-scope.js";
 import { clean, getIikoAuth, iikoJson, iikoText } from "./_lib/iiko-client.js";
 
 const metaCache = new Map();
@@ -199,6 +200,16 @@ export async function onRequestPost({request}){
     const timestamp=buildTimestamp(b.date,b.time);
     const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(key).filter(Boolean))]:[];
     const selectedStore=key(b.storeId);
+    const allowedDepartmentIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(key).filter(Boolean):[];
+    const subsetRequested=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedDepartmentIds.length>departmentIds.length;
+    const storeScope=subsetRequested?await resolveStoreScope(connection,departmentIds):{resolved:true,storeIds:[],diagnostics:null};
+    if(subsetRequested&&!storeScope.resolved){
+      return json({success:false,code:"STOCK_BALANCE_SCOPE_UNAVAILABLE",message:"Не удалось определить склады выбранного ресторана. Остатки не будут показаны без безопасного CHAIN-фильтра.",meta:{departmentIds,storeScope:storeScope.diagnostics||null}},409);
+    }
+    const scopedStoreIds=new Set((storeScope.storeIds||[]).map(key).filter(Boolean));
+    if(subsetRequested&&selectedStore&&!scopedStoreIds.has(selectedStore)){
+      return json({success:false,code:"STOCK_BALANCE_STORE_FORBIDDEN",message:"Выбранный склад не относится к текущему ресторану."},403);
+    }
 
     const q=new URLSearchParams({timestamp});
     if(selectedStore)q.set("store",selectedStore);
@@ -215,7 +226,10 @@ export async function onRequestPost({request}){
       throw new Error("Остатки iiko: HTTP "+balanceResult.status+suffix);
     }
 
-    const balances=balanceList(balanceResult.payload);
+    let balances=balanceList(balanceResult.payload);
+    if(subsetRequested){
+      balances=balances.filter(x=>scopedStoreIds.has(key(x.storeId)));
+    }
     const productMap=new Map(meta.products.map(x=>[x.id,x]));
     const storeMap=new Map(meta.stores.map(x=>[x.id,x]));
     const rows=[];
@@ -280,7 +294,11 @@ export async function onRequestPost({request}){
         resolvedUnitCount:Number(meta.unitCount||0),
         storeReferenceStatus:Number(meta.storeReferenceStatus||0),
         unitReferenceStatus:Number(meta.unitReferenceStatus||0),
-        authCacheHit:balanceResult.auth?.cacheHit===true
+        authCacheHit:balanceResult.auth?.cacheHit===true,
+        subsetRequested,
+        departmentScopeApplied:subsetRequested,
+        scopedStoreIds:[...scopedStoreIds],
+        storeScopeDiagnostics:storeScope.diagnostics||null
       }
     });
   }catch(e){
