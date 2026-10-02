@@ -94,6 +94,12 @@ async function ensure(db){
 
 async function auth(request,env){const a=await getUser(request,env);if(!a)return null;await ensure(env.DB);return a}
 async function device(db,userId,deviceId){return db.prepare(`SELECT * FROM hr_devices WHERE user_id=?1 AND device_id=?2 LIMIT 1`).bind(userId,deviceId).first()}
+function deviceAllowedForScope(row,scope){
+  if(!row||!isHrSubsetScope(scope))return Boolean(row);
+  const rid=clean(row.restaurant_id);
+  if(!rid)return true;
+  return (scope.selectedDepartmentIds||[]).map(String).includes(rid);
+}
 
 async function snapshot(db,userId,scope=null){
   const [devices,employees,bindings,events,tokens]=await Promise.all([
@@ -108,19 +114,19 @@ async function snapshot(db,userId,scope=null){
   const allDevices=devices.results||[],allEmployees=employees.results||[],allBindings=bindings.results||[],allEvents=events.results||[],ts=tokens.results||[];
   const selectedRestaurants=new Set(Array.isArray(scope?.selectedDepartmentIds)?scope.selectedDepartmentIds.map(String):[]);
   const subset=isHrSubsetScope(scope);
-  const ds=subset?allDevices.filter(x=>selectedRestaurants.has(String(x.restaurant_id||''))):allDevices;
+  const ds=subset?allDevices.filter(x=>!clean(x.restaurant_id)||selectedRestaurants.has(String(x.restaurant_id))):allDevices;
   const es=filterEmployeesByScope(allEmployees,scope);
   const employeeIds=new Set(es.map(x=>String(x.iiko_employee_id)));
   const bs=subset?allBindings.filter(x=>employeeIds.has(String(x.iiko_employee_id))):allBindings;
   const ev=subset?allEvents.filter(x=>x.iiko_employee_id&&employeeIds.has(String(x.iiko_employee_id))):allEvents;
   const tokenMap=new Map(ts.map(x=>[String(x.device_id),x]));
   return{
-    restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes,deviceScope:subset?'SHARED_ACROSS_CHAIN':'ALL'}:null,
+    restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes,deviceScope:subset?'SCOPED_BY_RESTAURANT':'ALL'}:null,
     devices:ds.map(x=>{const token=tokenMap.get(String(x.device_id));return{id:x.device_id,provider:x.provider,name:x.name,restaurantId:x.restaurant_id||'',location:x.location,connectionMode:x.connection_mode,timezone:x.timezone,active:Boolean(x.is_active),lastSyncAt:x.last_sync_at||'',tokenConfigured:Boolean(token),tokenLastUsedAt:token?.last_used_at||'',tokenRotatedAt:token?.rotated_at||''}}),
     employees:es.map(x=>({id:x.iiko_employee_id,code:x.employee_code,name:x.display_name,firstName:x.first_name,lastName:x.last_name,roleName:x.role_name,departmentCode:x.department_code,deleted:Boolean(x.is_deleted),fireDate:x.fire_date||''})),
     bindings:bs.map(x=>({deviceId:x.device_id,employeeId:x.iiko_employee_id,provider:x.provider,externalEmployeeId:x.external_employee_id,externalLabel:x.external_label||''})),
     events:ev.map(x=>({id:x.event_id,deviceId:x.device_id,provider:x.provider,sourceUid:x.source_uid,externalEmployeeId:x.external_employee_id,employeeId:x.iiko_employee_id,employeeName:x.employee_name||'',employeeCode:x.employee_code||'',eventTime:x.event_time,eventType:x.event_type,importedAt:x.imported_at})),
-    counts:{devices:ds.filter(x=>x.is_active).length,employees:es.filter(x=>!x.is_deleted&&!x.fire_date).length,bindings:bs.length,events:ev.length,unmatchedEvents:ev.filter(x=>!x.iiko_employee_id).length,deviceTokens:ts.length}
+    counts:{devices:ds.filter(x=>x.is_active).length,unassignedDevices:ds.filter(x=>!clean(x.restaurant_id)).length,employees:es.filter(x=>!x.is_deleted&&!x.fire_date).length,bindings:bs.length,events:ev.length,unmatchedEvents:ev.filter(x=>!x.iiko_employee_id).length,deviceTokens:ts.filter(x=>ds.some(d=>String(d.device_id)===String(x.device_id))).length}
   };
 }
 
@@ -142,6 +148,8 @@ export async function onRequestPost({request,env}){
       const selectedRestaurants=Array.isArray(scope?.selectedDepartmentIds)?scope.selectedDepartmentIds.map(String).filter(Boolean):[];
       if(scope?.isChain&&selectedRestaurants.length!==1)return json({success:false,code:'HR_DEVICE_SINGLE_RESTAURANT_REQUIRED',message:'Для устройства Face ID в CHAIN выберите ровно один ресторан.'},409);
       const restaurantId=selectedRestaurants[0]||'';
+      const existingDevice=clean(b.id)?await device(env.DB,userId,id):null;
+      if(existingDevice&&!deviceAllowedForScope(existingDevice,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
       const t=now();await env.DB.prepare(`INSERT INTO hr_devices(user_id,device_id,provider,name,restaurant_id,location,connection_mode,timezone,is_active,created_at,updated_at)
         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,1,?9,?9)
         ON CONFLICT(user_id,device_id) DO UPDATE SET provider=excluded.provider,name=excluded.name,restaurant_id=excluded.restaurant_id,location=excluded.location,connection_mode=excluded.connection_mode,timezone=excluded.timezone,updated_at=excluded.updated_at`)
@@ -150,7 +158,7 @@ export async function onRequestPost({request,env}){
     }
     if(action==='rotateDeviceToken'){
       const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
-      const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);
+      const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
       const token=randomDeviceToken(),hash=await sha256(token),t=now();
       await env.DB.prepare(`INSERT INTO hr_device_tokens(user_id,device_id,token_hash,created_at,rotated_at,last_used_at)
         VALUES(?1,?2,?3,?4,?4,'') ON CONFLICT(user_id,device_id) DO UPDATE SET token_hash=excluded.token_hash,rotated_at=excluded.rotated_at,last_used_at=''`)
@@ -165,7 +173,7 @@ export async function onRequestPost({request,env}){
     if(action==='linkEmployee'){
       const deviceId=clean(b.deviceId),employeeId=clean(b.employeeId),externalId=clean(b.externalEmployeeId),label=clean(b.externalLabel);
       if(!deviceId||!employeeId||!externalId)return json({success:false,message:'Укажите устройство, сотрудника и ID сотрудника на устройстве'},400);
-      const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);
+      const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
       const e=await env.DB.prepare(`SELECT iiko_employee_id,department_code FROM hr_employees WHERE user_id=?1 AND iiko_employee_id=?2 AND TRIM(employee_code)<>'' LIMIT 1`).bind(userId,employeeId).first();if(!e)return json({success:false,message:'Сотрудник не найден. Сначала синхронизируйте справочник.'},404);
       if(isHrSubsetScope(scope)&&!new Set(hrScopeKeys(scope)).has(clean(e.department_code)))return json({success:false,message:'Сотрудник не относится к выбранному подразделению.'},403);
       const t=now();
@@ -177,11 +185,12 @@ export async function onRequestPost({request,env}){
     }
     if(action==='unlinkEmployee'){
       const deviceId=clean(b.deviceId),employeeId=clean(b.employeeId);if(!deviceId||!employeeId)return json({success:false,message:'Не указана связь'},400);
+      const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
       await env.DB.prepare(`DELETE FROM hr_employee_device_bindings WHERE user_id=?1 AND device_id=?2 AND iiko_employee_id=?3`).bind(userId,deviceId,employeeId).run();
       return json({success:true,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId,scope)});
     }
     if(action==='importEvents'){
-      const deviceId=clean(b.deviceId),items=Array.isArray(b.events)?b.events:[];const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);
+      const deviceId=clean(b.deviceId),items=Array.isArray(b.events)?b.events:[];const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
       if(!items.length)return json({success:false,message:'Нет событий для импорта'},400);
       if(items.length>2000)return json({success:false,message:'За один запрос можно импортировать не более 2000 событий'},400);
       const bindings=await env.DB.prepare(`SELECT external_employee_id,iiko_employee_id FROM hr_employee_device_bindings WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId).all();
