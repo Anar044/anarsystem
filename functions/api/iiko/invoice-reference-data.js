@@ -1,6 +1,7 @@
 import { clean, iikoJson } from "./_lib/iiko-client.js";
 import { getIikoSuppliers } from "./_lib/iiko-suppliers.js";
 import { syncReferences } from "./references.js";
+import { resolveStoreScope } from "./_lib/store-scope.js";
 
 function corsHeaders() {
   return {
@@ -168,7 +169,19 @@ export async function onRequestPost({ request, env }) {
       .filter(x => x.id && x.name)
       .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 
-    const warehouseMap = new Map(maps.warehouses?.entries?.() || []);
+    let warehouseMap = new Map(maps.warehouses?.entries?.() || []);
+    const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(String).filter(Boolean):[];
+    const allowedIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
+    const subsetRequested=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+    let storeScope=null;
+    if(subsetRequested){
+      storeScope=await resolveStoreScope(connection,departmentIds);
+      if(!storeScope.resolved||!storeScope.storeIds.length){
+        return json({success:false,code:"INVOICE_REFERENCE_SCOPE_UNAVAILABLE",message:"Не удалось определить склады выбранного подразделения.",meta:{departmentIds,storeScope:storeScope?.diagnostics||null}},409);
+      }
+      const wanted=new Set(storeScope.storeIds.map(warehouseKey));
+      warehouseMap=new Map([...warehouseMap.entries()].filter(([id])=>wanted.has(warehouseKey(id))));
+    }
     let balanceWarehouseResult = { map: new Map(), status: 0, ok: false, rawPreview: "", payload: null };
     let accountWarehouseResult = { exact: new Map(), explicitStores: new Map(), status: 0, ok: false };
 
@@ -210,6 +223,7 @@ export async function onRequestPost({ request, env }) {
         warehouses: warehouseMap.size,
         products: maps.products?.size || 0
       },
+      meta:{departmentIds,departmentScopeApplied:subsetRequested,storeIds:storeScope?.storeIds||[]},
       diagnostics: {
         references: refs.diagnostics || null,
         supplierSource: {
