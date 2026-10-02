@@ -8,8 +8,47 @@ async function token(){const c=await window.SHAuth?.createClient?.();if(!c)throw
 async function get(q){const t=await token(),r=await fetch('/api/ai-assistant'+q,{headers:{Authorization:'Bearer '+t},cache:'no-store'}),j=await r.json().catch(()=>({}));if(!r.ok||!j.success)throw Error(j.message||('HTTP '+r.status));return j}
 async function post(body){const t=await token(),r=await fetch('/api/ai-assistant',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+t},body:JSON.stringify(body)}),j=await r.json().catch(()=>({}));if(!r.ok||!j.success){const e=Error(j.message||('HTTP '+r.status));e.code=j.code||'';throw e}return j}
 function fmt(v){try{return new Date(v).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}catch{return''}}
+
+function reportCard(report){
+  if(!report||typeof report!=='object')return'';
+  const columns=Array.isArray(report.columns)?report.columns:[];
+  const rows=Array.isArray(report.rows)?report.rows:[];
+  const totals=Array.isArray(report.totals)?report.totals:[];
+  const kpis=Array.isArray(report.kpis)?report.kpis:[];
+  const notes=Array.isArray(report.notes)?report.notes:[];
+  const align=(value)=>['left','right','center'].includes(value)?value:'left';
+  const table=columns.length
+    ? '<div class="sha-report-table-wrap"><table class="sha-report-table"><thead><tr>'+
+      columns.map(col=>'<th class="is-'+align(col?.align)+'">'+esc(col?.label||'')+'</th>').join('')+
+      '</tr></thead><tbody>'+
+      rows.map(row=>'<tr>'+columns.map((col,i)=>'<td class="is-'+align(col?.align)+'">'+esc(Array.isArray(row)?(row[i]??''):'')+'</td>').join('')+'</tr>').join('')+
+      '</tbody>'+
+      (totals.length?'<tfoot><tr>'+columns.map((col,i)=>'<td class="is-'+align(col?.align)+'">'+esc(totals[i]??'')+'</td>').join('')+'</tr></tfoot>':'')+
+      '</table></div>'
+    :'';
+  return '<section class="sha-report">'+
+    '<div class="sha-report-head"><div><span class="sha-report-eyebrow">SMART HORECA REPORT</span><h3>'+esc(report.title||'Отчёт')+'</h3>'+
+    (report.subtitle?'<p>'+esc(report.subtitle)+'</p>':'')+'</div>'+
+    (report.periodLabel?'<span class="sha-report-period">'+esc(report.periodLabel)+'</span>':'')+
+    '</div>'+
+    (kpis.length?'<div class="sha-report-kpis">'+kpis.map(item=>'<div class="sha-report-kpi"><span>'+esc(item?.label||'')+'</span><strong>'+esc(item?.value||'')+'</strong></div>').join('')+'</div>':'')+
+    table+
+    (notes.length?'<div class="sha-report-notes">'+notes.map(note=>'<div>'+esc(note)+'</div>').join('')+'</div>':'')+
+    '</section>';
+}
+
 function tools(meta){const map={list_smart_horeca_capabilities:'Источники SmartHoreca',search_products:'Номенклатура',analyze_purchase_prices:'Приходные накладные',get_supplier_balances:'Баланс по поставщикам',search_olap_fields:'Поля OLAP',run_olap_report:'OLAP отчёт'};const a=Array.isArray(meta?.tools)?meta.tools:[];return a.length?'<div class="sha-tools-used">'+a.map(x=>'<span class="sha-tool-chip">'+esc(map[x.name]||x.name)+(x.error?' · ошибка':'')+'</span>').join('')+'</div>':''}
-function msg(m,index=-1){const ai=m.role==='assistant';const speak=ai&&index>=0?'<button class="sha-speak" type="button" data-speak-index="'+index+'" title="Озвучить ответ">🔊 Озвучить</button>':'';return '<article class="sha-message '+(ai?'assistant':'user')+'"><div class="sha-avatar">'+(ai?'AI':'Вы')+'</div><div class="sha-bubble"><div class="sha-text">'+esc(m.content).replace(/\n/g,'<br>')+'</div>'+(ai?tools(m.meta):'')+speak+'</div></article>'}
+function msg(m,index=-1){
+  const ai=m.role==='assistant';
+  const speak=ai&&index>=0?'<button class="sha-speak" type="button" data-speak-index="'+index+'" title="Озвучить ответ">🔊 Озвучить</button>':'';
+  const structured=ai&&m.meta?.report?reportCard(m.meta.report):'';
+  const text=esc(m.content).replace(/\n/g,'<br>');
+  return '<article class="sha-message '+(ai?'assistant':'user')+'"><div class="sha-avatar">'+(ai?'AI':'Вы')+'</div><div class="sha-bubble '+(structured?'has-report':'')+'">'+
+    (text?'<div class="sha-text">'+text+'</div>':'')+
+    structured+
+    (ai?tools(m.meta):'')+speak+
+    '</div></article>';
+}
 function renderMessages(a){currentMessages=Array.isArray(a)?a:[];$('welcome').hidden=currentMessages.length>0;$('messages').innerHTML=currentMessages.map((m,i)=>msg(m,i)).join('');requestAnimationFrame(()=>{$('messages').scrollTop=$('messages').scrollHeight})}
 function renderChats(){$('conversationEmpty').hidden=conversations.length>0;$('conversationList').innerHTML=conversations.map(x=>'<button class="sha-conversation '+(x.id===currentId?'active':'')+'" data-id="'+esc(x.id)+'"><strong>'+esc(x.title||'Новый чат')+'</strong><span>'+esc(fmt(x.updated_at))+'</span></button>').join('');$('conversationList').querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>select(b.dataset.id))}
 function state(t,k){$('assistantState').textContent=t;$('assistantState').className='sha-state '+(k||'')}
