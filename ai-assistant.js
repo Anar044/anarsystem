@@ -6,7 +6,20 @@ let mediaRecorder=null,mediaStream=null,audioChunks=[],recordStarted=0,recordTic
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 async function token(){const c=await window.SHAuth?.createClient?.();if(!c)throw Error('Supabase Auth не готов');const r=await c.auth.getSession();const t=r.data?.session?.access_token;if(r.error||!t)throw Error('Сессия пользователя не найдена');return t}
 async function get(q){const t=await token(),r=await fetch('/api/ai-assistant'+q,{headers:{Authorization:'Bearer '+t},cache:'no-store'}),j=await r.json().catch(()=>({}));if(!r.ok||!j.success)throw Error(j.message||('HTTP '+r.status));return j}
-async function post(body){const t=await token(),r=await fetch('/api/ai-assistant',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+t},body:JSON.stringify(body)}),j=await r.json().catch(()=>({}));if(!r.ok||!j.success){const e=Error(j.message||('HTTP '+r.status));e.code=j.code||'';throw e}return j}
+async function post(body){
+  const t=await token();
+  let payload={...body};
+  if(body?.action==='message'&&window.SH_IikoContext?.getBinding){
+    try{
+      const binding=await window.SH_IikoContext.getBinding();
+      payload.departmentIds=Array.isArray(binding?.departmentIds)?binding.departmentIds:[];
+    }catch(_){}
+  }
+  const r=await fetch('/api/ai-assistant',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+t},body:JSON.stringify(payload)});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok||!j.success){const e=Error(j.message||('HTTP '+r.status));e.code=j.code||'';throw e}
+  return j
+}
 function fmt(v){try{return new Date(v).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}catch{return''}}
 
 
