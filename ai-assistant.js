@@ -1,7 +1,8 @@
 (()=>{
 'use strict';
 const $=id=>document.getElementById(id);
-let conversations=[],currentId='',busy=false,currentMessages=[];\nlet mediaRecorder=null,mediaStream=null,audioChunks=[],recordStarted=0,recordTicker=null,recordStopTimer=null,currentAudio=null,currentAudioUrl='';
+let conversations=[],currentId='',busy=false,currentMessages=[];
+let mediaRecorder=null,mediaStream=null,audioChunks=[],recordStarted=0,recordTicker=null,recordStopTimer=null,currentAudio=null,currentAudioUrl='';
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 async function token(){const c=await window.SHAuth?.createClient?.();if(!c)throw Error('Supabase Auth не готов');const r=await c.auth.getSession();const t=r.data?.session?.access_token;if(r.error||!t)throw Error('Сессия пользователя не найдена');return t}
 async function get(q){const t=await token(),r=await fetch('/api/ai-assistant'+q,{headers:{Authorization:'Bearer '+t},cache:'no-store'}),j=await r.json().catch(()=>({}));if(!r.ok||!j.success)throw Error(j.message||('HTTP '+r.status));return j}
