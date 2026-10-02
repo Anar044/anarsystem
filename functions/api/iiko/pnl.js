@@ -102,9 +102,14 @@ export async function onRequestPost({request}){
     // In that case keep the legacy working behaviour (server-wide TRANSACTIONS)
     // instead of failing the whole P&L, but expose an explicit scope warning.
     if(departmentIds.length&&!salesDepartment)throw Error('В OLAP SALES не найден Department.Id для фильтра выбранного ресторана.');
+    const allowedIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
+    const subsetRequested=String(b?.chainScope?.mode||'').toUpperCase()==='CHAIN'&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+    if(subsetRequested&&!transactionDepartment){
+      return json({success:false,code:'PNL_TRANSACTION_SCOPE_UNAVAILABLE',message:'SH TRANSACTIONS не отдаёт Department.Id. P&L для одного выбранного ресторана нельзя построить безопасно без смешивания финансовых проводок сети.',meta:{departmentIds}},409);
+    }
     const transactionDepartmentScopeApplied=departmentIds.length>0&&!!transactionDepartment;
     const scopeWarning=departmentIds.length&&!transactionDepartment
-      ?'iiko TRANSACTIONS не отдаёт поле Department.Id: продажи по категориям ограничены выбранным рестораном, а финансовые проводки временно получены по всему подключённому iiko Server.'
+      ?'SH TRANSACTIONS не отдаёт поле Department.Id: финансовые проводки доступны только для общего отчёта по подключению.'
       :null;
 
     const postingRows=[article,accountType];
