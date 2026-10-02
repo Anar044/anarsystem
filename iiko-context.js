@@ -74,10 +74,17 @@
   }
 
   function normalizeSavedSelection(state) {
-    if (String(identity(state)?.mode || connection(state)?.connectionType || "RMS").toUpperCase() !== "CHAIN") return;
     const all = allRestaurantIds(state);
+    if (!all.length) {
+      writeSavedSelection([]);
+      return;
+    }
+    const mode=String(identity(state)?.mode || connection(state)?.connectionType || "RMS").toUpperCase();
+    if(mode!=="CHAIN"){
+      writeSavedSelection(all);
+      return;
+    }
     const saved = readSavedSelection();
-    if (!all.length) return;
     const valid = saved ? saved.filter(id => all.includes(String(id))) : [];
     writeSavedSelection(valid.length ? valid : all);
   }
