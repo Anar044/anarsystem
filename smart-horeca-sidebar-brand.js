@@ -6,7 +6,8 @@
   let applying=false;
 
   function readTheme(){
-    try{return localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){return 'light'}
+    try{localStorage.setItem('shReportsTheme','dark')}catch(e){}
+    return 'dark';
   }
 
   function ensureStyle(){
@@ -87,20 +88,16 @@
     return !!img && img.getAttribute('src')===LOGO;
   }
 
-  function syncButton(){
-    const btn=document.querySelector('.sidebar .sh-theme-toggle');
-    if(!btn)return;
-    const dark=root.dataset.theme==='dark';
-    const wanted=dark?'Светлая тема':'Тёмная тема';
-    const label=btn.querySelector('.theme-label');
-    if(label){label.textContent=wanted;return;}
-    btn.innerHTML=`<span class="theme-icon">${dark?'☀':'◐'}</span><span class="theme-label">${wanted}</span><span class="theme-arrow">›</span>`;
+  function removeThemeControl(){
+    document.querySelectorAll('.sidebar .sh-theme-toggle,.sidebar .theme-btn,[data-theme-label]').forEach(el=>el.remove());
   }
 
-  function setTheme(next){
-    try{localStorage.setItem('shReportsTheme',next)}catch(e){}
-    root.dataset.theme=next;
-    syncButton();
+  function syncButton(){ removeThemeControl(); }
+
+  function setTheme(){
+    try{localStorage.setItem('shReportsTheme','dark')}catch(e){}
+    root.dataset.theme='dark';
+    removeThemeControl();
     window.dispatchEvent(new Event('resize'));
   }
 
@@ -121,30 +118,24 @@
             <small>Управляй рестораном легко</small>
           </div>`;
       }
-      let btn=side.querySelector('.sh-theme-toggle');
-      if(!btn){
-        btn=document.createElement('button');
-        btn.type='button';
-        btn.className='sh-theme-toggle';
-        side.appendChild(btn);
-      }
-      btn.onclick=null;
+      removeThemeControl();
       syncButton();
       return true;
     }finally{applying=false}
   }
 
   document.addEventListener('click',(event)=>{
-    const btn=event.target.closest?.('.sidebar .sh-theme-toggle');
+    const btn=event.target.closest?.('.sidebar .sh-theme-toggle,.sidebar .theme-btn,[data-theme-label]');
     if(!btn)return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    setTheme(root.dataset.theme==='dark'?'light':'dark');
+    setTheme();
   },true);
 
   function start(){
     root.dataset.theme=readTheme();
+    removeThemeControl();
     install();
     setTimeout(install,100);
     setTimeout(install,500);
