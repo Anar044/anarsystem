@@ -213,6 +213,11 @@ export async function onRequestPost({ request, env }) {
       }
     }
 
+    if(subsetRequested&&storeScope?.storeIds?.length){
+      const wanted=new Set(storeScope.storeIds.map(warehouseKey));
+      warehouseMap=new Map([...warehouseMap.entries()].filter(([id])=>wanted.has(warehouseKey(id))));
+    }
+
     return json({
       success: true,
       suppliers,
@@ -223,7 +228,6 @@ export async function onRequestPost({ request, env }) {
         warehouses: warehouseMap.size,
         products: maps.products?.size || 0
       },
-      meta:{departmentIds,departmentScopeApplied:subsetRequested,storeIds:storeScope?.storeIds||[]},
       diagnostics: {
         references: refs.diagnostics || null,
         supplierSource: {
@@ -249,7 +253,13 @@ export async function onRequestPost({ request, env }) {
           names: [...new Set([...accountWarehouseResult.exact.values(), ...accountWarehouseResult.explicitStores.values()])]
         }
       },
-      meta: { authCacheHit: auth.cacheHit === true, supplierAuthCacheHit: supplierResult.authCacheHit === true }
+      meta: {
+        authCacheHit: auth.cacheHit === true,
+        supplierAuthCacheHit: supplierResult.authCacheHit === true,
+        departmentIds,
+        departmentScopeApplied: subsetRequested,
+        storeIds: storeScope?.storeIds || []
+      }
     });
   } catch (error) {
     return json(
