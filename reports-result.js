@@ -1,7 +1,7 @@
 (function(){
   'use strict';
 
-  const VERSION='6';
+  const VERSION='7';
 
   function clean(value){
     return String(value||'').replace(/[▼▶▾▸]/g,'').replace(/\s+/g,' ').trim();
@@ -259,13 +259,33 @@
     });
   }
 
-  function start(){
-    const root=document.getElementById('olap-result');
-    if(!root)return;
+  let rootObserver=null;
+
+  function attachToResultRoot(root){
+    if(!root||root.dataset.olapPresentationObserved===VERSION)return;
+    root.dataset.olapPresentationObserved=VERSION;
     enhance();
     new MutationObserver(enhance).observe(root,{childList:true,subtree:true});
   }
 
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);
+  function start(){
+    const existing=document.getElementById('olap-result');
+    if(existing){
+      attachToResultRoot(existing);
+      return;
+    }
+
+    if(rootObserver)return;
+    rootObserver=new MutationObserver(()=>{
+      const root=document.getElementById('olap-result');
+      if(!root)return;
+      rootObserver.disconnect();
+      rootObserver=null;
+      attachToResultRoot(root);
+    });
+    rootObserver.observe(document.documentElement,{childList:true,subtree:true});
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});
   else start();
 })();
