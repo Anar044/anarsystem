@@ -89,7 +89,6 @@ async function ensure(db){
       updated_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_documents_user_created ON ai_documents(user_id, created_at DESC)`),
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_documents_user_restaurant_created ON ai_documents(user_id, restaurant_id, created_at DESC)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS ai_product_aliases (
       user_id TEXT NOT NULL,
       supplier_key TEXT NOT NULL DEFAULT '',
