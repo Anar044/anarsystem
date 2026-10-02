@@ -159,3 +159,58 @@ html[data-theme="light"] .sha-report-table tfoot td{background:#eaf8f2;color:#07
   .sha-report-kpis{grid-template-columns:repeat(2,minmax(0,1fr));padding:9px}
   .sha-report-table{min-width:560px}
 }
+
+
+.sha-report-table .sha-report-group-row td{
+  padding:10px 11px!important;
+  background:#122231!important;
+  color:#f2f7fb!important;
+  border-top:1px solid #2c4153!important;
+  border-bottom:1px solid #26394a!important;
+  font-weight:850!important;
+  text-align:left!important;
+}
+.sha-report-group-icon{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:22px;
+  height:22px;
+  margin-right:8px;
+  border:1px solid #355167;
+  border-radius:6px;
+  background:#173147;
+  color:#7edfb8;
+  font-size:11px;
+  vertical-align:middle;
+}
+.sha-report-table .sha-report-child-row td{
+  background:#0d1822;
+}
+.sha-report-table .sha-report-child-row:hover td{
+  background:#11212d;
+}
+.sha-report-group-spacer{
+  width:34px;
+  min-width:34px;
+  border-right:1px solid rgba(127,160,185,.12);
+}
+.sha-report-child-label{
+  position:relative;
+  padding-left:28px!important;
+  font-weight:700;
+}
+.sha-report-child-label:before{
+  content:'↳';
+  position:absolute;
+  left:11px;
+  color:#5c7c91;
+  font-weight:500;
+}
+html[data-theme="light"] .sha-report-table .sha-report-group-row td{
+  background:#eaf3f7!important;
+  color:#17304a!important;
+  border-color:#d2e1e8!important;
+}
+html[data-theme="light"] .sha-report-table .sha-report-child-row td{background:#fff}
+html[data-theme="light"] .sha-report-table .sha-report-child-row:hover td{background:#f4faf7}
