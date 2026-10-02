@@ -70,31 +70,28 @@
   }
 
   function syncButton(){
-    const btn=document.querySelector('.sidebar .sh-theme-toggle');
-    if(!btn)return;
-    btn.onclick=null;
-    const dark=root.dataset.theme==='dark';
-    btn.innerHTML=`<span class="theme-icon">${dark?'☀':'◐'}</span><span>${dark?'Светлая тема':'Тёмная тема'}</span><span class="theme-arrow">›</span>`;
+    document.querySelectorAll('.sidebar .sh-theme-toggle,.sidebar .theme-btn,[data-theme-label]').forEach(el=>el.remove());
   }
 
-  function setTheme(next){
-    try{localStorage.setItem('shReportsTheme',next)}catch(e){}
-    root.dataset.theme=next;
+  function setTheme(){
+    try{localStorage.setItem('shReportsTheme','dark')}catch(e){}
+    root.dataset.theme='dark';
     syncButton();
     window.dispatchEvent(new Event('resize'));
   }
 
   document.addEventListener('click',(e)=>{
-    const btn=e.target.closest?.('.sidebar .sh-theme-toggle');
+    const btn=e.target.closest?.('.sidebar .sh-theme-toggle,.sidebar .theme-btn,[data-theme-label]');
     if(!btn)return;
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
-    setTheme(root.dataset.theme==='dark'?'light':'dark');
+    setTheme();
   },true);
 
   installStyle();
-  try{root.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){}
+  try{localStorage.setItem('shReportsTheme','dark')}catch(e){}
+  root.dataset.theme='dark';
   syncButton();
   document.addEventListener('DOMContentLoaded',()=>{installStyle();syncButton()},{once:true});
   setTimeout(syncButton,250);
