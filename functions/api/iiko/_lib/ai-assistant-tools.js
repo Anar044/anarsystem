@@ -1,6 +1,7 @@
 import { clean, getIikoAuth, getOlapFields, iikoJson, iikoText } from "./iiko-client.js";
 import { syncReferences } from "../references.js";
 import { getIikoSuppliers } from "./iiko-suppliers.js";
+import { resolveStoreScope } from "./store-scope.js";
 
 const MAX_INVOICE_ROWS = 1200;
 
@@ -252,11 +253,17 @@ function scalar(value) {
   }
   return "";
 }
-async function supplierBalances(connection, timestamp) {
+function aiBalanceDepartmentId(row){
+  for(const value of [row?.departmentId,row?.departmentID,row?.department?.id,row?.organizationId,row?.restaurantId,row?.organization?.id,row?.restaurant?.id]){
+    const id=clean(value);if(id)return id;
+  }
+  return "";
+}
+async function supplierBalances(connection, timestamp, departmentIds=[], strictSubset=false) {
   const supplierResult = await getIikoSuppliers(connection);
   const [accountsResult, balancesResult] = await Promise.all([
     iikoJson(connection, "/resto/api/v2/entities/accounts/list?includeDeleted=false&revisionFrom=-1", { timeoutMs: 60000 }),
-    iikoJson(connection, "/resto/api/v2/reports/balance/counteragents?timestamp=" + encodeURIComponent(timestamp), { timeoutMs: 60000 })
+    iikoJson(connection, (()=>{const q=new URLSearchParams({timestamp});for(const id of departmentIds)q.append("department",id);return "/resto/api/v2/reports/balance/counteragents?"+q.toString()})(), { timeoutMs: 60000 })
   ]);
   if (!accountsResult.ok) throw new Error("iiko accounts HTTP " + accountsResult.status);
   if (!balancesResult.ok) throw new Error("iiko supplier balance HTTP " + balancesResult.status);
@@ -269,8 +276,15 @@ async function supplierBalances(connection, timestamp) {
     if (id && type) accounts.set(id, type);
   }
   const suppliers = new Map((supplierResult.rows || []).map(row => [key(row.id), clean(row.name)]).filter(x => x[0] && x[1]));
+  const balanceRows=deepList(balancesResult.payload).filter(row=>row&&typeof row==="object"&&(row.counteragent!=null||row.counteragentId!=null));
+  const detectedDepartmentIds=[...new Set(balanceRows.map(aiBalanceDepartmentId).filter(Boolean))];
+  if(strictSubset&&balanceRows.length&&!detectedDepartmentIds.length){
+    throw new Error("SH Server не вернул подразделение в балансе поставщиков. AI не будет смешивать взаиморасчёты разных ресторанов.");
+  }
+  const wantedDepartments=new Set(departmentIds);
+  const scopedBalanceRows=departmentIds.length&&detectedDepartmentIds.length?balanceRows.filter(row=>wantedDepartments.has(aiBalanceDepartmentId(row))):balanceRows;
   const sums = new Map();
-  for (const row of deepList(balancesResult.payload)) {
+  for (const row of scopedBalanceRows) {
     if (!row || typeof row !== "object") continue;
     const supplierId = objectId(row.counteragent) || key(scalar(row.counteragent));
     const accountId = objectId(row.account) || key(scalar(row.account ?? row.accountId));
@@ -292,7 +306,7 @@ async function supplierBalances(connection, timestamp) {
       total: Number((amount.advance + amount.debt).toFixed(4))
     };
   }).sort((a,b)=>String(a.supplierName).localeCompare(String(b.supplierName),"ru"));
-  return { timestamp, rows };
+  return { timestamp, rows, departmentIds, detectedDepartmentIds };
 }
 
 function compactForAi(value, depth = 0) {
@@ -473,9 +487,6 @@ export async function executeAssistantTool(name, args, context) {
   }
 
   if (name === "analyze_purchase_prices") {
-    if(subsetChainScope){
-      return {error:"Анализ закупок временно заблокирован для выбранной части CHAIN, пока документы не ограничиваются по подразделениям на сервере.",code:"CHAIN_SCOPE_UNSUPPORTED_PURCHASES",departmentIds:selectedDepartmentIds};
-    }
     const refs = await references(env, connection);
     const range = {
       ...defaultRange(365),
@@ -487,6 +498,17 @@ export async function executeAssistantTool(name, args, context) {
     if (!productIds.size && matchedProducts[0]) productIds.add(matchedProducts[0].id);
 
     const loaded = await loadInvoices(connection, range.from, range.to);
+    if(subsetChainScope){
+      const storeScope=await resolveStoreScope(connection,selectedDepartmentIds);
+      if(!storeScope.resolved||!storeScope.storeIds.length){
+        return {error:"Не удалось определить склады выбранного ресторана. AI не будет смешивать закупки разных подразделений.",code:"CHAIN_SCOPE_STORE_UNAVAILABLE",departmentIds:selectedDepartmentIds};
+      }
+      const wantedStores=new Set(storeScope.storeIds.map(key));
+      loaded.documents=loaded.documents.filter(doc=>{
+        const stores=[doc.storeId,...(Array.isArray(doc.items)?doc.items.map(item=>item.storeId):[])].map(key).filter(Boolean);
+        return stores.some(id=>wantedStores.has(id));
+      });
+    }
     const supplierMap = new Map(refs.suppliers.map(x => [x.id, x.name]));
     const productMap = new Map(refs.products.map(x => [x.id, x.name]));
     const supplierQuery = normalizeText(args.supplier_query);
@@ -548,11 +570,13 @@ export async function executeAssistantTool(name, args, context) {
   }
 
   if (name === "get_supplier_balances") {
-    if(subsetChainScope){
-      return {error:"Баланс поставщиков временно заблокирован для выбранной части CHAIN, пока взаиморасчёты не разделяются безопасно по подразделениям.",code:"CHAIN_SCOPE_UNSUPPORTED_SUPPLIERS",departmentIds:selectedDepartmentIds};
-    }
     const date = clean(args.timestamp) || (new Date().toISOString().slice(0, 10) + "T23:59:59");
-    const result = await supplierBalances(connection, date);
+    let result;
+    try{
+      result = await supplierBalances(connection, date, selectedDepartmentIds, subsetChainScope);
+    }catch(error){
+      return {error:String(error?.message||error),code:"CHAIN_SCOPE_UNAVAILABLE_SUPPLIER_BALANCE",departmentIds:selectedDepartmentIds};
+    }
     const query = clean(args.supplier_query);
     const rows = query
       ? result.rows.filter(row => similarity(query, row.supplierName) >= 0.25)
