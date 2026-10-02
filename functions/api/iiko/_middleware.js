@@ -5,6 +5,7 @@ import {
   hasPrivateConnection,
   isServerPasswordMarker
 } from "./_lib/user-state.js";
+import { resolveRestaurantScope, applyDepartmentScopeToBody } from "./_lib/restaurant-scope.js";
 
 const REPORTS_DEPARTMENTS_COOKIE = "sh_reports_departments";
 const OLAP_DEFAULT_FILTERS = {
@@ -177,7 +178,27 @@ export async function onRequest(context) {
     }
   }
 
-  let rewrittenBody = applyOlapPolicy(body, storedState, request);
+  let rewrittenBody = body;
+
+  if (storedState) {
+    try {
+      const requestedIds=Array.isArray(body?.departmentIds)?body.departmentIds:null;
+      const scope=resolveRestaurantScope({state:storedState,request,requestedIds,strict:true});
+      rewrittenBody=applyDepartmentScopeToBody(rewrittenBody,scope);
+    } catch (error) {
+      return new Response(JSON.stringify({
+        success:false,
+        code:error?.code||"CHAIN_SCOPE_ERROR",
+        message:error?.message||"Ошибка области ресторанов",
+        invalidDepartmentIds:error?.invalidDepartmentIds||[]
+      }),{
+        status:Number(error?.status)||403,
+        headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"}
+      });
+    }
+  }
+
+  rewrittenBody = applyOlapPolicy(rewrittenBody, storedState, request);
 
   // Settings discovery may intentionally use a brand-new unsaved connection.
   // If a real password is supplied, preserve it. For saved connections the
