@@ -37,6 +37,9 @@ jobs:
 
           grep -q "ACCOUNT_BALANCE_SCOPE_UNAVAILABLE" functions/api/iiko/accounts.js
           grep -q "SUPPLIER_BALANCE_SCOPE_UNAVAILABLE" functions/api/iiko/supplier-balances.js
+          grep -q "STOCK_BALANCE_SCOPE_UNAVAILABLE" functions/api/iiko/stock-balances.js
+          grep -q "STOCK_MOVEMENT_SCOPE_UNAVAILABLE" functions/api/iiko/stock-movements.js
+          grep -q "FOOD_COST_SCOPE_UNAVAILABLE" functions/api/iiko/food-cost.js
           grep -q "PNL_TRANSACTION_SCOPE_UNAVAILABLE" functions/api/iiko/pnl.js
           grep -q "CASH_SHIFT_SCOPE_UNAVAILABLE" functions/api/iiko/finance-data.js
 
@@ -111,6 +114,9 @@ jobs:
           node --check functions/api/iiko/invoice-reference-data.js
           node --check functions/api/iiko/accounts.js
           node --check functions/api/iiko/supplier-balances.js
+          node --check functions/api/iiko/stock-balances.js
+          node --check functions/api/iiko/stock-movements.js
+          node --check functions/api/iiko/food-cost.js
           node --check functions/api/iiko/pnl.js
           node --check functions/api/iiko/qr-menu.js
           node --check functions/api/qr-menu/publish.js
