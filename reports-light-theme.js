@@ -92,6 +92,23 @@
     html[data-theme="light"] body .olap-result .report-table .olap-group-toggle{background:#fff!important;border-color:#c8d8e3!important;color:#536d83!important}
     html[data-theme="light"] body .olap-result .report-table .olap-grand-total td{background:#e6f8f1!important;border-top-color:#10b880!important;color:#07543d!important}
     html[data-theme="light"] body .olap-result .report-table .olap-grand-total td:nth-last-child(-n+2){color:#07543d!important}
+    html[data-theme="light"] body .olap-result .olap-tree-actions button,
+    html[data-theme="light"] body .olap-result .olap-row-count{background:#fff!important;border-color:#d7e2ea!important;color:#5d7387!important}
+    html[data-theme="light"] body .olap-result .olap-tree-actions button:hover{background:#f5faf8!important;border-color:#8bd7bd!important;color:#0c6f52!important}
+    html[data-theme="light"] body .olap-result .report-table th{height:36px!important;padding:0 14px!important;background:#f3f7fa!important;color:#61768a!important}
+    html[data-theme="light"] body .olap-result .report-table td{height:38px!important;padding:0 14px!important;background:#fff!important;color:#263c50!important}
+    html[data-theme="light"] body .olap-result .report-table .olap-dimension-cell,
+    html[data-theme="light"] body .olap-result .report-table .olap-value-cell{text-align:left!important}
+    html[data-theme="light"] body .olap-result .report-table .olap-measure-cell{text-align:right!important;color:#17304a!important;font-variant-numeric:tabular-nums!important}
+    html[data-theme="light"] body .olap-result .report-table tr.olap-level-0 td{height:42px!important;background:#eaf4f8!important;border-color:#c9dce5!important}
+    html[data-theme="light"] body .olap-result .report-table tr.olap-level-0 .olap-measure-cell{color:#067554!important}
+    html[data-theme="light"] body .olap-result .report-table tr.olap-level-1 td{height:39px!important;background:#f3f8fb!important}
+    html[data-theme="light"] body .olap-result .report-table tr.olap-level-2 td,
+    html[data-theme="light"] body .olap-result .report-table tr.olap-level-3 td,
+    html[data-theme="light"] body .olap-result .report-table tr.olap-level-4 td{height:37px!important;background:#fff!important}
+    html[data-theme="light"] body .olap-result .report-table .olap-group-toggle{width:22px!important;height:22px!important;background:#fff!important;border-color:#c8d8e3!important;color:#536d83!important}
+    html[data-theme="light"] body .olap-result .report-table .olap-grand-total td{height:44px!important;background:#e6f8f1!important;border-top-color:#10b880!important;color:#07543d!important}
+    html[data-theme="light"] body .olap-result .report-table .olap-grand-total .olap-measure-cell{color:#07543d!important}
   `;
   document.head.appendChild(s);
 })();
