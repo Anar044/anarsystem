@@ -62,10 +62,12 @@ function roleTermDto(r){return{id:r.term_id,scopeType:'ROLE',roleCode:r.role_cod
 function activeTermMap(terms,key,asOf){const map=new Map();for(const t of terms){const k=String(t[key]||'');if(k&&t.effectiveFrom<=asOf&&(!t.effectiveTo||t.effectiveTo>=asOf)&&!map.has(k))map.set(k,t)}return map}
 function calculationFor(term,asOf){return term?calculateCompensation({officialGross:term.officialGross,additionalAmount:term.additionalAmount,additionalTaxTreatment:term.additionalTaxTreatment,calculationDate:asOf}):null}
 
-async function loadRoles(db,userId,employees){
-  const rows=await db.prepare(`SELECT role_code,role_name,is_deleted FROM hr_roles WHERE user_id=?1 ORDER BY is_deleted ASC,role_name COLLATE NOCASE`).bind(userId).all().catch(()=>({results:[]}));
+async function loadRoles(db,userId,employees,scope=null){
   const map=new Map();
-  for(const r of rows.results||[]){if(!Number(r.is_deleted)&&clean(r.role_code))map.set(String(r.role_code),String(r.role_name||r.role_code))}
+  if(!isHrSubsetScope(scope)){
+    const rows=await db.prepare(`SELECT role_code,role_name,is_deleted FROM hr_roles WHERE user_id=?1 ORDER BY is_deleted ASC,role_name COLLATE NOCASE`).bind(userId).all().catch(()=>({results:[]}));
+    for(const r of rows.results||[]){if(!Number(r.is_deleted)&&clean(r.role_code))map.set(String(r.role_code),String(r.role_name||r.role_code))}
+  }
   for(const e of employees){if(clean(e.role_code)&&!map.has(String(e.role_code)))map.set(String(e.role_code),String(e.role_name||e.role_code))}
   return [...map.entries()].map(([code,name])=>({code,name})).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
 }
@@ -79,10 +81,14 @@ async function snapshot(db,userId,asOf,scope=null){
 
   const employeeRows=filterEmployeesByScope(employeesResult.results||[],scope).filter(e=>!Number(e.is_deleted)&&(!e.fire_date||e.fire_date>=asOf));
   const employeeTerms=(employeeTermsResult.results||[]).map(employeeTermDto);
-  const roleTerms=(roleTermsResult.results||[]).map(roleTermDto);
+  let roleTerms=(roleTermsResult.results||[]).map(roleTermDto);
   const employeeCurrent=activeTermMap(employeeTerms,'employeeId',asOf);
   const roleCurrent=activeTermMap(roleTerms,'roleCode',asOf);
-  const baseRoles=await loadRoles(db,userId,employeeRows);
+  const baseRoles=await loadRoles(db,userId,employeeRows,scope);
+  if(isHrSubsetScope(scope)){
+    const visibleRoles=new Set(baseRoles.map(x=>String(x.code)));
+    roleTerms=roleTerms.filter(x=>visibleRoles.has(String(x.roleCode)));
+  }
   const employeeCountByRole=new Map();
   for(const e of employeeRows){const code=String(e.role_code||'');if(code)employeeCountByRole.set(code,(employeeCountByRole.get(code)||0)+1)}
 
@@ -103,7 +109,7 @@ async function snapshot(db,userId,asOf,scope=null){
 
   const configured=employees.filter(x=>x.term),officialGrossTotal=configured.reduce((a,x)=>a+(x.term?.officialGross||0),0),additionalTotal=configured.reduce((a,x)=>a+(x.term?.additionalAmount||0),0),employeeReceivesTotal=configured.reduce((a,x)=>a+(x.calculation?.totalEmployeeReceives||0),0),employerCostTotal=configured.reduce((a,x)=>a+(x.calculation?.totalEmployerCost||0),0);
   return{
-    asOf,employees,roles,employeeTerms,roleTerms,ruleProfile:AZ_PAYROLL_RULE_PROFILE,
+    asOf,employees,roles,employeeTerms,roleTerms,rolePolicyScope:'NETWORK_SHARED',ruleProfile:AZ_PAYROLL_RULE_PROFILE,
     counts:{employees:employees.length,configured:configured.length,withoutTerms:employees.length-configured.length,roles:roles.length,rolesConfigured:roles.filter(x=>x.term).length,individualOverrides:employees.filter(x=>x.individualTerm).length},
     totals:{officialGross:Math.round(officialGrossTotal*100)/100,additional:Math.round(additionalTotal*100)/100,employeeReceives:Math.round(employeeReceivesTotal*100)/100,employerCost:Math.round(employerCostTotal*100)/100}
   };
