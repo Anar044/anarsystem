@@ -98,7 +98,12 @@ export async function onRequestPost({request,env}){
       return json({success:false,message:"Некорректные данные QR Menu."},400);
     }
 
-    const resolved=resolveRestaurant(stored.state,Array.isArray(body.departmentIds)?body.departmentIds:[]);
+    const requestedIds=Array.isArray(body.departmentIds)?uniq(body.departmentIds):[];
+    const mode=String(stored.state?.identity?.mode||stored.state?.connection?.connectionType||"RMS").toUpperCase();
+    if(mode==="CHAIN"&&requestedIds.length!==1){
+      return json({success:false,code:"QR_MENU_SINGLE_RESTAURANT_REQUIRED",message:"Для публикации QR Menu в CHAIN выберите ровно один ресторан."},409);
+    }
+    const resolved=resolveRestaurant(stored.state,requestedIds);
     const organizationId=resolved.organizationId;
     if(!organizationId) return json({success:false,message:"Не найден ID ресторана в сохранённом подключении SH Server."},400);
     const restaurantName=clean(body.restaurantName)||resolved.restaurantName||"Мой ресторан";
