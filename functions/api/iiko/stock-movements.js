@@ -1,3 +1,4 @@
+import { resolveStoreScope } from "./_lib/store-scope.js";
 import { iikoJson, iikoText } from "./_lib/iiko-client.js";
 
 const metaCache = new Map();
@@ -281,6 +282,15 @@ export async function onRequestPost({request}){
     if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to))return json({success:false,message:"Укажите корректный период"},400);
     if(to<from)return json({success:false,message:"Дата «По» раньше даты «С»"},400);
 
+    const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(key).filter(Boolean))]:[];
+    const allowedDepartmentIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(key).filter(Boolean):[];
+    const subsetRequested=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedDepartmentIds.length>departmentIds.length;
+    const storeScope=subsetRequested?await resolveStoreScope(connection,departmentIds):{resolved:true,storeIds:[]};
+    if(subsetRequested&&!storeScope.resolved){
+      return json({success:false,code:"STOCK_MOVEMENT_SCOPE_UNAVAILABLE",message:"Не удалось определить склады выбранного ресторана. Движение товара не будет показано без безопасного CHAIN-фильтра.",meta:{departmentIds,storeScope:storeScope.diagnostics||null}},409);
+    }
+    const scopedStores=new Set((storeScope.storeIds||[]).map(key).filter(Boolean));
+
     const [meta,incoming,outgoing,writeoff,transfer,inventory]=await Promise.all([
       metadata(connection),
       loadInvoice(connection,"incoming",from,to),
@@ -290,14 +300,22 @@ export async function onRequestPost({request}){
       loadV2(connection,"inventory",from,to)
     ]);
 
-    const movements=[
+    let movements=[
       ...enrichInvoice(meta,incoming,"incoming"),
       ...enrichInvoice(meta,outgoing,"outgoing"),
       ...enrichV2(meta,writeoff,"writeoff"),
       ...enrichV2(meta,transfer,"transfer"),
       ...enrichV2(meta,inventory,"inventory")
-    ].filter(x=>!x.date||dateOnly(x.date)>=from&&dateOnly(x.date)<=to)
-     .sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))||String(a.productName).localeCompare(String(b.productName),"ru"));
+    ].filter(x=>!x.date||dateOnly(x.date)>=from&&dateOnly(x.date)<=to);
+
+    if(subsetRequested){
+      movements=movements.filter(x=>{
+        const ids=[x.storeId,x.fromStoreId,x.toStoreId].map(key).filter(Boolean);
+        return ids.some(id=>scopedStores.has(id));
+      });
+    }
+
+    movements.sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))||String(a.productName).localeCompare(String(b.productName),"ru"));
 
     const stores=[...new Map(movements.flatMap(x=>[
       x.storeId?[x.storeId,{id:x.storeId,name:x.storeName}]:null,
@@ -324,7 +342,7 @@ export async function onRequestPost({request}){
         transferValue:movements.filter(x=>x.type==="transfer").reduce((s,x)=>s+Number(x.value||0),0),
         inventoryValue:movements.filter(x=>x.type==="inventory").reduce((s,x)=>s+Number(x.value||0),0)
       },
-      meta:{metadataCacheHit:meta.cacheHit===true,warehouseCount:meta.stores.length,unitCount:meta.unitCount}
+      meta:{metadataCacheHit:meta.cacheHit===true,warehouseCount:meta.stores.length,unitCount:meta.unitCount,departmentIds,departmentScopeApplied:subsetRequested,scopedStoreIds:[...scopedStores],storeScopeDiagnostics:storeScope.diagnostics||null}
     });
   }catch(e){
     console.error("IIKO STOCK MOVEMENTS ERROR",e);
