@@ -15,6 +15,17 @@ function jsonResponse(data, status = 200) {
     });
 }
 
+function shiftDepartmentId(item) {
+    for (const value of [
+        item?.departmentId,item?.departmentID,item?.department?.id,item?.department?.uuid,item?.department?.guid,item?.departmentGuid,
+        item?.organizationId,item?.organisationId,item?.restaurantId,item?.organization?.id,item?.organisation?.id,item?.restaurant?.id
+    ]) {
+        const id=String(value??"").trim();
+        if(id)return id;
+    }
+    return "";
+}
+
 function recordsFrom(payload) {
     if (!payload || typeof payload !== "object") return [];
     const groups = [
@@ -80,6 +91,19 @@ export async function onRequestPost(context) {
         const payments = recordsFrom(paymentsPayload);
         const shift = shiftResult.payload;
 
+        const departmentIds=Array.isArray(body.departmentIds)?[...new Set(body.departmentIds.map(String).filter(Boolean))]:[];
+        const allowedDepartmentIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
+        const subsetRequested=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedDepartmentIds.length>departmentIds.length;
+        if(subsetRequested){
+            const dep=shiftDepartmentId(shift);
+            if(!dep){
+                return jsonResponse({success:false,code:"CASH_SHIFT_DETAIL_SCOPE_UNAVAILABLE",message:"SH Server не вернул подразделение для этой кассовой смены. Детали не будут показаны без безопасного CHAIN-фильтра."},409);
+            }
+            if(!new Set(departmentIds).has(dep)){
+                return jsonResponse({success:false,code:"CASH_SHIFT_DETAIL_SCOPE_FORBIDDEN",message:"Кассовая смена относится к другому ресторану."},403);
+            }
+        }
+
         return jsonResponse({
             success: true,
             sessionId,
@@ -95,7 +119,10 @@ export async function onRequestPost(context) {
             operationDay: paymentsPayload.operationDay || null,
             meta: {
                 sharedIikoClient: true,
-                authCacheHit: shiftResult.auth?.cacheHit === true || paymentsResult.auth?.cacheHit === true
+                authCacheHit: shiftResult.auth?.cacheHit === true || paymentsResult.auth?.cacheHit === true,
+                departmentIds,
+                subsetRequested,
+                departmentScopeApplied: subsetRequested
             }
         });
     } catch (error) {
