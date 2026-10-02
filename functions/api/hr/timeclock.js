@@ -97,7 +97,7 @@ async function device(db,userId,deviceId){return db.prepare(`SELECT * FROM hr_de
 function deviceAllowedForScope(row,scope){
   if(!row||!isHrSubsetScope(scope))return Boolean(row);
   const rid=clean(row.restaurant_id);
-  if(!rid)return true;
+  if(!rid)return false;
   return (scope.selectedDepartmentIds||[]).map(String).includes(rid);
 }
 
@@ -114,7 +114,7 @@ async function snapshot(db,userId,scope=null){
   const allDevices=devices.results||[],allEmployees=employees.results||[],allBindings=bindings.results||[],allEvents=events.results||[],ts=tokens.results||[];
   const selectedRestaurants=new Set(Array.isArray(scope?.selectedDepartmentIds)?scope.selectedDepartmentIds.map(String):[]);
   const subset=isHrSubsetScope(scope);
-  const ds=subset?allDevices.filter(x=>!clean(x.restaurant_id)||selectedRestaurants.has(String(x.restaurant_id))):allDevices;
+  const ds=subset?allDevices.filter(x=>selectedRestaurants.has(String(x.restaurant_id))):allDevices;
   const es=filterEmployeesByScope(allEmployees,scope);
   const employeeIds=new Set(es.map(x=>String(x.iiko_employee_id)));
   const bs=subset?allBindings.filter(x=>employeeIds.has(String(x.iiko_employee_id))):allBindings;
@@ -167,6 +167,7 @@ export async function onRequestPost({request,env}){
     }
     if(action==='revokeDeviceToken'){
       const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
+      const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
       await env.DB.prepare(`DELETE FROM hr_device_tokens WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId).run();
       return json({success:true,deviceId,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId,scope)});
     }
