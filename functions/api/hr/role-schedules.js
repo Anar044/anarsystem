@@ -1,7 +1,7 @@
 import { iikoText } from '../iiko/_lib/iiko-client.js';
 import { getUser, loadRequestIikoState, privateConnection, hasPrivateConnection } from '../iiko/_lib/user-state.js';
 import { validateWeeklySchedule, validateCycleSchedule, AZ_LABOR_RULES } from './_lib/az-labor-rules.js';
-import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
+import { resolveHrRestaurantScope, filterEmployeesByScope, isHrSubsetScope } from './_lib/restaurant-scope.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -102,9 +102,11 @@ async function snapshot(db,userId,scope=null){
     if(Number(x.is_deleted)||(x.fire_date&&String(x.fire_date).trim()))continue;
     const code=String(x.role_code||'');if(code)employeeCounts.set(code,(employeeCounts.get(code)||0)+1);
   }
+  const subset=isHrSubsetScope(scope);
+  const visibleRoleCodes=new Set(employeeCounts.keys());
   const dayMap=new Map();for(const d of daysResult.results||[]){const id=String(d.schedule_id||'');if(!dayMap.has(id))dayMap.set(id,[]);dayMap.get(id).push({weekday:Number(d.weekday),shiftStart:d.shift_start,shiftEnd:d.shift_end,breakMinutes:Number(d.break_minutes||0)});}
   const settingsMap=new Map((settingsResult.results||[]).map(s=>[String(s.schedule_id||''),s]));
-  const schedules=(schedulesResult.results||[]).map(s=>{
+  const schedules=(schedulesResult.results||[]).filter(s=>!subset||visibleRoleCodes.has(String(s.role_code||''))).map(s=>{
     const settings=settingsMap.get(String(s.schedule_id))||{};
     const weekdays=String(s.weekdays||'').split(',').map(Number).filter(Boolean);
     const storedDays=dayMap.get(String(s.schedule_id))||[];
@@ -120,9 +122,9 @@ async function snapshot(db,userId,scope=null){
   });
   const scheduleCounts=new Map();const defaultRoles=new Set();
   for(const s of schedules){if(s.active)scheduleCounts.set(s.roleCode,(scheduleCounts.get(s.roleCode)||0)+1);if(s.active&&s.isDefault)defaultRoles.add(s.roleCode)}
-  const roles=(rolesResult.results||[]).map(r=>({id:r.iiko_role_id||'',code:r.role_code,name:r.role_name||r.role_code,deleted:Boolean(r.is_deleted),syncedAt:r.synced_at||'',employeeCount:employeeCounts.get(String(r.role_code))||0,scheduleCount:scheduleCounts.get(String(r.role_code))||0,hasDefaultSchedule:defaultRoles.has(String(r.role_code))}));
+  const roles=(rolesResult.results||[]).filter(r=>!subset||visibleRoleCodes.has(String(r.role_code||''))).map(r=>({id:r.iiko_role_id||'',code:r.role_code,name:r.role_name||r.role_code,deleted:Boolean(r.is_deleted),syncedAt:r.synced_at||'',employeeCount:employeeCounts.get(String(r.role_code))||0,scheduleCount:scheduleCounts.get(String(r.role_code))||0,hasDefaultSchedule:defaultRoles.has(String(r.role_code))}));
   const activeRoles=roles.filter(r=>!r.deleted);
-  return{roles,schedules,legalBasis,restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,counts:{roles:activeRoles.length,employees:activeRoles.reduce((a,r)=>a+r.employeeCount,0),schedules:schedules.filter(x=>x.active).length,rolesWithoutDefault:activeRoles.filter(r=>!r.hasDefaultSchedule).length}};
+  return{roles,schedules,legalBasis,schedulePolicyScope:'NETWORK_SHARED',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,counts:{roles:activeRoles.length,employees:activeRoles.reduce((a,r)=>a+r.employeeCount,0),schedules:schedules.filter(x=>x.active).length,rolesWithoutDefault:activeRoles.filter(r=>!r.hasDefaultSchedule).length}};
 }
 
 async function syncRoles(request,env,userId,scope=null){
