@@ -15,7 +15,8 @@
   const state={cards:[],filters:new Map(),search:new Map(),binding:null};
 
   async function binding(){return await window.SH_IikoContext?.getBinding?.()||{departmentIds:[],restaurants:[]}}
-  async function api(path,init){const r=await fetch(path,{cache:'no-store',...(init||{})});const text=await r.text();let d;try{d=JSON.parse(text)}catch{throw Error(`HTTP ${r.status}: ответ не JSON`)}if(!r.ok||d?.success===false&&d?.error)throw Error(d?.error||`HTTP ${r.status}`);return unwrap(d)}
+  async function accessToken(){const client=await window.SHAuth?.createClient?.();if(!client)throw Error('SH Auth не готов');const{data,error}=await client.auth.getSession();const token=data?.session?.access_token;if(error||!token)throw Error('Сессия пользователя не найдена');return token}
+  async function api(path,init){const token=await accessToken();const base=init||{},headers=new Headers(base.headers||{});headers.set('Authorization',`Bearer ${token}`);const r=await fetch(path,{cache:'no-store',...base,headers});const text=await r.text();let d;try{d=JSON.parse(text)}catch{throw Error(`HTTP ${r.status}: ответ не JSON`)}if(!r.ok||d?.success===false&&d?.error)throw Error(d?.error||`HTTP ${r.status}`);return unwrap(d)}
 
   function rows(payload){
     const root=unwrap(payload)?.data??unwrap(payload)??{},out=[];
