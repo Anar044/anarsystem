@@ -58,14 +58,24 @@ function resolveGroupName(groupId, groupMap) {
     return groupMap.get(String(groupId))?.name || "Без категории";
 }
 
-function hasSalePlace(item) {
-    const excluded = item?.excludedSections;
-    if (excluded == null) return true;
-    if (Array.isArray(excluded)) return excluded.length === 0;
-    return String(excluded).trim() === "";
+function sectionId(value){
+    if(value&&typeof value==="object")return String(value.id??value.uuid??value.sectionId??"").trim();
+    return String(value??"").trim();
 }
 
-function normalizeProducts(items, groupMap) {
+function hasSalePlace(item, selectedSectionIds=[]) {
+    const excludedRaw=item?.excludedSections;
+    const excluded=Array.isArray(excludedRaw)
+        ? excludedRaw.map(sectionId).filter(Boolean)
+        : (excludedRaw==null||String(excludedRaw).trim()===""?[]:[String(excludedRaw).trim()]);
+    if(Array.isArray(selectedSectionIds)&&selectedSectionIds.length){
+        const blocked=new Set(excluded);
+        return selectedSectionIds.some(id=>!blocked.has(String(id)));
+    }
+    return excluded.length===0;
+}
+
+function normalizeProducts(items, groupMap, selectedSectionIds=[]) {
     const products = [];
     const categories = new Map();
     let skippedNoSalePlace = 0;
@@ -75,7 +85,7 @@ function normalizeProducts(items, groupMap) {
         if (!item || item.deleted === true) continue;
         if (String(item.type || "").toUpperCase() !== "DISH") continue;
         if (item.defaultIncludedInMenu !== true) continue;
-        if (!hasSalePlace(item)) {
+        if (!hasSalePlace(item, selectedSectionIds)) {
             skippedNoSalePlace += 1;
             continue;
         }
@@ -201,13 +211,26 @@ export async function onRequestPost(context) {
             return jsonResponse({ success: false, message: "Заполните IP, порт, логин и пароль iiko" }, 400);
         }
 
+        const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(String).filter(Boolean):[];
+        const allowedIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
+        const selectedSectionIds=Array.isArray(body?.chainScope?.selectedRestaurantSectionIds)?body.chainScope.selectedRestaurantSectionIds.map(String).filter(Boolean):[];
+        const subsetRequested=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+        if(subsetRequested&&!selectedSectionIds.length){
+            return jsonResponse({
+                success:false,
+                code:"QR_MENU_SALE_PLACE_SCOPE_UNAVAILABLE",
+                message:"Не удалось определить торговые секции выбранного ресторана. QR Menu не синхронизирован, чтобы не смешивать меню филиалов.",
+                meta:{departmentIds}
+            },409);
+        }
+
         const [rawProducts, rawGroups] = await Promise.all([
             getProducts(connection),
             getGroups(connection)
         ]);
 
         const groupMap = buildGroupMap(rawGroups);
-        const normalized = normalizeProducts(rawProducts, groupMap);
+        const normalized = normalizeProducts(rawProducts, groupMap, selectedSectionIds);
 
         let imageCount = 0;
         const imageConcurrency = 4;
@@ -244,7 +267,10 @@ export async function onRequestPost(context) {
             products: normalized.products,
             meta: {
                 imageConcurrency,
-                preferredImageEndpointIndex: imageState.successfulPath
+                preferredImageEndpointIndex: imageState.successfulPath,
+                departmentIds,
+                selectedRestaurantSectionIds:selectedSectionIds,
+                departmentScopeApplied:subsetRequested
             }
         });
     } catch (error) {
