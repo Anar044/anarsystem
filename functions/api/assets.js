@@ -1,4 +1,5 @@
-import { getUser } from './iiko/_lib/user-state.js';
+import { getUser, loadPrivateIikoState } from './iiko/_lib/user-state.js';
+import { resolveRestaurantScope } from './iiko/_lib/restaurant-scope.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -124,7 +125,9 @@ async function authContext(request,env){
   const auth=await getUser(request,env);
   if(!auth)return null;
   await ensureTables(env.DB);
-  return auth;
+  const stored=await loadPrivateIikoState(env.DB,auth.user.id,env).catch(()=>null);
+  const scope=stored?.found?resolveRestaurantScope({state:stored.state,request,strict:true}):null;
+  return {...auth,scope};
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
@@ -132,9 +135,19 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const auth=await authContext(request,env);if(!auth)return json({success:false,message:'Требуется авторизация'},401);
-    const assetsResult=await env.DB.prepare(`SELECT * FROM fixed_assets WHERE user_id=?1 ORDER BY status='ACTIVE' DESC, name COLLATE NOCASE`).bind(auth.user.id).all();
-    const eventsResult=await env.DB.prepare(`SELECT * FROM fixed_asset_events WHERE user_id=?1 ORDER BY event_date DESC, created_at DESC`).bind(auth.user.id).all();
-    return json({success:true,assets:(assetsResult.results||[]).map(normalizeAsset),events:eventsResult.results||[]});
+    const selected=Array.isArray(auth.scope?.selectedDepartmentIds)?auth.scope.selectedDepartmentIds:[];
+    let assetSql=`SELECT * FROM fixed_assets WHERE user_id=?1`,assetBinds=[auth.user.id];
+    if(selected.length){assetSql+=` AND restaurant_id IN (${selected.map((_,i)=>`?${i+2}`).join(',')})`;assetBinds.push(...selected)}
+    assetSql+=` ORDER BY status='ACTIVE' DESC, name COLLATE NOCASE`;
+    const assetsResult=await env.DB.prepare(assetSql).bind(...assetBinds).all();
+    const assetIds=(assetsResult.results||[]).map(x=>x.id);
+    let events=[];
+    if(assetIds.length){
+      const placeholders=assetIds.map((_,i)=>`?${i+2}`).join(',');
+      const eventsResult=await env.DB.prepare(`SELECT * FROM fixed_asset_events WHERE user_id=?1 AND asset_id IN (${placeholders}) ORDER BY event_date DESC, created_at DESC`).bind(auth.user.id,...assetIds).all();
+      events=eventsResult.results||[];
+    }
+    return json({success:true,assets:(assetsResult.results||[]).map(normalizeAsset),events,restaurantScope:auth.scope?{mode:auth.scope.mode,departmentIds:selected}:null});
   }catch(error){return json({success:false,message:error.message||String(error)},500)}
 }
 
@@ -148,7 +161,11 @@ export async function onRequestPost({request,env}){
     if(action==='depreciation'){
       const from=dateOnly(b.from),to=dateOnly(b.to||b.from);
       if(!from||!to||from>to)return json({success:false,message:'Укажите корректный период'},400);
-      const requested=Array.isArray(b.restaurantIds)?[...new Set(b.restaurantIds.map(clean).filter(Boolean))]:[];
+      const allowed=new Set(Array.isArray(auth.scope?.allowedDepartmentIds)?auth.scope.allowedDepartmentIds:[]);
+      const selected=Array.isArray(auth.scope?.selectedDepartmentIds)?auth.scope.selectedDepartmentIds:[];
+      const requestedRaw=Array.isArray(b.restaurantIds)?[...new Set(b.restaurantIds.map(clean).filter(Boolean))]:[];
+      const requested=(requestedRaw.length?requestedRaw:selected).filter(id=>!allowed.size||allowed.has(id));
+      if(requestedRaw.some(id=>allowed.size&&!allowed.has(id)))return json({success:false,message:'Выбранный ресторан не принадлежит текущему подключению Smart Horeca.'},403);
       let sql=`SELECT * FROM fixed_assets WHERE user_id=?1 AND status<>'DRAFT'`;
       const binds=[userId];
       if(requested.length){sql+=` AND restaurant_id IN (${requested.map((_,i)=>`?${i+2}`).join(',')})`;binds.push(...requested)}
@@ -166,6 +183,8 @@ export async function onRequestPost({request,env}){
       const life=Math.max(1,int(b.usefulLifeMonths));
       const inService=dateOnly(b.inServiceDate);
       if(!restaurantId||!name||!inService)return json({success:false,message:'Укажите ресторан, название и дату ввода в эксплуатацию'},400);
+      const allowedRestaurants=new Set(Array.isArray(auth.scope?.allowedDepartmentIds)?auth.scope.allowedDepartmentIds:[]);
+      if(allowedRestaurants.size&&!allowedRestaurants.has(restaurantId))return json({success:false,message:'Этот ресторан не принадлежит текущему подключению Smart Horeca.'},403);
       if(salvageValue>purchaseCost)return json({success:false,message:'Ликвидационная стоимость не может быть выше стоимости покупки'},400);
       const existing=await env.DB.prepare(`SELECT id FROM fixed_assets WHERE id=?1 AND user_id=?2`).bind(id,userId).first();
       const now=isoNow();
