@@ -1,6 +1,7 @@
 import { syncReferences } from "./references.js";
 import { getIikoAuth, iikoText } from "./_lib/iiko-client.js";
 import { loadCachedReferenceMaps } from "./_lib/reference-cache.js";
+import { resolveStoreScope } from "./_lib/store-scope.js";
 
 function corsHeaders() {
   return {
@@ -216,6 +217,29 @@ export async function onRequestPost(context) {
     }
 
     const result = await getInvoices(connection, body.from, body.to, body.counteragentId);
+    const departmentIds=Array.isArray(body.departmentIds)?[...new Set(body.departmentIds.map(String).filter(Boolean))]:[];
+    const allowedIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
+    const subsetRequested=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+    let storeScope=null;
+    if(subsetRequested){
+      storeScope=await resolveStoreScope(connection,departmentIds);
+      if(!storeScope.resolved||!storeScope.storeIds.length){
+        return jsonResponse({
+          success:false,
+          code:"DOCUMENT_STORE_SCOPE_UNAVAILABLE",
+          message:"Не удалось определить склады выбранного подразделения. Расходные накладные не показаны, чтобы не смешивать рестораны.",
+          meta:{departmentIds,storeScope:storeScope?.diagnostics||null}
+        },409);
+      }
+      const wantedStores=new Set(storeScope.storeIds.map(key));
+      result.docs=result.docs.filter(document=>{
+        const ids=[
+          document.defaultStoreId,
+          ...(Array.isArray(document.items)?document.items.map(item=>item.storeId):[])
+        ].map(key).filter(Boolean);
+        return ids.some(id=>wantedStores.has(id));
+      });
+    }
     const auth = await getIikoAuth(connection);
     const needed = [...new Set(result.docs.map(document => key(document.counteragentId)).filter(Boolean))];
     const references = await getReferences(context.env, auth, needed);
@@ -236,7 +260,10 @@ export async function onRequestPost(context) {
         sharedIikoClient: true,
         authCacheHit: auth.cacheHit === true,
         referenceCacheHit: references.cacheHit === true,
-        referenceCacheAgeMs: references.ageMs ?? null
+        referenceCacheAgeMs: references.ageMs ?? null,
+        departmentIds,
+        departmentScopeApplied: subsetRequested,
+        storeIds: storeScope?.storeIds || []
       }
     });
   } catch (error) {
