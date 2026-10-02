@@ -17,7 +17,7 @@ const MAX_TOOL_ROUNDS = 6;
 const ASSISTANT_RESPONSE_SCHEMA = {
   type: "object",
   properties: {
-    kind: { type: "string", enum: ["text", "report"] },
+    kind: { type: "string", enum: ["text", "report", "chart", "report_with_chart"] },
     text: { type: "string" },
     report: {
       anyOf: [
@@ -72,26 +72,76 @@ const ASSISTANT_RESPONSE_SCHEMA = {
           additionalProperties: false
         }
       ]
+    },
+    chart: {
+      anyOf: [
+        { type: "null" },
+        {
+          type: "object",
+          properties: {
+            type: { type: "string", enum: ["bar", "horizontal_bar", "line", "pie"] },
+            title: { type: "string" },
+            subtitle: { type: "string" },
+            xLabel: { type: "string" },
+            yLabel: { type: "string" },
+            series: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  data: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        label: { type: "string" },
+                        value: { type: "number" }
+                      },
+                      required: ["label", "value"],
+                      additionalProperties: false
+                    }
+                  }
+                },
+                required: ["name", "data"],
+                additionalProperties: false
+              }
+            },
+            notes: {
+              type: "array",
+              items: { type: "string" }
+            }
+          },
+          required: ["type", "title", "subtitle", "xLabel", "yLabel", "series", "notes"],
+          additionalProperties: false
+        }
+      ]
     }
   },
-  required: ["kind", "text", "report"],
+  required: ["kind", "text", "report", "chart"],
   additionalProperties: false
 };
 
 function parseAssistantPayload(text) {
   const raw = clean(text);
-  if (!raw) return { kind: "text", text: "", report: null };
+  if (!raw) return { kind: "text", text: "", report: null, chart: null };
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") throw new Error("invalid payload");
-    const kind = parsed.kind === "report" && parsed.report ? "report" : "text";
+    const hasReport = !!parsed.report;
+    const hasChart = !!parsed.chart;
+    let kind = "text";
+    if (hasReport && hasChart) kind = "report_with_chart";
+    else if (hasReport) kind = "report";
+    else if (hasChart) kind = "chart";
     return {
       kind,
       text: clean(parsed.text),
-      report: kind === "report" ? parsed.report : null
+      report: hasReport ? parsed.report : null,
+      chart: hasChart ? parsed.chart : null
     };
   } catch (_) {
-    return { kind: "text", text: raw, report: null };
+    return { kind: "text", text: raw, report: null, chart: null };
   }
 }
 
@@ -266,17 +316,22 @@ function instructions(model, connected) {
 4. Для закупочных цен показывай период, поставщика, товар и динамику цены. Не называй "текущей ценой" цену, если это лишь последняя цена в найденной накладной.
 5. Для сравнений объясняй, на каких данных основан вывод.
 6. Не выполняй запись/изменение данных в iiko. Все инструменты этой версии только читают данные.
-7. Для обычного вопроса верни kind="text", краткий текст в text и report=null.
-8. Если пользователь просит отчёт, сводку, таблицу, аналитику по периоду или сравнение данных, верни kind="report" и заполни report структурой для визуального отображения.
-9. В report.columns укажи понятные человеку названия колонок и align: числовые значения обычно right, текст left.
-10. В report.rows каждая строка должна содержать столько строковых значений, сколько columns. Не вставляй Markdown в cells.
-11. report.totals используй для итоговой строки; если итоги неуместны — верни пустой массив.
-12. report.kpis используй только для ключевых показателей, которые действительно следуют из данных инструмента.
-13. report.notes — короткие пояснения об источнике, периоде, методике или ограничениях.
-14. Никогда не дублируй большую таблицу в text: text должен быть коротким вводным/итоговым комментарием.
-15. Если результат большой, в report.rows оставь наиболее полезные строки, а ограничение объясни в notes.
-16. Не раскрывай технические пароли, токены или внутренние секреты.
-17. Подключение к iiko сейчас: ${connected ? "есть" : "нет"}.
+7. Для обычного вопроса верни kind="text", краткий текст в text, report=null и chart=null.
+8. Если пользователь просит обычный табличный отчёт, сводку или таблицу — верни kind="report", заполни report и поставь chart=null.
+9. Если пользователь прямо просит "график", "диаграмму", "визуально", "покажи динамику графиком" — верни kind="chart", report=null и заполни chart.
+10. Если пользователь просит одновременно отчёт/таблицу и график — верни kind="report_with_chart" и заполни и report, и chart.
+11. Для сравнений категорий используй bar или horizontal_bar. Для динамики во времени используй line. Для долей/структуры используй pie только когда доли действительно уместны.
+12. В chart.series.data значение value всегда должно быть числом без валютного символа и без форматирования тысяч. label — человекочитаемая подпись.
+13. Не придумывай точки графика: все значения chart должны прямо следовать из данных инструментов.
+14. В report.columns укажи понятные человеку названия колонок и align: числовые значения обычно right, текст left.
+15. В report.rows каждая строка должна содержать столько строковых значений, сколько columns. Не вставляй Markdown в cells.
+16. report.totals используй для итоговой строки; если итоги неуместны — верни пустой массив.
+17. report.kpis используй только для ключевых показателей, которые действительно следуют из данных инструмента.
+18. report.notes и chart.notes — короткие пояснения об источнике, периоде, методике или ограничениях.
+19. Никогда не дублируй большую таблицу в text: text должен быть коротким вводным/итоговым комментарием.
+20. Если результат большой, в report.rows оставь наиболее полезные строки, а ограничение объясни в notes.
+21. Не раскрывай технические пароли, токены или внутренние секреты.
+22. Подключение к iiko сейчас: ${connected ? "есть" : "нет"}.
 
 Модель: ${model}.`;
 }
@@ -362,11 +417,12 @@ async function runAssistant(env, connection, history) {
   const rawText = outputText(response);
   if (!rawText) throw new Error("AI не вернул ответ.");
   const structured = parseAssistantPayload(rawText);
-  if (!structured.text && !structured.report) throw new Error("AI вернул пустой ответ.");
+  if (!structured.text && !structured.report && !structured.chart) throw new Error("AI вернул пустой ответ.");
   return {
-    text: structured.text || structured.report?.title || "Отчёт сформирован.",
+    text: structured.text || structured.report?.title || structured.chart?.title || "Отчёт сформирован.",
     kind: structured.kind,
     report: structured.report,
+    chart: structured.chart,
     model: response.model || model,
     responseId: response.id || null,
     usage: response.usage || null,
@@ -480,6 +536,7 @@ export async function onRequestPost({ request, env }) {
       tools: answer.tools,
       kind: answer.kind,
       report: answer.report,
+      chart: answer.chart,
       readOnly: true
     };
     await saveMessage(env.DB, auth.user.id, conversationId, "assistant", answer.text, meta);
