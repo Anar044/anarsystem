@@ -188,6 +188,21 @@ jobs:
           grep -q 'iikoText' functions/api/iiko/connect.js
           echo 'Shared iiko authentication check passed'
 
+      - name: Verify AI assistant safety contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'getUser' functions/api/ai-assistant.js
+          grep -q 'loadPrivateIikoState' functions/api/ai-assistant.js
+          grep -q 'OPENAI_API_KEY' functions/api/ai-assistant.js
+          grep -q 'assistantToolDefinitions' functions/api/ai-assistant.js
+          grep -q 'readOnly: true' functions/api/ai-assistant.js
+          grep -q 'analyze_purchase_prices' functions/api/iiko/_lib/ai-assistant-tools.js
+          grep -q 'get_supplier_balances' functions/api/iiko/_lib/ai-assistant-tools.js
+          grep -q 'run_olap_report' functions/api/iiko/_lib/ai-assistant-tools.js
+          grep -q 'ai-assistant.html' app-shell.js
+          echo 'AI assistant read-only/authenticated contract passed'
+
       - name: Verify iiko authentication is centralized
         shell: bash
         run: |
@@ -254,6 +269,7 @@ jobs:
             "/labor-cost.html"
             "/nakladnye.html"
             "/ai-documents.html"
+            "/ai-assistant.html"
             "/rashodnye-nakladnye.html"
             "/akty-spisaniya.html"
           )
@@ -296,6 +312,7 @@ jobs:
             "/api/iiko/references"
             "/api/iiko/invoice-reference-data"
             "/api/ai-documents"
+            "/api/ai-assistant"
             "/api/iiko/documents"
             "/api/iiko/document-action"
             "/api/iiko/document-by-number"
