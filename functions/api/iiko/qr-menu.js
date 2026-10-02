@@ -214,7 +214,11 @@ export async function onRequestPost(context) {
         const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(String).filter(Boolean):[];
         const allowedIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
         const selectedSectionIds=Array.isArray(body?.chainScope?.selectedRestaurantSectionIds)?body.chainScope.selectedRestaurantSectionIds.map(String).filter(Boolean):[];
-        const subsetRequested=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+        const chainMode=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN";
+        if(chainMode&&departmentIds.length!==1){
+            return jsonResponse({success:false,code:"QR_MENU_SINGLE_RESTAURANT_REQUIRED",message:"Для QR Menu в режиме CHAIN выберите ровно один ресторан.",meta:{departmentIds}},409);
+        }
+        const subsetRequested=chainMode&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
         if(subsetRequested&&!selectedSectionIds.length){
             return jsonResponse({
                 success:false,
