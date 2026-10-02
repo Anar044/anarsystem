@@ -41,6 +41,21 @@ export async function onRequestGet(context) {
       }, 502);
     }
 
+    const requested=[...new Set((incoming.searchParams.get("departmentIds")||"").split(",").map(x=>x.trim()).filter(Boolean))];
+    if(requested.length){
+      const allowed=new Set(requested);
+      const filterList=list=>(Array.isArray(list)?list:[]).filter(item=>{
+        const row=item?.data&&typeof item.data==="object"?{...item,...item.data}:item;
+        return allowed.has(String(row?.departmentId??""));
+      });
+      if(Array.isArray(data)) data=filterList(data);
+      else if(data&&typeof data==="object"){
+        if(Array.isArray(data.plugins)) data={...data,plugins:filterList(data.plugins)};
+        else if(Array.isArray(data.data)) data={...data,data:filterList(data.data)};
+        else if(Array.isArray(data.items)) data={...data,items:filterList(data.items)};
+      }
+    }
+
     return jsonResponse(data, response.status);
   } catch (error) {
     return jsonResponse({
