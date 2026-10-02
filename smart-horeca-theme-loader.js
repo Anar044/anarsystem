@@ -2,11 +2,11 @@
   'use strict';
   const root=document.documentElement;
   const initKey='shThemeV2Initialized';
-  if(!localStorage.getItem(initKey)){
-    localStorage.setItem('shReportsTheme','light');
+  try{
+    localStorage.setItem('shReportsTheme','dark');
     localStorage.setItem(initKey,'1');
-  }
-  root.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light';
+  }catch(e){}
+  root.dataset.theme='dark';
   const old=document.getElementById('sh-brand-theme');
   if(old)old.remove();
   const link=document.createElement('link');
