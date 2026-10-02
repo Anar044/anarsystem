@@ -278,3 +278,19 @@ html[data-theme="light"] .sha-report-table .sha-report-child-row:hover td{backgr
   .sha-pie{width:150px;height:150px}
   .sha-chart-labels{flex-direction:column;gap:3px}
 }
+
+
+.sha-report-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.sha-report-excel{
+  height:30px;
+  padding:0 10px;
+  border:1px solid color-mix(in srgb,var(--sha-green) 45%,var(--sha-border));
+  border-radius:8px;
+  background:#102a21;
+  color:#73e2b2;
+  font:800 10px/1 inherit;
+  cursor:pointer;
+}
+.sha-report-excel:hover{background:#143529;border-color:var(--sha-green);color:#a0f1d0}
+html[data-theme="light"] .sha-report-excel{background:#eaf8f2;color:#087451;border-color:#bfe8d8}
+@media(max-width:760px){.sha-report-head-actions{width:100%;justify-content:flex-start}}
