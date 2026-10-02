@@ -60,6 +60,26 @@ export function cookieDepartmentIds(request){
   return uniq(raw.split(","));
 }
 
+
+function selectedSalePlaces(state,selectedDepartmentIds){
+  const identity=state?.identity&&typeof state.identity==="object"?state.identity:{};
+  const connection=state?.connection&&typeof state.connection==="object"?state.connection:{};
+  const selected=new Set((selectedDepartmentIds||[]).map(clean).filter(Boolean));
+  const groups=(Array.isArray(identity.groups)&&identity.groups.length?identity.groups:(Array.isArray(connection.groups)?connection.groups:[]));
+  const points=(Array.isArray(identity.pointsOfSale)&&identity.pointsOfSale.length?identity.pointsOfSale:(Array.isArray(connection.pointsOfSale)?connection.pointsOfSale:[]));
+  const sections=(Array.isArray(identity.restaurantSections)&&identity.restaurantSections.length?identity.restaurantSections:(Array.isArray(connection.restaurantSections)?connection.restaurantSections:[]));
+
+  const groupIds=new Set(groups.filter(g=>selected.has(clean(g?.departmentId))).map(g=>clean(g?.id)).filter(Boolean));
+  const pointIds=new Set(points.filter(p=>groupIds.has(clean(p?.groupId))).map(p=>clean(p?.id)).filter(Boolean));
+  const selectedSections=sections.filter(s=>groupIds.has(clean(s?.groupId))||pointIds.has(clean(s?.pointOfSaleId)));
+  return{
+    groupIds:[...groupIds],
+    pointOfSaleIds:[...pointIds],
+    restaurantSectionIds:uniq(selectedSections.map(s=>s?.id)),
+    restaurantSections:selectedSections.map(s=>({id:clean(s?.id),name:clean(s?.name||s?.id),groupId:clean(s?.groupId),pointOfSaleId:clean(s?.pointOfSaleId)}))
+  };
+}
+
 export function resolveRestaurantScope({state,request=null,requestedIds=null,strict=true}={}){
   const allowed=allowedDepartmentIds(state);
   const mode=connectionMode(state);
@@ -76,6 +96,7 @@ export function resolveRestaurantScope({state,request=null,requestedIds=null,str
   const selected=valid.length?valid:allowed;
   const directory=restaurantDirectory(state);
   const selectedRestaurants=directory.filter(x=>selected.includes(x.id));
+  const salePlaces=selectedSalePlaces(state,selected);
   return {
     mode,
     isChain:mode==="CHAIN",
@@ -83,6 +104,10 @@ export function resolveRestaurantScope({state,request=null,requestedIds=null,str
     selectedDepartmentIds:selected,
     selectedDepartmentCodes:uniq(selectedRestaurants.map(x=>x.code)),
     selectedRestaurants,
+    selectedGroupIds:salePlaces.groupIds,
+    selectedPointOfSaleIds:salePlaces.pointOfSaleIds,
+    selectedRestaurantSectionIds:salePlaces.restaurantSectionIds,
+    selectedRestaurantSections:salePlaces.restaurantSections,
     allRestaurants:directory
   };
 }
@@ -93,7 +118,10 @@ export function applyDepartmentScopeToBody(body,scope){
   next.chainScope={
     mode:scope?.mode||"RMS",
     selectedDepartmentIds:[...(scope?.selectedDepartmentIds||[])],
-    allowedDepartmentIds:[...(scope?.allowedDepartmentIds||[])]
+    allowedDepartmentIds:[...(scope?.allowedDepartmentIds||[])],
+    selectedGroupIds:[...(scope?.selectedGroupIds||[])],
+    selectedPointOfSaleIds:[...(scope?.selectedPointOfSaleIds||[])],
+    selectedRestaurantSectionIds:[...(scope?.selectedRestaurantSectionIds||[])]
   };
   return next;
 }
