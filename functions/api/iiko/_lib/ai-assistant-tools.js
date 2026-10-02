@@ -444,7 +444,10 @@ export const assistantToolDefinitions = [
 ];
 
 export async function executeAssistantTool(name, args, context) {
-  const { env, connection } = context;
+  const { env, connection, scope } = context;
+  const selectedDepartmentIds=Array.isArray(scope?.selectedDepartmentIds)?scope.selectedDepartmentIds:[];
+  const allowedDepartmentIds=Array.isArray(scope?.allowedDepartmentIds)?scope.allowedDepartmentIds:[];
+  const subsetChainScope=scope?.isChain===true && selectedDepartmentIds.length>0 && selectedDepartmentIds.length<allowedDepartmentIds.length;
 
   if (name === "list_smart_horeca_capabilities") {
     return {
@@ -470,6 +473,9 @@ export async function executeAssistantTool(name, args, context) {
   }
 
   if (name === "analyze_purchase_prices") {
+    if(subsetChainScope){
+      return {error:"Анализ закупок временно заблокирован для выбранной части CHAIN, пока документы не ограничиваются по подразделениям на сервере.",code:"CHAIN_SCOPE_UNSUPPORTED_PURCHASES",departmentIds:selectedDepartmentIds};
+    }
     const refs = await references(env, connection);
     const range = {
       ...defaultRange(365),
@@ -542,6 +548,9 @@ export async function executeAssistantTool(name, args, context) {
   }
 
   if (name === "get_supplier_balances") {
+    if(subsetChainScope){
+      return {error:"Баланс поставщиков временно заблокирован для выбранной части CHAIN, пока взаиморасчёты не разделяются безопасно по подразделениям.",code:"CHAIN_SCOPE_UNSUPPORTED_SUPPLIERS",departmentIds:selectedDepartmentIds};
+    }
     const date = clean(args.timestamp) || (new Date().toISOString().slice(0, 10) + "T23:59:59");
     const result = await supplierBalances(connection, date);
     const query = clean(args.supplier_query);
@@ -606,6 +615,13 @@ export async function executeAssistantTool(name, args, context) {
         includeHigh: true
       };
     }
+    if(selectedDepartmentIds.length){
+      const departmentField=["Department.Id","DepartmentId","Department.ID"].find(name=>available.has(name));
+      if(!departmentField){
+        return {success:false,code:"CHAIN_SCOPE_FIELD_MISSING",message:"OLAP не отдаёт Department.Id — нельзя безопасно ограничить AI отчёт выбранным рестораном.",departmentIds:selectedDepartmentIds};
+      }
+      filters[departmentField]={filterType:"IncludeValues",values:[...selectedDepartmentIds]};
+    }
     const request = {
       reportType,
       buildSummary: true,
@@ -626,7 +642,7 @@ export async function executeAssistantTool(name, args, context) {
     if (!result.ok) {
       return { success: false, status: result.status, message: result.text.slice(0, 1200), request };
     }
-    return { success: true, request, report: compactForAi(result.payload) };
+    return { success: true, request, departmentIds:selectedDepartmentIds, departmentScopeApplied:selectedDepartmentIds.length>0, report: compactForAi(result.payload) };
   }
 
   throw new Error(`Неизвестный инструмент AI: ${name}`);
