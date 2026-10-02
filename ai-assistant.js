@@ -17,12 +17,37 @@ function reportCard(report){
   const kpis=Array.isArray(report.kpis)?report.kpis:[];
   const notes=Array.isArray(report.notes)?report.notes:[];
   const align=(value)=>['left','right','center'].includes(value)?value:'left';
+  const firstLabel=String(columns[0]?.label||'').toLowerCase();
+  const secondLabel=String(columns[1]?.label||'').toLowerCase();
+  const groupByCash=columns.length>=2&&firstLabel.includes('касс')&&secondLabel.includes('официант');
+
+  let bodyHtml='';
+  if(groupByCash){
+    const groups=[];
+    const map=new Map();
+    rows.forEach(row=>{
+      const values=Array.isArray(row)?row:[];
+      const key=String(values[0]??'').trim()||'Без кассы';
+      if(!map.has(key)){const group={key,rows:[]};map.set(key,group);groups.push(group)}
+      map.get(key).rows.push(values);
+    });
+    bodyHtml=groups.map(group=>
+      '<tr class="sha-report-group-row"><td colspan="'+columns.length+'"><span class="sha-report-group-icon">▦</span><strong>'+esc(group.key)+'</strong></td></tr>'+
+      group.rows.map(row=>'<tr class="sha-report-child-row">'+columns.map((col,i)=>{
+        if(i===0)return '<td class="sha-report-group-spacer"></td>';
+        const value=row[i]??'';
+        const extra=i===1?' sha-report-child-label':'';
+        return '<td class="is-'+align(col?.align)+extra+'">'+esc(value)+'</td>';
+      }).join('')+'</tr>').join('')
+    ).join('');
+  }else{
+    bodyHtml=rows.map(row=>'<tr>'+columns.map((col,i)=>'<td class="is-'+align(col?.align)+'">'+esc(Array.isArray(row)?(row[i]??''):'')+'</td>').join('')+'</tr>').join('');
+  }
+
   const table=columns.length
     ? '<div class="sha-report-table-wrap"><table class="sha-report-table"><thead><tr>'+
       columns.map(col=>'<th class="is-'+align(col?.align)+'">'+esc(col?.label||'')+'</th>').join('')+
-      '</tr></thead><tbody>'+
-      rows.map(row=>'<tr>'+columns.map((col,i)=>'<td class="is-'+align(col?.align)+'">'+esc(Array.isArray(row)?(row[i]??''):'')+'</td>').join('')+'</tr>').join('')+
-      '</tbody>'+
+      '</tr></thead><tbody>'+bodyHtml+'</tbody>'+
       (totals.length?'<tfoot><tr>'+columns.map((col,i)=>'<td class="is-'+align(col?.align)+'">'+esc(totals[i]??'')+'</td>').join('')+'</tr></tfoot>':'')+
       '</table></div>'
     :'';
