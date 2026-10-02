@@ -2,6 +2,7 @@
   "use strict";
 
   const SELECTION_KEY = "shIikoSelectedRestaurants";
+  const SCOPE_COOKIE = "sh_selected_departments";
   let promise = null;
   let cache = null;
 
@@ -65,7 +66,11 @@
   }
 
   function writeSavedSelection(ids) {
-    try { localStorage.setItem(SELECTION_KEY, JSON.stringify([...new Set((ids || []).map(String))])); } catch (_) {}
+    const values=[...new Set((ids || []).map(String).map(x=>x.trim()).filter(Boolean))];
+    try { localStorage.setItem(SELECTION_KEY, JSON.stringify(values)); } catch (_) {}
+    try {
+      document.cookie=`${SCOPE_COOKIE}=${encodeURIComponent(values.join(","))}; Path=/; SameSite=Lax; Max-Age=${values.length?31536000:0}`;
+    } catch (_) {}
   }
 
   function normalizeSavedSelection(state) {
