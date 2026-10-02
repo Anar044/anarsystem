@@ -4,6 +4,10 @@ import json
 import os
 import re
 import tempfile
+import threading
+import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,6 +15,7 @@ from typing import Any
 import requests
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from paddleocr import PaddleOCR
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 app = FastAPI(title="SmartHoreca Local Document AI", version="1.0.0")
 
@@ -19,8 +24,18 @@ OCR_VERSION = os.getenv("OCR_VERSION", "PP-OCRv5").strip() or "PP-OCRv5"
 LOCAL_AI_TOKEN = os.getenv("LOCAL_AI_TOKEN", "").strip()
 OLLAMA_URL = os.getenv("OLLAMA_URL", "").strip().rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b").strip() or "qwen2.5:7b"
+SECONDARY_OCR = os.getenv("SECONDARY_OCR", "easyocr").strip().lower()
+SECONDARY_OCR_LANGS = [
+    x.strip() for x in os.getenv("SECONDARY_OCR_LANGS", "az,en").split(",") if x.strip()
+] or ["az", "en"]
 
 _ocr: PaddleOCR | None = None
+_easyocr_reader: Any | None = None
+
+_job_executor = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("OCR_JOB_WORKERS", "1"))))
+_jobs: dict[str, dict[str, Any]] = {}
+_jobs_lock = threading.Lock()
+JOB_TTL_SECONDS = max(600, int(os.getenv("OCR_JOB_TTL_SECONDS", "7200")))
 
 DATE_PATTERNS = [
     re.compile(r"\b(20\d{2})[-./](0?[1-9]|1[0-2])[-./]([0-2]?\d|3[01])\b"),
@@ -35,6 +50,15 @@ HEADER_WORDS = (
     "malın adı", "məhsul", "miqdar", "qiymət", "məbləğ", "товар", "наименование",
     "количество", "цена", "сумма", "quantity", "price", "amount"
 )
+SUPPLIER_LABELS = (
+    "təchizatçı", "techizatci", "techizatçı", "tchizatçı", "tchizatci",
+    "поставщик", "supplier"
+)
+FREEFORM_UNITS = (
+    "kg", "кг", "qram", "qr", "gr", "g", "əd", "ed", "шт", "pcs", "pc",
+    "l", "lt", "л", "ml", "мл"
+)
+CURRENCY_HINTS = ("azn", "₼", "manat", "манат")
 
 
 @dataclass
@@ -56,6 +80,20 @@ def get_ocr() -> PaddleOCR:
             use_textline_orientation=False,
         )
     return _ocr
+
+
+def get_easyocr_reader():
+    global _easyocr_reader
+    if SECONDARY_OCR != "easyocr":
+        return None
+    if _easyocr_reader is None:
+        import easyocr
+        _easyocr_reader = easyocr.Reader(
+            SECONDARY_OCR_LANGS,
+            gpu=False,
+            verbose=False,
+        )
+    return _easyocr_reader
 
 
 def num(value: str | None) -> float | None:
@@ -128,12 +166,146 @@ def ocr_document(path: str) -> list[OcrLine]:
     return output
 
 
+def easyocr_document(path: str) -> list[OcrLine]:
+    reader = get_easyocr_reader()
+    if reader is None:
+        return []
+
+    raw = reader.readtext(path, detail=1, paragraph=False)
+    output: list[OcrLine] = []
+    for item in raw:
+        try:
+            box_points, text, score = item
+            clean_text = str(text or "").strip()
+            if not clean_text:
+                continue
+            xs = [float(point[0]) for point in box_points]
+            ys = [float(point[1]) for point in box_points]
+            box = [min(xs), min(ys), max(xs), max(ys)]
+            output.append(
+                OcrLine(
+                    page=0,
+                    text=clean_text,
+                    score=float(score or 0.0),
+                    box=box,
+                )
+            )
+        except Exception:
+            continue
+    return output
+
+
+def should_try_secondary_ocr(parsed: dict[str, Any]) -> bool:
+    if SECONDARY_OCR != "easyocr":
+        return False
+    items = parsed.get("items") or []
+    confidence = float(parsed.get("confidence") or 0.0)
+    mode = parsed.get("documentMode")
+    supplier = parsed.get("supplierName")
+    return (
+        len(items) == 0
+        or confidence < 0.82
+        or (mode == "freeform" and len(items) < 2)
+        or (mode == "freeform" and not supplier)
+    )
+
+
+def _line_center(line: OcrLine) -> tuple[float, float]:
+    if line.box and len(line.box) >= 4:
+        return ((line.box[0] + line.box[2]) / 2, (line.box[1] + line.box[3]) / 2)
+    return (0.0, 0.0)
+
+
+def merge_ocr_lines(primary: list[OcrLine], secondary: list[OcrLine]) -> list[OcrLine]:
+    """Merge two OCR engines while suppressing obvious duplicate boxes."""
+    merged: list[OcrLine] = []
+    for line in [*primary, *secondary]:
+        text_key = re.sub(r"\s+", " ", (line.text or "").strip().lower())
+        if not text_key:
+            continue
+        cx, cy = _line_center(line)
+        duplicate_index = None
+        for i, existing in enumerate(merged):
+            if existing.page != line.page:
+                continue
+            existing_key = re.sub(r"\s+", " ", (existing.text or "").strip().lower())
+            if existing_key != text_key:
+                continue
+            ex, ey = _line_center(existing)
+            if line.box and existing.box and abs(ex - cx) <= 45 and abs(ey - cy) <= 28:
+                duplicate_index = i
+                break
+        if duplicate_index is None:
+            merged.append(line)
+        elif line.score > merged[duplicate_index].score:
+            merged[duplicate_index] = line
+    return ordered_lines(merged)
+
+
 def ordered_lines(lines: list[OcrLine]) -> list[OcrLine]:
     def pos(line: OcrLine):
         if line.box and len(line.box) >= 4:
             return (line.page, line.box[1], line.box[0])
         return (line.page, 0, 0)
     return sorted(lines, key=pos)
+
+
+def _image_variants(path: str) -> list[tuple[str, str]]:
+    suffix = Path(path).suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}:
+        return [("original", path)]
+
+    variants: list[tuple[str, str]] = [("original", path)]
+    try:
+        with Image.open(path) as source:
+            base = ImageOps.exif_transpose(source).convert("RGB")
+            scale = 2 if max(base.size) < 3200 else 1
+
+            gray = ImageOps.grayscale(base)
+            gray = ImageOps.autocontrast(gray, cutoff=1)
+            if scale > 1:
+                gray = gray.resize((gray.width * scale, gray.height * scale), Image.Resampling.LANCZOS)
+            gray = ImageEnhance.Contrast(gray).enhance(1.55)
+            gray = gray.filter(ImageFilter.SHARPEN)
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            tmp.close()
+            gray.save(tmp.name, "PNG")
+            variants.append(("gray-contrast", tmp.name))
+
+            strong = ImageOps.grayscale(base)
+            strong = ImageOps.autocontrast(strong, cutoff=0)
+            if scale > 1:
+                strong = strong.resize((strong.width * scale, strong.height * scale), Image.Resampling.LANCZOS)
+            strong = ImageEnhance.Contrast(strong).enhance(2.05)
+            strong = ImageEnhance.Sharpness(strong).enhance(1.8)
+            tmp2 = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            tmp2.close()
+            strong.save(tmp2.name, "PNG")
+            variants.append(("gray-strong", tmp2.name))
+    except Exception:
+        return [("original", path)]
+    return variants
+
+
+def ocr_document_candidates(path: str) -> list[tuple[str, list[OcrLine]]]:
+    variants = _image_variants(path)
+    results: list[tuple[str, list[OcrLine]]] = []
+    try:
+        for label, candidate_path in variants:
+            try:
+                results.append((label, ocr_document(candidate_path)))
+            except Exception:
+                if label == "original":
+                    raise
+    finally:
+        for label, candidate_path in variants:
+            if label == "original" or candidate_path == path:
+                continue
+            try:
+                os.unlink(candidate_path)
+            except OSError:
+                pass
+    return results or [("original", ocr_document(path))]
 
 
 def _clean_supplier_name(value: str | None) -> str | None:
@@ -522,26 +694,340 @@ def row_candidates(lines: list[OcrLine]) -> list[dict[str, Any]]:
 
 
 
+
+def _visual_rows(lines: list[OcrLine]) -> list[list[OcrLine]]:
+    rows: list[list[OcrLine]] = []
+    for line in ordered_lines([x for x in lines if x.box]):
+        cy = _cy(line)
+        if cy is None:
+            continue
+        matched = None
+        for row in reversed(rows[-12:]):
+            if not row or row[0].page != line.page:
+                continue
+            centers = [_cy(x) for x in row if _cy(x) is not None]
+            heights = [max(10.0, x.box[3] - x.box[1]) for x in row if x.box]
+            if not centers:
+                continue
+            row_y = sum(centers) / len(centers)
+            avg_h = sum(heights) / len(heights) if heights else 24.0
+            tolerance = max(16.0, min(44.0, avg_h * 0.8))
+            if abs(row_y - cy) <= tolerance:
+                matched = row
+                break
+        if matched is None:
+            rows.append([line])
+        else:
+            matched.append(line)
+    for row in rows:
+        row.sort(key=lambda x: _cx(x) or 0)
+    return rows
+
+
+def _row_text(row: list[OcrLine]) -> str:
+    return " ".join(x.text.strip() for x in row if x.text.strip())
+
+
+def _clean_freeform_name(value: str) -> str:
+    value = re.sub(r"^[\s\-–—:;,.>→=]+|[\s\-–—:;,.>→=]+$", "", value or "")
+    return re.sub(r"\s+", " ", value).strip()[:240]
+
+
+def _freeform_supplier(lines: list[OcrLine]) -> str | None:
+    pattern = re.compile(
+        r"(?:təchizatçı|techizatci|techizatçı|tchizatçı|tchizatci|поставщик|supplier)"
+        r"\s*(?:[:=\-–—>→]+)?\s*(.+)$",
+        re.I,
+    )
+
+    # First use plain OCR reading order. This path does not depend on boxes.
+    for line in ordered_lines(lines)[:8]:
+        text = (line.text or "").strip()
+        arrow = re.search(r"(?:->|=>|→|➜|>)\s*([^\d]{2,80})$", text)
+        if arrow:
+            candidate = _clean_supplier_name(_clean_freeform_name(arrow.group(1)))
+            if candidate and sum(ch.isalpha() for ch in candidate) >= 2:
+                return candidate
+        match = pattern.search(text)
+        if match:
+            candidate = _clean_supplier_name(_clean_freeform_name(match.group(1)))
+            if candidate and sum(ch.isalpha() for ch in candidate) >= 2:
+                return candidate
+
+    rows = _visual_rows(lines)[:16]
+    for row_index, row in enumerate(rows):
+        text = _row_text(row)
+        low = text.lower()
+
+        # Handwritten supplier captions are often OCR-corrupted while the arrow
+        # and supplier name survive, e.g. "Tohzizatal -> Bravo".
+        if row_index < 5:
+            arrow = re.search(r"(?:->|=>|→|➜|>)\s*([^\d]{2,80})$", text)
+            if arrow:
+                candidate = _clean_supplier_name(_clean_freeform_name(arrow.group(1)))
+                if candidate and sum(ch.isalpha() for ch in candidate) >= 2:
+                    return candidate
+
+        if not any(label in low for label in SUPPLIER_LABELS):
+            continue
+        match = pattern.search(text)
+        if match:
+            candidate = _clean_supplier_name(_clean_freeform_name(match.group(1)))
+            if candidate and sum(ch.isalpha() for ch in candidate) >= 2:
+                return candidate
+        label_cells = [x for x in row if any(label in x.text.lower() for label in SUPPLIER_LABELS)]
+        if label_cells:
+            right_edge = max((x.box[2] for x in label_cells if x.box), default=0)
+            right_text = " ".join(
+                x.text.strip() for x in row
+                if x.box and x.box[0] > right_edge and x.text.strip()
+            )
+            candidate = _clean_supplier_name(_clean_freeform_name(right_text))
+            if candidate and sum(ch.isalpha() for ch in candidate) >= 2:
+                return candidate
+    return None
+
+
+
+def _adjacent_hint(text: str, match: re.Match[str], tokens: tuple[str, ...]) -> str | None:
+    """Return a unit/currency token only when it directly belongs to this number.
+
+    Examples:
+      "3 AZN - 10" -> AZN belongs to 3, not 10
+      "4 kg - 5.2" -> kg belongs to 4, not 5.2
+    """
+    after = text[match.end():match.end() + 18]
+    before = text[max(0, match.start() - 18):match.start()]
+
+    for token in sorted(tokens, key=len, reverse=True):
+        escaped = re.escape(token)
+        if re.search(r"^\s*" + escaped + r"(?!\w)", after, re.I):
+            return token
+        if re.search(r"(?<!\w)" + escaped + r"\s*$", before, re.I):
+            return token
+    return None
+
+
+def _unit_near(text: str, match: re.Match[str]) -> str | None:
+    return _adjacent_hint(text, match, FREEFORM_UNITS)
+
+
+def _currency_near(text: str, match: re.Match[str]) -> bool:
+    return _adjacent_hint(text, match, CURRENCY_HINTS) is not None
+
+
+def _normalize_freeform_numeric_text(text: str) -> str:
+    # OCR commonly joins handwritten numbers with unit/currency tokens:
+    # "3AZN" / "4kg". Split only known tokens so product names stay untouched.
+    tokens = sorted(set((*FREEFORM_UNITS, *CURRENCY_HINTS)), key=len, reverse=True)
+    if not tokens:
+        return text
+    token_pattern = "|".join(re.escape(token) for token in tokens)
+    return re.sub(r"(?<=\d)(?=(?:" + token_pattern + r")\b)", " ", text, flags=re.I)
+
+
+def _best_freeform_numeric_triplet(text: str) -> tuple[float, float, float, str | None, int] | None:
+    text = _normalize_freeform_numeric_text(text)
+    matches = list(MONEY_RE.finditer(text))
+    if len(matches) < 3:
+        return None
+
+    candidates = []
+    for i in range(len(matches) - 2):
+        for j in range(i + 1, len(matches) - 1):
+            for k in range(j + 1, len(matches)):
+                a = num(matches[i].group(1))
+                b = num(matches[j].group(1))
+                total = num(matches[k].group(1))
+                if a is None or b is None or total is None:
+                    continue
+                tolerance = max(0.06, abs(total) * 0.025)
+                if abs((a * b) - total) > tolerance:
+                    continue
+
+                unit_a = _unit_near(text, matches[i])
+                unit_b = _unit_near(text, matches[j])
+                currency_a = _currency_near(text, matches[i])
+                currency_b = _currency_near(text, matches[j])
+
+                quantity = a
+                price = b
+                unit = unit_a
+                if currency_a and not currency_b:
+                    price = a
+                    quantity = b
+                    unit = unit_b
+                elif unit_b and not unit_a:
+                    price = a
+                    quantity = b
+                    unit = unit_b
+
+                score = (
+                    5.0
+                    + (2.0 if unit_a or unit_b else 0.0)
+                    + (1.5 if currency_a or currency_b else 0.0)
+                    + (0.5 if k == len(matches) - 1 else 0.0)
+                    - ((j - i - 1) + (k - j - 1)) * 0.15
+                )
+                candidates.append((quantity, price, total, unit, i, score))
+
+    if not candidates:
+        return None
+    quantity, price, total, unit, first_index, _ = max(candidates, key=lambda x: x[-1])
+    return quantity, price, total, unit, first_index
+
+
+def _freeform_candidate_texts(lines: list[OcrLine]) -> list[tuple[str, list[OcrLine]]]:
+    """Return logical free-form rows using both geometry and plain OCR order.
+
+    Handwritten OCR often gives correct text but unreliable bounding boxes.
+    Geometry is useful when it works, but text order must be an independent
+    fallback so a line such as "Fazs" followed by "3AZN-10-30" still parses.
+    """
+    candidates: list[tuple[str, list[OcrLine]]] = []
+
+    # Geometry-aware rows.
+    rows = _visual_rows(lines)
+    for index, row in enumerate(rows):
+        text = _row_text(row)
+        if text:
+            candidates.append((text, row))
+        if index + 1 < len(rows):
+            next_row = rows[index + 1]
+            next_text = _row_text(next_row)
+            current_has_letters = sum(ch.isalpha() for ch in text) >= 2
+            current_has_triplet = _best_freeform_numeric_triplet(text) is not None
+            next_has_triplet = _best_freeform_numeric_triplet(next_text) is not None
+            if current_has_letters and not current_has_triplet and next_has_triplet:
+                candidates.append((f"{text} {next_text}".strip(), [*row, *next_row]))
+
+    # Geometry-independent fallback using OCR reading order.
+    sequence = [x for x in ordered_lines(lines) if (x.text or "").strip()]
+    for index, line in enumerate(sequence):
+        text = line.text.strip()
+        candidates.append((text, [line]))
+        if index + 1 >= len(sequence):
+            continue
+        next_line = sequence[index + 1]
+        next_text = next_line.text.strip()
+        current_has_letters = sum(ch.isalpha() for ch in text) >= 2
+        current_has_triplet = _best_freeform_numeric_triplet(text) is not None
+        next_has_triplet = _best_freeform_numeric_triplet(next_text) is not None
+        if current_has_letters and not current_has_triplet and next_has_triplet:
+            candidates.append((f"{text} {next_text}".strip(), [line, next_line]))
+
+    return candidates
+
+
+def freeform_row_candidates(lines: list[OcrLine]) -> list[dict[str, Any]]:
+    output = []
+    seen = set()
+
+    for original_text, row in _freeform_candidate_texts(lines):
+        text = _normalize_freeform_numeric_text(original_text)
+        low = text.lower()
+        if not text or any(label in low for label in SUPPLIER_LABELS):
+            continue
+        if _is_total_label(text) or iso_date(text):
+            continue
+
+        triplet = _best_freeform_numeric_triplet(text)
+        if not triplet:
+            continue
+        quantity, price, total, unit, first_number_index = triplet
+        number_matches = list(MONEY_RE.finditer(text))
+        if first_number_index >= len(number_matches):
+            continue
+
+        prefix = text[:number_matches[first_number_index].start()]
+        name = _clean_freeform_name(prefix)
+        name = re.sub(
+            r"\b(?:məhsul|mal|товар|product|item)\b\s*[:=\-–—>→]*\s*",
+            "",
+            name,
+            flags=re.I,
+        ).strip()
+        if len(name) < 2 or sum(ch.isalpha() for ch in name) < 2:
+            continue
+        if any(word in name.lower() for word in HEADER_WORDS):
+            continue
+
+        row_scores = [x.score for x in row if x.text]
+        confidence = sum(row_scores) / len(row_scores) if row_scores else 0.0
+        confidence = min(0.98, max(0.45, confidence * 0.92))
+
+        dedupe_key = (
+            re.sub(r"\W+", "", name.lower()),
+            round(quantity, 4),
+            round(price, 4),
+            round(total, 4),
+        )
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+
+        output.append({
+            "sourceName": name,
+            "article": None,
+            "quantity": quantity,
+            "unit": unit,
+            "unitPrice": price,
+            "total": total,
+            "vatPercent": None,
+            "confidence": round(confidence, 4),
+        })
+    return output
+
+
+def _parser_quality(parsed: dict[str, Any]) -> float:
+    items = parsed.get("items") or []
+    return (
+        len(items) * 100.0
+        + (18.0 if parsed.get("supplierName") else 0.0)
+        + (8.0 if parsed.get("date") else 0.0)
+        + (5.0 if parsed.get("total") is not None else 0.0)
+        + float(parsed.get("confidence") or 0.0) * 10.0
+    )
+
+
 def heuristic_parse(lines: list[OcrLine]) -> dict[str, Any]:
     ordered = ordered_lines(lines)
     all_text = "\n".join(x.text for x in ordered)
     dates = [iso_date(x.text) for x in ordered]
     dates = [x for x in dates if x]
     scores = [x.score for x in ordered if x.text]
-    items = row_candidates(ordered)
+
+    table_items = row_candidates(ordered)
+    freeform_items = freeform_row_candidates(ordered)
+    table_header_hits = sum(
+        1 for line in ordered
+        if any(word in line.text.lower() for word in HEADER_WORDS)
+    )
+
+    use_freeform = bool(freeform_items) and (
+        not table_items
+        or len(freeform_items) > len(table_items)
+        or table_header_hits < 2
+    )
+    items = freeform_items if use_freeform else table_items
+    mode = "freeform" if use_freeform else "table"
+
     confidence = sum(scores) / len(scores) if scores else 0.0
     supplier_document_number = likely_doc_number(ordered)
+    supplier = _freeform_supplier(ordered) if use_freeform else None
+    if not supplier:
+        supplier = likely_supplier(ordered)
+
     return {
         "documentType": "incoming_invoice",
-        "supplierName": likely_supplier(ordered),
-        # SmartHoreca/iiko document number is generated by our system.
-        # The number printed by the supplier belongs in incomingNumber.
+        "documentMode": mode,
+        "supplierName": supplier,
         "documentNumber": None,
         "invoiceNumber": None,
         "incomingNumber": supplier_document_number,
         "date": dates[0] if dates else None,
         "dueDate": dates[1] if len(dates) > 1 else None,
-        "currency": "AZN" if re.search(r"\b(AZN|₼|MANAT|MAN)\b", all_text, re.I) else None,
+        "currency": "AZN" if re.search(r"\b(AZN|MANAT|MAN)\b|₼", all_text, re.I) else None,
         "total": likely_total(ordered, items),
         "vatTotal": None,
         "confidence": round(confidence, 4),
@@ -551,7 +1037,7 @@ def heuristic_parse(lines: list[OcrLine]) -> dict[str, Any]:
             {"page": x.page, "text": x.text, "confidence": round(x.score, 4), "box": x.box}
             for x in ordered
         ],
-        "localParser": "heuristic-v4",
+        "localParser": "heuristic-v7",
     }
 
 
@@ -597,6 +1083,8 @@ JSON schema:
     if isinstance(parsed, dict):
         parsed["ocrText"] = heuristic.get("ocrText", "")
         parsed["ocrLines"] = heuristic.get("ocrLines", [])
+        parsed["documentMode"] = parsed.get("documentMode") or heuristic.get("documentMode")
+        parsed["ocrPass"] = heuristic.get("ocrPass")
         parsed["localParser"] = f"ollama:{OLLAMA_MODEL}"
         return parsed
     return None
@@ -619,7 +1107,238 @@ def health():
         "ocrVersion": OCR_VERSION,
         "ollamaConfigured": bool(OLLAMA_URL),
         "ollamaModel": OLLAMA_MODEL if OLLAMA_URL else None,
+        "parserVersion": "heuristic-v7",
+        "imagePreprocessing": True,
+        "secondaryOcr": SECONDARY_OCR or None,
+        "secondaryOcrLangs": SECONDARY_OCR_LANGS if SECONDARY_OCR == "easyocr" else [],
+        "asyncJobs": True,
+        "jobWorkers": getattr(_job_executor, "_max_workers", 1),
     }
+
+
+def _validate_upload(name: str, content_type: str | None, raw: bytes) -> tuple[str, str]:
+    suffix = Path(name or "document").suffix.lower() or (".pdf" if content_type == "application/pdf" else ".png")
+    if suffix not in {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+    if len(raw) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File is larger than 20 MB")
+    return suffix, name or "document"
+
+
+def _process_temp_path(
+    temp_path: str,
+    suffix: str,
+    prompt: str,
+    schema: str,
+    progress=None,
+) -> dict[str, Any]:
+    def mark(stage: str, percent: int):
+        if progress:
+            try:
+                progress(stage, percent)
+            except Exception:
+                pass
+
+    mark("paddleocr", 10)
+    ocr_candidates = ocr_document_candidates(temp_path)
+    evaluated = []
+    for pass_index, (pass_name, candidate_lines) in enumerate(ocr_candidates, start=1):
+        candidate = heuristic_parse(candidate_lines)
+        candidate["ocrPass"] = pass_name
+        evaluated.append((candidate, candidate_lines))
+        mark("paddleocr", min(55, 10 + int(pass_index / max(1, len(ocr_candidates)) * 45)))
+
+    heuristic, lines = max(evaluated, key=lambda pair: _parser_quality(pair[0]))
+    selected_engine = "paddleocr"
+    secondary_tried = False
+    secondary_error = None
+    secondary_line_count = 0
+    primary_quality = _parser_quality(heuristic)
+    secondary_quality = None
+    hybrid_quality = None
+
+    if suffix != ".pdf" and should_try_secondary_ocr(heuristic):
+        secondary_tried = True
+        mark("easyocr", 60)
+        try:
+            easy_lines = easyocr_document(temp_path)
+            secondary_line_count = len(easy_lines)
+            candidates = [(heuristic, lines, "paddleocr")]
+
+            if easy_lines:
+                easy_candidate = heuristic_parse(easy_lines)
+                easy_candidate["ocrPass"] = "easyocr-original"
+                secondary_quality = _parser_quality(easy_candidate)
+                candidates.append((easy_candidate, easy_lines, "easyocr"))
+
+                hybrid_lines = merge_ocr_lines(lines, easy_lines)
+                hybrid_candidate = heuristic_parse(hybrid_lines)
+                hybrid_candidate["ocrPass"] = "hybrid-paddle-easy"
+                hybrid_quality = _parser_quality(hybrid_candidate)
+                candidates.append((hybrid_candidate, hybrid_lines, "hybrid"))
+
+            heuristic, lines, selected_engine = max(
+                candidates,
+                key=lambda entry: _parser_quality(entry[0])
+            )
+        except Exception as exc:
+            secondary_error = str(exc)[:500]
+            heuristic["secondaryOcrError"] = secondary_error
+
+    parsed = None
+    parser = heuristic.get("localParser", "heuristic-v7")
+    if OLLAMA_URL:
+        mark("ollama", 82)
+        try:
+            parsed = ollama_parse(heuristic, schema, prompt)
+            if parsed:
+                parser = parsed.get("localParser", f"ollama:{OLLAMA_MODEL}")
+        except Exception as exc:
+            heuristic["ollamaError"] = str(exc)[:500]
+
+    data = parsed or heuristic
+    mark("finalizing", 95)
+    return {
+        "id": None,
+        "model": (
+            f"hybrid:paddleocr+easyocr/{parser}"
+            if selected_engine == "hybrid"
+            else (
+                f"easyocr:{','.join(SECONDARY_OCR_LANGS)}+{parser}"
+                if selected_engine == "easyocr"
+                else f"paddleocr:{OCR_VERSION}/{OCR_LANG}+{parser}"
+            )
+        ),
+        "data": data,
+        "usage": {
+            "ocrLines": len(lines),
+            "ocrPasses": len(ocr_candidates),
+            "selectedOcrPass": heuristic.get("ocrPass"),
+            "selectedOcrEngine": selected_engine,
+            "secondaryOcr": SECONDARY_OCR or None,
+            "secondaryOcrTried": secondary_tried,
+            "secondaryOcrLines": secondary_line_count,
+            "secondaryOcrError": secondary_error,
+            "primaryQuality": round(primary_quality, 4),
+            "secondaryQuality": round(secondary_quality, 4) if secondary_quality is not None else None,
+            "hybridQuality": round(hybrid_quality, 4) if hybrid_quality is not None else None,
+            "documentMode": data.get("documentMode") or heuristic.get("documentMode"),
+            "averageConfidence": data.get("confidence"),
+            "local": True,
+            "paidTokens": 0,
+        },
+    }
+
+
+def _cleanup_jobs():
+    cutoff = time.time() - JOB_TTL_SECONDS
+    with _jobs_lock:
+        stale = [
+            job_id for job_id, job in _jobs.items()
+            if float(job.get("updatedEpoch") or 0) < cutoff
+            and job.get("status") in {"DONE", "ERROR"}
+        ]
+        for job_id in stale:
+            _jobs.pop(job_id, None)
+
+
+def _job_update(job_id: str, **changes):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return
+        job.update(changes)
+        job["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        job["updatedEpoch"] = time.time()
+
+
+def _job_snapshot(job_id: str) -> dict[str, Any] | None:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return None
+        return dict(job)
+
+
+def _run_job(job_id: str, temp_path: str, suffix: str, prompt: str, schema: str):
+    try:
+        _job_update(job_id, status="RUNNING", stage="paddleocr", progress=5)
+
+        def progress(stage: str, percent: int):
+            _job_update(job_id, status="RUNNING", stage=stage, progress=percent)
+
+        result = _process_temp_path(temp_path, suffix, prompt, schema, progress=progress)
+        result["id"] = job_id
+        _job_update(job_id, status="DONE", stage="done", progress=100, result=result, error=None)
+    except Exception as exc:
+        _job_update(
+            job_id,
+            status="ERROR",
+            stage="error",
+            progress=100,
+            error=str(exc)[:1500],
+        )
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        _cleanup_jobs()
+
+
+@app.post("/jobs")
+async def create_job(
+    file: UploadFile = File(...),
+    prompt: str = Form(""),
+    schema: str = Form("{}"),
+    authorization: str | None = Header(default=None),
+):
+    check_auth(authorization)
+    raw = await file.read()
+    suffix, name = _validate_upload(file.filename or "document", file.content_type, raw)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
+        temp.write(raw)
+        temp_path = temp.name
+
+    job_id = str(uuid.uuid4())
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "id": job_id,
+            "status": "QUEUED",
+            "stage": "queued",
+            "progress": 0,
+            "fileName": name,
+            "createdAt": now,
+            "updatedAt": now,
+            "updatedEpoch": time.time(),
+            "result": None,
+            "error": None,
+        }
+
+    _job_executor.submit(_run_job, job_id, temp_path, suffix, prompt, schema)
+    return {
+        "ok": True,
+        "id": job_id,
+        "status": "QUEUED",
+        "stage": "queued",
+        "progress": 0,
+    }
+
+
+@app.get("/jobs/{job_id}")
+def job_status(
+    job_id: str,
+    authorization: str | None = Header(default=None),
+):
+    check_auth(authorization)
+    _cleanup_jobs()
+    job = _job_snapshot(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job.pop("updatedEpoch", None)
+    return {"ok": True, **job}
 
 
 @app.post("/process")
@@ -630,46 +1349,15 @@ async def process(
     authorization: str | None = Header(default=None),
 ):
     check_auth(authorization)
-    name = file.filename or "document"
-    suffix = Path(name).suffix.lower() or (".pdf" if file.content_type == "application/pdf" else ".png")
-    if suffix not in {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}:
-        raise HTTPException(status_code=400, detail="Unsupported file type")
-
     raw = await file.read()
-    if len(raw) > 20 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File is larger than 20 MB")
+    suffix, _ = _validate_upload(file.filename or "document", file.content_type, raw)
 
     temp_path = ""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
             temp.write(raw)
             temp_path = temp.name
-
-        lines = ocr_document(temp_path)
-        heuristic = heuristic_parse(lines)
-
-        parsed = None
-        parser = heuristic.get("localParser", "heuristic-v4")
-        if OLLAMA_URL:
-            try:
-                parsed = ollama_parse(heuristic, schema, prompt)
-                if parsed:
-                    parser = parsed.get("localParser", f"ollama:{OLLAMA_MODEL}")
-            except Exception as exc:
-                heuristic["ollamaError"] = str(exc)[:500]
-
-        data = parsed or heuristic
-        return {
-            "id": None,
-            "model": f"paddleocr:{OCR_VERSION}/{OCR_LANG}+{parser}",
-            "data": data,
-            "usage": {
-                "ocrLines": len(lines),
-                "averageConfidence": data.get("confidence"),
-                "local": True,
-                "paidTokens": 0,
-            },
-        }
+        return _process_temp_path(temp_path, suffix, prompt, schema)
     finally:
         if temp_path:
             try:
