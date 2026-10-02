@@ -147,6 +147,19 @@ jobs:
           grep -q 'SH_IikoContext.get' qr-menu-context.js
           echo 'QR Menu safe context adapter check passed'
 
+      - name: Verify canonical sidebar navigation
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'data-unified-nav-item="menu-engineering.html"' app-shell.js
+          grep -q 'data-unified-nav-item="waiter-performance.html"' app-shell.js
+          grep -q 'class="documents-nav-group hr-nav-group"' app-shell.js
+          grep -q 'data-unified-nav-item="hr-employees.html"' app-shell.js
+          grep -q "return'menu-engineering.html'" app-shell.js
+          grep -q "return'waiter-performance.html'" app-shell.js
+          grep -q "return'hr-employees.html'" app-shell.js
+          echo 'Canonical sidebar navigation contract passed'
+
       - name: Verify unified bridge HTML allowlist
         shell: bash
         run: |
