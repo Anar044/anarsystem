@@ -75,12 +75,14 @@ export function resolveRestaurantScope({state,request=null,requestedIds=null,str
   const valid=requested.filter(id=>allowed.includes(id));
   const selected=valid.length?valid:allowed;
   const directory=restaurantDirectory(state);
+  const selectedRestaurants=directory.filter(x=>selected.includes(x.id));
   return {
     mode,
     isChain:mode==="CHAIN",
     allowedDepartmentIds:allowed,
     selectedDepartmentIds:selected,
-    selectedRestaurants:directory.filter(x=>selected.includes(x.id)),
+    selectedDepartmentCodes:uniq(selectedRestaurants.map(x=>x.code)),
+    selectedRestaurants,
     allRestaurants:directory
   };
 }
