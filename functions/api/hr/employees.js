@@ -1,5 +1,6 @@
 import { iikoText } from '../iiko/_lib/iiko-client.js';
 import { loadRequestIikoState, privateConnection, hasPrivateConnection } from '../iiko/_lib/user-state.js';
+import { resolveRestaurantScope } from '../iiko/_lib/restaurant-scope.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -71,10 +72,15 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);if(!state.found||!hasPrivateConnection(state.state))return json({success:false,message:'Сначала подключите SH Server в настройках.'},409);
-    const connection=privateConnection(state.state);const [employeesResult,rolesResult]=await Promise.all([iikoText(connection,'/resto/api/employees?includeDeleted=true'),iikoText(connection,'/resto/api/employees/roles?revisionFrom=-1')]);
+    const connection=privateConnection(state.state);
+    const scope=resolveRestaurantScope({state:state.state,request,strict:true});
+    const [employeesResult,rolesResult]=await Promise.all([iikoText(connection,'/resto/api/employees?includeDeleted=true'),iikoText(connection,'/resto/api/employees/roles?revisionFrom=-1')]);
     if(!employeesResult.ok)throw new Error(`SH Employees HTTP ${employeesResult.status}: ${employeesResult.text.slice(0,500)}`);if(!rolesResult.ok)throw new Error(`SH Roles HTTP ${rolesResult.status}: ${rolesResult.text.slice(0,500)}`);
     const employees=parseEmployees(employeesResult.text),roles=parseRoles(rolesResult.text),roleMap=new Map(roles.map(r=>[r.code,r]));const synced=await syncEmployees(env.DB,state.user.id,employees,roleMap);
-    const items=synced.rows.map(r=>({id:r.iiko_employee_id,code:r.employee_code,firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,name:r.display_name,roleCode:r.role_code,roleName:r.role_name,departmentCode:r.department_code,hireDate:r.hire_date,fireDate:r.fire_date,deleted:Boolean(r.is_deleted),attendanceProvider:r.attendance_provider||'',attendanceExternalId:r.attendance_external_id||''}));
-    return json({success:true,source:'SH_EMPLOYEE_DIRECTORY',attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',syncedAt:synced.syncedAt,items,roles:roles.filter(r=>!r.deleted),counts:{total:items.length,active:items.filter(x=>!x.deleted&&!x.fireDate).length,linkedToAttendance:items.filter(x=>x.attendanceExternalId).length}});
+    const allItems=synced.rows.map(r=>({id:r.iiko_employee_id,code:r.employee_code,firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,name:r.display_name,roleCode:r.role_code,roleName:r.role_name,departmentCode:r.department_code,hireDate:r.hire_date,fireDate:r.fire_date,deleted:Boolean(r.is_deleted),attendanceProvider:r.attendance_provider||'',attendanceExternalId:r.attendance_external_id||''}));
+    const selectedKeys=new Set([...(scope.selectedDepartmentCodes||[]),...(scope.selectedDepartmentIds||[])].map(clean).filter(Boolean));
+    const subset=scope.isChain&&scope.selectedDepartmentIds.length<scope.allowedDepartmentIds.length;
+    const items=subset?allItems.filter(x=>selectedKeys.has(clean(x.departmentCode))):allItems;
+    return json({success:true,source:'SH_EMPLOYEE_DIRECTORY',attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',syncedAt:synced.syncedAt,items,roles:roles.filter(r=>!r.deleted),counts:{total:items.length,active:items.filter(x=>!x.deleted&&!x.fireDate).length,linkedToAttendance:items.filter(x=>x.attendanceExternalId).length},restaurantScope:{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes,applied:subset}});
   }catch(error){console.error('[HR-EMPLOYEES]',error);return json({success:false,message:error?.message||String(error)},500)}
 }
