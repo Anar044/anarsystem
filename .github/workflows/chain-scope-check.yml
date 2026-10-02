@@ -43,17 +43,28 @@ jobs:
           grep -q "PNL_TRANSACTION_SCOPE_UNAVAILABLE" functions/api/iiko/pnl.js
           grep -q "CASH_SHIFT_SCOPE_UNAVAILABLE" functions/api/iiko/finance-data.js
           grep -q "CASH_SHIFT_SCOPE_UNAVAILABLE" functions/api/iiko/cash-shifts.js
+          grep -q "CASH_SHIFT_DETAIL_SCOPE_UNAVAILABLE" functions/api/iiko/cash-shift-detail.js
+          grep -q "DOCUMENT_SCOPE_UNAVAILABLE" functions/api/iiko/document-by-number.js
+          grep -q "EVENT_SCOPE_UNAVAILABLE" functions/api/iiko/events.js
 
           grep -q "QR_MENU_SINGLE_RESTAURANT_REQUIRED" functions/api/iiko/qr-menu.js
           grep -q "QR_MENU_SINGLE_RESTAURANT_REQUIRED" functions/api/qr-menu/publish.js
 
           grep -q "restaurant_id" functions/api/assets.js
+          grep -q "AI_DOCUMENT_SINGLE_RESTAURANT_REQUIRED" functions/api/ai-documents.js
           grep -q "filterEmployeesByScope" functions/api/hr/employees.js
           grep -q "filterEmployeesByScope" functions/api/hr/payroll.js
           grep -q "filterEmployeesByScope" functions/api/hr/timesheet.js
           grep -q "restaurant_id" functions/api/hr/timeclock.js
+          grep -q "filterEmployeesByScope" functions/api/hr/meal-transactions.js
+          grep -q "filterEmployeesByScope" functions/api/hr/meal-transactions-v2.js
+          grep -q "visibleAdjustments" functions/api/hr/payroll-adjustments.js
 
-          grep -q "allowed.has" functions/api/plugin/data.js
+          test -f functions/api/plugin/_lib/chain-scope.js
+          grep -q "resolvePluginChainScope" functions/api/plugin/data.js
+          grep -q "ensurePluginAllowed" functions/api/plugin/request.js
+          grep -q "pluginAllowed" functions/api/plugin/order-history.js
+          grep -q "resolveRestaurantScope" functions/api/plugin/events.js
 
       - name: Check CHAIN-aware sidebar pages load context
         shell: bash
@@ -91,6 +102,8 @@ jobs:
             hr-timesheet.html
             hr-calendar.html
             qr-menu.html
+            events.html
+            plugin-events.html
           )
           for page in "${pages[@]}"; do
             echo "checking $page"
@@ -103,12 +116,20 @@ jobs:
           node --check iiko-context.js
           node --check app-shell.js
           node --check ai-assistant.js
+          node --check ai-documents.js
+          node --check cash-groups.js
+          node --check events.js
+          node --check plugin-events.js
+          node --check dashboard-restaurant-name.js
           node --check documents-page.js
           node --check functions/api/iiko/_lib/restaurant-scope.js
           node --check functions/api/iiko/_lib/store-scope.js
           node --check functions/api/iiko/_middleware.js
           node --check functions/api/iiko/finance-data.js
           node --check functions/api/iiko/cash-shifts.js
+          node --check functions/api/iiko/cash-shift-detail.js
+          node --check functions/api/iiko/document-by-number.js
+          node --check functions/api/iiko/events.js
           node --check functions/api/iiko/incoming-invoices.js
           node --check functions/api/iiko/outgoing-invoices.js
           node --check functions/api/iiko/documents.js
@@ -124,6 +145,12 @@ jobs:
           node --check functions/api/qr-menu/publish.js
           node --check functions/api/assets.js
           node --check functions/api/ai-assistant.js
+          node --check functions/api/ai-documents.js
+          node --check functions/api/plugin/_lib/chain-scope.js
+          node --check functions/api/plugin/data.js
+          node --check functions/api/plugin/request.js
+          node --check functions/api/plugin/order-history.js
+          node --check functions/api/plugin/events.js
           node --check functions/api/iiko/_lib/ai-assistant-tools.js
           node --check functions/api/hr/_lib/restaurant-scope.js
           node --check functions/api/hr/employees.js
@@ -133,3 +160,5 @@ jobs:
           node --check functions/api/hr/role-schedules.js
           node --check functions/api/hr/timeclock.js
           node --check functions/api/hr/timesheet.js
+          node --check functions/api/hr/meal-transactions.js
+          node --check functions/api/hr/meal-transactions-v2.js
