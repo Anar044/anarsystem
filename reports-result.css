@@ -1,1 +1,231 @@
-.olap-result{width:100%!important;min-height:0!important;color:#e8eef6!important;font-family:inherit!important;font-size:14px!important}.olap-result .report-header{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:16px!important;margin:0 0 16px!important;padding:0 4px!important}.olap-result .report-header strong{font-size:17px!important;font-weight:800!important;color:#f5f8fb!important}.olap-result .report-header strong:before{content:'●'!important;margin-right:9px!important;color:#42d392!important;font-size:10px!important}.olap-result .report-header span{padding:6px 12px!important;border:1px solid #304356!important;border-radius:8px!important;background:#121e2b!important;color:#a9b8c7!important;font-size:12px!important;font-weight:700!important}.olap-result .report-table-wrapper{width:100%!important;overflow:auto!important;border:1px solid #2b4054!important;border-radius:14px!important;background:#0a121b!important;box-shadow:0 14px 40px rgba(0,0,0,.28)!important}.olap-result .report-table{width:100%!important;min-width:900px!important;border-collapse:separate!important;border-spacing:0!important;font-size:14px!important}.olap-result .report-table th{height:48px!important;padding:0 20px!important;background:#182638!important;border-bottom:1px solid #354a60!important;color:#a7b7c8!important;font-size:11px!important;font-weight:800!important;text-align:left!important;white-space:nowrap!important}.olap-result .report-table th:nth-last-child(-n+2){text-align:right!important;min-width:170px!important}.olap-result .report-table td{height:46px!important;padding:0 20px!important;background:#0d1722!important;border-bottom:1px solid #1c2a39!important;color:#dce5ee!important;font-size:14px!important;vertical-align:middle!important;white-space:nowrap!important}.olap-result .report-table td:nth-last-child(-n+2){text-align:right!important;font-variant-numeric:tabular-nums!important}.olap-result .report-table tr.olap-tree-row td{position:relative!important}.olap-result .report-table tr.olap-level-0 td{height:54px!important;background:#162b3d!important;border-top:1px solid #3b5871!important;border-bottom:1px solid #355068!important;font-weight:800!important}.olap-result .report-table tr.olap-level-0 td:first-child{font-size:15px!important;color:#ffffff!important}.olap-result .report-table tr.olap-level-0 td:nth-last-child(-n+2){color:#dff8ec!important;font-weight:800!important}.olap-result .report-table tr.olap-level-1 td{height:50px!important;background:#122333!important;border-bottom:1px solid #293d50!important}.olap-result .report-table tr.olap-level-1 td:nth-child(2){font-weight:750!important;color:#e2edf7!important;padding-left:48px!important}.olap-result .report-table tr.olap-level-1 td:nth-last-child(-n+2){color:#d4eaff!important;font-weight:750!important}.olap-result .report-table tr.olap-level-2 td{height:44px!important;background:#0e1823!important}.olap-result .report-table tr.olap-level-2 td:nth-child(3){padding-left:76px!important;color:#e4ebf2!important;font-weight:550!important}.olap-result .report-table tr.olap-level-2 td:nth-last-child(-n+2){color:#ffffff!important;font-weight:650!important}.olap-result .report-table tr.olap-level-1 td:first-child:before,.olap-result .report-table tr.olap-level-2 td:first-child:before{content:''!important;position:absolute!important;left:29px!important;top:-1px!important;bottom:-1px!important;width:1px!important;background:#30485d!important}.olap-result .report-table tr.olap-level-2 td:nth-child(2):before{content:''!important;position:absolute!important;left:53px!important;top:-1px!important;bottom:-1px!important;width:1px!important;background:#30485d!important}.olap-result .report-table tr.olap-level-1 td:nth-child(2):after,.olap-result .report-table tr.olap-level-2 td:nth-child(3):after{content:''!important;position:absolute!important;left:29px!important;top:50%!important;width:19px!important;height:1px!important;background:#30485d!important}.olap-result .report-table tr.olap-level-2 td:nth-child(3):after{left:53px!important}.olap-result .report-table .olap-group-toggle{display:inline-flex!important;align-items:center!important;justify-content:center!important;width:27px!important;height:27px!important;margin-right:10px!important;padding:0!important;border:1px solid #456077!important;border-radius:7px!important;background:#203448!important;color:#d6e7f5!important;font-size:11px!important;cursor:pointer!important;vertical-align:middle!important}.olap-result .report-table .olap-group-toggle:hover{background:#29445b!important;border-color:#5b88aa!important}.olap-result .report-table .olap-inline-value{font-weight:750!important}.olap-result .report-table tr.olap-rendered-into-tree[hidden]{display:none!important}.olap-result .report-table .olap-grand-total td{height:58px!important;background:#0d4f40!important;border-top:2px solid #29b486!important;border-bottom:0!important;color:#f1fff9!important;font-weight:850!important;font-size:15px!important}.olap-result .report-table .olap-grand-total td:nth-last-child(-n+2){font-size:16px!important;color:#fff!important}.olap-result .report-table .olap-grand-total .olap-total-label{text-align:left!important;padding-left:20px!important}.olap-result .report-table tbody tr:hover td{filter:brightness(1.08)!important}@media(max-width:900px){.olap-result .report-table{min-width:760px!important}.olap-result .report-table th,.olap-result .report-table td{padding-left:12px!important;padding-right:12px!important}.olap-result .report-table tr.olap-level-1 td:nth-child(2){padding-left:32px!important}.olap-result .report-table tr.olap-level-2 td:nth-child(3){padding-left:52px!important}}
+.olap-result{
+  width:100%!important;
+  min-height:0!important;
+  color:#e8eef6!important;
+  font-family:inherit!important;
+  font-size:13px!important;
+}
+
+.olap-result .report-header{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:12px!important;
+  margin:0 0 10px!important;
+  padding:0 2px!important;
+}
+.olap-result .report-header strong{
+  font-size:15px!important;
+  font-weight:800!important;
+  color:#f3f7fb!important;
+}
+.olap-result .report-header strong:before{
+  content:'●'!important;
+  margin-right:8px!important;
+  color:#42d392!important;
+  font-size:8px!important;
+}
+.olap-result .olap-tree-actions{
+  display:flex!important;
+  align-items:center!important;
+  gap:6px!important;
+  flex-wrap:wrap!important;
+  justify-content:flex-end!important;
+}
+.olap-result .olap-tree-actions button{
+  height:30px!important;
+  padding:0 10px!important;
+  border:1px solid #2b4054!important;
+  border-radius:7px!important;
+  background:#111d28!important;
+  color:#9fb0c0!important;
+  font:700 11px/1 inherit!important;
+  cursor:pointer!important;
+}
+.olap-result .olap-tree-actions button:hover{
+  border-color:#45627b!important;
+  background:#172635!important;
+  color:#eef5fb!important;
+}
+.olap-result .olap-row-count{
+  display:inline-flex!important;
+  align-items:center!important;
+  height:30px!important;
+  padding:0 10px!important;
+  border:1px solid #2b4054!important;
+  border-radius:7px!important;
+  background:#111d28!important;
+  color:#9fb0c0!important;
+  font-size:11px!important;
+  font-weight:750!important;
+}
+
+.olap-result .report-table-wrapper{
+  width:100%!important;
+  overflow:auto!important;
+  border:1px solid #24384a!important;
+  border-radius:10px!important;
+  background:#0b141d!important;
+  box-shadow:none!important;
+}
+.olap-result .report-table{
+  width:100%!important;
+  min-width:680px!important;
+  border-collapse:collapse!important;
+  table-layout:auto!important;
+  font-size:13px!important;
+}
+.olap-result .report-table th{
+  position:sticky!important;
+  top:0!important;
+  z-index:2!important;
+  height:36px!important;
+  padding:0 14px!important;
+  background:#182638!important;
+  border-bottom:1px solid #30465a!important;
+  color:#9eb0c1!important;
+  font-size:11px!important;
+  font-weight:800!important;
+  text-align:left!important;
+  white-space:nowrap!important;
+}
+.olap-result .report-table td{
+  height:38px!important;
+  padding:0 14px!important;
+  background:#0d1721!important;
+  border-bottom:1px solid #1c2a38!important;
+  color:#dbe4ec!important;
+  font-size:13px!important;
+  vertical-align:middle!important;
+  white-space:nowrap!important;
+}
+.olap-result .report-table .olap-dimension-cell,
+.olap-result .report-table .olap-value-cell{
+  text-align:left!important;
+}
+.olap-result .report-table .olap-measure-cell{
+  width:140px!important;
+  min-width:120px!important;
+  text-align:right!important;
+  font-variant-numeric:tabular-nums!important;
+}
+.olap-result .report-table tbody tr:not(.olap-group-row):not(.olap-grand-total):hover td{
+  background:#111e2a!important;
+}
+
+.olap-result .report-table tr.olap-tree-row td{
+  position:relative!important;
+}
+.olap-result .report-table tr.olap-level-0 td{
+  height:42px!important;
+  background:#142536!important;
+  border-top:1px solid #304a60!important;
+  border-bottom:1px solid #2a4256!important;
+  font-weight:800!important;
+}
+.olap-result .report-table tr.olap-level-0 .olap-group-label{
+  color:#f5f9fc!important;
+  font-size:13.5px!important;
+}
+.olap-result .report-table tr.olap-level-0 .olap-measure-cell{
+  color:#d8f7eb!important;
+  font-weight:850!important;
+}
+.olap-result .report-table tr.olap-level-1 td{
+  height:39px!important;
+  background:#101e2b!important;
+  border-bottom-color:#243747!important;
+}
+.olap-result .report-table tr.olap-level-1 .olap-group-label{
+  padding-left:28px!important;
+  color:#dce8f2!important;
+  font-weight:750!important;
+}
+.olap-result .report-table tr.olap-level-2 td,
+.olap-result .report-table tr.olap-level-3 td,
+.olap-result .report-table tr.olap-level-4 td{
+  height:37px!important;
+  background:#0e1924!important;
+}
+.olap-result .report-table tr.olap-level-2 .olap-group-label{padding-left:42px!important}
+.olap-result .report-table tr.olap-level-3 .olap-group-label{padding-left:56px!important}
+.olap-result .report-table tr.olap-level-4 .olap-group-label{padding-left:70px!important}
+
+.olap-result .report-table .olap-group-toggle{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  width:22px!important;
+  height:22px!important;
+  margin-right:8px!important;
+  padding:0!important;
+  border:1px solid #456078!important;
+  border-radius:6px!important;
+  background:#1a3043!important;
+  color:#d8e6f2!important;
+  font-size:13px!important;
+  line-height:1!important;
+  cursor:pointer!important;
+  vertical-align:middle!important;
+}
+.olap-result .report-table .olap-group-toggle:hover,
+.olap-result .report-table .olap-group-toggle:focus-visible{
+  background:#23415a!important;
+  border-color:#6a8ba5!important;
+  outline:none!important;
+}
+.olap-result .report-table tr.is-collapsed .olap-group-toggle{
+  background:#102536!important;
+}
+
+.olap-result .report-table tr.olap-data-row td{
+  background:#0d1721!important;
+}
+.olap-result .report-table tr.olap-data-row .olap-value-cell{
+  color:#e6edf4!important;
+}
+.olap-result .report-table tr.olap-data-row .olap-measure-cell{
+  color:#f3f7fb!important;
+  font-weight:650!important;
+}
+.olap-result .report-table tr.olap-group-total,
+.olap-result .report-table tr.olap-rendered-into-tree,
+.olap-result .report-table tr[hidden]{
+  display:none!important;
+}
+
+.olap-result .report-table .olap-grand-total td{
+  height:44px!important;
+  background:#0d3d33!important;
+  border-top:1px solid #28a97e!important;
+  border-bottom:0!important;
+  color:#effcf7!important;
+  font-weight:850!important;
+}
+.olap-result .report-table .olap-grand-total .olap-total-label{
+  text-align:left!important;
+  padding-left:14px!important;
+}
+.olap-result .report-table .olap-grand-total .olap-measure-cell{
+  color:#fff!important;
+  font-size:14px!important;
+}
+
+@media(max-width:900px){
+  .olap-result .report-header{
+    align-items:flex-start!important;
+    flex-direction:column!important;
+  }
+  .olap-result .olap-tree-actions{
+    width:100%!important;
+    justify-content:flex-start!important;
+  }
+  .olap-result .report-table{
+    min-width:620px!important;
+  }
+  .olap-result .report-table th,
+  .olap-result .report-table td{
+    padding-left:10px!important;
+    padding-right:10px!important;
+  }
+}
