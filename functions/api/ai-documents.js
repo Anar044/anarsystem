@@ -3,6 +3,8 @@ import { getIikoAuth } from "./iiko/_lib/iiko-client.js";
 import { getIikoSuppliers } from "./iiko/_lib/iiko-suppliers.js";
 import { syncReferences } from "./iiko/references.js";
 import { aiProviderStatus, processPurchaseDocument } from "./iiko/_lib/ai-document-providers.js";
+import { resolveRestaurantScope } from "./iiko/_lib/restaurant-scope.js";
+import { resolveStoreScope } from "./iiko/_lib/store-scope.js";
 
 function cors(){return{
   "Access-Control-Allow-Origin":"*",
@@ -60,6 +62,7 @@ async function ensure(db){
     db.prepare(`CREATE TABLE IF NOT EXISTS ai_documents (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      restaurant_id TEXT NOT NULL DEFAULT '',
       file_name TEXT NOT NULL,
       content_type TEXT NOT NULL,
       object_key TEXT NOT NULL,
@@ -86,6 +89,7 @@ async function ensure(db){
       updated_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_documents_user_created ON ai_documents(user_id, created_at DESC)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_documents_user_restaurant_created ON ai_documents(user_id, restaurant_id, created_at DESC)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS ai_product_aliases (
       user_id TEXT NOT NULL,
       supplier_key TEXT NOT NULL DEFAULT '',
@@ -98,13 +102,15 @@ async function ensure(db){
       PRIMARY KEY(user_id, supplier_key, normalized_source)
     )`)
   ]);
+  try{await db.prepare("ALTER TABLE ai_documents ADD COLUMN restaurant_id TEXT NOT NULL DEFAULT ''").run()}catch(_){}
+  try{await db.prepare("CREATE INDEX IF NOT EXISTS idx_ai_documents_user_restaurant_created ON ai_documents(user_id, restaurant_id, created_at DESC)").run()}catch(_){}
 }
 async function auth(request,env){const a=await getUser(request,env);if(!a)return null;await ensure(env.DB);return a}
 function publicRow(r){
   if(!r)return null;
   let result=null; try{result=r.result_json?JSON.parse(r.result_json):null}catch{}
   return {
-    id:r.id,fileName:r.file_name,contentType:r.content_type,size:r.size,
+    id:r.id,restaurantId:r.restaurant_id||'',fileName:r.file_name,contentType:r.content_type,size:r.size,
     providerRequested:r.provider_requested,providerUsed:r.provider_used,model:r.model,
     status:r.status,documentType:r.document_type,supplierName:r.supplier_name,supplierId:r.supplier_id,
     documentNumber:r.document_number,invoiceNumber:r.invoice_number,incomingNumber:r.incoming_number,
@@ -119,7 +125,27 @@ async function loadPrivateConnection(env,userId){
   if(!connection.ip||!connection.port||!connection.login||!connection.password)throw new Error("Подключение iiko заполнено не полностью.");
   return connection;
 }
-async function referenceData(env,connection){
+async function restaurantContext(request,env,userId){
+  const stored=await loadPrivateIikoState(env.DB,userId,env);
+  if(!stored?.found||!stored?.state)throw new Error("Подключение iiko не найдено.");
+  const scope=resolveRestaurantScope({state:stored.state,request,strict:true});
+  return {state:stored.state,scope};
+}
+function rowAllowedForScope(row,scope){
+  if(!scope?.isChain)return true;
+  const restaurantId=clean(row?.restaurant_id);
+  return Boolean(restaurantId&&scope.selectedDepartmentIds.includes(restaurantId));
+}
+function requireSingleRestaurant(scope){
+  if(scope?.isChain&&scope.selectedDepartmentIds.length!==1){
+    const error=new Error("Для AI накладных в CHAIN выберите один ресторан.");
+    error.status=409;
+    error.code="AI_DOCUMENT_SINGLE_RESTAURANT_REQUIRED";
+    throw error;
+  }
+  return clean(scope?.selectedDepartmentIds?.[0]);
+}
+async function referenceData(env,connection,scope=null){
   const auth=await getIikoAuth(connection);
   const [refs,supplierResult]=await Promise.all([
     syncReferences(env,auth.serverUrl,auth.token),
@@ -128,8 +154,20 @@ async function referenceData(env,connection){
   const maps=refs.maps||{};
   const suppliers=(supplierResult.rows||[]).map(x=>({id:key(x.id),name:clean(x.name)})).filter(x=>x.id&&x.name);
   const products=[...(maps.products?.entries?.()||[])].map(([pid,name])=>({id:key(pid),name:clean(name)})).filter(x=>x.id&&x.name);
-  const warehouses=[...(maps.warehouses?.entries?.()||[])].map(([wid,name])=>({id:key(wid),name:clean(name)})).filter(x=>x.id&&x.name);
-  return {suppliers,products,warehouses};
+  let warehouses=[...(maps.warehouses?.entries?.()||[])].map(([wid,name])=>({id:key(wid),name:clean(name)})).filter(x=>x.id&&x.name);
+  let storeScope=null;
+  if(scope?.isChain){
+    storeScope=await resolveStoreScope(connection,scope.selectedDepartmentIds||[]);
+    if(!storeScope.resolved){
+      const error=new Error("Не удалось определить склады выбранного ресторана для AI накладной.");
+      error.status=409;
+      error.code="AI_DOCUMENT_STORE_SCOPE_UNAVAILABLE";
+      throw error;
+    }
+    const allowed=new Set((storeScope.storeIds||[]).map(key).filter(Boolean));
+    warehouses=warehouses.filter(x=>allowed.has(key(x.id)));
+  }
+  return {suppliers,products,warehouses,storeScope};
 }
 function bestMatch(source,rows,min=.45){
   const sourceNorm=norm(source);
@@ -254,9 +292,9 @@ function confirmedDraftFromInput(value){
   };
 }
 
-async function enrich(env,userId,raw){
+async function enrich(env,userId,raw,scope=null){
   const connection=await loadPrivateConnection(env,userId);
-  const refs=await referenceData(env,connection);
+  const refs=await referenceData(env,connection,scope);
   const supplierResult=bestMatch(raw.supplierName||"",refs.suppliers,.42);
   const supplier=supplierResult.match;
   const aliases=await aliasMap(env.DB,userId,supplier?.id||"");
@@ -297,6 +335,8 @@ async function enrich(env,userId,raw){
       defaultStoreName:null,
       storeSelectionRequired:true,
       warehouses:refs.warehouses,
+      restaurantId:clean(scope?.selectedDepartmentIds?.[0]),
+      warehouseScope:refs.storeScope?{storeIds:refs.storeScope.storeIds||[]}:null,
       items,
       unresolvedItems:unresolved,
       arithmetic,
@@ -315,24 +355,35 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const a=await auth(request,env); if(!a)return json({success:false,message:"Требуется авторизация"},401);
+    const {scope}=await restaurantContext(request,env,a.user.id);
     const u=new URL(request.url),docId=clean(u.searchParams.get("id")),fileId=clean(u.searchParams.get("file"));
     if(fileId){
-      const row=await rowById(env.DB,a.user.id,fileId); if(!row)return json({success:false,message:"Документ не найден"},404);
+      const row=await rowById(env.DB,a.user.id,fileId); if(!row||!rowAllowedForScope(row,scope))return json({success:false,message:"Документ не найден в выбранном ресторане"},404);
       if(!env.ASSET_FILES)return json({success:false,message:"R2 binding ASSET_FILES не настроен"},503);
       const obj=await env.ASSET_FILES.get(row.object_key); if(!obj)return json({success:false,message:"Файл отсутствует в R2"},404);
       return new Response(obj.body,{headers:{"Content-Type":row.content_type||"application/octet-stream","Content-Disposition":`inline; filename="${safeName(row.file_name)}"`,"Cache-Control":"private, max-age=300",...cors()}});
     }
     if(docId){
-      const row=await rowById(env.DB,a.user.id,docId); if(!row)return json({success:false,message:"Документ не найден"},404);
+      const row=await rowById(env.DB,a.user.id,docId); if(!row||!rowAllowedForScope(row,scope))return json({success:false,message:"Документ не найден в выбранном ресторане"},404);
       return json({success:true,document:publicRow(row),providers:aiProviderStatus(env),storageConfigured:Boolean(env.ASSET_FILES)});
     }
-    const r=await env.DB.prepare(`SELECT * FROM ai_documents WHERE user_id=?1 ORDER BY created_at DESC LIMIT 100`).bind(a.user.id).all();
-    return json({success:true,documents:(r.results||[]).map(publicRow),providers:aiProviderStatus(env),storageConfigured:Boolean(env.ASSET_FILES)});
+    const selected=scope.isChain?scope.selectedDepartmentIds:[];
+    let r;
+    if(scope.isChain){
+      const placeholders=selected.map((_,i)=>`?${i+2}`).join(",");
+      r=selected.length
+        ?await env.DB.prepare(`SELECT * FROM ai_documents WHERE user_id=?1 AND restaurant_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 100`).bind(a.user.id,...selected).all()
+        :{results:[]};
+    }else{
+      r=await env.DB.prepare(`SELECT * FROM ai_documents WHERE user_id=?1 ORDER BY created_at DESC LIMIT 100`).bind(a.user.id).all();
+    }
+    return json({success:true,documents:(r.results||[]).map(publicRow),providers:aiProviderStatus(env),storageConfigured:Boolean(env.ASSET_FILES),restaurantScope:{mode:scope.mode,departmentIds:scope.selectedDepartmentIds}});
   }catch(e){return json({success:false,message:e.message||String(e)},500)}
 }
 export async function onRequestPost({request,env}){
   try{
     const a=await auth(request,env); if(!a)return json({success:false,message:"Требуется авторизация"},401);
+    const {scope}=await restaurantContext(request,env,a.user.id);
     const contentType=request.headers.get("Content-Type")||"";
     if(contentType.includes("multipart/form-data")){
       if(!env.ASSET_FILES)return json({success:false,message:"R2 binding ASSET_FILES не настроен."},503);
@@ -342,23 +393,24 @@ export async function onRequestPost({request,env}){
       if(!(type==="application/pdf"||type.startsWith("image/")))return json({success:false,message:"Поддерживаются PDF и изображения."},400);
       if(file.size>20*1024*1024)return json({success:false,message:"Максимальный размер документа 20 МБ."},400);
       if(!["AUTO","LOCAL","OPENAI"].includes(provider))return json({success:false,message:"Неизвестный AI-провайдер."},400);
+      const restaurantId=requireSingleRestaurant(scope);
       const docId=id(),now=new Date().toISOString(),objectKey=`ai-documents/${a.user.id}/${docId}-${safeName(file.name)}`;
       await env.ASSET_FILES.put(objectKey,await file.arrayBuffer(),{httpMetadata:{contentType:type},customMetadata:{userId:a.user.id,documentId:docId}});
-      await env.DB.prepare(`INSERT INTO ai_documents(id,user_id,file_name,content_type,object_key,size,provider_requested,status,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,'UPLOADED',?8,?8)`)
-        .bind(docId,a.user.id,clean(file.name),type,objectKey,file.size,provider,now).run();
+      await env.DB.prepare(`INSERT INTO ai_documents(id,user_id,restaurant_id,file_name,content_type,object_key,size,provider_requested,status,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'UPLOADED',?9,?9)`)
+        .bind(docId,a.user.id,restaurantId,clean(file.name),type,objectKey,file.size,provider,now).run();
       const row=await rowById(env.DB,a.user.id,docId);
       return json({success:true,document:publicRow(row)},201);
     }
 
     const b=await request.json().catch(()=>({})),action=clean(b.action);
     if(action==="process"){
-      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row)return json({success:false,message:"Документ не найден"},404);
+      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row||!rowAllowedForScope(row,scope))return json({success:false,message:"Документ не найден в выбранном ресторане"},404);
       const provider=clean(b.provider||row.provider_requested||"AUTO").toUpperCase(),now=new Date().toISOString();
       await env.DB.prepare(`UPDATE ai_documents SET status='PROCESSING',provider_requested=?1,error_message=NULL,updated_at=?2 WHERE id=?3 AND user_id=?4`).bind(provider,now,docId,a.user.id).run();
       try{
         const file=await objectAsFile(env,row);
         const processed=await processPurchaseDocument(env,file,provider);
-        const result=await enrich(env,a.user.id,processed.data||{});
+        const result=await enrich(env,a.user.id,processed.data||{},scope);
         const raw=result.extracted||{},matching=result.matching||{};
         const status=matching.ready?"READY":(matching.items?.length?"REVIEW":"REVIEW");
         await env.DB.prepare(`UPDATE ai_documents SET provider_used=?1,model=?2,status=?3,document_type=?4,supplier_name=?5,supplier_id=?6,document_number=?7,invoice_number=?8,incoming_number=?9,document_date=?10,due_date=?11,currency=?12,total=?13,vat_total=?14,confidence=?15,result_json=?16,error_message=NULL,updated_at=?17 WHERE id=?18 AND user_id=?19`)
@@ -378,7 +430,7 @@ export async function onRequestPost({request,env}){
       return json({success:true});
     }
     if(action==="markImported"){
-      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row)return json({success:false,message:"Документ не найден"},404);
+      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row||!rowAllowedForScope(row,scope))return json({success:false,message:"Документ не найден в выбранном ресторане"},404);
       const result=publicRow(row).result||{};
       const confirmedDraft=confirmedDraftFromInput(b.draft);
       result.confirmedDraft=confirmedDraft;
@@ -412,7 +464,7 @@ export async function onRequestPost({request,env}){
       return json({success:true,document:publicRow(await rowById(env.DB,a.user.id,docId))});
     }
     if(action==="delete"){
-      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row)return json({success:false,message:"Документ не найден"},404);
+      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row||!rowAllowedForScope(row,scope))return json({success:false,message:"Документ не найден в выбранном ресторане"},404);
       if(env.ASSET_FILES)await env.ASSET_FILES.delete(row.object_key);
       await env.DB.prepare(`DELETE FROM ai_documents WHERE id=?1 AND user_id=?2`).bind(docId,a.user.id).run();
       return json({success:true});
