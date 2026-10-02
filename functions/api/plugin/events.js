@@ -62,12 +62,9 @@ async function readEvents(env, request, scope) {
   else if (selectedDepartmentIds.length===1) params.set("department_id", `eq.${selectedDepartmentIds[0]}`);
   else if (selectedDepartmentIds.length>1) params.set("department_id", `in.(${selectedDepartmentIds.join(",")})`);
 
-  const response = await fetch(`${url.replace(/\/$/, "")}/rest/v1/plugin_events?${params}`, {
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`
-    }
-  });
+  const headers={apikey:key};
+  if(!key.startsWith("sb_secret_"))headers.Authorization=`Bearer ${key}`;
+  const response = await fetch(`${url.replace(/\/$/, "")}/rest/v1/plugin_events?${params}`, { headers });
   const text = await response.text();
   if (!response.ok) throw new Error(`Supabase read failed (${response.status}): ${text.slice(0, 300)}`);
   return JSON.parse(text);
