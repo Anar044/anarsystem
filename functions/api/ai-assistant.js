@@ -261,7 +261,18 @@ async function resolveIiko(env, userId, request=null, requestedIds=null) {
   if (!stored?.found || !hasPrivateConnection(stored.state)) {
     return { connected: false, connection: null, state:null, scope:null };
   }
-  const scope=resolveRestaurantScope({state:stored.state,request,requestedIds,strict:true});
+  const scope=resolveRestaurantScope({state:stored.state,request,strict:true});
+  const bodyIds=[...new Set((Array.isArray(requestedIds)?requestedIds:[]).map(String).filter(Boolean))];
+  if(bodyIds.length){
+    const selected=new Set(scope.selectedDepartmentIds||[]);
+    const outside=bodyIds.filter(id=>!selected.has(id));
+    if(outside.length){
+      const error=new Error("AI запрос содержит ресторан вне текущего выбора Smart Horeca.");
+      error.status=403;
+      error.code="CHAIN_SCOPE_SELECTION_FORBIDDEN";
+      throw error;
+    }
+  }
   return { connected: true, connection: privateConnection(stored.state), state:stored.state, scope };
 }
 function outputText(response) {
