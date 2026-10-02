@@ -112,60 +112,215 @@ function excelSafeName(value){
     .trim()
     .slice(0,90)||'AI-report';
 }
-function excelCellValue(value,numeric=false){
+function excelNumeric(value){
   const text=String(value??'').trim();
-  if(!numeric||!text)return text;
   const normalized=text.replace(/\s/g,'').replace(/,/g,'.').replace(/[^0-9.+-]/g,'');
-  if(!normalized)return text;
+  if(!normalized)return null;
   const n=Number(normalized);
-  return Number.isFinite(n)?n:text;
+  return Number.isFinite(n)?n:null;
 }
-function exportReportToExcel(report){
+function excelArgb(hex){
+  return 'FF'+String(hex||'').replace('#','').toUpperCase();
+}
+async function exportReportToExcel(report){
   if(!report||typeof report!=='object')throw Error('Отчёт для выгрузки не найден.');
-  if(!window.XLSX)throw Error('Модуль Excel ещё не загрузился. Обновите страницу и попробуйте снова.');
+  if(!window.ExcelJS)throw Error('Модуль Excel ещё не загрузился. Обновите страницу и попробуйте снова.');
+
   const columns=Array.isArray(report.columns)?report.columns:[];
   const rows=Array.isArray(report.rows)?report.rows:[];
+  const totals=Array.isArray(report.totals)?report.totals:[];
+  const kpis=Array.isArray(report.kpis)?report.kpis:[];
+  const notes=Array.isArray(report.notes)?report.notes:[];
   if(!columns.length)throw Error('В этом ответе нет табличных данных для Excel.');
 
-  const aoa=[];
-  aoa.push([String(report.title||'Отчёт Smart Horeca')]);
-  if(report.subtitle)aoa.push([String(report.subtitle)]);
-  if(report.periodLabel)aoa.push(['Период',String(report.periodLabel)]);
+  const wb=new ExcelJS.Workbook();
+  wb.creator='Smart Horeca';
+  wb.company='Smart Horeca';
+  wb.created=new Date();
 
-  const kpis=Array.isArray(report.kpis)?report.kpis:[];
+  const ws=wb.addWorksheet('Отчёт',{
+    properties:{defaultRowHeight:20},
+    views:[{state:'frozen',ySplit:columns.length?10+kpis.length:1,showGridLines:false}]
+  });
+
+  const colCount=Math.max(3,columns.length);
+  const lastCol=ws.getColumn(colCount).letter;
+  const title=String(report.title||'Отчёт Smart Horeca');
+
+  ws.mergeCells('A1:'+lastCol+'1');
+  const titleCell=ws.getCell('A1');
+  titleCell.value=title;
+  titleCell.font={name:'Aptos Display',size:20,bold:true,color:{argb:'FFFFFFFF'}};
+  titleCell.fill={type:'pattern',pattern:'solid',fgColor:{argb:excelArgb('#0E2A22')}};
+  titleCell.alignment={vertical:'middle',horizontal:'left'};
+  ws.getRow(1).height=34;
+
+  ws.mergeCells('A2:'+lastCol+'2');
+  const subCell=ws.getCell('A2');
+  subCell.value=String(report.subtitle||'AI-отчёт Smart Horeca');
+  subCell.font={name:'Aptos',size:10,color:{argb:excelArgb('#A7C5BA')}};
+  subCell.fill={type:'pattern',pattern:'solid',fgColor:{argb:excelArgb('#0E2A22')}};
+  subCell.alignment={vertical:'middle',horizontal:'left'};
+  ws.getRow(2).height=22;
+
+  let row=3;
+  if(report.periodLabel){
+    ws.getCell(row,1).value='Период';
+    ws.getCell(row,1).font={bold:true,color:{argb:excelArgb('#50687A')}};
+    ws.getCell(row,2).value=String(report.periodLabel);
+    ws.getCell(row,2).font={bold:true,color:{argb:excelArgb('#17304A')}};
+    row+=2;
+  }else row++;
+
   if(kpis.length){
-    aoa.push([]);
-    aoa.push(['Показатель','Значение']);
-    kpis.forEach(item=>aoa.push([String(item?.label||''),String(item?.value||'')]));
+    ws.getCell(row,1).value='Ключевые показатели';
+    ws.getCell(row,1).font={bold:true,size:11,color:{argb:excelArgb('#17304A')}};
+    row++;
+    const startKpiRow=row;
+    kpis.forEach((item,index)=>{
+      const r=ws.getRow(row+index);
+      r.height=27;
+      const label=r.getCell(1);
+      const value=r.getCell(2);
+      label.value=String(item?.label||'');
+      value.value=String(item?.value||'');
+      label.font={bold:true,color:{argb:excelArgb('#5D7286')}};
+      value.font={bold:true,size:13,color:{argb:excelArgb('#087451')}};
+      [label,value].forEach(cell=>{
+        cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:excelArgb('#EAF8F2')}};
+        cell.border={
+          top:{style:'thin',color:{argb:excelArgb('#C7E6D9')}},
+          bottom:{style:'thin',color:{argb:excelArgb('#C7E6D9')}},
+          left:{style:'thin',color:{argb:excelArgb('#C7E6D9')}},
+          right:{style:'thin',color:{argb:excelArgb('#C7E6D9')}}
+        };
+        cell.alignment={vertical:'middle'};
+      });
+    });
+    row=startKpiRow+kpis.length+1;
   }
 
-  aoa.push([]);
-  aoa.push(columns.map(col=>String(col?.label||'')));
-  rows.forEach(row=>{
-    const source=Array.isArray(row)?row:[];
-    aoa.push(columns.map((col,i)=>excelCellValue(source[i],col?.align==='right')));
+  const tableHeaderRow=row;
+  columns.forEach((col,index)=>{
+    const cell=ws.getCell(tableHeaderRow,index+1);
+    cell.value=String(col?.label||'');
+    cell.font={bold:true,color:{argb:'FFFFFFFF'},size:10};
+    cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:excelArgb('#173147')}};
+    cell.alignment={vertical:'middle',horizontal:col?.align==='right'?'right':col?.align==='center'?'center':'left'};
+    cell.border={bottom:{style:'medium',color:{argb:excelArgb('#42D392')}}};
+  });
+  ws.getRow(tableHeaderRow).height=27;
+
+  const dataStart=tableHeaderRow+1;
+  rows.forEach((source,rowIndex)=>{
+    const excelRow=ws.getRow(dataStart+rowIndex);
+    excelRow.height=22;
+    columns.forEach((col,colIndex)=>{
+      const cell=excelRow.getCell(colIndex+1);
+      const raw=Array.isArray(source)?source[colIndex]:'';
+      const numeric=col?.align==='right'?excelNumeric(raw):null;
+      cell.value=numeric==null?String(raw??''):numeric;
+      cell.font={color:{argb:excelArgb('#21384F')},size:10};
+      cell.alignment={
+        vertical:'middle',
+        horizontal:col?.align==='right'?'right':col?.align==='center'?'center':'left'
+      };
+      if(numeric!=null)cell.numFmt='#,##0.00;[Red]-#,##0.00';
+      cell.fill={
+        type:'pattern',
+        pattern:'solid',
+        fgColor:{argb:excelArgb(rowIndex%2===0?'#F8FBFD':'#FFFFFF')}
+      };
+      cell.border={bottom:{style:'thin',color:{argb:excelArgb('#E4ECF1')}}};
+
+      const text=String(raw??'').toLowerCase();
+      if(text==='рабочий'){
+        cell.font={...cell.font,bold:true,color:{argb:excelArgb('#087451')}};
+        cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:excelArgb('#EAF8F2')}};
+      }else if(text==='нерабочий'){
+        cell.font={...cell.font,bold:true,color:{argb:excelArgb('#A76209')}};
+        cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:excelArgb('#FFF6DF')}};
+      }
+    });
   });
 
-  const totals=Array.isArray(report.totals)?report.totals:[];
-  if(totals.length)aoa.push(columns.map((col,i)=>excelCellValue(totals[i],col?.align==='right')));
+  let finalDataRow=dataStart+rows.length-1;
+  if(totals.length){
+    const totalRow=ws.getRow(finalDataRow+1);
+    totalRow.height=25;
+    columns.forEach((col,index)=>{
+      const cell=totalRow.getCell(index+1);
+      const raw=totals[index]??'';
+      const numeric=col?.align==='right'?excelNumeric(raw):null;
+      cell.value=numeric==null?String(raw):numeric;
+      cell.font={bold:true,color:{argb:excelArgb('#07543D')}};
+      cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:excelArgb('#DFF5EA')}};
+      cell.alignment={vertical:'middle',horizontal:col?.align==='right'?'right':col?.align==='center'?'center':'left'};
+      if(numeric!=null)cell.numFmt='#,##0.00;[Red]-#,##0.00';
+      cell.border={
+        top:{style:'medium',color:{argb:excelArgb('#20B87A')}},
+        bottom:{style:'thin',color:{argb:excelArgb('#A9DBC7')}}
+      };
+    });
+    finalDataRow++;
+  }
 
-  const notes=Array.isArray(report.notes)?report.notes:[];
+  if(rows.length){
+    ws.autoFilter={
+      from:{row:tableHeaderRow,column:1},
+      to:{row:finalDataRow,column:columns.length}
+    };
+  }
+
+  row=finalDataRow+2;
   if(notes.length){
-    aoa.push([]);
-    aoa.push(['Примечания']);
-    notes.forEach(item=>aoa.push([String(item||'')]));
+    ws.mergeCells(row,1,row,lastCol?colCount:columns.length);
+    const noteHead=ws.getCell(row,1);
+    noteHead.value='Примечания';
+    noteHead.font={bold:true,color:{argb:excelArgb('#17304A')}};
+    row++;
+    notes.forEach(note=>{
+      ws.mergeCells(row,1,row,colCount);
+      const cell=ws.getCell(row,1);
+      cell.value='• '+String(note||'');
+      cell.font={size:9,color:{argb:excelArgb('#60778A')}};
+      cell.alignment={wrapText:true,vertical:'top'};
+      cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:excelArgb('#F7FAFC')}};
+      ws.getRow(row).height=28;
+      row++;
+    });
   }
 
-  const ws=XLSX.utils.aoa_to_sheet(aoa);
-  const widths=columns.map((col,i)=>{
-    const values=[String(col?.label||''),...rows.map(row=>String(Array.isArray(row)?(row[i]??''):'')),String(totals[i]??'')];
-    return {wch:Math.min(38,Math.max(10,...values.map(v=>v.length+2)))};
+  columns.forEach((col,index)=>{
+    const values=[
+      String(col?.label||''),
+      ...rows.slice(0,200).map(r=>String(Array.isArray(r)?(r[index]??''):''))
+    ];
+    const width=Math.min(34,Math.max(12,...values.map(v=>Math.min(32,v.length+2))));
+    ws.getColumn(index+1).width=width;
   });
-  if(widths.length)ws['!cols']=widths;
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,'Отчёт');
-  const fileName=excelSafeName((report.title||'AI report')+(report.periodLabel?' '+report.periodLabel:''))+'.xlsx';
-  XLSX.writeFile(wb,fileName,{compression:true});
+  if(colCount>columns.length){
+    for(let i=columns.length+1;i<=colCount;i++)ws.getColumn(i).width=3;
+  }
+
+  ws.pageSetup={
+    orientation:columns.length>5?'landscape':'portrait',
+    fitToPage:true,
+    fitToWidth:1,
+    fitToHeight:0,
+    margins:{left:0.3,right:0.3,top:0.5,bottom:0.5,header:0.2,footer:0.2}
+  };
+
+  const buffer=await wb.xlsx.writeBuffer();
+  const blob=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=excelSafeName(title+(report.periodLabel?' '+report.periodLabel:''))+'.xlsx';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
 
 function reportCard(report,chart=null,messageIndex=-1){
@@ -349,7 +504,9 @@ function bind(){$('newChatBtn').onclick=()=>newChat().catch(e=>note(e.message,'e
   if(exportButton){
     const index=Number(exportButton.dataset.exportReportIndex);
     const report=currentMessages[index]?.meta?.report;
-    try{exportReportToExcel(report);note('Excel-файл сформирован.','ok')}catch(error){note(error.message||String(error),'error')}
+    exportReportToExcel(report)
+      .then(()=>note('Excel-файл сформирован.','ok'))
+      .catch(error=>note(error.message||String(error),'error'));
     return;
   }
   const button=e.target.closest?.('[data-speak-index]');
