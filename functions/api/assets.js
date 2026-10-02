@@ -184,9 +184,12 @@ export async function onRequestPost({request,env}){
       const inService=dateOnly(b.inServiceDate);
       if(!restaurantId||!name||!inService)return json({success:false,message:'Укажите ресторан, название и дату ввода в эксплуатацию'},400);
       const allowedRestaurants=new Set(Array.isArray(auth.scope?.allowedDepartmentIds)?auth.scope.allowedDepartmentIds:[]);
+      const selectedRestaurants=new Set(Array.isArray(auth.scope?.selectedDepartmentIds)?auth.scope.selectedDepartmentIds:[]);
       if(allowedRestaurants.size&&!allowedRestaurants.has(restaurantId))return json({success:false,message:'Этот ресторан не принадлежит текущему подключению Smart Horeca.'},403);
+      if(auth.scope?.isChain&&selectedRestaurants.size&&!selectedRestaurants.has(restaurantId))return json({success:false,message:'Этот актив относится к ресторану вне текущего выбора.'},403);
       if(salvageValue>purchaseCost)return json({success:false,message:'Ликвидационная стоимость не может быть выше стоимости покупки'},400);
-      const existing=await env.DB.prepare(`SELECT id FROM fixed_assets WHERE id=?1 AND user_id=?2`).bind(id,userId).first();
+      const existing=await env.DB.prepare(`SELECT id,restaurant_id FROM fixed_assets WHERE id=?1 AND user_id=?2`).bind(id,userId).first();
+      if(existing&&auth.scope?.isChain&&selectedRestaurants.size&&!selectedRestaurants.has(clean(existing.restaurant_id)))return json({success:false,message:'Актив относится к ресторану вне текущего выбора.'},403);
       const now=isoNow();
       const values={
         id,userId,restaurantId,name,category:clean(b.category),inventoryNumber:clean(b.inventoryNumber),serialNumber:clean(b.serialNumber),location:clean(b.location),
@@ -206,6 +209,10 @@ export async function onRequestPost({request,env}){
 
     if(action==='deleteAsset'){
       const id=clean(b.id);if(!id)return json({success:false,message:'Не указан актив'},400);
+      const asset=await env.DB.prepare(`SELECT restaurant_id FROM fixed_assets WHERE id=?1 AND user_id=?2`).bind(id,userId).first();
+      if(!asset)return json({success:false,message:'Актив не найден'},404);
+      const selected=new Set(Array.isArray(auth.scope?.selectedDepartmentIds)?auth.scope.selectedDepartmentIds:[]);
+      if(auth.scope?.isChain&&selected.size&&!selected.has(clean(asset.restaurant_id)))return json({success:false,message:'Актив относится к ресторану вне текущего выбора.'},403);
       await env.DB.batch([
         env.DB.prepare(`DELETE FROM fixed_asset_events WHERE asset_id=?1 AND user_id=?2`).bind(id,userId),
         env.DB.prepare(`DELETE FROM fixed_assets WHERE id=?1 AND user_id=?2`).bind(id,userId)
@@ -216,8 +223,10 @@ export async function onRequestPost({request,env}){
     if(action==='addEvent'){
       const assetId=clean(b.assetId),eventDate=dateOnly(b.eventDate),eventType=clean(b.eventType).toUpperCase();
       if(!assetId||!eventDate)return json({success:false,message:'Укажите актив и дату события'},400);
-      const asset=await env.DB.prepare(`SELECT id FROM fixed_assets WHERE id=?1 AND user_id=?2`).bind(assetId,userId).first();
+      const asset=await env.DB.prepare(`SELECT id,restaurant_id FROM fixed_assets WHERE id=?1 AND user_id=?2`).bind(assetId,userId).first();
       if(!asset)return json({success:false,message:'Актив не найден'},404);
+      const selected=new Set(Array.isArray(auth.scope?.selectedDepartmentIds)?auth.scope.selectedDepartmentIds:[]);
+      if(auth.scope?.isChain&&selected.size&&!selected.has(clean(asset.restaurant_id)))return json({success:false,message:'Актив относится к ресторану вне текущего выбора.'},403);
       const id=uuid();
       await env.DB.prepare(`INSERT INTO fixed_asset_events(id,asset_id,user_id,event_type,event_date,title,description,cost,vendor,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)`)
         .bind(id,assetId,userId,eventType||'NOTE',eventDate,clean(b.title),clean(b.description),Math.max(0,num(b.cost)),clean(b.vendor),isoNow()).run();
@@ -227,6 +236,10 @@ export async function onRequestPost({request,env}){
 
     if(action==='deleteEvent'){
       const id=clean(b.id);if(!id)return json({success:false,message:'Не указано событие'},400);
+      const event=await env.DB.prepare(`SELECT e.id,a.restaurant_id FROM fixed_asset_events e JOIN fixed_assets a ON a.id=e.asset_id AND a.user_id=e.user_id WHERE e.id=?1 AND e.user_id=?2 LIMIT 1`).bind(id,userId).first();
+      if(!event)return json({success:false,message:'Событие не найдено'},404);
+      const selected=new Set(Array.isArray(auth.scope?.selectedDepartmentIds)?auth.scope.selectedDepartmentIds:[]);
+      if(auth.scope?.isChain&&selected.size&&!selected.has(clean(event.restaurant_id)))return json({success:false,message:'Событие относится к ресторану вне текущего выбора.'},403);
       await env.DB.prepare(`DELETE FROM fixed_asset_events WHERE id=?1 AND user_id=?2`).bind(id,userId).run();
       return json({success:true});
     }
