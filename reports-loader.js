@@ -20,4 +20,4 @@ try {
 await loadClassicScript("reports.js?v=20261002-result-ui-1");
 await loadClassicScript("reports-default-filters.js?v=20260914-cleanup-2");
 await loadClassicScript("reports-fields-scroll-force.js?v=20260910-1");
-await loadClassicScript("reports-result.js?v=20261002-tree-1");
+await loadClassicScript("reports-result.js?v=20261002-tree-2");
