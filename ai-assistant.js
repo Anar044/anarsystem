@@ -104,7 +104,71 @@ function chartCard(chart){
   return '<section class="sha-chart-card"><div class="sha-chart-head"><div><span class="sha-report-eyebrow">SMART HORECA CHART</span><h3>'+esc(chart.title||'График')+'</h3>'+(chart.subtitle?'<p>'+esc(chart.subtitle)+'</p>':'')+'</div></div>'+legend+'<div class="sha-chart-body">'+visual+'</div>'+(chart.xLabel||chart.yLabel?'<div class="sha-chart-labels">'+(chart.xLabel?'<span>X: '+esc(chart.xLabel)+'</span>':'')+(chart.yLabel?'<span>Y: '+esc(chart.yLabel)+'</span>':'')+'</div>':'')+(notes.length?'<div class="sha-report-notes">'+notes.map(note=>'<div>'+esc(note)+'</div>').join('')+'</div>':'')+'</section>';
 }
 
-function reportCard(report,chart=null){
+
+function excelSafeName(value){
+  return String(value||'AI-report')
+    .replace(/[\\/:*?"<>|]+/g,' ')
+    .replace(/\s+/g,' ')
+    .trim()
+    .slice(0,90)||'AI-report';
+}
+function excelCellValue(value,numeric=false){
+  const text=String(value??'').trim();
+  if(!numeric||!text)return text;
+  const normalized=text.replace(/\s/g,'').replace(/,/g,'.').replace(/[^0-9.+-]/g,'');
+  if(!normalized)return text;
+  const n=Number(normalized);
+  return Number.isFinite(n)?n:text;
+}
+function exportReportToExcel(report){
+  if(!report||typeof report!=='object')throw Error('Отчёт для выгрузки не найден.');
+  if(!window.XLSX)throw Error('Модуль Excel ещё не загрузился. Обновите страницу и попробуйте снова.');
+  const columns=Array.isArray(report.columns)?report.columns:[];
+  const rows=Array.isArray(report.rows)?report.rows:[];
+  if(!columns.length)throw Error('В этом ответе нет табличных данных для Excel.');
+
+  const aoa=[];
+  aoa.push([String(report.title||'Отчёт Smart Horeca')]);
+  if(report.subtitle)aoa.push([String(report.subtitle)]);
+  if(report.periodLabel)aoa.push(['Период',String(report.periodLabel)]);
+
+  const kpis=Array.isArray(report.kpis)?report.kpis:[];
+  if(kpis.length){
+    aoa.push([]);
+    aoa.push(['Показатель','Значение']);
+    kpis.forEach(item=>aoa.push([String(item?.label||''),String(item?.value||'')]));
+  }
+
+  aoa.push([]);
+  aoa.push(columns.map(col=>String(col?.label||'')));
+  rows.forEach(row=>{
+    const source=Array.isArray(row)?row:[];
+    aoa.push(columns.map((col,i)=>excelCellValue(source[i],col?.align==='right')));
+  });
+
+  const totals=Array.isArray(report.totals)?report.totals:[];
+  if(totals.length)aoa.push(columns.map((col,i)=>excelCellValue(totals[i],col?.align==='right')));
+
+  const notes=Array.isArray(report.notes)?report.notes:[];
+  if(notes.length){
+    aoa.push([]);
+    aoa.push(['Примечания']);
+    notes.forEach(item=>aoa.push([String(item||'')]));
+  }
+
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  const widths=columns.map((col,i)=>{
+    const values=[String(col?.label||''),...rows.map(row=>String(Array.isArray(row)?(row[i]??''):'')),String(totals[i]??'')];
+    return {wch:Math.min(38,Math.max(10,...values.map(v=>v.length+2)))};
+  });
+  if(widths.length)ws['!cols']=widths;
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Отчёт');
+  const fileName=excelSafeName((report.title||'AI report')+(report.periodLabel?' '+report.periodLabel:''))+'.xlsx';
+  XLSX.writeFile(wb,fileName,{compression:true});
+}
+
+function reportCard(report,chart=null,messageIndex=-1){
   if(!report||typeof report!=='object')return'';
   const columns=Array.isArray(report.columns)?report.columns:[];
   const rows=Array.isArray(report.rows)?report.rows:[];
@@ -149,7 +213,10 @@ function reportCard(report,chart=null){
   return '<section class="sha-report">'+
     '<div class="sha-report-head"><div><span class="sha-report-eyebrow">SMART HORECA REPORT</span><h3>'+esc(report.title||'Отчёт')+'</h3>'+
     (report.subtitle?'<p>'+esc(report.subtitle)+'</p>':'')+'</div>'+
-    (report.periodLabel?'<span class="sha-report-period">'+esc(report.periodLabel)+'</span>':'')+
+    '<div class="sha-report-head-actions">'+
+      (report.periodLabel?'<span class="sha-report-period">'+esc(report.periodLabel)+'</span>':'')+
+      (messageIndex>=0?'<button type="button" class="sha-report-excel" data-export-report-index="'+messageIndex+'" title="Выгрузить отчёт в Excel">▦ Excel</button>':'')+
+    '</div>'+
     '</div>'+
     (kpis.length?'<div class="sha-report-kpis">'+kpis.map(item=>'<div class="sha-report-kpi"><span>'+esc(item?.label||'')+'</span><strong>'+esc(item?.value||'')+'</strong></div>').join('')+'</div>':'')+
     (chart?'<div class="sha-report-chart-slot">'+chartCard(chart)+'</div>':'')+
@@ -164,7 +231,7 @@ function msg(m,index=-1){
   const speak=ai&&index>=0?'<button class="sha-speak" type="button" data-speak-index="'+index+'" title="Озвучить ответ">🔊 Озвучить</button>':'';
   const hasReport=ai&&m.meta?.report;
   const hasChart=ai&&m.meta?.chart;
-  const structured=hasReport?reportCard(m.meta.report,hasChart?m.meta.chart:null):(hasChart?chartCard(m.meta.chart):'');
+  const structured=hasReport?reportCard(m.meta.report,hasChart?m.meta.chart:null,index):(hasChart?chartCard(m.meta.chart):'');
   const text=esc(m.content).replace(/\n/g,'<br>');
   return '<article class="sha-message '+(ai?'assistant':'user')+'"><div class="sha-avatar">'+(ai?'AI':'Вы')+'</div><div class="sha-bubble '+(structured?'has-report':'')+'">'+
     (text?'<div class="sha-text">'+text+'</div>':'')+
@@ -277,7 +344,20 @@ async function toggleVoice(){
 }
 async function send(options={}){if(busy)return;const i=$('messageInput'),text=i.value.trim();if(!text)return;busy=true;$('sendBtn').disabled=true;$('micBtn').disabled=true;note('Получаю данные и собираю ответ…');i.value='';size();$('welcome').hidden=true;$('messages').insertAdjacentHTML('beforeend',msg({role:'user',content:text}));thinking();try{const j=await post({action:'message',conversationId:currentId||null,message:text});currentId=j.conversationId;await loadChats();await select(currentId);note('');if(options?.speakReply&&j.answer)await speakText(j.answer)}catch(e){document.getElementById('shaThinking')?.remove();note(e.message,'error');if(e.code==='OPENAI_NOT_CONFIGURED')state('OpenAI не настроен','warn')}finally{busy=false;$('sendBtn').disabled=false;$('micBtn').disabled=false;i.focus()}}
 async function del(){if(!currentId||!confirm('Удалить этот AI-диалог?'))return;await post({action:'deleteConversation',conversationId:currentId});currentId='';$('deleteChatBtn').hidden=true;$('chatTitle').textContent='AI Ассистент SmartHoreca';renderMessages([]);await loadChats()}
-function bind(){$('newChatBtn').onclick=()=>newChat().catch(e=>note(e.message,'error'));$('deleteChatBtn').onclick=()=>del().catch(e=>note(e.message,'error'));$('sendBtn').onclick=()=>send();$('micBtn').onclick=toggleVoice;$('messageInput').oninput=size;$('messageInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};$('messages').addEventListener('click',e=>{const button=e.target.closest?.('[data-speak-index]');if(!button)return;const index=Number(button.dataset.speakIndex);const message=currentMessages[index];if(message?.role==='assistant')speakText(message.content,button)});document.querySelectorAll('[data-example]').forEach(b=>b.onclick=()=>{$('messageInput').value=b.dataset.example||b.textContent;size();send()})}
+function bind(){$('newChatBtn').onclick=()=>newChat().catch(e=>note(e.message,'error'));$('deleteChatBtn').onclick=()=>del().catch(e=>note(e.message,'error'));$('sendBtn').onclick=()=>send();$('micBtn').onclick=toggleVoice;$('messageInput').oninput=size;$('messageInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};$('messages').addEventListener('click',e=>{
+  const exportButton=e.target.closest?.('[data-export-report-index]');
+  if(exportButton){
+    const index=Number(exportButton.dataset.exportReportIndex);
+    const report=currentMessages[index]?.meta?.report;
+    try{exportReportToExcel(report);note('Excel-файл сформирован.','ok')}catch(error){note(error.message||String(error),'error')}
+    return;
+  }
+  const button=e.target.closest?.('[data-speak-index]');
+  if(!button)return;
+  const index=Number(button.dataset.speakIndex);
+  const message=currentMessages[index];
+  if(message?.role==='assistant')speakText(message.content,button)
+});document.querySelectorAll('[data-example]').forEach(b=>b.onclick=()=>{$('messageInput').value=b.dataset.example||b.textContent;size();send()})}
 async function init(){bind();try{await Promise.all([loadStatus(),loadChats()]);if(conversations[0])await select(conversations[0].id)}catch(e){state('Ошибка','error');note(e.message,'error')}}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();
