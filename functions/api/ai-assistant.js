@@ -482,12 +482,16 @@ export async function onRequestGet({ request, env }) {
       });
     }
     if (action === "conversations") {
-      return json({ success: true, conversations: await listConversations(env.DB, auth.user.id) });
+      const iiko=await resolveIiko(env,auth.user.id,request);
+      const scopeKey=conversationScopeKey(iiko);
+      return json({ success: true, conversations: await listConversations(env.DB, auth.user.id, scopeKey), restaurantScope:iiko.scope?{mode:iiko.scope.mode,selectedDepartmentIds:iiko.scope.selectedDepartmentIds}:null });
     }
     if (action === "messages") {
       const conversationId = clean(url.searchParams.get("conversationId"));
       if (!conversationId) return json({ success: false, message: "conversationId обязателен." }, 400);
-      const conversation = await conversationById(env.DB, auth.user.id, conversationId);
+      const iiko=await resolveIiko(env,auth.user.id,request);
+      const scopeKey=conversationScopeKey(iiko);
+      const conversation = await conversationById(env.DB, auth.user.id, conversationId, scopeKey);
       if (!conversation) return json({ success: false, message: "Чат не найден." }, 404);
       return json({
         success: true,
