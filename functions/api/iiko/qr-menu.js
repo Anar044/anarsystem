@@ -1,4 +1,4 @@
-import { clean, iikoFetch, iikoJson } from './_lib/iiko-client.js';
+import { clean, iikoFetch, iikoJson, iikoText } from './_lib/iiko-client.js';
 
 function corsHeaders() {
     return {
@@ -17,6 +17,31 @@ function jsonResponse(data, status = 200) {
             ...corsHeaders()
         }
     });
+}
+
+function xmlDecode(v){return String(v??"").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&")}
+function xmlChild(block,name){const m=String(block||"").match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`,"i"));return m?xmlDecode(m[1]).replace(/<[^>]+>/g,"").trim():""}
+function xmlBlocks(source,name){const out=[],re=new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`,"gi");let m;while((m=re.exec(String(source||""))))out.push(m[1]||"");return out}
+function xmlSectionIds(text,departmentId=""){
+    const out=[],seen=new Set(),groups=[...xmlBlocks(text,"groupDto"),...xmlBlocks(text,"group")];
+    for(const g of groups){
+        const dep=xmlChild(g,"departmentId");
+        if(departmentId&&dep&&String(dep)!==String(departmentId))continue;
+        const sections=[...xmlBlocks(g,"restaurantSectionInfos"),...xmlBlocks(g,"restaurantSectionInfo")];
+        for(const s of sections){
+            const id=xmlChild(s,"id")||String(s).replace(/<[^>]+>/g,"").trim();
+            if(id&&!seen.has(id)){seen.add(id);out.push(id)}
+        }
+    }
+    return out;
+}
+async function discoverRestaurantSections(connection,departmentId){
+    const search=await iikoText(connection,`/resto/api/corporation/groups/search?departmentId=${encodeURIComponent(departmentId)}`,{headers:{Accept:"application/xml, text/xml, */*"}});
+    let ids=search.ok?xmlSectionIds(search.text,departmentId):[];
+    if(ids.length)return{ids,source:"groups/search",status:search.status};
+    const all=await iikoText(connection,"/resto/api/corporation/groups?revisionFrom=-1",{headers:{Accept:"application/xml, text/xml, */*"}});
+    ids=all.ok?xmlSectionIds(all.text,departmentId):[];
+    return{ids,source:"groups",status:all.status,searchStatus:search.status};
 }
 
 function toNumber(value) {
@@ -213,18 +238,24 @@ export async function onRequestPost(context) {
 
         const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(String).filter(Boolean):[];
         const allowedIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
-        const selectedSectionIds=Array.isArray(body?.chainScope?.selectedRestaurantSectionIds)?body.chainScope.selectedRestaurantSectionIds.map(String).filter(Boolean):[];
+        let selectedSectionIds=Array.isArray(body?.chainScope?.selectedRestaurantSectionIds)?body.chainScope.selectedRestaurantSectionIds.map(String).filter(Boolean):[];
+        let sectionScopeSource=selectedSectionIds.length?"saved-chain-structure":"";
         const chainMode=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN";
         if(chainMode&&departmentIds.length!==1){
             return jsonResponse({success:false,code:"QR_MENU_SINGLE_RESTAURANT_REQUIRED",message:"Для QR Menu в режиме CHAIN выберите ровно один ресторан.",meta:{departmentIds}},409);
         }
         const subsetRequested=chainMode&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+        if(chainMode&&departmentIds.length===1&&!selectedSectionIds.length){
+            const discovered=await discoverRestaurantSections(connection,departmentIds[0]);
+            selectedSectionIds=discovered.ids;
+            sectionScopeSource=discovered.source;
+        }
         if(subsetRequested&&!selectedSectionIds.length){
             return jsonResponse({
                 success:false,
                 code:"QR_MENU_SALE_PLACE_SCOPE_UNAVAILABLE",
                 message:"Не удалось определить торговые секции выбранного ресторана. QR Menu не синхронизирован, чтобы не смешивать меню филиалов.",
-                meta:{departmentIds}
+                meta:{departmentIds,sectionScopeSource}
             },409);
         }
 
@@ -274,6 +305,7 @@ export async function onRequestPost(context) {
                 preferredImageEndpointIndex: imageState.successfulPath,
                 departmentIds,
                 selectedRestaurantSectionIds:selectedSectionIds,
+                sectionScopeSource,
                 departmentScopeApplied:subsetRequested
             }
         });
