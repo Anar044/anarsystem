@@ -14,7 +14,7 @@
     async function boundedFetch(url, options = {}, timeoutMs = 45000) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
-        try { return await boundedFetch(url, { ...options, signal: controller.signal }); }
+        try { return await fetch(url, { ...options, signal: controller.signal }); }
         catch (error) { if (error?.name === "AbortError") throw new Error(`SH API не ответил за ${Math.ceil(timeoutMs/1000)} секунд.`); throw error; }
         finally { clearTimeout(timer); }
     }
