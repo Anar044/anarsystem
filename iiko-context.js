@@ -6,6 +6,14 @@
   let promise = null;
   let cache = null;
 
+  async function fetchWithTimeout(url,options={},timeoutMs=20000){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),timeoutMs);
+    try{return await fetch(url,{...options,signal:controller.signal})}
+    catch(error){if(error?.name==='AbortError')throw new Error('Smart Horeca API не ответил за 20 секунд. Повторите запрос.');throw error}
+    finally{clearTimeout(timer)}
+  }
+
   async function getClient() {
     if (!window.SHAuth?.createClient) throw new Error("SH Auth не готов");
     const client = await window.SHAuth.createClient();
@@ -20,7 +28,7 @@
       const { data, error } = await client.auth.getSession();
       const token = data?.session?.access_token;
       if (error || !token) throw new Error("Сессия пользователя не найдена");
-      const response = await fetch("/api/iiko/state", {
+      const response = await fetchWithTimeout("/api/iiko/state", {
         method: "GET",
         headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
         cache: "no-store"
