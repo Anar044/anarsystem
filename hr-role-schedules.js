@@ -7,7 +7,7 @@
   let data={roles:[],schedules:[],counts:{}},busy=false;
 
   async function token(){const client=await window.SHAuth?.createClient?.();if(!client)throw new Error('Supabase Auth не готов');const{data,error}=await client.auth.getSession();const t=data?.session?.access_token;if(error||!t)throw new Error('Сессия пользователя не найдена');return t}
-  async function api(body=null){const t=await token();const opt={headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}};if(body){opt.method='POST';opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body)}const r=await fetch('/api/hr/role-schedules',opt);const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);return j}
+  async function api(body=null){const t=await token();const opt={headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}};if(body){opt.method='POST';opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body)}const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/hr/role-schedules',opt,60000);const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);return j}
   function setStatus(text,kind=''){const el=$('rsStatus');el.textContent=text;el.className=`hr-status ${kind}`.trim()}
   function roleName(code){const r=(data.roles||[]).find(x=>x.code===code);return r?.name||code||'—'}
   function fmtDate(v){if(!v)return'∞';const [y,m,d]=String(v).split('-');return `${d}.${m}.${y}`}
