@@ -16,7 +16,7 @@ function balanceDepartmentId(item){
   }
   return "";
 }
-async function fetchBalances(connection,timestamp,departmentIds=[],strictSubset=false){
+async function fetchBalances(connection,timestamp,departmentIds=[]){
   const ts=normalizeTimestamp(timestamp);
   const q=new URLSearchParams({timestamp:ts});
   for(const id of departmentIds)q.append("department",id);
@@ -27,13 +27,6 @@ async function fetchBalances(connection,timestamp,departmentIds=[],strictSubset=
 
   let list=asArray(r.payload);
   const detectedDepartmentIds=[...new Set(list.map(balanceDepartmentId).filter(Boolean))];
-
-  if(strictSubset&&list.length&&!detectedDepartmentIds.length){
-    const error=new Error("SH Server не вернул подразделение в балансе счетов. Финансовые балансы не показаны, чтобы не смешивать рестораны.");
-    error.code="ACCOUNT_BALANCE_SCOPE_UNAVAILABLE";
-    error.status=409;
-    throw error;
-  }
 
   if(departmentIds.length&&detectedDepartmentIds.length){
     const wanted=new Set(departmentIds.map(String));
@@ -65,4 +58,4 @@ export async function onRequestPost(context){try{const body=await context.reques
 const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(String).filter(Boolean):[];
 const allowedIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
 const subsetRequested=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
-const [accountResult,balanceResult]=await Promise.all([fetchAccounts(connection,includeDeleted),fetchBalances(connection,body.timestamp,departmentIds,subsetRequested)]);if(!accountResult.ok)return jsonResponse({success:false,message:accountResult.message,rawPreview:accountResult.rawPreview,details:accountResult.details,triedEndpoints:accountResult.triedEndpoints},accountResult.status||502);const accounts=asArray(accountResult.payload).map(normalize).filter(Boolean);const counts={};for(const a of accounts){counts[a.type]=(counts[a.type]||0)+1;a.balance=Object.prototype.hasOwnProperty.call(balanceResult.balances,a.id)?balanceResult.balances[a.id]:0;a.balanceSource="iiko Server: reports/balance/counteragents";}return jsonResponse({success:true,source:"sh-server",endpoint:accountResult.endpoint,balanceEndpoint:balanceResult.endpoint,balanceTimestamp:balanceResult.timestamp,balanceRows:balanceResult.rows,count:accounts.length,accounts,typeCounts:counts,includeDeleted,meta:{accountAuthCacheHit:accountResult.authCacheHit,balanceAuthCacheHit:balanceResult.authCacheHit,departmentIds,detectedDepartmentIds:balanceResult.detectedDepartmentIds,departmentScopeApplied:subsetRequested}});}catch(error){return jsonResponse({success:false,code:error?.code||undefined,message:error?.message||"Ошибка получения счетов SH Server"},Number(error?.status)||502);}}
+const [accountResult,balanceResult]=await Promise.all([fetchAccounts(connection,includeDeleted),fetchBalances(connection,body.timestamp,departmentIds)]);if(!accountResult.ok)return jsonResponse({success:false,message:accountResult.message,rawPreview:accountResult.rawPreview,details:accountResult.details,triedEndpoints:accountResult.triedEndpoints},accountResult.status||502);const accounts=asArray(accountResult.payload).map(normalize).filter(Boolean);const counts={};for(const a of accounts){counts[a.type]=(counts[a.type]||0)+1;a.balance=Object.prototype.hasOwnProperty.call(balanceResult.balances,a.id)?balanceResult.balances[a.id]:0;a.balanceSource="iiko Server: reports/balance/counteragents";}return jsonResponse({success:true,source:"sh-server",endpoint:accountResult.endpoint,balanceEndpoint:balanceResult.endpoint,balanceTimestamp:balanceResult.timestamp,balanceRows:balanceResult.rows,count:accounts.length,accounts,typeCounts:counts,includeDeleted,meta:{accountAuthCacheHit:accountResult.authCacheHit,balanceAuthCacheHit:balanceResult.authCacheHit,departmentIds,detectedDepartmentIds:balanceResult.detectedDepartmentIds,departmentScopeApplied:departmentIds.length>0,scopeSource:"balance/counteragents department filter"}});}catch(error){return jsonResponse({success:false,code:error?.code||undefined,message:error?.message||"Ошибка получения счетов SH Server"},Number(error?.status)||502);}}
