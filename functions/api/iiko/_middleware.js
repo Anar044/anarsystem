@@ -85,7 +85,9 @@ function applyOlapPolicy(body, state, request) {
   const allowed = allowedDepartmentIds(state);
   const requested = requestedDepartmentIds(request);
   const selected = requested.filter(id => allowed.includes(id));
-  const scope = selected.length ? selected : allowed;
+  const effective = selected.length ? selected : allowed;
+  const fullSelection = allowed.length>0 && effective.length===allowed.length && effective.every(id=>allowed.includes(id));
+  const scope = fullSelection ? [] : effective;
 
   if (Array.isArray(next.filters)) {
     let filters = next.filters.map(item => ({ ...item }));
