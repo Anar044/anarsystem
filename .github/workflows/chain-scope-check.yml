@@ -76,6 +76,11 @@ jobs:
           grep -q "visibleAdjustments" functions/api/hr/payroll-adjustments.js
 
           test -f functions/api/plugin/_lib/chain-scope.js
+          test -f functions/api/plugin/_lib/ingest-auth.js
+          test -f supabase/migrations/20261003_plugin_events_chain_scope.sql
+          grep -q "verifyPluginIngress" functions/api/plugin/ingest.js
+          grep -q "verifyPluginIngress" functions/api/plugin/heartbeat.js
+          grep -q "PLUGIN_INGEST_TOKEN" functions/api/plugin/_lib/ingest-auth.js
           grep -q "resolvePluginChainScope" functions/api/plugin/data.js
           grep -q "ensurePluginAllowed" functions/api/plugin/request.js
           grep -q "pluginAllowed" functions/api/plugin/order-history.js
@@ -167,7 +172,11 @@ jobs:
           node --check functions/api/ai-assistant.js
           node --check functions/api/ai-documents.js
           node --check functions/api/plugin/_lib/chain-scope.js
+          node --check functions/api/plugin/_lib/ingest-auth.js
           node --check functions/api/plugin/data.js
+          node --check functions/api/plugin/ingest.js
+          node --check functions/api/plugin/heartbeat.js
+          node --check functions/api/plugin/env-check.js
           node --check functions/api/plugin/request.js
           node --check functions/api/plugin/order-history.js
           node --check functions/api/plugin/events.js
