@@ -41,6 +41,8 @@ jobs:
           grep -q "departmentIds" ai-assistant.js
 
           grep -q "balance/counteragents department filter" functions/api/iiko/accounts.js
+          grep -q "ACCOUNT_POSTINGS_SCOPE_UNAVAILABLE" functions/api/iiko/account-postings.js
+          grep -q "TRANSACTIONS" functions/api/iiko/account-postings.js
           grep -q "balance/counteragents department filter" functions/api/iiko/supplier-balances.js
           grep -q "balance/stores natively supports repeatable department filters" functions/api/iiko/stock-balances.js
           grep -q 'q.append("department"' functions/api/iiko/stock-balances.js
@@ -159,6 +161,7 @@ jobs:
           node --check functions/api/iiko/document-action.js
           node --check functions/api/iiko/invoice-reference-data.js
           node --check functions/api/iiko/accounts.js
+          node --check functions/api/iiko/account-postings.js
           node --check functions/api/iiko/supplier-balances.js
           node --check functions/api/iiko/stock-balances.js
           node --check functions/api/iiko/stock-movements.js
