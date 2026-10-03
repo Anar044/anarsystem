@@ -254,7 +254,7 @@ function scalar(value) {
   return "";
 }
 function aiBalanceDepartmentId(row){
-  for(const value of [row?.departmentId,row?.departmentID,row?.department?.id,row?.organizationId,row?.restaurantId,row?.organization?.id,row?.restaurant?.id]){
+  for(const value of [row?.departmentId,row?.departmentID,row?.departmentGuid,row?.departmentGUID,(typeof row?.department==="string"?row.department:null),row?.department?.id,row?.organizationId,row?.restaurantId,row?.organization?.id,row?.restaurant?.id]){
     const id=clean(value);if(id)return id;
   }
   return "";
@@ -278,9 +278,6 @@ async function supplierBalances(connection, timestamp, departmentIds=[], strictS
   const suppliers = new Map((supplierResult.rows || []).map(row => [key(row.id), clean(row.name)]).filter(x => x[0] && x[1]));
   const balanceRows=deepList(balancesResult.payload).filter(row=>row&&typeof row==="object"&&(row.counteragent!=null||row.counteragentId!=null));
   const detectedDepartmentIds=[...new Set(balanceRows.map(aiBalanceDepartmentId).filter(Boolean))];
-  if(strictSubset&&balanceRows.length&&!detectedDepartmentIds.length){
-    throw new Error("SH Server не вернул подразделение в балансе поставщиков. AI не будет смешивать взаиморасчёты разных ресторанов.");
-  }
   const wantedDepartments=new Set(departmentIds);
   const scopedBalanceRows=departmentIds.length&&detectedDepartmentIds.length?balanceRows.filter(row=>wantedDepartments.has(aiBalanceDepartmentId(row))):balanceRows;
   const sums = new Map();
