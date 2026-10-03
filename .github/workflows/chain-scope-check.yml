@@ -24,6 +24,9 @@ jobs:
           grep -q "sh_selected_departments" app-shell.js
           grep -q "resolveRestaurantScope" functions/api/iiko/_middleware.js
           grep -q "applyDepartmentScopeToBody" functions/api/iiko/_middleware.js
+          grep -q "fullSelection" functions/api/iiko/_lib/restaurant-scope.js
+          grep -q "fullSelection ? \[\] : effective" functions/api/iiko/_middleware.js
+          grep -q "effectiveDepartmentIds" functions/api/iiko/_lib/ai-assistant-tools.js
 
           grep -q "resolveStoreScope" functions/api/iiko/incoming-invoices.js
           grep -q "resolveStoreScope" functions/api/iiko/outgoing-invoices.js
