@@ -287,6 +287,13 @@
     const state = await load(force);
     return { departmentIds: departmentIds(state), allDepartmentIds: allRestaurantIds(state), restaurants: restaurants(state), server: server(state), connection: connection(state), identity: identity(state) };
   }
+  async function refreshSelector(){
+    document.querySelector(".sh-restaurant-selector")?.remove();
+    cache=null;cacheAt=0;pending=null;
+    const state=await load(true);
+    if(state)injectRestaurantSelector();
+    return state;
+  }
 
   window.SH_IikoContext = {
     load, get: load, getConnection, getIdentity, getBinding,
@@ -296,6 +303,7 @@
     getSelectedDepartmentIds: state => departmentIds(state),
     setSelectedDepartmentIds,
     fetchWithTimeout,
+    refreshSelector,
     getCached: () => cache
   };
 
