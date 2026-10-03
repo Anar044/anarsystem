@@ -1,5 +1,8 @@
 import { iikoText, iikoJson } from "./iiko-client.js";
 
+const SCOPE_CACHE_TTL_MS=120000;
+const scopeCache=new Map();
+
 function clean(v){return String(v??"").trim()}
 function key(v){return clean(v).replace(/^\{+|\}+$/g,"").toLowerCase()}
 function uniq(values){return [...new Set((values||[]).map(key).filter(Boolean))]}
@@ -80,7 +83,7 @@ function authoritativeXmlStores(text){
   return out;
 }
 async function loadEntities(connection,path){
-  const r=await iikoText(connection,path,{headers:{Accept:"application/json, application/xml, text/xml, */*"}});
+  const r=await iikoText(connection,path,{headers:{Accept:"application/json, application/xml, text/xml, */*"},timeoutMs:15000});
   if(!r.ok)return{ok:false,status:r.status,stores:[],nodes:[],preview:String(r.text||"").slice(0,500)};
   try{
     const parsed=JSON.parse(r.text||"{}");
@@ -113,7 +116,7 @@ async function balanceStoreFallback(connection,departmentIds){
   const timestamp=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T23:59:59`;
   const q=new URLSearchParams({timestamp});
   for(const id of departmentIds)q.append("department",id);
-  const r=await iikoJson(connection,"/resto/api/v2/reports/balance/stores?"+q.toString(),{timeoutMs:60000});
+  const r=await iikoJson(connection,"/resto/api/v2/reports/balance/stores?"+q.toString(),{timeoutMs:20000});
   const ids=[],seen=new Set();
   if(r.ok)for(const row of payloadRows(r.payload)){
     const id=storeRefId(row?.store??row?.storeId??row?.warehouse??row?.warehouseId);
@@ -138,6 +141,9 @@ function belongsToSelected(store,nodeMap,wanted){
 export async function resolveStoreScope(connection,departmentIds=[]){
   const selected=uniq(departmentIds);
   if(!selected.length)return{selectedDepartmentIds:[],storeIds:[],resolved:true,stores:[],diagnostics:{reason:"no-department-filter"}};
+  const cacheKey=`${clean(connection?.ip||connection?.host)}:${clean(connection?.port)}|${selected.slice().sort().join(",")}`;
+  const cached=scopeCache.get(cacheKey);
+  if(cached&&cached.expiresAt>Date.now())return{...cached.value,diagnostics:{...(cached.value.diagnostics||{}),cacheHit:true}};
 
   const [storesResult,departmentsResult]=await Promise.all([
     loadEntities(connection,"/resto/api/corporation/stores?revisionFrom=-1"),
@@ -154,7 +160,7 @@ export async function resolveStoreScope(connection,departmentIds=[]){
   const knownById=new Map(stores.map(s=>[s.id,s]));
   const fallbackStores=fallbackIds.map(id=>knownById.get(id)||{id,parentId:"",name:"",type:"STORE"});
   const scopedStores=matched.length?matched:fallbackStores;
-  return{
+  const value={
     selectedDepartmentIds:selected,
     storeIds:uniq(scopedStores.map(x=>x.id)),
     stores:scopedStores,
@@ -169,7 +175,10 @@ export async function resolveStoreScope(connection,departmentIds=[]){
       fallback,
       hasRelationship,
       storePreview:storesResult.preview,
-      departmentPreview:departmentsResult.preview
+      departmentPreview:departmentsResult.preview,
+      cacheHit:false
     }
   };
+  scopeCache.set(cacheKey,{value,expiresAt:Date.now()+SCOPE_CACHE_TTL_MS});
+  return value;
 }
