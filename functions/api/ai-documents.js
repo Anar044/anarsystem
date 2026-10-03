@@ -247,9 +247,14 @@ async function aliasMap(db,userId,supplierKey){
   return new Map((r.results||[]).map(x=>[x.normalized_source,{id:key(x.product_id),name:x.product_name,score:1,source:"MEMORY"}]));
 }
 
-function moneyCents(value){
+function nullableNumber(value){
+  if(value===null||value===undefined||String(value).trim()==="")return null;
   const n=Number(value);
-  return Number.isFinite(n)?Math.round(n*100):null;
+  return Number.isFinite(n)?n:null;
+}
+function moneyCents(value){
+  const n=nullableNumber(value);
+  return n===null?null:Math.round(n*100);
 }
 function arithmeticCheck(raw,items){
   const lineIssues=[];
@@ -258,8 +263,8 @@ function arithmeticCheck(raw,items){
   let complete=true;
 
   (items||[]).forEach((item,index)=>{
-    const q=Number(item?.quantity),p=Number(item?.unitPrice),sourceTotal=Number(item?.total);
-    if(!Number.isFinite(q)||!Number.isFinite(p)){
+    const q=nullableNumber(item?.quantity),p=nullableNumber(item?.unitPrice),sourceTotal=nullableNumber(item?.total);
+    if(q===null||p===null){
       complete=false;
       return;
     }
@@ -356,12 +361,12 @@ async function enrich(env,userId,raw,scope=null){
       index:index+1,
       sourceName,
       article:clean(x?.article),
-      quantity:Number.isFinite(Number(x?.quantity))?Number(x.quantity):null,
+      quantity:nullableNumber(x?.quantity),
       unit:clean(x?.unit),
-      unitPrice:Number.isFinite(Number(x?.unitPrice))?Number(x.unitPrice):null,
-      total:Number.isFinite(Number(x?.total))?Number(x.total):null,
-      vatPercent:Number.isFinite(Number(x?.vatPercent))?Number(x.vatPercent):null,
-      confidence:Number.isFinite(Number(x?.confidence))?Number(x.confidence):null,
+      unitPrice:nullableNumber(x?.unitPrice),
+      total:nullableNumber(x?.total),
+      vatPercent:nullableNumber(x?.vatPercent),
+      confidence:nullableNumber(x?.confidence),
       productId:productResult.match?.id||null,
       productName:productResult.match?.name||null,
       matchScore:productResult.match?.score??null,
