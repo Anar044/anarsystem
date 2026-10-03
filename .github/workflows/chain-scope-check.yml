@@ -35,8 +35,8 @@ jobs:
           grep -q "resolveRestaurantScope" functions/api/ai-assistant.js
           grep -q "departmentIds" ai-assistant.js
 
-          grep -q "ACCOUNT_BALANCE_SCOPE_UNAVAILABLE" functions/api/iiko/accounts.js
-          grep -q "SUPPLIER_BALANCE_SCOPE_UNAVAILABLE" functions/api/iiko/supplier-balances.js
+          grep -q "balance/counteragents department filter" functions/api/iiko/accounts.js
+          grep -q "balance/counteragents department filter" functions/api/iiko/supplier-balances.js
           grep -q "balance/stores department filter" functions/api/iiko/stock-balances.js
           grep -q 'q.append("department"' functions/api/iiko/stock-balances.js
           grep -q "STOCK_MOVEMENT_SCOPE_UNAVAILABLE" functions/api/iiko/stock-movements.js
