@@ -14,7 +14,7 @@
   function hours(min){const m=Math.max(0,Number(min||0)),h=Math.floor(m/60),r=m%60;return`${h} ч ${String(r).padStart(2,'0')} мин`}
   function issueLabel(code){return({MISSING_OUT:'Нет отметки выхода',MISSING_IN:'Нет отметки входа',DUPLICATE_IN:'Повторный вход',DUPLICATE_OUT:'Повторный выход',UNKNOWN_EVENT_TYPE:'Неизвестный тип события',INVALID_ORDER:'Выход раньше входа',LONG_INTERVAL:'Интервал больше 24 часов'})[code]||code||'Проверить'}
 
-  async function api(){const t=await authToken(),q=new URLSearchParams({from:$('tsFrom').value,to:$('tsTo').value});const r=await fetch(`/api/hr/timesheet?${q}`,{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}});const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);return j}
+  async function api(){const t=await authToken(),q=new URLSearchParams({from:$('tsFrom').value,to:$('tsTo').value});const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)(`/api/hr/timesheet?${q}`,{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}},90000);const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);return j}
   function selectedEmployee(){return $('tsEmployee')?.value||''}
   function filtered(list){const id=selectedEmployee();return id?(list||[]).filter(x=>x.employeeId===id):(list||[])}
 
