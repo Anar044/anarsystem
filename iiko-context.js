@@ -10,7 +10,7 @@
     const controller=new AbortController();
     const timer=setTimeout(()=>controller.abort(),timeoutMs);
     try{return await fetch(url,{...options,signal:controller.signal})}
-    catch(error){if(error?.name==='AbortError')throw new Error('Smart Horeca API не ответил за 20 секунд. Повторите запрос.');throw error}
+    catch(error){if(error?.name==='AbortError')throw new Error(`Smart Horeca API не ответил за ${Math.ceil(timeoutMs/1000)} секунд. Повторите запрос.`);throw error}
     finally{clearTimeout(timer)}
   }
 
@@ -295,6 +295,7 @@
     restaurants: state => restaurants(state),
     getSelectedDepartmentIds: state => departmentIds(state),
     setSelectedDepartmentIds,
+    fetchWithTimeout,
     getCached: () => cache
   };
 
