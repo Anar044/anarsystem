@@ -28,13 +28,23 @@ function scoreField(field,include=[],exclude=[]){
   }
   return score;
 }
-function pickField(fields,include,exclude=[]){
+function pickField(fields,include,exclude=[],predicate=null){
   let best=null,bestScore=0;
   for(const field of fields||[]){
+    if(predicate&&!predicate(field))continue;
     const score=scoreField(field,include,exclude);
     if(score>bestScore){best=field;bestScore=score;}
   }
   return best;
+}
+function canGroup(field){return field&&field.groupingAllowed!==false&&!field.isMeasure}
+function canAggregate(field){return field&&(field.aggregationAllowed===true||field.isMeasure===true||field.source==="measures")}
+function sideKind(value){
+  const v=norm(value);
+  if(!v)return"";
+  if(["debit","дебет","приход","income","in","plus","positive"].some(x=>v===x||v.includes(x)))return"debit";
+  if(["credit","кредит","расход","expense","out","minus","negative"].some(x=>v===x||v.includes(x)))return"credit";
+  return"";
 }
 function rowValue(row,field){
   const key=fieldKey(field);if(!key||!row||typeof row!=="object")return null;
@@ -74,8 +84,15 @@ function normalizePosting(row,fields){
   const debitRaw=numberValue(rowValue(row,fields.debit));
   const creditRaw=numberValue(rowValue(row,fields.credit));
   const signed=numberValue(rowValue(row,fields.amount));
-  const debit=debitRaw!==null?Math.abs(debitRaw):(signed!==null&&signed>0?signed:0);
-  const credit=creditRaw!==null?Math.abs(creditRaw):(signed!==null&&signed<0?Math.abs(signed):0);
+  const side=sideKind(rowValue(row,fields.transactionSide));
+  let debit=debitRaw!==null?Math.abs(debitRaw):0;
+  let credit=creditRaw!==null?Math.abs(creditRaw):0;
+  if(debitRaw===null&&creditRaw===null&&signed!==null){
+    if(side==="debit")debit=Math.abs(signed);
+    else if(side==="credit")credit=Math.abs(signed);
+    else if(signed>0)debit=signed;
+    else if(signed<0)credit=Math.abs(signed);
+  }
   const balance=numberValue(rowValue(row,fields.balance));
   return{
     date:dateOnly(rowValue(row,fields.date)),
@@ -88,6 +105,7 @@ function normalizePosting(row,fields){
     department:clean(rowValue(row,fields.department)),
     legalEntity:clean(rowValue(row,fields.legalEntity)),
     concept:clean(rowValue(row,fields.concept)),
+    transactionSide:clean(rowValue(row,fields.transactionSide)),
     debit,
     credit,
     amount:signed!==null?signed:debit-credit,
@@ -108,21 +126,22 @@ export async function onRequestPost({request}){
     const metadata=await getOlapFields(connection,"TRANSACTIONS");
     const allFields=metadata.fields||[];
     const fields={
-      date:pickField(allFields,["дата","date","transaction date","transactiondate"]),
-      number:pickField(allFields,["номер","number","transaction number","transactionnumber"],["account","счет"]),
-      type:pickField(allFields,["тип","type","transaction type","transactiontype"],["account","счет"]),
-      account:pickField(allFields,["счет","account"],["корр","corr","group","группа","type","тип"]),
-      accountId:pickField(allFields,["account id","accountid","id счета","id счет"],["corr","корр"]),
-      correspondentAccount:pickField(allFields,["корр счет","коррсчет","correspondent account","corr account","correspondentaccount"]),
-      correspondentCounteragent:pickField(allFields,["корр контрагент","correspondent counteragent","corr counteragent"]),
-      comment:pickField(allFields,["комментарий","comment","description"]),
-      department:pickField(allFields,["подразделение","department","restaurant"],["corr","корр","legal","юр лицо","id"]),
-      legalEntity:pickField(allFields,["юр лицо","юридическое лицо","legal entity","legalentity"]),
-      concept:pickField(allFields,["концепция","concept"]),
-      debit:pickField(allFields,["сумма прихода","дебет","debit","income amount","incoming amount"]),
-      credit:pickField(allFields,["сумма расхода","кредит","credit","expense amount","outgoing amount"]),
-      amount:pickField(allFields,["сумма","amount","sum"],["приход","расход","income","expense","debit","credit","итог","total"]),
-      balance:pickField(allFields,["остаток","balance","saldo","сальдо"])
+      date:pickField(allFields,["дата","date","transaction date","transactiondate"],[],canGroup),
+      number:pickField(allFields,["номер","number","transaction number","transactionnumber"],["account","счет"],canGroup),
+      type:pickField(allFields,["тип","type","transaction type","transactiontype"],["account","счет"],canGroup),
+      account:pickField(allFields,["счет","account"],["корр","corr","group","группа","type","тип"],canGroup),
+      accountId:pickField(allFields,["account id","accountid","id счета","id счет"],["corr","корр"],f=>f.filteringAllowed!==false),
+      correspondentAccount:pickField(allFields,["корр счет","коррсчет","correspondent account","corr account","correspondentaccount"],[],canGroup),
+      correspondentCounteragent:pickField(allFields,["корр контрагент","correspondent counteragent","corr counteragent"],[],canGroup),
+      comment:pickField(allFields,["комментарий","comment","description"],[],canGroup),
+      department:pickField(allFields,["подразделение","department","restaurant"],["corr","корр","legal","юр лицо","id"],canGroup),
+      legalEntity:pickField(allFields,["юр лицо","юридическое лицо","legal entity","legalentity"],[],canGroup),
+      concept:pickField(allFields,["концепция","concept"],[],canGroup),
+      transactionSide:pickField(allFields,["transaction side","transactionside","сторона проводки","дебет кредит","debit credit"],[],canGroup),
+      debit:pickField(allFields,["сумма прихода","debit amount","debitsum","debit sum","income amount","incoming amount"],[],canAggregate),
+      credit:pickField(allFields,["сумма расхода","credit amount","creditsum","credit sum","expense amount","outgoing amount"],[],canAggregate),
+      amount:pickField(allFields,["transaction sum","transactionsum","transaction amount","transactionamount","сумма проводки","amount","sum"],["итог","total","balance","остаток"],canAggregate),
+      balance:pickField(allFields,["остаток","balance","saldo","сальдо"],[],canAggregate)
     };
 
     if(!fields.date||!fields.account||(!fields.debit&&!fields.credit&&!fields.amount)){
@@ -139,9 +158,9 @@ export async function onRequestPost({request}){
 
     const groupBy=[
       fields.date,fields.number,fields.type,fields.account,fields.correspondentAccount,
-      fields.correspondentCounteragent,fields.comment,fields.department,fields.legalEntity,fields.concept
-    ].filter(Boolean).map(fieldKey);
-    const aggregates=[fields.debit,fields.credit,fields.amount,fields.balance].filter(Boolean).map(fieldKey);
+      fields.correspondentCounteragent,fields.comment,fields.department,fields.legalEntity,fields.concept,fields.transactionSide
+    ].filter(Boolean).filter(canGroup).map(fieldKey);
+    const aggregates=[fields.debit,fields.credit,fields.amount,fields.balance].filter(Boolean).filter(canAggregate).map(fieldKey);
     const filters={};
     filters[fieldKey(fields.date)]={filterType:"DateRange",periodType:"CUSTOM",from,to,includeLow:true,includeHigh:true};
 
