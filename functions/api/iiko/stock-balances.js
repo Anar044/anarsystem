@@ -208,18 +208,18 @@ export async function onRequestPost({request}){
     if(selectedStore)q.set("store",selectedStore);
     for(const id of departmentIds)q.append("department",id);
 
-    const results=await Promise.all([
-      iikoJson(connection,"/resto/api/v2/reports/balance/stores?"+q.toString(),{timeoutMs:60000}),
-      loadMetadata(connection)
-    ]);
-    const balanceResult=results[0],meta=results[1];
+    // Ask for the scoped balance first. On CHAIN this endpoint can be
+    // considerably heavier than RMS; do not also download the full catalog
+    // when the balance request itself has already failed.
+    const balanceResult=await iikoJson(connection,"/resto/api/v2/reports/balance/stores?"+q.toString(),{timeoutMs:25000});
 
     if(!balanceResult.ok||!balanceResult.payload){
       const suffix=balanceResult.text?" — "+balanceResult.text.slice(0,500):"";
-      throw new Error("Остатки iiko: HTTP "+balanceResult.status+suffix);
+      throw new Error("Остатки SH: HTTP "+balanceResult.status+suffix);
     }
 
     const balances=balanceList(balanceResult.payload);
+    const meta=await loadMetadata(connection);
     const scopedStoreIds=new Set(balances.map(x=>key(x.storeId)).filter(Boolean));
     const productMap=new Map(meta.products.map(x=>[x.id,x]));
     const storeMap=new Map(meta.stores.map(x=>[x.id,x]));
