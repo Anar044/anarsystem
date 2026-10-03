@@ -231,6 +231,7 @@
             };
 
             await saveIikoState(connection,identity);
+            try{await window.SH_IikoContext?.refreshSelector?.()}catch(_){}
 
             if(passwordInput){
                 passwordInput.value="";
@@ -256,6 +257,7 @@
         event.preventDefault();
         try{
             await clearIikoState();
+            try{await window.SH_IikoContext?.refreshSelector?.()}catch(_){}
             ["iikoConnection","iikoDepartmentIdentity"].forEach(key=>localStorage.removeItem(key));
             const passwordInput=$("iiko-password");
             if(passwordInput){passwordInput.value="";delete passwordInput.dataset.serverStored;passwordInput.placeholder="Пароль";}
