@@ -63,11 +63,38 @@
     if(/iiko/i.test(document.title))document.title=branded(document.title);
     replaceVisibleText(document.body);
     if(window.__shBrandObserver)return;
+
+    const pendingNodes=new Set();
+    let brandFrame=0;
+    const mayContainBrand=node=>{
+      if(!node)return false;
+      if(node.nodeType===Node.TEXT_NODE)return /iiko/i.test(node.nodeValue||'');
+      if(node.nodeType!==Node.ELEMENT_NODE||blocked.has(node.tagName))return false;
+      for(const name of ['title','placeholder','aria-label','data-tooltip']){
+        if(node.hasAttribute?.(name)&&/iiko/i.test(node.getAttribute(name)||''))return true;
+      }
+      return /iiko/i.test(node.textContent||'');
+    };
+    const queueBrand=node=>{
+      if(!mayContainBrand(node))return;
+      pendingNodes.add(node);
+      if(brandFrame)return;
+      brandFrame=requestAnimationFrame(()=>{
+        brandFrame=0;
+        const nodes=[...pendingNodes];
+        pendingNodes.clear();
+        const roots=nodes.filter(node=>!nodes.some(other=>other!==node&&other.nodeType===Node.ELEMENT_NODE&&other.contains?.(node)));
+        roots.forEach(replaceVisibleText);
+      });
+    };
     const observer=new MutationObserver(mutations=>{
       for(const mutation of mutations){
-        if(mutation.type==='characterData')replaceVisibleText(mutation.target);
-        else if(mutation.type==='attributes')replaceAttributes(mutation.target);
-        else mutation.addedNodes.forEach(replaceVisibleText);
+        if(mutation.type==='characterData')queueBrand(mutation.target);
+        else if(mutation.type==='attributes'){
+          if(mayContainBrand(mutation.target))replaceAttributes(mutation.target);
+        }else{
+          mutation.addedNodes.forEach(queueBrand);
+        }
       }
     });
     observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['title','placeholder','aria-label','data-tooltip']});
