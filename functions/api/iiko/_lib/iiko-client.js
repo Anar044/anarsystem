@@ -99,7 +99,7 @@ async function performAuthentication(connection, key) {
   const delays=[0,350,1000];
   for(let attempt=0;attempt<delays.length;attempt++){
     if(delays[attempt])await sleep(delays[attempt]);
-    const response=await fetchWithTimeout(url,{method:"GET",cache:"no-store"});
+    const response=await fetchWithTimeout(url,{method:"GET",cache:"no-store"},12000);
     const token=(await response.text()).trim();
     lastResponse=response;lastToken=token;
     if(response.ok&&token){
