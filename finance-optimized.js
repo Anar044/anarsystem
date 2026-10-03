@@ -254,9 +254,21 @@ async function loadCurrentAccountPostings(){
     currentBinding=b;
     const c=b?.connection;
     const departmentIds=Array.isArray(b?.departmentIds)?b.departmentIds.map(String).filter(Boolean):[];
+    const allowedDepartmentIds=Array.isArray(b?.allDepartmentIds)?b.allDepartmentIds.map(String).filter(Boolean):departmentIds;
+    const selectedSet=new Set(departmentIds);
+    const selectedDepartmentNames=(Array.isArray(b?.restaurants)?b.restaurants:[])
+      .filter(x=>selectedSet.has(String(x?.id||'')))
+      .map(x=>String(x?.name||'').trim())
+      .filter(Boolean);
+    const chainScope={
+      mode:String(b?.identity?.mode||c?.connectionType||'RMS').toUpperCase(),
+      allowedDepartmentIds,
+      selectedDepartmentIds:departmentIds,
+      selectedDepartmentNames
+    };
     const data=await post(POSTINGS,{
       ip:c.ip,port:c.port,login:c.login,password:c.password,
-      from,to,accountId:a.id,accountName:a.name,departmentIds
+      from,to,accountId:a.id,accountCode:a.code,accountName:a.name,departmentIds,chainScope
     },60000);
     const totals=data.totals||{};
     $('fin-modal-debit').textContent=money(totals.debit||0)+' ₼';
