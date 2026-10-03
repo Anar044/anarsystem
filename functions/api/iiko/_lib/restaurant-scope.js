@@ -119,6 +119,8 @@ export function applyDepartmentScopeToBody(body,scope){
     mode:scope?.mode||"RMS",
     selectedDepartmentIds:[...(scope?.selectedDepartmentIds||[])],
     allowedDepartmentIds:[...(scope?.allowedDepartmentIds||[])],
+    selectedDepartmentCodes:[...(scope?.selectedDepartmentCodes||[])],
+    selectedDepartmentNames:[...(scope?.selectedRestaurants||[]).map(x=>clean(x?.name)).filter(Boolean)],
     selectedGroupIds:[...(scope?.selectedGroupIds||[])],
     selectedPointOfSaleIds:[...(scope?.selectedPointOfSaleIds||[])],
     selectedRestaurantSectionIds:[...(scope?.selectedRestaurantSectionIds||[])]
