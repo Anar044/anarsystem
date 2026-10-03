@@ -270,19 +270,23 @@ export async function onRequestPost(context) {
         let imageCount = 0;
         const imageConcurrency = 4;
         const imageState = { preferredIndex: null, successfulPath: null };
-        for (let i = 0; i < normalized.products.length; i += imageConcurrency) {
-            const batch = normalized.products.slice(i, i + imageConcurrency);
-            await Promise.all(batch.map(async product => {
-                if (!product.frontImageId) return;
-                const originalImageId = product.frontImageId;
-                const dataUrl = await fetchImageDataUrl(connection, originalImageId, imageState);
-                product.iikoImageId = originalImageId;
-                if (dataUrl) {
-                    product.frontImageId = dataUrl;
-                    product.photo = dataUrl;
-                    imageCount += 1;
-                }
-            }));
+        const includeImages = body.includeImages === true;
+        const maxImages = Math.max(0, Math.min(Number(body.maxImages || 24), 24));
+        if (includeImages && maxImages > 0) {
+            const candidates = normalized.products.filter(product => product.frontImageId).slice(0, maxImages);
+            for (let i = 0; i < candidates.length; i += imageConcurrency) {
+                const batch = candidates.slice(i, i + imageConcurrency);
+                await Promise.all(batch.map(async product => {
+                    const originalImageId = product.frontImageId;
+                    const dataUrl = await fetchImageDataUrl(connection, originalImageId, imageState);
+                    product.iikoImageId = originalImageId;
+                    if (dataUrl) {
+                        product.frontImageId = dataUrl;
+                        product.photo = dataUrl;
+                        imageCount += 1;
+                    }
+                }));
+            }
         }
 
         return jsonResponse({
@@ -302,6 +306,8 @@ export async function onRequestPost(context) {
             products: normalized.products,
             meta: {
                 imageConcurrency,
+                includeImages,
+                maxImages: includeImages ? maxImages : 0,
                 preferredImageEndpointIndex: imageState.successfulPath,
                 departmentIds,
                 selectedRestaurantSectionIds:selectedSectionIds,
