@@ -6,6 +6,7 @@ const POSTINGS='/api/iiko/account-postings';
 const $=id=>document.getElementById(id);
 let accountItems=[];
 let currentBinding=null;
+let currentAccount=null;
 const expanded=new Set();
 
 const TYPES={
@@ -223,27 +224,34 @@ function renderPostings(postings){
   '</tr>').join('');
 }
 
-async function openAccount(id){
-  const a=accountById(id);if(!a)return;
-  const modal=$('fin-account-modal');
-  modal.classList.add('open');
-  modal.setAttribute('aria-hidden','false');
-  document.body.classList.add('fin-modal-open');
+async function loadCurrentAccountPostings(){
+  const a=currentAccount;
+  if(!a)return;
 
-  $('fin-modal-title').textContent=[a.code,a.name].filter(Boolean).join(' · ')||'Счёт';
-  $('fin-modal-meta').textContent=[typeName(a.type),a.system?'Системный':'Пользовательский'].filter(Boolean).join(' · ');
-  $('fin-modal-balance').textContent=money(balanceFor(a))+' ₼';
+  const from=$('fin-modal-from')?.value||'';
+  const to=$('fin-modal-to')?.value||'';
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to){
+    modalStatus('Укажите корректный период проводок.','error');
+    return;
+  }
+  if(periodDays(from,to)>92){
+    modalStatus('Период проводок ограничен 92 днями за один запрос.','error');
+    return;
+  }
+
+  const loadBtn=$('fin-modal-load');
+  if(loadBtn)loadBtn.disabled=true;
+  $('fin-modal-period').textContent=fmtDate(from)+' — '+fmtDate(to);
   $('fin-modal-debit').textContent='—';
   $('fin-modal-credit').textContent='—';
   $('fin-modal-result').textContent='—';
   $('fin-modal-count').textContent='—';
-  const from=$('fin-from').value,to=$('fin-to').value;
-  $('fin-modal-period').textContent=fmtDate(from)+' — '+fmtDate(to);
   $('fin-modal-body').innerHTML='<tr><td colspan="10" class="fin-empty">Загружаем проводки SH Server…</td></tr>';
   modalStatus('Получаем OLAP отчёт по проводкам…');
 
   try{
     const b=currentBinding||await getIikoBinding();
+    currentBinding=b;
     const c=b?.connection;
     const departmentIds=Array.isArray(b?.departmentIds)?b.departmentIds.map(String).filter(Boolean):[];
     const data=await post(POSTINGS,{
@@ -261,13 +269,37 @@ async function openAccount(id){
   }catch(error){
     modalStatus(error.message||'Не удалось загрузить проводки','error');
     $('fin-modal-body').innerHTML='<tr><td colspan="10" class="fin-empty fin-error-cell">'+esc(error.message||'Ошибка загрузки проводок')+'</td></tr>';
+  }finally{
+    if(loadBtn)loadBtn.disabled=false;
   }
+}
+
+async function openAccount(id){
+  const a=accountById(id);if(!a)return;
+  currentAccount=a;
+  const modal=$('fin-account-modal');
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden','false');
+  document.body.classList.add('fin-modal-open');
+
+  $('fin-modal-title').textContent=[a.code,a.name].filter(Boolean).join(' · ')||'Счёт';
+  $('fin-modal-meta').textContent=[typeName(a.type),a.system?'Системный':'Пользовательский'].filter(Boolean).join(' · ');
+  $('fin-modal-balance').textContent=money(balanceFor(a))+' ₼';
+
+  // New account starts with the page period, then the drawer can be changed independently.
+  const pageFrom=$('fin-from').value;
+  const pageTo=$('fin-to').value;
+  $('fin-modal-from').value=pageFrom;
+  $('fin-modal-to').value=pageTo;
+
+  await loadCurrentAccountPostings();
 }
 function closeAccount(){
   const modal=$('fin-account-modal');
   modal.classList.remove('open');
   modal.setAttribute('aria-hidden','true');
   document.body.classList.remove('fin-modal-open');
+  currentAccount=null;
 }
 function nowIikoTimestamp(){
   const d=new Date(),p=n=>String(n).padStart(2,'0');
@@ -317,6 +349,28 @@ function init(){
   $('fin-to').value=to;
   $('fin-load').addEventListener('click',load);
   $('fin-account-search').addEventListener('input',renderGroups);
+  $('fin-modal-load')?.addEventListener('click',loadCurrentAccountPostings);
+  document.querySelectorAll('[data-fin-period]').forEach(btn=>btn.addEventListener('click',()=>{
+    if(!currentAccount)return;
+    const mode=btn.dataset.finPeriod;
+    const today=new Date();
+    const toDate=new Date(today.getFullYear(),today.getMonth(),today.getDate());
+    let fromDate=new Date(toDate);
+
+    if(mode==='today'){
+      fromDate=new Date(toDate);
+    }else if(mode==='month'){
+      fromDate=new Date(toDate.getFullYear(),toDate.getMonth(),1);
+    }else{
+      const days=Math.max(1,Number(mode)||7);
+      fromDate.setDate(fromDate.getDate()-(days-1));
+    }
+
+    const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    $('fin-modal-from').value=ymd(fromDate);
+    $('fin-modal-to').value=ymd(toDate);
+    loadCurrentAccountPostings();
+  }));
   $('fin-expand-all')?.addEventListener('click',expandAll);
   $('fin-collapse-all')?.addEventListener('click',collapseAll);
   document.querySelectorAll('[data-fin-close]').forEach(x=>x.addEventListener('click',closeAccount));
