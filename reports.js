@@ -2,6 +2,7 @@
     "use strict";
 
     const $ = id => document.getElementById(id);
+    const boundedFetch = (url, options = {}, timeoutMs = 90000) => (window.SH_IikoContext?.fetchWithTimeout || fetch)(url, options, timeoutMs);
 
     const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 
@@ -129,7 +130,7 @@
                             : `🟡 Повторная попытка загрузки полей OLAP (${attempt}/${maxAttempts})...`
                     );
 
-                    const response = await fetch("/api/iiko/olap", {
+                    const response = await boundedFetch("/api/iiko/olap", {
                         method: "POST",
                         headers: { "Content-Type": "application/json", "Accept": "application/json" },
                         credentials: "same-origin",
@@ -294,7 +295,7 @@
             const request = buildOlapRequest();
             if (result) result.innerHTML = `<div class="report-loading">⏳ Получаем данные из iiko...</div>`;
             console.log("IIKO OLAP REQUEST:", request);
-            const response = await fetch("/api/iiko/olap", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(request) });
+            const response = await boundedFetch("/api/iiko/olap", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(request) });
             const data = await safeJson(response);
             console.log("IIKO OLAP RESPONSE:", data);
             if (!response.ok || data.success === false) throw new Error(data.message || data.rawResponse || `iiko OLAP HTTP ${response.status}`);
@@ -355,7 +356,7 @@
         if (!ip || !port || !login || !password) { setIikoStatus("⚠️ Заполните IP, порт, логин и пароль"); return; }
         iikoConnection = { ip, port, login, password }; setIikoStatus("⏳ Подключение к iiko...");
         try {
-            const response = await fetch("/api/iiko/olap", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ action: "fields", reportType: "SALES", ip, port, login, password }) });
+            const response = await boundedFetch("/api/iiko/olap", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ action: "fields", reportType: "SALES", ip, port, login, password }) });
             const data = await safeJson(response); if (!response.ok || data.success === false) throw new Error(data.message || `HTTP ${response.status}`);
             if ($("remember-iiko")?.checked) localStorage.setItem(STORAGE_KEY, JSON.stringify(iikoConnection));
             if ($("sales-card")) $("sales-card").style.display = "block";
@@ -379,7 +380,7 @@
         const result = $("sales-result"); if (!iikoConnection) { if (result) result.innerHTML = `<div class="report-error">⚠️ Сначала подключитесь к iiko</div>`; return; }
         const from = $("report-from")?.value, to = $("report-to")?.value; if (!from || !to || from > to) { if (result) result.innerHTML = `<div class="report-error">⚠️ Выберите правильный период</div>`; return; }
         if (result) result.innerHTML = `<div class="report-loading">⏳ Получаем данные из iiko...</div>`;
-        try { const response = await fetch("/api/iiko/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ip: iikoConnection.ip, port: iikoConnection.port, login: iikoConnection.login, password: iikoConnection.password, from, to }) }); const data = await safeJson(response); if (!response.ok || data.success === false) throw new Error(data.message || "Ошибка получения продаж"); renderSalesReport(data); }
+        try { const response = await boundedFetch("/api/iiko/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ip: iikoConnection.ip, port: iikoConnection.port, login: iikoConnection.login, password: iikoConnection.password, from, to }) }); const data = await safeJson(response); if (!response.ok || data.success === false) throw new Error(data.message || "Ошибка получения продаж"); renderSalesReport(data); }
         catch (error) { if (result) result.innerHTML = `<div class="report-error">🔴 ${esc(error.message)}</div>`; }
     }
 
