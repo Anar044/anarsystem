@@ -8,7 +8,7 @@ function localTimestamp(){const d=new Date();const pad=n=>String(n).padStart(2,"
 function normalizeTimestamp(value){const fallback=localTimestamp();if(!value)return fallback;const s=String(value).trim();if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(s))return s;const d=new Date(s);if(Number.isNaN(d.getTime()))return fallback;const pad=n=>String(n).padStart(2,"0");return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;}
 function balanceDepartmentId(item){
   for(const value of [
-    item?.departmentId,item?.departmentID,item?.department?.id,item?.department?.uuid,
+    item?.departmentId,item?.departmentID,item?.departmentGuid,item?.departmentGUID,(typeof item?.department==="string"?item.department:null),item?.department?.id,item?.department?.uuid,
     item?.organizationId,item?.organisationId,item?.restaurantId,item?.organization?.id,item?.restaurant?.id
   ]){
     const id=clean(value);
