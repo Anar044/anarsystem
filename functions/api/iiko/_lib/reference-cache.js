@@ -51,7 +51,11 @@ export async function loadCachedReferenceMaps(env, serverUrl, neededSupplierIds 
 
   const state = Object.fromEntries(entries);
   const cutoff = Date.now() - ttlMs;
-  const required = ["suppliers", "warehouses", "products", "groups", "categories"];
+  const defaultRequired = ["suppliers", "warehouses", "products", "groups", "categories"];
+  const requestedRequired = Array.isArray(options.requiredKeys)
+    ? options.requiredKeys.map(String).filter(key => Object.prototype.hasOwnProperty.call(TABLES, key))
+    : [];
+  const required = requestedRequired.length ? [...new Set(requestedRequired)] : defaultRequired;
   if (required.some(key => !state[key] || state[key].map.size === 0 || state[key].newestAt < cutoff)) {
     return null;
   }
