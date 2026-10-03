@@ -56,8 +56,14 @@ jobs:
           grep -q "QR_MENU_SINGLE_RESTAURANT_REQUIRED" functions/api/qr-menu/publish.js
 
           grep -q "restaurant_id" functions/api/assets.js
+          grep -q "resolveRestaurantScope" functions/api/asset-meta.js
+          grep -q "assetAllowed" functions/api/asset-meta.js
+          grep -q "resolveRestaurantScope" functions/api/asset-files.js
+          grep -q "assetAllowed" functions/api/asset-files.js
           grep -q "AI_DOCUMENT_SINGLE_RESTAURANT_REQUIRED" functions/api/ai-documents.js
           grep -q "filterEmployeesByScope" functions/api/hr/employees.js
+          grep -q "HR_DEPARTMENT_CODE_UNAVAILABLE" functions/api/hr/employees.js
+          grep -q "employees/byDepartment" functions/api/hr/employees.js
           grep -q "filterEmployeesByScope" functions/api/hr/payroll.js
           grep -q "filterEmployeesByScope" functions/api/hr/timesheet.js
           grep -q "restaurant_id" functions/api/hr/timeclock.js
@@ -149,6 +155,8 @@ jobs:
           node --check functions/api/iiko/qr-menu.js
           node --check functions/api/qr-menu/publish.js
           node --check functions/api/assets.js
+          node --check functions/api/asset-meta.js
+          node --check functions/api/asset-files.js
           node --check functions/api/ai-assistant.js
           node --check functions/api/ai-documents.js
           node --check functions/api/plugin/_lib/chain-scope.js
