@@ -38,7 +38,7 @@ async function getJson(url,t){
   return j;
 }
 async function postJson(url,body){
-  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(body),cache:'no-store'});
+  const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)(url,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(body),cache:'no-store'},90000);
   const j=await r.json().catch(()=>({}));
   if(!r.ok||j.success===false)throw new Error(j.message||('HTTP '+r.status));
   return j;
