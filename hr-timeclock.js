@@ -6,7 +6,7 @@
 
   async function token(){const client=await window.SHAuth?.createClient?.();if(!client)throw new Error('Supabase Auth не готов');const{data,error}=await client.auth.getSession();const t=data?.session?.access_token;if(error||!t)throw new Error('Сессия пользователя не найдена');return t}
   function setStatus(text,kind=''){const el=$('tcStatus');if(!el)return;el.textContent=text;el.className=`hr-status ${kind}`.trim()}
-  async function api(body=null){const t=await token();const opt={headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}};if(body){opt.method='POST';opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body)}const r=await fetch('/api/hr/timeclock',opt);const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);return j}
+  async function api(body=null){const t=await token();const opt={headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}};if(body){opt.method='POST';opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body)}const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/hr/timeclock',opt,60000);const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);return j}
   function employeeName(id){const e=(data.employees||[]).find(x=>x.id===id);return e?.name||[e?.lastName,e?.firstName].filter(Boolean).join(' ')||id||'—'}
   function deviceName(id){return (data.devices||[]).find(x=>x.id===id)?.name||id||'—'}
   function localDate(v){if(!v)return'';try{return new Date(v).toLocaleString('ru-RU')}catch{return String(v)}}
