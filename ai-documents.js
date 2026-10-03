@@ -4,7 +4,8 @@ const $=id=>document.getElementById(id);
 let documents=[],current=null,refs=null,chosenFile=null,previewUrl='',previewKind='',previewZoom=100,previewFitMode=true;
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 const money=v=>Number(v||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
-const moneyCents=v=>{const n=Number(v);return Number.isFinite(n)?Math.round(n*100):null};
+const inputNumber=v=>{if(v===null||v===undefined||String(v).trim()==='')return null;const n=Number(v);return Number.isFinite(n)?n:null};
+const moneyCents=v=>{const n=inputNumber(v);return n===null?null:Math.round(n*100)};
 const today=()=>new Date().toISOString().slice(0,10);
 function autoDocumentNumber(){const d=new Date(),p=n=>String(n).padStart(2,'0');return 'SH-AI-'+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())}
 const statusText={UPLOADED:'Загружен',PROCESSING:'Обработка',READY:'Готов',REVIEW:'Проверить',ERROR:'Ошибка',IMPORTED:'Импортирован'};
@@ -190,12 +191,12 @@ function validateDraftArithmetic(){
   let sourceRowsCents=0,calculatedCents=0,complete=true;
 
   rows.forEach((row,i)=>{
-    const q=Number(row.querySelector('[data-f="quantity"]')?.value);
-    const p=Number(row.querySelector('[data-f="price"]')?.value);
+    const q=inputNumber(row.querySelector('[data-f="quantity"]')?.value);
+    const p=inputNumber(row.querySelector('[data-f="price"]')?.value);
     const sumCents=moneyCents(row.querySelector('[data-f="sum"]')?.value);
     row.classList.remove('arithmetic-error');
 
-    if(!Number.isFinite(q)||!Number.isFinite(p)||sumCents===null){
+    if(q===null||p===null||sumCents===null){
       complete=false;
       return;
     }
@@ -211,6 +212,9 @@ function validateDraftArithmetic(){
   });
 
   const declaredCents=moneyCents($('draftDeclaredTotal')?.value);
+  if(rows.length&&!complete){
+    issues.push('Есть строки без количества, цены или суммы. Проверьте распознавание.');
+  }
   if(declaredCents!==null&&complete){
     if(declaredCents!==calculatedCents){
       issues.push('Итого документа '+money(declaredCents/100)+', расчёт по количеству и цене '+money(calculatedCents/100));
@@ -264,11 +268,11 @@ function validateDraftArithmetic(){
 }
 function recalcTotal(){
   const rows=[...document.querySelectorAll('.aid-item')];
-  const rowTotal=rows.reduce((s,row)=>s+Number(row.querySelector('[data-f="sum"]')?.value||0),0);
+  const rowTotal=rows.reduce((s,row)=>s+(inputNumber(row.querySelector('[data-f="sum"]')?.value)||0),0);
   const calcTotal=rows.reduce((s,row)=>{
-    const q=Number(row.querySelector('[data-f="quantity"]')?.value||0);
-    const p=Number(row.querySelector('[data-f="price"]')?.value||0);
-    return s+q*p;
+    const q=inputNumber(row.querySelector('[data-f="quantity"]')?.value);
+    const p=inputNumber(row.querySelector('[data-f="price"]')?.value);
+    return s+(q===null||p===null?0:q*p);
   },0);
   $('draftTotal').textContent=money(rowTotal)+' ₼'+(moneyCents(rowTotal)!==moneyCents(calcTotal)?' · расчёт '+money(calcTotal)+' ₼':'');
   validateDraftArithmetic();
