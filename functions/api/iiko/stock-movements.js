@@ -1,3 +1,4 @@
+import { resolveStoreScope } from "./_lib/store-scope.js";
 import { iikoJson, iikoText } from "./_lib/iiko-client.js";
 
 const metaCache = new Map();
@@ -162,20 +163,36 @@ function parseInvoiceDocs(xml,kind){
     items:parseInvoiceItems(b)
   }));
 }
-async function loadInvoice(connection,kind,from,to){
+async function loadInvoice(connection,kind,from,to,allowUnboundedFallback=true){
   const endpoint=kind==="incoming"?"/resto/api/documents/export/incomingInvoice":"/resto/api/documents/export/outgoingInvoice";
   const attempts=[];
   for(const pair of [[from,to],[ruDate(from),ruDate(to)]]){
-    const q=new URLSearchParams({from:pair[0],to:pair[1]});
-    const r=await iikoText(connection,endpoint+"?"+q.toString(),{headers:{Accept:"application/xml,text/xml,*/*"}});
-    const docs=r.ok?parseInvoiceDocs(r.text,kind):[];
-    attempts.push({path:endpoint,status:r.status,count:docs.length});
-    if(r.ok&&docs.length)return{ok:true,docs,attempts};
+    try{
+      const q=new URLSearchParams({from:pair[0],to:pair[1]});
+      const r=await iikoText(connection,endpoint+"?"+q.toString(),{headers:{Accept:"application/xml,text/xml,*/*"},timeoutMs:15000});
+      const docs=r.ok?parseInvoiceDocs(r.text,kind):[];
+      attempts.push({path:endpoint,status:r.status,count:docs.length,from:pair[0],to:pair[1]});
+      if(r.ok&&docs.length)return{ok:true,docs,attempts};
+      if(r.ok&&docs.length===0)return{ok:true,docs:[],attempts};
+    }catch(error){
+      attempts.push({path:endpoint,status:0,count:0,from:pair[0],to:pair[1],error:String(error?.message||error)});
+    }
   }
-  const r=await iikoText(connection,endpoint,{headers:{Accept:"application/xml,text/xml,*/*"}});
-  const docs=r.ok?parseInvoiceDocs(r.text,kind).filter(d=>{const dt=dateOnly(d.date);return(!dt||dt>=from)&&(!dt||dt<=to)}):[];
-  attempts.push({path:endpoint,status:r.status,count:docs.length,fallback:true});
-  return{ok:r.ok,docs,attempts};
+
+  // Never download the entire corporation document history while a CHAIN
+  // subset is selected. That fallback can be enormous and was causing the
+  // movement page to hit the Pages Function execution limit.
+  if(!allowUnboundedFallback)return{ok:false,docs:[],attempts};
+
+  try{
+    const r=await iikoText(connection,endpoint,{headers:{Accept:"application/xml,text/xml,*/*"},timeoutMs:15000});
+    const docs=r.ok?parseInvoiceDocs(r.text,kind).filter(d=>{const dt=dateOnly(d.date);return(!dt||dt>=from)&&(!dt||dt<=to)}):[];
+    attempts.push({path:endpoint,status:r.status,count:docs.length,fallback:true});
+    return{ok:r.ok,docs,attempts};
+  }catch(error){
+    attempts.push({path:endpoint,status:0,count:0,fallback:true,error:String(error?.message||error)});
+    return{ok:false,docs:[],attempts};
+  }
 }
 
 function docStoreId(d,names){
@@ -215,12 +232,36 @@ async function loadV2(connection,type,from,to){
   const attempts=[];
   for(const endpoint of candidates){
     const q=new URLSearchParams({dateFrom:from,dateTo:to});
-    const r=await iikoJson(connection,endpoint+"?"+q.toString(),{timeoutMs:60000});
+    let r;
+    try{r=await iikoJson(connection,endpoint+"?"+q.toString(),{timeoutMs:15000})}
+    catch(error){attempts.push({path:endpoint,status:0,count:0,error:String(error?.message||error)});continue}
     const docs=r.ok?normalizeV2Docs(r.payload,type):[];
     attempts.push({path:endpoint,status:r.status,count:docs.length});
     if(r.ok)return{ok:true,docs,attempts};
   }
   return{ok:false,docs:[],attempts};
+}
+
+async function nativeDepartmentStores(connection,departmentIds,from,to){
+  const ids=new Set(),timestamps=[from+"T00:00:00",to+"T23:59:59"];
+  const results=await Promise.all(timestamps.map(async timestamp=>{
+    const q=new URLSearchParams({timestamp});
+    for(const id of departmentIds)q.append("department",id);
+    let r;
+    try{r=await iikoJson(connection,"/resto/api/v2/reports/balance/stores?"+q.toString(),{timeoutMs:12000})}
+    catch(error){return{timestamp,r:{ok:false,status:0,payload:null,error:String(error?.message||error)}}}
+    return{timestamp,r};
+  }));
+  const attempts=[];
+  for(const {timestamp,r} of results){
+    attempts.push({timestamp,status:r.status,ok:r.ok});
+    if(!r.ok)continue;
+    for(const row of list(r.payload)){
+      const sid=refId(row?.store??row?.storeId??row?.warehouse??row?.warehouseId);
+      if(sid)ids.add(sid);
+    }
+  }
+  return{storeIds:[...ids],attempts};
 }
 
 function enrichInvoice(meta,source,kind){
@@ -281,23 +322,40 @@ export async function onRequestPost({request}){
     if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to))return json({success:false,message:"Укажите корректный период"},400);
     if(to<from)return json({success:false,message:"Дата «По» раньше даты «С»"},400);
 
-    const [meta,incoming,outgoing,writeoff,transfer,inventory]=await Promise.all([
+    const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(key).filter(Boolean))]:[];
+    const allowedDepartmentIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(key).filter(Boolean):[];
+    const subsetRequested=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedDepartmentIds.length>departmentIds.length;
+    const [storeScope,nativeStoreScope,meta,incoming,outgoing,writeoff,transfer,inventory]=await Promise.all([
+      subsetRequested?resolveStoreScope(connection,departmentIds):Promise.resolve({resolved:true,storeIds:[],diagnostics:null}),
+      subsetRequested?nativeDepartmentStores(connection,departmentIds,from,to):Promise.resolve({storeIds:[],attempts:[]}),
       metadata(connection),
-      loadInvoice(connection,"incoming",from,to),
-      loadInvoice(connection,"outgoing",from,to),
+      loadInvoice(connection,"incoming",from,to,!subsetRequested),
+      loadInvoice(connection,"outgoing",from,to,!subsetRequested),
       loadV2(connection,"writeoff",from,to),
       loadV2(connection,"transfer",from,to),
       loadV2(connection,"inventory",from,to)
     ]);
+    const scopedStores=new Set([...(storeScope.storeIds||[]),...(nativeStoreScope.storeIds||[])].map(key).filter(Boolean));
+    if(subsetRequested&&!scopedStores.size){
+      return json({success:false,code:"STOCK_MOVEMENT_SCOPE_UNAVAILABLE",message:"SH Server не вернул ни одного склада выбранного ресторана через справочник или scoped-остатки. Движение товара не показано.",meta:{departmentIds,storeScope:storeScope.diagnostics||null,nativeStoreScope}},409);
+    }
 
-    const movements=[
+    let movements=[
       ...enrichInvoice(meta,incoming,"incoming"),
       ...enrichInvoice(meta,outgoing,"outgoing"),
       ...enrichV2(meta,writeoff,"writeoff"),
       ...enrichV2(meta,transfer,"transfer"),
       ...enrichV2(meta,inventory,"inventory")
-    ].filter(x=>!x.date||dateOnly(x.date)>=from&&dateOnly(x.date)<=to)
-     .sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))||String(a.productName).localeCompare(String(b.productName),"ru"));
+    ].filter(x=>!x.date||dateOnly(x.date)>=from&&dateOnly(x.date)<=to);
+
+    if(subsetRequested){
+      movements=movements.filter(x=>{
+        const ids=[x.storeId,x.fromStoreId,x.toStoreId].map(key).filter(Boolean);
+        return ids.some(id=>scopedStores.has(id));
+      });
+    }
+
+    movements.sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))||String(a.productName).localeCompare(String(b.productName),"ru"));
 
     const stores=[...new Map(movements.flatMap(x=>[
       x.storeId?[x.storeId,{id:x.storeId,name:x.storeName}]:null,
@@ -324,7 +382,7 @@ export async function onRequestPost({request}){
         transferValue:movements.filter(x=>x.type==="transfer").reduce((s,x)=>s+Number(x.value||0),0),
         inventoryValue:movements.filter(x=>x.type==="inventory").reduce((s,x)=>s+Number(x.value||0),0)
       },
-      meta:{metadataCacheHit:meta.cacheHit===true,warehouseCount:meta.stores.length,unitCount:meta.unitCount}
+      meta:{metadataCacheHit:meta.cacheHit===true,warehouseCount:meta.stores.length,unitCount:meta.unitCount,departmentIds,departmentScopeApplied:subsetRequested,scopedStoreIds:[...scopedStores],storeScopeDiagnostics:storeScope.diagnostics||null,nativeStoreScope,scopeSource:subsetRequested?"corporation stores + balance/stores department filter":"all"}
     });
   }catch(e){
     console.error("IIKO STOCK MOVEMENTS ERROR",e);

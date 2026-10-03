@@ -1,4 +1,5 @@
 import { getUser } from '../iiko/_lib/user-state.js';
+import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -72,13 +73,14 @@ export async function onRequestGet({request,env}){
     if(from>to)return json({success:false,message:'Дата начала не может быть позже даты окончания'},400);
     const span=(new Date(`${to}T00:00:00Z`)-new Date(`${from}T00:00:00Z`))/86400000;if(span>92)return json({success:false,message:'Для табеля выберите период не более 93 дней'},400);
     const userId=auth.user.id;
+    const scope=await resolveHrRestaurantScope(request,env,userId);
     const [employeeRows,deviceRows,eventRows]=await Promise.all([
-      env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,role_name,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all(),
+      env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,role_name,department_code,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all(),
       env.DB.prepare(`SELECT device_id,name,timezone FROM hr_devices WHERE user_id=?1`).bind(userId).all(),
       env.DB.prepare(`SELECT event_id,device_id,iiko_employee_id,event_time,event_type FROM hr_attendance_events WHERE user_id=?1 AND iiko_employee_id<>'' AND event_time>=?2 AND event_time<=?3 ORDER BY iiko_employee_id,event_time`).bind(userId,`${isoDayShift(from,-1)}T00:00:00.000Z`,`${isoDayShift(to,1)}T23:59:59.999Z`).all()
     ]);
     const devices=deviceRows.results||[],deviceMap=new Map(devices.map(x=>[String(x.device_id),x]));
-    const employees=(employeeRows.results||[]).map(x=>({id:String(x.iiko_employee_id),code:x.employee_code||'',name:x.display_name||'',roleName:x.role_name||'',fireDate:x.fire_date||'',deleted:Boolean(x.is_deleted)}));
+    const employees=filterEmployeesByScope(employeeRows.results||[],scope).map(x=>({id:String(x.iiko_employee_id),code:x.employee_code||'',name:x.display_name||'',roleName:x.role_name||'',departmentCode:x.department_code||'',fireDate:x.fire_date||'',deleted:Boolean(x.is_deleted)}));
     const events=eventRows.results||[],byEmployee=new Map();for(const e of events){const id=String(e.iiko_employee_id||'');if(!byEmployee.has(id))byEmployee.set(id,[]);byEmployee.get(id).push(e)}
     const intervals=[],issues=[];
     for(const employee of employees){const list=byEmployee.get(employee.id)||[];if(!list.length)continue;const firstDevice=deviceMap.get(String(list[0].device_id));const zone=timeZoneOf(firstDevice?.timezone||'Asia/Baku');const r=normalizeEmployee(list,employee,zone,from,to);intervals.push(...r.intervals);for(const issue of r.issues){const p=localParts(issue.eventTime,zone);if(p.date>=from&&p.date<=to)issues.push({...issue,employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,workDate:p.date})}}
@@ -87,6 +89,6 @@ export async function onRequestGet({request,env}){
     for(const i of issues){const key=`${i.employeeId}|${i.workDate}`;let d=dayMap.get(key);if(!d){const e=employees.find(x=>x.id===i.employeeId)||{};d={employeeId:i.employeeId,employeeCode:i.employeeCode||e.code||'',employeeName:i.employeeName||e.name||'',roleName:e.roleName||'',workDate:i.workDate,firstIn:'',lastOut:'',workedMinutes:0,intervalCount:0,issueCount:0,status:'REVIEW'};dayMap.set(key,d)}d.issueCount++;d.status='REVIEW'}
     const days=[...dayMap.values()].sort((a,b)=>a.workDate.localeCompare(b.workDate)||a.employeeName.localeCompare(b.employeeName));
     const workedMinutes=intervals.reduce((s,x)=>s+x.durationMinutes,0),employeesWithData=new Set([...intervals.map(x=>x.employeeId),...issues.map(x=>x.employeeId)]).size;
-    return json({success:true,period:{from,to},engine:'RAW_IN_OUT_V1',rules:{duplicateWindowMinutes:10,longIntervalMinutes:1440},summary:{employees:employeesWithData,days:days.length,intervals:intervals.length,workedMinutes,issues:issues.length},employees,devices:devices.map(x=>({id:x.device_id,name:x.name,timezone:x.timezone||'Asia/Baku'})),days,intervals,issues});
+    return json({success:true,period:{from,to},engine:'RAW_IN_OUT_V1',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,rules:{duplicateWindowMinutes:10,longIntervalMinutes:1440},summary:{employees:employeesWithData,days:days.length,intervals:intervals.length,workedMinutes,issues:issues.length},employees,devices:devices.map(x=>({id:x.device_id,name:x.name,timezone:x.timezone||'Asia/Baku'})),days,intervals,issues});
   }catch(error){console.error('[HR-TIMESHEET-GET]',error);return json({success:false,message:error?.message||String(error)},500)}
 }

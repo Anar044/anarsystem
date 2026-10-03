@@ -77,6 +77,16 @@ function normalizeShift(item, requestedDate, requestedStatus) {
         _requestedStatus: requestedStatus
     };
 }
+function shiftDepartmentId(item) {
+    for (const value of [
+        item?.departmentId,item?.departmentID,item?.department?.id,item?.department?.uuid,item?.department?.guid,item?.departmentGuid,
+        item?.organizationId,item?.organisationId,item?.restaurantId,item?.organization?.id,item?.organisation?.id,item?.restaurant?.id
+    ]) {
+        const id=String(value??"").trim();
+        if(id)return id;
+    }
+    return "";
+}
 
 async function getShiftsForDateAndStatus(connection, date, status) {
     const requestedDate = isoDate(date);
@@ -164,6 +174,10 @@ export async function onRequestPost(context) {
         if (!from || !to) return jsonResponse({ success: false, message: "Укажите корректный период дат" }, 400);
         if (to < from) return jsonResponse({ success: false, message: "Дата окончания не может быть раньше даты начала" }, 400);
 
+        const departmentIds=Array.isArray(body.departmentIds)?[...new Set(body.departmentIds.map(String).filter(Boolean))]:[];
+        const allowedDepartmentIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
+        const subsetRequested=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedDepartmentIds.length>departmentIds.length;
+
         const days = Math.round((to - from) / 86400000) + 1;
         if (days > 62) return jsonResponse({ success: false, message: "Максимальный период для кассовых смен — 62 дня" }, 400);
 
@@ -199,12 +213,27 @@ export async function onRequestPost(context) {
         });
 
         const seen = new Set();
-        const shifts = all.filter(shift => {
+        let shifts = all.filter(shift => {
             const key = shift._sessionId || JSON.stringify(shift);
             if (seen.has(key)) return false;
             seen.add(key);
             return true;
         });
+
+        const detectedDepartmentIds=[...new Set(shifts.map(shiftDepartmentId).filter(Boolean))];
+        let departmentScopeApplied=false;
+        if(departmentIds.length&&detectedDepartmentIds.length){
+            const wanted=new Set(departmentIds);
+            shifts=shifts.filter(shift=>wanted.has(shiftDepartmentId(shift)));
+            departmentScopeApplied=true;
+        }else if(subsetRequested&&shifts.length){
+            return jsonResponse({
+                success:false,
+                code:"CASH_SHIFT_SCOPE_UNAVAILABLE",
+                message:"SH Server не вернул идентификатор подразделения в кассовых сменах. Нельзя безопасно показать только выбранный ресторан.",
+                meta:{departmentIds,allowedDepartmentIds,detectedDepartmentIds}
+            },409);
+        }
 
         return jsonResponse({
             success: true,
@@ -220,7 +249,11 @@ export async function onRequestPost(context) {
             meta: {
                 sharedIikoClient: true,
                 authCacheHit,
-                concurrency: 6
+                concurrency: 6,
+                departmentIds,
+                detectedDepartmentIds,
+                departmentScopeApplied,
+                subsetRequested
             }
         });
     } catch (error) {

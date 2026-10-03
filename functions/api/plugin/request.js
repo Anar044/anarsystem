@@ -1,3 +1,4 @@
+import { resolvePluginChainScope } from "./_lib/chain-scope.js";
 const VPS_API = "http://68-233-120-197.nip.io";
 
 function corsHeaders() {
@@ -17,6 +18,34 @@ function jsonResponse(data, status = 200) {
       ...corsHeaders()
     }
   });
+}
+
+function pluginRows(data){
+  if(Array.isArray(data))return data;
+  if(Array.isArray(data?.plugins))return data.plugins;
+  if(Array.isArray(data?.data))return data.data;
+  if(Array.isArray(data?.items))return data.items;
+  return [];
+}
+
+async function ensurePluginAllowed(scoped,pluginId){
+  if(!pluginId)return;
+  const url=new URL(`${VPS_API}/api/plugin/data`);
+  if(scoped.departmentIds.length)url.searchParams.set("departmentIds",scoped.departmentIds.join(","));
+  if(scoped.serverUrl)url.searchParams.set("serverUrl",scoped.serverUrl);
+  const r=await fetch(url.toString(),{headers:{Accept:"application/json"}});
+  const data=await r.json().catch(()=>null);
+  if(!r.ok||!data)throw new Error("Не удалось проверить принадлежность кассы выбранному ресторану.");
+  const allowed=pluginRows(data).some(item=>{
+    const row=item?.data&&typeof item.data==="object"?{...item,...item.data}:item;
+    return String(row?.pluginId??"")===String(pluginId);
+  });
+  if(!allowed){
+    const e=new Error("Выбранная касса не относится к текущему ресторану.");
+    e.status=403;
+    e.code="PLUGIN_SCOPE_FORBIDDEN";
+    throw e;
+  }
 }
 
 function normalizeRequestBody(input) {
@@ -57,7 +86,11 @@ export async function onRequestOptions() {
 
 export async function onRequestPost(context) {
   try {
+    const scoped=await resolvePluginChainScope(context.request,context.env);
     const body = normalizeRequestBody(await context.request.json());
+    body.departmentIds=[...scoped.departmentIds];
+    if(scoped.serverUrl)body.serverUrl=scoped.serverUrl;
+    await ensurePluginAllowed(scoped,body.pluginId);
 
     if (!body?.action) {
       return jsonResponse({
@@ -93,8 +126,9 @@ export async function onRequestPost(context) {
     return jsonResponse(data, response.status);
   } catch (error) {
     return jsonResponse({
-      success: false,
-      error: error?.message || "Unable to reach VPS"
-    }, 502);
+      success:false,
+      code:error?.code||"PLUGIN_REQUEST_ERROR",
+      error:error?.message||"Unable to reach VPS"
+    },Number(error?.status)||502);
   }
 }

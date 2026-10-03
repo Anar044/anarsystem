@@ -1,3 +1,4 @@
+import { verifyPluginIngress } from "./_lib/ingest-auth.js";
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
@@ -26,17 +27,21 @@ export async function onRequestPost(context) {
     if (!departmentId) {
       return jsonResponse({ success: false, message: "departmentId is required" }, 400);
     }
+    if (!pluginId) {
+      return jsonResponse({ success: false, message: "pluginId is required" }, 400);
+    }
 
+    const identity=await verifyPluginIngress(context.request,context.env,{pluginId,departmentId});
     return jsonResponse({
-      success: true,
-      accepted: true,
-      verified: false,
-      message: "Heartbeat received; plugin identity verification will run after plugin contract is confirmed",
+      success:true,
+      accepted:true,
+      verified:identity.verified,
+      message:"Heartbeat verified",
       departmentId,
       pluginId,
-      serverTime: new Date().toISOString()
+      serverTime:new Date().toISOString()
     });
   } catch (error) {
-    return jsonResponse({ success: false, message: error?.message || "Invalid JSON" }, 400);
+    return jsonResponse({ success:false,code:error?.code||"PLUGIN_HEARTBEAT_ERROR",message:error?.message||"Invalid JSON" },Number(error?.status)||400);
   }
 }

@@ -66,7 +66,7 @@
     try{
       busy=true;$('hrRefresh').disabled=true;error.hidden=true;setStatus('Синхронизация…','loading');
       const t=await token();
-      const response=await fetch('/api/hr/employees',{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}});
+      const response=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/hr/employees',{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}},60000);
       const result=await response.json().catch(()=>({success:false,message:'Сервер вернул некорректный ответ'}));
       if(!response.ok||!result.success)throw new Error(result.message||`HTTP ${response.status}`);
       data=result;render();

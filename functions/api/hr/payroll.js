@@ -1,4 +1,5 @@
 import { getUser } from '../iiko/_lib/user-state.js';
+import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
 import { calculateCompensation, AZ_PAYROLL_RULE_PROFILE } from './_lib/az-payroll-rules.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
@@ -62,8 +63,9 @@ export async function onRequestGet({request,env}){
     const url=new URL(request.url),fallback=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit'}).format(new Date()),month=monthOnly(url.searchParams.get('month'))||fallback,b=monthBounds(month);
     if(b.year!==2026)return json({success:false,message:'В HR Preview производственный календарь Payroll пока настроен на 2026 год.'},400);
     const userId=auth.user.id,norm=MONTH_NORMS_2026[b.month];
+    const scope=await resolveHrRestaurantScope(request,env,userId);
     const [employeesR,employeeTermsR,roleTermsR,schedulesR,daysR,eventsR]=await Promise.all([
-      env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,first_name,middle_name,last_name,role_code,role_name,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all(),
+      env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,first_name,middle_name,last_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all(),
       env.DB.prepare(`SELECT * FROM hr_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY iiko_employee_id,effective_from DESC`).bind(userId).all(),
       env.DB.prepare(`SELECT * FROM hr_role_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY role_code,effective_from DESC`).bind(userId).all(),
       env.DB.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 AND is_active=1 AND is_default=1 AND valid_from<=?3 AND (valid_to='' OR valid_to>=?2) ORDER BY role_code,valid_from DESC`).bind(userId,b.from,b.to).all(),
@@ -75,7 +77,8 @@ export async function onRequestGet({request,env}){
     const dayRulesBySchedule=new Map();for(const d of scheduleDays){const id=String(d.schedule_id);if(!dayRulesBySchedule.has(id))dayRulesBySchedule.set(id,[]);dayRulesBySchedule.get(id).push(d)}
     const eventsByEmployee=new Map();for(const e of eventsR.results||[]){const id=String(e.iiko_employee_id||'');if(!eventsByEmployee.has(id))eventsByEmployee.set(id,[]);eventsByEmployee.get(id).push(e)}
     const rows=[];
-    for(const e of employeesR.results||[]){if(Number(e.is_deleted))continue;if(e.hire_date&&e.hire_date>b.to)continue;if(e.fire_date&&e.fire_date<b.from)continue;
+    const scopedEmployees=filterEmployeesByScope(employeesR.results||[],scope);
+    for(const e of scopedEmployees){if(Number(e.is_deleted))continue;if(e.hire_date&&e.hire_date>b.to)continue;if(e.fire_date&&e.fire_date<b.from)continue;
       const id=String(e.iiko_employee_id),roleCode=String(e.role_code||''),full=[e.last_name,e.first_name,e.middle_name].filter(Boolean).join(' ')||e.display_name||e.employee_code||id;
       const individualRaw=activeTerm(employeeTerms,'iiko_employee_id',id,b.to),roleRaw=activeTerm(roleTerms,'role_code',roleCode,b.to),termRaw=individualRaw||roleRaw,sourceType=individualRaw?'EMPLOYEE':(roleRaw?'ROLE':'');
       const term=individualRaw?termDto(individualRaw,'employeeId'):(roleRaw?termDto(roleRaw,'roleCode'):null),calculation=term?calculateCompensation({officialGross:term.officialGross,additionalAmount:term.additionalAmount,additionalTaxTreatment:term.additionalTaxTreatment,calculationDate:b.to}):null;
@@ -87,6 +90,6 @@ export async function onRequestGet({request,env}){
     }
     const configured=rows.filter(r=>r.calculation),sum=k=>round2(configured.reduce((a,r)=>a+Number(r.calculation?.[k]||0),0));
     const totals={officialGross:round2(configured.reduce((a,r)=>a+Number(r.calculation?.official?.gross||0),0)),officialNet:round2(configured.reduce((a,r)=>a+Number(r.calculation?.official?.net||0),0)),additional:round2(configured.reduce((a,r)=>a+Number(r.term?.additionalAmount||0),0)),employeeReceives:sum('totalEmployeeReceives'),employerCost:sum('totalEmployerCost')};
-    return json({success:true,engine:'MONTHLY_PAYROLL_PREVIEW_V1',month,period:{from:b.from,to:b.to},currency:'AZN',ruleProfile:AZ_PAYROLL_RULE_PROFILE,calendar:{year:2026,workDays:norm.days,normHours:norm.hours,source:'ƏƏSMN 2026 istehsalat təqvimi'},summary:{employees:rows.length,configured:configured.length,ready:rows.filter(r=>r.status==='READY').length,review:rows.filter(r=>r.status==='REVIEW').length,withoutTerms:rows.filter(r=>r.status==='NO_TERMS').length,normMinutes:rows.length*norm.hours*60,actualMinutes:rows.reduce((a,r)=>a+r.actualMinutes,0)},totals,rows,notes:['Черновой Payroll: отклонение Face ID само по себе не уменьшает оклад.','Отпуска, больничные, ночные, праздничные и сверхурочные будут отдельными подтверждёнными начислениями/удержаниями.','Для сменных графиков план берётся из основного графика должности; индивидуальные назначения смен A/B будут добавлены отдельным слоем.']});
+    return json({success:true,engine:'MONTHLY_PAYROLL_PREVIEW_V1',month,period:{from:b.from,to:b.to},currency:'AZN',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,ruleProfile:AZ_PAYROLL_RULE_PROFILE,calendar:{year:2026,workDays:norm.days,normHours:norm.hours,source:'ƏƏSMN 2026 istehsalat təqvimi'},summary:{employees:rows.length,configured:configured.length,ready:rows.filter(r=>r.status==='READY').length,review:rows.filter(r=>r.status==='REVIEW').length,withoutTerms:rows.filter(r=>r.status==='NO_TERMS').length,normMinutes:rows.length*norm.hours*60,actualMinutes:rows.reduce((a,r)=>a+r.actualMinutes,0)},totals,rows,notes:['Черновой Payroll: отклонение Face ID само по себе не уменьшает оклад.','Отпуска, больничные, ночные, праздничные и сверхурочные будут отдельными подтверждёнными начислениями/удержаниями.','Для сменных графиков план берётся из основного графика должности; индивидуальные назначения смен A/B будут добавлены отдельным слоем.']});
   }catch(e){console.error('[HR-PAYROLL-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
 }

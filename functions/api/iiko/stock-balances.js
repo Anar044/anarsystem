@@ -199,23 +199,28 @@ export async function onRequestPost({request}){
     const timestamp=buildTimestamp(b.date,b.time);
     const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(key).filter(Boolean))]:[];
     const selectedStore=key(b.storeId);
-
+    const allowedDepartmentIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(key).filter(Boolean):[];
+    const subsetRequested=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedDepartmentIds.length>departmentIds.length;
+    // balance/stores natively supports repeatable department filters.
+    // Let SH Server apply restaurant scope directly instead of inferring
+    // department -> warehouse ownership from the corporation tree.
     const q=new URLSearchParams({timestamp});
     if(selectedStore)q.set("store",selectedStore);
     for(const id of departmentIds)q.append("department",id);
 
-    const results=await Promise.all([
-      iikoJson(connection,"/resto/api/v2/reports/balance/stores?"+q.toString(),{timeoutMs:60000}),
-      loadMetadata(connection)
-    ]);
-    const balanceResult=results[0],meta=results[1];
+    // Ask for the scoped balance first. On CHAIN this endpoint can be
+    // considerably heavier than RMS; do not also download the full catalog
+    // when the balance request itself has already failed.
+    const balanceResult=await iikoJson(connection,"/resto/api/v2/reports/balance/stores?"+q.toString(),{timeoutMs:25000});
 
     if(!balanceResult.ok||!balanceResult.payload){
       const suffix=balanceResult.text?" — "+balanceResult.text.slice(0,500):"";
-      throw new Error("Остатки iiko: HTTP "+balanceResult.status+suffix);
+      throw new Error("Остатки SH: HTTP "+balanceResult.status+suffix);
     }
 
     const balances=balanceList(balanceResult.payload);
+    const meta=await loadMetadata(connection);
+    const scopedStoreIds=new Set(balances.map(x=>key(x.storeId)).filter(Boolean));
     const productMap=new Map(meta.products.map(x=>[x.id,x]));
     const storeMap=new Map(meta.stores.map(x=>[x.id,x]));
     const rows=[];
@@ -280,7 +285,11 @@ export async function onRequestPost({request}){
         resolvedUnitCount:Number(meta.unitCount||0),
         storeReferenceStatus:Number(meta.storeReferenceStatus||0),
         unitReferenceStatus:Number(meta.unitReferenceStatus||0),
-        authCacheHit:balanceResult.auth?.cacheHit===true
+        authCacheHit:balanceResult.auth?.cacheHit===true,
+        subsetRequested,
+        departmentScopeApplied:subsetRequested,
+        scopedStoreIds:[...scopedStoreIds],
+        scopeSource:"balance/stores department filter"
       }
     });
   }catch(e){

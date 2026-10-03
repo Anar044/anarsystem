@@ -5,6 +5,7 @@ import {
   hasPrivateConnection,
   isServerPasswordMarker
 } from "./_lib/user-state.js";
+import { resolveRestaurantScope, applyDepartmentScopeToBody } from "./_lib/restaurant-scope.js";
 
 const REPORTS_DEPARTMENTS_COOKIE = "sh_reports_departments";
 const OLAP_DEFAULT_FILTERS = {
@@ -84,7 +85,9 @@ function applyOlapPolicy(body, state, request) {
   const allowed = allowedDepartmentIds(state);
   const requested = requestedDepartmentIds(request);
   const selected = requested.filter(id => allowed.includes(id));
-  const scope = selected.length ? selected : allowed;
+  const effective = selected.length ? selected : allowed;
+  const fullSelection = allowed.length>0 && effective.length===allowed.length && effective.every(id=>allowed.includes(id));
+  const scope = fullSelection ? [] : effective;
 
   if (Array.isArray(next.filters)) {
     let filters = next.filters.map(item => ({ ...item }));
@@ -177,7 +180,38 @@ export async function onRequest(context) {
     }
   }
 
-  let rewrittenBody = applyOlapPolicy(body, storedState, request);
+  let rewrittenBody = body;
+
+  if (storedState) {
+    try {
+      const scope=resolveRestaurantScope({state:storedState,request,strict:true});
+      const bodyIds=Array.isArray(body?.departmentIds)?[...new Set(body.departmentIds.map(String).filter(Boolean))]:[];
+      if(bodyIds.length){
+        const selected=new Set(scope.selectedDepartmentIds||[]);
+        const outsideSelection=bodyIds.filter(id=>!selected.has(id));
+        if(outsideSelection.length){
+          const error=new Error("Запрос содержит ресторан вне текущего выбора Smart Horeca.");
+          error.status=403;
+          error.code="CHAIN_SCOPE_SELECTION_FORBIDDEN";
+          error.invalidDepartmentIds=outsideSelection;
+          throw error;
+        }
+      }
+      rewrittenBody=applyDepartmentScopeToBody(rewrittenBody,scope);
+    } catch (error) {
+      return new Response(JSON.stringify({
+        success:false,
+        code:error?.code||"CHAIN_SCOPE_ERROR",
+        message:error?.message||"Ошибка области ресторанов",
+        invalidDepartmentIds:error?.invalidDepartmentIds||[]
+      }),{
+        status:Number(error?.status)||403,
+        headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"}
+      });
+    }
+  }
+
+  rewrittenBody = applyOlapPolicy(rewrittenBody, storedState, request);
 
   // Settings discovery may intentionally use a brand-new unsaved connection.
   // If a real password is supplied, preserve it. For saved connections the

@@ -125,7 +125,7 @@
     loadingRefs = (async function () {
       var c = await getConn();
       setEditorStatus('Загружаем поставщиков, склады и номенклатуру из iiko…', 'loading');
-      var response = await fetch('/api/iiko/invoice-reference-data', {
+      var response = await boundedFetch('/api/iiko/invoice-reference-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ connection: c }),
@@ -274,7 +274,7 @@
       };
 
       setEditorStatus(processAfterSave ? 'Сохраняем и проводим накладную в iiko BackOffice…' : 'Сохраняем накладную в iiko BackOffice…', 'loading');
-      var response = await fetch('/api/iiko/document-action', {
+      var response = await boundedFetch('/api/iiko/document-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ connection: c, type: 'incoming', action: processAfterSave ? 'save-and-process' : 'save', document: documentData }),
@@ -300,7 +300,7 @@
 
   async function loadDocumentByNumber(number) {
     var c = await getConn();
-    var response = await fetch('/api/iiko/document-by-number', {
+    var response = await boundedFetch('/api/iiko/document-by-number', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ connection: c, type: 'incoming', number: number, currentYear: false, from: '2000-01-01', to: today() }),
@@ -347,7 +347,7 @@
       if (!number) throw new Error('Не найден номер документа.');
       if (!confirm('Провести накладную №' + number + '?')) return;
       var loaded = await loadDocumentByNumber(number);
-      var response = await fetch('/api/iiko/document-action', {
+      var response = await boundedFetch('/api/iiko/document-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'process', document: loaded.document }),
@@ -367,7 +367,7 @@
       if (!number) throw new Error('Не найден номер документа.');
       if (!confirm('Распровести накладную №' + number + '?')) return;
       var loaded = await loadDocumentByNumber(number);
-      var response = await fetch('/api/iiko/document-action', {
+      var response = await boundedFetch('/api/iiko/document-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'unprocess', document: loaded.document }),
@@ -459,9 +459,14 @@
     refreshDetailActions();
   });
 
+  var observerFrame = 0;
   var observer = new MutationObserver(function () {
-    bindNewButton();
-    bindDetailActions();
+    if (observerFrame) return;
+    observerFrame = requestAnimationFrame(function () {
+      observerFrame = 0;
+      bindNewButton();
+      bindDetailActions();
+    });
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
 })();

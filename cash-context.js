@@ -11,7 +11,7 @@
   };
 
   async function jsonFetch(path, init = {}) {
-    const response = await fetch(path, { cache: 'no-store', ...init });
+    const response = await (window.SH_IikoContext?.fetchWithTimeout||fetch)(path, { cache: 'no-store', ...init }, 30000);
     const text = await response.text();
     let data;
     try { data = JSON.parse(text); }

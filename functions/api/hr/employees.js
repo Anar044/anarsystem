@@ -1,5 +1,7 @@
 import { iikoText } from '../iiko/_lib/iiko-client.js';
 import { loadRequestIikoState, privateConnection, hasPrivateConnection } from '../iiko/_lib/user-state.js';
+import { resolveRestaurantScope } from '../iiko/_lib/restaurant-scope.js';
+import { filterEmployeesByScope, isHrSubsetScope } from './_lib/restaurant-scope.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -71,10 +73,49 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);if(!state.found||!hasPrivateConnection(state.state))return json({success:false,message:'Сначала подключите SH Server в настройках.'},409);
-    const connection=privateConnection(state.state);const [employeesResult,rolesResult]=await Promise.all([iikoText(connection,'/resto/api/employees?includeDeleted=true'),iikoText(connection,'/resto/api/employees/roles?revisionFrom=-1')]);
-    if(!employeesResult.ok)throw new Error(`SH Employees HTTP ${employeesResult.status}: ${employeesResult.text.slice(0,500)}`);if(!rolesResult.ok)throw new Error(`SH Roles HTTP ${rolesResult.status}: ${rolesResult.text.slice(0,500)}`);
-    const employees=parseEmployees(employeesResult.text),roles=parseRoles(rolesResult.text),roleMap=new Map(roles.map(r=>[r.code,r]));const synced=await syncEmployees(env.DB,state.user.id,employees,roleMap);
-    const items=synced.rows.map(r=>({id:r.iiko_employee_id,code:r.employee_code,firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,name:r.display_name,roleCode:r.role_code,roleName:r.role_name,departmentCode:r.department_code,hireDate:r.hire_date,fireDate:r.fire_date,deleted:Boolean(r.is_deleted),attendanceProvider:r.attendance_provider||'',attendanceExternalId:r.attendance_external_id||''}));
-    return json({success:true,source:'SH_EMPLOYEE_DIRECTORY',attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',syncedAt:synced.syncedAt,items,roles:roles.filter(r=>!r.deleted),counts:{total:items.length,active:items.filter(x=>!x.deleted&&!x.fireDate).length,linkedToAttendance:items.filter(x=>x.attendanceExternalId).length}});
+    const connection=privateConnection(state.state);
+    const scope=resolveRestaurantScope({state:state.state,request,strict:true});
+    const subset=isHrSubsetScope(scope);
+    const departmentCodes=[...new Set((scope.selectedDepartmentCodes||[]).map(clean).filter(Boolean))];
+    if(subset&&!departmentCodes.length){
+      return json({
+        success:false,
+        code:'HR_DEPARTMENT_CODE_UNAVAILABLE',
+        message:'SH Chain не вернул код выбранного подразделения. Сотрудники не показаны, чтобы не смешивать персонал ресторанов.',
+        restaurantScope:{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:[]}
+      },409);
+    }
+    const rolesResult=await iikoText(connection,'/resto/api/employees/roles?revisionFrom=-1');
+    if(!rolesResult.ok)throw new Error(`SH Roles HTTP ${rolesResult.status}: ${rolesResult.text.slice(0,500)}`);
+    let employees=[],employeeSource='all';
+    if(subset&&departmentCodes.length){
+      const results=await Promise.all(departmentCodes.map(async code=>({code,result:await iikoText(connection,`/resto/api/employees/byDepartment/${encodeURIComponent(code)}`)})));
+      const failed=results.filter(x=>!x.result.ok);
+      if(failed.length===results.length)throw new Error(`SH Employees byDepartment: HTTP ${failed[0]?.result?.status||'—'} ${String(failed[0]?.result?.text||'').slice(0,500)}`);
+      const byId=new Map();
+      for(const entry of results)if(entry.result.ok)for(const e of parseEmployees(entry.result.text)){
+        const old=byId.get(e.id);
+        if(old){
+          if(!old.departmentCodes.includes(entry.code))old.departmentCodes.push(entry.code);
+          if(!old.preferredDepartmentCode)old.preferredDepartmentCode=entry.code;
+        }else{
+          if(!e.departmentCodes.includes(entry.code))e.departmentCodes.push(entry.code);
+          if(!e.preferredDepartmentCode)e.preferredDepartmentCode=entry.code;
+          byId.set(e.id,e);
+        }
+      }
+      employees=[...byId.values()];
+      employeeSource='byDepartment';
+    }else{
+      const employeesResult=await iikoText(connection,'/resto/api/employees?includeDeleted=true');
+      if(!employeesResult.ok)throw new Error(`SH Employees HTTP ${employeesResult.status}: ${employeesResult.text.slice(0,500)}`);
+      employees=parseEmployees(employeesResult.text);
+    }
+    const roles=parseRoles(rolesResult.text),roleMap=new Map(roles.map(r=>[r.code,r]));
+    const synced=await syncEmployees(env.DB,state.user.id,employees,roleMap);
+    const allItems=synced.rows.map(r=>({id:r.iiko_employee_id,code:r.employee_code,firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,name:r.display_name,roleCode:r.role_code,roleName:r.role_name,departmentCode:r.department_code,hireDate:r.hire_date,fireDate:r.fire_date,deleted:Boolean(r.is_deleted),attendanceProvider:r.attendance_provider||'',attendanceExternalId:r.attendance_external_id||''}));
+    const scopedIds=new Set(employees.map(x=>String(x.id)));
+    const items=subset&&employeeSource==='byDepartment'?allItems.filter(x=>scopedIds.has(String(x.id))):filterEmployeesByScope(allItems,scope);
+    return json({success:true,source:'SH_EMPLOYEE_DIRECTORY',employeeSource,attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',syncedAt:synced.syncedAt,items,roles:roles.filter(r=>!r.deleted),counts:{total:items.length,active:items.filter(x=>!x.deleted&&!x.fireDate).length,linkedToAttendance:items.filter(x=>x.attendanceExternalId).length},restaurantScope:{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes,applied:subset}});
   }catch(error){console.error('[HR-EMPLOYEES]',error);return json({success:false,message:error?.message||String(error)},500)}
 }

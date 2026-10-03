@@ -1,12 +1,25 @@
 (()=>{
 'use strict';
-const $=id=>document.getElementById(id);
+const $=id=>document.getElementById(id);function boundedFetch(url,opt={},timeoutMs=120000){return (window.SH_IikoContext?.fetchWithTimeout||fetch)(url,opt,timeoutMs)}
 let conversations=[],currentId='',busy=false,currentMessages=[];
 let mediaRecorder=null,mediaStream=null,audioChunks=[],recordStarted=0,recordTicker=null,recordStopTimer=null,currentAudio=null,currentAudioUrl='';
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 async function token(){const c=await window.SHAuth?.createClient?.();if(!c)throw Error('Supabase Auth не готов');const r=await c.auth.getSession();const t=r.data?.session?.access_token;if(r.error||!t)throw Error('Сессия пользователя не найдена');return t}
-async function get(q){const t=await token(),r=await fetch('/api/ai-assistant'+q,{headers:{Authorization:'Bearer '+t},cache:'no-store'}),j=await r.json().catch(()=>({}));if(!r.ok||!j.success)throw Error(j.message||('HTTP '+r.status));return j}
-async function post(body){const t=await token(),r=await fetch('/api/ai-assistant',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+t},body:JSON.stringify(body)}),j=await r.json().catch(()=>({}));if(!r.ok||!j.success){const e=Error(j.message||('HTTP '+r.status));e.code=j.code||'';throw e}return j}
+async function get(q){const t=await token(),r=await boundedFetch('/api/ai-assistant'+q,{headers:{Authorization:'Bearer '+t},cache:'no-store'},60000),j=await r.json().catch(()=>({}));if(!r.ok||!j.success)throw Error(j.message||('HTTP '+r.status));return j}
+async function post(body){
+  const t=await token();
+  let payload={...body};
+  if(body?.action==='message'&&window.SH_IikoContext?.getBinding){
+    try{
+      const binding=await window.SH_IikoContext.getBinding();
+      payload.departmentIds=Array.isArray(binding?.departmentIds)?binding.departmentIds:[];
+    }catch(_){}
+  }
+  const r=await boundedFetch('/api/ai-assistant',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+t},body:JSON.stringify(payload)},120000);
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok||!j.success){const e=Error(j.message||('HTTP '+r.status));e.code=j.code||'';throw e}
+  return j
+}
 function fmt(v){try{return new Date(v).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}catch{return''}}
 
 
@@ -431,7 +444,7 @@ function updateRecordTimer(){
 async function transcribeVoice(blob,mimeType){
   const t=await token(),form=new FormData();
   form.set('audio',blob,'voice.'+voiceExtension(mimeType||blob.type||''));
-  const r=await fetch('/api/ai-assistant-transcribe',{method:'POST',headers:{Authorization:'Bearer '+t},body:form});
+  const r=await boundedFetch('/api/ai-assistant-transcribe',{method:'POST',headers:{Authorization:'Bearer '+t},body:form},90000);
   const j=await r.json().catch(()=>({}));
   if(!r.ok||!j.success)throw Error(j.message||('HTTP '+r.status));
   return j.text;
@@ -445,7 +458,7 @@ async function speakText(text,button=null){
   note('Озвучиваю ответ…');
   try{
     const t=await token();
-    const r=await fetch('/api/ai-assistant-speech',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+t},body:JSON.stringify({text:value})});
+    const r=await boundedFetch('/api/ai-assistant-speech',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+t},body:JSON.stringify({text:value})},60000);
     if(!r.ok){const j=await r.json().catch(()=>({}));throw Error(j.message||('HTTP '+r.status))}
     const blob=await r.blob();
     currentAudioUrl=URL.createObjectURL(blob);

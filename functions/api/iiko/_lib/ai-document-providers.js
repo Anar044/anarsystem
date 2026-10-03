@@ -41,15 +41,26 @@ const INVOICE_SCHEMA = {
 };
 
 const PROMPT = `Ты извлекаешь данные из документов закупки ресторана.
-Определи тип документа и, если это приходная накладная/счёт поставщика, извлеки шапку и все товарные строки.
+Определи тип документа и, если это приходная накладная/счёт поставщика, извлеки шапку и ВСЕ товарные строки таблицы.
+
 Правила:
 - ничего не придумывай;
 - неизвестные значения возвращай null;
 - даты по возможности YYYY-MM-DD;
 - числа возвращай числами без валютных символов;
 - sourceName сохраняй максимально близко к названию в документе;
-- confidence от 0 до 1;
+- article — код/артикул строки, если он указан;
+- quantity — количество товара в строке;
+- unit — единица измерения;
+- unitPrice — цена ЗА ОДНУ ЕДИНИЦУ;
+- total — ИТОГОВАЯ СУММА КОНКРЕТНОЙ СТРОКИ;
+- обязательно различай количество, цену за единицу и сумму строки;
+- для азербайджанских документов: "Miqdar" обычно означает количество, "Qiymət, man" — цену/сумму в манатах, "Cəmi" — итог;
+- если рядом есть две денежные колонки, используй арифметику quantity × unitPrice = total, чтобы понять, какая из них цена, а какая сумма строки;
+- десятичную запятую интерпретируй как десятичную точку: 12,00 = 12.00;
 - не объединяй разные товарные строки;
+- проверь, что сумма строк по возможности совпадает с итогом документа;
+- confidence от 0 до 1;
 - если документ не является закупочным документом, documentType всё равно укажи, items оставь пустым.`;
 
 function bytesToBase64(bytes) {
@@ -59,6 +70,21 @@ function bytesToBase64(bytes) {
     binary += String.fromCharCode(...bytes.subarray(i, Math.min(bytes.length, i + chunk)));
   }
   return btoa(binary);
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`AI-провайдер не ответил за ${Math.ceil(timeoutMs / 1000)} секунд.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function extractOutputText(payload) {
@@ -95,7 +121,7 @@ async function openAiProvider(env, file) {
     ? { type: "input_image", image_url: `data:${contentType};base64,${base64}`, detail: "high" }
     : { type: "input_file", filename: file.name || "document.pdf", file_data: `data:${contentType};base64,${base64}` };
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetchWithTimeout("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${key}`,
@@ -113,7 +139,7 @@ async function openAiProvider(env, file) {
         }
       }
     })
-  });
+  }, 90000);
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
@@ -130,7 +156,7 @@ async function openAiProvider(env, file) {
   };
 }
 
-async function localProvider(env, file) {
+async function localProvider(env, file, timeoutMs = 105000) {
   const url = clean(env.LOCAL_DOCUMENT_AI_URL);
   if (!url) throw new Error("LOCAL_DOCUMENT_AI_URL не настроен.");
   const form = new FormData();
@@ -141,7 +167,7 @@ async function localProvider(env, file) {
   const token = clean(env.LOCAL_DOCUMENT_AI_TOKEN);
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(url, { method: "POST", headers, body: form });
+  const response = await fetchWithTimeout(url, { method: "POST", headers, body: form }, timeoutMs);
   const payload = await response.json().catch(() => null);
   if (!response.ok) throw new Error(payload?.message || payload?.error || `Local AI HTTP ${response.status}`);
   const data = payload?.data || payload?.document || payload;
@@ -173,14 +199,25 @@ export async function processPurchaseDocument(env, file, requestedProvider = "AU
   const status = aiProviderStatus(env);
 
   if (provider === "OPENAI") return openAiProvider(env, file);
-  if (provider === "LOCAL") return localProvider(env, file);
+  if (provider === "LOCAL") return localProvider(env, file, 105000);
   if (provider !== "AUTO") throw new Error("Неизвестный AI-провайдер.");
 
-  if (status.local.configured) {
-    try { return await localProvider(env, file); } catch (localError) {
-      if (!status.openai.configured) throw localError;
+  // Local OCR may take several minutes on a cold CPU. A synchronous Pages
+  // request cannot reliably stay open that long, so AUTO prefers OpenAI when
+  // it is configured. Local AI remains available explicitly and as a bounded fallback.
+  if (status.openai.configured) {
+    try {
+      return await openAiProvider(env, file);
+    } catch (openAiError) {
+      if (!status.local.configured) throw openAiError;
+      try {
+        return await localProvider(env, file, 45000);
+      } catch (localError) {
+        throw new Error(`OpenAI: ${openAiError?.message || openAiError}; Local AI: ${localError?.message || localError}`);
+      }
     }
   }
-  if (status.openai.configured) return openAiProvider(env, file);
+
+  if (status.local.configured) return localProvider(env, file, 105000);
   throw new Error("AI-провайдер не настроен. Настройте Local AI или OPENAI_API_KEY.");
 }

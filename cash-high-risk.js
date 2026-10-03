@@ -220,8 +220,13 @@
     installStyle();
     ensureModal();
     addButtons();
-    const observer = new MutationObserver(addButtons);
-    observer.observe(document.body, { childList: true, subtree: true });
+    let scheduled=false;
+    const observer=new MutationObserver(()=>{
+      if(scheduled)return;
+      scheduled=true;
+      requestAnimationFrame(()=>{scheduled=false;addButtons()});
+    });
+    observer.observe(document.body,{childList:true,subtree:true});
     document.addEventListener('keydown', event => { if (event.key === 'Escape') closeModal(); });
   }
 

@@ -1,5 +1,6 @@
 import { getOlapFields, iikoJson } from '../iiko/_lib/iiko-client.js';
 import { loadRequestIikoState, privateConnection, hasPrivateConnection } from '../iiko/_lib/user-state.js';
+import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -32,9 +33,9 @@ async function ensure(db){
   )`).run();
 }
 
-async function employees(db,userId){
-  const r=await db.prepare(`SELECT iiko_employee_id,employee_code,display_name,first_name,middle_name,last_name,role_name,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>''`).bind(userId).all();
-  return(r.results||[]).filter(e=>!Number(e.is_deleted)).map(e=>{
+async function employees(db,userId,scope=null){
+  const r=await db.prepare(`SELECT iiko_employee_id,employee_code,display_name,first_name,middle_name,last_name,role_name,department_code,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>''`).bind(userId).all();
+  return filterEmployeesByScope(r.results||[],scope).filter(e=>!Number(e.is_deleted)).map(e=>{
     const id=String(e.iiko_employee_id),name=[e.last_name,e.first_name,e.middle_name].filter(Boolean).join(' ')||e.display_name||e.employee_code||id;
     return{id,idKey:id.toLowerCase(),code:e.employee_code||'',name,displayName:e.display_name||'',roleName:e.role_name||''};
   });
@@ -98,7 +99,8 @@ function sideMatches(row,fields,accounts){
 async function sync(request,env,userId,month){
   const state=await loadRequestIikoState(request,env);if(!state?.user||String(state.user.id)!==String(userId))throw new Error('Требуется авторизация');
   if(!state.found||!hasPrivateConnection(state.state))throw new Error('Сначала подключите SH Server в настройках.');
-  const connection=privateConnection(state.state),bounds=monthBounds(month),list=await employees(env.DB,userId),employeeIds=new Set(list.map(e=>e.idKey)),nameMap=employeeNameMap(list);
+  const scope=await resolveHrRestaurantScope(request,env,userId);
+  const connection=privateConnection(state.state),bounds=monthBounds(month),list=await employees(env.DB,userId,scope),employeeIds=new Set(list.map(e=>e.idKey)),nameMap=employeeNameMap(list);
   const accounts=await accountCandidates(connection),fields=await transactionFields(connection),tx=await transactionRows(connection,fields,bounds);
   const spent=new Map(),repaid=new Map(),beforeCharges=new Map(),beforeRepayments=new Map(),currentTypes=new Map(),historyTypes=new Map(),unmatched=[],matchedRows=[];
   let matchedHistoryTransactions=0,matchedCurrentTransactions=0;
@@ -129,14 +131,14 @@ async function sync(request,env,userId,month){
     statements.push(env.DB.prepare(`INSERT INTO hr_employee_meal_monthly(user_id,iiko_employee_id,month,opening_debt,closing_debt,month_net_increase,source,synced_at,details_json) VALUES(?1,?2,?3,?4,?5,?6,'IIKO_MEAL_TRANSACTIONS',?7,?8) ON CONFLICT(user_id,iiko_employee_id,month) DO UPDATE SET opening_debt=excluded.opening_debt,closing_debt=excluded.closing_debt,month_net_increase=excluded.month_net_increase,source=excluded.source,synced_at=excluded.synced_at,details_json=excluded.details_json`).bind(userId,e.id,month,opening,closing,used,t,JSON.stringify(details)));
   }
   for(let i=0;i<statements.length;i+=50)await env.DB.batch(statements.slice(i,i+50));
-  return{matchedTransactions:matchedCurrentTransactions,matchedHistoryTransactions,totalTransactionRows:tx.rows.length,transactionTypes:Object.fromEntries(currentTypes),historyTransactionTypes:Object.fromEntries(historyTypes),unmatched,matchedSample:matchedRows,mealAccounts:accounts.matched,fields,historyFrom:bounds.yearStart,balanceEndpointUsed:false,request:tx.request};
+  return{matchedTransactions:matchedCurrentTransactions,matchedHistoryTransactions,totalTransactionRows:tx.rows.length,transactionTypes:Object.fromEntries(currentTypes),historyTransactionTypes:Object.fromEntries(historyTypes),unmatched,matchedSample:matchedRows,mealAccounts:accounts.matched,fields,historyFrom:bounds.yearStart,balanceEndpointUsed:false,request:tx.request,restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null};
 }
 
-async function records(db,userId,month){
-  const r=await db.prepare(`SELECT iiko_employee_id,opening_debt,closing_debt,month_net_increase,source,synced_at,details_json FROM hr_employee_meal_monthly WHERE user_id=?1 AND month=?2`).bind(userId,month).all();
-  return(r.results||[]).map(x=>{let d={};try{d=JSON.parse(x.details_json||'{}')}catch(_){d={}}return{employeeId:x.iiko_employee_id,openingDebt:money(x.opening_debt),closingDebt:money(x.closing_debt),spent:money(d.spent??x.month_net_increase),repaid:money(d.repaid??Math.max(0,Number(x.opening_debt||0)+Number(x.month_net_increase||0)-Number(x.closing_debt||0))),source:x.source||'',syncedAt:x.synced_at||'',details:d}})
+async function records(db,userId,month,scope=null){
+  const r=await db.prepare(`SELECT m.iiko_employee_id,m.opening_debt,m.closing_debt,m.month_net_increase,m.source,m.synced_at,m.details_json,e.department_code FROM hr_employee_meal_monthly m LEFT JOIN hr_employees e ON e.user_id=m.user_id AND e.iiko_employee_id=m.iiko_employee_id WHERE m.user_id=?1 AND m.month=?2`).bind(userId,month).all();
+  return filterEmployeesByScope(r.results||[],scope).map(x=>{let d={};try{d=JSON.parse(x.details_json||'{}')}catch(_){d={}}return{employeeId:x.iiko_employee_id,openingDebt:money(x.opening_debt),closingDebt:money(x.closing_debt),spent:money(d.spent??x.month_net_increase),repaid:money(d.repaid??Math.max(0,Number(x.opening_debt||0)+Number(x.month_net_increase||0)-Number(x.closing_debt||0))),source:x.source||'',syncedAt:x.synced_at||'',details:d}})
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
-export async function onRequestGet({request,env}){try{const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);const url=new URL(request.url),month=monthOnly(url.searchParams.get('month'));if(!month)return json({success:false,message:'Укажите месяц YYYY-MM'},400);return json({success:true,month,records:await records(env.DB,state.user.id,month)})}catch(e){console.error('[HR-MEAL-TX-GET]',e);return json({success:false,message:e?.message||String(e)},500)}}
-export async function onRequestPost({request,env}){try{const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);const b=await request.json().catch(()=>({})),month=monthOnly(b.month),action=clean(b.action);if(!month)return json({success:false,message:'Укажите месяц YYYY-MM'},400);if(action!=='sync')return json({success:false,message:'Неизвестное действие'},400);const diagnostics=await sync(request,env,state.user.id,month);return json({success:true,month,records:await records(env.DB,state.user.id,month),diagnostics})}catch(e){console.error('[HR-MEAL-TX-POST]',e);return json({success:false,message:e?.message||String(e)},500)}}
+export async function onRequestGet({request,env}){try{const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);const url=new URL(request.url),month=monthOnly(url.searchParams.get('month'));if(!month)return json({success:false,message:'Укажите месяц YYYY-MM'},400);const scope=await resolveHrRestaurantScope(request,env,state.user.id);return json({success:true,month,records:await records(env.DB,state.user.id,month,scope),restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null})}catch(e){console.error('[HR-MEAL-TX-GET]',e);return json({success:false,message:e?.message||String(e)},500)}}
+export async function onRequestPost({request,env}){try{const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);const b=await request.json().catch(()=>({})),month=monthOnly(b.month),action=clean(b.action);if(!month)return json({success:false,message:'Укажите месяц YYYY-MM'},400);if(action!=='sync')return json({success:false,message:'Неизвестное действие'},400);const diagnostics=await sync(request,env,state.user.id,month);const scope=await resolveHrRestaurantScope(request,env,state.user.id);return json({success:true,month,records:await records(env.DB,state.user.id,month,scope),diagnostics,restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null})}catch(e){console.error('[HR-MEAL-TX-POST]',e);return json({success:false,message:e?.message||String(e)},500)}}

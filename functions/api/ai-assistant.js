@@ -4,6 +4,7 @@ import {
   privateConnection,
   hasPrivateConnection
 } from "./iiko/_lib/user-state.js";
+import { resolveRestaurantScope } from "./iiko/_lib/restaurant-scope.js";
 import {
   assistantToolDefinitions,
   executeAssistantTool
@@ -175,6 +176,7 @@ async function ensureTables(db) {
     db.prepare(`CREATE TABLE IF NOT EXISTS ai_assistant_conversations (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      scope_key TEXT NOT NULL DEFAULT '',
       title TEXT NOT NULL DEFAULT 'Новый чат',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -193,19 +195,27 @@ async function ensureTables(db) {
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_assistant_messages_conversation
       ON ai_assistant_messages(conversation_id, created_at ASC)`)
   ]);
+  try{await db.prepare("ALTER TABLE ai_assistant_conversations ADD COLUMN scope_key TEXT NOT NULL DEFAULT ''").run()}catch(_){}
+  try{await db.prepare("CREATE INDEX IF NOT EXISTS idx_ai_assistant_conversations_user_scope ON ai_assistant_conversations(user_id, scope_key, updated_at DESC)").run()}catch(_){}
 }
-async function conversationById(db, userId, conversationId) {
+function conversationScopeKey(iiko){
+  const scope=iiko?.scope;
+  if(!scope?.isChain)return "";
+  const ids=[...new Set((scope.selectedDepartmentIds||[]).map(String).filter(Boolean))].sort();
+  return `CHAIN:${ids.join(",")}`;
+}
+async function conversationById(db, userId, conversationId, scopeKey="") {
   return db.prepare(`SELECT id,title,created_at,updated_at
     FROM ai_assistant_conversations
-    WHERE id=?1 AND user_id=?2 LIMIT 1`)
-    .bind(conversationId, userId).first();
+    WHERE id=?1 AND user_id=?2 AND scope_key=?3 LIMIT 1`)
+    .bind(conversationId, userId, scopeKey).first();
 }
-async function createConversation(db, userId, title = "Новый чат") {
+async function createConversation(db, userId, scopeKey="", title = "Новый чат") {
   const conversationId = id();
   const now = nowIso();
-  await db.prepare(`INSERT INTO ai_assistant_conversations(id,user_id,title,created_at,updated_at)
-    VALUES(?1,?2,?3,?4,?4)`)
-    .bind(conversationId, userId, clean(title).slice(0, 100) || "Новый чат", now).run();
+  await db.prepare(`INSERT INTO ai_assistant_conversations(id,user_id,scope_key,title,created_at,updated_at)
+    VALUES(?1,?2,?3,?4,?5,?5)`)
+    .bind(conversationId, userId, scopeKey, clean(title).slice(0, 100) || "Новый чат", now).run();
   return { id: conversationId, title: clean(title).slice(0, 100) || "Новый чат", created_at: now, updated_at: now };
 }
 async function touchConversation(db, userId, conversationId, title) {
@@ -248,19 +258,31 @@ async function recentMessages(db, userId, conversationId, limit = MAX_HISTORY_ME
     createdAt: row.created_at
   }));
 }
-async function listConversations(db, userId) {
+async function listConversations(db, userId, scopeKey="") {
   const rows = await db.prepare(`SELECT id,title,created_at,updated_at
     FROM ai_assistant_conversations
-    WHERE user_id=?1 ORDER BY updated_at DESC LIMIT 30`)
-    .bind(userId).all();
+    WHERE user_id=?1 AND scope_key=?2 ORDER BY updated_at DESC LIMIT 30`)
+    .bind(userId,scopeKey).all();
   return rows.results || [];
 }
-async function resolveIiko(env, userId) {
+async function resolveIiko(env, userId, request=null, requestedIds=null) {
   const stored = await loadPrivateIikoState(env.DB, userId, env);
   if (!stored?.found || !hasPrivateConnection(stored.state)) {
-    return { connected: false, connection: null };
+    return { connected: false, connection: null, state:null, scope:null };
   }
-  return { connected: true, connection: privateConnection(stored.state) };
+  const scope=resolveRestaurantScope({state:stored.state,request,strict:true});
+  const bodyIds=[...new Set((Array.isArray(requestedIds)?requestedIds:[]).map(String).filter(Boolean))];
+  if(bodyIds.length){
+    const selected=new Set(scope.selectedDepartmentIds||[]);
+    const outside=bodyIds.filter(id=>!selected.has(id));
+    if(outside.length){
+      const error=new Error("AI запрос содержит ресторан вне текущего выбора Smart Horeca.");
+      error.status=403;
+      error.code="CHAIN_SCOPE_SELECTION_FORBIDDEN";
+      throw error;
+    }
+  }
+  return { connected: true, connection: privateConnection(stored.state), state:stored.state, scope };
 }
 function outputText(response) {
   if (clean(response?.output_text)) return clean(response.output_text);
@@ -357,7 +379,7 @@ function compactToolTrace(call, result) {
   if (result?.error) trace.error = String(result.error).slice(0, 300);
   return trace;
 }
-async function runAssistant(env, connection, history) {
+async function runAssistant(env, connection, history, scope=null) {
   const model = clean(env.OPENAI_ASSISTANT_MODEL) || DEFAULT_MODEL;
   const base = {
     model,
@@ -394,7 +416,7 @@ async function runAssistant(env, connection, history) {
         if (!connection && call.name !== "list_smart_horeca_capabilities") {
           result = { error: "iiko не подключён в SmartHoreca. Откройте Настройки и подключите iiko Server." };
         } else {
-          result = await executeAssistantTool(call.name, safeToolArgs(call.arguments), { env, connection });
+          result = await executeAssistantTool(call.name, safeToolArgs(call.arguments), { env, connection, scope });
         }
       } catch (error) {
         result = { error: String(error?.message || error).slice(0, 1200) };
@@ -460,12 +482,16 @@ export async function onRequestGet({ request, env }) {
       });
     }
     if (action === "conversations") {
-      return json({ success: true, conversations: await listConversations(env.DB, auth.user.id) });
+      const iiko=await resolveIiko(env,auth.user.id,request);
+      const scopeKey=conversationScopeKey(iiko);
+      return json({ success: true, conversations: await listConversations(env.DB, auth.user.id, scopeKey), restaurantScope:iiko.scope?{mode:iiko.scope.mode,selectedDepartmentIds:iiko.scope.selectedDepartmentIds}:null });
     }
     if (action === "messages") {
       const conversationId = clean(url.searchParams.get("conversationId"));
       if (!conversationId) return json({ success: false, message: "conversationId обязателен." }, 400);
-      const conversation = await conversationById(env.DB, auth.user.id, conversationId);
+      const iiko=await resolveIiko(env,auth.user.id,request);
+      const scopeKey=conversationScopeKey(iiko);
+      const conversation = await conversationById(env.DB, auth.user.id, conversationId, scopeKey);
       if (!conversation) return json({ success: false, message: "Чат не найден." }, 404);
       return json({
         success: true,
@@ -486,17 +512,21 @@ export async function onRequestPost({ request, env }) {
     await ensureTables(env.DB);
     const body = await request.json().catch(() => ({}));
     const action = clean(body.action || "message");
+    const iiko=await resolveIiko(env,auth.user.id,request,Array.isArray(body.departmentIds)?body.departmentIds:null);
+    const scopeKey=conversationScopeKey(iiko);
 
     if (action === "newConversation") {
-      const conversation = await createConversation(env.DB, auth.user.id, body.title || "Новый чат");
+      const conversation = await createConversation(env.DB, auth.user.id, scopeKey, body.title || "Новый чат");
       return json({ success: true, conversation });
     }
     if (action === "deleteConversation") {
       const conversationId = clean(body.conversationId);
       if (!conversationId) return json({ success: false, message: "conversationId обязателен." }, 400);
+      const conversation=await conversationById(env.DB,auth.user.id,conversationId,scopeKey);
+      if(!conversation)return json({success:false,message:"Чат не найден в выбранном ресторане."},404);
       await env.DB.batch([
         env.DB.prepare(`DELETE FROM ai_assistant_messages WHERE conversation_id=?1 AND user_id=?2`).bind(conversationId, auth.user.id),
-        env.DB.prepare(`DELETE FROM ai_assistant_conversations WHERE id=?1 AND user_id=?2`).bind(conversationId, auth.user.id)
+        env.DB.prepare(`DELETE FROM ai_assistant_conversations WHERE id=?1 AND user_id=?2 AND scope_key=?3`).bind(conversationId, auth.user.id,scopeKey)
       ]);
       return json({ success: true });
     }
@@ -512,9 +542,9 @@ export async function onRequestPost({ request, env }) {
     }, 503);
 
     let conversationId = clean(body.conversationId);
-    let conversation = conversationId ? await conversationById(env.DB, auth.user.id, conversationId) : null;
+    let conversation = conversationId ? await conversationById(env.DB, auth.user.id, conversationId, scopeKey) : null;
     if (!conversation) {
-      conversation = await createConversation(env.DB, auth.user.id, text.slice(0, 70));
+      conversation = await createConversation(env.DB, auth.user.id, scopeKey, text.slice(0, 70));
       conversationId = conversation.id;
     }
 
@@ -526,9 +556,8 @@ export async function onRequestPost({ request, env }) {
       await touchConversation(env.DB, auth.user.id, conversationId);
     }
 
-    const iiko = await resolveIiko(env, auth.user.id);
     const history = await recentMessages(env.DB, auth.user.id, conversationId, MAX_HISTORY_MESSAGES);
-    const answer = await runAssistant(env, iiko.connection, history);
+    const answer = await runAssistant(env, iiko.connection, history, iiko.scope);
     const meta = {
       model: answer.model,
       responseId: answer.responseId,
@@ -537,6 +566,11 @@ export async function onRequestPost({ request, env }) {
       kind: answer.kind,
       report: answer.report,
       chart: answer.chart,
+      restaurantScope: iiko.scope ? {
+        mode:iiko.scope.mode,
+        selectedDepartmentIds:iiko.scope.selectedDepartmentIds,
+        selectedRestaurants:iiko.scope.selectedRestaurants
+      } : null,
       readOnly: true
     };
     await saveMessage(env.DB, auth.user.id, conversationId, "assistant", answer.text, meta);

@@ -1,4 +1,5 @@
 import { clean, iikoText } from "./_lib/iiko-client.js";
+import { resolveStoreScope } from "./_lib/store-scope.js";
 
 function corsHeaders() {
   return {
@@ -234,6 +235,28 @@ export async function onRequestPost(context) {
     }
 
     let document = body.document || {};
+    const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(String).filter(Boolean):[];
+    const allowedIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
+    const subsetRequested=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+    if(subsetRequested){
+      const storeScope=await resolveStoreScope(connection,departmentIds);
+      if(!storeScope.resolved||!storeScope.storeIds.length){
+        return jsonResponse({success:false,code:"DOCUMENT_ACTION_SCOPE_UNAVAILABLE",message:"Не удалось определить склады выбранного подразделения. Операция отменена.",meta:{departmentIds,storeScope:storeScope?.diagnostics||null}},409);
+      }
+      const storeKey=v=>String(v??"").trim().replace(/^\{+|\}+$/g,"").toLowerCase();
+      const wanted=new Set(storeScope.storeIds.map(storeKey));
+      const documentStores=[
+        document.defaultStore,document.defaultStoreId,document.storeId,
+        ...(Array.isArray(document.items)?document.items.flatMap(item=>[item?.store,item?.storeId]):[])
+      ].map(storeKey).filter(Boolean);
+      if(!documentStores.length){
+        return jsonResponse({success:false,code:"DOCUMENT_STORE_REQUIRED_FOR_CHAIN",message:"Для CHAIN нужно определить склад документа перед выполнением операции."},409);
+      }
+      const outside=documentStores.filter(id=>!wanted.has(id));
+      if(outside.length){
+        return jsonResponse({success:false,code:"DOCUMENT_STORE_FORBIDDEN",message:"Документ относится к складу другого подразделения.",meta:{departmentIds,storeIds:storeScope.storeIds,documentStoreIds:documentStores}},403);
+      }
+    }
     if (type === "incoming") {
       document = normalizeIncomingDocument(document);
 

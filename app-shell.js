@@ -1,6 +1,20 @@
 (()=>{
   'use strict';
   const root=document.documentElement;
+  function syncChainScopeCookie(ids=null){
+    let values=Array.isArray(ids)?ids:null;
+    if(!values){
+      try{
+        const raw=localStorage.getItem('shIikoSelectedRestaurants');
+        const parsed=raw?JSON.parse(raw):null;
+        values=Array.isArray(parsed)?parsed:[];
+      }catch(_){values=[]}
+    }
+    values=[...new Set((values||[]).map(String).map(x=>x.trim()).filter(Boolean))];
+    try{document.cookie=`sh_selected_departments=${encodeURIComponent(values.join(','))}; Path=/; SameSite=Lax; Max-Age=${values.length?31536000:0}`}catch(_){}
+  }
+  syncChainScopeCookie();
+  window.addEventListener('sh:iiko-selection-changed',event=>syncChainScopeCookie(event?.detail?.departmentIds||[]));
   root.classList.add('hc-loading');
   root.style.background='#0b1017';
   root.style.visibility='hidden';
@@ -49,17 +63,56 @@
     if(/iiko/i.test(document.title))document.title=branded(document.title);
     replaceVisibleText(document.body);
     if(window.__shBrandObserver)return;
+
+    const pendingNodes=new Set();
+    let brandFrame=0;
+    const mayContainBrand=node=>{
+      if(!node)return false;
+      if(node.nodeType===Node.TEXT_NODE)return /iiko/i.test(node.nodeValue||'');
+      if(node.nodeType!==Node.ELEMENT_NODE||blocked.has(node.tagName))return false;
+      for(const name of ['title','placeholder','aria-label','data-tooltip']){
+        if(node.hasAttribute?.(name)&&/iiko/i.test(node.getAttribute(name)||''))return true;
+      }
+      return /iiko/i.test(node.textContent||'');
+    };
+    const queueBrand=node=>{
+      if(!mayContainBrand(node))return;
+      pendingNodes.add(node);
+      if(brandFrame)return;
+      brandFrame=requestAnimationFrame(()=>{
+        brandFrame=0;
+        const nodes=[...pendingNodes];
+        pendingNodes.clear();
+        const roots=nodes.filter(node=>!nodes.some(other=>other!==node&&other.nodeType===Node.ELEMENT_NODE&&other.contains?.(node)));
+        roots.forEach(replaceVisibleText);
+      });
+    };
     const observer=new MutationObserver(mutations=>{
       for(const mutation of mutations){
-        if(mutation.type==='characterData')replaceVisibleText(mutation.target);
-        else if(mutation.type==='attributes')replaceAttributes(mutation.target);
-        else mutation.addedNodes.forEach(replaceVisibleText);
+        if(mutation.type==='characterData')queueBrand(mutation.target);
+        else if(mutation.type==='attributes'){
+          if(mayContainBrand(mutation.target))replaceAttributes(mutation.target);
+        }else{
+          mutation.addedNodes.forEach(queueBrand);
+        }
       }
     });
     observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['title','placeholder','aria-label','data-tooltip']});
     window.__shBrandObserver=observer;
   }
   function reveal(){root.classList.remove('hc-loading');root.style.visibility='visible'}
-  function init(){ensureMasterStyles().then(()=>{installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();applySHBranding();reveal();const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');if(menu&&side)menu.onclick=()=>side.classList.toggle('open')})}
+  async function markNetworkSharedPage(){
+    const shared=new Set(["nomenclature.html","hr-calendar.html"]);
+    if(!shared.has(currentPage())||!window.SH_IikoContext?.getBinding)return;
+    try{
+      const b=await window.SH_IikoContext.getBinding();
+      const mode=String(b?.identity?.mode||b?.connection?.connectionType||"RMS").toUpperCase();
+      if(mode!=="CHAIN")return;
+      const sub=document.querySelector(".topbar-sub");
+      if(sub&&!sub.dataset.chainShared){sub.dataset.chainShared="1";sub.textContent=(sub.textContent?sub.textContent+" · ":"")+"Общий для всей сети CHAIN"}
+    }catch(_){}
+  }
+
+  function init(){ensureMasterStyles().then(()=>{installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();applySHBranding();markNetworkSharedPage();reveal();const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');if(menu&&side)menu.onclick=()=>side.classList.toggle('open')})}
   init();
 })();

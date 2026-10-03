@@ -1,4 +1,5 @@
 import { getUser } from '../iiko/_lib/user-state.js';
+import { resolveHrRestaurantScope, filterEmployeesByScope, hrScopeKeys, isHrSubsetScope } from './_lib/restaurant-scope.js';
 import { calculateCompensation, AZ_PAYROLL_RULE_PROFILE } from './_lib/az-payroll-rules.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
@@ -61,27 +62,33 @@ function roleTermDto(r){return{id:r.term_id,scopeType:'ROLE',roleCode:r.role_cod
 function activeTermMap(terms,key,asOf){const map=new Map();for(const t of terms){const k=String(t[key]||'');if(k&&t.effectiveFrom<=asOf&&(!t.effectiveTo||t.effectiveTo>=asOf)&&!map.has(k))map.set(k,t)}return map}
 function calculationFor(term,asOf){return term?calculateCompensation({officialGross:term.officialGross,additionalAmount:term.additionalAmount,additionalTaxTreatment:term.additionalTaxTreatment,calculationDate:asOf}):null}
 
-async function loadRoles(db,userId,employees){
-  const rows=await db.prepare(`SELECT role_code,role_name,is_deleted FROM hr_roles WHERE user_id=?1 ORDER BY is_deleted ASC,role_name COLLATE NOCASE`).bind(userId).all().catch(()=>({results:[]}));
+async function loadRoles(db,userId,employees,scope=null){
   const map=new Map();
-  for(const r of rows.results||[]){if(!Number(r.is_deleted)&&clean(r.role_code))map.set(String(r.role_code),String(r.role_name||r.role_code))}
+  if(!isHrSubsetScope(scope)){
+    const rows=await db.prepare(`SELECT role_code,role_name,is_deleted FROM hr_roles WHERE user_id=?1 ORDER BY is_deleted ASC,role_name COLLATE NOCASE`).bind(userId).all().catch(()=>({results:[]}));
+    for(const r of rows.results||[]){if(!Number(r.is_deleted)&&clean(r.role_code))map.set(String(r.role_code),String(r.role_name||r.role_code))}
+  }
   for(const e of employees){if(clean(e.role_code)&&!map.has(String(e.role_code)))map.set(String(e.role_code),String(e.role_name||e.role_code))}
   return [...map.entries()].map(([code,name])=>({code,name})).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
 }
 
-async function snapshot(db,userId,asOf){
+async function snapshot(db,userId,asOf,scope=null){
   const [employeesResult,employeeTermsResult,roleTermsResult]=await Promise.all([
     db.prepare(`SELECT iiko_employee_id,employee_code,display_name,first_name,middle_name,last_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY is_deleted ASC,last_name COLLATE NOCASE,first_name COLLATE NOCASE,display_name COLLATE NOCASE`).bind(userId).all().catch(()=>({results:[]})),
     db.prepare(`SELECT * FROM hr_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY iiko_employee_id,effective_from DESC`).bind(userId).all(),
     db.prepare(`SELECT * FROM hr_role_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY role_code,effective_from DESC`).bind(userId).all()
   ]);
 
-  const employeeRows=(employeesResult.results||[]).filter(e=>!Number(e.is_deleted)&&(!e.fire_date||e.fire_date>=asOf));
+  const employeeRows=filterEmployeesByScope(employeesResult.results||[],scope).filter(e=>!Number(e.is_deleted)&&(!e.fire_date||e.fire_date>=asOf));
   const employeeTerms=(employeeTermsResult.results||[]).map(employeeTermDto);
-  const roleTerms=(roleTermsResult.results||[]).map(roleTermDto);
+  let roleTerms=(roleTermsResult.results||[]).map(roleTermDto);
   const employeeCurrent=activeTermMap(employeeTerms,'employeeId',asOf);
   const roleCurrent=activeTermMap(roleTerms,'roleCode',asOf);
-  const baseRoles=await loadRoles(db,userId,employeeRows);
+  const baseRoles=await loadRoles(db,userId,employeeRows,scope);
+  if(isHrSubsetScope(scope)){
+    const visibleRoles=new Set(baseRoles.map(x=>String(x.code)));
+    roleTerms=roleTerms.filter(x=>visibleRoles.has(String(x.roleCode)));
+  }
   const employeeCountByRole=new Map();
   for(const e of employeeRows){const code=String(e.role_code||'');if(code)employeeCountByRole.set(code,(employeeCountByRole.get(code)||0)+1)}
 
@@ -102,7 +109,7 @@ async function snapshot(db,userId,asOf){
 
   const configured=employees.filter(x=>x.term),officialGrossTotal=configured.reduce((a,x)=>a+(x.term?.officialGross||0),0),additionalTotal=configured.reduce((a,x)=>a+(x.term?.additionalAmount||0),0),employeeReceivesTotal=configured.reduce((a,x)=>a+(x.calculation?.totalEmployeeReceives||0),0),employerCostTotal=configured.reduce((a,x)=>a+(x.calculation?.totalEmployerCost||0),0);
   return{
-    asOf,employees,roles,employeeTerms,roleTerms,ruleProfile:AZ_PAYROLL_RULE_PROFILE,
+    asOf,employees,roles,employeeTerms,roleTerms,rolePolicyScope:'NETWORK_SHARED',ruleProfile:AZ_PAYROLL_RULE_PROFILE,
     counts:{employees:employees.length,configured:configured.length,withoutTerms:employees.length-configured.length,roles:roles.length,rolesConfigured:roles.filter(x=>x.term).length,individualOverrides:employees.filter(x=>x.individualTerm).length},
     totals:{officialGross:Math.round(officialGrossTotal*100)/100,additional:Math.round(additionalTotal*100)/100,employeeReceives:Math.round(employeeReceivesTotal*100)/100,employerCost:Math.round(employerCostTotal*100)/100}
   };
@@ -129,13 +136,15 @@ export async function onRequestGet({request,env}){
   try{
     const a=await getUser(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);
     const url=new URL(request.url),asOf=dateOnly(url.searchParams.get('asOf'))||todayBaku();
-    return json({success:true,source:'SMART_HORECA_COMPENSATION',...await snapshot(env.DB,a.user.id,asOf)});
+    const scope=await resolveHrRestaurantScope(request,env,a.user.id);
+    return json({success:true,source:'SMART_HORECA_COMPENSATION',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,...await snapshot(env.DB,a.user.id,asOf,scope)});
   }catch(e){console.error('[HR-COMPENSATION-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
 }
 
 export async function onRequestPost({request,env}){
   try{
     const a=await getUser(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);const userId=a.user.id;
+    const scope=await resolveHrRestaurantScope(request,env,userId);
     const body=await request.json().catch(()=>({})),action=clean(body.action),asOf=dateOnly(body.asOf)||todayBaku();
     if(action==='preview'){
       const treatment=(clean(body.additionalTaxTreatment)||'TAXABLE').toUpperCase();
@@ -155,25 +164,26 @@ export async function onRequestPost({request,env}){
           VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,1,?12,?12)
           ON CONFLICT(user_id,term_id) DO UPDATE SET role_code=excluded.role_code,effective_from=excluded.effective_from,effective_to=excluded.effective_to,official_gross=excluded.official_gross,additional_amount=excluded.additional_amount,additional_payment_method=excluded.additional_payment_method,additional_tax_treatment=excluded.additional_tax_treatment,additional_legal_basis=excluded.additional_legal_basis,note=excluded.note,is_active=1,updated_at=excluded.updated_at`)
           .bind(userId,termId,roleCode,effectiveFrom,effectiveTo,officialGross,additionalAmount,method,treatment,basis,note,t).run();
-        return json({success:true,termId,scopeType,...await snapshot(env.DB,userId,asOf)});
+        return json({success:true,termId,scopeType,...await snapshot(env.DB,userId,asOf,scope)});
       }
 
       if(scopeType!=='EMPLOYEE')return json({success:false,message:'Неизвестный уровень условий оплаты'},400);
       const employeeId=clean(body.employeeId);if(!employeeId)return json({success:false,message:'Укажите сотрудника'},400);
-      const emp=await env.DB.prepare(`SELECT iiko_employee_id FROM hr_employees WHERE user_id=?1 AND iiko_employee_id=?2 AND TRIM(employee_code)<>'' LIMIT 1`).bind(userId,employeeId).first();if(!emp)return json({success:false,message:'Сотрудник не найден. Сначала синхронизируйте справочник сотрудников.'},404);
+      const emp=await env.DB.prepare(`SELECT iiko_employee_id,department_code FROM hr_employees WHERE user_id=?1 AND iiko_employee_id=?2 AND TRIM(employee_code)<>'' LIMIT 1`).bind(userId,employeeId).first();if(!emp)return json({success:false,message:'Сотрудник не найден. Сначала синхронизируйте справочник сотрудников.'},404);
+      if(isHrSubsetScope(scope)&&!new Set(hrScopeKeys(scope)).has(clean(emp.department_code)))return json({success:false,message:'Сотрудник не относится к выбранному подразделению.'},403);
       let termId=clean(body.id);if(!termId){const same=await env.DB.prepare(`SELECT term_id FROM hr_compensation_terms WHERE user_id=?1 AND iiko_employee_id=?2 AND effective_from=?3 LIMIT 1`).bind(userId,employeeId,effectiveFrom).first();termId=same?.term_id||uid()}
       if(!clean(body.id))await env.DB.prepare(`UPDATE hr_compensation_terms SET effective_to=?4,updated_at=?5 WHERE user_id=?1 AND iiko_employee_id=?2 AND is_active=1 AND effective_from<?3 AND (effective_to='' OR effective_to>=?3)`).bind(userId,employeeId,effectiveFrom,previousDate(effectiveFrom),t).run();
       await env.DB.prepare(`INSERT INTO hr_compensation_terms(user_id,term_id,iiko_employee_id,effective_from,effective_to,official_gross,additional_amount,additional_payment_method,additional_tax_treatment,additional_legal_basis,note,is_active,created_at,updated_at)
         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,1,?12,?12)
         ON CONFLICT(user_id,term_id) DO UPDATE SET iiko_employee_id=excluded.iiko_employee_id,effective_from=excluded.effective_from,effective_to=excluded.effective_to,official_gross=excluded.official_gross,additional_amount=excluded.additional_amount,additional_payment_method=excluded.additional_payment_method,additional_tax_treatment=excluded.additional_tax_treatment,additional_legal_basis=excluded.additional_legal_basis,note=excluded.note,is_active=1,updated_at=excluded.updated_at`)
         .bind(userId,termId,employeeId,effectiveFrom,effectiveTo,officialGross,additionalAmount,method,treatment,basis,note,t).run();
-      return json({success:true,termId,scopeType,...await snapshot(env.DB,userId,asOf)});
+      return json({success:true,termId,scopeType,...await snapshot(env.DB,userId,asOf,scope)});
     }
     if(action==='disableTerm'){
       const id=clean(body.id),scopeType=(clean(body.scopeType)||'EMPLOYEE').toUpperCase();if(!id)return json({success:false,message:'Не указаны условия оплаты'},400);
       if(scopeType==='ROLE')await env.DB.prepare(`UPDATE hr_role_compensation_terms SET is_active=0,updated_at=?3 WHERE user_id=?1 AND term_id=?2`).bind(userId,id,now()).run();
       else await env.DB.prepare(`UPDATE hr_compensation_terms SET is_active=0,updated_at=?3 WHERE user_id=?1 AND term_id=?2`).bind(userId,id,now()).run();
-      return json({success:true,...await snapshot(env.DB,userId,asOf)});
+      return json({success:true,...await snapshot(env.DB,userId,asOf,scope)});
     }
     return json({success:false,message:'Неизвестное действие'},400);
   }catch(e){console.error('[HR-COMPENSATION-POST]',e);return json({success:false,message:e?.message||String(e)},500)}

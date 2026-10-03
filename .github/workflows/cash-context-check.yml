@@ -31,9 +31,14 @@ jobs:
     if: github.event_name == 'pull_request'
     needs: static
     runs-on: ubuntu-latest
-    env:
-      PREVIEW_BASE: https://${{ github.head_ref }}.smarthoreca.pages.dev
     steps:
+      - name: Resolve Cloudflare preview URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="${GITHUB_HEAD_REF//\//-}"
+          echo "PREVIEW_BASE=https://${branch}.smarthoreca.pages.dev" >> "$GITHUB_ENV"
+          echo "Using preview: https://${branch}.smarthoreca.pages.dev"
       - name: Wait for preview
         shell: bash
         run: |
