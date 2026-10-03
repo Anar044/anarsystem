@@ -1,4 +1,4 @@
-import { iikoText } from "./iiko-client.js";
+import { iikoText, iikoJson } from "./iiko-client.js";
 
 function clean(v){return String(v??"").trim()}
 function key(v){return clean(v).replace(/^\{+|\}+$/g,"").toLowerCase()}
@@ -99,6 +99,29 @@ async function loadEntities(connection,path){
     return{ok:true,status:r.status,...base,preview:String(r.text||"").slice(0,900)};
   }
 }
+function payloadRows(payload){
+  if(Array.isArray(payload))return payload;
+  for(const k of ["items","data","rows","response","results"])if(Array.isArray(payload?.[k]))return payload[k];
+  return [];
+}
+function storeRefId(v){
+  if(v&&typeof v==="object")return key(v.id??v.uuid??v.entityId??v.storeId??v.warehouseId);
+  return key(v);
+}
+async function balanceStoreFallback(connection,departmentIds){
+  const d=new Date(),pad=n=>String(n).padStart(2,"0");
+  const timestamp=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T23:59:59`;
+  const q=new URLSearchParams({timestamp});
+  for(const id of departmentIds)q.append("department",id);
+  const r=await iikoJson(connection,"/resto/api/v2/reports/balance/stores?"+q.toString(),{timeoutMs:60000});
+  const ids=[],seen=new Set();
+  if(r.ok)for(const row of payloadRows(r.payload)){
+    const id=storeRefId(row?.store??row?.storeId??row?.warehouse??row?.warehouseId);
+    if(id&&!seen.has(id)){seen.add(id);ids.push(id)}
+  }
+  return{storeIds:ids,status:r.status,ok:r.ok,timestamp,rowCount:payloadRows(r.payload).length};
+}
+
 function belongsToSelected(store,nodeMap,wanted){
   let current=store?.parentId||"";
   if(current&&wanted.has(current))return true;
@@ -126,16 +149,24 @@ export async function resolveStoreScope(connection,departmentIds=[]){
   const wanted=new Set(selected);
   const matched=stores.filter(s=>belongsToSelected(s,nodeMap,wanted)||wanted.has(s.id));
   const hasRelationship=stores.some(s=>s.parentId);
+  const fallback=matched.length?{storeIds:[],ok:false,status:0,rowCount:0,timestamp:""}:await balanceStoreFallback(connection,selected);
+  const fallbackIds=uniq(fallback.storeIds||[]);
+  const knownById=new Map(stores.map(s=>[s.id,s]));
+  const fallbackStores=fallbackIds.map(id=>knownById.get(id)||{id,parentId:"",name:"",type:"STORE"});
+  const scopedStores=matched.length?matched:fallbackStores;
   return{
     selectedDepartmentIds:selected,
-    storeIds:uniq(matched.map(x=>x.id)),
-    stores:matched,
-    resolved:matched.length>0,
+    storeIds:uniq(scopedStores.map(x=>x.id)),
+    stores:scopedStores,
+    resolved:scopedStores.length>0,
     diagnostics:{
+      scopeSource:matched.length?"corporation-tree":(fallbackIds.length?"balance/stores-department":"unresolved"),
       storeEndpointStatus:storesResult.status,
       departmentEndpointStatus:departmentsResult.status,
       totalStores:stores.length,
       matchedStores:matched.length,
+      fallbackStoreCount:fallbackIds.length,
+      fallback,
       hasRelationship,
       storePreview:storesResult.preview,
       departmentPreview:departmentsResult.preview
