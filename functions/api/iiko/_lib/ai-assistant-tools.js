@@ -462,6 +462,7 @@ export async function executeAssistantTool(name, args, context) {
   const selectedDepartmentIds=Array.isArray(scope?.selectedDepartmentIds)?scope.selectedDepartmentIds:[];
   const allowedDepartmentIds=Array.isArray(scope?.allowedDepartmentIds)?scope.allowedDepartmentIds:[];
   const subsetChainScope=scope?.isChain===true && selectedDepartmentIds.length>0 && selectedDepartmentIds.length<allowedDepartmentIds.length;
+  const effectiveDepartmentIds=subsetChainScope?selectedDepartmentIds:[];
 
   if (name === "list_smart_horeca_capabilities") {
     return {
@@ -573,7 +574,7 @@ export async function executeAssistantTool(name, args, context) {
     const date = clean(args.timestamp) || (new Date().toISOString().slice(0, 10) + "T23:59:59");
     let result;
     try{
-      result = await supplierBalances(connection, date, selectedDepartmentIds, subsetChainScope);
+      result = await supplierBalances(connection, date, effectiveDepartmentIds, subsetChainScope);
     }catch(error){
       return {error:String(error?.message||error),code:"CHAIN_SCOPE_UNAVAILABLE_SUPPLIER_BALANCE",departmentIds:selectedDepartmentIds};
     }
@@ -639,12 +640,12 @@ export async function executeAssistantTool(name, args, context) {
         includeHigh: true
       };
     }
-    if(selectedDepartmentIds.length){
+    if(effectiveDepartmentIds.length){
       const departmentField=["Department.Id","DepartmentId","Department.ID"].find(name=>available.has(name));
       if(!departmentField){
         return {success:false,code:"CHAIN_SCOPE_FIELD_MISSING",message:"OLAP не отдаёт Department.Id — нельзя безопасно ограничить AI отчёт выбранным рестораном.",departmentIds:selectedDepartmentIds};
       }
-      filters[departmentField]={filterType:"IncludeValues",values:[...selectedDepartmentIds]};
+      filters[departmentField]={filterType:"IncludeValues",values:[...effectiveDepartmentIds]};
     }
     const request = {
       reportType,
@@ -666,7 +667,7 @@ export async function executeAssistantTool(name, args, context) {
     if (!result.ok) {
       return { success: false, status: result.status, message: result.text.slice(0, 1200), request };
     }
-    return { success: true, request, departmentIds:selectedDepartmentIds, departmentScopeApplied:selectedDepartmentIds.length>0, report: compactForAi(result.payload) };
+    return { success: true, request, departmentIds:selectedDepartmentIds, effectiveDepartmentIds, departmentScopeApplied:effectiveDepartmentIds.length>0, report: compactForAi(result.payload) };
   }
 
   throw new Error(`Неизвестный инструмент AI: ${name}`);
