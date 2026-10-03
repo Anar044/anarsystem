@@ -2,6 +2,7 @@ import { getUser, loadPrivateIikoState, privateConnection } from "./iiko/_lib/us
 import { getIikoAuth } from "./iiko/_lib/iiko-client.js";
 import { getIikoSuppliers } from "./iiko/_lib/iiko-suppliers.js";
 import { syncReferences } from "./iiko/references.js";
+import { loadCachedReferenceMaps } from "./iiko/_lib/reference-cache.js";
 import { aiProviderStatus, processPurchaseDocument } from "./iiko/_lib/ai-document-providers.js";
 import { resolveRestaurantScope } from "./iiko/_lib/restaurant-scope.js";
 import { resolveStoreScope } from "./iiko/_lib/store-scope.js";
@@ -146,12 +147,23 @@ function requireSingleRestaurant(scope){
 }
 async function referenceData(env,connection,scope=null){
   const auth=await getIikoAuth(connection);
-  const [refs,supplierResult]=await Promise.all([
-    syncReferences(env,auth.serverUrl,auth.token),
-    getIikoSuppliers(connection)
-  ]);
+
+  // The AI page already warms these D1 reference tables when it loads.
+  // Re-downloading and reparsing the whole CHAIN catalog during every OCR
+  // request can exceed the Worker CPU budget, especially with large menus.
+  let refs=await loadCachedReferenceMaps(env,auth.serverUrl,[],{
+    ttlMs:6*60*60*1000,
+    requiredKeys:["suppliers","warehouses","products"]
+  });
+  if(!refs)refs=await syncReferences(env,auth.serverUrl,auth.token);
+
   const maps=refs.maps||{};
-  const suppliers=(supplierResult.rows||[]).map(x=>({id:key(x.id),name:clean(x.name)})).filter(x=>x.id&&x.name);
+  let suppliers=[...(maps.suppliers?.entries?.()||[])].map(([sid,name])=>({id:key(sid),name:clean(name)})).filter(x=>x.id&&x.name);
+  if(!suppliers.length){
+    const supplierResult=await getIikoSuppliers(connection);
+    suppliers=(supplierResult.rows||[]).map(x=>({id:key(x.id),name:clean(x.name)})).filter(x=>x.id&&x.name);
+  }
+
   const products=[...(maps.products?.entries?.()||[])].map(([pid,name])=>({id:key(pid),name:clean(name)})).filter(x=>x.id&&x.name);
   let warehouses=[...(maps.warehouses?.entries?.()||[])].map(([wid,name])=>({id:key(wid),name:clean(name)})).filter(x=>x.id&&x.name);
   let storeScope=null;
@@ -166,19 +178,59 @@ async function referenceData(env,connection,scope=null){
     const allowed=new Set((storeScope.storeIds||[]).map(key).filter(Boolean));
     warehouses=warehouses.filter(x=>allowed.has(key(x.id)));
   }
-  return {suppliers,products,warehouses,storeScope};
+  return {suppliers,products,warehouses,storeScope,referenceCacheHit:refs.cacheHit===true};
+}
+function cheapCandidateScore(sourceNorm,sourceTokens,rowName){
+  const rowNorm=norm(rowName);
+  if(!sourceNorm||!rowNorm)return{score:0,rowNorm};
+  if(rowNorm===sourceNorm)return{score:1,rowNorm};
+
+  let score=0;
+  if(rowNorm.includes(sourceNorm)||sourceNorm.includes(rowNorm)){
+    score=Math.max(score,.8*Math.min(rowNorm.length,sourceNorm.length)/Math.max(rowNorm.length,sourceNorm.length));
+  }
+
+  const rowTokens=tokenList(rowNorm);
+  if(sourceTokens.length&&rowTokens.length){
+    const wanted=new Set(sourceTokens);
+    let inter=0;
+    for(const t of rowTokens)if(wanted.has(t))inter++;
+    if(inter)score=Math.max(score,.55*inter/Math.max(sourceTokens.length,rowTokens.length));
+  }
+
+  let prefix=0;
+  while(prefix<sourceNorm.length&&prefix<rowNorm.length&&sourceNorm[prefix]===rowNorm[prefix])prefix++;
+  if(prefix>=2)score=Math.max(score,.42*prefix/Math.max(sourceNorm.length,rowNorm.length));
+  else if(sourceNorm[0]===rowNorm[0]){
+    const ratio=Math.min(sourceNorm.length,rowNorm.length)/Math.max(sourceNorm.length,rowNorm.length);
+    if(ratio>=.6)score=Math.max(score,.08*ratio);
+  }
+
+  return{score,rowNorm};
 }
 function bestMatch(source,rows,min=.45){
   const sourceNorm=norm(source);
-  const ranked=rows
-    .map(r=>({...r,score:Number(scoreText(source,r.name).toFixed(4)),exact:norm(r.name)===sourceNorm}))
+  if(!sourceNorm)return {match:null,candidates:[]};
+  const sourceTokens=tokenList(sourceNorm);
+  const shortlist=[];
+
+  for(const r of rows||[]){
+    const cheap=cheapCandidateScore(sourceNorm,sourceTokens,r?.name);
+    if(cheap.rowNorm===sourceNorm){
+      const exact={...r,score:1,exact:true};
+      return {match:exact,candidates:[exact]};
+    }
+    if(cheap.score>0)shortlist.push({r,cheap:cheap.score});
+  }
+
+  shortlist.sort((a,b)=>b.cheap-a.cheap);
+  const pool=shortlist.slice(0,120).map(x=>x.r);
+  const ranked=pool
+    .map(r=>({...r,score:Number(scoreText(source,r.name).toFixed(4)),exact:false}))
     .sort((a,b)=>b.score-a.score)
     .slice(0,5);
   const best=ranked[0]||null;
   if(!best||best.score<min)return {match:null,candidates:ranked};
-
-  // Exact normalized names are safe to select automatically.
-  if(best.exact)return {match:best,candidates:ranked};
 
   // Only auto-select a fuzzy result when it is the only genuinely plausible
   // candidate. Generic names such as "pomidor" must not silently choose
@@ -187,7 +239,6 @@ function bestMatch(source,rows,min=.45){
   const plausible=ranked.filter(x=>x.score>=plausibleFloor);
   if(plausible.length!==1)return {match:null,candidates:ranked};
 
-  // Fuzzy auto-selection still requires a reasonably strong unique match.
   if(best.score<.64)return {match:null,candidates:ranked};
   return {match:best,candidates:ranked};
 }
