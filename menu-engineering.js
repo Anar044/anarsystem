@@ -275,11 +275,11 @@
       errorBox.hidden=true;
       setStatus('Получаем данные меню…','loading');
 
-      const response=await fetch('/api/iiko/abc',{
+      const response=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/abc',{
         method:'POST',
         headers:{'Content-Type':'application/json','Accept':'application/json'},
         body:JSON.stringify({...connection,from,to,departmentIds,abcA:80,abcB:95})
-      });
+      },90000);
       const text=await response.text();
       let data;
       try{data=text?JSON.parse(text):{}}catch(_){throw new Error(`Сервер вернул некорректный ответ: HTTP ${response.status}`)}
