@@ -11,6 +11,14 @@
     const clean = value => String(value ?? "").trim();
     const brand = value => String(value ?? "").replace(/iiko/gi, "SH");
 
+    async function boundedFetch(url, options = {}, timeoutMs = 45000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try { return await boundedFetch(url, { ...options, signal: controller.signal }); }
+        catch (error) { if (error?.name === "AbortError") throw new Error(`SH API не ответил за ${Math.ceil(timeoutMs/1000)} секунд.`); throw error; }
+        finally { clearTimeout(timer); }
+    }
+
     async function safeJson(response) {
         const text = await response.text();
         if (!text) return {};
@@ -71,7 +79,7 @@
         try{
             const headers=await authHeaders();
             if(!headers) return;
-            const response=await fetch("/api/iiko/state",{headers:{Accept:"application/json",Authorization:headers.Authorization},cache:"no-store"});
+            const response=await boundedFetch("/api/iiko/state",{headers:{Accept:"application/json",Authorization:headers.Authorization},cache:"no-store"});
             const data=await safeJson(response);
             if(!response.ok||data.success===false) throw new Error(data.message||`HTTP ${response.status}`);
             if(!data.found||!data.state) return;
@@ -107,7 +115,7 @@
     async function saveIikoState(connection, identity) {
         const headers=await authHeaders();
         if(!headers) throw new Error("Не удалось получить сессию пользователя для сохранения SH в D1.");
-        const response=await fetch("/api/iiko/state",{
+        const response=await boundedFetch("/api/iiko/state",{
             method:"POST",
             headers,
             body:JSON.stringify({connection,identity})
@@ -120,7 +128,7 @@
     async function clearIikoState() {
         const headers=await authHeaders();
         if(!headers) throw new Error("Не удалось получить сессию пользователя.");
-        const response=await fetch("/api/iiko/state",{method:"DELETE",headers});
+        const response=await boundedFetch("/api/iiko/state",{method:"DELETE",headers});
         const data=await safeJson(response);
         if(!response.ok||data.success===false) throw new Error(brand(data.message||`HTTP ${response.status}`));
     }
@@ -129,7 +137,7 @@
         const auth=await authHeaders();
         const headers={"Content-Type":"application/json","Accept":"application/json"};
         if(auth?.Authorization)headers.Authorization=auth.Authorization;
-        const response=await fetch(path,{
+        const response=await boundedFetch(path,{
             method:"POST",
             headers,
             body:JSON.stringify(credentials)
