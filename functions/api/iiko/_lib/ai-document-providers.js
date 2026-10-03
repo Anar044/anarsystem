@@ -61,6 +61,21 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`AI-провайдер не ответил за ${Math.ceil(timeoutMs / 1000)} секунд.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function extractOutputText(payload) {
   if (typeof payload?.output_text === "string" && payload.output_text.trim()) return payload.output_text.trim();
   for (const item of payload?.output || []) {
@@ -95,7 +110,7 @@ async function openAiProvider(env, file) {
     ? { type: "input_image", image_url: `data:${contentType};base64,${base64}`, detail: "high" }
     : { type: "input_file", filename: file.name || "document.pdf", file_data: `data:${contentType};base64,${base64}` };
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetchWithTimeout("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${key}`,
@@ -113,7 +128,7 @@ async function openAiProvider(env, file) {
         }
       }
     })
-  });
+  }, 90000);
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
@@ -130,7 +145,7 @@ async function openAiProvider(env, file) {
   };
 }
 
-async function localProvider(env, file) {
+async function localProvider(env, file, timeoutMs = 105000) {
   const url = clean(env.LOCAL_DOCUMENT_AI_URL);
   if (!url) throw new Error("LOCAL_DOCUMENT_AI_URL не настроен.");
   const form = new FormData();
@@ -141,7 +156,7 @@ async function localProvider(env, file) {
   const token = clean(env.LOCAL_DOCUMENT_AI_TOKEN);
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(url, { method: "POST", headers, body: form });
+  const response = await fetchWithTimeout(url, { method: "POST", headers, body: form }, timeoutMs);
   const payload = await response.json().catch(() => null);
   if (!response.ok) throw new Error(payload?.message || payload?.error || `Local AI HTTP ${response.status}`);
   const data = payload?.data || payload?.document || payload;
@@ -173,14 +188,25 @@ export async function processPurchaseDocument(env, file, requestedProvider = "AU
   const status = aiProviderStatus(env);
 
   if (provider === "OPENAI") return openAiProvider(env, file);
-  if (provider === "LOCAL") return localProvider(env, file);
+  if (provider === "LOCAL") return localProvider(env, file, 105000);
   if (provider !== "AUTO") throw new Error("Неизвестный AI-провайдер.");
 
-  if (status.local.configured) {
-    try { return await localProvider(env, file); } catch (localError) {
-      if (!status.openai.configured) throw localError;
+  // Local OCR may take several minutes on a cold CPU. A synchronous Pages
+  // request cannot reliably stay open that long, so AUTO prefers OpenAI when
+  // it is configured. Local AI remains available explicitly and as a bounded fallback.
+  if (status.openai.configured) {
+    try {
+      return await openAiProvider(env, file);
+    } catch (openAiError) {
+      if (!status.local.configured) throw openAiError;
+      try {
+        return await localProvider(env, file, 45000);
+      } catch (localError) {
+        throw new Error(`OpenAI: ${openAiError?.message || openAiError}; Local AI: ${localError?.message || localError}`);
+      }
     }
   }
-  if (status.openai.configured) return openAiProvider(env, file);
+
+  if (status.local.configured) return localProvider(env, file, 105000);
   throw new Error("AI-провайдер не настроен. Настройте Local AI или OPENAI_API_KEY.");
 }
