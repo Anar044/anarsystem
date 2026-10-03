@@ -294,12 +294,12 @@ async function importToIiko(processed){
     $('saveDraftBtn').disabled=true;
     $('saveProcessBtn').disabled=true;
 
-    const r=await fetch('/api/iiko/document-action',{
+    const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/document-action',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({connection:c,departmentIds:b.departmentIds||[],type:'incoming',action,document:documentData}),
       cache:'no-store'
-    });
+    },90000);
     const j=await r.json().catch(()=>({}));
     if(!r.ok||j.success===false){
       const detail=j.validation&&(j.validation.errorMessage||j.validation.additionalInfo);
