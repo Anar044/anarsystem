@@ -190,8 +190,8 @@ export async function onRequestPost({request}){
     const metadata=await getOlapFields(connection,"TRANSACTIONS");
     const allFields=metadata.fields||[];
     const fields={
-      date:exactField(allFields,"DateTime.DateTyped","DateSecondary.DateTyped")
-        ||pickField(allFields,["дата","date"],[],canGroup),
+      date:exactField(allFields,"DateTime.DateTyped","DateTime.Typed","DateSecondary.DateTyped")
+        ||pickField(allFields,["учетный день","дата и время","дата","date"],[],canGroup),
       number:exactField(allFields,"Document","OrderNum")
         ||pickField(allFields,["документ","номер","number"],["account","счет"],canGroup),
       type:exactField(allFields,"TransactionType")
@@ -251,7 +251,21 @@ export async function onRequestPost({request}){
     const aggregates=[fields.debit,fields.credit,fields.amount,fields.balance].filter(Boolean).filter(canAggregate).map(fieldKey);
 
     const baseFilters={};
-    baseFilters[fieldKey(fields.date)]={filterType:"DateRange",periodType:"CUSTOM",from,to,includeLow:true,includeHigh:true};
+    // TRANSACTIONS OLAP requires one of these exact mandatory date filters.
+    // Do not rely on a fuzzy-selected date field here: SH validates the technical key.
+    const accountingDayField=exactField(allFields,"DateTime.DateTyped");
+    const dateTimeField=exactField(allFields,"DateTime.Typed");
+    const mandatoryDateFilterKey=accountingDayField
+      ? fieldKey(accountingDayField)
+      : (dateTimeField ? fieldKey(dateTimeField) : "DateTime.DateTyped");
+    baseFilters[mandatoryDateFilterKey]={
+      filterType:"DateRange",
+      periodType:"CUSTOM",
+      from,
+      to,
+      includeLow:true,
+      includeHigh:true
+    };
 
     const depFilter=selectedDepartmentFilter(allFields,body);
     if(depFilter){
@@ -382,6 +396,7 @@ export async function onRequestPost({request}){
         reportType:"TRANSACTIONS",
         olapFieldsCacheHit:metadata.cacheHit===true,
         departmentScope:depFilter?depFilter.source:"full-selection-or-rms",
+        mandatoryDateFilterKey,
         attempts,
         accountMatch:{id:accountId,code:accountCode,name:accountName},
         fields:Object.fromEntries(Object.entries(fields).map(([k,v])=>[k,v?{name:v.name,title:v.title}:null]))
