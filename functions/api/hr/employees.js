@@ -75,12 +75,28 @@ export async function onRequestGet({request,env}){
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);if(!state.found||!hasPrivateConnection(state.state))return json({success:false,message:'Сначала подключите SH Server в настройках.'},409);
     const connection=privateConnection(state.state);
     const scope=resolveRestaurantScope({state:state.state,request,strict:true});
-    const [employeesResult,rolesResult]=await Promise.all([iikoText(connection,'/resto/api/employees?includeDeleted=true'),iikoText(connection,'/resto/api/employees/roles?revisionFrom=-1')]);
-    if(!employeesResult.ok)throw new Error(`SH Employees HTTP ${employeesResult.status}: ${employeesResult.text.slice(0,500)}`);if(!rolesResult.ok)throw new Error(`SH Roles HTTP ${rolesResult.status}: ${rolesResult.text.slice(0,500)}`);
-    const employees=parseEmployees(employeesResult.text),roles=parseRoles(rolesResult.text),roleMap=new Map(roles.map(r=>[r.code,r]));const synced=await syncEmployees(env.DB,state.user.id,employees,roleMap);
-    const allItems=synced.rows.map(r=>({id:r.iiko_employee_id,code:r.employee_code,firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,name:r.display_name,roleCode:r.role_code,roleName:r.role_name,departmentCode:r.department_code,hireDate:r.hire_date,fireDate:r.fire_date,deleted:Boolean(r.is_deleted),attendanceProvider:r.attendance_provider||'',attendanceExternalId:r.attendance_external_id||''}));
     const subset=isHrSubsetScope(scope);
-    const items=filterEmployeesByScope(allItems,scope);
-    return json({success:true,source:'SH_EMPLOYEE_DIRECTORY',attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',syncedAt:synced.syncedAt,items,roles:roles.filter(r=>!r.deleted),counts:{total:items.length,active:items.filter(x=>!x.deleted&&!x.fireDate).length,linkedToAttendance:items.filter(x=>x.attendanceExternalId).length},restaurantScope:{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes,applied:subset}});
+    const departmentCodes=[...new Set((scope.selectedDepartmentCodes||[]).map(clean).filter(Boolean))];
+    const rolesResult=await iikoText(connection,'/resto/api/employees/roles?revisionFrom=-1');
+    if(!rolesResult.ok)throw new Error(`SH Roles HTTP ${rolesResult.status}: ${rolesResult.text.slice(0,500)}`);
+    let employees=[],employeeSource='all';
+    if(subset&&departmentCodes.length){
+      const results=await Promise.all(departmentCodes.map(code=>iikoText(connection,`/resto/api/employees/byDepartment/${encodeURIComponent(code)}`)));
+      const failed=results.filter(x=>!x.ok);
+      if(failed.length===results.length)throw new Error(`SH Employees byDepartment: HTTP ${failed[0]?.status||'—'} ${String(failed[0]?.text||'').slice(0,500)}`);
+      const seen=new Set();
+      for(const result of results)if(result.ok)for(const e of parseEmployees(result.text))if(!seen.has(e.id)){seen.add(e.id);employees.push(e)}
+      employeeSource='byDepartment';
+    }else{
+      const employeesResult=await iikoText(connection,'/resto/api/employees?includeDeleted=true');
+      if(!employeesResult.ok)throw new Error(`SH Employees HTTP ${employeesResult.status}: ${employeesResult.text.slice(0,500)}`);
+      employees=parseEmployees(employeesResult.text);
+    }
+    const roles=parseRoles(rolesResult.text),roleMap=new Map(roles.map(r=>[r.code,r]));
+    const synced=await syncEmployees(env.DB,state.user.id,employees,roleMap);
+    const allItems=synced.rows.map(r=>({id:r.iiko_employee_id,code:r.employee_code,firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,name:r.display_name,roleCode:r.role_code,roleName:r.role_name,departmentCode:r.department_code,hireDate:r.hire_date,fireDate:r.fire_date,deleted:Boolean(r.is_deleted),attendanceProvider:r.attendance_provider||'',attendanceExternalId:r.attendance_external_id||''}));
+    const scopedIds=new Set(employees.map(x=>String(x.id)));
+    const items=subset&&employeeSource==='byDepartment'?allItems.filter(x=>scopedIds.has(String(x.id))):filterEmployeesByScope(allItems,scope);
+    return json({success:true,source:'SH_EMPLOYEE_DIRECTORY',employeeSource,attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',syncedAt:synced.syncedAt,items,roles:roles.filter(r=>!r.deleted),counts:{total:items.length,active:items.filter(x=>!x.deleted&&!x.fireDate).length,linkedToAttendance:items.filter(x=>x.attendanceExternalId).length},restaurantScope:{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes,applied:subset}});
   }catch(error){console.error('[HR-EMPLOYEES]',error);return json({success:false,message:error?.message||String(error)},500)}
 }
