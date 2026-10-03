@@ -81,11 +81,22 @@ export async function onRequestGet({request,env}){
     if(!rolesResult.ok)throw new Error(`SH Roles HTTP ${rolesResult.status}: ${rolesResult.text.slice(0,500)}`);
     let employees=[],employeeSource='all';
     if(subset&&departmentCodes.length){
-      const results=await Promise.all(departmentCodes.map(code=>iikoText(connection,`/resto/api/employees/byDepartment/${encodeURIComponent(code)}`)));
-      const failed=results.filter(x=>!x.ok);
-      if(failed.length===results.length)throw new Error(`SH Employees byDepartment: HTTP ${failed[0]?.status||'—'} ${String(failed[0]?.text||'').slice(0,500)}`);
-      const seen=new Set();
-      for(const result of results)if(result.ok)for(const e of parseEmployees(result.text))if(!seen.has(e.id)){seen.add(e.id);employees.push(e)}
+      const results=await Promise.all(departmentCodes.map(async code=>({code,result:await iikoText(connection,`/resto/api/employees/byDepartment/${encodeURIComponent(code)}`)})));
+      const failed=results.filter(x=>!x.result.ok);
+      if(failed.length===results.length)throw new Error(`SH Employees byDepartment: HTTP ${failed[0]?.result?.status||'—'} ${String(failed[0]?.result?.text||'').slice(0,500)}`);
+      const byId=new Map();
+      for(const entry of results)if(entry.result.ok)for(const e of parseEmployees(entry.result.text)){
+        const old=byId.get(e.id);
+        if(old){
+          if(!old.departmentCodes.includes(entry.code))old.departmentCodes.push(entry.code);
+          if(!old.preferredDepartmentCode)old.preferredDepartmentCode=entry.code;
+        }else{
+          if(!e.departmentCodes.includes(entry.code))e.departmentCodes.push(entry.code);
+          if(!e.preferredDepartmentCode)e.preferredDepartmentCode=entry.code;
+          byId.set(e.id,e);
+        }
+      }
+      employees=[...byId.values()];
       employeeSource='byDepartment';
     }else{
       const employeesResult=await iikoText(connection,'/resto/api/employees?includeDeleted=true');
