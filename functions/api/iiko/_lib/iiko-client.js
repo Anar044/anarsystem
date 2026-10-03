@@ -76,6 +76,11 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_M
   }
 }
 
+function authRetryableStatus(status){
+  return [429,502,503,504].includes(Number(status));
+}
+function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
+
 function cloudflareDiagnostic(response, body) {
   const cfType = clean(response?.headers?.get?.("cf-error-type"));
   const text = String(body || "");
@@ -90,17 +95,28 @@ async function performAuthentication(connection, key) {
   const c = normalizeConnection(connection);
   const passwordHash = await sha1(c.password);
   const url = `${c.serverUrl}/resto/api/auth?login=${encodeURIComponent(c.login)}&pass=${passwordHash}`;
-  const response = await fetchWithTimeout(url, { method: "GET", cache: "no-store" });
-  const token = (await response.text()).trim();
-  if (!response.ok || !token) {
-    tokenCache.delete(key);
-    const cf = cloudflareDiagnostic(response, token);
-    if (cf) throw new Error(cf);
-    throw new Error(`Ошибка авторизации iiko Server: HTTP ${response.status}${token ? ` — ${token.slice(0, 240).replace(/\s+/g, " ")}` : ""}`);
+  let lastResponse=null,lastToken="";
+  const delays=[0,350,1000];
+  for(let attempt=0;attempt<delays.length;attempt++){
+    if(delays[attempt])await sleep(delays[attempt]);
+    const response=await fetchWithTimeout(url,{method:"GET",cache:"no-store"});
+    const token=(await response.text()).trim();
+    lastResponse=response;lastToken=token;
+    if(response.ok&&token){
+      tokenCache.set(key,{token,expiresAt:Date.now()+TOKEN_TTL_MS});
+      return{serverUrl:c.serverUrl,token,cacheHit:false,connectionKey:key,authAttempts:attempt+1};
+    }
+    if(!authRetryableStatus(response.status))break;
   }
-
-  tokenCache.set(key, { token, expiresAt: Date.now() + TOKEN_TTL_MS });
-  return { serverUrl: c.serverUrl, token, cacheHit: false, connectionKey: key };
+  tokenCache.delete(key);
+  const cf=cloudflareDiagnostic(lastResponse,lastToken);
+  if(cf)throw new Error(cf);
+  const status=Number(lastResponse?.status)||0;
+  const preview=lastToken?` — ${lastToken.slice(0,240).replace(/\s+/g," ")}`:"";
+  if(authRetryableStatus(status)){
+    throw new Error(`SH Server временно недоступен при авторизации: HTTP ${status}. Выполнено 3 попытки.${preview}`);
+  }
+  throw new Error(`Ошибка авторизации iiko Server: HTTP ${status}${preview}`);
 }
 
 async function authenticate(connection, force = false) {
