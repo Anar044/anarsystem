@@ -207,15 +207,15 @@ function conversationScopeKey(iiko){
 async function conversationById(db, userId, conversationId, scopeKey="") {
   return db.prepare(`SELECT id,title,created_at,updated_at
     FROM ai_assistant_conversations
-    WHERE id=?1 AND user_id=?2 LIMIT 1`)
-    .bind(conversationId, userId).first();
+    WHERE id=?1 AND user_id=?2 AND scope_key=?3 LIMIT 1`)
+    .bind(conversationId, userId, scopeKey).first();
 }
-async function createConversation(db, userId, title = "Новый чат") {
+async function createConversation(db, userId, scopeKey="", title = "Новый чат") {
   const conversationId = id();
   const now = nowIso();
-  await db.prepare(`INSERT INTO ai_assistant_conversations(id,user_id,title,created_at,updated_at)
-    VALUES(?1,?2,?3,?4,?4)`)
-    .bind(conversationId, userId, clean(title).slice(0, 100) || "Новый чат", now).run();
+  await db.prepare(`INSERT INTO ai_assistant_conversations(id,user_id,scope_key,title,created_at,updated_at)
+    VALUES(?1,?2,?3,?4,?5,?5)`)
+    .bind(conversationId, userId, scopeKey, clean(title).slice(0, 100) || "Новый чат", now).run();
   return { id: conversationId, title: clean(title).slice(0, 100) || "Новый чат", created_at: now, updated_at: now };
 }
 async function touchConversation(db, userId, conversationId, title) {
@@ -258,11 +258,11 @@ async function recentMessages(db, userId, conversationId, limit = MAX_HISTORY_ME
     createdAt: row.created_at
   }));
 }
-async function listConversations(db, userId) {
+async function listConversations(db, userId, scopeKey="") {
   const rows = await db.prepare(`SELECT id,title,created_at,updated_at
     FROM ai_assistant_conversations
-    WHERE user_id=?1 ORDER BY updated_at DESC LIMIT 30`)
-    .bind(userId).all();
+    WHERE user_id=?1 AND scope_key=?2 ORDER BY updated_at DESC LIMIT 30`)
+    .bind(userId,scopeKey).all();
   return rows.results || [];
 }
 async function resolveIiko(env, userId, request=null, requestedIds=null) {
