@@ -134,7 +134,9 @@
     const selected = [...new Set((ids || []).map(String))].filter(id => all.includes(id));
     writeSavedSelection(selected.length ? selected : all);
     const current = departmentIds(state);
-    window.dispatchEvent(new CustomEvent("sh:iiko-selection-changed", { detail: { departmentIds: current, restaurants: restaurants(state) } }));
+    if (!options.silentSelection) {
+      window.dispatchEvent(new CustomEvent("sh:iiko-selection-changed", { detail: { departmentIds: current, restaurants: restaurants(state) } }));
+    }
     if (!options.silent) window.dispatchEvent(new Event("sh:iiko-context-changed"));
     return current;
   }
@@ -253,7 +255,7 @@
       const ids = [...listEl.querySelectorAll("input:checked")].map(x => x.value);
       if (!ids.length) return;
       appliedIds = [...ids];
-      setSelectedDepartmentIds(ids);
+      setSelectedDepartmentIds(ids,{silent:true,silentSelection:true});
       wrap.classList.remove("open");
       button.setAttribute("aria-expanded", "false");
       location.reload();
