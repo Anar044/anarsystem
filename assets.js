@@ -8,7 +8,7 @@ const statusText={ACTIVE:'В работе',REPAIR:'В ремонте',DISPOSED:'
 const eventText={BREAKDOWN:'Поломка',REPAIR:'Ремонт',MAINTENANCE:'Обслуживание',PART:'Замена детали',INSPECTION:'Осмотр',NOTE:'Заметка'};
 
 async function token(){const client=await window.SHAuth?.createClient?.();if(!client)throw new Error('Supabase Auth не готов');const{data,error}=await client.auth.getSession();const t=data?.session?.access_token;if(error||!t)throw new Error('Сессия пользователя не найдена');return t}
-async function api(body=null){const t=await token();const opt=body?{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${t}`},body:JSON.stringify(body)}:{headers:{'Authorization':`Bearer ${t}`}};const r=await fetch('/api/assets',opt);const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);return j}
+async function api(body=null){const t=await token();const opt=body?{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${t}`},body:JSON.stringify(body)}:{headers:{'Authorization':`Bearer ${t}`}};const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/assets',opt,60000);const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);return j}
 function restaurantName(id){return binding?.restaurants?.find(x=>String(x.id)===String(id))?.name||id||'—'}
 function openModal(id){$(id)?.classList.add('show')}
 function closeModal(id){$(id)?.classList.remove('show')}
