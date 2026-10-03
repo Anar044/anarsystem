@@ -90,3 +90,26 @@
   .fin-account-controls{justify-content:stretch}
   .fin-account-controls input{width:100%}
 }
+
+
+/* Finance drawer period v14 */
+.fin-drawer-period{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin:0 44px 10px 0;padding:12px 14px;border:1px solid #26323f;border-radius:11px;background:#0e151d}
+.fin-drawer-period-main label{display:block;margin-bottom:6px;color:#748292;font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.06em}
+.fin-drawer-period-row{display:flex;align-items:center;gap:7px}
+.fin-drawer-period-row input{height:36px;border:1px solid #2a3745;border-radius:8px;background:#0b1219;color:#e9eef3;padding:0 9px;font-size:10px}
+.fin-drawer-period-row>span{color:#657382}
+.fin-modal-load{height:36px;padding:0 13px;font-size:9px}
+.fin-period-presets{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.fin-period-presets button{height:32px;border:1px solid #2a3745;border-radius:8px;background:#111a23;color:#9aa7b4;padding:0 10px;font-size:8px;font-weight:800;cursor:pointer}
+.fin-period-presets button:hover{border-color:#3b6955;color:var(--fin-green);background:#112019}
+.fin-modal-load:disabled{opacity:.55;cursor:wait}
+
+@media(max-width:900px){
+  .fin-drawer-period{align-items:stretch;flex-direction:column}
+  .fin-period-presets{justify-content:flex-start}
+}
+@media(max-width:560px){
+  .fin-drawer-period-row{flex-wrap:wrap}
+  .fin-drawer-period-row input{flex:1;min-width:130px}
+  .fin-modal-load{width:100%}
+}
