@@ -272,13 +272,7 @@ export async function onRequestPost({request}){
     const allowedDepartmentIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(key).filter(Boolean):[];
     const subsetRequested=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedDepartmentIds.length>departmentIds.length;
     const storeScope=subsetRequested?await resolveStoreScope(connection,departmentIds):{resolved:true,storeIds:[],diagnostics:null};
-    if(subsetRequested&&!storeScope.resolved){
-      return json({success:false,code:"FOOD_COST_SCOPE_UNAVAILABLE",message:"Не удалось определить склады выбранного ресторана. Фудкост не будет рассчитан без безопасного CHAIN-фильтра.",requestId,meta:{departmentIds,storeScope:storeScope.diagnostics||null}},409);
-    }
-    const scopedStoreIds=(storeScope.storeIds||[]).map(key).filter(Boolean);
-    if(subsetRequested&&storeId&&!scopedStoreIds.includes(storeId)){
-      return json({success:false,code:"FOOD_COST_STORE_FORBIDDEN",message:"Выбранный склад не относится к текущему ресторану.",requestId},403);
-    }
+    const scopedStoreIds=new Set((storeScope.storeIds||[]).map(key).filter(Boolean));
 
     const meta=await loadMeta(connection,from,to);
     const startTs=from+"T00:00:00",endTs=to+"T23:59:59";
@@ -292,8 +286,19 @@ export async function onRequestPost({request}){
       loadV2Docs(connection,"/resto/api/v2/documents/writeoff",from,to)
     ]);
 
-    const scopedOpening=subsetRequested?restrictBalanceToStores(opening,scopedStoreIds):opening;
-    const scopedClosing=subsetRequested?restrictBalanceToStores(closing,scopedStoreIds):closing;
+    if(subsetRequested){
+      for(const row of [...opening.rows,...closing.rows]){
+        const sid=key(row.storeId);if(sid)scopedStoreIds.add(sid);
+      }
+      if(!scopedStoreIds.size){
+        return json({success:false,code:"FOOD_COST_SCOPE_UNAVAILABLE",message:"SH Server не вернул склады выбранного ресторана ни через scoped-остатки, ни через корпоративный справочник. Фудкост не рассчитан.",requestId,meta:{departmentIds,storeScope:storeScope.diagnostics||null}},409);
+      }
+      if(storeId&&!scopedStoreIds.has(storeId)){
+        return json({success:false,code:"FOOD_COST_STORE_FORBIDDEN",message:"Выбранный склад не относится к текущему ресторану.",requestId},403);
+      }
+    }
+    const scopedOpening=subsetRequested?restrictBalanceToStores(opening,[...scopedStoreIds]):opening;
+    const scopedClosing=subsetRequested?restrictBalanceToStores(closing,[...scopedStoreIds]):closing;
     const relevantStores=new Set([...scopedOpening.rows,...scopedClosing.rows].map(x=>x.storeId).filter(Boolean));
     const inMap=aggregateDocs(incoming.docs,"incoming",storeId,relevantStores),outMap=aggregateDocs(outgoing.docs,"outgoing",storeId,relevantStores),transferMap=aggregateTransfers(transfers.docs,storeId);
     const writeoffMap=aggregateDocs(writeoffs.docs,"writeoff",storeId,relevantStores);
@@ -422,7 +427,7 @@ export async function onRequestPost({request}){
         transfers:{ok:transfers.ok,status:transfers.status,documents:transfers.docs.length},
         writeoffs:{ok:writeoffs.ok,status:writeoffs.status,documents:writeoffs.docs.length}
       },
-      meta:{departmentIds,departmentScopeApplied:departmentIds.length>0,subsetRequested,scopedStoreIds,storeScopeDiagnostics:storeScope.diagnostics||null,metadataCacheHit:meta.cacheHit===true,olapFieldsCacheHit:sales.fieldsCacheHit,theoreticalCostSource:sales.fields.costField?"SALES_OLAP_COST":"RECIPE_ESTIMATE",salesFields:sales.fields,salesMatchStats:sales.matchStats}
+      meta:{departmentIds,departmentScopeApplied:departmentIds.length>0,subsetRequested,scopedStoreIds:[...scopedStoreIds],storeScopeDiagnostics:storeScope.diagnostics||null,scopeSource:subsetRequested?"balance/stores department filter + corporation stores":"all",metadataCacheHit:meta.cacheHit===true,olapFieldsCacheHit:sales.fieldsCacheHit,theoreticalCostSource:sales.fields.costField?"SALES_OLAP_COST":"RECIPE_ESTIMATE",salesFields:sales.fields,salesMatchStats:sales.matchStats}
     });
   }catch(e){
     console.error("[FOOD-COST]",requestId,e);
