@@ -156,11 +156,11 @@
       const binding = await window.SH_IikoContext.getBinding(true);
       if (!binding?.connection) throw new Error('Подключение SH Server не настроено. Откройте «Настройки».');
 
-      const response = await fetch('/api/iiko/qr-menu', {
+      const response = await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/qr-menu', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ departmentIds: binding.departmentIds || [] })
-      });
+      }, 90000);
       const data = await response.json().catch(() => ({ success: false, message: 'Некорректный ответ API' }));
       if (!response.ok || !data.success) throw new Error(data.message || `HTTP ${response.status}`);
 
