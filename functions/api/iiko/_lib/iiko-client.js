@@ -199,16 +199,23 @@ export async function iikoJson(connection, path, options = {}) {
 function extractFields(raw) {
   const out = [];
   const seen = new Set();
-  const add = (name, meta = {}) => {
+  const add = (name, meta = {}, source = "") => {
     name = clean(name);
     if (!name) return;
     const key = name.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
+    const forcedMeasure = source === "measures";
+    const forcedDimension = source === "dimensions";
     out.push({
       name,
       title: clean(meta.title || meta.caption || meta.label || meta.displayName || meta.name || name),
-      type: clean(meta.type || meta.dataType || meta.kind || "unknown")
+      type: clean(meta.type || meta.dataType || meta.kind || "unknown"),
+      aggregationAllowed: forcedMeasure || meta.aggregationAllowed === true || meta.aggregateAllowed === true || meta.isMeasure === true || meta.measure === true,
+      groupingAllowed: forcedDimension || meta.groupingAllowed !== false,
+      filteringAllowed: meta.filteringAllowed !== false,
+      isMeasure: forcedMeasure || meta.isMeasure === true || meta.measure === true || meta.aggregationAllowed === true || meta.aggregateAllowed === true,
+      source
     });
   };
 
@@ -223,8 +230,8 @@ function extractFields(raw) {
     for (const key of ["fields", "columns", "dimensions", "measures"]) {
       if (!Array.isArray(raw[key])) continue;
       for (const item of raw[key]) {
-        if (typeof item === "string") add(item);
-        else if (item) add(item.technicalName || item.field || item.key || item.code || item.id || item.name, item);
+        if (typeof item === "string") add(item, {}, key);
+        else if (item) add(item.technicalName || item.field || item.key || item.code || item.id || item.name, item, key);
       }
     }
     for (const [key, value] of Object.entries(raw)) {
