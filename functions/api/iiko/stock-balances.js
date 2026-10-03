@@ -289,7 +289,7 @@ export async function onRequestPost({request}){
         subsetRequested,
         departmentScopeApplied:subsetRequested,
         scopedStoreIds:[...scopedStoreIds],
-        storeScopeDiagnostics:storeScope.diagnostics||null
+        scopeSource:"balance/stores department filter"
       }
     });
   }catch(e){
