@@ -4,7 +4,7 @@ const $=id=>document.getElementById(id);let assets=[],insights=[],binding=null;
 const money=v=>Number(v||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₼';
 const esc=s=>String(s??'').replace(/[&<>\"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[m]));
 async function token(){const c=await window.SHAuth?.createClient?.();if(!c)throw new Error('Supabase Auth не готов');const{data,error}=await c.auth.getSession();const t=data?.session?.access_token;if(error||!t)throw new Error('Сессия пользователя не найдена');return t}
-async function api(url){const t=await token(),r=await fetch(url,{headers:{Authorization:`Bearer ${t}`}}),j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);return j}
+async function api(url){const t=await token(),r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)(url,{headers:{Authorization:`Bearer ${t}`}},60000),j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);return j}
 function restaurantName(id){return binding?.restaurants?.find(x=>String(x.id)===String(id))?.name||id||'—'}
 function merged(){const map=new Map(insights.map(x=>[x.assetId,x]));return assets.map(a=>({...a,insight:map.get(a.id)||null}))}
 function active(x){return !['DISPOSED','SOLD'].includes(String(x.status||'').toUpperCase())}
