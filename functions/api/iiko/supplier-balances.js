@@ -18,7 +18,7 @@ function timestamp(v){if(v&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(String(
 function add(map,id,val){map[id]=(map[id]||0)+val}
 function balanceDepartmentId(row){
   for(const value of [
-    row?.departmentId,row?.departmentID,row?.department?.id,row?.department?.uuid,
+    row?.departmentId,row?.departmentID,row?.departmentGuid,row?.departmentGUID,(typeof row?.department==="string"?row.department:null),row?.department?.id,row?.department?.uuid,
     row?.organizationId,row?.organisationId,row?.restaurantId,row?.organization?.id,row?.restaurant?.id
   ]){const id=clean(value);if(id)return id}
   return "";
