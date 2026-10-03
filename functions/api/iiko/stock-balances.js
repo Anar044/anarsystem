@@ -1,4 +1,3 @@
-import { resolveStoreScope } from "./_lib/store-scope.js";
 import { clean, getIikoAuth, iikoJson, iikoText } from "./_lib/iiko-client.js";
 
 const metaCache = new Map();
@@ -202,15 +201,9 @@ export async function onRequestPost({request}){
     const selectedStore=key(b.storeId);
     const allowedDepartmentIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(key).filter(Boolean):[];
     const subsetRequested=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedDepartmentIds.length>departmentIds.length;
-    const storeScope=subsetRequested?await resolveStoreScope(connection,departmentIds):{resolved:true,storeIds:[],diagnostics:null};
-    if(subsetRequested&&!storeScope.resolved){
-      return json({success:false,code:"STOCK_BALANCE_SCOPE_UNAVAILABLE",message:"Не удалось определить склады выбранного ресторана. Остатки не будут показаны без безопасного CHAIN-фильтра.",meta:{departmentIds,storeScope:storeScope.diagnostics||null}},409);
-    }
-    const scopedStoreIds=new Set((storeScope.storeIds||[]).map(key).filter(Boolean));
-    if(subsetRequested&&selectedStore&&!scopedStoreIds.has(selectedStore)){
-      return json({success:false,code:"STOCK_BALANCE_STORE_FORBIDDEN",message:"Выбранный склад не относится к текущему ресторану."},403);
-    }
-
+    // balance/stores natively supports repeatable department filters.
+    // Let SH Server apply restaurant scope directly instead of inferring
+    // department -> warehouse ownership from the corporation tree.
     const q=new URLSearchParams({timestamp});
     if(selectedStore)q.set("store",selectedStore);
     for(const id of departmentIds)q.append("department",id);
@@ -226,10 +219,8 @@ export async function onRequestPost({request}){
       throw new Error("Остатки iiko: HTTP "+balanceResult.status+suffix);
     }
 
-    let balances=balanceList(balanceResult.payload);
-    if(subsetRequested){
-      balances=balances.filter(x=>scopedStoreIds.has(key(x.storeId)));
-    }
+    const balances=balanceList(balanceResult.payload);
+    const scopedStoreIds=new Set(balances.map(x=>key(x.storeId)).filter(Boolean));
     const productMap=new Map(meta.products.map(x=>[x.id,x]));
     const storeMap=new Map(meta.stores.map(x=>[x.id,x]));
     const rows=[];
