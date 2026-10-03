@@ -77,6 +77,14 @@ export async function onRequestGet({request,env}){
     const scope=resolveRestaurantScope({state:state.state,request,strict:true});
     const subset=isHrSubsetScope(scope);
     const departmentCodes=[...new Set((scope.selectedDepartmentCodes||[]).map(clean).filter(Boolean))];
+    if(subset&&!departmentCodes.length){
+      return json({
+        success:false,
+        code:'HR_DEPARTMENT_CODE_UNAVAILABLE',
+        message:'SH Chain не вернул код выбранного подразделения. Сотрудники не показаны, чтобы не смешивать персонал ресторанов.',
+        restaurantScope:{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:[]}
+      },409);
+    }
     const rolesResult=await iikoText(connection,'/resto/api/employees/roles?revisionFrom=-1');
     if(!rolesResult.ok)throw new Error(`SH Roles HTTP ${rolesResult.status}: ${rolesResult.text.slice(0,500)}`);
     let employees=[],employeeSource='all';
