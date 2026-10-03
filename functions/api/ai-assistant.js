@@ -512,17 +512,21 @@ export async function onRequestPost({ request, env }) {
     await ensureTables(env.DB);
     const body = await request.json().catch(() => ({}));
     const action = clean(body.action || "message");
+    const iiko=await resolveIiko(env,auth.user.id,request,Array.isArray(body.departmentIds)?body.departmentIds:null);
+    const scopeKey=conversationScopeKey(iiko);
 
     if (action === "newConversation") {
-      const conversation = await createConversation(env.DB, auth.user.id, body.title || "Новый чат");
+      const conversation = await createConversation(env.DB, auth.user.id, scopeKey, body.title || "Новый чат");
       return json({ success: true, conversation });
     }
     if (action === "deleteConversation") {
       const conversationId = clean(body.conversationId);
       if (!conversationId) return json({ success: false, message: "conversationId обязателен." }, 400);
+      const conversation=await conversationById(env.DB,auth.user.id,conversationId,scopeKey);
+      if(!conversation)return json({success:false,message:"Чат не найден в выбранном ресторане."},404);
       await env.DB.batch([
         env.DB.prepare(`DELETE FROM ai_assistant_messages WHERE conversation_id=?1 AND user_id=?2`).bind(conversationId, auth.user.id),
-        env.DB.prepare(`DELETE FROM ai_assistant_conversations WHERE id=?1 AND user_id=?2`).bind(conversationId, auth.user.id)
+        env.DB.prepare(`DELETE FROM ai_assistant_conversations WHERE id=?1 AND user_id=?2 AND scope_key=?3`).bind(conversationId, auth.user.id,scopeKey)
       ]);
       return json({ success: true });
     }
@@ -538,9 +542,9 @@ export async function onRequestPost({ request, env }) {
     }, 503);
 
     let conversationId = clean(body.conversationId);
-    let conversation = conversationId ? await conversationById(env.DB, auth.user.id, conversationId) : null;
+    let conversation = conversationId ? await conversationById(env.DB, auth.user.id, conversationId, scopeKey) : null;
     if (!conversation) {
-      conversation = await createConversation(env.DB, auth.user.id, text.slice(0, 70));
+      conversation = await createConversation(env.DB, auth.user.id, scopeKey, text.slice(0, 70));
       conversationId = conversation.id;
     }
 
@@ -552,7 +556,6 @@ export async function onRequestPost({ request, env }) {
       await touchConversation(env.DB, auth.user.id, conversationId);
     }
 
-    const iiko = await resolveIiko(env, auth.user.id, request, Array.isArray(body.departmentIds)?body.departmentIds:null);
     const history = await recentMessages(env.DB, auth.user.id, conversationId, MAX_HISTORY_MESSAGES);
     const answer = await runAssistant(env, iiko.connection, history, iiko.scope);
     const meta = {
