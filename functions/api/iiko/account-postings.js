@@ -62,6 +62,29 @@ function dateOnly(value){
   const m=s.match(/(\d{4})[-.](\d{2})[-.](\d{2})/);
   return m?`${m[1]}-${m[2]}-${m[3]}`:s.slice(0,10);
 }
+function daysBetween(from,to){
+  const a=new Date(from+"T00:00:00Z"),b=new Date(to+"T00:00:00Z");
+  return Math.floor((b-a)/86400000)+1;
+}
+function accountTextMatches(value,accountName,accountCode){
+  const v=norm(value),n=norm(accountName),c=norm(accountCode);
+  if(!v)return false;
+  if(n&&(v===n||v.includes(n)||n.includes(v)))return true;
+  if(c&&(v===c||v.startsWith(c+" ")||v.includes(" "+c+" ")||v.endsWith(" "+c)))return true;
+  return false;
+}
+function uniquePostings(rows){
+  const seen=new Set(),out=[];
+  for(const row of rows){
+    const key=[
+      row.date,row.number,row.type,row.account,row.correspondentAccount,row.correspondentCounteragent,
+      row.comment,row.department,row.debit,row.credit,row.balance
+    ].map(x=>String(x??"")).join("|");
+    if(seen.has(key))continue;
+    seen.add(key);out.push(row);
+  }
+  return out;
+}
 function selectedDepartmentFilter(fields,body){
   const ids=Array.isArray(body.departmentIds)?body.departmentIds.map(clean).filter(Boolean):[];
   const names=Array.isArray(body?.chainScope?.selectedDepartmentNames)?body.chainScope.selectedDepartmentNames.map(clean).filter(Boolean):[];
@@ -80,7 +103,7 @@ function selectedDepartmentFilter(fields,body){
   error.code="ACCOUNT_POSTINGS_SCOPE_UNAVAILABLE";
   throw error;
 }
-function normalizePosting(row,fields){
+function normalizePosting(row,fields,matchedOn="account"){
   const debitRaw=numberValue(rowValue(row,fields.debit));
   const creditRaw=numberValue(rowValue(row,fields.credit));
   const signed=numberValue(rowValue(row,fields.amount));
@@ -94,12 +117,33 @@ function normalizePosting(row,fields){
     else if(signed<0)credit=Math.abs(signed);
   }
   const balance=numberValue(rowValue(row,fields.balance));
+  const mainAccount=clean(rowValue(row,fields.account));
+  const corrAccount=clean(rowValue(row,fields.correspondentAccount));
+  if(matchedOn==="correspondent"){
+    return{
+      date:dateOnly(rowValue(row,fields.date)),
+      number:clean(rowValue(row,fields.number)),
+      type:clean(rowValue(row,fields.type)),
+      account:corrAccount,
+      correspondentAccount:mainAccount,
+      correspondentCounteragent:clean(rowValue(row,fields.correspondentCounteragent)),
+      comment:clean(rowValue(row,fields.comment)),
+      department:clean(rowValue(row,fields.department)),
+      legalEntity:clean(rowValue(row,fields.legalEntity)),
+      concept:clean(rowValue(row,fields.concept)),
+      transactionSide:clean(rowValue(row,fields.transactionSide)),
+      debit:credit,
+      credit:debit,
+      amount:signed!==null?-signed:credit-debit,
+      balance
+    };
+  }
   return{
     date:dateOnly(rowValue(row,fields.date)),
     number:clean(rowValue(row,fields.number)),
     type:clean(rowValue(row,fields.type)),
-    account:clean(rowValue(row,fields.account)),
-    correspondentAccount:clean(rowValue(row,fields.correspondentAccount)),
+    account:mainAccount,
+    correspondentAccount:corrAccount,
     correspondentCounteragent:clean(rowValue(row,fields.correspondentCounteragent)),
     comment:clean(rowValue(row,fields.comment)),
     department:clean(rowValue(row,fields.department)),
@@ -119,7 +163,7 @@ export async function onRequestPost({request}){
     const body=await request.json();
     const connection={ip:clean(body.ip),port:clean(body.port),login:clean(body.login),password:String(body.password||"")};
     if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Нет подключения к SH Server"},400);
-    const from=dateOnly(body.from),to=dateOnly(body.to),accountId=clean(body.accountId),accountName=clean(body.accountName);
+    const from=dateOnly(body.from),to=dateOnly(body.to),accountId=clean(body.accountId),accountCode=clean(body.accountCode),accountName=clean(body.accountName);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return json({success:false,message:"Укажите корректный период"},400);
     if(!accountId&&!accountName)return json({success:false,message:"Не выбран счёт"},400);
 
@@ -161,46 +205,86 @@ export async function onRequestPost({request}){
       fields.correspondentCounteragent,fields.comment,fields.department,fields.legalEntity,fields.concept,fields.transactionSide
     ].filter(Boolean).filter(canGroup).map(fieldKey);
     const aggregates=[fields.debit,fields.credit,fields.amount,fields.balance].filter(Boolean).filter(canAggregate).map(fieldKey);
-    const filters={};
-    filters[fieldKey(fields.date)]={filterType:"DateRange",periodType:"CUSTOM",from,to,includeLow:true,includeHigh:true};
 
-    const accountFilterField=fields.accountId&&accountId?fields.accountId:fields.account;
-    const accountFilterValue=fields.accountId&&accountId?accountId:accountName;
-    if(accountFilterValue){
-      filters[fieldKey(accountFilterField)]={filterType:"IncludeValues",values:[accountFilterValue]};
-    }
+    const baseFilters={};
+    baseFilters[fieldKey(fields.date)]={filterType:"DateRange",periodType:"CUSTOM",from,to,includeLow:true,includeHigh:true};
 
     const depFilter=selectedDepartmentFilter(allFields,body);
     if(depFilter){
-      filters[fieldKey(depFilter.field)]={filterType:"IncludeValues",values:depFilter.values};
+      baseFilters[fieldKey(depFilter.field)]={filterType:"IncludeValues",values:depFilter.values};
       if(!groupBy.includes(fieldKey(depFilter.field)))groupBy.push(fieldKey(depFilter.field));
     }
 
-    const olapRequest={
-      reportType:"TRANSACTIONS",
-      buildSummary:false,
-      groupByRowFields:[...new Set(groupBy)],
-      groupByColFields:[],
-      aggregateFields:[...new Set(aggregates)],
-      filters
+    const runOlap=async(extraFilters={},label="query")=>{
+      const filters={...baseFilters,...extraFilters};
+      const requestBody={
+        reportType:"TRANSACTIONS",
+        buildSummary:false,
+        groupByRowFields:[...new Set(groupBy)],
+        groupByColFields:[],
+        aggregateFields:[...new Set(aggregates)],
+        filters
+      };
+      const result=await iikoJson(connection,"/resto/api/v2/reports/olap",{
+        method:"POST",
+        headers:{"Content-Type":"application/json",Accept:"application/json"},
+        body:JSON.stringify(requestBody),
+        timeoutMs:45000
+      });
+      if(!result.ok||!result.payload){
+        const error=new Error(`SH OLAP проводки: HTTP ${result.status}${result.text?` — ${result.text.slice(0,700)}`:""}`);
+        error.meta={label,request:requestBody};
+        throw error;
+      }
+      return{label,request:requestBody,rows:asArray(result.payload)};
     };
-    const result=await iikoJson(connection,"/resto/api/v2/reports/olap",{
-      method:"POST",
-      headers:{"Content-Type":"application/json",Accept:"application/json"},
-      body:JSON.stringify(olapRequest),
-      timeoutMs:45000
-    });
-    if(!result.ok||!result.payload){
-      return json({success:false,message:`SH OLAP проводки: HTTP ${result.status}${result.text?` — ${result.text.slice(0,700)}`:""}`,meta:{request:olapRequest}},502);
+
+    const displayValues=[accountName,accountCode&&accountName?`${accountCode} ${accountName}`:"",accountCode&&accountName?`${accountCode} · ${accountName}`:""]
+      .map(clean).filter(Boolean);
+    const attempts=[];
+    let postings=[];
+
+    // 1. Preferred: exact account identifier when SH exposes it.
+    if(fields.accountId&&accountId){
+      const r=await runOlap({[fieldKey(fields.accountId)]:{filterType:"IncludeValues",values:[accountId]}},"account-id");
+      attempts.push({label:r.label,rows:r.rows.length});
+      postings.push(...r.rows.map(row=>normalizePosting(row,fields,"account")));
     }
 
-    let postings=asArray(result.payload).map(row=>normalizePosting(row,fields));
-    // Some builds ignore display-value filters. Keep a second local guard.
-    if(accountName){
-      const wanted=norm(accountName);
-      const same=postings.filter(x=>norm(x.account)===wanted);
-      if(same.length||postings.some(x=>x.account))postings=same;
+    // 2. Display account field. This covers SH builds where entity GUID filters
+    // do not match TRANSACTIONS values.
+    if(!postings.length&&fields.account&&displayValues.length){
+      const r=await runOlap({[fieldKey(fields.account)]:{filterType:"IncludeValues",values:displayValues}},"account-name");
+      attempts.push({label:r.label,rows:r.rows.length});
+      postings.push(...r.rows.map(row=>normalizePosting(row,fields,"account")));
     }
+
+    // 3. A selected ledger account can occur on the correspondent side only.
+    if(fields.correspondentAccount&&displayValues.length){
+      const r=await runOlap({[fieldKey(fields.correspondentAccount)]:{filterType:"IncludeValues",values:displayValues}},"correspondent-account");
+      attempts.push({label:r.label,rows:r.rows.length});
+      postings.push(...r.rows.map(row=>normalizePosting(row,fields,"correspondent")));
+    }
+
+    // 4. Safe bounded fallback for a single selected restaurant. We ask SH for
+    // the period + department only and match both transaction sides locally.
+    // This avoids false zeroes caused by version-specific account filter values.
+    const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(clean).filter(Boolean):[];
+    if(!postings.length&&departmentIds.length===1&&daysBetween(from,to)<=45){
+      const r=await runOlap({},"single-restaurant-period-fallback");
+      attempts.push({label:r.label,rows:r.rows.length});
+      for(const row of r.rows){
+        const main=clean(rowValue(row,fields.account));
+        const corr=clean(rowValue(row,fields.correspondentAccount));
+        if(accountTextMatches(main,accountName,accountCode))postings.push(normalizePosting(row,fields,"account"));
+        else if(accountTextMatches(corr,accountName,accountCode))postings.push(normalizePosting(row,fields,"correspondent"));
+      }
+    }
+
+    postings=uniquePostings(postings).filter(p=>{
+      if(!accountName&&!accountCode)return true;
+      return accountTextMatches(p.account,accountName,accountCode);
+    });
     postings.sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.number).localeCompare(String(b.number)));
 
     const totals=postings.reduce((a,x)=>{a.debit+=Number(x.debit||0);a.credit+=Number(x.credit||0);return a},{debit:0,credit:0});
@@ -215,6 +299,8 @@ export async function onRequestPost({request}){
         reportType:"TRANSACTIONS",
         olapFieldsCacheHit:metadata.cacheHit===true,
         departmentScope:depFilter?depFilter.source:"full-selection-or-rms",
+        attempts,
+        accountMatch:{id:accountId,code:accountCode,name:accountName},
         fields:Object.fromEntries(Object.entries(fields).map(([k,v])=>[k,v?{name:v.name,title:v.title}:null]))
       }
     });
