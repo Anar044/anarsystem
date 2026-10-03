@@ -39,6 +39,16 @@ function pickField(fields,include,exclude=[],predicate=null){
 }
 function canGroup(field){return field&&field.groupingAllowed!==false&&!field.isMeasure}
 function canAggregate(field){return field&&(field.aggregationAllowed===true||field.isMeasure===true||field.source==="measures")}
+function isAccountTypeGroupField(field){
+  const text=fieldText(field).replace(/\s+/g,"");
+  return [
+    "accounttypegroup","accountgroup","typegroup","счетагруппа","группасчета",
+    "типсчета","accounttype","correspondentaccounttypegroup","corraccounttypegroup"
+  ].some(x=>text.includes(norm(x).replace(/\s+/g,"")));
+}
+function isRealAccountDimension(field){
+  return canGroup(field)&&!isAccountTypeGroupField(field);
+}
 function sideKind(value){
   const v=norm(value);
   if(!v)return"";
@@ -173,9 +183,14 @@ export async function onRequestPost({request}){
       date:pickField(allFields,["дата","date","transaction date","transactiondate"],[],canGroup),
       number:pickField(allFields,["номер","number","transaction number","transactionnumber"],["account","счет"],canGroup),
       type:pickField(allFields,["тип","type","transaction type","transactiontype"],["account","счет"],canGroup),
-      account:pickField(allFields,["счет","account"],["корр","corr","group","группа","type","тип"],canGroup),
-      accountId:pickField(allFields,["account id","accountid","id счета","id счет"],["corr","корр"],f=>f.filteringAllowed!==false),
-      correspondentAccount:pickField(allFields,["корр счет","коррсчет","correspondent account","corr account","correspondentaccount"],[],canGroup),
+      account:pickField(allFields,["счет","account"],["корр","corr","group","группа","type","тип"],isRealAccountDimension),
+      accountId:pickField(allFields,["account id","accountid","id счета","id счет"],["corr","корр","group","группа","type","тип"],f=>f.filteringAllowed!==false&&!isAccountTypeGroupField(f)),
+      correspondentAccount:pickField(
+        allFields,
+        ["корр счет","коррсчет","correspondent account","corr account","correspondentaccount"],
+        ["group","группа","type","тип"],
+        isRealAccountDimension
+      ),
       correspondentCounteragent:pickField(allFields,["корр контрагент","correspondent counteragent","corr counteragent"],[],canGroup),
       comment:pickField(allFields,["комментарий","comment","description"],[],canGroup),
       department:pickField(allFields,["подразделение","department","restaurant"],["corr","корр","legal","юр лицо","id"],canGroup),
@@ -225,60 +240,93 @@ export async function onRequestPost({request}){
         aggregateFields:[...new Set(aggregates)],
         filters
       };
-      const result=await iikoJson(connection,"/resto/api/v2/reports/olap",{
-        method:"POST",
-        headers:{"Content-Type":"application/json",Accept:"application/json"},
-        body:JSON.stringify(requestBody),
-        timeoutMs:45000
-      });
-      if(!result.ok||!result.payload){
-        const error=new Error(`SH OLAP проводки: HTTP ${result.status}${result.text?` — ${result.text.slice(0,700)}`:""}`);
-        error.meta={label,request:requestBody};
-        throw error;
+      try{
+        const result=await iikoJson(connection,"/resto/api/v2/reports/olap",{
+          method:"POST",
+          headers:{"Content-Type":"application/json",Accept:"application/json"},
+          body:JSON.stringify(requestBody),
+          timeoutMs:45000
+        });
+        if(!result.ok||!result.payload){
+          return{
+            ok:false,label,request:requestBody,rows:[],
+            error:`HTTP ${result.status}${result.text?` — ${result.text.slice(0,700)}`:""}`
+          };
+        }
+        return{ok:true,label,request:requestBody,rows:asArray(result.payload)};
+      }catch(error){
+        return{ok:false,label,request:requestBody,rows:[],error:String(error?.message||error)};
       }
-      return{label,request:requestBody,rows:asArray(result.payload)};
     };
 
     const displayValues=[accountName,accountCode&&accountName?`${accountCode} ${accountName}`:"",accountCode&&accountName?`${accountCode} · ${accountName}`:""]
       .map(clean).filter(Boolean);
     const attempts=[];
     let postings=[];
-
-    // 1. Preferred: exact account identifier when SH exposes it.
-    if(fields.accountId&&accountId){
-      const r=await runOlap({[fieldKey(fields.accountId)]:{filterType:"IncludeValues",values:[accountId]}},"account-id");
-      attempts.push({label:r.label,rows:r.rows.length});
-      postings.push(...r.rows.map(row=>normalizePosting(row,fields,"account")));
-    }
-
-    // 2. Display account field. This covers SH builds where entity GUID filters
-    // do not match TRANSACTIONS values.
-    if(!postings.length&&fields.account&&displayValues.length){
-      const r=await runOlap({[fieldKey(fields.account)]:{filterType:"IncludeValues",values:displayValues}},"account-name");
-      attempts.push({label:r.label,rows:r.rows.length});
-      postings.push(...r.rows.map(row=>normalizePosting(row,fields,"account")));
-    }
-
-    // 3. A selected ledger account can occur on the correspondent side only.
-    if(fields.correspondentAccount&&displayValues.length){
-      const r=await runOlap({[fieldKey(fields.correspondentAccount)]:{filterType:"IncludeValues",values:displayValues}},"correspondent-account");
-      attempts.push({label:r.label,rows:r.rows.length});
-      postings.push(...r.rows.map(row=>normalizePosting(row,fields,"correspondent")));
-    }
-
-    // 4. Safe bounded fallback for a single selected restaurant. We ask SH for
-    // the period + department only and match both transaction sides locally.
-    // This avoids false zeroes caused by version-specific account filter values.
     const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(clean).filter(Boolean):[];
-    if(!postings.length&&departmentIds.length===1&&daysBetween(from,to)<=45){
-      const r=await runOlap({},"single-restaurant-period-fallback");
-      attempts.push({label:r.label,rows:r.rows.length});
-      for(const row of r.rows){
-        const main=clean(rowValue(row,fields.account));
-        const corr=clean(rowValue(row,fields.correspondentAccount));
-        if(accountTextMatches(main,accountName,accountCode))postings.push(normalizePosting(row,fields,"account"));
-        else if(accountTextMatches(corr,accountName,accountCode))postings.push(normalizePosting(row,fields,"correspondent"));
+    const singleRestaurantBounded=departmentIds.length===1&&daysBetween(from,to)<=45;
+
+    const recordAttempt=r=>{
+      attempts.push({
+        label:r.label,
+        ok:r.ok===true,
+        rows:r.rows?.length||0,
+        error:r.ok?null:r.error||"SH OLAP error"
+      });
+      return r;
+    };
+
+    // 1. GUID/id filter is the most precise when this SH build supports it.
+    if(fields.accountId&&accountId){
+      const r=recordAttempt(await runOlap(
+        {[fieldKey(fields.accountId)]:{filterType:"IncludeValues",values:[accountId]}},
+        "account-id"
+      ));
+      if(r.ok)postings.push(...r.rows.map(row=>normalizePosting(row,fields,"account")));
+    }
+
+    // 2. For one selected restaurant, prefer a period+department scan over
+    // version-specific account-name enum filters. This avoids false zeroes
+    // and errors such as AccountTypeGroup enum conversion.
+    if(!postings.length&&singleRestaurantBounded){
+      const r=recordAttempt(await runOlap({},"single-restaurant-period-fallback"));
+      if(r.ok){
+        for(const row of r.rows){
+          const main=clean(rowValue(row,fields.account));
+          const corr=clean(rowValue(row,fields.correspondentAccount));
+          if(accountTextMatches(main,accountName,accountCode))postings.push(normalizePosting(row,fields,"account"));
+          else if(accountTextMatches(corr,accountName,accountCode))postings.push(normalizePosting(row,fields,"correspondent"));
+        }
       }
+    }
+
+    // 3. For broader scopes try display-value filters, but a rejected probe
+    // must never abort the whole ledger request.
+    if(!postings.length&&!singleRestaurantBounded&&fields.account&&displayValues.length){
+      const r=recordAttempt(await runOlap(
+        {[fieldKey(fields.account)]:{filterType:"IncludeValues",values:displayValues}},
+        "account-name"
+      ));
+      if(r.ok)postings.push(...r.rows.map(row=>normalizePosting(row,fields,"account")));
+    }
+
+    if(!postings.length&&!singleRestaurantBounded&&fields.correspondentAccount&&displayValues.length){
+      const r=recordAttempt(await runOlap(
+        {[fieldKey(fields.correspondentAccount)]:{filterType:"IncludeValues",values:displayValues}},
+        "correspondent-account"
+      ));
+      if(r.ok)postings.push(...r.rows.map(row=>normalizePosting(row,fields,"correspondent")));
+    }
+
+    const successfulAttempt=attempts.some(x=>x.ok);
+    if(!successfulAttempt&&attempts.length){
+      const last=attempts[attempts.length-1];
+      return json({
+        success:false,
+        code:"ACCOUNT_POSTINGS_OLAP_FAILED",
+        message:`SH OLAP проводки: ${last.error||"запрос не выполнен"}`,
+        meta:{attempts,accountMatch:{id:accountId,code:accountCode,name:accountName}}
+      },502);
     }
 
     postings=uniquePostings(postings).filter(p=>{
