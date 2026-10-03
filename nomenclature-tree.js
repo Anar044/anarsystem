@@ -2,7 +2,7 @@
 const $=id=>document.getElementById(id);const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let groups=[],selectedId='__all',page=1,pageSize=25;
 async function conn(){const s=await window.SH_IikoContext.get(),c=s?.connection;if(!c?.ip||!c?.port||!c?.login||!c?.password)throw Error('Нет подключения iiko Server');return c}
-async function api(action,params={}){const c=await conn(),r=await fetch('/api/iiko/nomenclature',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({action,connection:c,params,payload:null})}),d=await r.json().catch(()=>({success:false}));if(!r.ok||d.success===false)throw Error(d.message||`HTTP ${r.status}`);return d.data}
+async function api(action,params={}){const c=await conn(),r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/nomenclature',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({action,connection:c,params,payload:null})},90000),d=await r.json().catch(()=>({success:false}));if(!r.ok||d.success===false)throw Error(d.message||`HTTP ${r.status}`);return d.data}
 const activeRows=()=>[...($('products-body')?.querySelectorAll('tr')||[])].filter(r=>r.children.length>1);
 const children=id=>groups.filter(g=>String(g.parent||'')===String(id||''));
 const descendants=id=>{const out=new Set([String(id)]),walk=x=>children(x).forEach(g=>{const k=String(g.id);if(!out.has(k)){out.add(k);walk(k)}});walk(id);return out};
