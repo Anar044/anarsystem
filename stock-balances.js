@@ -145,7 +145,11 @@ async function load(){
     const b=await binding(),c=b?.connection,departmentIds=Array.isArray(b?.departmentIds)?b.departmentIds:[];
     if(!c?.ip||!c?.port||!c?.login||!c?.password)throw Error('Не найдено подключение iiko. Откройте «Настройки» и подключите iiko Server.');
     const date=$('stock-date').value||ymd();
-    const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/stock-balances',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({...c,date,time:snapshotTime(date),departmentIds,includeZero:true})},60000);
+    const isChain=String(b?.identity?.mode||b?.connection?.connectionType||'RMS').toUpperCase()==='CHAIN';
+    // In CHAIN a full zero-position expansion can multiply the shared catalog
+    // by every warehouse and exceed the Pages Function response budget.
+    // Real balance rows (including real zero rows returned by SH) stay intact.
+    const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/stock-balances',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({...c,date,time:snapshotTime(date),departmentIds,includeZero:!isChain})},45000);
     const j=await r.json().catch(()=>({}));
     if(!r.ok||!j.success)throw Error(j.message||('HTTP '+r.status));
     rows=Array.isArray(j.rows)?j.rows:[];
