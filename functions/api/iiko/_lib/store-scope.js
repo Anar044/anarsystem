@@ -52,14 +52,51 @@ function collectXmlEntities(text){
   }
   return{stores,nodes};
 }
+function authoritativeJsonStores(payload){
+  const out=[],seen=new Set();
+  const roots=Array.isArray(payload)?payload:(Array.isArray(payload?.items)?payload.items:Array.isArray(payload?.stores)?payload.stores:Array.isArray(payload?.data)?payload.data:[]);
+  const add=v=>{
+    if(!v||typeof v!=="object"||Array.isArray(v))return;
+    const id=key(v.id??v.uuid??v.entityId??v.storeId??v.warehouseId);
+    const name=clean(v.name??v.title??v.description??v.fullName??v.code);
+    const parent=v.parentId??v.parentID??v.ParentId??v.parentCorporateId??v.departmentId??v.organizationId??v.parent?.id??v.department?.id;
+    const parentId=key(parent);
+    const type=clean(v.type??v.departmentType??v.entityType??v.kind).toUpperCase();
+    if(id&&!seen.has(id)){seen.add(id);out.push({id,parentId,name,type:type||"STORE"})}
+  };
+  for(const x of roots)add(x);
+  return out;
+}
+function authoritativeXmlStores(text){
+  const out=[],seen=new Set();
+  for(const b of blocks(text,["corporateItemDto","corporateItem","store","storeDto","warehouse","item"])){
+    const id=key(tag(b,["id","uuid","entityId","storeId","warehouseId"]));
+    if(!id||seen.has(id))continue;
+    const name=clean(tag(b,["name","title","description","fullName","code"]));
+    const parentId=key(tag(b,["parentId","parentID","parentCorporateId","departmentId","organizationId"]));
+    const type=clean(tag(b,["type","departmentType","entityType","kind"])).toUpperCase();
+    seen.add(id);out.push({id,parentId,name,type:type||"STORE"});
+  }
+  return out;
+}
 async function loadEntities(connection,path){
   const r=await iikoText(connection,path,{headers:{Accept:"application/json, application/xml, text/xml, */*"}});
   if(!r.ok)return{ok:false,status:r.status,stores:[],nodes:[],preview:String(r.text||"").slice(0,500)};
   try{
     const parsed=JSON.parse(r.text||"{}");
-    return{ok:true,status:r.status,...collectJsonEntities(parsed),preview:String(r.text||"").slice(0,500)};
+    const base=collectJsonEntities(parsed);
+    if(path.includes("/corporation/stores")){
+      const forced=authoritativeJsonStores(parsed),seen=new Set(base.stores.map(x=>x.id));
+      for(const s of forced)if(!seen.has(s.id)){seen.add(s.id);base.stores.push(s)}
+    }
+    return{ok:true,status:r.status,...base,preview:String(r.text||"").slice(0,900)};
   }catch{
-    return{ok:true,status:r.status,...collectXmlEntities(r.text),preview:String(r.text||"").slice(0,500)};
+    const base=collectXmlEntities(r.text);
+    if(path.includes("/corporation/stores")){
+      const forced=authoritativeXmlStores(r.text),seen=new Set(base.stores.map(x=>x.id));
+      for(const s of forced)if(!seen.has(s.id)){seen.add(s.id);base.stores.push(s)}
+    }
+    return{ok:true,status:r.status,...base,preview:String(r.text||"").slice(0,900)};
   }
 }
 function belongsToSelected(store,nodeMap,wanted){
@@ -93,7 +130,7 @@ export async function resolveStoreScope(connection,departmentIds=[]){
     selectedDepartmentIds:selected,
     storeIds:uniq(matched.map(x=>x.id)),
     stores:matched,
-    resolved:stores.length===0?false:(matched.length>0||hasRelationship),
+    resolved:matched.length>0,
     diagnostics:{
       storeEndpointStatus:storesResult.status,
       departmentEndpointStatus:departmentsResult.status,
