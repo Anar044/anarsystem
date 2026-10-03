@@ -41,15 +41,25 @@
   async function init(){try{
     if(!$('addDishBtn'))return;
     try{
-      activeRestaurant=await selectedRestaurant();
-      if(activeRestaurant?.id){
-        storageKey=`${KEY}:${String(activeRestaurant.id).toLowerCase()}`;
-        const mode=String(activeRestaurant.binding?.identity?.mode||activeRestaurant.binding?.connection?.connectionType||'RMS').toUpperCase();
-        if(mode!=='CHAIN'&&!localStorage.getItem(storageKey)&&localStorage.getItem(KEY))localStorage.setItem(storageKey,localStorage.getItem(KEY));
+      if(!window.SH_IikoContext?.getBinding)throw new Error('Контекст Smart Horeca не готов.');
+      const binding=await window.SH_IikoContext.getBinding(true);
+      const mode=String(binding?.identity?.mode||binding?.connection?.connectionType||'RMS').toUpperCase();
+      const ids=[...new Set((binding?.departmentIds||[]).map(String).filter(Boolean))].sort();
+      if(mode==='CHAIN'){
+        storageKey=`${KEY}:chain:${ids.map(x=>x.toLowerCase()).join(',')||'none'}`;
+        if(ids.length===1){
+          const restaurant=(binding?.restaurants||[]).find(x=>String(x?.id)===ids[0]);
+          activeRestaurant={binding,id:ids[0],name:restaurant?.name||'Мой ресторан'};
+        }
+      }else{
+        const id=ids[0]||String(binding?.identity?.organizationId||binding?.connection?.organizationId||'').trim();
+        storageKey=id?`${KEY}:${String(id).toLowerCase()}`:KEY;
+        if(!localStorage.getItem(storageKey)&&localStorage.getItem(KEY))localStorage.setItem(storageKey,localStorage.getItem(KEY));
+        activeRestaurant={binding,id,name:binding?.identity?.restaurantName||'Мой ресторан'};
       }
     }catch(error){
       console.warn('QR Menu restaurant scope unavailable',error);
-      storageKey=KEY;
+      storageKey=`${KEY}:unscoped`;
     }
     loadState();bind();render();console.info('QR Menu initialized',{storageKey,restaurantId:activeRestaurant?.id||null});
   }catch(e){console.error('QR Menu initialization failed',e);alert('QR Menu не удалось загрузить: '+(e.message||e))}}
