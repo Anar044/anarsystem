@@ -101,6 +101,18 @@
     window.__shBrandObserver=observer;
   }
   function reveal(){root.classList.remove('hc-loading');root.style.visibility='visible'}
-  function init(){ensureMasterStyles().then(()=>{installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();applySHBranding();reveal();const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');if(menu&&side)menu.onclick=()=>side.classList.toggle('open')})}
+  async function markNetworkSharedPage(){
+    const shared=new Set(["nomenclature.html","hr-calendar.html"]);
+    if(!shared.has(currentPage())||!window.SH_IikoContext?.getBinding)return;
+    try{
+      const b=await window.SH_IikoContext.getBinding();
+      const mode=String(b?.identity?.mode||b?.connection?.connectionType||"RMS").toUpperCase();
+      if(mode!=="CHAIN")return;
+      const sub=document.querySelector(".topbar-sub");
+      if(sub&&!sub.dataset.chainShared){sub.dataset.chainShared="1";sub.textContent=(sub.textContent?sub.textContent+" · ":"")+"Общий для всей сети CHAIN"}
+    }catch(_){}
+  }
+
+  function init(){ensureMasterStyles().then(()=>{installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();applySHBranding();markNetworkSharedPage();reveal();const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');if(menu&&side)menu.onclick=()=>side.classList.toggle('open')})}
   init();
 })();
