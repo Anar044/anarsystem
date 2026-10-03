@@ -23,7 +23,7 @@ async function api(body=null){
   const t=await token(),asOf=$('hcpAsOf').value||today(),opts={headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}};
   let url=`/api/hr/compensation?asOf=${encodeURIComponent(asOf)}`;
   if(body){opts.method='POST';opts.headers['Content-Type']='application/json';opts.body=JSON.stringify({...body,asOf});url='/api/hr/compensation'}
-  const r=await fetch(url,opts),j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));
+  const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)(url,opts,60000),j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));
   if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);
   return j;
 }
