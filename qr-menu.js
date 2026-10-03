@@ -1,13 +1,14 @@
 (() => {
   'use strict';
   const KEY='horeca_qr_menu_v1';
+  let storageKey=KEY,activeRestaurant=null;
   const DEFAULT_DESIGN={name:'Мой ресторан',tagline:'QR Menu',about:'Добро пожаловать! Мы создаём вкусные блюда и приятные моменты для наших гостей.',accent:'#D4AF37',text:'#17211c',bg:'#f4f6f5',surface:'#ffffff',theme:'light',font:'Inter',radius:'16px',hero:'',logo:'',phone:'',address:'',hours:'',social:'',wifi:'',showPrices:true,showDescriptions:true,showComposition:true,showAbout:true,showContacts:true};
   const DEFAULT_STATE={categories:[{id:'main',name:'Основные блюда',source:'local'},{id:'salads',name:'Салаты',source:'local'},{id:'pizza',name:'Пицца',source:'local'},{id:'drinks',name:'Напитки',source:'local'},{id:'desserts',name:'Десерты',source:'local'}],active:'main',dishes:[{id:1,cat:'main',name:'Шашлык из телятины',price:16,desc:'Телятина, лук, зелень',source:'local'},{id:2,cat:'main',name:'Паста Карбонара',price:13,desc:'Паста, сливочный соус, сыр',source:'local'},{id:3,cat:'salads',name:'Цезарь с курицей',price:13,desc:'Курица, салат, соус Цезарь',source:'local'},{id:4,cat:'pizza',name:'Пицца Маргарита',price:12,desc:'Томат, моцарелла, базилик',source:'local'},{id:5,cat:'drinks',name:'Лимонад',price:9,desc:'Лимон, мята, вода',source:'local'}],design:{...DEFAULT_DESIGN}};
   let state=null,editId=null,sortAsc=true;
   const $=id=>document.getElementById(id);
   const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-  function loadState(){try{state=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){state=null}if(!state||typeof state!=='object')state=JSON.parse(JSON.stringify(DEFAULT_STATE));state.design={...DEFAULT_DESIGN,...(state.design||{})};state.categories=Array.isArray(state.categories)?state.categories.map(c=>({...c,source:c.source||'local'})):[];state.dishes=Array.isArray(state.dishes)?state.dishes.map(d=>({...d,source:d.source||'local'})):[];if(!state.categories.length)state.categories=JSON.parse(JSON.stringify(DEFAULT_STATE.categories));if(!state.active||!state.categories.some(c=>c.id===state.active))state.active=state.categories[0].id}
-  function save(){localStorage.setItem(KEY,JSON.stringify(state));if($('saveStatus'))$('saveStatus').textContent='● Изменения сохранены'}
+  function loadState(){try{state=JSON.parse(localStorage.getItem(storageKey)||'null')}catch(e){state=null}if(!state||typeof state!=='object')state=JSON.parse(JSON.stringify(DEFAULT_STATE));state.design={...DEFAULT_DESIGN,...(state.design||{})};state.categories=Array.isArray(state.categories)?state.categories.map(c=>({...c,source:c.source||'local'})):[];state.dishes=Array.isArray(state.dishes)?state.dishes.map(d=>({...d,source:d.source||'local'})):[];if(!state.categories.length)state.categories=JSON.parse(JSON.stringify(DEFAULT_STATE.categories));if(!state.active||!state.categories.some(c=>c.id===state.active))state.active=state.categories[0].id}
+  function save(){localStorage.setItem(storageKey,JSON.stringify(state));if($('saveStatus'))$('saveStatus').textContent='● Изменения сохранены'}
   async function selectedRestaurant(){if(!window.SH_IikoContext?.getBinding)throw new Error('Контекст Smart Horeca не готов.');const b=await window.SH_IikoContext.getBinding(true);const ids=Array.isArray(b?.departmentIds)?b.departmentIds.map(String).filter(Boolean):[];const mode=String(b?.identity?.mode||b?.connection?.connectionType||'RMS').toUpperCase();if(mode==='CHAIN'&&ids.length!==1)throw new Error('Для QR Menu выберите один ресторан в верхнем фильтре.');const id=ids[0]||String(b?.identity?.organizationId||b?.connection?.organizationId||'').trim();const restaurant=(b?.restaurants||[]).find(x=>String(x?.id)===String(id));return{binding:b,id,name:restaurant?.name||b?.identity?.restaurantName||state?.design?.name||'Мой ресторан'}}
   function renderCats(){const el=$('categories');if(!el)return;el.innerHTML=state.categories.map(c=>`<div class="cat ${c.id===state.active?'active':''}" data-cat="${esc(c.id)}"><span>☷ &nbsp;${esc(c.name)}${c.source==='iiko'?'<span class="source-badge">iiko</span>':''}</span><span>${state.dishes.filter(d=>d.cat===c.id).length}</span></div>`).join('');el.querySelectorAll('.cat').forEach(x=>x.addEventListener('click',()=>{state.active=x.dataset.cat;save();render()}));if($('fCat'))$('fCat').innerHTML=state.categories.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
   function renderItems(){const el=$('items');if(!el)return;const q=($('searchDish')?.value||'').toLowerCase();let ds=state.dishes.filter(d=>d.cat===state.active&&(d.name+' '+(d.desc||'')).toLowerCase().includes(q));ds.sort((a,b)=>sortAsc?a.name.localeCompare(b.name):b.name.localeCompare(a.name));el.innerHTML=ds.length?ds.map(d=>`<div class="item" data-id="${esc(d.id)}"><div class="photo">${d.photo?`<img src="${d.photo}" alt="">`:'🍽'}</div><div><h4>${esc(d.name)}${d.source==='iiko'?'<span class="source-badge">iiko</span>':''}</h4><p>${esc(d.desc||'Состав не указан')}</p><div class="item-actions"><button type="button" class="mini edit" data-id="${esc(d.id)}">Изменить</button><button type="button" class="mini photoBtn" data-id="${esc(d.id)}">Фото</button><button type="button" class="mini del" data-id="${esc(d.id)}">Удалить</button></div></div><div class="price">${Number(d.price||0).toFixed(2)} ₼</div></div>`).join(''):'<div class="empty">В этой категории пока нет блюд.<br>Нажмите «Добавить блюдо».</div>';el.querySelectorAll('.edit').forEach(b=>b.addEventListener('click',()=>openEdit(b.dataset.id)));el.querySelectorAll('.del').forEach(b=>b.addEventListener('click',()=>deleteDish(b.dataset.id)));el.querySelectorAll('.photoBtn').forEach(b=>b.addEventListener('click',()=>{editId=b.dataset.id;$('fPhoto')?.click()}))}
@@ -37,6 +38,20 @@
     $('dHero')?.addEventListener('change',async e=>{if(e.target.files[0]){state.design.hero=await resizeImage(e.target.files[0]);save();renderPreview()}});$('dLogo')?.addEventListener('change',async e=>{if(e.target.files[0]){state.design.logo=await resizeImage(e.target.files[0]);save();renderPreview()}});
     $('resetDesign')?.addEventListener('click',()=>{if(confirm('Сбросить настройки дизайна?')){state.design={...DEFAULT_DESIGN};save();fillDesignForm();renderPreview()}});$('saveDesign')?.addEventListener('click',()=>{readDesignForm();$('settingsModal').classList.remove('show');alert('Дизайн сохранён. Нажмите «Опубликовать меню», чтобы применить его в публичном QR Menu.')});
   }
-  function init(){try{if(!$('addDishBtn'))return;loadState();bind();render();console.info('QR Menu initialized')}catch(e){console.error('QR Menu initialization failed',e);alert('QR Menu не удалось загрузить: '+(e.message||e))}}
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
+  async function init(){try{
+    if(!$('addDishBtn'))return;
+    try{
+      activeRestaurant=await selectedRestaurant();
+      if(activeRestaurant?.id){
+        storageKey=`${KEY}:${String(activeRestaurant.id).toLowerCase()}`;
+        const mode=String(activeRestaurant.binding?.identity?.mode||activeRestaurant.binding?.connection?.connectionType||'RMS').toUpperCase();
+        if(mode!=='CHAIN'&&!localStorage.getItem(storageKey)&&localStorage.getItem(KEY))localStorage.setItem(storageKey,localStorage.getItem(KEY));
+      }
+    }catch(error){
+      console.warn('QR Menu restaurant scope unavailable',error);
+      storageKey=KEY;
+    }
+    loadState();bind();render();console.info('QR Menu initialized',{storageKey,restaurantId:activeRestaurant?.id||null});
+  }catch(e){console.error('QR Menu initialization failed',e);alert('QR Menu не удалось загрузить: '+(e.message||e))}}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>init(),{once:true});else init();
 })();
