@@ -36,6 +36,8 @@ jobs:
 
           grep -q "selectedDepartmentIds" functions/api/iiko/_lib/ai-assistant-tools.js
           grep -q "resolveRestaurantScope" functions/api/ai-assistant.js
+          grep -q "conversationScopeKey" functions/api/ai-assistant.js
+          grep -q "scope_key" functions/api/ai-assistant.js
           grep -q "departmentIds" ai-assistant.js
 
           grep -q "balance/counteragents department filter" functions/api/iiko/accounts.js
@@ -54,6 +56,8 @@ jobs:
 
           grep -q "QR_MENU_SINGLE_RESTAURANT_REQUIRED" functions/api/iiko/qr-menu.js
           grep -q "QR_MENU_SINGLE_RESTAURANT_REQUIRED" functions/api/qr-menu/publish.js
+          grep -q "storageKey" qr-menu.js
+          grep -q "selectedRestaurant" qr-menu.js
 
           grep -q "restaurant_id" functions/api/assets.js
           grep -q "resolveRestaurantScope" functions/api/asset-meta.js
@@ -128,6 +132,7 @@ jobs:
           node --check app-shell.js
           node --check ai-assistant.js
           node --check ai-documents.js
+          node --check qr-menu.js
           node --check cash-groups.js
           node --check events.js
           node --check plugin-events.js
