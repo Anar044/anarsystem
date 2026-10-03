@@ -112,13 +112,22 @@ export function resolveRestaurantScope({state,request=null,requestedIds=null,str
   };
 }
 
+function isFullSelection(scope){
+  const allowed=uniq(scope?.allowedDepartmentIds||[]);
+  const selected=uniq(scope?.selectedDepartmentIds||[]);
+  return allowed.length>0&&selected.length===allowed.length&&selected.every(id=>allowed.includes(id));
+}
+
 export function applyDepartmentScopeToBody(body,scope){
   const next=body&&typeof body==="object"?{...body}:{};
-  next.departmentIds=[...(scope?.selectedDepartmentIds||[])];
+  const selected=[...(scope?.selectedDepartmentIds||[])];
+  const fullSelection=isFullSelection(scope);
+  next.departmentIds=scope?.isChain&&fullSelection?[]:selected;
   next.chainScope={
     mode:scope?.mode||"RMS",
-    selectedDepartmentIds:[...(scope?.selectedDepartmentIds||[])],
+    selectedDepartmentIds:selected,
     allowedDepartmentIds:[...(scope?.allowedDepartmentIds||[])],
+    fullSelection,
     selectedDepartmentCodes:[...(scope?.selectedDepartmentCodes||[])],
     selectedDepartmentNames:[...(scope?.selectedRestaurants||[]).map(x=>clean(x?.name)).filter(Boolean)],
     selectedGroupIds:[...(scope?.selectedGroupIds||[])],
