@@ -225,11 +225,15 @@ async function loadV2(connection,type,from,to){
 }
 
 async function nativeDepartmentStores(connection,departmentIds,from,to){
-  const ids=new Set(),attempts=[];
-  for(const timestamp of [from+"T00:00:00",to+"T23:59:59"]){
+  const ids=new Set(),timestamps=[from+"T00:00:00",to+"T23:59:59"];
+  const results=await Promise.all(timestamps.map(async timestamp=>{
     const q=new URLSearchParams({timestamp});
     for(const id of departmentIds)q.append("department",id);
-    const r=await iikoJson(connection,"/resto/api/v2/reports/balance/stores?"+q.toString(),{timeoutMs:60000});
+    const r=await iikoJson(connection,"/resto/api/v2/reports/balance/stores?"+q.toString(),{timeoutMs:20000});
+    return{timestamp,r};
+  }));
+  const attempts=[];
+  for(const {timestamp,r} of results){
     attempts.push({timestamp,status:r.status,ok:r.ok});
     if(!r.ok)continue;
     for(const row of list(r.payload)){
