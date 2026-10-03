@@ -163,20 +163,36 @@ function parseInvoiceDocs(xml,kind){
     items:parseInvoiceItems(b)
   }));
 }
-async function loadInvoice(connection,kind,from,to){
+async function loadInvoice(connection,kind,from,to,allowUnboundedFallback=true){
   const endpoint=kind==="incoming"?"/resto/api/documents/export/incomingInvoice":"/resto/api/documents/export/outgoingInvoice";
   const attempts=[];
   for(const pair of [[from,to],[ruDate(from),ruDate(to)]]){
-    const q=new URLSearchParams({from:pair[0],to:pair[1]});
-    const r=await iikoText(connection,endpoint+"?"+q.toString(),{headers:{Accept:"application/xml,text/xml,*/*"}});
-    const docs=r.ok?parseInvoiceDocs(r.text,kind):[];
-    attempts.push({path:endpoint,status:r.status,count:docs.length});
-    if(r.ok&&docs.length)return{ok:true,docs,attempts};
+    try{
+      const q=new URLSearchParams({from:pair[0],to:pair[1]});
+      const r=await iikoText(connection,endpoint+"?"+q.toString(),{headers:{Accept:"application/xml,text/xml,*/*"},timeoutMs:15000});
+      const docs=r.ok?parseInvoiceDocs(r.text,kind):[];
+      attempts.push({path:endpoint,status:r.status,count:docs.length,from:pair[0],to:pair[1]});
+      if(r.ok&&docs.length)return{ok:true,docs,attempts};
+      if(r.ok&&docs.length===0)return{ok:true,docs:[],attempts};
+    }catch(error){
+      attempts.push({path:endpoint,status:0,count:0,from:pair[0],to:pair[1],error:String(error?.message||error)});
+    }
   }
-  const r=await iikoText(connection,endpoint,{headers:{Accept:"application/xml,text/xml,*/*"}});
-  const docs=r.ok?parseInvoiceDocs(r.text,kind).filter(d=>{const dt=dateOnly(d.date);return(!dt||dt>=from)&&(!dt||dt<=to)}):[];
-  attempts.push({path:endpoint,status:r.status,count:docs.length,fallback:true});
-  return{ok:r.ok,docs,attempts};
+
+  // Never download the entire corporation document history while a CHAIN
+  // subset is selected. That fallback can be enormous and was causing the
+  // movement page to hit the Pages Function execution limit.
+  if(!allowUnboundedFallback)return{ok:false,docs:[],attempts};
+
+  try{
+    const r=await iikoText(connection,endpoint,{headers:{Accept:"application/xml,text/xml,*/*"},timeoutMs:15000});
+    const docs=r.ok?parseInvoiceDocs(r.text,kind).filter(d=>{const dt=dateOnly(d.date);return(!dt||dt>=from)&&(!dt||dt<=to)}):[];
+    attempts.push({path:endpoint,status:r.status,count:docs.length,fallback:true});
+    return{ok:r.ok,docs,attempts};
+  }catch(error){
+    attempts.push({path:endpoint,status:0,count:0,fallback:true,error:String(error?.message||error)});
+    return{ok:false,docs:[],attempts};
+  }
 }
 
 function docStoreId(d,names){
@@ -216,7 +232,9 @@ async function loadV2(connection,type,from,to){
   const attempts=[];
   for(const endpoint of candidates){
     const q=new URLSearchParams({dateFrom:from,dateTo:to});
-    const r=await iikoJson(connection,endpoint+"?"+q.toString(),{timeoutMs:60000});
+    let r;
+    try{r=await iikoJson(connection,endpoint+"?"+q.toString(),{timeoutMs:15000})}
+    catch(error){attempts.push({path:endpoint,status:0,count:0,error:String(error?.message||error)});continue}
     const docs=r.ok?normalizeV2Docs(r.payload,type):[];
     attempts.push({path:endpoint,status:r.status,count:docs.length});
     if(r.ok)return{ok:true,docs,attempts};
@@ -229,7 +247,9 @@ async function nativeDepartmentStores(connection,departmentIds,from,to){
   const results=await Promise.all(timestamps.map(async timestamp=>{
     const q=new URLSearchParams({timestamp});
     for(const id of departmentIds)q.append("department",id);
-    const r=await iikoJson(connection,"/resto/api/v2/reports/balance/stores?"+q.toString(),{timeoutMs:20000});
+    let r;
+    try{r=await iikoJson(connection,"/resto/api/v2/reports/balance/stores?"+q.toString(),{timeoutMs:12000})}
+    catch(error){return{timestamp,r:{ok:false,status:0,payload:null,error:String(error?.message||error)}}}
     return{timestamp,r};
   }));
   const attempts=[];
@@ -309,8 +329,8 @@ export async function onRequestPost({request}){
       subsetRequested?resolveStoreScope(connection,departmentIds):Promise.resolve({resolved:true,storeIds:[],diagnostics:null}),
       subsetRequested?nativeDepartmentStores(connection,departmentIds,from,to):Promise.resolve({storeIds:[],attempts:[]}),
       metadata(connection),
-      loadInvoice(connection,"incoming",from,to),
-      loadInvoice(connection,"outgoing",from,to),
+      loadInvoice(connection,"incoming",from,to,!subsetRequested),
+      loadInvoice(connection,"outgoing",from,to,!subsetRequested),
       loadV2(connection,"writeoff",from,to),
       loadV2(connection,"transfer",from,to),
       loadV2(connection,"inventory",from,to)
