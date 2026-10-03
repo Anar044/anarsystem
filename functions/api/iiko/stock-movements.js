@@ -224,6 +224,22 @@ async function loadV2(connection,type,from,to){
   return{ok:false,docs:[],attempts};
 }
 
+async function nativeDepartmentStores(connection,departmentIds,from,to){
+  const ids=new Set(),attempts=[];
+  for(const timestamp of [from+"T00:00:00",to+"T23:59:59"]){
+    const q=new URLSearchParams({timestamp});
+    for(const id of departmentIds)q.append("department",id);
+    const r=await iikoJson(connection,"/resto/api/v2/reports/balance/stores?"+q.toString(),{timeoutMs:60000});
+    attempts.push({timestamp,status:r.status,ok:r.ok});
+    if(!r.ok)continue;
+    for(const row of list(r.payload)){
+      const sid=refId(row?.store??row?.storeId??row?.warehouse??row?.warehouseId);
+      if(sid)ids.add(sid);
+    }
+  }
+  return{storeIds:[...ids],attempts};
+}
+
 function enrichInvoice(meta,source,kind){
   const type=kind==="incoming"?"incoming":"outgoing";
   const label=kind==="incoming"?"Приход":"Расход";
@@ -285,13 +301,9 @@ export async function onRequestPost({request}){
     const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(key).filter(Boolean))]:[];
     const allowedDepartmentIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(key).filter(Boolean):[];
     const subsetRequested=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedDepartmentIds.length>departmentIds.length;
-    const storeScope=subsetRequested?await resolveStoreScope(connection,departmentIds):{resolved:true,storeIds:[]};
-    if(subsetRequested&&!storeScope.resolved){
-      return json({success:false,code:"STOCK_MOVEMENT_SCOPE_UNAVAILABLE",message:"Не удалось определить склады выбранного ресторана. Движение товара не будет показано без безопасного CHAIN-фильтра.",meta:{departmentIds,storeScope:storeScope.diagnostics||null}},409);
-    }
-    const scopedStores=new Set((storeScope.storeIds||[]).map(key).filter(Boolean));
-
-    const [meta,incoming,outgoing,writeoff,transfer,inventory]=await Promise.all([
+    const [storeScope,nativeStoreScope,meta,incoming,outgoing,writeoff,transfer,inventory]=await Promise.all([
+      subsetRequested?resolveStoreScope(connection,departmentIds):Promise.resolve({resolved:true,storeIds:[],diagnostics:null}),
+      subsetRequested?nativeDepartmentStores(connection,departmentIds,from,to):Promise.resolve({storeIds:[],attempts:[]}),
       metadata(connection),
       loadInvoice(connection,"incoming",from,to),
       loadInvoice(connection,"outgoing",from,to),
@@ -299,6 +311,10 @@ export async function onRequestPost({request}){
       loadV2(connection,"transfer",from,to),
       loadV2(connection,"inventory",from,to)
     ]);
+    const scopedStores=new Set([...(storeScope.storeIds||[]),...(nativeStoreScope.storeIds||[])].map(key).filter(Boolean));
+    if(subsetRequested&&!scopedStores.size){
+      return json({success:false,code:"STOCK_MOVEMENT_SCOPE_UNAVAILABLE",message:"SH Server не вернул ни одного склада выбранного ресторана через справочник или scoped-остатки. Движение товара не показано.",meta:{departmentIds,storeScope:storeScope.diagnostics||null,nativeStoreScope}},409);
+    }
 
     let movements=[
       ...enrichInvoice(meta,incoming,"incoming"),
@@ -342,7 +358,7 @@ export async function onRequestPost({request}){
         transferValue:movements.filter(x=>x.type==="transfer").reduce((s,x)=>s+Number(x.value||0),0),
         inventoryValue:movements.filter(x=>x.type==="inventory").reduce((s,x)=>s+Number(x.value||0),0)
       },
-      meta:{metadataCacheHit:meta.cacheHit===true,warehouseCount:meta.stores.length,unitCount:meta.unitCount,departmentIds,departmentScopeApplied:subsetRequested,scopedStoreIds:[...scopedStores],storeScopeDiagnostics:storeScope.diagnostics||null}
+      meta:{metadataCacheHit:meta.cacheHit===true,warehouseCount:meta.stores.length,unitCount:meta.unitCount,departmentIds,departmentScopeApplied:subsetRequested,scopedStoreIds:[...scopedStores],storeScopeDiagnostics:storeScope.diagnostics||null,nativeStoreScope,scopeSource:subsetRequested?"corporation stores + balance/stores department filter":"all"}
     });
   }catch(e){
     console.error("IIKO STOCK MOVEMENTS ERROR",e);
