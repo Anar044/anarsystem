@@ -28,6 +28,10 @@ function scoreField(field,include=[],exclude=[]){
   }
   return score;
 }
+function exactField(fields,...names){
+  const wanted=new Set(names.map(x=>clean(x).toLowerCase()).filter(Boolean));
+  return (fields||[]).find(field=>wanted.has(fieldKey(field).toLowerCase()))||null;
+}
 function pickField(fields,include,exclude=[],predicate=null){
   let best=null,bestScore=0;
   for(const field of fields||[]){
@@ -87,7 +91,7 @@ function uniquePostings(rows){
   const seen=new Set(),out=[];
   for(const row of rows){
     const key=[
-      row.date,row.number,row.type,row.account,row.correspondentAccount,row.correspondentCounteragent,
+      row.date,row.number,row.type,row.account,row.accountCode,row.correspondentAccount,row.correspondentAccountCode,row.correspondentCounteragent,
       row.comment,row.department,row.debit,row.credit,row.balance
     ].map(x=>String(x??"")).join("|");
     if(seen.has(key))continue;
@@ -128,14 +132,18 @@ function normalizePosting(row,fields,matchedOn="account"){
   }
   const balance=numberValue(rowValue(row,fields.balance));
   const mainAccount=clean(rowValue(row,fields.account));
+  const mainAccountCode=clean(rowValue(row,fields.accountCode));
   const corrAccount=clean(rowValue(row,fields.correspondentAccount));
+  const corrAccountCode=clean(rowValue(row,fields.correspondentAccountCode));
   if(matchedOn==="correspondent"){
     return{
       date:dateOnly(rowValue(row,fields.date)),
       number:clean(rowValue(row,fields.number)),
       type:clean(rowValue(row,fields.type)),
       account:corrAccount,
+      accountCode:corrAccountCode,
       correspondentAccount:mainAccount,
+      correspondentAccountCode:mainAccountCode,
       correspondentCounteragent:clean(rowValue(row,fields.correspondentCounteragent)),
       comment:clean(rowValue(row,fields.comment)),
       department:clean(rowValue(row,fields.department)),
@@ -153,7 +161,9 @@ function normalizePosting(row,fields,matchedOn="account"){
     number:clean(rowValue(row,fields.number)),
     type:clean(rowValue(row,fields.type)),
     account:mainAccount,
+    accountCode:mainAccountCode,
     correspondentAccount:corrAccount,
+    correspondentAccountCode:corrAccountCode,
     correspondentCounteragent:clean(rowValue(row,fields.correspondentCounteragent)),
     comment:clean(rowValue(row,fields.comment)),
     department:clean(rowValue(row,fields.department)),
@@ -180,27 +190,46 @@ export async function onRequestPost({request}){
     const metadata=await getOlapFields(connection,"TRANSACTIONS");
     const allFields=metadata.fields||[];
     const fields={
-      date:pickField(allFields,["дата","date","transaction date","transactiondate"],[],canGroup),
-      number:pickField(allFields,["номер","number","transaction number","transactionnumber"],["account","счет"],canGroup),
-      type:pickField(allFields,["тип","type","transaction type","transactiontype"],["account","счет"],canGroup),
-      account:pickField(allFields,["счет","account"],["корр","corr","group","группа","type","тип"],isRealAccountDimension),
-      accountId:pickField(allFields,["account id","accountid","id счета","id счет"],["corr","корр","group","группа","type","тип"],f=>f.filteringAllowed!==false&&!isAccountTypeGroupField(f)),
-      correspondentAccount:pickField(
-        allFields,
-        ["корр счет","коррсчет","correspondent account","corr account","correspondentaccount"],
-        ["group","группа","type","тип"],
-        isRealAccountDimension
-      ),
-      correspondentCounteragent:pickField(allFields,["корр контрагент","correspondent counteragent","corr counteragent"],[],canGroup),
-      comment:pickField(allFields,["комментарий","comment","description"],[],canGroup),
-      department:pickField(allFields,["подразделение","department","restaurant"],["corr","корр","legal","юр лицо","id"],canGroup),
-      legalEntity:pickField(allFields,["юр лицо","юридическое лицо","legal entity","legalentity"],[],canGroup),
-      concept:pickField(allFields,["концепция","concept"],[],canGroup),
-      transactionSide:pickField(allFields,["transaction side","transactionside","сторона проводки","дебет кредит","debit credit"],[],canGroup),
-      debit:pickField(allFields,["сумма прихода","debit amount","debitsum","debit sum","income amount","incoming amount"],[],canAggregate),
-      credit:pickField(allFields,["сумма расхода","credit amount","creditsum","credit sum","expense amount","outgoing amount"],[],canAggregate),
-      amount:pickField(allFields,["transaction sum","transactionsum","transaction amount","transactionamount","сумма проводки","amount","sum"],["итог","total","balance","остаток"],canAggregate),
-      balance:pickField(allFields,["остаток","balance","saldo","сальдо"],[],canAggregate)
+      date:exactField(allFields,"DateTime.DateTyped","DateSecondary.DateTyped")
+        ||pickField(allFields,["дата","date"],[],canGroup),
+      number:exactField(allFields,"Document","OrderNum")
+        ||pickField(allFields,["документ","номер","number"],["account","счет"],canGroup),
+      type:exactField(allFields,"TransactionType")
+        ||pickField(allFields,["transaction type","transactiontype","тип операции","тип"],["account","счет"],canGroup),
+
+      account:exactField(allFields,"Account.Name")
+        ||pickField(allFields,["account name","счет"],["корр","corr","group","группа","type","тип","storeoraccount"],isRealAccountDimension),
+      accountCode:exactField(allFields,"Account.Code"),
+      accountId:exactField(allFields,"Account.Id")
+        ||pickField(allFields,["account id","accountid","id счета","id счет"],["corr","корр","group","группа","type","тип"],f=>f.filteringAllowed!==false&&!isAccountTypeGroupField(f)),
+
+      correspondentAccount:exactField(allFields,"Contr-Account.Name")
+        ||pickField(allFields,["корр счет","коррсчет","correspondent account","corr account","contr account"],["group","группа","type","тип"],isRealAccountDimension),
+      correspondentAccountCode:exactField(allFields,"Contr-Account.Code"),
+      correspondentCounteragent:exactField(allFields,"Counteragent.Name")
+        ||pickField(allFields,["контрагент","counteragent"],["account","счет"],canGroup),
+
+      comment:exactField(allFields,"Comment")
+        ||pickField(allFields,["комментарий","comment","description"],[],canGroup),
+      department:exactField(allFields,"Department")
+        ||pickField(allFields,["подразделение","department","restaurant"],["corr","корр","legal","юр лицо","id"],canGroup),
+      legalEntity:exactField(allFields,"LegalEntity")
+        ||pickField(allFields,["юр лицо","юридическое лицо","legal entity","legalentity"],[],canGroup),
+      concept:exactField(allFields,"Conception","Conception.Code")
+        ||pickField(allFields,["концепция","concept"],[],canGroup),
+
+      transactionSide:exactField(allFields,"TransactionSide")
+        ||pickField(allFields,["transaction side","transactionside","сторона проводки","дебет кредит","debit credit"],[],canGroup),
+
+      // Official TRANSACTIONS OLAP money measures.
+      debit:exactField(allFields,"Sum.Incoming")
+        ||pickField(allFields,["сумма прихода","debit amount","debitsum","debit sum","income amount","incoming amount"],[],canAggregate),
+      credit:exactField(allFields,"Sum.Outgoing")
+        ||pickField(allFields,["сумма расхода","credit amount","creditsum","credit sum","expense amount","outgoing amount"],[],canAggregate),
+      amount:exactField(allFields,"Amount")
+        ||pickField(allFields,["transaction sum","transactionsum","transaction amount","transactionamount","сумма проводки","amount","sum"],["итог","total","balance","остаток"],canAggregate),
+      balance:exactField(allFields,"StartBalance.Money","StartBalance.Amount")
+        ||pickField(allFields,["остаток","balance","saldo","сальдо"],[],canAggregate)
     };
 
     if(!fields.date||!fields.account||(!fields.debit&&!fields.credit&&!fields.amount)){
@@ -216,7 +245,7 @@ export async function onRequestPost({request}){
     }
 
     const groupBy=[
-      fields.date,fields.number,fields.type,fields.account,fields.correspondentAccount,
+      fields.date,fields.number,fields.type,fields.account,fields.accountCode,fields.correspondentAccount,fields.correspondentAccountCode,
       fields.correspondentCounteragent,fields.comment,fields.department,fields.legalEntity,fields.concept,fields.transactionSide
     ].filter(Boolean).filter(canGroup).map(fieldKey);
     const aggregates=[fields.debit,fields.credit,fields.amount,fields.balance].filter(Boolean).filter(canAggregate).map(fieldKey);
@@ -292,10 +321,15 @@ export async function onRequestPost({request}){
       const r=recordAttempt(await runOlap({},"single-restaurant-period-fallback"));
       if(r.ok){
         for(const row of r.rows){
-          const main=clean(rowValue(row,fields.account));
-          const corr=clean(rowValue(row,fields.correspondentAccount));
-          if(accountTextMatches(main,accountName,accountCode))postings.push(normalizePosting(row,fields,"account"));
-          else if(accountTextMatches(corr,accountName,accountCode))postings.push(normalizePosting(row,fields,"correspondent"));
+          const mainName=clean(rowValue(row,fields.account));
+          const mainCode=clean(rowValue(row,fields.accountCode));
+          const corrName=clean(rowValue(row,fields.correspondentAccount));
+          const corrCode=clean(rowValue(row,fields.correspondentAccountCode));
+          if(accountTextMatches(mainName,accountName,accountCode)||accountTextMatches(mainCode,accountName,accountCode)){
+            postings.push(normalizePosting(row,fields,"account"));
+          }else if(accountTextMatches(corrName,accountName,accountCode)||accountTextMatches(corrCode,accountName,accountCode)){
+            postings.push(normalizePosting(row,fields,"correspondent"));
+          }
         }
       }
     }
@@ -331,7 +365,8 @@ export async function onRequestPost({request}){
 
     postings=uniquePostings(postings).filter(p=>{
       if(!accountName&&!accountCode)return true;
-      return accountTextMatches(p.account,accountName,accountCode);
+      return accountTextMatches(p.account,accountName,accountCode)
+        ||accountTextMatches(p.accountCode,accountName,accountCode);
     });
     postings.sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.number).localeCompare(String(b.number)));
 
