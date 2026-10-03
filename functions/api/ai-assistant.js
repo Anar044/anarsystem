@@ -176,6 +176,7 @@ async function ensureTables(db) {
     db.prepare(`CREATE TABLE IF NOT EXISTS ai_assistant_conversations (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      scope_key TEXT NOT NULL DEFAULT '',
       title TEXT NOT NULL DEFAULT 'Новый чат',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -194,8 +195,16 @@ async function ensureTables(db) {
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_assistant_messages_conversation
       ON ai_assistant_messages(conversation_id, created_at ASC)`)
   ]);
+  try{await db.prepare("ALTER TABLE ai_assistant_conversations ADD COLUMN scope_key TEXT NOT NULL DEFAULT ''").run()}catch(_){}
+  try{await db.prepare("CREATE INDEX IF NOT EXISTS idx_ai_assistant_conversations_user_scope ON ai_assistant_conversations(user_id, scope_key, updated_at DESC)").run()}catch(_){}
 }
-async function conversationById(db, userId, conversationId) {
+function conversationScopeKey(iiko){
+  const scope=iiko?.scope;
+  if(!scope?.isChain)return "";
+  const ids=[...new Set((scope.selectedDepartmentIds||[]).map(String).filter(Boolean))].sort();
+  return `CHAIN:${ids.join(",")}`;
+}
+async function conversationById(db, userId, conversationId, scopeKey="") {
   return db.prepare(`SELECT id,title,created_at,updated_at
     FROM ai_assistant_conversations
     WHERE id=?1 AND user_id=?2 LIMIT 1`)
