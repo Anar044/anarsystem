@@ -1,3 +1,4 @@
+import { verifyPluginIngress } from "./_lib/ingest-auth.js";
 // ANAR plugin ingest endpoint. Supports both Supabase secret and legacy service_role keys.
 
 function corsHeaders() {
@@ -98,8 +99,10 @@ export async function onRequestPost(context) {
     const body = await context.request.json();
     const envelope = normalizeEnvelope(body);
     const errors = validate(envelope);
+    if (!envelope.pluginId) errors.push("pluginId is required");
     if (errors.length) return jsonResponse({ success: false, accepted: false, errors }, 400);
 
+    const identity=await verifyPluginIngress(context.request,context.env,{pluginId:envelope.pluginId,departmentId:envelope.departmentId});
     const storage = await persistEvent(envelope, context.env);
     return jsonResponse({
       success: storage.stored,
@@ -107,9 +110,10 @@ export async function onRequestPost(context) {
       stored: storage.stored,
       storageReason: storage.reason || null,
       routing: { departmentId: envelope.departmentId, event: envelope.event },
+      verified:identity.verified,
       eventId: envelope.eventId
     }, storage.stored ? 202 : 503);
   } catch (error) {
-    return jsonResponse({ success: false, accepted: false, errors: [error?.message || "Invalid request"] }, 400);
+    return jsonResponse({ success:false,accepted:false,code:error?.code||"PLUGIN_INGEST_ERROR",errors:[error?.message||"Invalid request"] },Number(error?.status)||400);
   }
 }
