@@ -117,6 +117,7 @@ jobs:
             hr-timesheet.html
             hr-calendar.html
             qr-menu.html
+            settings.html
             events.html
             plugin-events.html
           )
@@ -129,6 +130,7 @@ jobs:
       - name: Syntax check CHAIN modules
         run: |
           node --check iiko-context.js
+          node --check iiko-identity.js
           node --check app-shell.js
           node --check ai-assistant.js
           node --check ai-documents.js
