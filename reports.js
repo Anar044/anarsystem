@@ -113,7 +113,7 @@
 
     async function loadOlapFields(options = {}) {
         const force = options.force === true;
-        const maxAttempts = Math.max(1, Number(options.maxAttempts) || 3);
+        const maxAttempts = Math.max(1, Number(options.maxAttempts) || 2);
         if (!force && olapFieldsLoadPromise) return olapFieldsLoadPromise;
 
         const promise = (async () => {
@@ -143,7 +143,7 @@
                             login: iikoConnection.login,
                             password: iikoConnection.password
                         })
-                    });
+                    }, 30000);
                     const data = await safeJson(response);
                     if (!response.ok || data.success === false) {
                         throw new Error(data.message || `OLAP fields HTTP ${response.status}`);
