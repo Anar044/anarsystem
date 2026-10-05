@@ -73,8 +73,13 @@ const subsetRequested=chainMode&&departmentIds.length>0&&allowedIds.length>depar
 const departmentNames=new Map(
   (Array.isArray(b?.chainScope?.departments)?b.chainScope.departments:[])
     .map(x=>[normDepartmentId(x?.id),String(x?.name||"").trim()])
-    .filter(x=>x[0])
+    .filter(x=>x[0]&&x[1])
 );
+const selectedNames=Array.isArray(b?.chainScope?.selectedDepartmentNames)?b.chainScope.selectedDepartmentNames:[];
+departmentIds.forEach((id,index)=>{
+  const key=normDepartmentId(id),name=String(selectedNames[index]||"").trim();
+  if(key&&name&&!departmentNames.has(key))departmentNames.set(key,name);
+});
 const targets=chainMode&&departmentIds.length
   ? departmentIds.map(id=>({id,name:departmentNames.get(normDepartmentId(id))||""}))
   : [{id:"",name:""}];
