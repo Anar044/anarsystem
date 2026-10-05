@@ -1,6 +1,7 @@
 import { clean, iikoJson } from "./_lib/iiko-client.js";
 import { getIikoSuppliers } from "./_lib/iiko-suppliers.js";
 import { syncReferences } from "./references.js";
+import { loadCachedReferenceMaps } from "./_lib/reference-cache.js";
 import { resolveStoreScope } from "./_lib/store-scope.js";
 
 function corsHeaders() {
@@ -159,10 +160,12 @@ export async function onRequestPost({ request, env }) {
 
     const authModule = await import("./_lib/iiko-client.js");
     const auth = await authModule.getIikoAuth(connection);
-    const [refs, supplierResult] = await Promise.all([
-      syncReferences(env, auth.serverUrl, auth.token),
-      getIikoSuppliers(connection)
-    ]);
+    let refs = await loadCachedReferenceMaps(env, auth.serverUrl, [], {
+      ttlMs: 6 * 60 * 60 * 1000,
+      requiredKeys: ["suppliers", "warehouses", "products"]
+    });
+    if (!refs) refs = await syncReferences(env, auth.serverUrl, auth.token);
+    const supplierResult = await getIikoSuppliers(connection);
     const maps = refs.maps || {};
     const suppliers = (supplierResult.rows || [])
       .map(x => ({ id: String(x.id || "").replace(/^\\{+|\\}+$/g, "").toLowerCase(), name: String(x.name || "") }))
@@ -230,6 +233,7 @@ export async function onRequestPost({ request, env }) {
       },
       diagnostics: {
         references: refs.diagnostics || null,
+        referenceCacheHit: refs.cacheHit === true,
         supplierSource: {
           endpoint: "/resto/api/suppliers?revisionFrom=-1",
           status: supplierResult.status,
