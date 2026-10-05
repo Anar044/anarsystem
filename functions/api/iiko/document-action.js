@@ -1,5 +1,6 @@
 import { clean, iikoText } from "./_lib/iiko-client.js";
 import { resolveStoreScope } from "./_lib/store-scope.js";
+import { logAuditEvent } from "../_lib/audit-log.js";
 
 function corsHeaders() {
   return {
@@ -234,7 +235,9 @@ export async function onRequestPost(context) {
       return jsonResponse({ success: false, message: "Не найдено подключение к iiko Server" }, 400);
     }
 
-    let document = body.document || {};
+    const originalDocument = body.document && typeof body.document==="object" ? body.document : {};
+    const auditBefore = body.auditBefore && typeof body.auditBefore==="object" ? body.auditBefore : null;
+    let document = originalDocument;
     const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(String).filter(Boolean):[];
     const allowedIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
     const subsetRequested=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
@@ -321,6 +324,50 @@ export async function onRequestPost(context) {
       }, validationFailed ? 422 : 502);
     }
 
+    const documentNumber = clean(
+      validation.documentNumber ||
+      validation.otherSuggestedNumber ||
+      document.documentNumber ||
+      originalDocument.documentNumber
+    );
+    const auditAfter = action === "unprocess"
+      ? { ...document, status: "NEW" }
+      : { ...document };
+    const inferredBefore = auditBefore || (
+      action === "process"
+        ? { ...originalDocument, status: clean(originalDocument.status || "NEW") }
+        : action === "unprocess"
+          ? { ...originalDocument, status: clean(originalDocument.status || "PROCESSED") }
+          : null
+    );
+    const auditAction = action === "save"
+      ? (inferredBefore ? "UPDATE" : "CREATE")
+      : action === "save-and-process"
+        ? (inferredBefore ? "UPDATE_AND_PROCESS" : "CREATE_AND_PROCESS")
+        : action === "process"
+          ? "PROCESS"
+          : "UNPROCESS";
+    const audit = await logAuditEvent({
+      request: context.request,
+      env: context.env,
+      connection,
+      action: auditAction,
+      entityType: type === "incoming" ? "INCOMING_INVOICE" : "OUTGOING_INVOICE",
+      entityId: clean(document.id || originalDocument.id || documentNumber),
+      entityLabel: `${type === "incoming" ? "Приходная накладная" : "Расходная накладная"} №${documentNumber || "—"}`,
+      documentNumber,
+      before: inferredBefore,
+      after: auditAfter,
+      restaurantIds: departmentIds,
+      restaurantNames: Array.isArray(body?.chainScope?.selectedDepartmentNames) ? body.chainScope.selectedDepartmentNames : [],
+      metadata: {
+        documentType: type,
+        requestedAction: action,
+        serverStatus: result.status,
+        validation
+      }
+    });
+
     return jsonResponse({
       success: true,
       action,
@@ -338,7 +385,9 @@ export async function onRequestPost(context) {
               : "Документ сохранён в iiko BackOffice",
       meta: {
         processed: ["save-and-process", "process"].includes(action),
-        authCacheHit: Boolean(result.auth?.cacheHit)
+        authCacheHit: Boolean(result.auth?.cacheHit),
+        auditLogged: audit.logged === true,
+        auditChanges: audit.changes || 0
       }
     });
   } catch (error) {
