@@ -20,7 +20,7 @@ function render(shifts){
  const t=totals(shifts),o=shifts.filter(open).length;$("cs-total").textContent=shifts.length;$("cs-open").textContent=o;$("cs-closed").textContent=shifts.length-o;$("cs-sales").textContent=t.sales?money(t.sales):"—";
  if(!shifts.length){$("cs-table-wrap").innerHTML='<div class="cs-empty">За выбранный период кассовые смены не найдены.</div>';return}
  $("cs-table-wrap").innerHTML=`<table class="cs-table"><thead><tr><th>Ресторан</th><th>Опер. день</th><th>Касса / ФР</th><th>№ смены</th><th>Фиск. №</th><th>Серийный №</th><th>Открыта</th><th>Закрыта</th><th>Кассир</th><th>Заказы</th><th>Наличные</th><th>Карта</th><th>Кредит</th><th>Внесения</th><th>Изъятия</th><th>Изъятие при закрытии</th><th>Остаток</th><th>Расхождение</th><th>Статус</th><th>Проводки</th></tr></thead><tbody>${shifts.map((s,i)=>{const st=String(v(s,"sessionStatus","")).toUpperCase(),regName=cashRegisterName(s),cashier=cashierName(s),cashierId=v(s,"responsibleUser","—");return `<tr>
-<td><span class="cs-restaurant">${esc(v(s,"_restaurantName","Не определён"))}</span>${departmentId(s)?`<span class="cs-secondary cs-dept-id">${esc(departmentId(s))}</span>`:""}</td>
+<td><span class="cs-restaurant">${esc(v(s,"_restaurantName","Не определён"))}</span></td>
 <td>${esc(s._operationDay||v(s,"_dateKey",v(s,"openDate","—")))}</td>
 <td><b>${esc(regName||(`Касса № ${v(s,"cashRegNumber","—")}`))}</b>${regName?`<span class="cs-secondary">№ кассы ${esc(v(s,"cashRegNumber","—"))}</span>`:""}</td>
 <td>${esc(v(s,"sessionNumber","—"))}</td><td>${esc(v(s,"fiscalNumber","—"))}</td><td>${esc(v(s,"cashRegSerial","—"))}</td>
@@ -42,12 +42,15 @@ async function load(){
    mode:String(binding?.identity?.mode||c?.connectionType||"RMS").toUpperCase(),
    allowedDepartmentIds:allDepartmentIds,
    selectedDepartmentIds:departmentIds,
-   selectedDepartmentNames:restaurants.filter(r=>departmentIds.includes(String(r?.id||""))).map(r=>String(r?.name||"")).filter(Boolean)
+   selectedDepartmentNames:restaurants.filter(r=>departmentIds.includes(String(r?.id||""))).map(r=>String(r?.name||"")).filter(Boolean),
+   departments:restaurants
+     .filter(r=>departmentIds.includes(String(r?.id||"")))
+     .map(r=>({id:String(r?.id||""),name:String(r?.name||r?.id||"Ресторан")}))
  };
  const decorate=list=>(list||[]).map(s=>{
    const id=normId(departmentId(s));
    const fallback=departmentIds.length===1?restaurantNames.get(normId(departmentIds[0])):"";
-   return {...s,_restaurantName:restaurantNames.get(id)||fallback||"Не определён"};
+   return {...s,_restaurantName:String(s?._departmentName||restaurantNames.get(id)||fallback||"Не определён")};
  });
  const b=$("cs-load");b.disabled=true;setStatus("Получаем кассовые смены…");
  try{
