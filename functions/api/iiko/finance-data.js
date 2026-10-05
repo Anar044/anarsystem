@@ -100,6 +100,24 @@ if(subsetRequested){
 return jsonResponse({
   success:true,mode:"list",from:b.from,to:b.to,count:shifts.length,shifts,errors,
   endpoint:"/resto/api/v2/cashshifts/list",
-  meta:{days,rangeRequests:targets.length,formats:[...formats],departmentIds,allowedDepartmentIds:allowedIds,detectedDepartmentIds,departmentScopeApplied:chainMode&&departmentIds.length>0,subsetRequested,chainMode,restaurantNamesAttached:[...departmentNames.values()].filter(Boolean).length,authCacheHit}
+  meta:{
+    days,
+    rangeRequests:targets.length,
+    formats:[...formats],
+    departmentIds,
+    allowedDepartmentIds:allowedIds,
+    detectedDepartmentIds,
+    departmentScopeApplied:chainMode&&departmentIds.length>0,
+    subsetRequested,
+    chainMode,
+    restaurantNamesAttached:[...departmentNames.values()].filter(Boolean).length,
+    targetPreview:targets.slice(0,12).map(x=>({id:x.id,name:x.name||""})),
+    rowDepartmentPreview:shifts.slice(0,12).map(x=>({
+      sessionId:sid(x),
+      departmentId:String(x._departmentId||shiftDepartmentId(x)||""),
+      departmentName:String(x._departmentName||"")
+    })),
+    authCacheHit
+  }
 });
 }catch(e){return jsonResponse({success:false,message:e?.message||"Ошибка получения финансовых данных"},502);}}
