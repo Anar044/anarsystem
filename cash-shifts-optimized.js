@@ -7,6 +7,7 @@ function esc(v){return String(v??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&l
 function v(o,k,f=null){return o&&o[k]!==undefined&&o[k]!==null&&o[k]!==""?o[k]:f}
 function first(o,keys,f=""){for(const k of keys){const x=o?.[k];if(x!==undefined&&x!==null&&String(x).trim()!=="")return x}return f}
 function departmentId(s){return String(first(s,["_departmentId","departmentId","departmentID","departmentGuid","organizationId","organisationId","restaurantId"],s?.department?.id??s?.organization?.id??s?.restaurant?.id??"")).trim()}
+function normId(x){return String(x??"").trim().replace(/^\\{+|\\}+$/g,"").toLowerCase()}
 function cashRegisterName(s){return String(first(s,["cashRegisterName","cashRegName","cashDeskName","registerName","terminalName","fiscalRegisterName"],"")).trim()}
 function cashierName(s){return String(first(s,["responsibleUserName","cashierName","responsibleCashierName","userName","employeeName"],"")).trim()}
 async function getIikoBinding(){if(window.SH_IikoContext?.getBinding)return await window.SH_IikoContext.getBinding();const state=window.SH_IikoContext?.get?await window.SH_IikoContext.get():null;return{connection:state?.connection||null,departmentIds:window.SH_IikoContext?.departmentIds?window.SH_IikoContext.departmentIds(state):[]}}
@@ -21,7 +22,7 @@ function render(shifts){
  $("cs-table-wrap").innerHTML=`<table class="cs-table"><thead><tr><th>Ресторан</th><th>Опер. день</th><th>Касса / ФР</th><th>№ смены</th><th>Фиск. №</th><th>Серийный №</th><th>Открыта</th><th>Закрыта</th><th>Кассир</th><th>Заказы</th><th>Наличные</th><th>Карта</th><th>Кредит</th><th>Внесения</th><th>Изъятия</th><th>Изъятие при закрытии</th><th>Остаток</th><th>Расхождение</th><th>Статус</th><th>Проводки</th></tr></thead><tbody>${shifts.map((s,i)=>{const st=String(v(s,"sessionStatus","")).toUpperCase(),regName=cashRegisterName(s),cashier=cashierName(s),cashierId=v(s,"responsibleUser","—");return `<tr>
 <td><span class="cs-restaurant">${esc(v(s,"_restaurantName","Не определён"))}</span>${departmentId(s)?`<span class="cs-secondary cs-dept-id">${esc(departmentId(s))}</span>`:""}</td>
 <td>${esc(s._operationDay||v(s,"_dateKey",v(s,"openDate","—")))}</td>
-<td><b>${esc(regName||(`Касса № ${v(s,"cashRegNumber","—")}`))}</b><span class="cs-secondary">№ ${esc(v(s,"cashRegNumber","—"))}${v(s,"cashRegSerial",null)?` · ${esc(s.cashRegSerial)}`:""}</span></td>
+<td><b>${esc(regName||(`Касса № ${v(s,"cashRegNumber","—")}`))}</b>${regName?`<span class="cs-secondary">№ кассы ${esc(v(s,"cashRegNumber","—"))}</span>`:""}</td>
 <td>${esc(v(s,"sessionNumber","—"))}</td><td>${esc(v(s,"fiscalNumber","—"))}</td><td>${esc(v(s,"cashRegSerial","—"))}</td>
 <td>${esc(String(v(s,"openDate",null)||"—").replace("T"," ").replace(/\.\d+(?=Z|$)/,""))}</td>
 <td>${esc(String(v(s,"closeDate",null)||"—").replace("T"," ").replace(/\.\d+(?=Z|$)/,""))}</td>
@@ -35,7 +36,7 @@ async function load(){
  if(!departmentIds.length){setStatus("Не найден Department ID выбранного SH Server. Переподключитесь через Настройки.","error");return}
  const from=$("cs-from").value,to=$("cs-to").value;if(!from||!to){setStatus("Выберите период.","error");return}
  const restaurants=Array.isArray(binding?.restaurants)?binding.restaurants:[];
- const restaurantNames=new Map(restaurants.map(r=>[String(r?.id||""),String(r?.name||r?.id||"Ресторан")]));
+ const restaurantNames=new Map(restaurants.map(r=>[normId(r?.id),String(r?.name||r?.id||"Ресторан")]).filter(x=>x[0]));
  const allDepartmentIds=Array.isArray(binding?.allDepartmentIds)?binding.allDepartmentIds.map(String).filter(Boolean):departmentIds;
  const chainScope={
    mode:String(binding?.identity?.mode||c?.connectionType||"RMS").toUpperCase(),
@@ -44,8 +45,8 @@ async function load(){
    selectedDepartmentNames:restaurants.filter(r=>departmentIds.includes(String(r?.id||""))).map(r=>String(r?.name||"")).filter(Boolean)
  };
  const decorate=list=>(list||[]).map(s=>{
-   const id=departmentId(s);
-   const fallback=departmentIds.length===1?restaurantNames.get(departmentIds[0]):"";
+   const id=normId(departmentId(s));
+   const fallback=departmentIds.length===1?restaurantNames.get(normId(departmentIds[0])):"";
    return {...s,_restaurantName:restaurantNames.get(id)||fallback||"Не определён"};
  });
  const b=$("cs-load");b.disabled=true;setStatus("Получаем кассовые смены…");
