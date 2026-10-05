@@ -1,6 +1,6 @@
 import { clean, iikoJson } from "./_lib/iiko-client.js";
 import { getIikoSuppliers } from "./_lib/iiko-suppliers.js";
-import { syncReferences } from "./references.js";
+import { syncAiReferences } from "./references.js";
 import { loadCachedReferenceMaps } from "./_lib/reference-cache.js";
 import { resolveStoreScope } from "./_lib/store-scope.js";
 
@@ -165,7 +165,7 @@ export async function onRequestPost({ request, env }) {
       allowStale: true,
       requiredKeys: ["suppliers", "warehouses", "products"]
     });
-    if (!refs) refs = await syncReferences(env, auth.serverUrl, auth.token);
+    if (!refs) refs = await syncAiReferences(env, auth.serverUrl, auth.token);
     const maps = refs.maps || {};
     let supplierResult = null;
     let suppliers = rows(maps.suppliers);
