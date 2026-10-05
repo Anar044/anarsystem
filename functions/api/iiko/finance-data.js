@@ -19,7 +19,7 @@ async function shiftsForRange(connection,from,to,departmentId=""){
   if(departmentId)q.set("departmentId",departmentId);
   const primary=await iikoJson(connection,`/resto/api/v2/cashshifts/list?${q.toString()}`);
   if(primary.ok){
-    return{ok:true,shifts:extractList(primary.payload).map(x=>({...normalizeShift(x,from,"ANY"),_departmentId:departmentId||shiftDepartmentId(x)||""})).filter(Boolean),authCacheHit:Boolean(primary.auth?.cacheHit),format:"range+ANY"};
+    return{ok:true,shifts:extractList(primary.payload).map(x=>({...normalizeShift(x,from,"ANY"),_departmentId:shiftDepartmentId(x)||departmentId||""})).filter(Boolean),authCacheHit:Boolean(primary.auth?.cacheHit),format:"range+ANY"};
   }
   const all=[];const errors=[];let authCacheHit=Boolean(primary.auth?.cacheHit);
   for(const status of ["OPEN","CLOSED"]){
@@ -27,7 +27,7 @@ async function shiftsForRange(connection,from,to,departmentId=""){
     if(departmentId)fq.set("departmentId",departmentId);
     const r=await iikoJson(connection,`/resto/api/v2/cashshifts/list?${fq.toString()}`);
     authCacheHit=authCacheHit||Boolean(r.auth?.cacheHit);
-    if(r.ok)all.push(...extractList(r.payload).map(x=>({...normalizeShift(x,from,status),_departmentId:departmentId||shiftDepartmentId(x)||""})).filter(Boolean));
+    if(r.ok)all.push(...extractList(r.payload).map(x=>({...normalizeShift(x,from,status),_departmentId:shiftDepartmentId(x)||departmentId||""})).filter(Boolean));
     else errors.push({status,httpStatus:r.status,message:(r.text||"").slice(0,500)});
   }
   return all.length?{ok:true,shifts:all,authCacheHit,format:"range+OPEN+CLOSED",fallback:true}:{ok:false,shifts:[],authCacheHit,error:{from,to,departmentId,httpStatus:primary.status,message:(primary.text||"").slice(0,500),fallbackErrors:errors}};
@@ -63,8 +63,12 @@ if(to<from)return jsonResponse({success:false,message:"Дата окончани
 const days=Math.round((to-from)/86400000)+1;
 if(days>62)return jsonResponse({success:false,message:"Период кассовых смен ограничен 62 днями за один запрос"},400);
 const allowedIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
-const subsetRequested=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
-const targets=subsetRequested?departmentIds:[""];
+const chainMode=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN";
+const subsetRequested=chainMode&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+// In CHAIN always request each selected Department separately, including the
+// "all restaurants" selection. This guarantees every shift can be labeled
+// with its restaurant even when the cash-shift payload itself omits Department.
+const targets=chainMode&&departmentIds.length?departmentIds:[""];
 const rangeResults=await mapLimit(targets,4,departmentId=>shiftsForRange(connection,iso(from),iso(to),departmentId));
 const all=[],errors=[],formats=new Set();let authCacheHit=false;
 for(const r of rangeResults){
@@ -82,6 +86,6 @@ if(subsetRequested){
 return jsonResponse({
   success:true,mode:"list",from:b.from,to:b.to,count:shifts.length,shifts,errors,
   endpoint:"/resto/api/v2/cashshifts/list",
-  meta:{days,rangeRequests:targets.length,formats:[...formats],departmentIds,allowedDepartmentIds:allowedIds,detectedDepartmentIds,departmentScopeApplied:subsetRequested,subsetRequested,authCacheHit}
+  meta:{days,rangeRequests:targets.length,formats:[...formats],departmentIds,allowedDepartmentIds:allowedIds,detectedDepartmentIds,departmentScopeApplied:chainMode&&departmentIds.length>0,subsetRequested,chainMode,authCacheHit}
 });
 }catch(e){return jsonResponse({success:false,message:e?.message||"Ошибка получения финансовых данных"},502);}}
