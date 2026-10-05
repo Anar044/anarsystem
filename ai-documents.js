@@ -148,6 +148,54 @@ function currentMatching(){
     }))
   };
 }
+const aiSuggestionCache=new Map();
+function suggestionLatinize(v){
+  const map={'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e','ж':'zh','з':'z','и':'i','й':'i','к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f','х':'h','ц':'ts','ч':'ch','ш':'sh','щ':'shch','ы':'y','э':'e','ю':'yu','я':'ya','ъ':'','ь':'','ə':'e','ı':'i','ş':'sh','ç':'ch','ğ':'g','ö':'o','ü':'u','x':'h'};
+  return [...String(v??'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'')].map(ch=>map[ch]??ch).join('');
+}
+function suggestionNorm(v){return suggestionLatinize(v).replace(/[^a-z0-9]+/g,' ').trim()}
+function suggestionEdit(a,b){
+  const x=suggestionNorm(a),y=suggestionNorm(b);if(!x||!y)return 0;
+  const m=x.length,n=y.length,prev=Array.from({length:n+1},(_,i)=>i),cur=new Array(n+1);
+  for(let i=1;i<=m;i++){cur[0]=i;for(let j=1;j<=n;j++)cur[j]=Math.min(cur[j-1]+1,prev[j]+1,prev[j-1]+(x[i-1]===y[j-1]?0:1));for(let j=0;j<=n;j++)prev[j]=cur[j]}
+  return 1-prev[n]/Math.max(m,n);
+}
+function suggestionScore(a,b){
+  const x=suggestionNorm(a),y=suggestionNorm(b);if(!x||!y)return 0;if(x===y)return 1;
+  if(x.includes(y)||y.includes(x))return .95*Math.min(x.length,y.length)/Math.max(x.length,y.length);
+  const A=x.split(/\s+/).filter(Boolean),B=y.split(/\s+/).filter(Boolean),setB=new Set(B);
+  const inter=A.filter(t=>setB.has(t)).length,union=new Set([...A,...B]).size;
+  const j=union?inter/union:0;
+  let token=0;
+  for(const aToken of A){let best=0;for(const bToken of B)best=Math.max(best,suggestionEdit(aToken,bToken));token+=best}
+  token=A.length?token/Math.max(A.length,B.length):0;
+  return Math.max(j,suggestionEdit(x,y)*.92,token*.96);
+}
+function fallbackProductCandidates(sourceName,limit=3){
+  const key=suggestionNorm(sourceName);
+  if(!key)return[];
+  if(aiSuggestionCache.has(key))return aiSuggestionCache.get(key).slice(0,limit);
+  const ranked=(refs?.products||[])
+    .map(x=>({...x,score:Number(suggestionScore(sourceName,x.name).toFixed(4)),clientFallback:true}))
+    .filter(x=>x?.id&&x?.name&&x.score>=.18)
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,5);
+  aiSuggestionCache.set(key,ranked);
+  return ranked.slice(0,limit);
+}
+function supplierCoreClient(value){
+  const suffix=new Set(['mmc','llc','ltd','asc','ooo','zao','oao','ao','ip','company','co','corp','corporation','sirketi','shirketi','ticaret','trade']);
+  return suggestionNorm(value).split(/\s+/).filter(t=>t&&!suffix.has(t)).join(' ');
+}
+function supplierClientMatch(source,rows){
+  const core=supplierCoreClient(source);if(!core)return null;
+  const exact=(rows||[]).filter(x=>supplierCoreClient(x?.name)===core);
+  if(exact.length===1)return{...exact[0],score:1};
+  const ranked=(rows||[]).map(x=>({...x,score:suggestionScore(core,supplierCoreClient(x?.name))})).sort((a,b)=>b.score-a.score);
+  const best=ranked[0],second=ranked[1];
+  if(best&&best.score>=.72&&(!second||best.score-second.score>=.12))return best;
+  return null;
+}
 function renderSupplierSuggestions(m){
   const host=$('supplierSuggestions');if(!host)return;
   const selected=$('draftSupplier')?.value||'';
@@ -168,9 +216,16 @@ function renderSupplierSuggestions(m){
 }
 function candidateButtons(item){
   if(item?.productId)return '';
-  const candidates=(Array.isArray(item?.candidates)?item.candidates:[])
+  let candidates=(Array.isArray(item?.candidates)?item.candidates:[])
     .filter(x=>x?.id&&x?.name&&Number(x.score||0)>=.28)
     .slice(0,3);
+  if(candidates.length<3){
+    const seen=new Set(candidates.map(x=>String(x.id)));
+    for(const x of fallbackProductCandidates(item?.sourceName||'',3)){
+      if(!seen.has(String(x.id))){seen.add(String(x.id));candidates.push(x)}
+      if(candidates.length>=3)break;
+    }
+  }
   if(!candidates.length)return '<div class="aid-match-warn">Похожих товаров не найдено — выберите товар вручную.</div>';
   return '<div class="aid-suggestions"><span>Возможно, вы имели в виду:</span><div class="aid-suggestion-list">'+
     candidates.map(x=>'<button type="button" class="aid-suggestion" data-product-id="'+esc(x.id)+'" title="Сходство '+Math.round(Number(x.score||0)*100)+'%">'+esc(x.name)+'</button>').join('')+
@@ -296,7 +351,7 @@ function recalcTotal(){
   validateDraftArithmetic();
 }
 async function rememberAlias(row){if(!current)return;const i=Number(row.dataset.index),item=currentMatching().items?.[i],sel=row.querySelector('[data-f="product"]');const product=(refs?.products||[]).find(x=>String(x.id)===String(sel.value));if(!item?.sourceName||!product)return;await aiPost({action:'saveAlias',sourceName:item.sourceName,productId:product.id,productName:product.name,supplierId:$('draftSupplier').value})}
-async function fillReview(doc){let refsWarning='';try{await loadRefs()}catch(e){refsWarning=e?.message||'Справочники Smart Horeca временно недоступны';refs=refs||{suppliers:[],warehouses:[],products:[]}}current=doc;renderList();$('reviewEmpty').hidden=true;$('reviewContent').hidden=false;$('reviewTitle').textContent=doc.fileName;$('reviewMeta').textContent=(statusText[doc.status]||doc.status)+(doc.providerUsed?' · '+doc.providerUsed+(doc.model?' / '+doc.model:''):'');const raw=doc.result?.extracted||{},saved=doc.result?.confirmedDraft||null,m=currentMatching();$('draftNumber').value=saved?.documentNumber||raw.documentNumber||doc.documentNumber||autoDocumentNumber();$('draftDate').value=String(saved?.dateIncoming||raw.date||doc.documentDate||today()).slice(0,10);$('draftSupplier').innerHTML=selectOptions(refs.suppliers,saved?.supplierId||m.supplierId||doc.supplierId,'Выберите поставщика');renderSupplierSuggestions(m);$('draftSupplier').onchange=()=>renderSupplierSuggestions({...m,supplierId:$('draftSupplier').value});const trustedStore=saved?.defaultStore||(m.storeSelectionRequired===false?m.defaultStoreId:'');$('draftStore').innerHTML=selectOptions(refs.warehouses,trustedStore,'Выберите склад');$('draftInvoice').value=saved?.invoice||raw.invoiceNumber||doc.invoiceNumber||'';$('draftIncoming').value=saved?.incomingDocumentNumber||raw.incomingNumber||doc.incomingNumber||raw.invoiceNumber||doc.invoiceNumber||'';$('draftDue').value=String(saved?.dueDate||raw.dueDate||doc.dueDate||'').slice(0,10);$('draftCurrency').value=raw.currency||doc.currency||'AZN';const savedTotal=saved?.documentTotal;$('draftDeclaredTotal').value=Number.isFinite(Number(savedTotal))?Number(savedTotal).toFixed(2):(Number.isFinite(Number(raw.total))?Number(raw.total).toFixed(2):'');$('draftDeclaredTotal').oninput=recalcTotal;renderItems();const arithmetic=validateDraftArithmetic();if(doc.status==='ERROR')setReviewStatus(doc.errorMessage||'Ошибка AI','error');else if(doc.status==='IMPORTED')setReviewStatus('Документ уже импортирован в iiko'+(doc.result?.imported?.documentNumber?' · № '+doc.result.imported.documentNumber:''),'ok');else if(!arithmetic.valid)setReviewStatus('Обнаружено арифметическое расхождение. Исправьте данные перед сохранением.','error');else if(m.ready)setReviewStatus('Все обязательные данные сопоставлены. Можно создавать накладную в iiko.','ok');else if(refsWarning)setReviewStatus('Документ распознан. '+refsWarning,'error');else setReviewStatus('Проверьте поставщика, склад и строки, отмеченные как несопоставленные.','');await loadPreview(doc)}
+async function fillReview(doc){let refsWarning='';try{await loadRefs()}catch(e){refsWarning=e?.message||'Справочники Smart Horeca временно недоступны';refs=refs||{suppliers:[],warehouses:[],products:[]}}current=doc;renderList();$('reviewEmpty').hidden=true;$('reviewContent').hidden=false;$('reviewTitle').textContent=doc.fileName;$('reviewMeta').textContent=(statusText[doc.status]||doc.status)+(doc.providerUsed?' · '+doc.providerUsed+(doc.model?' / '+doc.model:''):'');const raw=doc.result?.extracted||{},saved=doc.result?.confirmedDraft||null,m=currentMatching();$('draftNumber').value=saved?.documentNumber||raw.documentNumber||doc.documentNumber||autoDocumentNumber();$('draftDate').value=String(saved?.dateIncoming||raw.date||doc.documentDate||today()).slice(0,10);const supplierFallback=saved?.supplierId||m.supplierId||doc.supplierId||supplierClientMatch(raw.supplierName||doc.supplierName||'',refs.suppliers)?.id||'';$('draftSupplier').innerHTML=selectOptions(refs.suppliers,supplierFallback,'Выберите поставщика');renderSupplierSuggestions({...m,supplierId:supplierFallback});$('draftSupplier').onchange=()=>renderSupplierSuggestions({...m,supplierId:$('draftSupplier').value});const trustedStore=saved?.defaultStore||(m.storeSelectionRequired===false?m.defaultStoreId:'');$('draftStore').innerHTML=selectOptions(refs.warehouses,trustedStore,'Выберите склад');$('draftInvoice').value=saved?.invoice||raw.invoiceNumber||doc.invoiceNumber||'';$('draftIncoming').value=saved?.incomingDocumentNumber||raw.incomingNumber||doc.incomingNumber||raw.invoiceNumber||doc.invoiceNumber||'';$('draftDue').value=String(saved?.dueDate||raw.dueDate||doc.dueDate||'').slice(0,10);$('draftCurrency').value=raw.currency||doc.currency||'AZN';const savedTotal=saved?.documentTotal;$('draftDeclaredTotal').value=Number.isFinite(Number(savedTotal))?Number(savedTotal).toFixed(2):(Number.isFinite(Number(raw.total))?Number(raw.total).toFixed(2):'');$('draftDeclaredTotal').oninput=recalcTotal;renderItems();const arithmetic=validateDraftArithmetic();if(doc.status==='ERROR')setReviewStatus(doc.errorMessage||'Ошибка AI','error');else if(doc.status==='IMPORTED')setReviewStatus('Документ уже импортирован в iiko'+(doc.result?.imported?.documentNumber?' · № '+doc.result.imported.documentNumber:''),'ok');else if(!arithmetic.valid)setReviewStatus('Обнаружено арифметическое расхождение. Исправьте данные перед сохранением.','error');else if(m.ready)setReviewStatus('Все обязательные данные сопоставлены. Можно создавать накладную в iiko.','ok');else if(refsWarning)setReviewStatus('Документ распознан. '+refsWarning,'error');else setReviewStatus('Проверьте поставщика, склад и строки, отмеченные как несопоставленные.','');await loadPreview(doc)}
 async function selectDocument(id){const d=documents.find(x=>x.id===id);if(!d)return;await fillReview(d)}
 async function uploadAndProcess(){if(!chosenFile)throw new Error('Сначала выберите PDF или фото.');await requireSingleRestaurant();const provider=$('providerSelect').value;const t=await token();const form=new FormData();form.set('file',chosenFile,chosenFile.name);form.set('provider',provider);$('uploadBtn').disabled=true;setUploadStatus('Загружаем документ…');try{const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/ai-documents',{method:'POST',headers:{Authorization:`Bearer ${t}`},body:form},120000);const raw=await r.text();let up={};try{up=raw?JSON.parse(raw):{}}catch(_){const preview=raw.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,180);throw new Error(`AI upload HTTP ${r.status}${preview?' · '+preview:''}`)}if(!r.ok||!up.success)throw new Error(up.message||`HTTP ${r.status}`);setUploadStatus('AI распознаёт документ…');const processed=await aiPost({action:'process',id:up.document.id,provider});let matchWarning='';setUploadStatus('Готовим справочники Smart Horeca…');try{await loadRefs()}catch(e){console.warn('AI references:',e?.message||e)}setUploadStatus('Сопоставляем со справочниками Smart Horeca…');try{await aiPost({action:'match',id:up.document.id})}catch(e){matchWarning=e?.message||'Сопоставление не выполнено'}chosenFile=null;$('fileInput').value='';setUploadStatus(matchWarning?'Документ распознан. '+matchWarning:'Распознано и подготовлено к проверке.',matchWarning?'':'success');await loadAll(up.document.id)}finally{$('uploadBtn').disabled=false}}
 async function reprocess(){if(!current)return;setReviewStatus('AI повторно распознаёт документ…');const j=await aiPost({action:'process',id:current.id,provider:$('providerSelect').value});let warning='';setReviewStatus('Готовим справочники Smart Horeca…');try{await loadRefs()}catch(e){console.warn('AI references:',e?.message||e)}setReviewStatus('Сопоставляем со справочниками Smart Horeca…');try{await aiPost({action:'match',id:current.id})}catch(e){warning=e?.message||'Сопоставление не выполнено'}await loadAll(j.document.id);if(warning)setReviewStatus('Документ распознан. '+warning,'error')}
