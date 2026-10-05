@@ -63,7 +63,8 @@ if(to<from)return jsonResponse({success:false,message:"Дата окончани
 const days=Math.round((to-from)/86400000)+1;
 if(days>62)return jsonResponse({success:false,message:"Период кассовых смен ограничен 62 днями за один запрос"},400);
 const allowedIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
-const chainMode=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN";
+const explicitMode=String(b?.chainScope?.mode||"").toUpperCase();
+const chainMode=explicitMode==="CHAIN"||departmentIds.length>1||allowedIds.length>1;
 const subsetRequested=chainMode&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
 // In CHAIN always request each selected Department separately, including the
 // "all restaurants" selection. This guarantees every shift can be labeled
