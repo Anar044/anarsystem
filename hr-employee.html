@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light" style="background:#f4f8fc;visibility:hidden">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Horeca — Карточка сотрудника</title>
+  <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
+  <link rel="stylesheet" href="app-shell.css">
+  <link rel="stylesheet" href="hr-pnl.css?v=20260916-12">
+  <link rel="stylesheet" href="hr-employee.css?v=20261005-1">
+</head>
+<body data-protected="true" style="background:#0b1017">
+  <div class="app-shell">
+    <aside class="sidebar"></aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+          <div>
+            <span class="topbar-title">Карточка сотрудника</span>
+            <div class="topbar-sub">Персональные данные · работа · оплата · график · история</div>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-content">
+        <section class="hr-page hep-page">
+          <a class="hep-back" href="/hr-employees.html">← Справочник сотрудников</a>
+
+          <div id="hepError" class="hr-error hep-error" hidden></div>
+
+          <section id="hepHero" class="hep-hero">
+            <div id="hepAvatar" class="hep-avatar">—</div>
+            <div class="hep-hero-main">
+              <div class="hep-hero-title">
+                <h1 id="hepName">Загрузка…</h1>
+                <span id="hepEmployeeStatus" class="hr-badge pending">—</span>
+              </div>
+              <div id="hepHeroSub" class="hep-hero-sub"></div>
+            </div>
+            <div class="hep-hero-actions">
+              <span id="hepSaveState" class="hr-status">Готово</span>
+              <button id="hepRefresh" type="button" class="hr-link-button">↻ Обновить</button>
+              <button id="hepSave" type="button" class="hr-primary hep-save">Сохранить</button>
+            </div>
+          </section>
+
+          <nav class="hep-tabs" aria-label="Разделы карточки">
+            <button class="hep-tab active" type="button" data-tab="basic">Основное</button>
+            <button class="hep-tab" type="button" data-tab="work">Работа</button>
+            <button class="hep-tab" type="button" data-tab="pay">Оплата</button>
+            <button class="hep-tab" type="button" data-tab="schedule">График</button>
+            <button class="hep-tab" type="button" data-tab="leave">Отпуска</button>
+            <button class="hep-tab" type="button" data-tab="benefits">Льготы и расходы</button>
+            <button class="hep-tab" type="button" data-tab="documents">Документы и имущество</button>
+            <button class="hep-tab" type="button" data-tab="history">История</button>
+          </nav>
+
+          <form id="hepForm" autocomplete="off">
+            <section class="hep-panel" data-panel="basic">
+              <div class="hep-grid">
+                <article class="hep-card">
+                  <div class="hep-card-head">
+                    <div><div class="hep-card-title">Идентификация</div><div class="hep-card-sub">Поля Smart Horeca дополняют сотрудника из SH Server и не перезаписывают источник.</div></div>
+                    <span class="hep-source smart">Smart Horeca</span>
+                  </div>
+                  <div class="hep-fields">
+                    <label class="hep-field"><span>FIN</span><input id="hepFin" maxlength="40" placeholder="FIN код"></label>
+                    <label class="hep-field"><span>SSN</span><input id="hepSsn" maxlength="50" placeholder="Социальный номер"></label>
+                    <label class="hep-field"><span>Дата рождения</span><input id="hepBirthDate" type="date"></label>
+                    <label class="hep-field"><span>Личный e-mail</span><input id="hepEmail" type="email" maxlength="160"></label>
+                    <label class="hep-field"><span>Основной телефон</span><input id="hepPhonePrimary" maxlength="60"></label>
+                    <label class="hep-field"><span>Доп. телефон</span><input id="hepPhoneSecondary" maxlength="60"></label>
+                    <label class="hep-field span2"><span>Адрес</span><input id="hepAddress" maxlength="500"></label>
+                  </div>
+                </article>
+
+                <article class="hep-card">
+                  <div class="hep-card-head">
+                    <div><div class="hep-card-title">Контакт на экстренный случай</div><div class="hep-card-sub">Родственник или другой контакт сотрудника.</div></div>
+                    <span class="hep-source smart">Smart Horeca</span>
+                  </div>
+                  <div class="hep-fields">
+                    <label class="hep-field span2"><span>ФИО</span><input id="hepEmergencyName" maxlength="160"></label>
+                    <label class="hep-field"><span>Кем приходится</span><input id="hepEmergencyRelation" maxlength="100" placeholder="Например: супруг / родитель"></label>
+                    <label class="hep-field"><span>Телефон</span><input id="hepEmergencyPhone" maxlength="60"></label>
+                  </div>
+                </article>
+
+                <article class="hep-card full">
+                  <div class="hep-card-head">
+                    <div><div class="hep-card-title">Образование и специальность</div><div class="hep-card-sub">Данные для кадровой карточки и будущих отчётов по персоналу.</div></div>
+                    <span class="hep-source smart">Smart Horeca</span>
+                  </div>
+                  <div class="hep-fields">
+                    <label class="hep-field"><span>Уровень образования</span><input id="hepEducationLevel" maxlength="120" placeholder="Среднее / высшее / другое"></label>
+                    <label class="hep-field"><span>Учебное заведение</span><input id="hepEducationInstitution" maxlength="220"></label>
+                    <label class="hep-field span2"><span>Специальность</span><input id="hepSpecialty" maxlength="180"></label>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="hep-panel" data-panel="work" hidden>
+              <div class="hep-grid">
+                <article class="hep-card">
+                  <div class="hep-card-head">
+                    <div><div class="hep-card-title">Данные из SH Server</div><div class="hep-card-sub">Только для просмотра. Изменение этих полей выполняется в исходной системе.</div></div>
+                    <span class="hep-source sh">SH Server</span>
+                  </div>
+                  <div class="hep-fields">
+                    <label class="hep-field"><span>Табельный №</span><div id="hepShCode" class="hep-readonly">—</div></label>
+                    <label class="hep-field"><span>Должность</span><div id="hepShRole" class="hep-readonly">—</div></label>
+                    <label class="hep-field"><span>Подразделение</span><div id="hepShDepartment" class="hep-readonly">—</div></label>
+                    <label class="hep-field"><span>Дата приёма SH</span><div id="hepShHire" class="hep-readonly">—</div></label>
+                    <label class="hep-field"><span>Дата увольнения SH</span><div id="hepShFire" class="hep-readonly">—</div></label>
+                    <label class="hep-field"><span>Face ID</span><div id="hepFaceId" class="hep-readonly">—</div></label>
+                  </div>
+                </article>
+
+                <article class="hep-card">
+                  <div class="hep-card-head">
+                    <div><div class="hep-card-title">Фактическая работа</div><div class="hep-card-sub">Кадровые параметры Smart Horeca для внутреннего учёта.</div></div>
+                    <span class="hep-source smart">Smart Horeca</span>
+                  </div>
+                  <div class="hep-fields">
+                    <label class="hep-field"><span>Тип занятости</span>
+                      <select id="hepEmploymentType">
+                        <option value="MAIN">Основной сотрудник</option>
+                        <option value="PART_TIME">Неполная ставка</option>
+                        <option value="SECONDARY">Совместитель</option>
+                        <option value="OTHER">Другое</option>
+                      </select>
+                    </label>
+                    <label class="hep-field"><span>Рабочая нагрузка, %</span><input id="hepWorkCapacity" type="number" min="1" max="100" step="1" value="100"></label>
+                    <label class="hep-field"><span>Фактически работает с</span><input id="hepFactualHire" type="date"></label>
+                    <label class="hep-field"><span>Фактически до</span><input id="hepFactualFire" type="date"></label>
+                    <label class="hep-field span2"><span>Категория / квота</span>
+                      <select id="hepQuotaCategory">
+                        <option value="NONE">Нет</option>
+                        <option value="MINOR">Несовершеннолетний</option>
+                        <option value="DISABILITY">Инвалидность</option>
+                        <option value="OTHER">Другая особая категория</option>
+                      </select>
+                    </label>
+                  </div>
+                </article>
+
+                <article class="hep-card full">
+                  <div class="hep-card-head">
+                    <div><div class="hep-card-title">Официальное оформление</div><div class="hep-card-sub">Отдельно от фактического ресторана. Позже FIN будет ключом для связи с официальным Payroll по VÖEN.</div></div>
+                    <span class="hep-source smart">Smart Horeca</span>
+                  </div>
+                  <div class="hep-fields">
+                    <label class="hep-field"><span>Официально принят</span><input id="hepOfficialHire" type="date"></label>
+                    <label class="hep-field"><span>Официально уволен</span><input id="hepOfficialFire" type="date"></label>
+                    <label class="hep-field"><span>Работодатель / юр. лицо</span><input id="hepOfficialEmployer" maxlength="220"></label>
+                    <label class="hep-field"><span>VÖEN</span><input id="hepOfficialVoen" maxlength="80"></label>
+                    <label class="hep-field span2"><span>Примечание HR</span><textarea id="hepNotes" maxlength="4000" placeholder="Внутренняя кадровая заметка"></textarea></label>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </form>
+
+          <section class="hep-panel" data-panel="pay" hidden>
+            <div class="hep-grid">
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div><div class="hep-card-title">Текущие условия оплаты</div><div class="hep-card-sub">Показываем действующие условия из уже существующего модуля. Модель «фактическая + официальная зарплата» будет следующим этапом.</div></div>
+                  <span id="hepPaySource" class="hep-source smart">—</span>
+                </div>
+                <div id="hepPayContent"></div>
+                <div class="hep-links"><a class="hr-link-button hep-link" href="/hr-compensation.html">Открыть условия оплаты</a><a class="hr-link-button hep-link" href="/hr-payroll.html">Открыть Payroll</a></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="hep-panel" data-panel="schedule" hidden>
+            <div class="hep-grid">
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div><div class="hep-card-title">Основной график</div><div class="hep-card-sub">Сейчас берётся основной график должности. Индивидуальный график сотрудника добавим отдельным слоем.</div></div>
+                  <span class="hep-source smart">Smart Horeca</span>
+                </div>
+                <div id="hepScheduleContent"></div>
+                <div class="hep-links"><a class="hr-link-button hep-link" href="/hr-role-schedules.html">Открыть графики и должности</a><a class="hr-link-button hep-link" href="/hr-timesheet.html">Открыть табель</a></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="hep-panel" data-panel="leave" hidden>
+            <article class="hep-card">
+              <div class="hep-placeholder">
+                <div><strong>Отпуска — следующий слой</strong><p>Карточка уже зарезервирована под фактические и официальные отпуска, остатки по годам и компенсацию при увольнении.</p>
+                <div class="hep-plan-list"><div class="hep-plan-item"><strong>Основной отпуск</strong><span>Начислено · использовано · остаток</span></div><div class="hep-plan-item"><strong>Дополнительные дни</strong><span>Стаж · ребёнок · инвалидность · пользовательские типы</span></div><div class="hep-plan-item"><strong>История</strong><span>Дата · тип · период · кто подтвердил</span></div></div></div>
+              </div>
+            </article>
+          </section>
+
+          <section class="hep-panel" data-panel="benefits" hidden>
+            <article class="hep-card">
+              <div class="hep-placeholder">
+                <div><strong>Льготы и расходы</strong><p>Здесь будут питание, транспорт, жильё, два настраиваемых расхода, задолженность по накладным и другие персональные условия.</p>
+                <div class="hep-plan-list"><div class="hep-plan-item"><strong>Питание</strong><span>Лимит · потрачено · сверх лимита</span></div><div class="hep-plan-item"><strong>Транспорт / жильё</strong><span>Ежемесячные суммы и история действия</span></div><div class="hep-plan-item"><strong>Обязательства</strong><span>Qaimə / долг · удержания · подтверждения</span></div></div></div>
+              </div>
+            </article>
+          </section>
+
+          <section class="hep-panel" data-panel="documents" hidden>
+            <article class="hep-card">
+              <div class="hep-placeholder">
+                <div><strong>Документы, имущество и обучение</strong><p>Этот раздел подготовлен под медсправки, обучение, выданную форму/инвентарь и кадровые документы с датами окончания.</p>
+                <div class="hep-plan-list"><div class="hep-plan-item"><strong>Документы</strong><span>Тип · номер · дата · срок действия</span></div><div class="hep-plan-item"><strong>Имущество</strong><span>Что выдано · количество · дата · возврат</span></div><div class="hep-plan-item"><strong>Обучение / медосмотр</strong><span>История и контроль срока следующего прохождения</span></div></div></div>
+              </div>
+            </article>
+          </section>
+
+          <section class="hep-panel" data-panel="history" hidden>
+            <article class="hep-card">
+              <div class="hep-card-head"><div><div class="hep-card-title">История изменений карточки</div><div class="hep-card-sub">Кто изменил поле, старое значение и новое значение — из общего Журнала действий Smart Horeca.</div></div><button id="hepHistoryRefresh" class="hr-link-button" type="button">↻ Обновить</button></div>
+              <div id="hepHistory" class="hep-history"></div>
+            </article>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth-config.js"></script>
+  <script src="auth.js"></script>
+  <script src="iiko-context.js?v=20261003-chain-3"></script>
+  <script src="app-shell.js?v=20261003-perf-2"></script>
+  <script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
+  <script src="/hr-light-theme.js?v=20260917-1"></script>
+  <script src="mobile-responsive.js?v=1"></script>
+  <script src="documents-nav.js?v=21"></script>
+  <script src="hr-employee.js?v=20261005-1"></script>
+</body>
+</html>
