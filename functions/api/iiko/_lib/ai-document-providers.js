@@ -202,22 +202,9 @@ export async function processPurchaseDocument(env, file, requestedProvider = "AU
   if (provider === "LOCAL") return localProvider(env, file, 105000);
   if (provider !== "AUTO") throw new Error("Неизвестный AI-провайдер.");
 
-  // Local OCR may take several minutes on a cold CPU. A synchronous Pages
-  // request cannot reliably stay open that long, so AUTO prefers OpenAI when
-  // it is configured. Local AI remains available explicitly and as a bounded fallback.
-  if (status.openai.configured) {
-    try {
-      return await openAiProvider(env, file);
-    } catch (openAiError) {
-      if (!status.local.configured) throw openAiError;
-      try {
-        return await localProvider(env, file, 45000);
-      } catch (localError) {
-        throw new Error(`OpenAI: ${openAiError?.message || openAiError}; Local AI: ${localError?.message || localError}`);
-      }
-    }
-  }
-
+  // A single Pages request must not chain two expensive AI providers.
+  // AUTO is deterministic: OpenAI first choice when configured, otherwise Local.
+  if (status.openai.configured) return openAiProvider(env, file);
   if (status.local.configured) return localProvider(env, file, 105000);
   throw new Error("AI-провайдер не настроен. Настройте Local AI или OPENAI_API_KEY.");
 }
