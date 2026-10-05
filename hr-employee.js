@@ -126,16 +126,18 @@
       : '<div><span>Net</span><strong>По табелю</strong></div><div><span>Налоги</span><strong>В Payroll</strong></div><div><span>Расчёт</span><strong>По часам</strong></div>';
     return `<div class="hep-pay-current">
       <div class="hep-pay-current-card factual">
+        <div class="hep-pay-active-line"><span>ДЕЙСТВУЕТ СЕЙЧАС</span><b>с ${esc(term.effectiveFrom)}</b></div>
         <h3>Фактическая зарплата</h3><p>Внутренняя ставка сотрудника</p>
         <div class="hep-pay-rate-value"><strong>${money(term.factualRate).replace(' ₼','')}</strong><span>${esc(factualUnit)}</span></div>
         <div class="hep-pay-mini"><div><span>Тип</span><strong>${esc(rateTypeLabel(term.factualRateType))}</strong></div><div><span>Валюта</span><strong>AZN</strong></div><div><span>Контур</span><strong>Фактический</strong></div></div>
-        <div class="hep-pay-period"><span>Действует</span><b>${esc(term.effectiveFrom)} → ${esc(term.effectiveTo||'без ограничения')}</b></div>
+        <div class="hep-pay-period"><span>Период текущей ставки</span><b>${esc(term.effectiveFrom)} → ${esc(term.effectiveTo||'без ограничения')}</b></div>
       </div>
       <div class="hep-pay-current-card official">
+        <div class="hep-pay-active-line"><span>ДЕЙСТВУЕТ СЕЙЧАС</span><b>с ${esc(term.effectiveFrom)}</b></div>
         <h3>Официальная зарплата</h3><p>Gross ставка для белого Payroll</p>
         <div class="hep-pay-rate-value"><strong>${money(term.officialRate).replace(' ₼','')}</strong><span>${esc(officialUnit)}</span></div>
         <div class="hep-pay-mini">${officialMini}</div>
-        <div class="hep-pay-period"><span>Действует</span><b>${esc(term.effectiveFrom)} → ${esc(term.effectiveTo||'без ограничения')}</b></div>
+        <div class="hep-pay-period"><span>Период текущей ставки</span><b>${esc(term.effectiveFrom)} → ${esc(term.effectiveTo||'без ограничения')}</b></div>
       </div>
     </div>`;
   }
