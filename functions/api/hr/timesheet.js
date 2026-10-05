@@ -165,18 +165,18 @@ export async function onRequestGet({request,env}){
       for(const date of dates){
         const raw=rawDayMap.get(`${employee.id}|${date}`)||null;
         if(employmentActive(date,factualHire,factualFire)){
-          const schedule=scheduleForDate(employee.roleCode,date,schedules),plan=schedulePlan(date,schedule,dayRules),leave=leaveForDate(employee.id,date,'FACTUAL',leaves);
-          const worked=Number(raw?.workedMinutes||0)>0;
+          const schedule=scheduleForDate(employee.roleCode,date,schedules),plan=schedule?schedulePlan(date,schedule,dayRules):null,leave=leaveForDate(employee.id,date,'FACTUAL',leaves);
+          const worked=Number(raw?.workedMinutes||0)>0,scheduleConfigured=Boolean(schedule);
           let status;
           if(leave)status=worked?'LEAVE_WITH_WORK':'LEAVE';
           else if(raw?.status==='REVIEW')status='REVIEW';
-          else if(worked)status=plan.scheduled?'WORK':'WORK_REST';
-          else status=plan.scheduled?'ABSENT':'REST';
+          else if(worked)status=!scheduleConfigured?'WORK_NO_SCHEDULE':(plan.scheduled?'WORK':'WORK_REST');
+          else status=!scheduleConfigured?'NO_SCHEDULE':(plan.scheduled?'ABSENT':'REST');
           factualDays.push({
             employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,roleName:employee.roleName,departmentCode:employee.departmentCode,workDate:date,
             status,firstIn:raw?.firstIn||'',lastOut:raw?.lastOut||'',workedMinutes:Number(raw?.workedMinutes||0),intervalCount:Number(raw?.intervalCount||0),issueCount:Number(raw?.issueCount||0),
-            scheduled:Boolean(plan.scheduled),plannedMinutes:Math.round(Number(plan.plannedMinutes||0)*capacity),shiftStart:plan.shiftStart||'',shiftEnd:plan.shiftEnd||'',
-            scheduleName:plan.scheduleName||'',scheduleSource:plan.source||'',
+            scheduleConfigured,scheduled:Boolean(plan?.scheduled),plannedMinutes:Math.round(Number(plan?.plannedMinutes||0)*capacity),shiftStart:plan?.shiftStart||'',shiftEnd:plan?.shiftEnd||'',
+            scheduleName:plan?.scheduleName||'',scheduleSource:plan?.source||'',
             leaveId:leave?.leave_id||'',leaveType:leave?.leave_type||'',leaveName:leave?.leaveName||'',leaveNote:leave?.note||''
           });
         }
@@ -199,6 +199,7 @@ export async function onRequestGet({request,env}){
       rows:factualDays.length,workedDays:factualDays.filter(x=>['WORK','WORK_REST','REVIEW','LEAVE_WITH_WORK'].includes(x.status)&&x.workedMinutes>0).length,
       leaveDays:factualDays.filter(x=>x.status==='LEAVE').length,absentDays:factualDays.filter(x=>x.status==='ABSENT').length,
       restDays:factualDays.filter(x=>x.status==='REST').length,workedRestDays:factualDays.filter(x=>x.status==='WORK_REST').length,
+      noScheduleDays:factualDays.filter(x=>x.status==='NO_SCHEDULE').length,workedNoScheduleDays:factualDays.filter(x=>x.status==='WORK_NO_SCHEDULE').length,
       workedMinutes:factualDays.reduce((s,x)=>s+x.workedMinutes,0),reviewDays:factualDays.filter(x=>['REVIEW','LEAVE_WITH_WORK'].includes(x.status)).length
     };
     const officialSummary={
@@ -207,8 +208,8 @@ export async function onRequestGet({request,env}){
     };
 
     return json({
-      success:true,period:{from,to},engine:'TIMESHEET_V2_SCHEDULE_AWARE_FACTUAL',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
-      rules:{duplicateWindowMinutes:10,longIntervalMinutes:900,factualNoMarkScheduled:'ABSENT',factualNoMarkRest:'REST',factualWorkOnRest:'WORK_REST',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
+      success:true,period:{from,to},engine:'TIMESHEET_V2_EXPLICIT_SCHEDULE_FACTUAL',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
+      rules:{duplicateWindowMinutes:10,longIntervalMinutes:900,factualNoMarkScheduled:'ABSENT',factualNoMarkRest:'REST',factualNoRoleSchedule:'NO_SCHEDULE',factualWorkOnRest:'WORK_REST',factualWorkNoRoleSchedule:'WORK_NO_SCHEDULE',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
       summary:{factual:factualSummary,official:officialSummary,raw:{intervals:intervals.length,issues:issues.length}},
       employees,devices:devices.map(x=>({id:x.device_id,name:x.name,timezone:x.timezone||'Asia/Baku'})),
       factualDays,officialDays,intervals,issues
