@@ -67,12 +67,13 @@ async function load(){
  });
  const b=$("cs-load");b.disabled=true;setStatus("Получаем кассовые смены…");
  try{
-   const all=[];let start=from,listRequests=0;
+   const all=[];let start=from,listRequests=0,lastListMeta=null;
    while(start<=to){
      const days=Math.floor((new Date(to+"T00:00:00")-new Date(start+"T00:00:00"))/86400000)+1;
      const chunk=Math.min(62,days),end=new Date(start+"T00:00:00");end.setDate(end.getDate()+chunk-1);
      const endStr=`${end.getFullYear()}-${pad(end.getMonth()+1)}-${pad(end.getDate())}`;
      const d=await post(c,{mode:"list",from:start,to:endStr,departmentIds,chainScope});
+     lastListMeta=d?.meta||lastListMeta;
      listRequests++;all.push(...decorate(d.shifts||[]));start=add(start,chunk)
    }
    const seen=new Set(),base=all.filter(s=>{const k=s._sessionId||s.id||JSON.stringify(s);if(seen.has(k))return false;seen.add(k);return true});
@@ -93,8 +94,30 @@ async function load(){
      setStatus(`Детали: ${enriched.length} из ${base.length}.`,enriched.length===base.length?"ok":"")
    }
    const unresolvedRestaurants=enriched.filter(x=>!String(x?._restaurantName||"").trim()||x._restaurantName==="Не определён").length;
+   const debug=$("cs-debug");
+   if(debug){
+     if(unresolvedRestaurants){
+       const compact={
+         selectedDepartmentIds:departmentIds,
+         restaurants:restaurantDirectory,
+         backend:{
+           chainMode:lastListMeta?.chainMode,
+           rangeRequests:lastListMeta?.rangeRequests,
+           restaurantNamesAttached:lastListMeta?.restaurantNamesAttached,
+           detectedDepartmentIds:lastListMeta?.detectedDepartmentIds,
+           targetPreview:lastListMeta?.targetPreview,
+           rowDepartmentPreview:lastListMeta?.rowDepartmentPreview
+         }
+       };
+       debug.hidden=false;
+       debug.textContent="Диагностика ресторанов: "+JSON.stringify(compact);
+     }else{
+       debug.hidden=true;
+       debug.textContent="";
+     }
+   }
    setStatus(unresolvedRestaurants
-     ? `Загружено ${enriched.length} смен. Не удалось определить ресторан у ${unresolvedRestaurants} строк. Запросы: список ${listRequests}, детали ${detailRequests}.`
+     ? `Загружено ${enriched.length} смен. Не удалось определить ресторан у ${unresolvedRestaurants} строк. Ниже показана диагностика привязки.`
      : `Загружено ${enriched.length} смен. Ресторан указан в каждой строке. Запросы: список ${listRequests}, детали ${detailRequests}.`,
      unresolvedRestaurants?"error":"ok")
  }catch(e){render([]);setStatus(e.message||"Ошибка получения смен","error")}
