@@ -72,7 +72,7 @@ async function load(){
      const days=Math.floor((new Date(to+"T00:00:00")-new Date(start+"T00:00:00"))/86400000)+1;
      const chunk=Math.min(62,days),end=new Date(start+"T00:00:00");end.setDate(end.getDate()+chunk-1);
      const endStr=`${end.getFullYear()}-${pad(end.getMonth()+1)}-${pad(end.getDate())}`;
-     const d=await post(c,{mode:"list",from:start,to:endStr,departmentIds,chainScope});
+     const d=await post(c,{mode:"list",from:start,to:endStr,departmentIds,selectedDepartmentIds:departmentIds,selectedDepartmentNames,departments:restaurantDirectory,chainScope});
      lastListMeta=d?.meta||lastListMeta;
      listRequests++;all.push(...decorate(d.shifts||[]));start=add(start,chunk)
    }
@@ -83,7 +83,7 @@ async function load(){
    const enriched=[];let detailRequests=0;
    for(let i=0;i<base.length;i+=30){
      const slice=base.slice(i,i+30),ids=slice.map(s=>s._sessionId||s.id).filter(Boolean);
-     const d=await post(c,{mode:"details",sessionIds:ids,departmentIds,chainScope,from,to});
+     const d=await post(c,{mode:"details",sessionIds:ids,departmentIds,selectedDepartmentIds:departmentIds,selectedDepartmentNames,departments:restaurantDirectory,chainScope,from,to});
      detailRequests++;
      const map=new Map((d.details||[]).map(x=>[String(x.sessionId),x]));
      for(const s of slice){
@@ -106,7 +106,8 @@ async function load(){
            restaurantNamesAttached:lastListMeta?.restaurantNamesAttached,
            detectedDepartmentIds:lastListMeta?.detectedDepartmentIds,
            targetPreview:lastListMeta?.targetPreview,
-           rowDepartmentPreview:lastListMeta?.rowDepartmentPreview
+           rowDepartmentPreview:lastListMeta?.rowDepartmentPreview,
+           rawScopeDiagnostics:lastListMeta?.rawScopeDiagnostics
          }
        };
        debug.hidden=false;
