@@ -277,7 +277,7 @@
       var response = await boundedFetch('/api/iiko/document-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ connection: c, type: 'incoming', action: processAfterSave ? 'save-and-process' : 'save', document: documentData }),
+        body: JSON.stringify({ connection: c, type: 'incoming', action: processAfterSave ? 'save-and-process' : 'save', document: documentData, auditBefore: current || null }),
         cache: 'no-store'
       });
       var data = await response.json().catch(function () { return {}; });
@@ -350,7 +350,7 @@
       var response = await boundedFetch('/api/iiko/document-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'process', document: loaded.document }),
+        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'process', document: loaded.document, auditBefore: loaded.document }),
         cache: 'no-store'
       });
       var data = await response.json().catch(function () { return {}; });
@@ -370,7 +370,7 @@
       var response = await boundedFetch('/api/iiko/document-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'unprocess', document: loaded.document }),
+        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'unprocess', document: loaded.document, auditBefore: loaded.document }),
         cache: 'no-store'
       });
       var data = await response.json().catch(function () { return {}; });
