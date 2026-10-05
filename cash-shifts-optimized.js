@@ -18,15 +18,15 @@ function setStatus(t,c=""){const e=$("cs-status");e.textContent=t;e.className="c
 function render(shifts){
  const t=totals(shifts),o=shifts.filter(open).length;$("cs-total").textContent=shifts.length;$("cs-open").textContent=o;$("cs-closed").textContent=shifts.length-o;$("cs-sales").textContent=t.sales?money(t.sales):"—";
  if(!shifts.length){$("cs-table-wrap").innerHTML='<div class="cs-empty">За выбранный период кассовые смены не найдены.</div>';return}
- $("cs-table-wrap").innerHTML=\`<table class="cs-table"><thead><tr><th>Ресторан</th><th>Опер. день</th><th>Касса / ФР</th><th>№ смены</th><th>Фиск. №</th><th>Серийный №</th><th>Открыта</th><th>Закрыта</th><th>Кассир</th><th>Заказы</th><th>Наличные</th><th>Карта</th><th>Кредит</th><th>Внесения</th><th>Изъятия</th><th>Изъятие при закрытии</th><th>Остаток</th><th>Расхождение</th><th>Статус</th><th>Проводки</th></tr></thead><tbody>${shifts.map((s,i)=>{const st=String(v(s,"sessionStatus","")).toUpperCase(),regName=cashRegisterName(s),cashier=cashierName(s),cashierId=v(s,"responsibleUser","—");return \`<tr>
-<td><span class="cs-restaurant">${esc(v(s,"_restaurantName","Не определён"))}</span>${departmentId(s)?\`<span class="cs-secondary cs-dept-id">${esc(departmentId(s))}</span>\`:""}</td>
+ $("cs-table-wrap").innerHTML=`<table class="cs-table"><thead><tr><th>Ресторан</th><th>Опер. день</th><th>Касса / ФР</th><th>№ смены</th><th>Фиск. №</th><th>Серийный №</th><th>Открыта</th><th>Закрыта</th><th>Кассир</th><th>Заказы</th><th>Наличные</th><th>Карта</th><th>Кредит</th><th>Внесения</th><th>Изъятия</th><th>Изъятие при закрытии</th><th>Остаток</th><th>Расхождение</th><th>Статус</th><th>Проводки</th></tr></thead><tbody>${shifts.map((s,i)=>{const st=String(v(s,"sessionStatus","")).toUpperCase(),regName=cashRegisterName(s),cashier=cashierName(s),cashierId=v(s,"responsibleUser","—");return `<tr>
+<td><span class="cs-restaurant">${esc(v(s,"_restaurantName","Не определён"))}</span>${departmentId(s)?`<span class="cs-secondary cs-dept-id">${esc(departmentId(s))}</span>`:""}</td>
 <td>${esc(s._operationDay||v(s,"_dateKey",v(s,"openDate","—")))}</td>
-<td><b>${esc(regName||(\`Касса № ${v(s,"cashRegNumber","—")}\`))}</b><span class="cs-secondary">№ ${esc(v(s,"cashRegNumber","—"))}${v(s,"cashRegSerial",null)?\` · ${esc(s.cashRegSerial)}\`:""}</span></td>
+<td><b>${esc(regName||(`Касса № ${v(s,"cashRegNumber","—")}`))}</b><span class="cs-secondary">№ ${esc(v(s,"cashRegNumber","—"))}${v(s,"cashRegSerial",null)?` · ${esc(s.cashRegSerial)}`:""}</span></td>
 <td>${esc(v(s,"sessionNumber","—"))}</td><td>${esc(v(s,"fiscalNumber","—"))}</td><td>${esc(v(s,"cashRegSerial","—"))}</td>
 <td>${esc(String(v(s,"openDate",null)||"—").replace("T"," ").replace(/\.\d+(?=Z|$)/,""))}</td>
 <td>${esc(String(v(s,"closeDate",null)||"—").replace("T"," ").replace(/\.\d+(?=Z|$)/,""))}</td>
-<td>${cashier?\`<b>${esc(cashier)}</b><span class="cs-secondary cs-id">${esc(cashierId)}</span>\`:\`<span class="cs-id">${esc(cashierId)}</span>\`}</td>
-<td>${money(v(s,"payOrders",null))}</td><td>${money(v(s,"salesCash",null))}</td><td>${money(v(s,"salesCard",null))}</td><td>${money(v(s,"salesCredit",null))}</td><td>${money(v(s,"payIn",null))}</td><td>${money(v(s,"payOut",null))}</td><td>${money(v(s,"payIncome",null))}</td><td>${money(v(s,"cashRemain",null))}</td><td>${money(v(s,"cashDiff",null))}</td><td><span class="cs-badge ${open(s)?"cs-open":"cs-closed"}">${esc(st||"—")}</span></td><td>${paymentHtml(s,i)}</td></tr>\`}).join("")}</tbody></table>\`
+<td>${cashier?`<b>${esc(cashier)}</b><span class="cs-secondary cs-id">${esc(cashierId)}</span>`:`<span class="cs-id">${esc(cashierId)}</span>`}</td>
+<td>${money(v(s,"payOrders",null))}</td><td>${money(v(s,"salesCash",null))}</td><td>${money(v(s,"salesCard",null))}</td><td>${money(v(s,"salesCredit",null))}</td><td>${money(v(s,"payIn",null))}</td><td>${money(v(s,"payOut",null))}</td><td>${money(v(s,"payIncome",null))}</td><td>${money(v(s,"cashRemain",null))}</td><td>${money(v(s,"cashDiff",null))}</td><td><span class="cs-badge ${open(s)?"cs-open":"cs-closed"}">${esc(st||"—")}</span></td><td>${paymentHtml(s,i)}</td></tr>`}).join("")}</tbody></table>`
 }
 async function post(c,body){const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)(API,{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify({...c,...body})},90000);const d=await r.json().catch(()=>({success:false,message:`HTTP ${r.status}`}));if(!r.ok||!d.success)throw new Error(d.message||`HTTP ${r.status}`);return d}
 async function load(){
@@ -54,14 +54,14 @@ async function load(){
    while(start<=to){
      const days=Math.floor((new Date(to+"T00:00:00")-new Date(start+"T00:00:00"))/86400000)+1;
      const chunk=Math.min(62,days),end=new Date(start+"T00:00:00");end.setDate(end.getDate()+chunk-1);
-     const endStr=\`${end.getFullYear()}-${pad(end.getMonth()+1)}-${pad(end.getDate())}\`;
+     const endStr=`${end.getFullYear()}-${pad(end.getMonth()+1)}-${pad(end.getDate())}`;
      const d=await post(c,{mode:"list",from:start,to:endStr,departmentIds,chainScope});
      listRequests++;all.push(...decorate(d.shifts||[]));start=add(start,chunk)
    }
    const seen=new Set(),base=all.filter(s=>{const k=s._sessionId||s.id||JSON.stringify(s);if(seen.has(k))return false;seen.add(k);return true});
    render(base);
-   if(!base.length){setStatus(\`Смен не найдено. Запросов к Smart Horeca: ${listRequests}.\`,"ok");return}
-   setStatus(\`Найдено ${base.length} смен. Загружаем детали…\`);
+   if(!base.length){setStatus(`Смен не найдено. Запросов к Smart Horeca: ${listRequests}.`,"ok");return}
+   setStatus(`Найдено ${base.length} смен. Загружаем детали…`);
    const enriched=[];let detailRequests=0;
    for(let i=0;i<base.length;i+=30){
      const slice=base.slice(i,i+30),ids=slice.map(s=>s._sessionId||s.id).filter(Boolean);
@@ -73,9 +73,9 @@ async function load(){
        enriched.push(x?.success?{...s,...(x.shift||{}),_payments:x.payments||[],_operationDay:x.operationDay||s._operationDay}:s)
      }
      render(enriched);
-     setStatus(\`Детали: ${enriched.length} из ${base.length}.\`,enriched.length===base.length?"ok":"")
+     setStatus(`Детали: ${enriched.length} из ${base.length}.`,enriched.length===base.length?"ok":"")
    }
-   setStatus(\`Загружено ${enriched.length} смен. Ресторан указан в каждой строке. Запросы: список ${listRequests}, детали ${detailRequests}.\`,"ok")
+   setStatus(`Загружено ${enriched.length} смен. Ресторан указан в каждой строке. Запросы: список ${listRequests}, детали ${detailRequests}.`,"ok")
  }catch(e){render([]);setStatus(e.message||"Ошибка получения смен","error")}
  finally{b.disabled=false}
 }
