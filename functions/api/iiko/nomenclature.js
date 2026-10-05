@@ -1,4 +1,5 @@
 import { clean, iikoJson, sha1 } from './_lib/iiko-client.js';
+import { logAuditEvent } from '../_lib/audit-log.js';
 
 const bootstrapCache=new Map();
 const bootstrapInFlight=new Map();
@@ -59,7 +60,87 @@ async function cachedBootstrap(connection,params={},options={}){const baseKey=aw
 async function clearBootstrapCache(connection){const baseKey=await connectionCacheKey(connection);for(const key of [...bootstrapCache.keys()])if(key.startsWith(`${baseKey}|bootstrap|`))bootstrapCache.delete(key);for(const key of [...bootstrapInFlight.keys()])if(key.startsWith(`${baseKey}|bootstrap|`))bootstrapInFlight.delete(key)}
 function canUseListBundle(params={}){return Object.keys(params||{}).every(key=>key==='includeDeleted')}
 function isMutation(action){return /\.(save|update|delete|restore|assign)$/.test(action)||/^charts\.(save|update|delete)$/.test(action)}
+function rowsOf(value){return Array.isArray(value)?value:Array.isArray(value?.items)?value.items:Array.isArray(value?.data)?value.data:Array.isArray(value?.response)?value.response:[]}
+function mutationEntityType(action){
+  if(action.startsWith('products.'))return 'NOMENCLATURE_PRODUCT';
+  if(action.startsWith('groups.'))return 'NOMENCLATURE_GROUP';
+  if(action.startsWith('categories.'))return 'NOMENCLATURE_CATEGORY';
+  if(action.startsWith('scales.'))return 'PRODUCT_SCALE';
+  if(action.startsWith('charts.'))return 'ASSEMBLY_CHART';
+  return 'NOMENCLATURE';
+}
+function mutationVerb(action){return String(action.split('.').pop()||'UPDATE').toUpperCase()}
+function payloadEntityId(action,params={},payload=null){
+  if(action==='scales.assign')return clean(params.productId);
+  const candidates=[
+    payload?.id,
+    payload?.items?.[0]?.id,
+    payload?.productGroups?.items?.[0]?.id,
+    payload?.products?.items?.[0]?.id,
+    params?.id,
+    params?.productId
+  ];
+  return clean(candidates.find(Boolean));
+}
+async function mutationBefore(action,connection,params={},payload=null){
+  const id=payloadEntityId(action,params,payload);
+  if(!id)return null;
+  if(action.startsWith('charts.')){
+    if(action==='charts.save')return null;
+    try{
+      const raw=await call('charts.byId',connection,{id},null);
+      return raw?.assemblyCharts?.[0]||raw?.response||raw?.data||raw||null;
+    }catch{return null}
+  }
+  if(action==='scales.assign'){
+    try{
+      const raw=await call('scales.byProduct',connection,{productId:id},null);
+      return raw?.response||raw?.data||raw||null;
+    }catch{return null}
+  }
+  const bucket=action.startsWith('products.')?'products':action.startsWith('groups.')?'groups':action.startsWith('categories.')?'categories':action.startsWith('scales.')?'scales':null;
+  if(!bucket)return null;
+  try{
+    const bundle=await cachedBootstrap(connection,{includeDeleted:true});
+    return rowsOf(bundle?.[bucket]).find(x=>clean(x?.id)===id)||null;
+  }catch{return null}
+}
+function mutationAfter(action,before,payload){
+  const verb=mutationVerb(action);
+  if(verb==='DELETE')return before?{...before,deleted:true}:payload;
+  if(verb==='RESTORE')return before?{...before,deleted:false}:payload;
+  if(verb==='UPDATE')return before&&payload&&typeof payload==='object'?{...before,...payload}:payload;
+  return payload;
+}
 async function resolveAction(action,connection,params={},payload=null){if(action==='bootstrap')return cachedBootstrap(connection,params);const bundleKey=LIST_ACTIONS[action];if(bundleKey&&canUseListBundle(params)){const bundle=await cachedBootstrap(connection,params);return bundle[bundleKey]}const data=await call(action,connection,params,payload);if(isMutation(action))await clearBootstrapCache(connection);return data}
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
-export async function onRequestPost({request}){try{const b=await request.json();const action=String(b.action||'');const data=await resolveAction(action,b.connection,b.params||{},b.payload??null);return json({success:true,data})}catch(e){return json({success:false,message:e?.message||'Ошибка iiko API'},502)}}
+export async function onRequestPost(context){try{
+  const b=await context.request.json();
+  const action=String(b.action||'');
+  const params=b.params||{},payload=b.payload??null;
+  const mutation=isMutation(action);
+  const before=mutation?await mutationBefore(action,b.connection,params,payload):null;
+  const data=await resolveAction(action,b.connection,params,payload);
+  let audit=null;
+  if(mutation){
+    const id=payloadEntityId(action,params,payload)||clean(data?.id);
+    const after=mutationAfter(action,before,payload);
+    const label=clean(after?.name||before?.name||after?.assembledProductId||before?.assembledProductId||id);
+    audit=await logAuditEvent({
+      request:context.request,
+      env:context.env,
+      connection:b.connection,
+      action:mutationVerb(action),
+      entityType:mutationEntityType(action),
+      entityId:id,
+      entityLabel:label,
+      before,
+      after,
+      restaurantIds:Array.isArray(b.departmentIds)?b.departmentIds:[],
+      restaurantNames:Array.isArray(b?.chainScope?.selectedDepartmentNames)?b.chainScope.selectedDepartmentNames:[],
+      metadata:{apiAction:action,params,scope:String(b?.chainScope?.mode||'').toUpperCase()==='CHAIN'?'CHAIN_SHARED':'RMS'}
+    });
+  }
+  return json({success:true,data,audit:audit?{logged:audit.logged===true,changes:audit.changes||0}:undefined});
+}catch(e){return json({success:false,message:e?.message||'Ошибка iiko API'},502)}}
 export async function onRequestGet({request}){try{const q=new URL(request.url).searchParams,connection=JSON.parse(q.get('connection')||'{}'),action=q.get('action')||'',params={};q.forEach((v,k)=>{if(k==='connection'||k==='action')return;if(params[k]===undefined)params[k]=v;else params[k]=Array.isArray(params[k])?[...params[k],v]:[params[k],v]});const data=await resolveAction(action,connection,params,null);return json({success:true,data})}catch(e){return json({success:false,message:e?.message||'Ошибка iiko API'},502)}}
