@@ -7,7 +7,7 @@
   <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
   <link rel="stylesheet" href="app-shell.css">
   <link rel="stylesheet" href="hr-pnl.css?v=20260916-12">
-  <link rel="stylesheet" href="/hr-employee.css?v=20261005-2">
+  <link rel="stylesheet" href="/hr-employee.css?v=20261005-pay-v2-1">
 </head>
 <body data-protected="true" style="background:#0b1017">
   <div class="app-shell">
@@ -167,11 +167,74 @@
             <div class="hep-grid">
               <article class="hep-card full">
                 <div class="hep-card-head">
-                  <div><div class="hep-card-title">Текущие условия оплаты</div><div class="hep-card-sub">Показываем действующие условия из уже существующего модуля. Модель «фактическая + официальная зарплата» будет следующим этапом.</div></div>
-                  <span id="hepPaySource" class="hep-source smart">—</span>
+                  <div>
+                    <div class="hep-card-title">Текущие условия оплаты</div>
+                    <div class="hep-card-sub">Фактическая и официальная ставка ведутся отдельно. Здесь показываются условия, действующие на текущую дату.</div>
+                  </div>
+                  <span id="hepPaySource" class="hep-source smart">Smart Horeca</span>
                 </div>
-                <div id="hepPayContent"></div>
-                <div class="hep-links"><a class="hr-link-button hep-link" href="/hr-compensation.html">Открыть условия оплаты</a><a class="hr-link-button hep-link" href="/hr-payroll.html">Открыть Payroll</a></div>
+                <div id="hepPayContent"><div class="hr-muted">Откройте вкладку «Оплата», чтобы загрузить условия.</div></div>
+              </article>
+
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div>
+                    <div class="hep-card-title">Новые условия оплаты</div>
+                    <div class="hep-card-sub">Изменение зарплаты не перезаписывает старую ставку. Каждое изменение сохраняется новой записью с датой начала действия.</div>
+                  </div>
+                  <span class="hep-source smart">Новая запись</span>
+                </div>
+                <div class="hep-pay-editor">
+                  <div class="hep-pay-date">
+                    <label class="hep-field">
+                      <span>Действует с</span>
+                      <input id="hepPayEffectiveFrom" type="date">
+                      <small>С этой даты новые условия заменят предыдущие.</small>
+                    </label>
+                  </div>
+                  <div class="hep-pay-rate-card factual">
+                    <div class="hep-pay-rate-head"><div><strong>Фактическая зарплата</strong><span>Внутренняя договорённость с сотрудником</span></div><span>Факт</span></div>
+                    <div class="hep-fields">
+                      <label class="hep-field"><span>Тип ставки</span><select id="hepFactualRateType"><option value="MONTHLY">Месячная</option><option value="HOURLY">Почасовая</option></select></label>
+                      <label class="hep-field"><span>Ставка, ₼</span><input id="hepFactualRate" type="number" min="0" step="0.01" placeholder="0,00"></label>
+                    </div>
+                  </div>
+                  <div class="hep-pay-rate-card official">
+                    <div class="hep-pay-rate-head"><div><strong>Официальная зарплата</strong><span>Gross по официальному оформлению</span></div><span>Белая</span></div>
+                    <div class="hep-fields">
+                      <label class="hep-field"><span>Тип ставки</span><select id="hepOfficialRateType"><option value="MONTHLY">Месячная</option><option value="HOURLY">Почасовая</option></select></label>
+                      <label class="hep-field"><span>Gross ставка, ₼</span><input id="hepOfficialRate" type="number" min="0" step="0.01" placeholder="0,00"></label>
+                    </div>
+                  </div>
+                  <label class="hep-field hep-pay-note"><span>Комментарий</span><textarea id="hepPayNote" maxlength="2000" placeholder="Причина изменения ставки, приказ, договорённость и т. п."></textarea></label>
+                  <div class="hep-pay-actions">
+                    <span id="hepPayStatus" class="hr-status">Готово</span>
+                    <button id="hepPaySave" type="button" class="hr-primary">Сохранить новые условия</button>
+                  </div>
+                </div>
+              </article>
+
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div>
+                    <div class="hep-card-title">История ставок</div>
+                    <div class="hep-card-sub">Все предыдущие значения сохраняются. Старые записи не редактируются и автоматически получают дату окончания.</div>
+                  </div>
+                  <button id="hepPayRefresh" type="button" class="hr-link-button">↻ Обновить</button>
+                </div>
+                <div id="hepPayHistory" class="hep-pay-history"><div class="hr-muted">История ещё не загружена.</div></div>
+              </article>
+
+              <article id="hepLegacyPayCard" class="hep-card full" hidden>
+                <div class="hep-card-head">
+                  <div>
+                    <div class="hep-card-title">Старые условия оплаты</div>
+                    <div class="hep-card-sub">Справочно показываем прежнюю модель Smart Horeca. Она не переносится автоматически в новую схему, чтобы не исказить фактическую зарплату.</div>
+                  </div>
+                  <span class="hep-source">Legacy</span>
+                </div>
+                <div id="hepLegacyPay"></div>
+                <div class="hep-links"><a class="hr-link-button hep-link" href="/hr-compensation.html">Открыть старые условия оплаты</a><a class="hr-link-button hep-link" href="/hr-payroll.html">Открыть Payroll</a></div>
               </article>
             </div>
           </section>
@@ -236,6 +299,6 @@
   <script src="/hr-light-theme.js?v=20260917-1"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=21"></script>
-  <script src="/hr-employee.js?v=20261005-2"></script>
+  <script src="/hr-employee.js?v=20261005-pay-v2-1"></script>
 </body>
 </html>
