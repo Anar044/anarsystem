@@ -26,7 +26,16 @@ function stableJson(value){
     return text.length>MAX_JSON?JSON.stringify({truncated:true,preview:text.slice(0,MAX_JSON)}):text;
   }catch{return "{}";}
 }
-function same(a,b){try{return JSON.stringify(a)===JSON.stringify(b)}catch{return false}}
+function same(a,b){
+  if(a===b)return true;
+  const aEmpty=a===null||a===undefined||a==="";
+  const bEmpty=b===null||b===undefined||b==="";
+  if(aEmpty&&bEmpty)return true;
+  const an=typeof a==="number"||typeof a==="string"?Number(a):NaN;
+  const bn=typeof b==="number"||typeof b==="string"?Number(b):NaN;
+  if(Number.isFinite(an)&&Number.isFinite(bn)&&an===bn)return true;
+  try{return JSON.stringify(a)===JSON.stringify(b)}catch{return false}
+}
 function diffValues(before,after,path="",out=[]){
   if(out.length>=500||same(before,after))return out;
   if(Array.isArray(before)||Array.isArray(after)){
