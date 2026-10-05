@@ -165,12 +165,18 @@ export async function onRequestGet({request,env}){
       for(const date of dates){
         const raw=rawDayMap.get(`${employee.id}|${date}`)||null;
         if(employmentActive(date,factualHire,factualFire)){
-          const leave=leaveForDate(employee.id,date,'FACTUAL',leaves);
-          let status=leave?(raw?.workedMinutes?'LEAVE_WITH_WORK':'LEAVE'):(raw?.workedMinutes?'WORK':'ABSENT');
-          if(raw?.status==='REVIEW'&&!leave)status='REVIEW';
+          const schedule=scheduleForDate(employee.roleCode,date,schedules),plan=schedulePlan(date,schedule,dayRules),leave=leaveForDate(employee.id,date,'FACTUAL',leaves);
+          const worked=Number(raw?.workedMinutes||0)>0;
+          let status;
+          if(leave)status=worked?'LEAVE_WITH_WORK':'LEAVE';
+          else if(raw?.status==='REVIEW')status='REVIEW';
+          else if(worked)status=plan.scheduled?'WORK':'WORK_REST';
+          else status=plan.scheduled?'ABSENT':'REST';
           factualDays.push({
             employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,roleName:employee.roleName,departmentCode:employee.departmentCode,workDate:date,
             status,firstIn:raw?.firstIn||'',lastOut:raw?.lastOut||'',workedMinutes:Number(raw?.workedMinutes||0),intervalCount:Number(raw?.intervalCount||0),issueCount:Number(raw?.issueCount||0),
+            scheduled:Boolean(plan.scheduled),plannedMinutes:Math.round(Number(plan.plannedMinutes||0)*capacity),shiftStart:plan.shiftStart||'',shiftEnd:plan.shiftEnd||'',
+            scheduleName:plan.scheduleName||'',scheduleSource:plan.source||'',
             leaveId:leave?.leave_id||'',leaveType:leave?.leave_type||'',leaveName:leave?.leaveName||'',leaveNote:leave?.note||''
           });
         }
@@ -190,8 +196,9 @@ export async function onRequestGet({request,env}){
     }
 
     const factualSummary={
-      rows:factualDays.length,workedDays:factualDays.filter(x=>['WORK','REVIEW','LEAVE_WITH_WORK'].includes(x.status)&&x.workedMinutes>0).length,
+      rows:factualDays.length,workedDays:factualDays.filter(x=>['WORK','WORK_REST','REVIEW','LEAVE_WITH_WORK'].includes(x.status)&&x.workedMinutes>0).length,
       leaveDays:factualDays.filter(x=>x.status==='LEAVE').length,absentDays:factualDays.filter(x=>x.status==='ABSENT').length,
+      restDays:factualDays.filter(x=>x.status==='REST').length,workedRestDays:factualDays.filter(x=>x.status==='WORK_REST').length,
       workedMinutes:factualDays.reduce((s,x)=>s+x.workedMinutes,0),reviewDays:factualDays.filter(x=>['REVIEW','LEAVE_WITH_WORK'].includes(x.status)).length
     };
     const officialSummary={
@@ -200,8 +207,8 @@ export async function onRequestGet({request,env}){
     };
 
     return json({
-      success:true,period:{from,to},engine:'TIMESHEET_V2_LEAVE_OVERLAY',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
-      rules:{duplicateWindowMinutes:10,longIntervalMinutes:900,factualNoMarkStatus:'ABSENT',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
+      success:true,period:{from,to},engine:'TIMESHEET_V2_SCHEDULE_AWARE_FACTUAL',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
+      rules:{duplicateWindowMinutes:10,longIntervalMinutes:900,factualNoMarkScheduled:'ABSENT',factualNoMarkRest:'REST',factualWorkOnRest:'WORK_REST',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
       summary:{factual:factualSummary,official:officialSummary,raw:{intervals:intervals.length,issues:issues.length}},
       employees,devices:devices.map(x=>({id:x.device_id,name:x.name,timezone:x.timezone||'Asia/Baku'})),
       factualDays,officialDays,intervals,issues
