@@ -9,6 +9,26 @@ function actionLabel(v){return({CREATE:'Создание',UPDATE:'Изменен
 function entityLabel(v){return({INCOMING_INVOICE:'Приходная накладная',OUTGOING_INVOICE:'Расходная накладная',NOMENCLATURE_PRODUCT:'Номенклатура',NOMENCLATURE_GROUP:'Группа',NOMENCLATURE_CATEGORY:'Категория',PRODUCT_SCALE:'Шкала размеров',ASSEMBLY_CHART:'Техкарта'}[v]||v||'Объект')}
 function fmtDate(v){if(!v)return'—';const d=new Date(v);return Number.isNaN(d.getTime())?v:d.toLocaleString('ru-RU')}
 function displayValue(v){if(v===undefined)return'—';if(v===null)return'null';if(typeof v==='object')return JSON.stringify(v,null,2);if(v==='')return'""';return String(v)}
+function semanticSame(a,b){
+ if(a===b)return true;
+ const ae=a===null||a===undefined||a==='',be=b===null||b===undefined||b==='';
+ if(ae&&be)return true;
+ const an=(typeof a==='number'||typeof a==='string')?Number(a):NaN,bn=(typeof b==='number'||typeof b==='string')?Number(b):NaN;
+ if(Number.isFinite(an)&&Number.isFinite(bn)&&an===bn)return true;
+ return JSON.stringify(a)===JSON.stringify(b);
+}
+function visibleChanges(e){
+ return (Array.isArray(e?.changes)?e.changes:[]).filter(c=>{
+  const field=String(c?.field||'');
+  if(semanticSame(c?.oldValue,c?.newValue))return false;
+  if(/\.num$/i.test(field))return false;
+  if(/\.vatPercent$/i.test(field)){
+    const a=c?.oldValue,b=c?.newValue;
+    if((a===0&&(b===null||b===undefined||b===''))||(b===0&&(a===null||a===undefined||a==='')))return false;
+  }
+  return true;
+ });
+}
 function fieldLabel(path){
  let x=String(path||'');
  x=x.replace(/items\[(\d+)\]/g,(_,n)=>'Позиция '+(Number(n)+1));
@@ -18,11 +38,11 @@ function fieldLabel(path){
 function restaurant(e){const a=Array.isArray(e.restaurantNames)?e.restaurantNames.filter(Boolean):[];return a.length?a.join(', '):'—'}
 function render(){
  $('audit-total').textContent=events.length;
- $('audit-change-count').textContent=events.reduce((n,e)=>n+(e.changes?.length||0),0);
+ $('audit-change-count').textContent=events.reduce((n,e)=>n+visibleChanges(e).length,0);
  $('audit-user-count').textContent=new Set(events.map(e=>e.userId).filter(Boolean)).size;
  $('audit-row-count').textContent=events.length+' строк';
  $('audit-empty').hidden=events.length>0;
- $('audit-body').innerHTML=events.map((e,i)=>`<tr data-i="${i}"><td><b>${esc(fmtDate(e.createdAt))}</b><span class="audit-secondary">${esc(e.sourcePath||'')}</span></td><td><b>${esc(e.actorName||e.actorEmail||e.userId)}</b><span class="audit-secondary">${esc(e.actorEmail||'')}</span></td><td><span class="audit-action ${esc(e.action)}">${esc(actionLabel(e.action))}</span></td><td class="audit-object"><b>${esc(entityLabel(e.entityType))}</b><small>${esc(e.entityLabel||'')}</small></td><td><b>${esc(e.documentNumber||e.entityId||'—')}</b><span class="audit-secondary">${e.documentNumber&&e.entityId?esc(e.entityId):''}</span></td><td>${esc(restaurant(e))}</td><td class="audit-count">${e.changes?.length||0}</td></tr>`).join('');
+ $('audit-body').innerHTML=events.map((e,i)=>`<tr data-i="${i}"><td><b>${esc(fmtDate(e.createdAt))}</b><span class="audit-secondary">${esc(e.sourcePath||'')}</span></td><td><b>${esc(e.actorName||e.actorEmail||e.userId)}</b><span class="audit-secondary">${esc(e.actorEmail||'')}</span></td><td><span class="audit-action ${esc(e.action)}">${esc(actionLabel(e.action))}</span></td><td class="audit-object"><b>${esc(entityLabel(e.entityType))}</b><small>${esc(e.entityLabel||'')}</small></td><td><b>${esc(e.documentNumber||e.entityId||'—')}</b><span class="audit-secondary">${e.documentNumber&&e.entityId?esc(e.entityId):''}</span></td><td>${esc(restaurant(e))}</td><td class="audit-count">${visibleChanges(e).length}</td></tr>`).join('');
  $('audit-body').querySelectorAll('tr').forEach(tr=>tr.onclick=()=>openDetail(events[Number(tr.dataset.i)]));
 }
 function fillActors(){
@@ -33,10 +53,8 @@ function fillActors(){
 function openDetail(e){
  $('audit-detail-title').textContent=e.entityLabel||entityLabel(e.entityType);
  $('audit-detail-meta').textContent=[fmtDate(e.createdAt),e.actorName||e.actorEmail,actionLabel(e.action),e.documentNumber?'№ '+e.documentNumber:'',restaurant(e)].filter(Boolean).join(' · ');
- const changes=Array.isArray(e.changes)?e.changes:[];
+ const changes=visibleChanges(e);
  $('audit-changes').innerHTML=changes.length?changes.map(c=>`<div class="audit-change"><div class="audit-field">${esc(fieldLabel(c.field))}<span class="audit-secondary">${esc(c.field)}</span></div><div class="audit-value audit-old">${esc(displayValue(c.oldValue))}</div><div class="audit-arrow">→</div><div class="audit-value audit-new">${esc(displayValue(c.newValue))}</div></div>`).join(''):'<div class="audit-nochanges">Изменений полей не зафиксировано. Для этого события записан сам факт операции.</div>';
- $('audit-before').textContent=JSON.stringify(e.before,null,2);
- $('audit-after').textContent=JSON.stringify(e.after,null,2);
  $('audit-overlay').hidden=false;
 }
 async function load(){
