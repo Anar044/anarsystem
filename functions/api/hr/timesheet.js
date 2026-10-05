@@ -57,7 +57,11 @@ async function ensure(db){
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_schedule_days (
       user_id TEXT NOT NULL,schedule_id TEXT NOT NULL,weekday INTEGER NOT NULL,shift_start TEXT NOT NULL,shift_end TEXT NOT NULL,break_minutes INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,schedule_id,weekday)
-    )`)
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_schedule_overrides (
+      user_id TEXT NOT NULL,override_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,schedule_id TEXT NOT NULL,effective_from TEXT NOT NULL,effective_to TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT '',is_active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,override_id)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_employee_schedule_current ON hr_employee_schedule_overrides(user_id,iiko_employee_id,is_active,effective_from DESC)`)
   ]);
 }
 
@@ -89,9 +93,14 @@ function normalizeEmployee(events,employee,timeZone,from,to){
   return{intervals,issues};
 }
 
-function scheduleForDate(roleCode,date,schedules){
+function scheduleForDate(employeeId,roleCode,date,schedules,overrides){
+  const override=(overrides||[]).filter(o=>String(o.iiko_employee_id)===String(employeeId)&&Number(o.is_active)===1&&o.effective_from<=date&&(!o.effective_to||o.effective_to>=date)).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)))[0];
+  if(override){
+    const selected=(schedules||[]).find(s=>String(s.schedule_id)===String(override.schedule_id)&&Number(s.is_active)===1);
+    if(selected)return{...selected,_selectionSource:'EMPLOYEE',_overrideId:override.override_id,_overrideNote:override.note||''};
+  }
   const candidates=(schedules||[]).filter(s=>s.role_code===roleCode&&s.valid_from<=date&&(!s.valid_to||s.valid_to>=date)&&Number(s.is_active)===1&&Number(s.is_default)===1).sort((a,b)=>String(b.valid_from).localeCompare(String(a.valid_from)));
-  return candidates[0]||null;
+  return candidates[0]?{...candidates[0],_selectionSource:'ROLE'}:null;
 }
 function schedulePlan(date,schedule,dayRules){
   if(!schedule){
@@ -101,14 +110,14 @@ function schedulePlan(date,schedule,dayRules){
   const type=String(schedule.pattern_type||'WEEKLY').toUpperCase();
   if(type==='CYCLE'){
     const work=cycleWorkDay(date,schedule);
-    return{scheduled:work,plannedMinutes:work?shiftMinutes(schedule.shift_start,schedule.shift_end,schedule.break_minutes):0,shiftStart:work?schedule.shift_start:'',shiftEnd:work?schedule.shift_end:'',breakMinutes:work?Number(schedule.break_minutes||0):0,scheduleName:schedule.schedule_name||'',source:'ROLE'};
+    return{scheduled:work,plannedMinutes:work?shiftMinutes(schedule.shift_start,schedule.shift_end,schedule.break_minutes):0,shiftStart:work?schedule.shift_start:'',shiftEnd:work?schedule.shift_end:'',breakMinutes:work?Number(schedule.break_minutes||0):0,scheduleName:schedule.schedule_name||'',source:schedule._selectionSource||'ROLE',overrideId:schedule._overrideId||'',overrideNote:schedule._overrideNote||''};
   }
   const wd=weekday1(date),rules=dayRules.get(String(schedule.schedule_id))||[];
   const rule=rules.find(x=>Number(x.weekday)===wd);
   const weekdays=String(schedule.weekdays||'').split(',').map(Number);
   const work=Boolean(rule||weekdays.includes(wd));
   const start=rule?.shift_start||schedule.shift_start,end=rule?.shift_end||schedule.shift_end,br=Number(rule?.break_minutes??schedule.break_minutes??0);
-  return{scheduled:work,plannedMinutes:work?shiftMinutes(start,end,br):0,shiftStart:work?start:'',shiftEnd:work?end:'',breakMinutes:work?br:0,scheduleName:schedule.schedule_name||'',source:'ROLE'};
+  return{scheduled:work,plannedMinutes:work?shiftMinutes(start,end,br):0,shiftStart:work?start:'',shiftEnd:work?end:'',breakMinutes:work?br:0,scheduleName:schedule.schedule_name||'',source:schedule._selectionSource||'ROLE',overrideId:schedule._overrideId||'',overrideNote:schedule._overrideNote||''};
 }
 function leaveForDate(employeeId,date,contour,leaves){
   return (leaves||[]).find(x=>String(x.iiko_employee_id)===String(employeeId)&&String(x.contour)===contour&&x.status==='APPROVED'&&x.date_from<=date&&x.date_to>=date)||null;
@@ -126,22 +135,23 @@ export async function onRequestGet({request,env}){
     const span=(new Date(`${to}T00:00:00Z`)-new Date(`${from}T00:00:00Z`))/86400000;if(span>92)return json({success:false,message:'Для табеля выберите период не более 93 дней'},400);
     const userId=auth.user.id,scope=await resolveHrRestaurantScope(request,env,userId);
 
-    const [employeeRows,deviceRows,eventRows,profileRows,leaveRows,scheduleRows,dayRuleRows,typeRows]=await Promise.all([
+    const [employeeRows,deviceRows,eventRows,profileRows,leaveRows,scheduleRows,dayRuleRows,typeRows,overrideRows]=await Promise.all([
       env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all(),
       env.DB.prepare(`SELECT device_id,name,timezone FROM hr_devices WHERE user_id=?1`).bind(userId).all(),
       env.DB.prepare(`SELECT event_id,device_id,iiko_employee_id,event_time,event_type FROM hr_attendance_events WHERE user_id=?1 AND iiko_employee_id<>'' AND event_time>=?2 AND event_time<=?3 ORDER BY iiko_employee_id,event_time`).bind(userId,`${isoDayShift(from,-1)}T00:00:00.000Z`,`${isoDayShift(to,1)}T23:59:59.999Z`).all(),
       env.DB.prepare(`SELECT iiko_employee_id,factual_hire_date,factual_fire_date,official_hire_date,official_fire_date,work_capacity_percent FROM hr_employee_profiles WHERE user_id=?1`).bind(userId).all(),
       env.DB.prepare(`SELECT leave_id,iiko_employee_id,contour,leave_type,date_from,date_to,days,status,note FROM hr_employee_leave_entries WHERE user_id=?1 AND status='APPROVED' AND date_from<=?3 AND date_to>=?2 ORDER BY date_from`).bind(userId,from,to).all(),
-      env.DB.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 AND is_active=1 AND is_default=1 AND valid_from<=?2 AND (valid_to='' OR valid_to>=?3) ORDER BY valid_from DESC`).bind(userId,to,from).all(),
+      env.DB.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 AND is_active=1 AND valid_from<=?2 AND (valid_to='' OR valid_to>=?3) ORDER BY is_default DESC,valid_from DESC`).bind(userId,to,from).all(),
       env.DB.prepare(`SELECT schedule_id,weekday,shift_start,shift_end,break_minutes FROM hr_role_schedule_days WHERE user_id=?1`).bind(userId).all(),
-      env.DB.prepare(`SELECT leave_type,display_name FROM hr_leave_type_settings WHERE user_id=?1`).bind(userId).all()
+      env.DB.prepare(`SELECT leave_type,display_name FROM hr_leave_type_settings WHERE user_id=?1`).bind(userId).all(),
+      env.DB.prepare(`SELECT override_id,iiko_employee_id,schedule_id,effective_from,effective_to,note,is_active FROM hr_employee_schedule_overrides WHERE user_id=?1 AND is_active=1 AND effective_from<=?2 AND (effective_to='' OR effective_to>=?3)`).bind(userId,to,from).all()
     ]);
 
     const devices=deviceRows.results||[],deviceMap=new Map(devices.map(x=>[String(x.device_id),x]));
     const profiles=new Map((profileRows.results||[]).map(x=>[String(x.iiko_employee_id),x]));
     const customTypes=new Map((typeRows.results||[]).map(x=>[x.leave_type,x.display_name]));
     const leaves=(leaveRows.results||[]).map(x=>({...x,leaveName:clean(customTypes.get(x.leave_type))||LEAVE_NAMES[x.leave_type]||x.leave_type}));
-    const schedules=scheduleRows.results||[],dayRules=new Map();
+    const schedules=scheduleRows.results||[],overrides=overrideRows.results||[],dayRules=new Map();
     for(const r of dayRuleRows.results||[]){const id=String(r.schedule_id);if(!dayRules.has(id))dayRules.set(id,[]);dayRules.get(id).push(r)}
 
     const employees=filterEmployeesByScope(employeeRows.results||[],scope).map(x=>({
@@ -165,7 +175,7 @@ export async function onRequestGet({request,env}){
       for(const date of dates){
         const raw=rawDayMap.get(`${employee.id}|${date}`)||null;
         if(employmentActive(date,factualHire,factualFire)){
-          const schedule=scheduleForDate(employee.roleCode,date,schedules),plan=schedule?schedulePlan(date,schedule,dayRules):null,leave=leaveForDate(employee.id,date,'FACTUAL',leaves);
+          const schedule=scheduleForDate(employee.id,employee.roleCode,date,schedules,overrides),plan=schedule?schedulePlan(date,schedule,dayRules):null,leave=leaveForDate(employee.id,date,'FACTUAL',leaves);
           const worked=Number(raw?.workedMinutes||0)>0,scheduleConfigured=Boolean(schedule);
           let status;
           if(leave)status=worked?'LEAVE_WITH_WORK':'LEAVE';
@@ -176,19 +186,19 @@ export async function onRequestGet({request,env}){
             employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,roleName:employee.roleName,departmentCode:employee.departmentCode,workDate:date,
             status,firstIn:raw?.firstIn||'',lastOut:raw?.lastOut||'',workedMinutes:Number(raw?.workedMinutes||0),intervalCount:Number(raw?.intervalCount||0),issueCount:Number(raw?.issueCount||0),
             scheduleConfigured,scheduled:Boolean(plan?.scheduled),plannedMinutes:Math.round(Number(plan?.plannedMinutes||0)*capacity),shiftStart:plan?.shiftStart||'',shiftEnd:plan?.shiftEnd||'',
-            scheduleName:plan?.scheduleName||'',scheduleSource:plan?.source||'',
+            scheduleName:plan?.scheduleName||'',scheduleSource:plan?.source||'',scheduleOverrideId:plan?.overrideId||'',scheduleOverrideNote:plan?.overrideNote||'',
             leaveId:leave?.leave_id||'',leaveType:leave?.leave_type||'',leaveName:leave?.leaveName||'',leaveNote:leave?.note||''
           });
         }
         if(employmentActive(date,officialHire,officialFire)){
-          const schedule=scheduleForDate(employee.roleCode,date,schedules),plan=schedulePlan(date,schedule,dayRules),calendar=calendarInfo(date),leave=leaveForDate(employee.id,date,'OFFICIAL',leaves);
+          const schedule=scheduleForDate(employee.id,employee.roleCode,date,schedules,overrides),plan=schedulePlan(date,schedule,dayRules),calendar=calendarInfo(date),leave=leaveForDate(employee.id,date,'OFFICIAL',leaves);
           let planned=Math.round(plan.plannedMinutes*capacity);
           let status=leave?'LEAVE':plan.scheduled?(calendar.type==='HOLIDAY'||calendar.type==='MOURNING'?'WORK_HOLIDAY':'WORK'):'REST';
           if(plan.source==='CALENDAR'&&(calendar.type==='HOLIDAY'||calendar.type==='TRANSFERRED_REST'||calendar.type==='WEEKEND'||calendar.type==='MOURNING')){status=leave?'LEAVE':'REST';planned=0}
           if(plan.source==='CALENDAR'&&calendar.type==='SHORT_WORKDAY')planned=Math.round(7*60*capacity);
           officialDays.push({
             employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,roleName:employee.roleName,departmentCode:employee.departmentCode,workDate:date,
-            status,plannedMinutes:planned,shiftStart:plan.shiftStart,shiftEnd:plan.shiftEnd,breakMinutes:plan.breakMinutes,scheduleName:plan.scheduleName,scheduleSource:plan.source,
+            status,plannedMinutes:planned,shiftStart:plan.shiftStart,shiftEnd:plan.shiftEnd,breakMinutes:plan.breakMinutes,scheduleName:plan.scheduleName,scheduleSource:plan.source,scheduleOverrideId:plan.overrideId||'',scheduleOverrideNote:plan.overrideNote||'',
             calendarType:calendar.type,calendarName:calendar.name,leaveId:leave?.leave_id||'',leaveType:leave?.leave_type||'',leaveName:leave?.leaveName||'',leaveNote:leave?.note||''
           });
         }
@@ -208,7 +218,7 @@ export async function onRequestGet({request,env}){
     };
 
     return json({
-      success:true,period:{from,to},engine:'TIMESHEET_V2_EXPLICIT_SCHEDULE_FACTUAL',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
+      success:true,period:{from,to},engine:'TIMESHEET_V2_EMPLOYEE_OVERRIDE',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
       rules:{duplicateWindowMinutes:10,longIntervalMinutes:900,factualNoMarkScheduled:'ABSENT',factualNoMarkRest:'REST',factualNoRoleSchedule:'NO_SCHEDULE',factualWorkOnRest:'WORK_REST',factualWorkNoRoleSchedule:'WORK_NO_SCHEDULE',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
       summary:{factual:factualSummary,official:officialSummary,raw:{intervals:intervals.length,issues:issues.length}},
       employees,devices:devices.map(x=>({id:x.device_id,name:x.name,timezone:x.timezone||'Asia/Baku'})),
