@@ -115,5 +115,49 @@
 .hep-pay-pill.current{color:#82e7b3;border-color:rgba(66,211,146,.24);background:rgba(66,211,146,.08)}
 .hep-pay-empty{padding:30px;text-align:center;color:#748496;font-size:11px;border:1px dashed #2a3947;border-radius:12px;background:#0d141d}
 .hep-legacy-note{padding:12px;border:1px solid #2b3743;border-radius:11px;background:#0d141d;color:#8d9baa;font-size:10px;line-height:1.5}
-@media(max-width:1100px){.hep-grid,.hep-money-layout,.hep-pay-editor,.hep-pay-current{grid-template-columns:1fr}.hep-pay-date{grid-column:1/-1}.hep-stat-grid,.hep-schedule{grid-template-columns:repeat(2,minmax(0,1fr))}.hep-plan-list{grid-template-columns:1fr 1fr}}
-@media(max-width:760px){.hep-hero{grid-template-columns:auto 1fr}.hep-hero-actions{grid-column:1/-1;justify-content:flex-start}.hep-grid,.hep-fields,.hep-stat-grid,.hep-schedule,.hep-plan-list{grid-template-columns:1fr}.hep-field.span2,.hep-card.full{grid-column:auto}.hep-history-change{grid-template-columns:1fr}.hep-history-arrow{display:none}.hep-hero-title h1{font-size:23px}}
+.hep-leave-toolbar{display:flex;align-items:flex-end;gap:8px}
+.hep-leave-year{width:110px}
+.hep-leave-summary{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.hep-leave-summary-card{padding:14px;border:1px solid #263543;border-radius:13px;background:#0d141d}
+.hep-leave-summary-card.factual{box-shadow:inset 3px 0 0 rgba(66,211,146,.6)}
+.hep-leave-summary-card.official{box-shadow:inset 3px 0 0 rgba(89,139,255,.6)}
+.hep-leave-summary-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.hep-leave-summary-head h3{margin:0;color:#edf4f8;font-size:12px}
+.hep-leave-summary-head p{margin:4px 0 0;color:#718194;font-size:9px}
+.hep-leave-activation{display:inline-flex;padding:4px 7px;border-radius:999px;font-size:8px;font-weight:900}
+.hep-leave-activation.active{color:#82e7b3;border:1px solid rgba(66,211,146,.25);background:rgba(66,211,146,.08)}
+.hep-leave-activation.wait{color:#f2c466;border:1px solid rgba(242,196,102,.25);background:rgba(242,196,102,.08)}
+.hep-leave-summary-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.hep-leave-summary-stats div{padding:9px;border-radius:9px;background:#101923;border:1px solid #202d38}
+.hep-leave-summary-stats span{display:block;color:#6d7e90;font-size:8px;text-transform:uppercase;font-weight:800}
+.hep-leave-summary-stats strong{display:block;margin-top:5px;color:#e5edf3;font-size:12px}
+.hep-leave-summary-note{margin-top:10px;color:#6f8092;font-size:9px;line-height:1.45}
+.hep-leave-ledger{overflow:auto}
+.hep-leave-table{width:100%;min-width:1040px;border-collapse:collapse}
+.hep-leave-table th{padding:9px 10px;text-align:left;color:#748598;font-size:8px;text-transform:uppercase;letter-spacing:.05em;background:#0d141d;border-bottom:1px solid #263440}
+.hep-leave-table td{padding:10px;border-bottom:1px solid #1e2a35;color:#cbd6df;font-size:10px;vertical-align:middle}
+.hep-leave-table tr:last-child td{border-bottom:0}
+.hep-leave-table input[type="number"],.hep-leave-table input[type="text"]{width:100%;height:34px;box-sizing:border-box;border:1px solid #2a3845;border-radius:8px;background:#0d141d;color:#edf3f8;padding:0 8px;font:500 10px/1 inherit}
+.hep-leave-table input:focus{outline:none;border-color:rgba(66,211,146,.5);box-shadow:0 0 0 2px rgba(66,211,146,.06)}
+.hep-leave-table .days{font-weight:900;color:#eef4f8}
+.hep-leave-table .negative{color:#ff8e9a}
+.hep-leave-row-name strong{display:block;color:#edf3f7;font-size:10px}
+.hep-leave-row-name span{display:block;color:#6e7f91;font-size:8px;margin-top:3px}
+.hep-leave-switch{display:flex;align-items:center;gap:6px;color:#8796a6;font-size:9px;white-space:nowrap}
+.hep-leave-switch input{accent-color:#42d392}
+.hep-leave-save{white-space:nowrap}
+.hep-leave-entry-form{display:grid;grid-template-columns:150px minmax(180px,1fr) 150px 150px 100px minmax(220px,1fr);gap:10px;align-items:end}
+.hep-leave-note{min-width:0}
+.hep-leave-entry-actions{grid-column:1/-1;display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:2px}
+.hep-leave-custom-types{display:grid;grid-template-columns:minmax(220px,1fr) auto minmax(220px,1fr) auto;gap:10px;align-items:end}
+.hep-leave-history{overflow:auto}
+.hep-leave-history-table{width:100%;min-width:900px;border-collapse:collapse}
+.hep-leave-history-table th{padding:9px 10px;text-align:left;color:#748598;font-size:8px;text-transform:uppercase;letter-spacing:.05em;background:#0d141d;border-bottom:1px solid #263440}
+.hep-leave-history-table td{padding:10px;border-bottom:1px solid #1e2a35;color:#cbd6df;font-size:10px;vertical-align:top}
+.hep-leave-history-table tr.cancelled{opacity:.55}
+.hep-leave-status-pill{display:inline-flex;padding:4px 7px;border-radius:999px;font-size:8px;font-weight:900}
+.hep-leave-status-pill.approved{color:#82e7b3;border:1px solid rgba(66,211,146,.25);background:rgba(66,211,146,.08)}
+.hep-leave-status-pill.cancelled{color:#9ba8b5;border:1px solid #31404d;background:#17212a}
+.hep-leave-cancel{padding:6px 8px}
+@media(max-width:1100px){.hep-grid,.hep-money-layout,.hep-pay-editor,.hep-pay-current,.hep-leave-summary{grid-template-columns:1fr}.hep-pay-date{grid-column:1/-1}.hep-leave-entry-form{grid-template-columns:1fr 1fr 1fr}.hep-leave-note{grid-column:1/-1}.hep-leave-custom-types{grid-template-columns:1fr auto}.hep-stat-grid,.hep-schedule{grid-template-columns:repeat(2,minmax(0,1fr))}.hep-plan-list{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){.hep-hero{grid-template-columns:auto 1fr}.hep-leave-entry-form,.hep-leave-custom-types,.hep-leave-summary-stats{grid-template-columns:1fr}.hep-leave-entry-actions{justify-content:flex-start}.hep-leave-toolbar{align-items:flex-end;flex-wrap:wrap}.hep-hero-actions{grid-column:1/-1;justify-content:flex-start}.hep-grid,.hep-fields,.hep-stat-grid,.hep-schedule,.hep-plan-list{grid-template-columns:1fr}.hep-field.span2,.hep-card.full{grid-column:auto}.hep-history-change{grid-template-columns:1fr}.hep-history-arrow{display:none}.hep-hero-title h1{font-size:23px}}
