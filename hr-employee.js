@@ -3,7 +3,7 @@
   const $=id=>document.getElementById(id);
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const employeeId=new URLSearchParams(location.search).get('id')||'';
-  let data=null,busy=false,dirty=false,historyLoaded=false,payTerms=null,payLoaded=false,payBusy=false;
+  let data=null,busy=false,dirty=false,historyLoaded=false,payTerms=null,payLoaded=false,payBusy=false,leaveData=null,leaveLoaded=false,leaveBusy=false;
 
   const profileFields={
     hepFin:'fin',hepSsn:'ssn',hepBirthDate:'birthDate',hepPhonePrimary:'phonePrimary',hepPhoneSecondary:'phoneSecondary',hepEmail:'emailPersonal',hepAddress:'address',
@@ -21,7 +21,8 @@
     employmentType:'Тип занятости',workCapacityPercent:'Рабочая нагрузка',factualHireDate:'Фактически работает с',factualFireDate:'Фактически до',
     officialHireDate:'Официально принят',officialFireDate:'Официально уволен',officialEmployerName:'Работодатель / юр. лицо',officialEmployerVoen:'VÖEN',
     quotaCategory:'Категория / квота',notes:'Примечание HR',
-    factualRateType:'Тип фактической ставки',factualRate:'Фактическая ставка',officialRateType:'Тип официальной ставки',officialRate:'Официальная ставка',effectiveFrom:'Действует с',effectiveTo:'Действует по'
+    factualRateType:'Тип фактической ставки',factualRate:'Фактическая ставка',officialRateType:'Тип официальной ставки',officialRate:'Официальная ставка',effectiveFrom:'Действует с',effectiveTo:'Действует по',
+    entitledDays:'Начислено дней',adjustmentDays:'Корректировка дней',manualActivated:'Ручная активация',typeCode:'Вид отпуска',contour:'Контур отпуска',dateFrom:'Отпуск с',dateTo:'Отпуск по',days:'Дней отпуска',status:'Статус отпуска'
   };
 
   async function token(){
@@ -220,6 +221,176 @@
     }finally{payBusy=false;$('hepPaySave').disabled=false}
   }
 
+
+  function leaveTypeName(code){
+    const x=(leaveData?.types||[]).find(t=>String(t.code)===String(code));
+    return x?.name||code||'—';
+  }
+  function contourLabel(v){return String(v||'').toUpperCase()==='OFFICIAL'?'Официальный':'Фактический'}
+  function daysLabel(v){const n=Number(v||0);return new Intl.NumberFormat('ru-RU',{minimumFractionDigits:n%1?2:0,maximumFractionDigits:2}).format(n)+' дн.'}
+  function inclusiveDays(from,to){
+    if(!from||!to||to<from)return 0;
+    const a=new Date(`${from}T00:00:00Z`),b=new Date(`${to}T00:00:00Z`);
+    return Math.floor((b-a)/86400000)+1;
+  }
+
+  function renderLeaveSummary(){
+    const host=$('hepLeaveSummary');if(!host)return;
+    const factual=leaveData?.contours?.FACTUAL,official=leaveData?.contours?.OFFICIAL;
+    const card=(x,label,cls)=>{
+      if(!x)return '';
+      const auto=x.autoActivated;
+      const activation=auto?'Право активно':(x.eligibleDate?`Авто с ${x.eligibleDate}`:'Дата приёма не задана');
+      return `<div class="hep-leave-summary-card ${cls}">
+        <div class="hep-leave-summary-head"><div><h3>${esc(label)}</h3><p>Дата приёма: ${esc(x.hireDate||'—')}</p></div><span class="hep-leave-activation ${auto?'active':'wait'}">${esc(activation)}</span></div>
+        <div class="hep-leave-summary-stats">
+          <div><span>Начислено</span><strong>${esc(daysLabel(x.totals?.entitled))}</strong></div>
+          <div><span>Использовано</span><strong>${esc(daysLabel(x.totals?.used))}</strong></div>
+          <div><span>Остаток</span><strong>${esc(daysLabel(x.totals?.remaining))}</strong></div>
+          <div><span>К компенсации</span><strong>${esc(daysLabel(x.terminationCompensationDays))}</strong></div>
+        </div>
+        <div class="hep-leave-summary-note">При увольнении в показатель «к компенсации» входят положительные остатки компенсируемых видов. Дни «По стажу» сюда не включаются.</div>
+      </div>`;
+    };
+    host.innerHTML=card(factual,'Фактический контур','factual')+card(official,'Официальный контур','official');
+  }
+
+  function renderLeaveLedger(contour){
+    const host=$(contour==='FACTUAL'?'hepLeaveFactual':'hepLeaveOfficial');if(!host)return;
+    const x=leaveData?.contours?.[contour];
+    if(!x){host.innerHTML='<div class="hep-pay-empty">Нет данных.</div>';return}
+    host.innerHTML=`<table class="hep-leave-table">
+      <thead><tr><th>Вид отпуска</th><th>Начислено</th><th>Корректировка</th><th>Использовано</th><th>Остаток</th><th>Активация</th><th>Примечание</th><th></th></tr></thead>
+      <tbody>${(x.rows||[]).map(row=>`
+        <tr data-leave-row data-contour="${esc(contour)}" data-type="${esc(row.typeCode)}">
+          <td class="hep-leave-row-name"><strong>${esc(row.typeName)}</strong><span>${row.terminationCompensable?'Учитывается при компенсации':'Не входит в компенсацию при увольнении'}</span></td>
+          <td><input data-field="entitled" type="number" min="0" step="0.01" value="${esc(row.entitledDays)}"></td>
+          <td><input data-field="adjustment" type="number" step="0.01" value="${esc(row.adjustmentDays)}"></td>
+          <td class="days">${esc(daysLabel(row.usedDays))}</td>
+          <td class="days ${Number(row.remainingDays)<0?'negative':''}">${esc(daysLabel(row.remainingDays))}</td>
+          <td><label class="hep-leave-switch"><input data-field="manual" type="checkbox" ${row.manualActivated?'checked':''}> Активировать HR</label><div class="audit-secondary">${row.activated?'Доступен':'Ожидает 6 месяцев'}</div></td>
+          <td><input data-field="note" type="text" maxlength="1000" value="${esc(row.note||'')}" placeholder="Комментарий"></td>
+          <td><button type="button" class="hr-link-button hep-leave-save" data-leave-save>Сохранить</button></td>
+        </tr>`).join('')}</tbody>
+    </table>`;
+  }
+
+  function renderLeaveHistory(){
+    const host=$('hepLeaveHistory');if(!host)return;
+    const year=Number(leaveData?.year||$('hepLeaveYear')?.value||new Date().getFullYear());
+    const rows=(leaveData?.entries||[]).filter(x=>String(x.dateFrom||'').startsWith(String(year)));
+    if(!rows.length){host.innerHTML=`<div class="hep-pay-empty">За ${esc(year)} год записей отпуска пока нет.</div>`;return}
+    host.innerHTML=`<table class="hep-leave-history-table"><thead><tr><th>Период</th><th>Контур</th><th>Вид</th><th>Дней</th><th>Кто внёс</th><th>Комментарий</th><th>Статус</th><th></th></tr></thead>
+      <tbody>${rows.map(x=>`<tr class="${x.status==='CANCELLED'?'cancelled':''}">
+        <td><strong>${esc(x.dateFrom)} → ${esc(x.dateTo)}</strong></td>
+        <td>${esc(contourLabel(x.contour))}</td>
+        <td>${esc(leaveTypeName(x.typeCode))}</td>
+        <td><strong>${esc(daysLabel(x.days))}</strong></td>
+        <td>${esc(x.actorLabel||'—')}</td>
+        <td>${esc(x.note||'—')}</td>
+        <td><span class="hep-leave-status-pill ${x.status==='CANCELLED'?'cancelled':'approved'}">${x.status==='CANCELLED'?'Отменён':'Подтверждён'}</span></td>
+        <td>${x.status==='CANCELLED'?'':`<button type="button" class="hr-link-button hep-leave-cancel" data-leave-cancel="${esc(x.id)}">Отменить</button>`}</td>
+      </tr>`).join('')}</tbody></table>`;
+  }
+
+  function primeLeaveForm(){
+    if(!$('hepLeaveType'))return;
+    const types=leaveData?.types||[];
+    $('hepLeaveType').innerHTML=types.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('');
+    const extra1=types.find(x=>x.code==='EXTRA_1'),extra2=types.find(x=>x.code==='EXTRA_2');
+    if($('hepLeaveExtra1'))$('hepLeaveExtra1').value=extra1?.name||'Дополнительный вид 1';
+    if($('hepLeaveExtra2'))$('hepLeaveExtra2').value=extra2?.name||'Дополнительный вид 2';
+    if(!$('hepLeaveFrom').value)$('hepLeaveFrom').value=isoToday();
+    if(!$('hepLeaveTo').value)$('hepLeaveTo').value=$('hepLeaveFrom').value;
+    if(!$('hepLeaveDays').value)$('hepLeaveDays').value=inclusiveDays($('hepLeaveFrom').value,$('hepLeaveTo').value)||1;
+  }
+
+  function renderLeaves(){
+    if(!leaveLoaded)return;
+    if($('hepLeaveYear'))$('hepLeaveYear').value=leaveData?.year||new Date().getFullYear();
+    renderLeaveSummary();renderLeaveLedger('FACTUAL');renderLeaveLedger('OFFICIAL');renderLeaveHistory();primeLeaveForm();
+  }
+
+  async function loadLeaves(force=false){
+    if(leaveLoaded&&!force)return;
+    if(leaveBusy)return;
+    const year=Number($('hepLeaveYear')?.value||new Date().getFullYear());
+    try{
+      leaveBusy=true;
+      if($('hepLeaveStatus')){$('hepLeaveStatus').textContent='Загрузка…';$('hepLeaveStatus').className='hr-status loading'}
+      leaveData=await api(`/api/hr/employee-leaves?id=${encodeURIComponent(employeeId)}&year=${encodeURIComponent(year)}`);
+      leaveLoaded=true;renderLeaves();
+      if($('hepLeaveStatus')){$('hepLeaveStatus').textContent='Готово';$('hepLeaveStatus').className='hr-status ok'}
+    }catch(e){
+      console.error(e);
+      if($('hepLeaveSummary'))$('hepLeaveSummary').innerHTML=`<div class="hr-error">${esc(e?.message||String(e))}</div>`;
+      if($('hepLeaveStatus')){$('hepLeaveStatus').textContent='Ошибка';$('hepLeaveStatus').className='hr-status error'}
+    }finally{leaveBusy=false}
+  }
+
+  async function saveLeaveBalance(row){
+    if(leaveBusy||!row)return;
+    const contour=row.dataset.contour,typeCode=row.dataset.type,year=Number($('hepLeaveYear').value);
+    const body={
+      action:'saveBalance',employeeId,year,contour,typeCode,
+      entitledDays:Number(row.querySelector('[data-field="entitled"]')?.value||0),
+      adjustmentDays:Number(row.querySelector('[data-field="adjustment"]')?.value||0),
+      manualActivated:Boolean(row.querySelector('[data-field="manual"]')?.checked),
+      note:row.querySelector('[data-field="note"]')?.value||''
+    };
+    const button=row.querySelector('[data-leave-save]');
+    try{
+      leaveBusy=true;if(button)button.disabled=true;
+      await api('/api/hr/employee-leaves',{method:'POST',body:JSON.stringify(body)});
+      leaveLoaded=false;historyLoaded=false;await loadLeaves(true);
+      if($('hepLeaveStatus')){$('hepLeaveStatus').textContent='Остаток сохранён';$('hepLeaveStatus').className='hr-status ok'}
+    }catch(e){
+      if($('hepLeaveStatus')){$('hepLeaveStatus').textContent=e?.message||'Ошибка';$('hepLeaveStatus').className='hr-status error'}
+    }finally{leaveBusy=false;if(button)button.disabled=false}
+  }
+
+  function syncLeaveDays(){
+    const n=inclusiveDays($('hepLeaveFrom')?.value,$('hepLeaveTo')?.value);
+    if(n>0&&$('hepLeaveDays'))$('hepLeaveDays').value=n;
+  }
+
+  async function addLeave(){
+    if(leaveBusy)return;
+    const body={
+      action:'addLeave',employeeId,contour:$('hepLeaveContour').value,typeCode:$('hepLeaveType').value,
+      dateFrom:$('hepLeaveFrom').value,dateTo:$('hepLeaveTo').value,days:Number($('hepLeaveDays').value||0),note:$('hepLeaveNote').value
+    };
+    try{
+      leaveBusy=true;$('hepLeaveAdd').disabled=true;$('hepLeaveStatus').textContent='Сохранение…';$('hepLeaveStatus').className='hr-status loading';
+      await api('/api/hr/employee-leaves',{method:'POST',body:JSON.stringify(body)});
+      $('hepLeaveNote').value='';leaveLoaded=false;historyLoaded=false;await loadLeaves(true);
+      $('hepLeaveStatus').textContent='Отпуск добавлен';$('hepLeaveStatus').className='hr-status ok';
+    }catch(e){
+      console.error(e);$('hepLeaveStatus').textContent=e?.message||'Ошибка';$('hepLeaveStatus').className='hr-status error';
+    }finally{leaveBusy=false;$('hepLeaveAdd').disabled=false}
+  }
+
+  async function cancelLeave(leaveId){
+    if(leaveBusy||!leaveId)return;
+    if(!confirm('Отменить эту запись отпуска? Использованные дни будут возвращены в остаток.'))return;
+    try{
+      leaveBusy=true;
+      await api('/api/hr/employee-leaves',{method:'POST',body:JSON.stringify({action:'cancelLeave',employeeId,leaveId})});
+      leaveLoaded=false;historyLoaded=false;await loadLeaves(true);
+      $('hepLeaveStatus').textContent='Отпуск отменён';$('hepLeaveStatus').className='hr-status ok';
+    }catch(e){$('hepLeaveStatus').textContent=e?.message||'Ошибка';$('hepLeaveStatus').className='hr-status error'}
+    finally{leaveBusy=false}
+  }
+
+  async function saveLeaveTypeName(typeCode,inputId){
+    const name=$(inputId)?.value?.trim();if(!name)return;
+    try{
+      await api('/api/hr/employee-leaves',{method:'POST',body:JSON.stringify({action:'saveTypeName',employeeId,typeCode,name})});
+      leaveLoaded=false;historyLoaded=false;await loadLeaves(true);
+      $('hepLeaveStatus').textContent='Название вида отпуска сохранено';$('hepLeaveStatus').className='hr-status ok';
+    }catch(e){$('hepLeaveStatus').textContent=e?.message||'Ошибка';$('hepLeaveStatus').className='hr-status error'}
+  }
+
   function renderSchedule(){
     const s=data?.schedule||{};
     if(!s.configured||!s.schedule){
@@ -267,12 +438,12 @@
     if(historyLoaded&&!force)return;
     const box=$('hepHistory');box.innerHTML='<div class="hr-muted">Загрузка истории…</div>';
     try{
-      const r=await api(`/api/audit-log?search=${encodeURIComponent(employeeId)}&limit=100`);
-      const events=(r.events||[]).filter(x=>String(x.entityId||'')===String(employeeId)&&['HR_EMPLOYEE_PROFILE','HR_EMPLOYEE_PAY_TERM'].includes(String(x.entityType||'')));
+      const r=await api(`/api/audit-log?search=${encodeURIComponent(employeeId)}&limit=150`);
+      const events=(r.events||[]).filter(x=>String(x.entityId||'')===String(employeeId)&&['HR_EMPLOYEE_PROFILE','HR_EMPLOYEE_PAY_TERM','HR_EMPLOYEE_LEAVE_BALANCE','HR_EMPLOYEE_LEAVE'].includes(String(x.entityType||'')));
       box.innerHTML=events.map(event=>{
         const changes=(event.changes||[]).filter(c=>!['updatedAt','createdAt'].includes(String(c.field||'')));
         return `<div class="hep-history-item">
-          <div class="hep-history-head"><strong>${esc(event.actorName||event.actorEmail||'Пользователь')} · ${esc(event.entityType==='HR_EMPLOYEE_PAY_TERM'?'Оплата':'Карточка')} · ${esc(event.action||'Изменение')}</strong><span>${esc(new Date(event.createdAt).toLocaleString('ru-RU'))}</span></div>
+          <div class="hep-history-head"><strong>${esc(event.actorName||event.actorEmail||'Пользователь')} · ${esc(event.entityType==='HR_EMPLOYEE_PAY_TERM'?'Оплата':event.entityType==='HR_EMPLOYEE_LEAVE_BALANCE'?'Остаток отпуска':event.entityType==='HR_EMPLOYEE_LEAVE'?'Отпуск':'Карточка')} · ${esc(event.action||'Изменение')}</strong><span>${esc(new Date(event.createdAt).toLocaleString('ru-RU'))}</span></div>
           <div class="hep-history-changes">${changes.length?changes.map(c=>{
             const label=fieldLabels[c.field]||c.field;
             let oldV=prettyValue(c.oldValue),newV=prettyValue(c.newValue);
@@ -294,6 +465,7 @@
     document.querySelectorAll('.hep-panel').forEach(p=>p.hidden=p.dataset.panel!==name);
     if(name==='history')loadHistory();
     if(name==='pay')loadPayTerms();
+    if(name==='leave')loadLeaves();
   }
 
   function bind(){
@@ -305,6 +477,16 @@
     $('hepHistoryRefresh').addEventListener('click',()=>loadHistory(true));
     $('hepPaySave')?.addEventListener('click',savePayTerm);
     $('hepPayRefresh')?.addEventListener('click',()=>loadPayTerms(true));
+    $('hepLeaveRefresh')?.addEventListener('click',()=>{leaveLoaded=false;loadLeaves(true)});
+    $('hepLeaveYear')?.addEventListener('change',()=>{leaveLoaded=false;loadLeaves(true)});
+    $('hepLeaveFrom')?.addEventListener('change',syncLeaveDays);
+    $('hepLeaveTo')?.addEventListener('change',syncLeaveDays);
+    $('hepLeaveAdd')?.addEventListener('click',addLeave);
+    $('hepLeaveExtra1Save')?.addEventListener('click',()=>saveLeaveTypeName('EXTRA_1','hepLeaveExtra1'));
+    $('hepLeaveExtra2Save')?.addEventListener('click',()=>saveLeaveTypeName('EXTRA_2','hepLeaveExtra2'));
+    $('hepLeaveFactual')?.addEventListener('click',e=>{const b=e.target.closest('[data-leave-save]');if(b)saveLeaveBalance(b.closest('[data-leave-row]'))});
+    $('hepLeaveOfficial')?.addEventListener('click',e=>{const b=e.target.closest('[data-leave-save]');if(b)saveLeaveBalance(b.closest('[data-leave-row]'))});
+    $('hepLeaveHistory')?.addEventListener('click',e=>{const b=e.target.closest('[data-leave-cancel]');if(b)cancelLeave(b.dataset.leaveCancel)});
     window.addEventListener('beforeunload',e=>{if(!dirty)return;e.preventDefault();e.returnValue=''});
   }
 
