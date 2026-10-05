@@ -1,7 +1,6 @@
 import { getUser, loadPrivateIikoState, privateConnection } from "./iiko/_lib/user-state.js";
 import { getIikoAuth } from "./iiko/_lib/iiko-client.js";
 import { getIikoSuppliers } from "./iiko/_lib/iiko-suppliers.js";
-import { syncReferences } from "./iiko/references.js";
 import { loadCachedReferenceMaps } from "./iiko/_lib/reference-cache.js";
 import { aiProviderStatus, processPurchaseDocument } from "./iiko/_lib/ai-document-providers.js";
 import { resolveRestaurantScope } from "./iiko/_lib/restaurant-scope.js";
@@ -151,11 +150,16 @@ async function referenceData(env,connection,scope=null){
   // The AI page already warms these D1 reference tables when it loads.
   // Re-downloading and reparsing the whole CHAIN catalog during every OCR
   // request can exceed the Worker CPU budget, especially with large menus.
-  let refs=await loadCachedReferenceMaps(env,auth.serverUrl,[],{
+  const refs=await loadCachedReferenceMaps(env,auth.serverUrl,[],{
     ttlMs:6*60*60*1000,
     requiredKeys:["suppliers","warehouses","products"]
   });
-  if(!refs)refs=await syncReferences(env,auth.serverUrl,auth.token);
+  if(!refs){
+    const error=new Error("Справочники Smart Horeca ещё не готовы. Обновите страницу AI Документы и повторите сопоставление.");
+    error.status=409;
+    error.code="AI_REFERENCE_CACHE_REQUIRED";
+    throw error;
+  }
 
   const maps=refs.maps||{};
   let suppliers=[...(maps.suppliers?.entries?.()||[])].map(([sid,name])=>({id:key(sid),name:clean(name)})).filter(x=>x.id&&x.name);
@@ -242,6 +246,72 @@ function bestMatch(source,rows,min=.45){
   if(best.score<.64)return {match:null,candidates:ranked};
   return {match:best,candidates:ranked};
 }
+function buildSearchIndex(rows){
+  const exact=new Map(),tokensMap=new Map(),prefix2=new Map(),all=[];
+  for(const row of rows||[]){
+    const rowNorm=norm(row?.name);
+    if(!rowNorm)continue;
+    const entry={row,rowNorm,rowTokens:tokenList(rowNorm)};
+    all.push(entry);
+    if(!exact.has(rowNorm))exact.set(rowNorm,[]);
+    exact.get(rowNorm).push(entry);
+    for(const token of entry.rowTokens){
+      if(!tokensMap.has(token))tokensMap.set(token,[]);
+      const bucket=tokensMap.get(token);
+      if(bucket.length<400)bucket.push(entry);
+    }
+    const p=rowNorm.slice(0,2);
+    if(p){
+      if(!prefix2.has(p))prefix2.set(p,[]);
+      const bucket=prefix2.get(p);
+      if(bucket.length<400)bucket.push(entry);
+    }
+  }
+  return{exact,tokensMap,prefix2,all};
+}
+function bestMatchIndexed(source,index,min=.45){
+  const sourceNorm=norm(source);
+  if(!sourceNorm)return {match:null,candidates:[]};
+  const exactHits=index?.exact?.get(sourceNorm)||[];
+  if(exactHits.length===1){
+    const hit={...exactHits[0].row,score:1,exact:true};
+    return{match:hit,candidates:[hit]};
+  }
+  if(exactHits.length>1){
+    return{match:null,candidates:exactHits.slice(0,5).map(x=>({...x.row,score:1,exact:true}))};
+  }
+
+  const sourceTokens=tokenList(sourceNorm);
+  const candidateMap=new Map();
+  const add=entry=>{
+    if(!entry?.row)return;
+    const id=key(entry.row.id)||entry.rowNorm;
+    if(id&&!candidateMap.has(id))candidateMap.set(id,entry);
+  };
+  for(const token of sourceTokens){
+    for(const entry of index?.tokensMap?.get(token)||[])add(entry);
+  }
+  for(const entry of index?.prefix2?.get(sourceNorm.slice(0,2))||[])add(entry);
+
+  const candidates=[...candidateMap.values()].slice(0,500);
+  const shortlist=[];
+  for(const entry of candidates){
+    const cheap=cheapCandidateScore(sourceNorm,sourceTokens,entry.row.name);
+    if(cheap.score>0)shortlist.push({r:entry.row,cheap:cheap.score});
+  }
+  shortlist.sort((a,b)=>b.cheap-a.cheap);
+  const ranked=shortlist.slice(0,120)
+    .map(x=>({...x.r,score:Number(scoreText(source,x.r.name).toFixed(4)),exact:false}))
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,5);
+  const best=ranked[0]||null;
+  if(!best||best.score<min)return{match:null,candidates:ranked};
+  const plausibleFloor=Math.max(min,Math.min(.72,best.score-.16));
+  const plausible=ranked.filter(x=>x.score>=plausibleFloor);
+  if(plausible.length!==1||best.score<.64)return{match:null,candidates:ranked};
+  return{match:best,candidates:ranked};
+}
+
 async function aliasMap(db,userId,supplierKey){
   const r=await db.prepare(`SELECT normalized_source,product_id,product_name FROM ai_product_aliases WHERE user_id=?1 AND (supplier_key=?2 OR supplier_key='')`).bind(userId,supplierKey||"").all();
   return new Map((r.results||[]).map(x=>[x.normalized_source,{id:key(x.product_id),name:x.product_name,score:1,source:"MEMORY"}]));
@@ -347,16 +417,55 @@ function confirmedDraftFromInput(value){
   };
 }
 
+function extractedOnlyResult(raw,scope=null){
+  const items=(Array.isArray(raw?.items)?raw.items:[]).map((x,index)=>({
+    index:index+1,
+    sourceName:clean(x?.sourceName),
+    article:clean(x?.article),
+    quantity:nullableNumber(x?.quantity),
+    unit:clean(x?.unit),
+    unitPrice:nullableNumber(x?.unitPrice),
+    total:nullableNumber(x?.total),
+    vatPercent:nullableNumber(x?.vatPercent),
+    confidence:nullableNumber(x?.confidence),
+    productId:null,
+    productName:null,
+    matchScore:null,
+    matchSource:"PENDING",
+    candidates:[]
+  }));
+  return{
+    extracted:raw||{},
+    matching:{
+      supplierId:null,
+      supplierName:clean(raw?.supplierName)||null,
+      supplierMatchScore:null,
+      supplierCandidates:[],
+      defaultStoreId:null,
+      defaultStoreName:null,
+      storeSelectionRequired:true,
+      warehouses:[],
+      restaurantId:clean(scope?.selectedDepartmentIds?.[0]),
+      warehouseScope:null,
+      items,
+      unresolvedItems:items.length,
+      arithmetic:arithmeticCheck(raw||{},items),
+      ready:false,
+      referenceMatchPending:true
+    }
+  };
+}
 async function enrich(env,userId,raw,scope=null){
   const connection=await loadPrivateConnection(env,userId);
   const refs=await referenceData(env,connection,scope);
   const supplierResult=bestMatch(raw.supplierName||"",refs.suppliers,.42);
   const supplier=supplierResult.match;
   const aliases=await aliasMap(env.DB,userId,supplier?.id||"");
+  const productIndex=buildSearchIndex(refs.products);
   const items=(Array.isArray(raw.items)?raw.items:[]).map((x,index)=>{
     const sourceName=clean(x?.sourceName);
     const remembered=aliases.get(norm(sourceName));
-    const productResult=remembered?{match:remembered,candidates:[remembered]}:bestMatch(sourceName,refs.products,.48);
+    const productResult=remembered?{match:remembered,candidates:[remembered]}:bestMatchIndexed(sourceName,productIndex,.48);
     return {
       index:index+1,
       sourceName,
@@ -395,7 +504,9 @@ async function enrich(env,userId,raw,scope=null){
       items,
       unresolvedItems:unresolved,
       arithmetic,
-      ready:Boolean(supplier?.id&&items.length&&!unresolved&&arithmetic.valid)
+      ready:Boolean(supplier?.id&&items.length&&!unresolved&&arithmetic.valid),
+      referenceMatchPending:false,
+      referenceCacheHit:refs.referenceCacheHit===true
     }
   };
 }
@@ -459,22 +570,41 @@ export async function onRequestPost({request,env}){
 
     const b=await request.json().catch(()=>({})),action=clean(b.action);
     if(action==="process"){
-      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId); if(!row||!rowAllowedForScope(row,scope))return json({success:false,message:"Документ не найден в выбранном ресторане"},404);
+      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId);
+      if(!row||!rowAllowedForScope(row,scope))return json({success:false,message:"Документ не найден в выбранном ресторане"},404);
       const provider=clean(b.provider||row.provider_requested||"AUTO").toUpperCase(),now=new Date().toISOString();
       await env.DB.prepare(`UPDATE ai_documents SET status='PROCESSING',provider_requested=?1,error_message=NULL,updated_at=?2 WHERE id=?3 AND user_id=?4`).bind(provider,now,docId,a.user.id).run();
       try{
         const file=await objectAsFile(env,row);
         const processed=await processPurchaseDocument(env,file,provider);
-        const result=await enrich(env,a.user.id,processed.data||{},scope);
-        const raw=result.extracted||{},matching=result.matching||{};
-        const status=matching.ready?"READY":(matching.items?.length?"REVIEW":"REVIEW");
-        await env.DB.prepare(`UPDATE ai_documents SET provider_used=?1,model=?2,status=?3,document_type=?4,supplier_name=?5,supplier_id=?6,document_number=?7,invoice_number=?8,incoming_number=?9,document_date=?10,due_date=?11,currency=?12,total=?13,vat_total=?14,confidence=?15,result_json=?16,error_message=NULL,updated_at=?17 WHERE id=?18 AND user_id=?19`)
-          .bind(processed.provider,processed.model,status,clean(raw.documentType),clean(matching.supplierName||raw.supplierName),clean(matching.supplierId),clean(raw.documentNumber),clean(raw.invoiceNumber),clean(raw.incomingNumber),clean(raw.date),clean(raw.dueDate),clean(raw.currency),raw.total??null,raw.vatTotal??null,raw.confidence??null,JSON.stringify({...result,provider:{name:processed.provider,model:processed.model,usage:processed.usage||null,responseId:processed.providerResponseId||null}}),new Date().toISOString(),docId,a.user.id).run();
+        const raw=processed.data||{};
+        const result=extractedOnlyResult(raw,scope);
+        result.provider={name:processed.provider,model:processed.model,usage:processed.usage||null,responseId:processed.providerResponseId||null};
+        await env.DB.prepare(`UPDATE ai_documents SET provider_used=?1,model=?2,status='REVIEW',document_type=?3,supplier_name=?4,supplier_id=NULL,document_number=?5,invoice_number=?6,incoming_number=?7,document_date=?8,due_date=?9,currency=?10,total=?11,vat_total=?12,confidence=?13,result_json=?14,error_message=NULL,updated_at=?15 WHERE id=?16 AND user_id=?17`)
+          .bind(processed.provider,processed.model,clean(raw.documentType),clean(raw.supplierName),clean(raw.documentNumber),clean(raw.invoiceNumber),clean(raw.incomingNumber),clean(raw.date),clean(raw.dueDate),clean(raw.currency),raw.total??null,raw.vatTotal??null,raw.confidence??null,JSON.stringify(result),new Date().toISOString(),docId,a.user.id).run();
       }catch(error){
         await env.DB.prepare(`UPDATE ai_documents SET status='ERROR',error_message=?1,updated_at=?2 WHERE id=?3 AND user_id=?4`).bind(String(error?.message||error).slice(0,1500),new Date().toISOString(),docId,a.user.id).run();
       }
       const updated=await rowById(env.DB,a.user.id,docId);
       return json({success:updated.status!=="ERROR",document:publicRow(updated),message:updated.error_message||null},updated.status==="ERROR"?422:200);
+    }
+    if(action==="match"){
+      const docId=clean(b.id),row=await rowById(env.DB,a.user.id,docId);
+      if(!row||!rowAllowedForScope(row,scope))return json({success:false,message:"Документ не найден в выбранном ресторане"},404);
+      const current=publicRow(row).result||{};
+      const raw=current.extracted||{};
+      if(!raw||typeof raw!=="object")return json({success:false,message:"Сначала распознайте документ."},409);
+      try{
+        const result=await enrich(env,a.user.id,raw,scope);
+        result.provider=current.provider||null;
+        const matching=result.matching||{};
+        const status=matching.ready?"READY":"REVIEW";
+        await env.DB.prepare(`UPDATE ai_documents SET status=?1,supplier_name=?2,supplier_id=?3,result_json=?4,error_message=NULL,updated_at=?5 WHERE id=?6 AND user_id=?7`)
+          .bind(status,clean(matching.supplierName||raw.supplierName),clean(matching.supplierId),JSON.stringify(result),new Date().toISOString(),docId,a.user.id).run();
+        return json({success:true,document:publicRow(await rowById(env.DB,a.user.id,docId))});
+      }catch(error){
+        return json({success:false,code:error?.code||"AI_REFERENCE_MATCH_FAILED",message:String(error?.message||error),document:publicRow(row)},Number(error?.status)||422);
+      }
     }
     if(action==="saveAlias"){
       const sourceName=clean(b.sourceName),productId=key(b.productId),productName=clean(b.productName),supplierKey=key(b.supplierId);
