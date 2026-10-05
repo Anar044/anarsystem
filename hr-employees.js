@@ -46,7 +46,7 @@
     tbody.innerHTML=rows.map(x=>{
       const fired=isFired(x),linked=Boolean(x.attendanceExternalId);
       return`<tr>
-        <td class="text-left"><div class="hr-name">${esc(fullName(x))}</div><div class="hr-sub">ID: ${esc(x.id)}</div></td>
+        <td class="text-left"><div class="hr-name"><a href="/hr-employee.html?id=${encodeURIComponent(x.id)}" style="color:inherit;text-decoration:none">${esc(fullName(x))}</a></div><div class="hr-sub">ID: ${esc(x.id)}</div></td>
         <td>${esc(x.code||'—')}</td>
         <td class="text-left"><b>${esc(x.roleName||x.roleCode||'—')}</b><div class="hr-sub">${esc(x.roleCode||'')}</div></td>
         <td>${esc(x.departmentCode||'—')}</td>
@@ -54,8 +54,9 @@
         <td>${esc(x.fireDate||'—')}</td>
         <td>${linked?`<span class="hr-badge linked">${esc(x.attendanceProvider||'DEVICE')} · ${esc(x.attendanceExternalId)}</span>`:'<span class="hr-badge pending">Не связан</span>'}</td>
         <td><span class="hr-badge ${fired?'fired':'active'}">${fired?'Уволен':'Активен'}</span></td>
+        <td><a class="hr-link-button" style="display:inline-flex;text-decoration:none" href="/hr-employee.html?id=${encodeURIComponent(x.id)}">Открыть</a></td>
       </tr>`;
-    }).join('')||'<tr><td colspan="8" class="hr-empty">Сотрудники не найдены</td></tr>';
+    }).join('')||'<tr><td colspan="9" class="hr-empty">Сотрудники не найдены</td></tr>';
     $('hrRowCount').textContent=`${rows.length} сотрудников`;
   }
   function render(){renderSummary();renderRoles();renderRows()}
