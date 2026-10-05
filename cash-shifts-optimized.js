@@ -42,10 +42,12 @@ async function load(){
    mode:String(binding?.identity?.mode||c?.connectionType||"RMS").toUpperCase(),
    allowedDepartmentIds:allDepartmentIds,
    selectedDepartmentIds:departmentIds,
-   selectedDepartmentNames:restaurants.filter(r=>departmentIds.includes(String(r?.id||""))).map(r=>String(r?.name||"")).filter(Boolean),
+   selectedDepartmentNames:restaurants
+     .filter(r=>departmentIds.some(id=>normId(id)===normId(r?.id)))
+     .map(r=>String(r?.name||"")).filter(Boolean),
    departments:restaurants
-     .filter(r=>departmentIds.includes(String(r?.id||"")))
      .map(r=>({id:String(r?.id||""),name:String(r?.name||r?.id||"Ресторан")}))
+     .filter(r=>r.id)
  };
  const decorate=list=>(list||[]).map(s=>{
    const id=normId(departmentId(s));
