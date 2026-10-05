@@ -7,7 +7,7 @@
   <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
   <link rel="stylesheet" href="app-shell.css">
   <link rel="stylesheet" href="hr-pnl.css?v=20260916-12">
-  <link rel="stylesheet" href="/hr-employee.css?v=20261005-leaves-v1">
+  <link rel="stylesheet" href="/hr-employee.css?v=20261006-schedule-v2">
 </head>
 <body data-protected="true" style="background:#0b1017">
   <div class="app-shell">
@@ -244,11 +244,32 @@
             <div class="hep-grid">
               <article class="hep-card full">
                 <div class="hep-card-head">
-                  <div><div class="hep-card-title">Основной график</div><div class="hep-card-sub">Сейчас берётся основной график должности. Индивидуальный график сотрудника добавим отдельным слоем.</div></div>
-                  <span class="hep-source smart">Smart Horeca</span>
+                  <div><div class="hep-card-title">Текущий график сотрудника</div><div class="hep-card-sub">По умолчанию сотрудник наследует основной график своей должности. Индивидуальное назначение имеет приоритет только на свой период.</div></div>
+                  <span id="hepScheduleSource" class="hep-source smart">Smart Horeca</span>
                 </div>
                 <div id="hepScheduleContent"></div>
                 <div class="hep-links"><a class="hr-link-button hep-link" href="/hr-role-schedules.html">Открыть графики и должности</a><a class="hr-link-button hep-link" href="/hr-timesheet.html">Открыть табель</a></div>
+              </article>
+
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div><div class="hep-card-title">Индивидуальное исключение</div><div class="hep-card-sub">Используйте только если конкретный сотрудник должен работать не по основному графику должности. Сам шаблон сначала создаётся в «Графики и должности».</div></div>
+                  <span class="hep-source">Исключение</span>
+                </div>
+                <div class="hep-schedule-override-form">
+                  <label class="hep-field span2"><span>Шаблон графика</span><select id="hepScheduleOverrideSelect"></select><small>Показываются активные шаблоны текущей должности сотрудника.</small></label>
+                  <label class="hep-field"><span>Действует с</span><input id="hepScheduleOverrideFrom" type="date"></label>
+                  <label class="hep-field span2"><span>Комментарий</span><input id="hepScheduleOverrideNote" maxlength="1200" placeholder="Причина индивидуального графика"></label>
+                  <div class="hep-schedule-override-actions"><span id="hepScheduleOverrideStatus" class="hr-status">Готово</span><button id="hepScheduleOverrideSave" type="button" class="hr-primary">Назначить индивидуально</button></div>
+                </div>
+              </article>
+
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div><div class="hep-card-title">История индивидуальных назначений</div><div class="hep-card-sub">Когда период исключения заканчивается или назначение удаляется, сотрудник снова использует основной график должности.</div></div>
+                  <button id="hepScheduleOverrideRefresh" type="button" class="hr-link-button">↻ Обновить</button>
+                </div>
+                <div id="hepScheduleOverrideHistory" class="hep-schedule-history"><div class="hr-muted">История ещё не загружена.</div></div>
               </article>
             </div>
           </section>
@@ -361,6 +382,6 @@
   <script src="/hr-light-theme.js?v=20260917-1"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=21"></script>
-  <script src="/hr-employee.js?v=20261005-leaves-v1"></script>
+  <script src="/hr-employee.js?v=20261006-schedule-v2"></script>
 </body>
 </html>
