@@ -162,15 +162,20 @@ export async function onRequestPost({ request, env }) {
     const auth = await authModule.getIikoAuth(connection);
     let refs = await loadCachedReferenceMaps(env, auth.serverUrl, [], {
       ttlMs: 6 * 60 * 60 * 1000,
+      allowStale: true,
       requiredKeys: ["suppliers", "warehouses", "products"]
     });
     if (!refs) refs = await syncReferences(env, auth.serverUrl, auth.token);
-    const supplierResult = await getIikoSuppliers(connection);
     const maps = refs.maps || {};
-    const suppliers = (supplierResult.rows || [])
-      .map(x => ({ id: String(x.id || "").replace(/^\\{+|\\}+$/g, "").toLowerCase(), name: String(x.name || "") }))
-      .filter(x => x.id && x.name)
-      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    let supplierResult = null;
+    let suppliers = rows(maps.suppliers);
+    if (!suppliers.length) {
+      supplierResult = await getIikoSuppliers(connection);
+      suppliers = (supplierResult.rows || [])
+        .map(x => ({ id: String(x.id || "").replace(/^\\{+|\\}+$/g, "").toLowerCase(), name: String(x.name || "") }))
+        .filter(x => x.id && x.name)
+        .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    }
 
     let warehouseMap = new Map(maps.warehouses?.entries?.() || []);
     const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(String).filter(Boolean):[];
@@ -234,12 +239,14 @@ export async function onRequestPost({ request, env }) {
       diagnostics: {
         references: refs.diagnostics || null,
         referenceCacheHit: refs.cacheHit === true,
+        referenceCacheStale: refs.stale === true,
+        referenceCacheAgeMs: refs.ageMs ?? null,
         supplierSource: {
           endpoint: "/resto/api/suppliers?revisionFrom=-1",
-          status: supplierResult.status,
-          format: supplierResult.format,
-          recordsFound: supplierResult.recordsFound,
-          namedRecords: supplierResult.namedRecords
+          status: supplierResult?.status ?? null,
+          format: supplierResult?.format || (refs.cacheHit ? "d1-cache" : ""),
+          recordsFound: supplierResult?.recordsFound ?? suppliers.length,
+          namedRecords: supplierResult?.namedRecords ?? suppliers.length
         },
         warehouseBalanceFallback: {
           endpoint: "/resto/api/v2/reports/balance/stores",
@@ -259,7 +266,7 @@ export async function onRequestPost({ request, env }) {
       },
       meta: {
         authCacheHit: auth.cacheHit === true,
-        supplierAuthCacheHit: supplierResult.authCacheHit === true,
+        supplierAuthCacheHit: supplierResult?.authCacheHit === true,
         departmentIds,
         departmentScopeApplied: subsetRequested,
         storeIds: storeScope?.storeIds || []
