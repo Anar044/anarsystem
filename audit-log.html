@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Smart Horeca — Журнал действий</title>
+  <link rel="stylesheet" href="app-shell.css">
+  <link rel="stylesheet" href="audit-log.css?v=2">
+</head>
+<body data-protected="true" style="background:#0b1017">
+<div class="app-shell">
+  <aside class="sidebar"></aside>
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+        <div><span class="topbar-title">Журнал действий</span><div class="topbar-sub">Кто · что · где · старое значение → новое значение</div></div>
+      </div>
+    </header>
+    <div class="app-content audit-page">
+      <section class="audit-head">
+        <div>
+          <div class="audit-kicker">КОНТРОЛЬ ИЗМЕНЕНИЙ</div>
+          <h1>Журнал действий Smart Horeca</h1>
+          <p>История изменений документов, номенклатуры и других управляемых объектов. Журнал хранится отдельно от SH Server и не содержит пароли или токены.</p>
+        </div>
+        <button id="audit-refresh" class="audit-primary">↻ Обновить</button>
+      </section>
+
+      <section class="audit-card audit-filters">
+        <label>С<input id="audit-from" type="date"></label>
+        <label>По<input id="audit-to" type="date"></label>
+        <label>Пользователь<select id="audit-actor"><option value="">Все пользователи</option></select></label>
+        <label>Объект<select id="audit-entity"><option value="">Все объекты</option><option value="INCOMING_INVOICE">Приходные накладные</option><option value="OUTGOING_INVOICE">Расходные накладные</option><option value="NOMENCLATURE_PRODUCT">Номенклатура</option><option value="NOMENCLATURE_GROUP">Группы</option><option value="NOMENCLATURE_CATEGORY">Категории</option><option value="PRODUCT_SCALE">Шкалы размеров</option><option value="ASSEMBLY_CHART">Техкарты</option></select></label>
+        <label>Действие<select id="audit-action"><option value="">Все действия</option><option>CREATE</option><option>UPDATE</option><option>DELETE</option><option>RESTORE</option><option>PROCESS</option><option>UNPROCESS</option><option>CREATE_AND_PROCESS</option><option>UPDATE_AND_PROCESS</option><option>ASSIGN</option></select></label>
+        <label class="audit-search">Поиск<input id="audit-search" type="search" placeholder="Документ, товар, пользователь..."></label>
+      </section>
+
+      <div id="audit-status" class="audit-status">Готово к загрузке.</div>
+
+      <section class="audit-summary">
+        <article><span>Событий</span><strong id="audit-total">0</strong><small>за выбранный период</small></article>
+        <article><span>Изменений полей</span><strong id="audit-change-count">0</strong><small>старое → новое</small></article>
+        <article><span>Пользователей</span><strong id="audit-user-count">0</strong><small>кто вносил изменения</small></article>
+      </section>
+
+      <section class="audit-card">
+        <div class="audit-card-title"><div><b>История изменений</b><span>Нажмите на строку, чтобы увидеть точные изменения.</span></div><div id="audit-row-count">0 строк</div></div>
+        <div class="audit-table-wrap">
+          <table class="audit-table">
+            <thead><tr><th>Дата / время</th><th>Пользователь</th><th>Действие</th><th>Объект</th><th>Документ / ID</th><th>Ресторан</th><th>Изменено</th></tr></thead>
+            <tbody id="audit-body"></tbody>
+          </table>
+          <div id="audit-empty" class="audit-empty">Событий пока нет.</div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div id="audit-overlay" class="audit-overlay" hidden>
+  <aside class="audit-drawer">
+    <div class="audit-drawer-head"><div><div class="audit-kicker">ДЕТАЛИ ИЗМЕНЕНИЯ</div><h2 id="audit-detail-title">Событие</h2><div id="audit-detail-meta" class="audit-detail-meta"></div></div><button id="audit-close" class="audit-close">×</button></div>
+    <div id="audit-changes" class="audit-changes"></div>
+  </aside>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script>
+<script src="auth.js"></script>
+<script src="iiko-context.js?v=20261003-chain-3"></script>
+<script src="app-shell.js?v=20261003-perf-2"></script>
+<script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
+<script src="documents-nav.js?v=12"></script>
+<script src="mobile-responsive.js?v=3"></script>
+<script src="audit-log.js?v=2"></script>
+</body></html>

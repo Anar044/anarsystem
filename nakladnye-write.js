@@ -11,6 +11,25 @@
     });
   };
 
+  async function boundedFetch(url, options, timeoutMs) {
+    var timeout = Number(timeoutMs || 90000);
+    if (window.SH_IikoContext && typeof window.SH_IikoContext.fetchWithTimeout === 'function') {
+      return window.SH_IikoContext.fetchWithTimeout(url, options || {}, timeout);
+    }
+    var controller = new AbortController();
+    var timer = setTimeout(function () { controller.abort(); }, timeout);
+    try {
+      return await fetch(url, Object.assign({}, options || {}, { signal: controller.signal }));
+    } catch (error) {
+      if (error && error.name === 'AbortError') {
+        throw new Error('Smart Horeca API не ответил за ' + Math.ceil(timeout / 1000) + ' секунд. Повторите запрос.');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   function today() {
     var d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -28,6 +47,20 @@
     var c = state && state.connection;
     if (!c || !c.ip || !c.port || !c.login || !c.password) throw new Error('Нет подключения к iiko Server. Откройте «Настройки».');
     return c;
+  }
+
+  async function refreshInvoiceListAfterMutation() {
+    try {
+      if ($('invoice-details')) $('invoice-details').hidden = true;
+      if (window.SHIncomingInvoices) window.SHIncomingInvoices.selected = null;
+      if (window.SHIncomingInvoices && typeof window.SHIncomingInvoices.reload === 'function') {
+        await window.SHIncomingInvoices.reload();
+        return;
+      }
+    } catch (error) {
+      console.warn('Incoming invoices refresh failed:', error && error.message ? error.message : error);
+    }
+    location.reload();
   }
 
   function setEditorStatus(text, kind) {
@@ -277,7 +310,7 @@
       var response = await boundedFetch('/api/iiko/document-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ connection: c, type: 'incoming', action: processAfterSave ? 'save-and-process' : 'save', document: documentData }),
+        body: JSON.stringify({ connection: c, type: 'incoming', action: processAfterSave ? 'save-and-process' : 'save', document: documentData, auditBefore: current || null }),
         cache: 'no-store'
       });
       var data = await response.json().catch(function () { return {}; });
@@ -290,7 +323,9 @@
 
       var number = data.validation && (data.validation.documentNumber || data.validation.otherSuggestedNumber);
       setEditorStatus((data.message || 'Накладная создана в iiko BackOffice') + (number ? ' · № ' + number : ''), 'success');
-      setTimeout(function () { location.reload(); }, 700);
+      await new Promise(function (resolve) { setTimeout(resolve, 350); });
+      closeEditor();
+      await refreshInvoiceListAfterMutation();
     } catch (error) {
       setEditorStatus(error.message || 'Ошибка сохранения накладной', 'error');
       button.disabled = false;
@@ -350,12 +385,12 @@
       var response = await boundedFetch('/api/iiko/document-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'process', document: loaded.document }),
+        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'process', document: loaded.document, auditBefore: loaded.document }),
         cache: 'no-store'
       });
       var data = await response.json().catch(function () { return {}; });
       if (!response.ok || data.success === false) throw new Error(actionError(data, response));
-      location.reload();
+      await refreshInvoiceListAfterMutation();
     } catch (error) {
       alert(error.message || 'Ошибка проведения');
     }
@@ -370,12 +405,12 @@
       var response = await boundedFetch('/api/iiko/document-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'unprocess', document: loaded.document }),
+        body: JSON.stringify({ connection: loaded.connection, type: 'incoming', action: 'unprocess', document: loaded.document, auditBefore: loaded.document }),
         cache: 'no-store'
       });
       var data = await response.json().catch(function () { return {}; });
       if (!response.ok || data.success === false) throw new Error(actionError(data, response));
-      location.reload();
+      await refreshInvoiceListAfterMutation();
     } catch (error) {
       alert(error.message || 'Ошибка распроведения');
     }

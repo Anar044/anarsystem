@@ -1,5 +1,6 @@
 import { clean, iikoText } from "./_lib/iiko-client.js";
 import { resolveStoreScope } from "./_lib/store-scope.js";
+import { logAuditEvent } from "../_lib/audit-log.js";
 
 function corsHeaders() {
   return {
@@ -75,6 +76,57 @@ function normalizeIncomingDocument(input = {}) {
     };
   });
   return d;
+}
+function auditDocumentSnapshot(input = {}, fallback = null) {
+  const d = input && typeof input === "object" ? input : {};
+  const old = fallback && typeof fallback === "object" ? fallback : {};
+  const valueOrOld = (keys) => {
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(d, key) && d[key] !== undefined) return d[key];
+    }
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(old, key) && old[key] !== undefined) return old[key];
+    }
+    return "";
+  };
+  const inItems = Array.isArray(d.items) ? d.items : [];
+  const oldItems = Array.isArray(old.items) ? old.items : [];
+  const count = Math.max(inItems.length, oldItems.length);
+  const items = [];
+  for (let index = 0; index < count; index++) {
+    const item = inItems[index] && typeof inItems[index] === "object" ? inItems[index] : {};
+    const prev = oldItems[index] && typeof oldItems[index] === "object" ? oldItems[index] : {};
+    const pick = (keys, fallbackValue = "") => {
+      for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(item, key) && item[key] !== undefined) return item[key];
+      }
+      for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(prev, key) && prev[key] !== undefined) return prev[key];
+      }
+      return fallbackValue;
+    };
+    items.push({
+      productId: clean(pick(["productId","product"])),
+      amount: Number(pick(["actualAmount","amount"],0)),
+      price: Number(pick(["price"],0)),
+      sum: Number(pick(["sum"],0)),
+      vatPercent: pick(["vatPercent","ndsPercent"],null)
+    });
+  }
+  return {
+    id: clean(valueOrOld(["id"])),
+    documentNumber: clean(valueOrOld(["documentNumber"])),
+    dateIncoming: clean(valueOrOld(["dateIncoming","incomingDate"])),
+    supplierId: clean(valueOrOld(["supplierId","supplier"])),
+    defaultStore: clean(valueOrOld(["defaultStore","defaultStoreId","storeId"])),
+    invoice: clean(valueOrOld(["invoice"])),
+    incomingDocumentNumber: clean(valueOrOld(["incomingDocumentNumber"])),
+    dueDate: clean(valueOrOld(["dueDate"])),
+    transportInvoiceNumber: clean(valueOrOld(["transportInvoiceNumber"])),
+    comment: clean(valueOrOld(["comment"])),
+    status: clean(valueOrOld(["status"])),
+    items
+  };
 }
 function validateIncoming(d) {
   const errors = [];
@@ -234,7 +286,9 @@ export async function onRequestPost(context) {
       return jsonResponse({ success: false, message: "Не найдено подключение к iiko Server" }, 400);
     }
 
-    let document = body.document || {};
+    const originalDocument = body.document && typeof body.document==="object" ? body.document : {};
+    const auditBefore = body.auditBefore && typeof body.auditBefore==="object" ? body.auditBefore : null;
+    let document = originalDocument;
     const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(String).filter(Boolean):[];
     const allowedIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
     const subsetRequested=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
@@ -321,6 +375,50 @@ export async function onRequestPost(context) {
       }, validationFailed ? 422 : 502);
     }
 
+    const documentNumber = clean(
+      validation.documentNumber ||
+      validation.otherSuggestedNumber ||
+      document.documentNumber ||
+      originalDocument.documentNumber
+    );
+    const auditAfter = action === "unprocess"
+      ? { ...document, status: "NEW" }
+      : { ...document };
+    const inferredBefore = auditBefore || (
+      action === "process"
+        ? { ...originalDocument, status: clean(originalDocument.status || "NEW") }
+        : action === "unprocess"
+          ? { ...originalDocument, status: clean(originalDocument.status || "PROCESSED") }
+          : null
+    );
+    const auditAction = action === "save"
+      ? (inferredBefore ? "UPDATE" : "CREATE")
+      : action === "save-and-process"
+        ? (inferredBefore ? "UPDATE_AND_PROCESS" : "CREATE_AND_PROCESS")
+        : action === "process"
+          ? "PROCESS"
+          : "UNPROCESS";
+    const audit = await logAuditEvent({
+      request: context.request,
+      env: context.env,
+      connection,
+      action: auditAction,
+      entityType: type === "incoming" ? "INCOMING_INVOICE" : "OUTGOING_INVOICE",
+      entityId: clean(document.id || originalDocument.id || documentNumber),
+      entityLabel: `${type === "incoming" ? "Приходная накладная" : "Расходная накладная"} №${documentNumber || "—"}`,
+      documentNumber,
+      before: inferredBefore ? auditDocumentSnapshot(inferredBefore) : null,
+      after: auditDocumentSnapshot(auditAfter, inferredBefore),
+      restaurantIds: departmentIds,
+      restaurantNames: Array.isArray(body?.chainScope?.selectedDepartmentNames) ? body.chainScope.selectedDepartmentNames : [],
+      metadata: {
+        documentType: type,
+        requestedAction: action,
+        serverStatus: result.status,
+        validation
+      }
+    });
+
     return jsonResponse({
       success: true,
       action,
@@ -338,7 +436,9 @@ export async function onRequestPost(context) {
               : "Документ сохранён в iiko BackOffice",
       meta: {
         processed: ["save-and-process", "process"].includes(action),
-        authCacheHit: Boolean(result.auth?.cacheHit)
+        authCacheHit: Boolean(result.auth?.cacheHit),
+        auditLogged: audit.logged === true,
+        auditChanges: audit.changes || 0
       }
     });
   } catch (error) {
