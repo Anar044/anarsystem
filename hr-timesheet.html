@@ -60,7 +60,7 @@
             <div class="hr-card-title-row">
               <div>
                 <div class="hr-card-title">Фактический табель</div>
-                <div class="hr-card-sub">«Y / Нет» ставится только если по графику сотрудник должен работать, но Face ID отметок нет. Выходной по графику показывается как «İ / Выходной». Если сотрудник пришёл в выходной — это отдельно отмечается как «Работа в выходной».</div>
+                <div class="hr-card-sub">«Y / Нет» ставится только при реально заданном графике сотрудника. Если график должности ещё не настроен, день показывается как «График не задан» и не считается отсутствием. Выходной по заданному графику показывается как «İ / Выходной».</div>
               </div>
               <div id="tsFactualCount" class="hr-muted">0 строк</div>
             </div>
@@ -121,6 +121,6 @@
   <script src="/hr-light-theme.js?v=20260917-1"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=14"></script>
-  <script src="/hr-timesheet.js?v=20261006-schedule-aware-v1"></script>
+  <script src="/hr-timesheet.js?v=20261006-explicit-schedule-v2"></script>
 </body>
 </html>
