@@ -51,6 +51,21 @@
 .hep-schedule-cell{padding:13px;border:1px solid #24313e;border-radius:11px;background:#0d141d}
 .hep-schedule-cell span{display:block;color:#718193;font-size:9px;text-transform:uppercase;font-weight:800}
 .hep-schedule-cell strong{display:block;margin-top:6px;color:#edf3f7;font-size:12px}
+.hep-source.individual{color:#f2c466;border-color:rgba(242,196,102,.28);background:rgba(242,196,102,.08)}
+.hep-schedule-current-note{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 12px;border:1px solid #263543;border-radius:11px;background:#0d141d;color:#8d9cad;font-size:10px;line-height:1.45}
+.hep-schedule-current-note strong{flex:0 0 auto;padding:4px 7px;border-radius:999px;font-size:8px;letter-spacing:.04em}
+.hep-schedule-current-note.role strong{color:#82e7b3;border:1px solid rgba(66,211,146,.25);background:rgba(66,211,146,.08)}
+.hep-schedule-current-note.individual strong{color:#f2c466;border:1px solid rgba(242,196,102,.28);background:rgba(242,196,102,.08)}
+.hep-schedule-override-period{display:flex;align-items:center;gap:10px;margin-top:10px;padding:10px 12px;border-top:1px solid #1e2a35;color:#7e8d9d;font-size:9px}
+.hep-schedule-override-period strong{color:#dfe8ef}
+.hep-schedule-override-form{display:grid;grid-template-columns:minmax(260px,1.5fr) 180px minmax(260px,1.5fr);gap:10px;align-items:end}
+.hep-schedule-override-actions{grid-column:1/-1;display:flex;justify-content:flex-end;align-items:center;gap:10px}
+.hep-schedule-history{overflow:auto}
+.hep-schedule-history-table{width:100%;min-width:920px;border-collapse:collapse}
+.hep-schedule-history-table th{padding:10px 11px;text-align:left;color:#748598;font-size:8px;text-transform:uppercase;letter-spacing:.05em;background:#0d141d;border-bottom:1px solid #263440}
+.hep-schedule-history-table td{padding:11px;border-bottom:1px solid #1e2a35;color:#ccd6de;font-size:10px;vertical-align:top}
+.hep-schedule-history-table td>span{display:block;margin-top:4px;color:#718194;font-size:8px}
+.hep-schedule-history-table tr.current{background:rgba(242,196,102,.04)}
 .hep-placeholder{display:grid;place-items:center;min-height:180px;text-align:center;padding:24px;border:1px dashed #2a3947;border-radius:14px;background:#0d141d}
 .hep-placeholder strong{display:block;color:#e9f1f7;font-size:14px}
 .hep-placeholder p{max-width:650px;margin:8px auto 0;color:#748496;font-size:11px;line-height:1.55}
@@ -159,5 +174,5 @@
 .hep-leave-status-pill.approved{color:#82e7b3;border:1px solid rgba(66,211,146,.25);background:rgba(66,211,146,.08)}
 .hep-leave-status-pill.cancelled{color:#9ba8b5;border:1px solid #31404d;background:#17212a}
 .hep-leave-cancel{padding:6px 8px}
-@media(max-width:1100px){.hep-grid,.hep-money-layout,.hep-pay-editor,.hep-pay-current,.hep-leave-summary{grid-template-columns:1fr}.hep-pay-date{grid-column:1/-1}.hep-leave-entry-form{grid-template-columns:1fr 1fr 1fr}.hep-leave-note{grid-column:1/-1}.hep-leave-custom-types{grid-template-columns:1fr auto}.hep-stat-grid,.hep-schedule{grid-template-columns:repeat(2,minmax(0,1fr))}.hep-plan-list{grid-template-columns:1fr 1fr}}
-@media(max-width:760px){.hep-hero{grid-template-columns:auto 1fr}.hep-leave-entry-form,.hep-leave-custom-types,.hep-leave-summary-stats{grid-template-columns:1fr}.hep-leave-entry-actions{justify-content:flex-start}.hep-leave-toolbar{align-items:flex-end;flex-wrap:wrap}.hep-hero-actions{grid-column:1/-1;justify-content:flex-start}.hep-grid,.hep-fields,.hep-stat-grid,.hep-schedule,.hep-plan-list{grid-template-columns:1fr}.hep-field.span2,.hep-card.full{grid-column:auto}.hep-history-change{grid-template-columns:1fr}.hep-history-arrow{display:none}.hep-hero-title h1{font-size:23px}}
+@media(max-width:1100px){.hep-grid,.hep-money-layout,.hep-pay-editor,.hep-pay-current,.hep-leave-summary{grid-template-columns:1fr}.hep-schedule-override-form{grid-template-columns:1fr 1fr}.hep-schedule-override-form .span2{grid-column:1/-1}.hep-pay-date{grid-column:1/-1}.hep-leave-entry-form{grid-template-columns:1fr 1fr 1fr}.hep-leave-note{grid-column:1/-1}.hep-leave-custom-types{grid-template-columns:1fr auto}.hep-stat-grid,.hep-schedule{grid-template-columns:repeat(2,minmax(0,1fr))}.hep-plan-list{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){.hep-hero{grid-template-columns:auto 1fr}.hep-schedule-override-form{grid-template-columns:1fr}.hep-schedule-override-actions{justify-content:flex-start}.hep-leave-entry-form,.hep-leave-custom-types,.hep-leave-summary-stats{grid-template-columns:1fr}.hep-leave-entry-actions{justify-content:flex-start}.hep-leave-toolbar{align-items:flex-end;flex-wrap:wrap}.hep-hero-actions{grid-column:1/-1;justify-content:flex-start}.hep-grid,.hep-fields,.hep-stat-grid,.hep-schedule,.hep-plan-list{grid-template-columns:1fr}.hep-field.span2,.hep-card.full{grid-column:auto}.hep-history-change{grid-template-columns:1fr}.hep-history-arrow{display:none}.hep-hero-title h1{font-size:23px}}
