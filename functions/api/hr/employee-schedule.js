@@ -64,12 +64,19 @@ async function history(db,userId,employeeId){
   }));
 }
 async function rebuildRanges(db,userId,employeeId){
-  const rows=await db.prepare(`SELECT override_id,effective_from FROM hr_employee_schedule_overrides
-    WHERE user_id=?1 AND iiko_employee_id=?2 AND is_active=1 ORDER BY effective_from ASC,created_at ASC`).bind(userId,employeeId).all();
+  const rows=await db.prepare(`SELECT o.override_id,o.effective_from,s.valid_to AS schedule_valid_to
+    FROM hr_employee_schedule_overrides o
+    LEFT JOIN hr_role_schedules s ON s.user_id=o.user_id AND s.schedule_id=o.schedule_id
+    WHERE o.user_id=?1 AND o.iiko_employee_id=?2 AND o.is_active=1 ORDER BY o.effective_from ASC,o.created_at ASC`).bind(userId,employeeId).all();
   const list=rows.results||[],t=now();
   if(!list.length)return;
-  await db.batch(list.map((r,i)=>db.prepare(`UPDATE hr_employee_schedule_overrides SET effective_to=?4,updated_at=?5
-    WHERE user_id=?1 AND iiko_employee_id=?2 AND override_id=?3`).bind(userId,employeeId,r.override_id,list[i+1]?previousDate(list[i+1].effective_from):'',t)));
+  await db.batch(list.map((r,i)=>{
+    const nextTo=list[i+1]?previousDate(list[i+1].effective_from):'';
+    const scheduleTo=r.schedule_valid_to||'';
+    const effectiveTo=nextTo&&scheduleTo?(nextTo<scheduleTo?nextTo:scheduleTo):(nextTo||scheduleTo);
+    return db.prepare(`UPDATE hr_employee_schedule_overrides SET effective_to=?4,updated_at=?5
+      WHERE user_id=?1 AND iiko_employee_id=?2 AND override_id=?3`).bind(userId,employeeId,r.override_id,effectiveTo,t);
+  }));
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
@@ -102,9 +109,11 @@ export async function onRequestPost({request,env}){
     if(action==='saveOverride'){
       const scheduleId=clean(body.scheduleId,160),effectiveFrom=dateOnly(body.effectiveFrom),note=clean(body.note,1200);
       if(!scheduleId||!effectiveFrom)return json({success:false,message:'Выберите график и дату начала действия'},400);
-      const schedule=await env.DB.prepare(`SELECT schedule_id,schedule_name,role_code FROM hr_role_schedules WHERE user_id=?1 AND schedule_id=?2 AND is_active=1 LIMIT 1`).bind(state.user.id,scheduleId).first();
+      const schedule=await env.DB.prepare(`SELECT schedule_id,schedule_name,role_code,valid_from,valid_to FROM hr_role_schedules WHERE user_id=?1 AND schedule_id=?2 AND is_active=1 LIMIT 1`).bind(state.user.id,scheduleId).first();
       if(!schedule)return json({success:false,message:'График не найден или отключён'},404);
       if(String(schedule.role_code)!==String(employee.role_code))return json({success:false,message:'Индивидуальный график должен относиться к текущей должности сотрудника'},409);
+      if(schedule.valid_from&&effectiveFrom<schedule.valid_from)return json({success:false,message:`Этот шаблон действует только с ${schedule.valid_from}. Выберите другую дату начала.`},409);
+      if(schedule.valid_to&&effectiveFrom>schedule.valid_to)return json({success:false,message:`Срок действия этого шаблона закончился ${schedule.valid_to}. Выберите другой шаблон.`},409);
       const same=await env.DB.prepare(`SELECT override_id FROM hr_employee_schedule_overrides WHERE user_id=?1 AND iiko_employee_id=?2 AND effective_from=?3 AND is_active=1 LIMIT 1`).bind(state.user.id,employeeId,effectiveFrom).first();
       if(same)return json({success:false,message:'На эту дату уже есть индивидуальное назначение графика'},409);
       const beforeHistory=await history(env.DB,state.user.id,employeeId),before=beforeHistory.find(x=>x.effectiveFrom<=effectiveFrom&&(!x.effectiveTo||x.effectiveTo>=effectiveFrom))||null;
