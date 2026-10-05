@@ -70,12 +70,17 @@ const subsetRequested=chainMode&&departmentIds.length>0&&allowedIds.length>depar
 // In CHAIN always request each selected Department separately, including the
 // "all restaurants" selection. This guarantees every shift can be labeled
 // with its restaurant even when the cash-shift payload itself omits Department.
+const departmentDirectory=Array.isArray(b?.chainScope?.departments)&&b.chainScope.departments.length
+  ? b.chainScope.departments
+  : (Array.isArray(b?.departments)?b.departments:[]);
 const departmentNames=new Map(
-  (Array.isArray(b?.chainScope?.departments)?b.chainScope.departments:[])
+  departmentDirectory
     .map(x=>[normDepartmentId(x?.id),String(x?.name||"").trim()])
     .filter(x=>x[0]&&x[1])
 );
-const selectedNames=Array.isArray(b?.chainScope?.selectedDepartmentNames)?b.chainScope.selectedDepartmentNames:[];
+const selectedNames=Array.isArray(b?.chainScope?.selectedDepartmentNames)&&b.chainScope.selectedDepartmentNames.length
+  ? b.chainScope.selectedDepartmentNames
+  : (Array.isArray(b?.selectedDepartmentNames)?b.selectedDepartmentNames:[]);
 departmentIds.forEach((id,index)=>{
   const key=normDepartmentId(id),name=String(selectedNames[index]||"").trim();
   if(key&&name&&!departmentNames.has(key))departmentNames.set(key,name);
