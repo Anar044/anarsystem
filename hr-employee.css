@@ -71,6 +71,11 @@
 .hep-dirty{color:#f2c466}
 .hep-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .hep-link{display:inline-flex;align-items:center;text-decoration:none}
+.hep-pay-next-note{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 12px;border:1px solid rgba(242,196,102,.26);border-radius:11px;background:rgba(242,196,102,.055);color:#8f9cac;font-size:10px;line-height:1.45}
+.hep-pay-next-note strong{display:inline-flex;flex:0 0 auto;padding:4px 7px;border-radius:999px;border:1px solid rgba(242,196,102,.28);background:rgba(242,196,102,.08);color:#f2c466;font-size:8px;letter-spacing:.04em}
+.hep-pay-active-line{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.hep-pay-active-line span{display:inline-flex;padding:4px 7px;border-radius:999px;background:rgba(66,211,146,.08);border:1px solid rgba(66,211,146,.24);color:#82e7b3;font-size:8px;font-weight:900;letter-spacing:.05em}
+.hep-pay-active-line b{color:#9eb0c0;font-size:9px;font-weight:800}
 .hep-pay-editor{display:grid;grid-template-columns:180px minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:stretch}
 .hep-pay-date{padding:14px;border:1px solid #263543;border-radius:13px;background:#0d141d}
 .hep-pay-rate-card{padding:14px;border:1px solid #263543;border-radius:13px;background:#0d141d}
