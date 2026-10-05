@@ -103,6 +103,7 @@
 .hep-pay-table{width:100%;min-width:900px;border-collapse:collapse}
 .hep-pay-table th{padding:10px 11px;text-align:left;color:#748598;font-size:8px;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #263440;background:#0d141d}
 .hep-pay-table td{padding:11px;border-bottom:1px solid #1e2a35;color:#ccd6de;font-size:10px;vertical-align:top}
+.hep-pay-table .audit-secondary{display:block;margin-top:4px;color:#6f8092;font-size:8px}
 .hep-pay-table tr.current{background:rgba(66,211,146,.045)}
 .hep-pay-table strong{color:#eef4f7}
 .hep-pay-pill{display:inline-flex;padding:4px 7px;border-radius:999px;background:#18232d;border:1px solid #2a3946;color:#9aa9b8;font-size:8px;font-weight:900}
