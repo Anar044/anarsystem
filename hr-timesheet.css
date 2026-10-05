@@ -1,0 +1,28 @@
+.ts-contour-tabs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+.ts-contour-tab{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:14px 16px;border:1px solid #263541;border-radius:13px;background:#0f1720;color:#91a0af;text-align:left;cursor:pointer}
+.ts-contour-tab span{display:block;color:#e4ecf2;font-size:13px;font-weight:900}
+.ts-contour-tab small{display:block;color:#718093;font-size:9px;line-height:1.4}
+.ts-contour-tab.active{border-color:rgba(66,211,146,.42);background:linear-gradient(180deg,rgba(66,211,146,.075),#0f1720)}
+.ts-contour-tab.active span{color:#82e7b3}
+.ts-table{min-width:1040px}
+.ts-status{display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border-radius:999px;border:1px solid #2b3945;background:#17212b;color:#aab6c1;font-size:8px;font-weight:900;white-space:nowrap}
+.ts-status.work{color:#82e7b3;border-color:rgba(66,211,146,.25);background:rgba(66,211,146,.08)}
+.ts-status.leave{color:#c8a8ff;border-color:rgba(174,121,255,.25);background:rgba(174,121,255,.08)}
+.ts-status.absent{color:#ff9ba6;border-color:rgba(255,104,120,.25);background:rgba(255,104,120,.08)}
+.ts-status.rest{color:#91a0af}
+.ts-status.review{color:#f2c466;border-color:rgba(242,196,102,.25);background:rgba(242,196,102,.08)}
+.ts-status.holiday{color:#8fbcff;border-color:rgba(89,139,255,.25);background:rgba(89,139,255,.08)}
+.ts-leave-name{display:block;color:#c9b3f4;font-weight:800;font-size:9px}
+.ts-leave-note{display:block;margin-top:3px;color:#718093;font-size:8px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ts-cell-sub{display:block;margin-top:3px;color:#6e7d8d;font-size:8px}
+.ts-official-plan strong{color:#edf4f8}
+.ts-diagnostics{padding:0;overflow:hidden}
+.ts-diagnostics>summary{display:flex;align-items:center;gap:10px;padding:15px 17px;cursor:pointer;list-style:none}
+.ts-diagnostics>summary::-webkit-details-marker{display:none}
+.ts-diagnostics>summary strong{color:#e7eef4;font-size:12px}
+.ts-diagnostics>summary span{color:#758597;font-size:9px}
+.ts-diagnostics[open]>summary{border-bottom:1px solid #22303c}
+.ts-diagnostic-grid{display:grid;gap:18px;padding:17px}
+.ts-employee-link{color:inherit;text-decoration:none}
+.ts-employee-link:hover{color:#82e7b3}
+@media(max-width:900px){.ts-contour-tabs{grid-template-columns:1fr}.ts-contour-tab{display:block}.ts-contour-tab small{margin-top:4px}}
