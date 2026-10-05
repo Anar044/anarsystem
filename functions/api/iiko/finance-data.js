@@ -41,7 +41,7 @@ async function detail(connection,id){
   return{success:true,sessionId:id,shift:null,payments:recordsFrom(p),paymentsLoaded:true,paymentsStatus:b.status,operationDay:p.operationDay||null};
 }
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()});}
-export async function onRequestPost(context){try{const b=await context.request.json();const connection={ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password||"")};if(!connection.ip||!connection.port||!connection.login||!connection.password)return jsonResponse({success:false,message:"Заполните IP, порт, логин и пароль SH Server"},400);const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(String).filter(Boolean))]:[];const mode=String(b.mode||"list").toLowerCase();if(mode==="details"){
+export async function onRequestPost(context){try{const b=await context.request.json();const connection={ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password||"")};if(!connection.ip||!connection.port||!connection.login||!connection.password)return jsonResponse({success:false,message:"Заполните IP, порт, логин и пароль SH Server"},400);const bodyDepartmentIds=Array.isArray(b.departmentIds)?b.departmentIds:[];const scopeDepartmentIds=Array.isArray(b?.chainScope?.selectedDepartmentIds)?b.chainScope.selectedDepartmentIds:[];const departmentIds=[...new Set((bodyDepartmentIds.length?bodyDepartmentIds:scopeDepartmentIds).map(String).filter(Boolean))];const mode=String(b.mode||"list").toLowerCase();if(mode==="details"){
   const ids=Array.isArray(b.sessionIds)?[...new Set(b.sessionIds.map(x=>String(x||"").trim()).filter(Boolean))]:[];
   if(!ids.length)return jsonResponse({success:false,message:"Не указаны ID кассовых смен"},400);
   if(ids.length>30)return jsonResponse({success:false,message:"За один запрос можно получить детали максимум для 30 смен"},400);
@@ -117,6 +117,12 @@ return jsonResponse({
       departmentId:String(x._departmentId||shiftDepartmentId(x)||""),
       departmentName:String(x._departmentName||"")
     })),
+    rawScopeDiagnostics:{
+      bodyDepartmentIdsCount:bodyDepartmentIds.length,
+      scopeDepartmentIdsCount:scopeDepartmentIds.length,
+      scopeDepartmentsCount:Array.isArray(b?.chainScope?.departments)?b.chainScope.departments.length:0,
+      selectedNamesCount:Array.isArray(b?.chainScope?.selectedDepartmentNames)?b.chainScope.selectedDepartmentNames.length:0
+    },
     authCacheHit
   }
 });
