@@ -7,7 +7,7 @@
   <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
   <link rel="stylesheet" href="app-shell.css">
   <link rel="stylesheet" href="hr-pnl.css?v=20260916-12">
-  <link rel="stylesheet" href="/hr-employee.css?v=20261005-pay-v2-2">
+  <link rel="stylesheet" href="/hr-employee.css?v=20261005-leaves-v1">
 </head>
 <body data-protected="true" style="background:#0b1017">
   <div class="app-shell">
@@ -254,12 +254,73 @@
           </section>
 
           <section class="hep-panel" data-panel="leave" hidden>
-            <article class="hep-card">
-              <div class="hep-placeholder">
-                <div><strong>Отпуска — следующий слой</strong><p>Карточка уже зарезервирована под фактические и официальные отпуска, остатки по годам и компенсацию при увольнении.</p>
-                <div class="hep-plan-list"><div class="hep-plan-item"><strong>Основной отпуск</strong><span>Начислено · использовано · остаток</span></div><div class="hep-plan-item"><strong>Дополнительные дни</strong><span>Стаж · ребёнок · инвалидность · пользовательские типы</span></div><div class="hep-plan-item"><strong>История</strong><span>Дата · тип · период · кто подтвердил</span></div></div></div>
-              </div>
-            </article>
+            <div class="hep-grid">
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div>
+                    <div class="hep-card-title">Отпуска сотрудника</div>
+                    <div class="hep-card-sub">Фактический и официальный контуры ведутся отдельно. Право активируется через 6 месяцев от соответствующей даты приёма; HR может активировать его раньше вручную.</div>
+                  </div>
+                  <div class="hep-leave-toolbar">
+                    <label class="hep-field hep-leave-year"><span>Год</span><input id="hepLeaveYear" type="number" min="2000" max="2100" step="1"></label>
+                    <button id="hepLeaveRefresh" class="hr-link-button" type="button">↻ Обновить</button>
+                  </div>
+                </div>
+                <div id="hepLeaveSummary" class="hep-leave-summary"><div class="hr-muted">Откройте вкладку «Отпуска», чтобы загрузить данные.</div></div>
+              </article>
+
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div><div class="hep-card-title">Фактические отпуска</div><div class="hep-card-sub">Внутренний учёт фактических дней отпуска и остатков сотрудника.</div></div>
+                  <span class="hep-source smart">Фактический</span>
+                </div>
+                <div id="hepLeaveFactual" class="hep-leave-ledger"></div>
+              </article>
+
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div><div class="hep-card-title">Официальные отпуска</div><div class="hep-card-sub">Отдельный остаток для официального табеля и белого расчёта зарплаты.</div></div>
+                  <span class="hep-source sh">Официальный</span>
+                </div>
+                <div id="hepLeaveOfficial" class="hep-leave-ledger"></div>
+              </article>
+
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div><div class="hep-card-title">Добавить использованный отпуск</div><div class="hep-card-sub">После сохранения дни автоматически попадут в использовано и уменьшат соответствующий остаток. Интеграцию с табелями подключим следующим этапом.</div></div>
+                  <span class="hep-source smart">HR запись</span>
+                </div>
+                <div class="hep-leave-entry-form">
+                  <label class="hep-field"><span>Контур</span><select id="hepLeaveContour"><option value="FACTUAL">Фактический</option><option value="OFFICIAL">Официальный</option></select></label>
+                  <label class="hep-field"><span>Вид отпуска</span><select id="hepLeaveType"></select></label>
+                  <label class="hep-field"><span>С</span><input id="hepLeaveFrom" type="date"></label>
+                  <label class="hep-field"><span>По</span><input id="hepLeaveTo" type="date"></label>
+                  <label class="hep-field"><span>Дней</span><input id="hepLeaveDays" type="number" min="0.01" step="0.01"></label>
+                  <label class="hep-field hep-leave-note"><span>Комментарий</span><input id="hepLeaveNote" maxlength="1200" placeholder="Основание / комментарий HR"></label>
+                  <div class="hep-leave-entry-actions"><span id="hepLeaveStatus" class="hr-status">Готово</span><button id="hepLeaveAdd" type="button" class="hr-primary">Добавить отпуск</button></div>
+                </div>
+              </article>
+
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div><div class="hep-card-title">Дополнительные виды отпуска</div><div class="hep-card-sub">Два пользовательских вида из ТЗ можно переименовать под правила вашей компании.</div></div>
+                  <span class="hep-source smart">Настройка</span>
+                </div>
+                <div class="hep-leave-custom-types">
+                  <label class="hep-field"><span>Дополнительный вид 1</span><input id="hepLeaveExtra1" maxlength="120"></label>
+                  <button id="hepLeaveExtra1Save" type="button" class="hr-link-button">Сохранить</button>
+                  <label class="hep-field"><span>Дополнительный вид 2</span><input id="hepLeaveExtra2" maxlength="120"></label>
+                  <button id="hepLeaveExtra2Save" type="button" class="hr-link-button">Сохранить</button>
+                </div>
+              </article>
+
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div><div class="hep-card-title">История отпусков</div><div class="hep-card-sub">Период, вид, контур, количество дней, кто внёс запись и статус.</div></div>
+                </div>
+                <div id="hepLeaveHistory" class="hep-leave-history"><div class="hr-muted">История ещё не загружена.</div></div>
+              </article>
+            </div>
           </section>
 
           <section class="hep-panel" data-panel="benefits" hidden>
@@ -300,6 +361,6 @@
   <script src="/hr-light-theme.js?v=20260917-1"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=21"></script>
-  <script src="/hr-employee.js?v=20261005-pay-v2-2"></script>
+  <script src="/hr-employee.js?v=20261005-leaves-v1"></script>
 </body>
 </html>
