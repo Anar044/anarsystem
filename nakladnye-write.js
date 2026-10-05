@@ -11,6 +11,25 @@
     });
   };
 
+  async function boundedFetch(url, options, timeoutMs) {
+    var timeout = Number(timeoutMs || 90000);
+    if (window.SH_IikoContext && typeof window.SH_IikoContext.fetchWithTimeout === 'function') {
+      return window.SH_IikoContext.fetchWithTimeout(url, options || {}, timeout);
+    }
+    var controller = new AbortController();
+    var timer = setTimeout(function () { controller.abort(); }, timeout);
+    try {
+      return await fetch(url, Object.assign({}, options || {}, { signal: controller.signal }));
+    } catch (error) {
+      if (error && error.name === 'AbortError') {
+        throw new Error('Smart Horeca API не ответил за ' + Math.ceil(timeout / 1000) + ' секунд. Повторите запрос.');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   function today() {
     var d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
