@@ -49,6 +49,20 @@
     return c;
   }
 
+  async function refreshInvoiceListAfterMutation() {
+    try {
+      if ($('invoice-details')) $('invoice-details').hidden = true;
+      if (window.SHIncomingInvoices) window.SHIncomingInvoices.selected = null;
+      if (window.SHIncomingInvoices && typeof window.SHIncomingInvoices.reload === 'function') {
+        await window.SHIncomingInvoices.reload();
+        return;
+      }
+    } catch (error) {
+      console.warn('Incoming invoices refresh failed:', error && error.message ? error.message : error);
+    }
+    location.reload();
+  }
+
   function setEditorStatus(text, kind) {
     var el = $('inc-entry-status');
     if (!el) return;
@@ -309,7 +323,9 @@
 
       var number = data.validation && (data.validation.documentNumber || data.validation.otherSuggestedNumber);
       setEditorStatus((data.message || 'Накладная создана в iiko BackOffice') + (number ? ' · № ' + number : ''), 'success');
-      setTimeout(function () { location.reload(); }, 700);
+      await new Promise(function (resolve) { setTimeout(resolve, 350); });
+      closeEditor();
+      await refreshInvoiceListAfterMutation();
     } catch (error) {
       setEditorStatus(error.message || 'Ошибка сохранения накладной', 'error');
       button.disabled = false;
@@ -374,7 +390,7 @@
       });
       var data = await response.json().catch(function () { return {}; });
       if (!response.ok || data.success === false) throw new Error(actionError(data, response));
-      location.reload();
+      await refreshInvoiceListAfterMutation();
     } catch (error) {
       alert(error.message || 'Ошибка проведения');
     }
@@ -394,7 +410,7 @@
       });
       var data = await response.json().catch(function () { return {}; });
       if (!response.ok || data.success === false) throw new Error(actionError(data, response));
-      location.reload();
+      await refreshInvoiceListAfterMutation();
     } catch (error) {
       alert(error.message || 'Ошибка распроведения');
     }
