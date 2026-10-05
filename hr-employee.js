@@ -3,7 +3,7 @@
   const $=id=>document.getElementById(id);
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const employeeId=new URLSearchParams(location.search).get('id')||'';
-  let data=null,busy=false,dirty=false,historyLoaded=false;
+  let data=null,busy=false,dirty=false,historyLoaded=false,payTerms=null,payLoaded=false,payBusy=false;
 
   const profileFields={
     hepFin:'fin',hepSsn:'ssn',hepBirthDate:'birthDate',hepPhonePrimary:'phonePrimary',hepPhoneSecondary:'phoneSecondary',hepEmail:'emailPersonal',hepAddress:'address',
@@ -20,7 +20,8 @@
     educationLevel:'Уровень образования',educationInstitution:'Учебное заведение',specialty:'Специальность',
     employmentType:'Тип занятости',workCapacityPercent:'Рабочая нагрузка',factualHireDate:'Фактически работает с',factualFireDate:'Фактически до',
     officialHireDate:'Официально принят',officialFireDate:'Официально уволен',officialEmployerName:'Работодатель / юр. лицо',officialEmployerVoen:'VÖEN',
-    quotaCategory:'Категория / квота',notes:'Примечание HR'
+    quotaCategory:'Категория / квота',notes:'Примечание HR',
+    factualRateType:'Тип фактической ставки',factualRate:'Фактическая ставка',officialRateType:'Тип официальной ставки',officialRate:'Официальная ставка',effectiveFrom:'Действует с',effectiveTo:'Действует по'
   };
 
   async function token(){
@@ -44,6 +45,9 @@
   }
   function employmentLabel(v){return({MAIN:'Основной сотрудник',PART_TIME:'Неполная ставка',SECONDARY:'Совместитель',OTHER:'Другое'})[v]||v||'—'}
   function quotaLabel(v){return({NONE:'Нет',MINOR:'Несовершеннолетний',DISABILITY:'Инвалидность',OTHER:'Другая особая категория'})[v]||v||'—'}
+  function rateTypeLabel(v){return String(v||'MONTHLY').toUpperCase()==='HOURLY'?'Почасовая':'Месячная'}
+  function isoToday(){try{return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())}catch{return new Date().toISOString().slice(0,10)}}
+  function addDays(v,days){const d=new Date(`${v}T00:00:00Z`);d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)}
   function setDirty(next){
     dirty=Boolean(next);
     if(dirty)setSaveState('Есть несохранённые изменения','loading');
@@ -103,31 +107,115 @@
     $('hepFaceId').textContent=e.attendanceExternalId?`${e.attendanceProvider||'DEVICE'} · ${e.attendanceExternalId}`:'Не связан';
   }
 
+  function renderLegacyPay(){
+    const card=$('hepLegacyPayCard'),host=$('hepLegacyPay');
+    if(!card||!host)return;
+    const c=data?.compensation||{},term=c.term||{},calc=c.calculation||{},official=calc.official||{};
+    card.hidden=!c.configured;
+    if(!c.configured){host.innerHTML='';return}
+    host.innerHTML=`<div class="hep-legacy-note">Старая модель: <b>${esc(c.sourceLabel||'Условия оплаты')}</b>. Официальный Gross: <b>${money(term.officialGross)}</b>, дополнительная выплата: <b>${money(term.additionalAmount)}</b>, рассчитанный Net: <b>${money(official.net)}</b>. Эти значения показываются только для справки и не переносятся автоматически в новую схему.</div>`;
+  }
+
+  function currentPayMarkup(term){
+    if(!term)return '<div class="hep-pay-empty">Новые условия оплаты ещё не заведены. Ниже можно создать первую запись.</div>';
+    const preview=term.officialPayrollPreview;
+    const factualUnit=term.factualRateType==='HOURLY'?'₼ / час':'₼ / месяц';
+    const officialUnit=term.officialRateType==='HOURLY'?'₼ / час':'₼ / месяц';
+    const officialMini=term.officialRateType==='MONTHLY'&&preview
+      ? `<div><span>Net</span><strong>${money(preview.net)}</strong></div><div><span>Удержания</span><strong>${money(preview.employee?.total)}</strong></div><div><span>Стоимость</span><strong>${money(preview.totalEmployerCost)}</strong></div>`
+      : '<div><span>Net</span><strong>По табелю</strong></div><div><span>Налоги</span><strong>В Payroll</strong></div><div><span>Расчёт</span><strong>По часам</strong></div>';
+    return `<div class="hep-pay-current">
+      <div class="hep-pay-current-card factual">
+        <h3>Фактическая зарплата</h3><p>Внутренняя ставка сотрудника</p>
+        <div class="hep-pay-rate-value"><strong>${money(term.factualRate).replace(' ₼','')}</strong><span>${esc(factualUnit)}</span></div>
+        <div class="hep-pay-mini"><div><span>Тип</span><strong>${esc(rateTypeLabel(term.factualRateType))}</strong></div><div><span>Валюта</span><strong>AZN</strong></div><div><span>Контур</span><strong>Фактический</strong></div></div>
+        <div class="hep-pay-period"><span>Действует</span><b>${esc(term.effectiveFrom)} → ${esc(term.effectiveTo||'без ограничения')}</b></div>
+      </div>
+      <div class="hep-pay-current-card official">
+        <h3>Официальная зарплата</h3><p>Gross ставка для белого Payroll</p>
+        <div class="hep-pay-rate-value"><strong>${money(term.officialRate).replace(' ₼','')}</strong><span>${esc(officialUnit)}</span></div>
+        <div class="hep-pay-mini">${officialMini}</div>
+        <div class="hep-pay-period"><span>Действует</span><b>${esc(term.effectiveFrom)} → ${esc(term.effectiveTo||'без ограничения')}</b></div>
+      </div>
+    </div>`;
+  }
+
+  function renderPayHistory(){
+    const host=$('hepPayHistory');if(!host)return;
+    const rows=Array.isArray(payTerms?.history)?payTerms.history:[];
+    const currentId=payTerms?.current?.id||'';
+    if(!rows.length){host.innerHTML='<div class="hep-pay-empty">История ставок пока пустая.</div>';return}
+    host.innerHTML=`<table class="hep-pay-table"><thead><tr><th>Период</th><th>Фактическая</th><th>Официальная</th><th>Комментарий</th><th>Статус</th></tr></thead><tbody>${rows.map(x=>`
+      <tr class="${x.id===currentId?'current':''}">
+        <td><strong>${esc(x.effectiveFrom)}</strong><div class="audit-secondary">→ ${esc(x.effectiveTo||'без ограничения')}</div></td>
+        <td><strong>${money(x.factualRate)}</strong><div class="audit-secondary">${esc(rateTypeLabel(x.factualRateType))}</div></td>
+        <td><strong>${money(x.officialRate)}</strong><div class="audit-secondary">${esc(rateTypeLabel(x.officialRateType))}</div></td>
+        <td>${esc(x.note||'—')}</td>
+        <td><span class="hep-pay-pill ${x.id===currentId?'current':''}">${x.id===currentId?'Действует':'История'}</span></td>
+      </tr>`).join('')}</tbody></table>`;
+  }
+
+  function primePayForm(){
+    const current=payTerms?.current;
+    if(!$('hepPayEffectiveFrom'))return;
+    const today=isoToday();
+    $('hepPayEffectiveFrom').value=current?.effectiveFrom===today?addDays(today,1):today;
+    $('hepFactualRateType').value=current?.factualRateType||'MONTHLY';
+    $('hepFactualRate').value=current?.factualRate??'';
+    $('hepOfficialRateType').value=current?.officialRateType||'MONTHLY';
+    $('hepOfficialRate').value=current?.officialRate??'';
+    $('hepPayNote').value='';
+  }
+
   function renderPay(){
-    const c=data?.compensation||{},term=c.term||{},calc=c.calculation||{};
-    $('hepPaySource').textContent=c.configured?c.sourceLabel:'Не настроено';
-    if(!c.configured){
-      $('hepPayContent').innerHTML='<div class="hep-placeholder"><div><strong>Условия оплаты не настроены</strong><p>Задайте условия по должности или индивидуально сотруднику. Карточка автоматически покажет действующий расчёт.</p></div></div>';
+    if(!$('hepPayContent'))return;
+    $('hepPaySource').textContent=payLoaded?'Smart Horeca · v2':'Загрузка…';
+    if(!payLoaded){
+      $('hepPayContent').innerHTML='<div class="hep-pay-empty">Откройте вкладку «Оплата», чтобы загрузить фактическую и официальную ставку.</div>';
+      renderLegacyPay();
       return;
     }
-    const official=calc.official||{};
-    $('hepPayContent').innerHTML=`
-      <div class="hep-money-layout">
-        <div class="hep-money-box">
-          <h3>Официальная часть — текущая модель</h3>
-          <div class="hep-money-line"><span>Gross</span><strong>${money(term.officialGross)}</strong></div>
-          <div class="hep-money-line"><span>Официальный Net</span><strong>${money(official.net)}</strong></div>
-          <div class="hep-money-line"><span>Действует с</span><strong>${esc(term.effectiveFrom||'—')}</strong></div>
-          <div class="hep-money-line"><span>Действует по</span><strong>${esc(term.effectiveTo||'Без ограничения')}</strong></div>
-        </div>
-        <div class="hep-money-box">
-          <h3>Итог текущих условий</h3>
-          <div class="hep-money-line"><span>Дополнительная выплата</span><strong>${money(term.additionalAmount)}</strong></div>
-          <div class="hep-money-line"><span>Сотрудник получает</span><strong>${money(calc.totalEmployeeReceives)}</strong></div>
-          <div class="hep-money-line hep-money-total"><span>Стоимость для ресторана</span><strong>${money(calc.totalEmployerCost)}</strong></div>
-        </div>
-      </div>
-      <div class="hep-placeholder" style="min-height:110px;margin-top:12px"><div><strong>Фактическая зарплата будет отдельным контуром</strong><p>На следующем этапе добавим фактическую и официальную ставку отдельно, месячный/почасовой тип и историю изменений по датам.</p></div></div>`;
+    $('hepPayContent').innerHTML=currentPayMarkup(payTerms?.current||null);
+    renderPayHistory();
+    renderLegacyPay();
+  }
+
+  async function loadPayTerms(force=false){
+    if(payLoaded&&!force)return;
+    if(payBusy)return;
+    try{
+      payBusy=true;
+      if($('hepPayStatus')){$('hepPayStatus').textContent='Загрузка…';$('hepPayStatus').className='hr-status loading'}
+      payTerms=await api(`/api/hr/employee-pay-terms?id=${encodeURIComponent(employeeId)}`);
+      payLoaded=true;renderPay();primePayForm();
+      if($('hepPayStatus')){$('hepPayStatus').textContent='Готово';$('hepPayStatus').className='hr-status ok'}
+    }catch(e){
+      console.error(e);
+      if($('hepPayContent'))$('hepPayContent').innerHTML=`<div class="hr-error">${esc(e?.message||String(e))}</div>`;
+      if($('hepPayStatus')){$('hepPayStatus').textContent='Ошибка';$('hepPayStatus').className='hr-status error'}
+    }finally{payBusy=false}
+  }
+
+  async function savePayTerm(){
+    if(payBusy||!employeeId)return;
+    const body={
+      action:'saveTerm',employeeId,
+      effectiveFrom:$('hepPayEffectiveFrom').value,
+      factualRateType:$('hepFactualRateType').value,
+      factualRate:Number($('hepFactualRate').value||0),
+      officialRateType:$('hepOfficialRateType').value,
+      officialRate:Number($('hepOfficialRate').value||0),
+      note:$('hepPayNote').value
+    };
+    if(!body.effectiveFrom){$('hepPayStatus').textContent='Укажите дату начала';$('hepPayStatus').className='hr-status error';return}
+    try{
+      payBusy=true;$('hepPaySave').disabled=true;$('hepPayStatus').textContent='Сохранение…';$('hepPayStatus').className='hr-status loading';
+      payTerms=await api('/api/hr/employee-pay-terms',{method:'POST',body:JSON.stringify(body)});
+      payLoaded=true;historyLoaded=false;renderPay();primePayForm();
+      $('hepPayStatus').textContent='Новые условия сохранены';$('hepPayStatus').className='hr-status ok';
+    }catch(e){
+      console.error(e);$('hepPayStatus').textContent=e?.message||'Ошибка';$('hepPayStatus').className='hr-status error';
+    }finally{payBusy=false;$('hepPaySave').disabled=false}
   }
 
   function renderSchedule(){
@@ -177,15 +265,17 @@
     if(historyLoaded&&!force)return;
     const box=$('hepHistory');box.innerHTML='<div class="hr-muted">Загрузка истории…</div>';
     try{
-      const r=await api(`/api/audit-log?entityType=HR_EMPLOYEE_PROFILE&search=${encodeURIComponent(employeeId)}&limit=50`);
-      const events=(r.events||[]).filter(x=>String(x.entityId||'')===String(employeeId));
+      const r=await api(`/api/audit-log?search=${encodeURIComponent(employeeId)}&limit=100`);
+      const events=(r.events||[]).filter(x=>String(x.entityId||'')===String(employeeId)&&['HR_EMPLOYEE_PROFILE','HR_EMPLOYEE_PAY_TERM'].includes(String(x.entityType||'')));
       box.innerHTML=events.map(event=>{
         const changes=(event.changes||[]).filter(c=>!['updatedAt','createdAt'].includes(String(c.field||'')));
         return `<div class="hep-history-item">
-          <div class="hep-history-head"><strong>${esc(event.actorName||event.actorEmail||'Пользователь')} · ${esc(event.action||'Изменение')}</strong><span>${esc(new Date(event.createdAt).toLocaleString('ru-RU'))}</span></div>
+          <div class="hep-history-head"><strong>${esc(event.actorName||event.actorEmail||'Пользователь')} · ${esc(event.entityType==='HR_EMPLOYEE_PAY_TERM'?'Оплата':'Карточка')} · ${esc(event.action||'Изменение')}</strong><span>${esc(new Date(event.createdAt).toLocaleString('ru-RU'))}</span></div>
           <div class="hep-history-changes">${changes.length?changes.map(c=>{
             const label=fieldLabels[c.field]||c.field;
             let oldV=prettyValue(c.oldValue),newV=prettyValue(c.newValue);
+            if(c.field==='factualRateType'||c.field==='officialRateType'){oldV=rateTypeLabel(c.oldValue);newV=rateTypeLabel(c.newValue)}
+            if(c.field==='factualRate'||c.field==='officialRate'){oldV=money(c.oldValue);newV=money(c.newValue)}
             if(c.field==='employmentType'){oldV=employmentLabel(c.oldValue);newV=employmentLabel(c.newValue)}
             if(c.field==='quotaCategory'){oldV=quotaLabel(c.oldValue);newV=quotaLabel(c.newValue)}
             if(c.field==='workCapacityPercent'){oldV=`${prettyValue(c.oldValue)}%`;newV=`${prettyValue(c.newValue)}%`}
@@ -201,6 +291,7 @@
     document.querySelectorAll('.hep-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
     document.querySelectorAll('.hep-panel').forEach(p=>p.hidden=p.dataset.panel!==name);
     if(name==='history')loadHistory();
+    if(name==='pay')loadPayTerms();
   }
 
   function bind(){
@@ -210,6 +301,8 @@
     $('hepSave').addEventListener('click',save);
     $('hepRefresh').addEventListener('click',()=>{if(dirty&&!confirm('Есть несохранённые изменения. Обновить данные без сохранения?'))return;load()});
     $('hepHistoryRefresh').addEventListener('click',()=>loadHistory(true));
+    $('hepPaySave')?.addEventListener('click',savePayTerm);
+    $('hepPayRefresh')?.addEventListener('click',()=>loadPayTerms(true));
     window.addEventListener('beforeunload',e=>{if(!dirty)return;e.preventDefault();e.returnValue=''});
   }
 
