@@ -439,11 +439,11 @@
     const box=$('hepHistory');box.innerHTML='<div class="hr-muted">Загрузка истории…</div>';
     try{
       const r=await api(`/api/audit-log?search=${encodeURIComponent(employeeId)}&limit=150`);
-      const events=(r.events||[]).filter(x=>String(x.entityId||'')===String(employeeId)&&['HR_EMPLOYEE_PROFILE','HR_EMPLOYEE_PAY_TERM','HR_EMPLOYEE_LEAVE_BALANCE','HR_EMPLOYEE_LEAVE'].includes(String(x.entityType||'')));
+      const events=(r.events||[]).filter(x=>String(x.entityId||'')===String(employeeId)&&['HR_EMPLOYEE_PROFILE','HR_EMPLOYEE_PAY_TERM','HR_EMPLOYEE_LEAVE_BALANCE','HR_EMPLOYEE_LEAVE','HR_EMPLOYEE_SCHEDULE'].includes(String(x.entityType||'')));
       box.innerHTML=events.map(event=>{
         const changes=(event.changes||[]).filter(c=>!['updatedAt','createdAt'].includes(String(c.field||'')));
         return `<div class="hep-history-item">
-          <div class="hep-history-head"><strong>${esc(event.actorName||event.actorEmail||'Пользователь')} · ${esc(event.entityType==='HR_EMPLOYEE_PAY_TERM'?'Оплата':event.entityType==='HR_EMPLOYEE_LEAVE_BALANCE'?'Остаток отпуска':event.entityType==='HR_EMPLOYEE_LEAVE'?'Отпуск':'Карточка')} · ${esc(event.action||'Изменение')}</strong><span>${esc(new Date(event.createdAt).toLocaleString('ru-RU'))}</span></div>
+          <div class="hep-history-head"><strong>${esc(event.actorName||event.actorEmail||'Пользователь')} · ${esc(event.entityType==='HR_EMPLOYEE_PAY_TERM'?'Оплата':event.entityType==='HR_EMPLOYEE_LEAVE_BALANCE'?'Остаток отпуска':event.entityType==='HR_EMPLOYEE_LEAVE'?'Отпуск':event.entityType==='HR_EMPLOYEE_SCHEDULE'?'График':'Карточка')} · ${esc(event.action||'Изменение')}</strong><span>${esc(new Date(event.createdAt).toLocaleString('ru-RU'))}</span></div>
           <div class="hep-history-changes">${changes.length?changes.map(c=>{
             const label=fieldLabels[c.field]||c.field;
             let oldV=prettyValue(c.oldValue),newV=prettyValue(c.newValue);
