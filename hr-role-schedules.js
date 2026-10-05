@@ -29,7 +29,8 @@
     <td class="text-left"><div class="hr-name">${esc(r.name)}</div>${r.id?`<div class="hr-sub">ID ${esc(r.id)}</div>`:''}</td>
     <td><span class="hr-badge">${esc(r.code)}</span></td><td>${Number(r.employeeCount||0)}</td><td>${Number(r.scheduleCount||0)}</td>
     <td>${r.hasDefaultSchedule?'<span class="hr-badge linked">Настроен</span>':'<span class="hr-badge pending">Не настроен</span>'}</td>
-    <td><span class="hr-badge active">Из iiko</span></td></tr>`).join(''):'<tr><td colspan="6" class="hr-empty">Должности ещё не синхронизированы.</td></tr>'}
+    <td><span class="hr-badge active">Из iiko</span></td><td><button type="button" class="hr-link-button" data-role-setup="${esc(r.code)}">${r.hasDefaultSchedule?'Изменить график':'Настроить график'}</button></td></tr>`).join(''):'<tr><td colspan="7" class="hr-empty">Должности ещё не синхронизированы.</td></tr>';
+    $('rsRoleRows').querySelectorAll('[data-role-setup]').forEach(b=>b.onclick=()=>setupRole(b.dataset.roleSetup))}
 
   function scheduleMinutes(s){return (s.dayRules||[]).reduce((sum,r)=>sum+netMinutes(r.shiftStart,r.shiftEnd,r.breakMinutes),0)}
   function fmtPattern(s){if(s.patternType==='CYCLE')return `${s.workDays}/${s.offDays} · суммированный`;const count=(s.weekdays||[]).length;return count===6?'6/1':count===5?'5/2':(s.weekdays||[]).map(x=>dayShort[x]||x).join(', ')}
@@ -41,8 +42,9 @@
       <td>${esc(fmtPattern(s))}</td><td><span class="hr-badge active">${shift}</span></td><td>${esc(accounting)}</td>
       <td>${esc(fmtDate(s.validFrom))} → ${s.validTo?esc(fmtDate(s.validTo)):'без окончания'}</td>
       <td>${s.isDefault?'<span class="hr-badge linked">Основной</span>':'<span class="hr-badge">Дополнительный</span>'}</td>
+      <td>${s.isDefault?'<strong>'+Number((data.roles||[]).find(r=>r.code===s.roleCode)?.employeeCount||0)+'</strong> сотрудников':'Только индивидуально'}</td>
       <td><div class="hr-device-actions"><button type="button" class="hr-link-button" data-edit="${esc(s.id)}">Изменить</button><button type="button" class="hr-link-button danger" data-disable="${esc(s.id)}">Отключить</button></div></td></tr>`
-  }).join(''):'<tr><td colspan="7" class="hr-empty">Графики ещё не созданы.</td></tr>';
+  }).join(''):'<tr><td colspan="8" class="hr-empty">Графики ещё не созданы.</td></tr>';
     $('rsScheduleRows').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editSchedule(b.dataset.edit));
     $('rsScheduleRows').querySelectorAll('[data-disable]').forEach(b=>b.onclick=()=>disableSchedule(b.dataset.disable));
   }
@@ -75,6 +77,17 @@
     if(name==='CYCLE_2_2'){$('rsPattern').value='CYCLE';$('rsWorkDays').value='2';$('rsOffDays').value='2';$('rsAccountingMonths').value='1';if(!$('rsAnchor').value)$('rsAnchor').value=today()}
     if(name==='CYCLE_3_3'){$('rsPattern').value='CYCLE';$('rsWorkDays').value='3';$('rsOffDays').value='3';$('rsAccountingMonths').value='1';if(!$('rsAnchor').value)$('rsAnchor').value=today()}
     updatePattern();
+  }
+
+  function setupRole(roleCode){
+    resetForm();
+    $('rsRole').value=roleCode;
+    const role=(data.roles||[]).find(x=>x.code===roleCode);
+    $('rsName').value=(role?.name||roleCode)+' · основной';
+    $('rsDefault').checked=true;
+    updateLivePreview();
+    document.querySelector('.hr-schedule-builder')?.scrollIntoView({behavior:'smooth',block:'start'});
+    setStatus('Настройка основного графика для '+(role?.name||roleCode),'loading');
   }
 
   function render(){renderSummary();renderRoleSelect();renderRoles();renderSchedules();updateLivePreview()}
