@@ -14,6 +14,17 @@ function blocks(xml,name){return [...String(xml||'').matchAll(new RegExp(`<${nam
 function bool(v){return /^true$/i.test(clean(v))}
 function int(v,min,max,fallback=0){const n=Number.parseInt(String(v??''),10);return Number.isFinite(n)?Math.min(max,Math.max(min,n)):fallback}
 function dateOnly(v){const s=clean(v);return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:''}
+function previousDate(v){const d=new Date(`${v}T00:00:00Z`);d.setUTCDate(d.getUTCDate()-1);return d.toISOString().slice(0,10)}
+async function rebuildDefaultRanges(db,userId,roleCode){
+  const rows=await db.prepare(`SELECT schedule_id,valid_from,valid_to FROM hr_role_schedules WHERE user_id=?1 AND role_code=?2 AND is_active=1 AND is_default=1 ORDER BY valid_from ASC,created_at ASC`).bind(userId,roleCode).all();
+  const list=rows.results||[],t=now(),stm=[];
+  for(let i=0;i<list.length;i++){
+    const next=list[i+1];
+    if(next)stm.push(db.prepare(`UPDATE hr_role_schedules SET valid_to=?4,updated_at=?5 WHERE user_id=?1 AND role_code=?2 AND schedule_id=?3`).bind(userId,roleCode,list[i].schedule_id,previousDate(next.valid_from),t));
+  }
+  if(stm.length)await db.batch(stm);
+}
+
 function timeOnly(v){const s=clean(v);return /^([01]\d|2[0-3]):[0-5]\d$/.test(s)?s:''}
 function parseRoles(xml){return blocks(xml,'role').map(x=>({id:tag(x,'id'),code:tag(x,'code'),name:tag(x,'name'),deleted:bool(tag(x,'deleted'))})).filter(x=>x.code)}
 
@@ -179,8 +190,11 @@ export async function onRequestPost({request,env}){
         if(!legalCheck.ok)return json({success:false,message:legalCheck.message,legalBasis},400);
       }
 
+      if(isDefault){
+        const conflict=await env.DB.prepare(`SELECT schedule_id FROM hr_role_schedules WHERE user_id=?1 AND role_code=?2 AND is_active=1 AND is_default=1 AND valid_from=?3 AND schedule_id<>?4 LIMIT 1`).bind(userId,roleCode,validFrom,scheduleId).first();
+        if(conflict)return json({success:false,message:'Для этой должности на указанную дату уже начинается другой основной график. Измените дату начала или существующий график.'},409);
+      }
       const t=now();
-      if(isDefault)await env.DB.prepare(`UPDATE hr_role_schedules SET is_default=0,updated_at=?3 WHERE user_id=?1 AND role_code=?2 AND is_active=1`).bind(userId,roleCode,t).run();
       await env.DB.prepare(`INSERT INTO hr_role_schedules(user_id,schedule_id,role_code,schedule_name,pattern_type,weekdays,work_days,off_days,anchor_date,shift_start,shift_end,break_minutes,valid_from,valid_to,is_default,is_active,created_at,updated_at)
         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,1,?16,?16)
         ON CONFLICT(user_id,schedule_id) DO UPDATE SET role_code=excluded.role_code,schedule_name=excluded.schedule_name,pattern_type=excluded.pattern_type,weekdays=excluded.weekdays,work_days=excluded.work_days,off_days=excluded.off_days,anchor_date=excluded.anchor_date,shift_start=excluded.shift_start,shift_end=excluded.shift_end,break_minutes=excluded.break_minutes,valid_from=excluded.valid_from,valid_to=excluded.valid_to,is_default=excluded.is_default,is_active=1,updated_at=excluded.updated_at`)
@@ -195,11 +209,14 @@ export async function onRequestPost({request,env}){
         VALUES(?1,?2,?3,?4,'AZ_LABOR_CODE',?5)
         ON CONFLICT(user_id,schedule_id) DO UPDATE SET accounting_mode=excluded.accounting_mode,accounting_period_months=excluded.accounting_period_months,legal_profile=excluded.legal_profile,validated_at=excluded.validated_at`)
         .bind(userId,scheduleId,legalCheck.accountingMode||'NORMAL_WEEKLY',legalCheck.accountingPeriodMonths||accountingPeriodMonths,t).run();
+      await rebuildDefaultRanges(env.DB,userId,roleCode);
       return json({success:true,scheduleId,legalCheck,...await snapshot(env.DB,userId,scope)});
     }
     if(action==='disableSchedule'){
       const id=clean(body.id);if(!id)return json({success:false,message:'Не указан график'},400);
+      const oldSchedule=await env.DB.prepare(`SELECT role_code FROM hr_role_schedules WHERE user_id=?1 AND schedule_id=?2 LIMIT 1`).bind(userId,id).first();
       await env.DB.prepare(`UPDATE hr_role_schedules SET is_active=0,is_default=0,updated_at=?3 WHERE user_id=?1 AND schedule_id=?2`).bind(userId,id,now()).run();
+      if(oldSchedule?.role_code)await rebuildDefaultRanges(env.DB,userId,oldSchedule.role_code);
       return json({success:true,...await snapshot(env.DB,userId,scope)});
     }
     return json({success:false,message:'Неизвестное действие'},400);
