@@ -166,7 +166,7 @@ export async function onRequestPost({request,env}){
       const year=int(body.year,2000,2100,0),contour=clean(body.contour,20).toUpperCase(),typeCode=clean(body.typeCode,30).toUpperCase();
       if(!year||!['FACTUAL','OFFICIAL'].includes(contour)||!validTypes.has(typeCode))return json({success:false,message:'Некорректные параметры отпуска'},400);
       const beforeRow=await env.DB.prepare(`SELECT * FROM hr_employee_leave_balances WHERE user_id=?1 AND iiko_employee_id=?2 AND leave_year=?3 AND contour=?4 AND leave_type=?5 LIMIT 1`).bind(state.user.id,employeeId,year,contour,typeCode).first();
-      const after={year,contour,typeCode,entitledDays:num(body.entitledDays),adjustmentDays:num(body.adjustmentDays),manualActivated:Boolean(body.manualActivated),note:clean(body.note,1000)};
+      const after={year,contour,typeCode,entitledDays:Math.max(0,num(body.entitledDays)),adjustmentDays:num(body.adjustmentDays),manualActivated:Boolean(body.manualActivated),note:clean(body.note,1000)};
       const t=now();
       await env.DB.prepare(`INSERT INTO hr_employee_leave_balances(user_id,iiko_employee_id,leave_year,contour,leave_type,entitled_days,adjustment_days,manual_activate,note,created_at,updated_at)
         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)
@@ -180,6 +180,7 @@ export async function onRequestPost({request,env}){
     if(action==='addLeave'){
       const contour=clean(body.contour,20).toUpperCase(),typeCode=clean(body.typeCode,30).toUpperCase(),dateFrom=dateOnly(body.dateFrom),dateTo=dateOnly(body.dateTo);
       if(!['FACTUAL','OFFICIAL'].includes(contour)||!validTypes.has(typeCode)||!dateFrom||!dateTo||dateTo<dateFrom)return json({success:false,message:'Проверьте вид отпуска и период'},400);
+      if(dateFrom.slice(0,4)!==dateTo.slice(0,4))return json({success:false,message:'Отпуск, переходящий через Новый год, внесите двумя записями — отдельно для каждого года. Так годовые остатки будут рассчитаны точно.'},400);
       const year=Number(dateFrom.slice(0,4)),balance=await env.DB.prepare(`SELECT * FROM hr_employee_leave_balances WHERE user_id=?1 AND iiko_employee_id=?2 AND leave_year=?3 AND contour=?4 AND leave_type=?5 LIMIT 1`).bind(state.user.id,employeeId,year,contour,typeCode).first();
       const hires=await hireDates(env.DB,state.user.id,employee),eligibleDate=addMonths(hires[contour],6),manual=Boolean(balance?.manual_activate);
       if(!(manual||(eligibleDate&&dateFrom>=eligibleDate)))return json({success:false,message:`Право на этот отпуск ещё не активно. Автоматическая активация: ${eligibleDate||'не определена'}. HR может включить ручную активацию в остатках.`},409);
