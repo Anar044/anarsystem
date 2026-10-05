@@ -16,7 +16,14 @@ function clean(v){return String(v??"").trim()}
 function id(){return crypto.randomUUID()}
 function safeName(name){return clean(name).replace(/[^a-zA-Z0-9._-]+/g,"-").replace(/-+/g,"-").slice(0,120)||"document"}
 function key(v){return clean(v).replace(/^\{+|\}+$/g,"").toLowerCase()}
-function norm(v){return clean(v).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/[^\p{L}\p{N}]+/gu," ").trim()}
+function latinize(v){
+  const map={
+    "а":"a","б":"b","в":"v","г":"g","д":"d","е":"e","ё":"e","ж":"zh","з":"z","и":"i","й":"i","к":"k","л":"l","м":"m","н":"n","о":"o","п":"p","р":"r","с":"s","т":"t","у":"u","ф":"f","х":"h","ц":"ts","ч":"ch","ш":"sh","щ":"shch","ы":"y","э":"e","ю":"yu","я":"ya","ъ":"","ь":"",
+    "ə":"e","ı":"i","ş":"sh","ç":"ch","ğ":"g","ö":"o","ü":"u","q":"q","x":"h"
+  };
+  return [...String(v??"")].map(ch=>map[ch]??ch).join("");
+}
+function norm(v){return latinize(clean(v).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"")).replace(/[^a-z0-9]+/g," ").trim()}
 function tokenList(v){return norm(v).split(/\s+/).filter(x=>x.length>1)}
 function tokens(v){return new Set(tokenList(v))}
 function editSimilarity(a,b){
@@ -212,6 +219,27 @@ function cheapCandidateScore(sourceNorm,sourceTokens,rowName){
   }
 
   return{score,rowNorm};
+}
+const SUPPLIER_SUFFIXES=new Set(["mmc","llc","ltd","asc","ooo","zao","oao","ao","ip","company","co","corp","corporation","sirketi","shirketi","ticaret","trade"]);
+function supplierCore(value){return tokenList(value).filter(t=>!SUPPLIER_SUFFIXES.has(t)).join(" ")}
+function bestSupplierMatch(source,rows,min=.42){
+  const sourceCore=supplierCore(source);
+  if(!sourceCore)return {match:null,candidates:[]};
+  const exact=(rows||[]).filter(r=>supplierCore(r?.name)===sourceCore);
+  if(exact.length===1){
+    const hit={...exact[0],score:1,exact:true,source:"SUPPLIER_CORE"};
+    return {match:hit,candidates:[hit]};
+  }
+  const ranked=(rows||[])
+    .map(r=>({...r,score:Number(scoreText(sourceCore,supplierCore(r?.name)).toFixed(4)),exact:false}))
+    .filter(r=>r.score>0)
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,5);
+  const best=ranked[0]||null;
+  if(!best||best.score<min)return {match:null,candidates:ranked};
+  const plausible=ranked.filter(x=>x.score>=Math.max(min,best.score-.12));
+  if(plausible.length!==1||best.score<.62)return {match:null,candidates:ranked};
+  return {match:{...best,source:"SUPPLIER_FUZZY"},candidates:ranked};
 }
 function bestMatch(source,rows,min=.45){
   const sourceNorm=norm(source);
@@ -459,7 +487,20 @@ function extractedOnlyResult(raw,scope=null){
 async function enrich(env,userId,raw,scope=null){
   const connection=await loadPrivateConnection(env,userId);
   const refs=await referenceData(env,connection,scope);
-  const supplierResult=bestMatch(raw.supplierName||"",refs.suppliers,.42);
+  let supplierRows=refs.suppliers||[];
+  let supplierResult=bestSupplierMatch(raw.supplierName||"",supplierRows,.42);
+  if(!supplierResult.match&&clean(raw.supplierName)){
+    try{
+      const fresh=await getIikoSuppliers(connection);
+      const byId=new Map(supplierRows.map(x=>[key(x.id),x]));
+      for(const x of fresh.rows||[]){
+        const row={id:key(x.id),name:clean(x.name)};
+        if(row.id&&row.name&&!byId.has(row.id))byId.set(row.id,row);
+      }
+      supplierRows=[...byId.values()];
+      supplierResult=bestSupplierMatch(raw.supplierName||"",supplierRows,.42);
+    }catch(_){}
+  }
   const supplier=supplierResult.match;
   const aliases=await aliasMap(env.DB,userId,supplier?.id||"");
   const productIndex=buildSearchIndex(refs.products);
