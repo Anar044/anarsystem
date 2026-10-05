@@ -152,6 +152,7 @@ async function referenceData(env,connection,scope=null){
   // request can exceed the Worker CPU budget, especially with large menus.
   const refs=await loadCachedReferenceMaps(env,auth.serverUrl,[],{
     ttlMs:6*60*60*1000,
+    allowStale:true,
     requiredKeys:["suppliers","warehouses","products"]
   });
   if(!refs){
@@ -182,7 +183,7 @@ async function referenceData(env,connection,scope=null){
     const allowed=new Set((storeScope.storeIds||[]).map(key).filter(Boolean));
     warehouses=warehouses.filter(x=>allowed.has(key(x.id)));
   }
-  return {suppliers,products,warehouses,storeScope,referenceCacheHit:refs.cacheHit===true};
+  return {suppliers,products,warehouses,storeScope,referenceCacheHit:refs.cacheHit===true,referenceCacheStale:refs.stale===true};
 }
 function cheapCandidateScore(sourceNorm,sourceTokens,rowName){
   const rowNorm=norm(rowName);
@@ -506,7 +507,8 @@ async function enrich(env,userId,raw,scope=null){
       arithmetic,
       ready:Boolean(supplier?.id&&items.length&&!unresolved&&arithmetic.valid),
       referenceMatchPending:false,
-      referenceCacheHit:refs.referenceCacheHit===true
+      referenceCacheHit:refs.referenceCacheHit===true,
+      referenceCacheStale:refs.referenceCacheStale===true
     }
   };
 }
