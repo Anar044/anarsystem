@@ -34,7 +34,7 @@
           </div>
 
           <section class="hr-source-grid">
-            <article class="hr-source-card"><span>Фактический источник</span><strong>Face ID / ZKTeco</strong><small>IN / OUT события + фактические отпуска</small></article>
+            <article class="hr-source-card"><span>Фактический источник</span><strong>Face ID / ZKTeco + график</strong><small>Face ID даёт время; график определяет рабочий/выходной день + фактические отпуска</small></article>
             <article class="hr-source-card active"><span>Официальный источник</span><strong>График + календарь</strong><small>Плановые дни + официальные отпуска</small></article>
             <article class="hr-source-card"><span>Следующий слой</span><strong>Payroll v2</strong><small>Начисления из подтверждённого табеля</small></article>
           </section>
@@ -60,7 +60,7 @@
             <div class="hr-card-title-row">
               <div>
                 <div class="hr-card-title">Фактический табель</div>
-                <div class="hr-card-sub">Если отметок нет — день отображается как «Y / Нет». Фактический отпуск из карточки сотрудника заменяет отсутствие на отпуск. Если во время отпуска есть Face ID отметки — строка требует проверки.</div>
+                <div class="hr-card-sub">«Y / Нет» ставится только если по графику сотрудник должен работать, но Face ID отметок нет. Выходной по графику показывается как «İ / Выходной». Если сотрудник пришёл в выходной — это отдельно отмечается как «Работа в выходной».</div>
               </div>
               <div id="tsFactualCount" class="hr-muted">0 строк</div>
             </div>
@@ -104,7 +104,7 @@
 
           <section class="hr-card hr-next">
             <div class="hr-card-title">Что уже связано</div>
-            <p>Фактические отпуска → фактический табель. Официальные отпуска → официальный табель. Face ID остаётся источником факта, график должности и производственный календарь — источником официального плана.</p>
+            <p>Фактические отпуска → фактический табель. График в фактическом табеле используется только для определения рабочего/выходного дня, а фактическое время всегда берётся из Face ID. Официальные отпуска → официальный табель.</p>
             <div class="hr-flow"><span>Карточка сотрудника</span><b>→</b><span>Отпуска</span><b>→</b><span>Факт / официальный табель</span><b>→</b><span>Подтверждение</span><b>→</b><span>Payroll v2</span></div>
           </section>
         </section>
@@ -121,6 +121,6 @@
   <script src="/hr-light-theme.js?v=20260917-1"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=14"></script>
-  <script src="/hr-timesheet.js?v=20261006-leave-v1"></script>
+  <script src="/hr-timesheet.js?v=20261006-schedule-aware-v1"></script>
 </body>
 </html>
