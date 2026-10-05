@@ -17,6 +17,8 @@
     if(x.status==='LEAVE')return['leave','Отпуск'];
     if(x.status==='LEAVE_WITH_WORK')return['review','Отпуск + работа'];
     if(x.status==='ABSENT')return['absent','Y / Нет'];
+    if(x.status==='REST')return['rest','İ / Выходной'];
+    if(x.status==='WORK_REST')return['holiday','Работа в выходной'];
     if(x.status==='REVIEW')return['review','Проверить'];
     return['work','Работа'];
   }
@@ -44,9 +46,9 @@
 
   function renderSummary(){
     if(mode==='FACTUAL'){
-      const rows=filtered(data.factualDays),worked=rows.filter(x=>x.workedMinutes>0),leave=rows.filter(x=>x.status==='LEAVE'),absent=rows.filter(x=>x.status==='ABSENT'),review=rows.filter(x=>['REVIEW','LEAVE_WITH_WORK'].includes(x.status));
+      const rows=filtered(data.factualDays),worked=rows.filter(x=>x.workedMinutes>0),leave=rows.filter(x=>x.status==='LEAVE'),absent=rows.filter(x=>x.status==='ABSENT'),rest=rows.filter(x=>x.status==='REST'),review=rows.filter(x=>['REVIEW','LEAVE_WITH_WORK'].includes(x.status)),workedRest=rows.filter(x=>x.status==='WORK_REST');
       const mins=worked.reduce((s,x)=>s+Number(x.workedMinutes||0),0);
-      $('tsSummary').innerHTML=`<article class="hr-summary-card"><span>Фактически отработано</span><strong class="hr-text-value">${esc(hours(mins))}</strong><small>${worked.length} дней с Face ID временем</small></article><article class="hr-summary-card"><span>Фактический отпуск</span><strong>${leave.length}</strong><small>Дней отпуска из карточек сотрудников</small></article><article class="hr-summary-card"><span>Y / Нет</span><strong>${absent.length}</strong><small>Нет Face ID отметок и нет отпуска</small></article><article class="hr-summary-card"><span>Требует проверки</span><strong>${review.length}</strong><small>Ошибки или работа во время отпуска</small></article>`;
+      $('tsSummary').innerHTML=`<article class="hr-summary-card"><span>Фактически отработано</span><strong class="hr-text-value">${esc(hours(mins))}</strong><small>${worked.length} дней с Face ID временем</small></article><article class="hr-summary-card"><span>Фактический отпуск</span><strong>${leave.length}</strong><small>Дней отпуска из карточек сотрудников</small></article><article class="hr-summary-card"><span>İ / Выходной</span><strong>${rest.length}</strong><small>По графику сотрудник не должен работать</small></article><article class="hr-summary-card"><span>Y / Нет</span><strong>${absent.length}</strong><small>Только рабочие дни без Face ID и без отпуска</small></article><article class="hr-summary-card"><span>Проверить</span><strong>${review.length+workedRest.length}</strong><small>${workedRest.length} работа в выходной · ${review.length} ошибок/конфликтов</small></article>`;
     }else{
       const rows=filtered(data.officialDays),work=rows.filter(x=>['WORK','WORK_HOLIDAY'].includes(x.status)),leave=rows.filter(x=>x.status==='LEAVE'),rest=rows.filter(x=>x.status==='REST');
       const mins=rows.reduce((s,x)=>s+Number(x.plannedMinutes||0),0);
@@ -59,7 +61,8 @@
     $('tsFactualRows').innerHTML=list.length?list.map(x=>{
       const [cls,label]=factualStatus(x);
       const leave=x.leaveName?`<span class="ts-leave-name">${esc(x.leaveName)}</span>${x.leaveNote?`<span class="ts-leave-note" title="${esc(x.leaveNote)}">${esc(x.leaveNote)}</span>`:''}`:'—';
-      return `<tr><td>${esc(x.workDate)}</td><td class="text-left"><div class="hr-name"><a class="ts-employee-link" href="/hr-employee.html?id=${encodeURIComponent(x.employeeId)}">${esc(x.employeeName||'—')}</a></div><div class="hr-sub">${x.employeeCode?'№ '+esc(x.employeeCode):''}${x.roleName?' · '+esc(x.roleName):''}</div></td><td><span class="ts-status ${cls}">${esc(label)}</span></td><td>${x.firstIn?esc(localTime(x.firstIn)):'—'}</td><td>${x.lastOut?esc(localTime(x.lastOut)):'—'}</td><td><strong>${esc(hours(x.workedMinutes))}</strong></td><td>${leave}</td><td>${Number(x.issueCount||0)?`<span class="hr-badge pending">${Number(x.issueCount||0)}</span>`:'0'}</td></tr>`;
+      const plan=x.scheduleName?`<span class="ts-cell-sub">${esc(x.scheduleName)}${x.shiftStart&&x.shiftEnd?' · '+esc(x.shiftStart)+'–'+esc(x.shiftEnd):''}</span>`:'';
+      return `<tr><td>${esc(x.workDate)}</td><td class="text-left"><div class="hr-name"><a class="ts-employee-link" href="/hr-employee.html?id=${encodeURIComponent(x.employeeId)}">${esc(x.employeeName||'—')}</a></div><div class="hr-sub">${x.employeeCode?'№ '+esc(x.employeeCode):''}${x.roleName?' · '+esc(x.roleName):''}</div></td><td><span class="ts-status ${cls}">${esc(label)}</span>${plan}</td><td>${x.firstIn?esc(localTime(x.firstIn)):'—'}</td><td>${x.lastOut?esc(localTime(x.lastOut)):'—'}</td><td><strong>${esc(hours(x.workedMinutes))}</strong>${x.plannedMinutes?`<span class="ts-cell-sub">план ${esc(hours(x.plannedMinutes))}</span>`:''}</td><td>${leave}</td><td>${Number(x.issueCount||0)?`<span class="hr-badge pending">${Number(x.issueCount||0)}</span>`:'0'}</td></tr>`;
     }).join(''):'<tr><td colspan="8" class="hr-empty">За выбранный период фактический табель пуст</td></tr>';
   }
 
