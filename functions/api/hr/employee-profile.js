@@ -181,7 +181,9 @@ export async function onRequestPost({request,env}){
     if(action!=='saveProfile')return json({success:false,message:'Неизвестное действие'},400);
     const employeeId=clean(body.employeeId,120);if(!employeeId)return json({success:false,message:'Не указан сотрудник'},400);
     const current=await snapshot(request,env,state,employeeId);if(current.error)return current.error;
-    const before=current.data.profile||{},profile=normalizeProfile(body.profile||{});
+    const beforeProfile=current.data.profile||{};
+    const {createdAt:_beforeCreatedAt,updatedAt:_beforeUpdatedAt,...before}=beforeProfile;
+    const profile=normalizeProfile(body.profile||{});
     if(profile.factualFireDate&&profile.factualHireDate&&profile.factualFireDate<profile.factualHireDate)return json({success:false,message:'Фактическая дата увольнения не может быть раньше даты приёма'},400);
     if(profile.officialFireDate&&profile.officialHireDate&&profile.officialFireDate<profile.officialHireDate)return json({success:false,message:'Официальная дата увольнения не может быть раньше даты приёма'},400);
     const t=now();
@@ -206,7 +208,7 @@ export async function onRequestPost({request,env}){
     const connection=privateConnection(state.state);
     await logAuditEvent({
       request,env,connection,action:'UPDATE',entityType:'HR_EMPLOYEE_PROFILE',entityId:employeeId,entityLabel:current.data.employee.name,
-      before,after:{...profile,updatedAt:t},
+      before,after:profile,
       restaurantIds:current.data.restaurantScope?.departmentIds||[],
       metadata:{departmentCode:current.data.employee.departmentCode,employeeCode:current.data.employee.code,roleCode:current.data.employee.roleCode}
     });
