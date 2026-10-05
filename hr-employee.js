@@ -452,6 +452,10 @@
             if(c.field==='employmentType'){oldV=employmentLabel(c.oldValue);newV=employmentLabel(c.newValue)}
             if(c.field==='quotaCategory'){oldV=quotaLabel(c.oldValue);newV=quotaLabel(c.newValue)}
             if(c.field==='workCapacityPercent'){oldV=`${prettyValue(c.oldValue)}%`;newV=`${prettyValue(c.newValue)}%`}
+            if(c.field==='typeCode'){oldV=leaveTypeName(c.oldValue);newV=leaveTypeName(c.newValue)}
+            if(c.field==='contour'){oldV=contourLabel(c.oldValue);newV=contourLabel(c.newValue)}
+            if(c.field==='status'){const st=v=>v==='CANCELLED'?'Отменён':v==='APPROVED'?'Подтверждён':prettyValue(v);oldV=st(c.oldValue);newV=st(c.newValue)}
+            if(['entitledDays','adjustmentDays','days'].includes(c.field)){oldV=daysLabel(c.oldValue);newV=daysLabel(c.newValue)}
             return `<div class="hep-history-change"><strong>${esc(label)}</strong><b title="${esc(oldV)}">${esc(oldV)}</b><span class="hep-history-arrow">→</span><b title="${esc(newV)}">${esc(newV)}</b></div>`;
           }).join(''):'<div class="hr-muted">Нет изменённых полей.</div>'}</div>
         </div>`;
