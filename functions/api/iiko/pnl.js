@@ -92,7 +92,7 @@ export async function onRequestPost({request}){
     const accountType=findField(transactionFields,['Account.Type','AccountType','Account.TypeName','Account.Kind','Тип счета','Тип счёта','Type']);
     const counterAccount=findField(transactionFields,['CounterAccount.Name','CounterAccountName','Корр.Счет/Склад','Корр. Счет/Склад','CounterAccount']);
     const trDate=findField(transactionFields,['DateTime.DateTyped','DateTime.Typed','DateTime.Date','Date.Typed','Date','TransactionDate','OperationDate','OpenDate.Typed','Учетный день']);
-    const transactionDepartment=findField(transactionFields,['Department.Id','Department.ID','DepartmentId','Department.Guid','Department.UUID','Department.Uuid','Transaction.DepartmentId','Transaction.Department.Id']);
+    const transactionDepartment=findField(transactionFields,['Department.Id','Department.ID','DepartmentId','Department.Guid','Department.UUID','Department.Uuid','Transaction.DepartmentId','Transaction.Department.Id','Department.Code','DepartmentCode','Transaction.DepartmentCode','Department.Name','DepartmentName','Transaction.Department','Department','Подразделение']);
     if(!article||!amount)throw Error('В OLAP TRANSACTIONS не найдены поля «Счет» и/или «Сумма».');
     if(!accountType)throw Error('В OLAP TRANSACTIONS не найдено поле «Тип счета».');
 
@@ -101,18 +101,32 @@ export async function onRequestPost({request}){
     // some installations do not expose any Department.Id-like dimension at all.
     // In that case keep the legacy working behaviour (server-wide TRANSACTIONS)
     // instead of failing the whole P&L, but expose an explicit scope warning.
-    if(departmentIds.length&&!salesDepartment)throw Error('В OLAP SALES не найден Department.Id для фильтра выбранного ресторана.');
-    const transactionDepartmentScopeApplied=departmentIds.length>0&&!!transactionDepartment;
+    const allowedIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
+    const subsetRequested=String(b?.chainScope?.mode||'').toUpperCase()==='CHAIN'&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+    const scopedDepartmentIds=subsetRequested?departmentIds:[];
+    if(scopedDepartmentIds.length&&!salesDepartment)throw Error('В OLAP SALES не найден Department.Id для фильтра выбранного ресторана.');
+    const departmentCodes=Array.isArray(b?.chainScope?.selectedDepartmentCodes)?b.chainScope.selectedDepartmentCodes.map(String).filter(Boolean):[];
+    const departmentNames=Array.isArray(b?.chainScope?.selectedDepartmentNames)?b.chainScope.selectedDepartmentNames.map(String).filter(Boolean):[];
+    const depNorm=norm(transactionDepartment||'');
+    let transactionDepartmentValues=scopedDepartmentIds;
+    if(transactionDepartment){
+      if(depNorm.includes('code')||depNorm.includes(norm('код')))transactionDepartmentValues=departmentCodes.length?departmentCodes:scopedDepartmentIds;
+      else if(depNorm.includes('name')||depNorm===norm('Department')||depNorm===norm('Подразделение'))transactionDepartmentValues=departmentNames.length?departmentNames:scopedDepartmentIds;
+    }
+    if(subsetRequested&&(!transactionDepartment||!transactionDepartmentValues.length)){
+      return json({success:false,code:'PNL_TRANSACTION_SCOPE_UNAVAILABLE',message:'SH TRANSACTIONS не отдаёт подходящее поле подразделения для безопасного P&L выбранного ресторана.',meta:{departmentIds,departmentCodes,departmentNames,transactionDepartment}},409);
+    }
+    const transactionDepartmentScopeApplied=transactionDepartmentValues.length>0&&!!transactionDepartment;
     const scopeWarning=departmentIds.length&&!transactionDepartment
-      ?'iiko TRANSACTIONS не отдаёт поле Department.Id: продажи по категориям ограничены выбранным рестораном, а финансовые проводки временно получены по всему подключённому iiko Server.'
+      ?'SH TRANSACTIONS не отдаёт поле подразделения: финансовые проводки доступны только для общего отчёта по подключению.'
       :null;
 
     const postingRows=[article,accountType];
     for(const f of[accountId,counterAccount])if(f&&!postingRows.includes(f))postingRows.push(f);
 
     const [categoryQuery,postingQuery]=await Promise.all([
-      olap(connection,'SALES',{rows:[category],measures:[salesBase],from,to,dateField:salesDate||'OpenDate.Typed',departmentIds,departmentField:salesDepartment}),
-      olap(connection,'TRANSACTIONS',{rows:postingRows,measures:[amount],from,to,dateField:trDate||'DateTime.DateTyped',departmentIds:transactionDepartment?departmentIds:[],departmentField:transactionDepartment})
+      olap(connection,'SALES',{rows:[category],measures:[salesBase],from,to,dateField:salesDate||'OpenDate.Typed',departmentIds:scopedDepartmentIds,departmentField:salesDepartment}),
+      olap(connection,'TRANSACTIONS',{rows:postingRows,measures:[amount],from,to,dateField:trDate||'DateTime.DateTyped',departmentIds:transactionDepartment?transactionDepartmentValues:[],departmentField:transactionDepartment})
     ]);
     if(!categoryQuery.ok)throw Error(`OLAP SALES по категориям: ${categoryQuery.error}`);
     if(!postingQuery.ok)throw Error(`OLAP TRANSACTIONS: ${postingQuery.error}`);
@@ -209,12 +223,15 @@ export async function onRequestPost({request}){
       sourceNote:`iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; Account.Name берётся напрямую из iiko · P&L выручка: TRANSACTIONS · без кассовых смен${scopeWarning?' · ⚠ TRANSACTIONS без фильтра ресторана':''}`,
       meta:{
         departmentIds,
-        departmentScopeApplied:departmentIds.length>0&&!!salesDepartment&&!!transactionDepartment,
-        salesDepartmentScopeApplied:departmentIds.length>0&&!!salesDepartment,
+        scopedDepartmentIds,
+        allRestaurantsSelected:!subsetRequested&&departmentIds.length>0&&allowedIds.length===departmentIds.length,
+        departmentScopeApplied:scopedDepartmentIds.length>0&&!!salesDepartment&&!!transactionDepartment,
+        salesDepartmentScopeApplied:scopedDepartmentIds.length>0&&!!salesDepartment,
         transactionDepartmentScopeApplied,
         scopeWarning,
         salesDepartmentField:salesDepartment||null,
         transactionDepartmentField:transactionDepartment||null,
+        transactionDepartmentValues,
         salesFieldsCacheHit:salesMeta.cacheHit,
         transactionFieldsCacheHit:transactionMeta.cacheHit
       },

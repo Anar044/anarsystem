@@ -2,8 +2,17 @@
   "use strict";
 
   const SELECTION_KEY = "shIikoSelectedRestaurants";
+  const SCOPE_COOKIE = "sh_selected_departments";
   let promise = null;
   let cache = null;
+
+  async function fetchWithTimeout(url,options={},timeoutMs=20000){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),timeoutMs);
+    try{return await fetch(url,{...options,signal:controller.signal})}
+    catch(error){if(error?.name==='AbortError')throw new Error(`Smart Horeca API не ответил за ${Math.ceil(timeoutMs/1000)} секунд. Повторите запрос.`);throw error}
+    finally{clearTimeout(timer)}
+  }
 
   async function getClient() {
     if (!window.SHAuth?.createClient) throw new Error("SH Auth не готов");
@@ -19,7 +28,7 @@
       const { data, error } = await client.auth.getSession();
       const token = data?.session?.access_token;
       if (error || !token) throw new Error("Сессия пользователя не найдена");
-      const response = await fetch("/api/iiko/state", {
+      const response = await fetchWithTimeout("/api/iiko/state", {
         method: "GET",
         headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
         cache: "no-store"
@@ -65,14 +74,25 @@
   }
 
   function writeSavedSelection(ids) {
-    try { localStorage.setItem(SELECTION_KEY, JSON.stringify([...new Set((ids || []).map(String))])); } catch (_) {}
+    const values=[...new Set((ids || []).map(String).map(x=>x.trim()).filter(Boolean))];
+    try { localStorage.setItem(SELECTION_KEY, JSON.stringify(values)); } catch (_) {}
+    try {
+      document.cookie=`${SCOPE_COOKIE}=${encodeURIComponent(values.join(","))}; Path=/; SameSite=Lax; Max-Age=${values.length?31536000:0}`;
+    } catch (_) {}
   }
 
   function normalizeSavedSelection(state) {
-    if (String(identity(state)?.mode || connection(state)?.connectionType || "RMS").toUpperCase() !== "CHAIN") return;
     const all = allRestaurantIds(state);
+    if (!all.length) {
+      writeSavedSelection([]);
+      return;
+    }
+    const mode=String(identity(state)?.mode || connection(state)?.connectionType || "RMS").toUpperCase();
+    if(mode!=="CHAIN"){
+      writeSavedSelection(all);
+      return;
+    }
     const saved = readSavedSelection();
-    if (!all.length) return;
     const valid = saved ? saved.filter(id => all.includes(String(id))) : [];
     writeSavedSelection(valid.length ? valid : all);
   }
@@ -122,7 +142,9 @@
     const selected = [...new Set((ids || []).map(String))].filter(id => all.includes(id));
     writeSavedSelection(selected.length ? selected : all);
     const current = departmentIds(state);
-    window.dispatchEvent(new CustomEvent("sh:iiko-selection-changed", { detail: { departmentIds: current, restaurants: restaurants(state) } }));
+    if (!options.silentSelection) {
+      window.dispatchEvent(new CustomEvent("sh:iiko-selection-changed", { detail: { departmentIds: current, restaurants: restaurants(state) } }));
+    }
     if (!options.silent) window.dispatchEvent(new Event("sh:iiko-context-changed"));
     return current;
   }
@@ -241,7 +263,7 @@
       const ids = [...listEl.querySelectorAll("input:checked")].map(x => x.value);
       if (!ids.length) return;
       appliedIds = [...ids];
-      setSelectedDepartmentIds(ids);
+      setSelectedDepartmentIds(ids,{silent:true,silentSelection:true});
       wrap.classList.remove("open");
       button.setAttribute("aria-expanded", "false");
       location.reload();
@@ -265,6 +287,13 @@
     const state = await load(force);
     return { departmentIds: departmentIds(state), allDepartmentIds: allRestaurantIds(state), restaurants: restaurants(state), server: server(state), connection: connection(state), identity: identity(state) };
   }
+  async function refreshSelector(){
+    document.querySelector(".sh-restaurant-selector")?.remove();
+    cache=null;cacheAt=0;pending=null;
+    const state=await load(true);
+    if(state)injectRestaurantSelector();
+    return state;
+  }
 
   window.SH_IikoContext = {
     load, get: load, getConnection, getIdentity, getBinding,
@@ -273,6 +302,8 @@
     restaurants: state => restaurants(state),
     getSelectedDepartmentIds: state => departmentIds(state),
     setSelectedDepartmentIds,
+    fetchWithTimeout,
+    refreshSelector,
     getCached: () => cache
   };
 

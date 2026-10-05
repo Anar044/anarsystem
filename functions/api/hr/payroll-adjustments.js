@@ -1,6 +1,7 @@
 import { calculateCompensation } from './_lib/az-payroll-rules.js';
 import { iikoJson } from '../iiko/_lib/iiko-client.js';
 import { loadRequestIikoState, privateConnection, hasPrivateConnection } from '../iiko/_lib/user-state.js';
+import { resolveHrRestaurantScope, filterEmployeesByScope, hrScopeKeys, isHrSubsetScope } from './_lib/restaurant-scope.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -52,10 +53,10 @@ function activeTerm(rows,key,value,asOf){return rows.find(r=>String(r[key])===St
 function adjustmentDto(r){return{id:r.adjustment_id,employeeId:r.iiko_employee_id,month:r.month,type:r.adjustment_type,amount:money(r.amount),reason:r.reason||'',source:r.source||'MANUAL',taxTreatment:r.tax_treatment||'TAXABLE',legalBasis:r.legal_basis||'',status:r.status||'DRAFT',createdAt:r.created_at,updatedAt:r.updated_at}}
 function termDto(r){return r?{officialGross:money(r.official_gross),additionalAmount:money(r.additional_amount),additionalTaxTreatment:r.additional_tax_treatment||'TAXABLE'}:null}
 
-async function snapshot(db,userId,month){
+async function snapshot(db,userId,month,scope=null){
   const b=monthBounds(month),asOf=b.to;
   const [employeesR,adjustmentsR,policiesR,mealR,employeeTermsR,roleTermsR]=await Promise.all([
-    db.prepare(`SELECT iiko_employee_id,employee_code,display_name,first_name,middle_name,last_name,role_code,role_name,is_deleted,fire_date,hire_date FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all(),
+    db.prepare(`SELECT iiko_employee_id,employee_code,display_name,first_name,middle_name,last_name,role_code,role_name,department_code,is_deleted,fire_date,hire_date FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all(),
     db.prepare(`SELECT * FROM hr_payroll_adjustments WHERE user_id=?1 AND month=?2 ORDER BY updated_at DESC`).bind(userId,month).all(),
     db.prepare(`SELECT * FROM hr_meal_policies WHERE user_id=?1 AND is_active=1 ORDER BY effective_from DESC`).bind(userId).all(),
     db.prepare(`SELECT * FROM hr_employee_meal_monthly WHERE user_id=?1 AND month=?2`).bind(userId,month).all(),
@@ -65,7 +66,7 @@ async function snapshot(db,userId,month){
   const adjustments=(adjustmentsR.results||[]).map(adjustmentDto),policies=policiesR.results||[];
   const mealMap=new Map((mealR.results||[]).map(x=>[String(x.iiko_employee_id).toLowerCase(),x]));
   const empTerms=employeeTermsR.results||[],roleTerms=roleTermsR.results||[],employees=[];
-  for(const e of employeesR.results||[]){
+  for(const e of filterEmployeesByScope(employeesR.results||[],scope)){
     if(Number(e.is_deleted))continue;if(e.hire_date&&e.hire_date>b.to)continue;if(e.fire_date&&e.fire_date<b.from)continue;
     const id=String(e.iiko_employee_id),idKey=id.toLowerCase(),roleCode=String(e.role_code||''),name=[e.last_name,e.first_name,e.middle_name].filter(Boolean).join(' ')||e.display_name||e.employee_code||id;
     const list=adjustments.filter(a=>String(a.employeeId)===id),approved=list.filter(a=>a.status==='APPROVED');
@@ -90,9 +91,18 @@ async function snapshot(db,userId,month){
       payroll:{baseConfigured:Boolean(term),calculation:calc,beforeDeductions,finalPayable,employerCost,deductionCap,deductionOverCap}
     });
   }
+  const visibleEmployeeIds=new Set(employees.map(e=>String(e.id)));
+  const visibleRoleCodes=new Set(employees.map(e=>String(e.roleCode||'')).filter(Boolean));
+  const visibleAdjustments=adjustments.filter(a=>visibleEmployeeIds.has(String(a.employeeId)));
+  const visiblePolicies=policies.filter(p=>{
+    const type=String(p.scope_type||'').toUpperCase(),key=String(p.scope_key||'');
+    if(type==='EMPLOYEE')return visibleEmployeeIds.has(key);
+    if(type==='ROLE')return visibleRoleCodes.has(key);
+    return !isHrSubsetScope(scope);
+  });
   const sum=fn=>money(employees.reduce((s,e)=>s+fn(e),0));
-  return{success:true,month,employees,adjustments,
-    policies:policies.map(p=>({id:p.policy_id,scopeType:p.scope_type,scopeKey:p.scope_key,monthlyLimit:money(p.monthly_limit),effectiveFrom:p.effective_from,effectiveTo:p.effective_to||'',active:Boolean(p.is_active)})),
+  return{success:true,month,restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,employees,adjustments:visibleAdjustments,
+    policies:visiblePolicies.map(p=>({id:p.policy_id,scopeType:p.scope_type,scopeKey:p.scope_key,monthlyLimit:money(p.monthly_limit),effectiveFrom:p.effective_from,effectiveTo:p.effective_to||'',active:Boolean(p.is_active)})),
     summary:{employees:employees.length,advances:sum(e=>e.totals.advances),deductions:sum(e=>e.totals.deductions),rewards:sum(e=>e.totals.rewards),mealUsed:sum(e=>e.meal.monthNetIncrease),mealCovered:sum(e=>e.meal.restaurantCovered),mealOverLimit:sum(e=>e.meal.overLimit),finalPayable:sum(e=>e.payroll.finalPayable),employerCost:sum(e=>e.payroll.employerCost),review:employees.filter(e=>e.payroll.deductionOverCap||e.meal.pendingDeduction>0||e.totals.drafts>0).length}}
 }
 
@@ -117,8 +127,10 @@ async function syncIikoDebt(request,env,userId,month){
   const state=await loadRequestIikoState(request,env);if(!state?.user||String(state.user.id)!==String(userId))throw new Error('Требуется авторизация');
   if(!state.found||!hasPrivateConnection(state.state))throw new Error('Сначала подключите SH Server в настройках.');
   const connection=privateConnection(state.state),b=monthBounds(month);
-  const employeesR=await env.DB.prepare(`SELECT iiko_employee_id FROM hr_employees WHERE user_id=?1 AND is_deleted=0 AND TRIM(employee_code)<>''`).bind(userId).all();
-  const ids=new Set((employeesR.results||[]).map(e=>String(e.iiko_employee_id).toLowerCase()));
+  const scope=await resolveHrRestaurantScope(request,env,userId);
+  const employeesR=await env.DB.prepare(`SELECT iiko_employee_id,department_code FROM hr_employees WHERE user_id=?1 AND is_deleted=0 AND TRIM(employee_code)<>''`).bind(userId).all();
+  const scopedEmployees=filterEmployeesByScope(employeesR.results||[],scope);
+  const ids=new Set(scopedEmployees.map(e=>String(e.iiko_employee_id).toLowerCase()));
   const accounts=await fetchDebtAccounts(connection);
   if(!accounts.ids.size)throw new Error('В iiko не найден счёт типа «Задолженность сотрудников / Кредиты сотрудникам». Нужна проверка названия/типа счёта.');
   const openTs=`${previousDate(b.from)}T23:59:59`,closeTs=`${b.to}T23:59:59`;
@@ -127,7 +139,7 @@ async function syncIikoDebt(request,env,userId,month){
   for(const id of ids){const opening=money(open.out.get(id)||0),closing=money(close.out.get(id)||0),delta=Math.round((closing-opening)*100)/100;
     statements.push(env.DB.prepare(`INSERT INTO hr_employee_meal_monthly(user_id,iiko_employee_id,month,opening_debt,closing_debt,month_net_increase,source,synced_at,details_json) VALUES(?1,?2,?3,?4,?5,?6,'IIKO_COUNTERAGENT_BALANCE',?7,?8) ON CONFLICT(user_id,iiko_employee_id,month) DO UPDATE SET opening_debt=excluded.opening_debt,closing_debt=excluded.closing_debt,month_net_increase=excluded.month_net_increase,source=excluded.source,synced_at=excluded.synced_at,details_json=excluded.details_json`).bind(userId,id,month,opening,closing,delta,t,JSON.stringify({openTs,closeTs,debtAccountIds:[...accounts.ids]})))}
   for(let i=0;i<statements.length;i+=50)await env.DB.batch(statements.slice(i,i+50));
-  return{matchedOpeningRows:open.matched,matchedClosingRows:close.matched,debtAccounts:[...accounts.ids],accountCandidates:accounts.accounts.filter(a=>accounts.ids.has(a.id)).slice(0,20)}
+  return{matchedOpeningRows:open.matched,matchedClosingRows:close.matched,debtAccounts:[...accounts.ids],accountCandidates:accounts.accounts.filter(a=>accounts.ids.has(a.id)).slice(0,20),restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null}
 }
 
 async function requireDeductionBasis(db,userId,id){
@@ -140,37 +152,49 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){try{
   const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);
   const url=new URL(request.url),month=monthOnly(url.searchParams.get('month'))||new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit'}).format(new Date());
-  return json(await snapshot(env.DB,state.user.id,month));
+  const scope=await resolveHrRestaurantScope(request,env,state.user.id);
+  return json(await snapshot(env.DB,state.user.id,month,scope));
 }catch(e){console.error('[HR-PAYROLL-ADJ-GET]',e);return json({success:false,message:e?.message||String(e)},500)}}
 
 export async function onRequestPost({request,env}){try{
   const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);
   const userId=state.user.id,b=await request.json().catch(()=>({})),action=clean(b.action),month=monthOnly(b.month);if(!month)return json({success:false,message:'Укажите месяц YYYY-MM'},400);const t=now();
+  const scope=await resolveHrRestaurantScope(request,env,userId);
   if(action==='saveAdjustment'){
     const employeeId=clean(b.employeeId),type=clean(b.type).toUpperCase(),amount=money(b.amount),reason=clean(b.reason),source=(clean(b.source)||'MANUAL').toUpperCase(),tax=(clean(b.taxTreatment)||'TAXABLE').toUpperCase(),basis=clean(b.legalBasis),status=(clean(b.status)||'DRAFT').toUpperCase();
     if(!employeeId||!['ADVANCE','DEDUCTION','REWARD'].includes(type)||amount<=0||!reason)return json({success:false,message:'Заполните сотрудника, тип, сумму и причину'},400);
     if(!['DRAFT','APPROVED'].includes(status))return json({success:false,message:'Некорректный статус'},400);
     if(type==='DEDUCTION'&&status==='APPROVED'&&!basis)return json({success:false,message:'Для подтверждённого удержания укажите основание/письменное согласие или другой допустимый документ.'},400);
     if(type==='REWARD'&&tax==='EXEMPT_WITH_BASIS'&&!basis)return json({success:false,message:'Для необлагаемого вознаграждения укажите законное основание'},400);
-    const emp=await env.DB.prepare(`SELECT 1 FROM hr_employees WHERE user_id=?1 AND iiko_employee_id=?2 AND is_deleted=0 LIMIT 1`).bind(userId,employeeId).first();if(!emp)return json({success:false,message:'Сотрудник не найден'},404);
+    const emp=await env.DB.prepare(`SELECT department_code FROM hr_employees WHERE user_id=?1 AND iiko_employee_id=?2 AND is_deleted=0 LIMIT 1`).bind(userId,employeeId).first();if(!emp)return json({success:false,message:'Сотрудник не найден'},404);
+    if(isHrSubsetScope(scope)&&!new Set(hrScopeKeys(scope)).has(clean(emp.department_code)))return json({success:false,message:'Сотрудник не относится к выбранному подразделению.'},403);
     const id=clean(b.id)||uid('hpa');
     await env.DB.prepare(`INSERT INTO hr_payroll_adjustments(user_id,adjustment_id,iiko_employee_id,month,adjustment_type,amount,reason,source,tax_treatment,legal_basis,status,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12) ON CONFLICT(user_id,adjustment_id) DO UPDATE SET iiko_employee_id=excluded.iiko_employee_id,month=excluded.month,adjustment_type=excluded.adjustment_type,amount=excluded.amount,reason=excluded.reason,source=excluded.source,tax_treatment=excluded.tax_treatment,legal_basis=excluded.legal_basis,status=excluded.status,updated_at=excluded.updated_at`).bind(userId,id,employeeId,month,type,amount,reason,source,tax,basis,status,t).run();
-    return json(await snapshot(env.DB,userId,month));
+    return json(await snapshot(env.DB,userId,month,scope));
   }
   if(action==='setAdjustmentStatus'){
     const id=clean(b.id),status=clean(b.status).toUpperCase();if(!id||!['DRAFT','APPROVED','CANCELLED'].includes(status))return json({success:false,message:'Некорректный статус'},400);
+    const row=await env.DB.prepare(`SELECT a.iiko_employee_id,e.department_code FROM hr_payroll_adjustments a LEFT JOIN hr_employees e ON e.user_id=a.user_id AND e.iiko_employee_id=a.iiko_employee_id WHERE a.user_id=?1 AND a.adjustment_id=?2 LIMIT 1`).bind(userId,id).first();
+    if(!row)return json({success:false,message:'Операция не найдена'},404);
+    if(isHrSubsetScope(scope)&&!new Set(hrScopeKeys(scope)).has(clean(row.department_code)))return json({success:false,message:'Операция относится к сотруднику другого подразделения.'},403);
     if(status==='APPROVED')await requireDeductionBasis(env.DB,userId,id);
-    await env.DB.prepare(`UPDATE hr_payroll_adjustments SET status=?3,updated_at=?4 WHERE user_id=?1 AND adjustment_id=?2`).bind(userId,id,status,t).run();return json(await snapshot(env.DB,userId,month));
+    await env.DB.prepare(`UPDATE hr_payroll_adjustments SET status=?3,updated_at=?4 WHERE user_id=?1 AND adjustment_id=?2`).bind(userId,id,status,t).run();return json(await snapshot(env.DB,userId,month,scope));
   }
   if(action==='saveMealPolicy'){
     const scopeType=clean(b.scopeType).toUpperCase(),scopeKey=clean(b.scopeKey),limit=money(b.monthlyLimit),from=dateOnly(b.effectiveFrom)||`${month}-01`,to=dateOnly(b.effectiveTo);
     if(!['ROLE','EMPLOYEE'].includes(scopeType)||!scopeKey)return json({success:false,message:'Укажите уровень и должность/сотрудника'},400);if(to&&to<from)return json({success:false,message:'Дата окончания раньше даты начала'},400);
-    const id=clean(b.id)||uid('hmp');await env.DB.prepare(`INSERT INTO hr_meal_policies(user_id,policy_id,scope_type,scope_key,monthly_limit,effective_from,effective_to,is_active,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,1,?8,?8) ON CONFLICT(user_id,policy_id) DO UPDATE SET scope_type=excluded.scope_type,scope_key=excluded.scope_key,monthly_limit=excluded.monthly_limit,effective_from=excluded.effective_from,effective_to=excluded.effective_to,is_active=1,updated_at=excluded.updated_at`).bind(userId,id,scopeType,scopeKey,limit,from,to,t).run();return json(await snapshot(env.DB,userId,month));
+    if(isHrSubsetScope(scope)){
+      const employeeRows=await env.DB.prepare(`SELECT iiko_employee_id,role_code,department_code,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>''`).bind(userId).all();
+      const scopedEmployees=filterEmployeesByScope(employeeRows.results||[],scope).filter(x=>!Number(x.is_deleted));
+      const valid=scopeType==='EMPLOYEE'?scopedEmployees.some(x=>String(x.iiko_employee_id)===scopeKey):scopedEmployees.some(x=>String(x.role_code)===scopeKey);
+      if(!valid)return json({success:false,message:'Политика относится к сотруднику или должности вне выбранного подразделения.'},403);
+    }
+    const id=clean(b.id)||uid('hmp');await env.DB.prepare(`INSERT INTO hr_meal_policies(user_id,policy_id,scope_type,scope_key,monthly_limit,effective_from,effective_to,is_active,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,1,?8,?8) ON CONFLICT(user_id,policy_id) DO UPDATE SET scope_type=excluded.scope_type,scope_key=excluded.scope_key,monthly_limit=excluded.monthly_limit,effective_from=excluded.effective_from,effective_to=excluded.effective_to,is_active=1,updated_at=excluded.updated_at`).bind(userId,id,scopeType,scopeKey,limit,from,to,t).run();return json(await snapshot(env.DB,userId,month,scope));
   }
-  if(action==='syncIikoDebt'){const diagnostics=await syncIikoDebt(request,env,userId,month);return json({...await snapshot(env.DB,userId,month),syncDiagnostics:diagnostics})}
+  if(action==='syncIikoDebt'){const diagnostics=await syncIikoDebt(request,env,userId,month);return json({...await snapshot(env.DB,userId,month,scope),syncDiagnostics:diagnostics})}
   if(action==='proposeMealDeduction'){
-    const employeeId=clean(b.employeeId),snap=await snapshot(env.DB,userId,month),e=snap.employees.find(x=>String(x.id)===employeeId);if(!e||e.meal.pendingDeduction<=0)return json({success:false,message:'Нет сверхлимитной суммы для удержания'},400);
-    const id=uid('hpa');await env.DB.prepare(`INSERT INTO hr_payroll_adjustments(user_id,adjustment_id,iiko_employee_id,month,adjustment_type,amount,reason,source,tax_treatment,legal_basis,status,created_at,updated_at) VALUES(?1,?2,?3,?4,'DEDUCTION',?5,'Питание сверх месячного лимита','MEAL_OVER_LIMIT','TAXABLE','','DRAFT',?6,?6)`).bind(userId,id,employeeId,month,e.meal.pendingDeduction,t).run();return json(await snapshot(env.DB,userId,month));
+    const employeeId=clean(b.employeeId),snap=await snapshot(env.DB,userId,month,scope),e=snap.employees.find(x=>String(x.id)===employeeId);if(!e||e.meal.pendingDeduction<=0)return json({success:false,message:'Нет сверхлимитной суммы для удержания'},400);
+    const id=uid('hpa');await env.DB.prepare(`INSERT INTO hr_payroll_adjustments(user_id,adjustment_id,iiko_employee_id,month,adjustment_type,amount,reason,source,tax_treatment,legal_basis,status,created_at,updated_at) VALUES(?1,?2,?3,?4,'DEDUCTION',?5,'Питание сверх месячного лимита','MEAL_OVER_LIMIT','TAXABLE','','DRAFT',?6,?6)`).bind(userId,id,employeeId,month,e.meal.pendingDeduction,t).run();return json(await snapshot(env.DB,userId,month,scope));
   }
   return json({success:false,message:'Неизвестное действие'},400);
 }catch(e){console.error('[HR-PAYROLL-ADJ-POST]',e);return json({success:false,message:e?.message||String(e)},500)}}

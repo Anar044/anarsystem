@@ -1,46 +1,42 @@
 (function(){
   'use strict';
-  const CONNECTION_KEY='iikoConnection';
-  const IDENTITY_KEY='iikoDepartmentIdentity';
   const clean=v=>String(v??'').trim();
 
-  function readJson(key){try{return JSON.parse(localStorage.getItem(key)||'null')}catch{return null}}
+  async function contextLabel(){
+    if(!window.SH_IikoContext?.getBinding)return null;
+    const binding=await window.SH_IikoContext.getBinding();
+    const identity=binding?.identity||{};
+    const connection=binding?.connection||{};
+    const mode=clean(identity.mode||connection.connectionType||'RMS').toUpperCase();
+    const ids=new Set((binding?.departmentIds||[]).map(String));
+    const restaurants=Array.isArray(binding?.restaurants)?binding.restaurants:[];
+    const selected=restaurants.filter(x=>ids.has(String(x?.id||'')));
+    const names=[...new Set(selected.map(x=>clean(x?.name)).filter(Boolean))];
 
-  function localName(){
-    const identity=readJson(IDENTITY_KEY)||{};
-    const connection=readJson(CONNECTION_KEY)||{};
-    const mode=clean(connection.displayName?connection.connectionType:identity.mode||connection.connectionType||connection.detectedMode).toUpperCase();
-
-    if(clean(connection.displayName))return clean(connection.displayName);
-    if(clean(identity.displayName))return clean(identity.displayName);
-
-    // iikoChain: use a saved corporation/network name captured during connection.
     if(mode==='CHAIN'){
-      const corp=identity.organization||connection.organization||{};
-      const chainName=clean(corp.name||corp.Name||corp.title||corp.Title||connection.networkName||identity.networkName);
-      if(chainName)return chainName;
-      const hierarchy=Array.isArray(identity.hierarchy)?identity.hierarchy:(Array.isArray(connection.hierarchy)?connection.hierarchy:[]);
-      const corporation=hierarchy.find(x=>String(x?.type||'').toUpperCase()==='CORPORATION');
-      return clean(corporation?.name||corporation?.Name||'');
+      if(names.length===1)return {title:`Обзор ресторана — ${names[0]}`,crumb:names[0]};
+      if(names.length>1){
+        const short=names.length<=3?names.join(' · '):`${names.slice(0,2).join(' · ')} · ещё ${names.length-2}`;
+        return {title:`Обзор сети — ${names.length} ресторанов`,crumb:short};
+      }
+      return {title:'Обзор сети',crumb:clean(identity.displayName||connection.displayName||'Smart Horeca')};
     }
 
-    // iikoRMS: use the restaurant / department name captured during connection.
-    const restaurantName=clean(connection.restaurantName||identity.restaurantName);
-    if(restaurantName)return restaurantName;
-    const orgs=Array.isArray(identity.organizations)?identity.organizations:(Array.isArray(connection.organizations)?connection.organizations:[]);
-    const deps=Array.isArray(identity.departments)?identity.departments:(Array.isArray(connection.departments)?connection.departments:[]);
-    return clean(orgs[0]?.name||orgs[0]?.Name||deps[0]?.name||deps[0]?.Name||'');
+    const name=names[0]||clean(identity.restaurantName||connection.restaurantName||identity.displayName||connection.displayName);
+    return name?{title:`Обзор ресторана — ${name}`,crumb:name}:null;
   }
 
-  function render(){
-    const name=localName();
-    if(!name)return;
-    const title=document.querySelector('.pagehead h1');
-    if(title)title.textContent=`Обзор ресторана — ${name}`;
-    const crumb=document.querySelector('.topbar .crumb span');
-    if(crumb)crumb.textContent=name;
+  async function render(){
+    try{
+      const label=await contextLabel();
+      if(!label)return;
+      const title=document.querySelector('.pagehead h1');
+      if(title)title.textContent=label.title;
+      const crumb=document.querySelector('.topbar .crumb span');
+      if(crumb)crumb.textContent=label.crumb;
+    }catch(error){console.warn('[dashboard-name] context unavailable',error)}
   }
 
-  // No API call here. The name must already be present in the saved connection identity.
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',render);else render();
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',render,{once:true});else render();
+  window.addEventListener('sh:iiko-selection-changed',()=>render());
 })();

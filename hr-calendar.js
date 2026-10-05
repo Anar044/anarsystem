@@ -6,7 +6,7 @@
 
   async function token(){const client=await window.SHAuth?.createClient?.();if(!client)throw new Error('Supabase Auth не готов');const{data,error}=await client.auth.getSession();const t=data?.session?.access_token;if(error||!t)throw new Error('Сессия пользователя не найдена');return t}
   function setStatus(text,kind=''){const el=$('calStatus');if(!el)return;el.textContent=text;el.className=`hr-status ${kind}`.trim()}
-  async function api(){const t=await token();const year=$('calYear')?.value||'2026';const r=await fetch(`/api/hr/work-calendar?year=${encodeURIComponent(year)}`,{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}});const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);return j}
+  async function api(){const t=await token();const year=$('calYear')?.value||'2026';const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)(`/api/hr/work-calendar?year=${encodeURIComponent(year)}`,{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}},30000);const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);return j}
   function localDate(v){if(!v)return'';try{return new Date(`${v}T00:00:00`).toLocaleDateString('ru-RU',{day:'2-digit',month:'short',year:'numeric'})}catch{return String(v)}}
 
   function renderSummary(){const s=data?.summary||{};$('calSummary').innerHTML=`

@@ -1,0 +1,196 @@
+name: CHAIN Scope Check
+
+on:
+  push:
+    branches: ["main", "feature/chain-scope-v1"]
+  pull_request:
+
+jobs:
+  chain-scope:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check shared CHAIN scope
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f functions/api/iiko/_lib/restaurant-scope.js
+          test -f functions/api/iiko/_lib/store-scope.js
+          test -f functions/api/hr/_lib/restaurant-scope.js
+
+          grep -q "sh_selected_departments" iiko-context.js
+          grep -q "sh_selected_departments" app-shell.js
+          grep -q "resolveRestaurantScope" functions/api/iiko/_middleware.js
+          grep -q "applyDepartmentScopeToBody" functions/api/iiko/_middleware.js
+          grep -q "fullSelection" functions/api/iiko/_lib/restaurant-scope.js
+          grep -q "fullSelection ? \[\] : effective" functions/api/iiko/_middleware.js
+          grep -q "effectiveDepartmentIds" functions/api/iiko/_lib/ai-assistant-tools.js
+
+          grep -q "resolveStoreScope" functions/api/iiko/incoming-invoices.js
+          grep -q "resolveStoreScope" functions/api/iiko/outgoing-invoices.js
+          grep -q "resolveStoreScope" functions/api/iiko/documents.js
+          grep -q "resolveStoreScope" functions/api/iiko/document-action.js
+          grep -q "resolveStoreScope" functions/api/iiko/invoice-reference-data.js
+
+          grep -q "selectedDepartmentIds" functions/api/iiko/_lib/ai-assistant-tools.js
+          grep -q "resolveRestaurantScope" functions/api/ai-assistant.js
+          grep -q "conversationScopeKey" functions/api/ai-assistant.js
+          grep -q "scope_key" functions/api/ai-assistant.js
+          grep -q "departmentIds" ai-assistant.js
+
+          grep -q "balance/counteragents department filter" functions/api/iiko/accounts.js
+          grep -q "ACCOUNT_POSTINGS_SCOPE_UNAVAILABLE" functions/api/iiko/account-postings.js
+          grep -q "TRANSACTIONS" functions/api/iiko/account-postings.js
+          grep -q "balance/counteragents department filter" functions/api/iiko/supplier-balances.js
+          grep -q "balance/stores natively supports repeatable department filters" functions/api/iiko/stock-balances.js
+          grep -q 'q.append("department"' functions/api/iiko/stock-balances.js
+          grep -q "STOCK_MOVEMENT_SCOPE_UNAVAILABLE" functions/api/iiko/stock-movements.js
+          grep -q "FOOD_COST_SCOPE_UNAVAILABLE" functions/api/iiko/food-cost.js
+          grep -q "PNL_TRANSACTION_SCOPE_UNAVAILABLE" functions/api/iiko/pnl.js
+          grep -q "shiftsForRange" functions/api/iiko/finance-data.js
+          grep -q "departmentId" functions/api/iiko/finance-data.js
+          grep -q "CASH_SHIFT_SCOPE_UNAVAILABLE" functions/api/iiko/cash-shifts.js
+          grep -q "CASH_SHIFT_DETAIL_SCOPE_UNAVAILABLE" functions/api/iiko/cash-shift-detail.js
+          grep -q "DOCUMENT_SCOPE_UNAVAILABLE" functions/api/iiko/document-by-number.js
+          grep -q "EVENT_SCOPE_UNAVAILABLE" functions/api/iiko/events.js
+
+          grep -q "QR_MENU_SINGLE_RESTAURANT_REQUIRED" functions/api/iiko/qr-menu.js
+          grep -q "QR_MENU_SINGLE_RESTAURANT_REQUIRED" functions/api/qr-menu/publish.js
+          grep -q "storageKey" qr-menu.js
+          grep -q "selectedRestaurant" qr-menu.js
+
+          grep -q "restaurant_id" functions/api/assets.js
+          grep -q "resolveRestaurantScope" functions/api/asset-meta.js
+          grep -q "assetAllowed" functions/api/asset-meta.js
+          grep -q "resolveRestaurantScope" functions/api/asset-files.js
+          grep -q "assetAllowed" functions/api/asset-files.js
+          grep -q "AI_DOCUMENT_SINGLE_RESTAURANT_REQUIRED" functions/api/ai-documents.js
+          grep -q "filterEmployeesByScope" functions/api/hr/employees.js
+          grep -q "HR_DEPARTMENT_CODE_UNAVAILABLE" functions/api/hr/employees.js
+          grep -q "employees/byDepartment" functions/api/hr/employees.js
+          grep -q "filterEmployeesByScope" functions/api/hr/payroll.js
+          grep -q "filterEmployeesByScope" functions/api/hr/timesheet.js
+          grep -q "restaurant_id" functions/api/hr/timeclock.js
+          grep -q "filterEmployeesByScope" functions/api/hr/meal-transactions.js
+          grep -q "filterEmployeesByScope" functions/api/hr/meal-transactions-v2.js
+          grep -q "visibleAdjustments" functions/api/hr/payroll-adjustments.js
+
+          test -f functions/api/plugin/_lib/chain-scope.js
+          test -f functions/api/plugin/_lib/ingest-auth.js
+          test -f supabase/migrations/20261003_plugin_events_chain_scope.sql
+          grep -q "verifyPluginIngress" functions/api/plugin/ingest.js
+          grep -q "verifyPluginIngress" functions/api/plugin/heartbeat.js
+          grep -q "PLUGIN_INGEST_TOKEN" functions/api/plugin/_lib/ingest-auth.js
+          grep -q "resolvePluginChainScope" functions/api/plugin/data.js
+          grep -q "ensurePluginAllowed" functions/api/plugin/request.js
+          grep -q "pluginAllowed" functions/api/plugin/order-history.js
+          grep -q "resolveRestaurantScope" functions/api/plugin/events.js
+
+      - name: Check CHAIN-aware sidebar pages load context
+        shell: bash
+        run: |
+          set -euo pipefail
+          pages=(
+            dashboard.html
+            ai-assistant.html
+            cash/index.html
+            cash-shifts.html
+            nomenclature.html
+            stock-balances.html
+            stock-movements.html
+            assets.html
+            ai-documents.html
+            nakladnye.html
+            rashodnye-nakladnye.html
+            akty-spisaniya.html
+            vnutrennie-peremescheniya.html
+            finance.html
+            reports.html
+            abc-xyz.html
+            menu-engineering.html
+            waiter-performance.html
+            supplier-balances.html
+            food-cost.html
+            labor-cost.html
+            pnl.html
+            hr-employees.html
+            hr-role-schedules.html
+            hr-compensation.html
+            hr-payroll-adjustments.html
+            hr-payroll.html
+            hr-timeclock.html
+            hr-timesheet.html
+            hr-calendar.html
+            qr-menu.html
+            settings.html
+            events.html
+            plugin-events.html
+          )
+          for page in "${pages[@]}"; do
+            echo "checking $page"
+            grep -q "iiko-context.js" "$page"
+            grep -q "app-shell.js" "$page"
+          done
+
+      - name: Syntax check CHAIN modules
+        run: |
+          node --check iiko-context.js
+          node --check iiko-identity.js
+          node --check app-shell.js
+          node --check ai-assistant.js
+          node --check ai-documents.js
+          node --check qr-menu.js
+          node --check cash-groups.js
+          node --check events.js
+          node --check plugin-events.js
+          node --check dashboard-restaurant-name.js
+          node --check documents-page.js
+          node --check functions/api/iiko/_lib/restaurant-scope.js
+          node --check functions/api/iiko/_lib/store-scope.js
+          node --check functions/api/iiko/_middleware.js
+          node --check functions/api/iiko/finance-data.js
+          node --check functions/api/iiko/cash-shifts.js
+          node --check functions/api/iiko/cash-shift-detail.js
+          node --check functions/api/iiko/document-by-number.js
+          node --check functions/api/iiko/events.js
+          node --check functions/api/iiko/incoming-invoices.js
+          node --check functions/api/iiko/outgoing-invoices.js
+          node --check functions/api/iiko/documents.js
+          node --check functions/api/iiko/document-action.js
+          node --check functions/api/iiko/invoice-reference-data.js
+          node --check functions/api/iiko/accounts.js
+          node --check functions/api/iiko/account-postings.js
+          node --check functions/api/iiko/supplier-balances.js
+          node --check functions/api/iiko/stock-balances.js
+          node --check functions/api/iiko/stock-movements.js
+          node --check functions/api/iiko/food-cost.js
+          node --check functions/api/iiko/pnl.js
+          node --check functions/api/iiko/qr-menu.js
+          node --check functions/api/qr-menu/publish.js
+          node --check functions/api/assets.js
+          node --check functions/api/asset-meta.js
+          node --check functions/api/asset-files.js
+          node --check functions/api/ai-assistant.js
+          node --check functions/api/ai-documents.js
+          node --check functions/api/plugin/_lib/chain-scope.js
+          node --check functions/api/plugin/_lib/ingest-auth.js
+          node --check functions/api/plugin/data.js
+          node --check functions/api/plugin/ingest.js
+          node --check functions/api/plugin/heartbeat.js
+          node --check functions/api/plugin/env-check.js
+          node --check functions/api/plugin/request.js
+          node --check functions/api/plugin/order-history.js
+          node --check functions/api/plugin/events.js
+          node --check functions/api/iiko/_lib/ai-assistant-tools.js
+          node --check functions/api/hr/_lib/restaurant-scope.js
+          node --check functions/api/hr/employees.js
+          node --check functions/api/hr/compensation.js
+          node --check functions/api/hr/payroll-adjustments.js
+          node --check functions/api/hr/payroll.js
+          node --check functions/api/hr/role-schedules.js
+          node --check functions/api/hr/timeclock.js
+          node --check functions/api/hr/timesheet.js
+          node --check functions/api/hr/meal-transactions.js
+          node --check functions/api/hr/meal-transactions-v2.js

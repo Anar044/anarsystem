@@ -1,3 +1,4 @@
+import { resolveStoreScope } from "./_lib/store-scope.js";
 import { clean, getOlapFields, iikoJson, iikoText } from "./_lib/iiko-client.js";
 
 const cache=new Map();
@@ -159,6 +160,14 @@ async function balance(connection,timestamp,departmentIds,storeId){
   const rows=balanceRows(r.payload),byProduct=new Map();for(const x of rows){const prev=byProduct.get(x.productId)||{amount:0,sum:0};prev.amount+=x.amount;prev.sum+=x.sum;byProduct.set(x.productId,prev)}
   return{rows,byProduct,authCacheHit:r.auth?.cacheHit===true};
 }
+function restrictBalanceToStores(result,allowedStoreIds){
+  const allowed=new Set((allowedStoreIds||[]).map(key).filter(Boolean));
+  if(!allowed.size)return result;
+  const rows=(result?.rows||[]).filter(x=>allowed.has(key(x.storeId)));
+  const byProduct=new Map();
+  for(const x of rows){const prev=byProduct.get(x.productId)||{amount:0,sum:0};prev.amount+=x.amount;prev.sum+=x.sum;byProduct.set(x.productId,prev)}
+  return{...result,rows,byProduct};
+}
 function parseInvoiceItems(block){return xmlBlocks(block,"item").map((b,i)=>({index:i,productId:key(xmlTag(b,["product","productId"])),amount:num(xmlTag(b,["amount","actualAmount"])),price:maybeNum(xmlTag(b,["price","priceWithoutVat"])),sum:maybeNum(xmlTag(b,["sum","sumWithoutNds","sumWithoutVat"])),storeId:key(xmlTag(b,["store","storeId"]))}))}
 function parseInvoiceDocs(xml,kind){
   let docs=xmlBlocks(xml,"document");if(!docs.length)docs=xmlBlocks(xml,kind==="incoming"?"incomingInvoice":"outgoingInvoice");
@@ -260,6 +269,11 @@ export async function onRequestPost({request}){
     if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Нет подключения к iiko Server",requestId},400);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return json({success:false,message:"Проверьте период",requestId},400);
 
+    const allowedDepartmentIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(key).filter(Boolean):[];
+    const subsetRequested=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedDepartmentIds.length>departmentIds.length;
+    const storeScope=subsetRequested?await resolveStoreScope(connection,departmentIds):{resolved:true,storeIds:[],diagnostics:null};
+    const scopedStoreIds=new Set((storeScope.storeIds||[]).map(key).filter(Boolean));
+
     const meta=await loadMeta(connection,from,to);
     const startTs=from+"T00:00:00",endTs=to+"T23:59:59";
     const [sales,opening,closing,incoming,outgoing,transfers,writeoffs]=await Promise.all([
@@ -272,7 +286,20 @@ export async function onRequestPost({request}){
       loadV2Docs(connection,"/resto/api/v2/documents/writeoff",from,to)
     ]);
 
-    const relevantStores=new Set([...opening.rows,...closing.rows].map(x=>x.storeId).filter(Boolean));
+    if(subsetRequested){
+      for(const row of [...opening.rows,...closing.rows]){
+        const sid=key(row.storeId);if(sid)scopedStoreIds.add(sid);
+      }
+      if(!scopedStoreIds.size){
+        return json({success:false,code:"FOOD_COST_SCOPE_UNAVAILABLE",message:"SH Server не вернул склады выбранного ресторана ни через scoped-остатки, ни через корпоративный справочник. Фудкост не рассчитан.",requestId,meta:{departmentIds,storeScope:storeScope.diagnostics||null}},409);
+      }
+      if(storeId&&!scopedStoreIds.has(storeId)){
+        return json({success:false,code:"FOOD_COST_STORE_FORBIDDEN",message:"Выбранный склад не относится к текущему ресторану.",requestId},403);
+      }
+    }
+    const scopedOpening=subsetRequested?restrictBalanceToStores(opening,[...scopedStoreIds]):opening;
+    const scopedClosing=subsetRequested?restrictBalanceToStores(closing,[...scopedStoreIds]):closing;
+    const relevantStores=new Set([...scopedOpening.rows,...scopedClosing.rows].map(x=>x.storeId).filter(Boolean));
     const inMap=aggregateDocs(incoming.docs,"incoming",storeId,relevantStores),outMap=aggregateDocs(outgoing.docs,"outgoing",storeId,relevantStores),transferMap=aggregateTransfers(transfers.docs,storeId);
     const writeoffMap=aggregateDocs(writeoffs.docs,"writeoff",storeId,relevantStores);
 
@@ -326,11 +353,11 @@ export async function onRequestPost({request}){
     }
     const coverageIssues=[...coverageIssuesMap.values()].sort((a,b)=>b.quantity-a.quantity||b.revenue-a.revenue).slice(0,20);
 
-    const productIds=new Set([...opening.byProduct.keys(),...closing.byProduct.keys(),...inMap.keys(),...outMap.keys(),...transferMap.keys(),...writeoffMap.keys(),...theoryQty.keys()]);
+    const productIds=new Set([...scopedOpening.byProduct.keys(),...scopedClosing.byProduct.keys(),...inMap.keys(),...outMap.keys(),...transferMap.keys(),...writeoffMap.keys(),...theoryQty.keys()]);
     const rows=[];
     for(const id of productIds){
       const p=meta.products.get(id)||{id,name:"Товар · …"+id.slice(-6),num:"",code:"",unit:"",groupName:"",categoryName:"",type:""};
-      const op=get(opening.byProduct,id),cl=get(closing.byProduct,id),inc=get(inMap,id),out=get(outMap,id),tr=get(transferMap,id);
+      const op=get(scopedOpening.byProduct,id),cl=get(scopedClosing.byProduct,id),inc=get(inMap,id),out=get(outMap,id),tr=get(transferMap,id);
       const activeChart=chooseChart(meta.charts,id,to);
       const isInternalAssembled=activeChart&&clean(activeChart?.productWriteoffStrategy).toUpperCase()!=="DIRECT";
       const tq=theoryQty.get(id)||0;
@@ -393,14 +420,14 @@ export async function onRequestPost({request}){
       sources:{
         sales:{ok:true,rows:sales.rows.length,costField:sales.fields.costField||null,matchStats:sales.matchStats,unmatched:coverageIssues,directQty,excludedQty,eligibleQty},
         recipes:{ok:meta.chartStatus>=200&&meta.chartStatus<300,count:meta.chartCount,status:meta.chartStatus,from,to},
-        openingBalance:{ok:true,rows:opening.rows.length,timestamp:startTs},
-        closingBalance:{ok:true,rows:closing.rows.length,timestamp:endTs},
+        openingBalance:{ok:true,rows:scopedOpening.rows.length,timestamp:startTs},
+        closingBalance:{ok:true,rows:scopedClosing.rows.length,timestamp:endTs},
         incoming:{ok:incoming.ok,status:incoming.status,documents:incoming.docs.length},
         outgoing:{ok:outgoing.ok,status:outgoing.status,documents:outgoing.docs.length},
         transfers:{ok:transfers.ok,status:transfers.status,documents:transfers.docs.length},
         writeoffs:{ok:writeoffs.ok,status:writeoffs.status,documents:writeoffs.docs.length}
       },
-      meta:{departmentIds,departmentScopeApplied:departmentIds.length>0,metadataCacheHit:meta.cacheHit===true,olapFieldsCacheHit:sales.fieldsCacheHit,theoreticalCostSource:sales.fields.costField?"SALES_OLAP_COST":"RECIPE_ESTIMATE",salesFields:sales.fields,salesMatchStats:sales.matchStats}
+      meta:{departmentIds,departmentScopeApplied:departmentIds.length>0,subsetRequested,scopedStoreIds:[...scopedStoreIds],storeScopeDiagnostics:storeScope.diagnostics||null,scopeSource:subsetRequested?"balance/stores department filter + corporation stores":"all",metadataCacheHit:meta.cacheHit===true,olapFieldsCacheHit:sales.fieldsCacheHit,theoreticalCostSource:sales.fields.costField?"SALES_OLAP_COST":"RECIPE_ESTIMATE",salesFields:sales.fields,salesMatchStats:sales.matchStats}
     });
   }catch(e){
     console.error("[FOOD-COST]",requestId,e);

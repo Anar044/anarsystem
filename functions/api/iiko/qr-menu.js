@@ -1,4 +1,4 @@
-import { clean, iikoFetch, iikoJson } from './_lib/iiko-client.js';
+import { clean, iikoFetch, iikoJson, iikoText } from './_lib/iiko-client.js';
 
 function corsHeaders() {
     return {
@@ -17,6 +17,31 @@ function jsonResponse(data, status = 200) {
             ...corsHeaders()
         }
     });
+}
+
+function xmlDecode(v){return String(v??"").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&")}
+function xmlChild(block,name){const m=String(block||"").match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`,"i"));return m?xmlDecode(m[1]).replace(/<[^>]+>/g,"").trim():""}
+function xmlBlocks(source,name){const out=[],re=new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`,"gi");let m;while((m=re.exec(String(source||""))))out.push(m[1]||"");return out}
+function xmlSectionIds(text,departmentId=""){
+    const out=[],seen=new Set(),groups=[...xmlBlocks(text,"groupDto"),...xmlBlocks(text,"group")];
+    for(const g of groups){
+        const dep=xmlChild(g,"departmentId");
+        if(departmentId&&dep&&String(dep)!==String(departmentId))continue;
+        const sections=[...xmlBlocks(g,"restaurantSectionInfos"),...xmlBlocks(g,"restaurantSectionInfo")];
+        for(const s of sections){
+            const id=xmlChild(s,"id")||String(s).replace(/<[^>]+>/g,"").trim();
+            if(id&&!seen.has(id)){seen.add(id);out.push(id)}
+        }
+    }
+    return out;
+}
+async function discoverRestaurantSections(connection,departmentId){
+    const search=await iikoText(connection,`/resto/api/corporation/groups/search?departmentId=${encodeURIComponent(departmentId)}`,{headers:{Accept:"application/xml, text/xml, */*"}});
+    let ids=search.ok?xmlSectionIds(search.text,departmentId):[];
+    if(ids.length)return{ids,source:"groups/search",status:search.status};
+    const all=await iikoText(connection,"/resto/api/corporation/groups?revisionFrom=-1",{headers:{Accept:"application/xml, text/xml, */*"}});
+    ids=all.ok?xmlSectionIds(all.text,departmentId):[];
+    return{ids,source:"groups",status:all.status,searchStatus:search.status};
 }
 
 function toNumber(value) {
@@ -58,14 +83,24 @@ function resolveGroupName(groupId, groupMap) {
     return groupMap.get(String(groupId))?.name || "Без категории";
 }
 
-function hasSalePlace(item) {
-    const excluded = item?.excludedSections;
-    if (excluded == null) return true;
-    if (Array.isArray(excluded)) return excluded.length === 0;
-    return String(excluded).trim() === "";
+function sectionId(value){
+    if(value&&typeof value==="object")return String(value.id??value.uuid??value.sectionId??"").trim();
+    return String(value??"").trim();
 }
 
-function normalizeProducts(items, groupMap) {
+function hasSalePlace(item, selectedSectionIds=[]) {
+    const excludedRaw=item?.excludedSections;
+    const excluded=Array.isArray(excludedRaw)
+        ? excludedRaw.map(sectionId).filter(Boolean)
+        : (excludedRaw==null||String(excludedRaw).trim()===""?[]:[String(excludedRaw).trim()]);
+    if(Array.isArray(selectedSectionIds)&&selectedSectionIds.length){
+        const blocked=new Set(excluded);
+        return selectedSectionIds.some(id=>!blocked.has(String(id)));
+    }
+    return excluded.length===0;
+}
+
+function normalizeProducts(items, groupMap, selectedSectionIds=[]) {
     const products = [];
     const categories = new Map();
     let skippedNoSalePlace = 0;
@@ -75,7 +110,7 @@ function normalizeProducts(items, groupMap) {
         if (!item || item.deleted === true) continue;
         if (String(item.type || "").toUpperCase() !== "DISH") continue;
         if (item.defaultIncludedInMenu !== true) continue;
-        if (!hasSalePlace(item)) {
+        if (!hasSalePlace(item, selectedSectionIds)) {
             skippedNoSalePlace += 1;
             continue;
         }
@@ -201,30 +236,57 @@ export async function onRequestPost(context) {
             return jsonResponse({ success: false, message: "Заполните IP, порт, логин и пароль iiko" }, 400);
         }
 
+        const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(String).filter(Boolean):[];
+        const allowedIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
+        let selectedSectionIds=Array.isArray(body?.chainScope?.selectedRestaurantSectionIds)?body.chainScope.selectedRestaurantSectionIds.map(String).filter(Boolean):[];
+        let sectionScopeSource=selectedSectionIds.length?"saved-chain-structure":"";
+        const chainMode=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN";
+        if(chainMode&&departmentIds.length!==1){
+            return jsonResponse({success:false,code:"QR_MENU_SINGLE_RESTAURANT_REQUIRED",message:"Для QR Menu в режиме CHAIN выберите ровно один ресторан.",meta:{departmentIds}},409);
+        }
+        const subsetRequested=chainMode&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+        if(chainMode&&departmentIds.length===1&&!selectedSectionIds.length){
+            const discovered=await discoverRestaurantSections(connection,departmentIds[0]);
+            selectedSectionIds=discovered.ids;
+            sectionScopeSource=discovered.source;
+        }
+        if(subsetRequested&&!selectedSectionIds.length){
+            return jsonResponse({
+                success:false,
+                code:"QR_MENU_SALE_PLACE_SCOPE_UNAVAILABLE",
+                message:"Не удалось определить торговые секции выбранного ресторана. QR Menu не синхронизирован, чтобы не смешивать меню филиалов.",
+                meta:{departmentIds,sectionScopeSource}
+            },409);
+        }
+
         const [rawProducts, rawGroups] = await Promise.all([
             getProducts(connection),
             getGroups(connection)
         ]);
 
         const groupMap = buildGroupMap(rawGroups);
-        const normalized = normalizeProducts(rawProducts, groupMap);
+        const normalized = normalizeProducts(rawProducts, groupMap, selectedSectionIds);
 
         let imageCount = 0;
         const imageConcurrency = 4;
         const imageState = { preferredIndex: null, successfulPath: null };
-        for (let i = 0; i < normalized.products.length; i += imageConcurrency) {
-            const batch = normalized.products.slice(i, i + imageConcurrency);
-            await Promise.all(batch.map(async product => {
-                if (!product.frontImageId) return;
-                const originalImageId = product.frontImageId;
-                const dataUrl = await fetchImageDataUrl(connection, originalImageId, imageState);
-                product.iikoImageId = originalImageId;
-                if (dataUrl) {
-                    product.frontImageId = dataUrl;
-                    product.photo = dataUrl;
-                    imageCount += 1;
-                }
-            }));
+        const includeImages = body.includeImages === true;
+        const maxImages = Math.max(0, Math.min(Number(body.maxImages || 24), 24));
+        if (includeImages && maxImages > 0) {
+            const candidates = normalized.products.filter(product => product.frontImageId).slice(0, maxImages);
+            for (let i = 0; i < candidates.length; i += imageConcurrency) {
+                const batch = candidates.slice(i, i + imageConcurrency);
+                await Promise.all(batch.map(async product => {
+                    const originalImageId = product.frontImageId;
+                    const dataUrl = await fetchImageDataUrl(connection, originalImageId, imageState);
+                    product.iikoImageId = originalImageId;
+                    if (dataUrl) {
+                        product.frontImageId = dataUrl;
+                        product.photo = dataUrl;
+                        imageCount += 1;
+                    }
+                }));
+            }
         }
 
         return jsonResponse({
@@ -244,7 +306,13 @@ export async function onRequestPost(context) {
             products: normalized.products,
             meta: {
                 imageConcurrency,
-                preferredImageEndpointIndex: imageState.successfulPath
+                includeImages,
+                maxImages: includeImages ? maxImages : 0,
+                preferredImageEndpointIndex: imageState.successfulPath,
+                departmentIds,
+                selectedRestaurantSectionIds:selectedSectionIds,
+                sectionScopeSource,
+                departmentScopeApplied:subsetRequested
             }
         });
     } catch (error) {

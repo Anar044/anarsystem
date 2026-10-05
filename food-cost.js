@@ -139,7 +139,7 @@ async function load(){
   try{
     const b=await binding(),c=b?.connection;if(!c?.ip||!c?.port||!c?.login||!c?.password)throw Error('Нет подключения iiko Server.');
     const from=$('fc-from').value,to=$('fc-to').value;if(!from||!to||to<from)throw Error('Проверьте период.');
-    const r=await fetch('/api/iiko/food-cost',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({...c,from,to,storeId:$('fc-store').value,departmentIds:Array.isArray(b?.departmentIds)?b.departmentIds:[]})});
+    const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/food-cost',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({...c,from,to,storeId:$('fc-store').value,departmentIds:Array.isArray(b?.departmentIds)?b.departmentIds:[]})},90000);
     const j=await r.json().catch(()=>({}));if(!r.ok||!j.success)throw Error(j.message||('HTTP '+r.status));
     rows=Array.isArray(j.rows)?j.rows:[];summary=j.summary||{};sources=j.sources||{};
     populate($('fc-store'),(j.stores||[]).map(x=>({value:String(x.id),label:x.name||x.id})),'Все склады');

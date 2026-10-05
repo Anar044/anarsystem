@@ -105,7 +105,7 @@ The new `/api/plugin/ingest` endpoint accepts a generic envelope so the website 
 }
 ```
 
-The API currently validates and normalizes the envelope but intentionally does not persist it until the actual plugin payload is verified.
+The API validates and normalizes the envelope, requires a configured `PLUGIN_INGEST_TOKEN`, verifies `pluginId + departmentId` against the VPS plugin registry, and only then persists the event. If the token is missing, invalid, or the plugin is registered for another department, the request is rejected and nothing is stored.
 
 ## Matching rule
 

@@ -181,11 +181,16 @@
     setTimeout(() => loadHistory(pluginId, orderNum), 0);
   });
 
-  const observer = new MutationObserver(() => {
-    const events = historyByOrder.get(currentKey);
-    const host = document.getElementById('cm-history');
-    if (!events?.length || !host || host.querySelector('.cm-event-rich')) return;
-    renderHistory(events);
+  let observerFrame=0;
+  const observer=new MutationObserver(()=>{
+    if(observerFrame)return;
+    observerFrame=requestAnimationFrame(()=>{
+      observerFrame=0;
+      const events=historyByOrder.get(currentKey);
+      const host=document.getElementById('cm-history');
+      if(!events?.length||!host||host.querySelector('.cm-event-rich'))return;
+      renderHistory(events);
+    });
   });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  observer.observe(document.documentElement,{childList:true,subtree:true});
 })();

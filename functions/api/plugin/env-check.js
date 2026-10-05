@@ -27,6 +27,7 @@ export async function onRequestGet(context) {
     supabaseKeyConfigured: Boolean(key),
     keyKind: kind,
     keyRole: jwtRole(key),
-    keyLength: key.length
+    keyLength: key.length,
+    pluginIngestTokenConfigured:Boolean(env.PLUGIN_INGEST_TOKEN)
   });
 }

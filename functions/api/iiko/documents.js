@@ -1,4 +1,5 @@
 import { iikoText } from "./_lib/iiko-client.js";
+import { resolveStoreScope } from "./_lib/store-scope.js";
 
 function corsHeaders(){return {"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type, Authorization","Content-Type":"application/json; charset=utf-8"};}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{...corsHeaders(),"Cache-Control":"no-store"}});}
@@ -12,4 +13,26 @@ async function storeNames(connection){return referenceMap(connection,['/resto/ap
 async function productNames(connection){return referenceMap(connection,['/resto/api/v2/entities/products/list?includeDeleted=true','/resto/api/products']);}
 async function load(connection,type,from,to){const endpoint=type==='internalTransfer'?'/resto/api/v2/documents/internalTransfer':'/resto/api/v2/documents/writeoff';const qs=new URLSearchParams({dateFrom:date(from),dateTo:date(to)});const r=await requestIiko(connection,`${endpoint}?${qs}`);if(!r.ok)throw new Error(`${endpoint}: HTTP ${r.status}`);return {documents:list(r.body),revision:r.body?.revision??null,authCacheHit:r.auth?.cacheHit===true};}
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()});}
-export async function onRequestPost({request}){try{const b=await request.json();const type=String(b.type||'').trim();if(!['internalTransfer','writeoff'].includes(type))return json({success:false,message:'Неподдерживаемый тип документа'},400);const connection={ip:String(b.ip||'').trim(),port:String(b.port||'').trim(),login:String(b.login||'').trim(),password:String(b.password||'')};if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:'Нет данных подключения к SH Server'},400);const from=String(b.from||'').trim(),to=String(b.to||'').trim();if(!from||!to)return json({success:false,message:'Укажите период'},400);if(date(to)<date(from))return json({success:false,message:'Дата «По» раньше даты «С»'},400);const result=await load(connection,type,from,to);const [stores,products]=await Promise.all([storeNames(connection),productNames(connection)]);const documents=decorate(result.documents,stores,products);return json({success:true,type,from,to,count:documents.length,revision:result.revision,documents,referenceCounts:{stores:stores.size,products:products.size},meta:{sharedIikoClient:true,authCacheHit:result.authCacheHit}});}catch(e){return json({success:false,message:e?.message||'Ошибка получения документов'},502);}}
+export async function onRequestPost({request}){try{const b=await request.json();const type=String(b.type||'').trim();if(!['internalTransfer','writeoff'].includes(type))return json({success:false,message:'Неподдерживаемый тип документа'},400);const connection={ip:String(b.ip||'').trim(),port:String(b.port||'').trim(),login:String(b.login||'').trim(),password:String(b.password||'')};if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:'Нет данных подключения к SH Server'},400);const from=String(b.from||'').trim(),to=String(b.to||'').trim();if(!from||!to)return json({success:false,message:'Укажите период'},400);if(date(to)<date(from))return json({success:false,message:'Дата «По» раньше даты «С»'},400);const result=await load(connection,type,from,to);
+const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(String).filter(Boolean))]:[];
+const allowedIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
+const subsetRequested=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+let rawDocuments=result.documents,storeScope=null;
+if(subsetRequested){
+  storeScope=await resolveStoreScope(connection,departmentIds);
+  if(!storeScope.resolved||!storeScope.storeIds.length){
+    return json({success:false,code:"WAREHOUSE_DOCUMENT_SCOPE_UNAVAILABLE",message:"Не удалось определить склады выбранного подразделения. Документы не показаны, чтобы не смешивать рестораны.",meta:{departmentIds,storeScope:storeScope?.diagnostics||null}},409);
+  }
+  const wanted=new Set(storeScope.storeIds.map(x=>String(x).trim().replace(/^\{+|\}+$/g,"").toLowerCase()));
+  const k=v=>String(v??"").trim().replace(/^\{+|\}+$/g,"").toLowerCase();
+  rawDocuments=rawDocuments.filter(d=>{
+    const ids=type==="internalTransfer"
+      ? [d?.storeFromId,d?.storeToId,...(Array.isArray(d?.items)?d.items.flatMap(i=>[i?.storeId,i?.fromStoreId,i?.toStoreId]):[])]
+      : [d?.storeId,d?.defaultStoreId,...(Array.isArray(d?.items)?d.items.map(i=>i?.storeId):[])];
+    const normalized=ids.map(k).filter(Boolean);
+    return normalized.some(id=>wanted.has(id));
+  });
+}
+const [stores,products]=await Promise.all([storeNames(connection),productNames(connection)]);
+const documents=decorate(rawDocuments,stores,products);
+return json({success:true,type,from,to,count:documents.length,revision:result.revision,documents,referenceCounts:{stores:stores.size,products:products.size},meta:{sharedIikoClient:true,authCacheHit:result.authCacheHit,departmentIds,departmentScopeApplied:subsetRequested,storeIds:storeScope?.storeIds||[]}});}catch(e){return json({success:false,message:e?.message||'Ошибка получения документов'},502);}}

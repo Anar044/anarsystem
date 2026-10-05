@@ -185,7 +185,7 @@
       }
 
       const token = await accessToken();
-      const response = await fetch('/api/qr-menu/publish', {
+      const response = await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/qr-menu/publish', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -201,7 +201,7 @@
             design: state.design || {}
           }
         })
-      });
+      }, 90000);
 
       const data = await response.json().catch(() => ({ success: false, message: 'Некорректный ответ API' }));
       if (!response.ok || !data.success) throw new Error(data.message || `HTTP ${response.status}`);

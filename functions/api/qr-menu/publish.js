@@ -1,4 +1,5 @@
 import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
+import { resolveRestaurantScope } from '../iiko/_lib/restaurant-scope.js';
 
 const headers = {
   "Access-Control-Allow-Origin": "*",
@@ -98,7 +99,17 @@ export async function onRequestPost({request,env}){
       return json({success:false,message:"Некорректные данные QR Menu."},400);
     }
 
-    const resolved=resolveRestaurant(stored.state,Array.isArray(body.departmentIds)?body.departmentIds:[]);
+    const trustedScope=resolveRestaurantScope({state:stored.state,request,strict:true});
+    const requestedIds=Array.isArray(body.departmentIds)?uniq(body.departmentIds):[];
+    if(requestedIds.length){
+      const selected=new Set(trustedScope.selectedDepartmentIds||[]);
+      const outside=requestedIds.filter(id=>!selected.has(id));
+      if(outside.length)return json({success:false,code:"CHAIN_SCOPE_SELECTION_FORBIDDEN",message:"QR Menu запрос содержит ресторан вне текущего выбора Smart Horeca."},403);
+    }
+    if(trustedScope.isChain&&trustedScope.selectedDepartmentIds.length!==1){
+      return json({success:false,code:"QR_MENU_SINGLE_RESTAURANT_REQUIRED",message:"Для публикации QR Menu в CHAIN выберите ровно один ресторан."},409);
+    }
+    const resolved=resolveRestaurant(stored.state,trustedScope.selectedDepartmentIds);
     const organizationId=resolved.organizationId;
     if(!organizationId) return json({success:false,message:"Не найден ID ресторана в сохранённом подключении SH Server."},400);
     const restaurantName=clean(body.restaurantName)||resolved.restaurantName||"Мой ресторан";

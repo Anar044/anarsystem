@@ -76,6 +76,11 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_M
   }
 }
 
+function authRetryableStatus(status){
+  return [429,502,503,504].includes(Number(status));
+}
+function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
+
 function cloudflareDiagnostic(response, body) {
   const cfType = clean(response?.headers?.get?.("cf-error-type"));
   const text = String(body || "");
@@ -90,17 +95,28 @@ async function performAuthentication(connection, key) {
   const c = normalizeConnection(connection);
   const passwordHash = await sha1(c.password);
   const url = `${c.serverUrl}/resto/api/auth?login=${encodeURIComponent(c.login)}&pass=${passwordHash}`;
-  const response = await fetchWithTimeout(url, { method: "GET", cache: "no-store" });
-  const token = (await response.text()).trim();
-  if (!response.ok || !token) {
-    tokenCache.delete(key);
-    const cf = cloudflareDiagnostic(response, token);
-    if (cf) throw new Error(cf);
-    throw new Error(`Ошибка авторизации iiko Server: HTTP ${response.status}${token ? ` — ${token.slice(0, 240).replace(/\s+/g, " ")}` : ""}`);
+  let lastResponse=null,lastToken="";
+  const delays=[0,350,1000];
+  for(let attempt=0;attempt<delays.length;attempt++){
+    if(delays[attempt])await sleep(delays[attempt]);
+    const response=await fetchWithTimeout(url,{method:"GET",cache:"no-store"},12000);
+    const token=(await response.text()).trim();
+    lastResponse=response;lastToken=token;
+    if(response.ok&&token){
+      tokenCache.set(key,{token,expiresAt:Date.now()+TOKEN_TTL_MS});
+      return{serverUrl:c.serverUrl,token,cacheHit:false,connectionKey:key,authAttempts:attempt+1};
+    }
+    if(!authRetryableStatus(response.status))break;
   }
-
-  tokenCache.set(key, { token, expiresAt: Date.now() + TOKEN_TTL_MS });
-  return { serverUrl: c.serverUrl, token, cacheHit: false, connectionKey: key };
+  tokenCache.delete(key);
+  const cf=cloudflareDiagnostic(lastResponse,lastToken);
+  if(cf)throw new Error(cf);
+  const status=Number(lastResponse?.status)||0;
+  const preview=lastToken?` — ${lastToken.slice(0,240).replace(/\s+/g," ")}`:"";
+  if(authRetryableStatus(status)){
+    throw new Error(`SH Server временно недоступен при авторизации: HTTP ${status}. Выполнено 3 попытки.${preview}`);
+  }
+  throw new Error(`Ошибка авторизации iiko Server: HTTP ${status}${preview}`);
 }
 
 async function authenticate(connection, force = false) {
@@ -183,16 +199,23 @@ export async function iikoJson(connection, path, options = {}) {
 function extractFields(raw) {
   const out = [];
   const seen = new Set();
-  const add = (name, meta = {}) => {
+  const add = (name, meta = {}, source = "") => {
     name = clean(name);
     if (!name) return;
     const key = name.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
+    const forcedMeasure = source === "measures";
+    const forcedDimension = source === "dimensions";
     out.push({
       name,
       title: clean(meta.title || meta.caption || meta.label || meta.displayName || meta.name || name),
-      type: clean(meta.type || meta.dataType || meta.kind || "unknown")
+      type: clean(meta.type || meta.dataType || meta.kind || "unknown"),
+      aggregationAllowed: forcedMeasure || meta.aggregationAllowed === true || meta.aggregateAllowed === true || meta.isMeasure === true || meta.measure === true,
+      groupingAllowed: forcedDimension || meta.groupingAllowed !== false,
+      filteringAllowed: meta.filteringAllowed !== false,
+      isMeasure: forcedMeasure || meta.isMeasure === true || meta.measure === true || meta.aggregationAllowed === true || meta.aggregateAllowed === true,
+      source
     });
   };
 
@@ -207,8 +230,8 @@ function extractFields(raw) {
     for (const key of ["fields", "columns", "dimensions", "measures"]) {
       if (!Array.isArray(raw[key])) continue;
       for (const item of raw[key]) {
-        if (typeof item === "string") add(item);
-        else if (item) add(item.technicalName || item.field || item.key || item.code || item.id || item.name, item);
+        if (typeof item === "string") add(item, {}, key);
+        else if (item) add(item.technicalName || item.field || item.key || item.code || item.id || item.name, item, key);
       }
     }
     for (const [key, value] of Object.entries(raw)) {

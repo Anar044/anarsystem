@@ -1,6 +1,8 @@
 import { clean, iikoJson } from "./_lib/iiko-client.js";
 import { getIikoSuppliers } from "./_lib/iiko-suppliers.js";
-import { syncReferences } from "./references.js";
+import { syncAiReferences } from "./references.js";
+import { loadCachedReferenceMaps } from "./_lib/reference-cache.js";
+import { resolveStoreScope } from "./_lib/store-scope.js";
 
 function corsHeaders() {
   return {
@@ -158,17 +160,36 @@ export async function onRequestPost({ request, env }) {
 
     const authModule = await import("./_lib/iiko-client.js");
     const auth = await authModule.getIikoAuth(connection);
-    const [refs, supplierResult] = await Promise.all([
-      syncReferences(env, auth.serverUrl, auth.token),
-      getIikoSuppliers(connection)
-    ]);
+    let refs = await loadCachedReferenceMaps(env, auth.serverUrl, [], {
+      ttlMs: 6 * 60 * 60 * 1000,
+      allowStale: true,
+      requiredKeys: ["suppliers", "warehouses", "products"]
+    });
+    if (!refs) refs = await syncAiReferences(env, auth.serverUrl, auth.token);
     const maps = refs.maps || {};
-    const suppliers = (supplierResult.rows || [])
-      .map(x => ({ id: String(x.id || "").replace(/^\\{+|\\}+$/g, "").toLowerCase(), name: String(x.name || "") }))
-      .filter(x => x.id && x.name)
-      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    let supplierResult = null;
+    let suppliers = rows(maps.suppliers);
+    if (!suppliers.length) {
+      supplierResult = await getIikoSuppliers(connection);
+      suppliers = (supplierResult.rows || [])
+        .map(x => ({ id: String(x.id || "").replace(/^\\{+|\\}+$/g, "").toLowerCase(), name: String(x.name || "") }))
+        .filter(x => x.id && x.name)
+        .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    }
 
-    const warehouseMap = new Map(maps.warehouses?.entries?.() || []);
+    let warehouseMap = new Map(maps.warehouses?.entries?.() || []);
+    const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(String).filter(Boolean):[];
+    const allowedIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
+    const subsetRequested=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+    let storeScope=null;
+    if(subsetRequested){
+      storeScope=await resolveStoreScope(connection,departmentIds);
+      if(!storeScope.resolved||!storeScope.storeIds.length){
+        return json({success:false,code:"INVOICE_REFERENCE_SCOPE_UNAVAILABLE",message:"Не удалось определить склады выбранного подразделения.",meta:{departmentIds,storeScope:storeScope?.diagnostics||null}},409);
+      }
+      const wanted=new Set(storeScope.storeIds.map(warehouseKey));
+      warehouseMap=new Map([...warehouseMap.entries()].filter(([id])=>wanted.has(warehouseKey(id))));
+    }
     let balanceWarehouseResult = { map: new Map(), status: 0, ok: false, rawPreview: "", payload: null };
     let accountWarehouseResult = { exact: new Map(), explicitStores: new Map(), status: 0, ok: false };
 
@@ -200,6 +221,11 @@ export async function onRequestPost({ request, env }) {
       }
     }
 
+    if(subsetRequested&&storeScope?.storeIds?.length){
+      const wanted=new Set(storeScope.storeIds.map(warehouseKey));
+      warehouseMap=new Map([...warehouseMap.entries()].filter(([id])=>wanted.has(warehouseKey(id))));
+    }
+
     return json({
       success: true,
       suppliers,
@@ -212,12 +238,15 @@ export async function onRequestPost({ request, env }) {
       },
       diagnostics: {
         references: refs.diagnostics || null,
+        referenceCacheHit: refs.cacheHit === true,
+        referenceCacheStale: refs.stale === true,
+        referenceCacheAgeMs: refs.ageMs ?? null,
         supplierSource: {
           endpoint: "/resto/api/suppliers?revisionFrom=-1",
-          status: supplierResult.status,
-          format: supplierResult.format,
-          recordsFound: supplierResult.recordsFound,
-          namedRecords: supplierResult.namedRecords
+          status: supplierResult?.status ?? null,
+          format: supplierResult?.format || (refs.cacheHit ? "d1-cache" : ""),
+          recordsFound: supplierResult?.recordsFound ?? suppliers.length,
+          namedRecords: supplierResult?.namedRecords ?? suppliers.length
         },
         warehouseBalanceFallback: {
           endpoint: "/resto/api/v2/reports/balance/stores",
@@ -235,7 +264,13 @@ export async function onRequestPost({ request, env }) {
           names: [...new Set([...accountWarehouseResult.exact.values(), ...accountWarehouseResult.explicitStores.values()])]
         }
       },
-      meta: { authCacheHit: auth.cacheHit === true, supplierAuthCacheHit: supplierResult.authCacheHit === true }
+      meta: {
+        authCacheHit: auth.cacheHit === true,
+        supplierAuthCacheHit: supplierResult?.authCacheHit === true,
+        departmentIds,
+        departmentScopeApplied: subsetRequested,
+        storeIds: storeScope?.storeIds || []
+      }
     });
   } catch (error) {
     return json(

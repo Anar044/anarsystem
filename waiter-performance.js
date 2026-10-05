@@ -109,7 +109,7 @@
       if(!departmentIds.length)throw new Error('Не найден выбранный ресторан / Department ID.');
       const from=$('wpFrom').value,to=$('wpTo').value;if(!from||!to)throw new Error('Укажите период.');if(from>to)throw new Error('Дата начала не может быть позже даты окончания.');
       busy=true;$('wpRun').disabled=true;error.hidden=true;setStatus('Получаем данные…','loading');
-      const response=await fetch('/api/iiko/waiter-performance',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({...connection,from,to,departmentIds,upsellProducts:upsellProducts()})});
+      const response=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/waiter-performance',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({...connection,from,to,departmentIds,upsellProducts:upsellProducts()})},90000);
       const text=await response.text();let result;try{result=text?JSON.parse(text):{}}catch(_){throw new Error(`Сервер вернул не JSON: HTTP ${response.status}`)}
       if(!response.ok||result.success===false)throw new Error(result.message||`HTTP ${response.status}`);
       data=result;localStorage.setItem(UPS_KEY,$('wpUpsellProducts').value||'');render();setStatus(`Готово · ${result.waiters?.length||0} официантов`,'ok');

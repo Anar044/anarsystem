@@ -16,12 +16,33 @@ function accountInfo(v){if(!v||typeof v!=="object")return null;const id=objectId
 async function getAccounts(connection){const r=await iikoJson(connection,'/resto/api/v2/entities/accounts/list?includeDeleted=false&revisionFrom=-1');if(!r.ok||!r.payload)throw Error(`SH Server вернул HTTP ${r.status} для API счетов`);return{rows:list(r.payload).map(accountInfo).filter(Boolean),authCacheHit:Boolean(r.auth?.cacheHit)}}
 function timestamp(v){if(v&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(String(v)))return String(v);const d=v?new Date(v):new Date(),p=n=>String(n).padStart(2,"0");return`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`}
 function add(map,id,val){map[id]=(map[id]||0)+val}
-async function getBalances(connection,ts){const r=await iikoJson(connection,`/resto/api/v2/reports/balance/counteragents?timestamp=${encodeURIComponent(ts)}`);if(!r.ok)throw Error(`SH Server вернул HTTP ${r.status} для balance/counteragents`);return{rows:list(r.payload),authCacheHit:Boolean(r.auth?.cacheHit)}}
+function balanceDepartmentId(row){
+  for(const value of [
+    row?.departmentId,row?.departmentID,row?.departmentGuid,row?.departmentGUID,(typeof row?.department==="string"?row.department:null),row?.department?.id,row?.department?.uuid,
+    row?.organizationId,row?.organisationId,row?.restaurantId,row?.organization?.id,row?.restaurant?.id
+  ]){const id=clean(value);if(id)return id}
+  return "";
+}
+async function getBalances(connection,ts,departmentIds=[]){
+  const q=new URLSearchParams({timestamp:ts});
+  for(const id of departmentIds)q.append("department",id);
+  const r=await iikoJson(connection,`/resto/api/v2/reports/balance/counteragents?${q.toString()}`);
+  if(!r.ok)throw Error(`SH Server вернул HTTP ${r.status} для balance/counteragents`);
+  return{rows:list(r.payload),authCacheHit:Boolean(r.auth?.cacheHit)}
+}
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
 export async function onRequestPost(c){try{const b=await c.request.json();const connection={ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??"")};if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Заполните IP, порт, логин и пароль SH Server."},400);const ts=timestamp(b.timestamp),diagnostics=[];
-const [suppliersResult,accountsResult,balanceResult]=await Promise.all([getSuppliers(connection),getAccounts(connection),getBalances(connection,ts)]),suppliers=suppliersResult.rows,accounts=accountsResult.rows;diagnostics.push({endpoint:"/resto/api/suppliers",status:suppliersResult.status,format:suppliersResult.format,bytes:suppliersResult.bytes,recordsFound:suppliersResult.recordsFound,namedRecords:suppliersResult.namedRecords,preview:suppliersResult.preview});
+const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(String).filter(Boolean))]:[];
+const allowedIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
+const subsetRequested=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+const [suppliersResult,accountsResult,balanceResult]=await Promise.all([getSuppliers(connection),getAccounts(connection),getBalances(connection,ts,departmentIds)]),suppliers=suppliersResult.rows,accounts=accountsResult.rows;
+const detectedDepartments=[...new Set(balanceResult.rows.map(balanceDepartmentId).filter(Boolean))];
+if(departmentIds.length&&detectedDepartments.length){
+  const wanted=new Set(departmentIds);
+  balanceResult.rows=balanceResult.rows.filter(row=>wanted.has(balanceDepartmentId(row)));
+}diagnostics.push({endpoint:"/resto/api/suppliers",status:suppliersResult.status,format:suppliersResult.format,bytes:suppliersResult.bytes,recordsFound:suppliersResult.recordsFound,namedRecords:suppliersResult.namedRecords,preview:suppliersResult.preview});
 if(!suppliers.length)return json({success:false,message:"SH Server ответил, но список поставщиков не распознан.",diagnostics},502);
 const accountMap=new Map(accounts.map(a=>[a.id,a])),supplierById=new Map(suppliers.map(s=>[s.id,s]));const br=balanceResult.rows,debt={},advance={},matched=[];
 for(const r of br){const counter=objectId(r?.counteragent)||scalar(r?.counteragent),accountId=objectId(r?.account)||scalar(r?.account??r?.accountId??r?.Account),sum=Number(r?.sum??r?.balance??r?.amount??0);if(!counter||!Number.isFinite(sum))continue;const a=accountMap.get(accountId);if(a?.type==="ACCOUNTS_PAYABLE")add(debt,counter,sum);else if(["CURRENT_ASSET","OTHER_CURRENT_ASSET"].includes(a?.type))add(advance,counter,sum);if(supplierById.has(counter))matched.push(counter)}
 const ids=[...new Set([...suppliers.map(s=>s.id),...matched])];const rows=ids.map(id=>{const s=supplierById.get(id),advanceValue=Number((advance[id]||0).toFixed(4)),debtValue=Number((debt[id]||0).toFixed(4));return{id,name:s?.name||id,code:s?.code||"",phone:s?.phone||"",advance:advanceValue,debt:debtValue,total:Number((advanceValue+debtValue).toFixed(4))}}).sort((a,b)=>String(a.name).localeCompare(String(b.name),"ru"));const totals=rows.reduce((a,x)=>({advance:a.advance+x.advance,debt:a.debt+x.debt,total:a.total+x.total}),{advance:0,debt:0,total:0});diagnostics.push({endpoint:"/resto/api/v2/entities/accounts/list",status:200,accounts:accounts.length,accountTypes:[...new Set(accounts.map(a=>a.type).filter(Boolean))]});
-return json({success:true,timestamp:ts,supplierEndpoint:"/resto/api/suppliers",balanceEndpoint:"/resto/api/v2/reports/balance/counteragents",accountEndpoint:"/resto/api/v2/entities/accounts/list",count:rows.length,matchedCount:[...new Set(matched)].length,rows,totals:{advance:Number(totals.advance.toFixed(4)),debt:Number(totals.debt.toFixed(4)),total:Number(totals.total.toFixed(4))},diagnostics,meta:{supplierAuthCacheHit:suppliersResult.authCacheHit,accountsAuthCacheHit:accountsResult.authCacheHit,balanceAuthCacheHit:balanceResult.authCacheHit}})}catch(e){return json({success:false,message:e?.message||"Ошибка получения баланса поставщиков."},502)}}
+return json({success:true,timestamp:ts,supplierEndpoint:"/resto/api/suppliers",balanceEndpoint:"/resto/api/v2/reports/balance/counteragents",accountEndpoint:"/resto/api/v2/entities/accounts/list",count:rows.length,matchedCount:[...new Set(matched)].length,rows,totals:{advance:Number(totals.advance.toFixed(4)),debt:Number(totals.debt.toFixed(4)),total:Number(totals.total.toFixed(4))},diagnostics,meta:{supplierAuthCacheHit:suppliersResult.authCacheHit,accountsAuthCacheHit:accountsResult.authCacheHit,balanceAuthCacheHit:balanceResult.authCacheHit,departmentIds,detectedDepartmentIds:detectedDepartments,departmentScopeApplied:departmentIds.length>0,scopeSource:"balance/counteragents department filter"}})}catch(e){return json({success:false,message:e?.message||"Ошибка получения баланса поставщиков."},502)}}
