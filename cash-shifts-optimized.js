@@ -36,18 +36,29 @@ async function load(){
  if(!departmentIds.length){setStatus("Не найден Department ID выбранного SH Server. Переподключитесь через Настройки.","error");return}
  const from=$("cs-from").value,to=$("cs-to").value;if(!from||!to){setStatus("Выберите период.","error");return}
  const restaurants=Array.isArray(binding?.restaurants)?binding.restaurants:[];
- const restaurantNames=new Map(restaurants.map(r=>[normId(r?.id),String(r?.name||r?.id||"Ресторан")]).filter(x=>x[0]));
+ const identity=binding?.identity||{};
+ const restaurantSources=[
+   ...restaurants,
+   ...(Array.isArray(identity?.organizations)?identity.organizations:[]),
+   ...(Array.isArray(identity?.departments)?identity.departments:[]),
+   ...(Array.isArray(c?.organizations)?c.organizations:[]),
+   ...(Array.isArray(c?.departments)?c.departments:[])
+ ];
+ const restaurantNames=new Map();
+ for(const r of restaurantSources){
+   const id=normId(r?.id);if(!id)continue;
+   const name=String(r?.name||r?.code||r?.id||"").trim();
+   if(name&&!restaurantNames.has(id))restaurantNames.set(id,name);
+ }
+ const restaurantDirectory=[...restaurantNames.entries()].map(([id,name])=>({id,name}));
  const allDepartmentIds=Array.isArray(binding?.allDepartmentIds)?binding.allDepartmentIds.map(String).filter(Boolean):departmentIds;
+ const selectedDepartmentNames=departmentIds.map(id=>restaurantNames.get(normId(id))||"");
  const chainScope={
    mode:String(binding?.identity?.mode||c?.connectionType||"RMS").toUpperCase(),
    allowedDepartmentIds:allDepartmentIds,
    selectedDepartmentIds:departmentIds,
-   selectedDepartmentNames:restaurants
-     .filter(r=>departmentIds.some(id=>normId(id)===normId(r?.id)))
-     .map(r=>String(r?.name||"")).filter(Boolean),
-   departments:restaurants
-     .map(r=>({id:String(r?.id||""),name:String(r?.name||r?.id||"Ресторан")}))
-     .filter(r=>r.id)
+   selectedDepartmentNames,
+   departments:restaurantDirectory
  };
  const decorate=list=>(list||[]).map(s=>{
    const id=normId(departmentId(s));
@@ -81,7 +92,11 @@ async function load(){
      render(enriched);
      setStatus(`Детали: ${enriched.length} из ${base.length}.`,enriched.length===base.length?"ok":"")
    }
-   setStatus(`Загружено ${enriched.length} смен. Ресторан указан в каждой строке. Запросы: список ${listRequests}, детали ${detailRequests}.`,"ok")
+   const unresolvedRestaurants=enriched.filter(x=>!String(x?._restaurantName||"").trim()||x._restaurantName==="Не определён").length;
+   setStatus(unresolvedRestaurants
+     ? `Загружено ${enriched.length} смен. Не удалось определить ресторан у ${unresolvedRestaurants} строк. Запросы: список ${listRequests}, детали ${detailRequests}.`
+     : `Загружено ${enriched.length} смен. Ресторан указан в каждой строке. Запросы: список ${listRequests}, детали ${detailRequests}.`,
+     unresolvedRestaurants?"error":"ok")
  }catch(e){render([]);setStatus(e.message||"Ошибка получения смен","error")}
  finally{b.disabled=false}
 }
