@@ -44,7 +44,21 @@ async function ensure(db){
       updated_at TEXT NOT NULL,
       PRIMARY KEY(user_id,iiko_employee_id)
     )`),
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_employee_profiles_user ON hr_employee_profiles(user_id,updated_at DESC)`)
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_employee_profiles_user ON hr_employee_profiles(user_id,updated_at DESC)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_schedule_overrides (
+      user_id TEXT NOT NULL,
+      override_id TEXT NOT NULL,
+      iiko_employee_id TEXT NOT NULL,
+      schedule_id TEXT NOT NULL,
+      effective_from TEXT NOT NULL,
+      effective_to TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(user_id,override_id)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_employee_schedule_current ON hr_employee_schedule_overrides(user_id,iiko_employee_id,is_active,effective_from DESC)`)
   ]);
 }
 
@@ -129,11 +143,36 @@ async function compensationSnapshot(db,userId,employee,asOf){
 }
 
 async function scheduleSnapshot(db,userId,employee,asOf){
-  if(!employee.role_code)return{configured:false,schedule:null,dayRules:[]};
-  const s=await db.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 AND role_code=?2 AND is_active=1 AND is_default=1 AND valid_from<=?3 AND (valid_to='' OR valid_to>=?3) ORDER BY valid_from DESC LIMIT 1`).bind(userId,employee.role_code,asOf).first().catch(()=>null);
-  if(!s)return{configured:false,schedule:null,dayRules:[]};
+  if(!employee.role_code)return{configured:false,sourceType:'',sourceLabel:'Не настроено',schedule:null,dayRules:[]};
+
+  const override=await db.prepare(`SELECT o.override_id,o.effective_from,o.effective_to,o.note,s.*
+    FROM hr_employee_schedule_overrides o
+    JOIN hr_role_schedules s ON s.user_id=o.user_id AND s.schedule_id=o.schedule_id
+    WHERE o.user_id=?1 AND o.iiko_employee_id=?2 AND o.is_active=1 AND s.is_active=1
+      AND o.effective_from<=?3 AND (o.effective_to='' OR o.effective_to>=?3)
+    ORDER BY o.effective_from DESC LIMIT 1`).bind(userId,employee.iiko_employee_id,asOf).first().catch(()=>null);
+
+  const s=override||await db.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 AND role_code=?2 AND is_active=1 AND is_default=1
+    AND valid_from<=?3 AND (valid_to='' OR valid_to>=?3) ORDER BY valid_from DESC LIMIT 1`).bind(userId,employee.role_code,asOf).first().catch(()=>null);
+
+  if(!s)return{configured:false,sourceType:'',sourceLabel:'Не настроено',schedule:null,dayRules:[]};
+
   const days=await db.prepare(`SELECT weekday,shift_start,shift_end,break_minutes FROM hr_role_schedule_days WHERE user_id=?1 AND schedule_id=?2 ORDER BY weekday`).bind(userId,s.schedule_id).all().catch(()=>({results:[]}));
-  return{configured:true,schedule:{id:s.schedule_id,name:s.schedule_name,patternType:s.pattern_type,weekdays:String(s.weekdays||'').split(',').map(Number).filter(Boolean),workDays:Number(s.work_days||0),offDays:Number(s.off_days||0),anchorDate:s.anchor_date||'',shiftStart:s.shift_start,shiftEnd:s.shift_end,breakMinutes:Number(s.break_minutes||0),validFrom:s.valid_from,validTo:s.valid_to||''},dayRules:(days.results||[]).map(d=>({weekday:Number(d.weekday),shiftStart:d.shift_start,shiftEnd:d.shift_end,breakMinutes:Number(d.break_minutes||0)}))};
+  return{
+    configured:true,
+    sourceType:override?'EMPLOYEE':'ROLE',
+    sourceLabel:override?'Индивидуальный график':'Основной график должности',
+    overrideId:override?.override_id||'',
+    overrideEffectiveFrom:override?.effective_from||'',
+    overrideEffectiveTo:override?.effective_to||'',
+    overrideNote:override?.note||'',
+    schedule:{
+      id:s.schedule_id,name:s.schedule_name,patternType:s.pattern_type,weekdays:String(s.weekdays||'').split(',').map(Number).filter(Boolean),
+      workDays:Number(s.work_days||0),offDays:Number(s.off_days||0),anchorDate:s.anchor_date||'',shiftStart:s.shift_start,shiftEnd:s.shift_end,
+      breakMinutes:Number(s.break_minutes||0),validFrom:s.valid_from,validTo:s.valid_to||''
+    },
+    dayRules:(days.results||[]).map(d=>({weekday:Number(d.weekday),shiftStart:d.shift_start,shiftEnd:d.shift_end,breakMinutes:Number(d.break_minutes||0)}))
+  };
 }
 
 function employeeDto(e){
