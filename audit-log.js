@@ -54,7 +54,7 @@ function openDetail(e){
  $('audit-detail-title').textContent=e.entityLabel||entityLabel(e.entityType);
  $('audit-detail-meta').textContent=[fmtDate(e.createdAt),e.actorName||e.actorEmail,actionLabel(e.action),e.documentNumber?'№ '+e.documentNumber:'',restaurant(e)].filter(Boolean).join(' · ');
  const changes=visibleChanges(e);
- $('audit-changes').innerHTML=changes.length?changes.map(c=>`<div class="audit-change"><div class="audit-field">${esc(fieldLabel(c.field))}<span class="audit-secondary">${esc(c.field)}</span></div><div class="audit-value audit-old">${esc(displayValue(c.oldValue))}</div><div class="audit-arrow">→</div><div class="audit-value audit-new">${esc(displayValue(c.newValue))}</div></div>`).join(''):'<div class="audit-nochanges">Изменений полей не зафиксировано. Для этого события записан сам факт операции.</div>';
+ $('audit-changes').innerHTML=changes.length?changes.map(c=>`<div class="audit-change"><div class="audit-field">${esc(fieldLabel(c.field))}</div><div class="audit-value audit-old">${esc(displayValue(c.oldValue))}</div><div class="audit-arrow">→</div><div class="audit-value audit-new">${esc(displayValue(c.newValue))}</div></div>`).join(''):'<div class="audit-nochanges">Изменений полей не зафиксировано. Для этого события записан сам факт операции.</div>';
  $('audit-overlay').hidden=false;
 }
 async function load(){
