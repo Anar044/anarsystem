@@ -77,6 +77,30 @@ function normalizeIncomingDocument(input = {}) {
   });
   return d;
 }
+function auditDocumentSnapshot(input = {}) {
+  const d = input && typeof input === "object" ? input : {};
+  return {
+    id: clean(d.id),
+    documentNumber: clean(d.documentNumber),
+    dateIncoming: clean(d.dateIncoming || d.incomingDate),
+    supplierId: clean(d.supplierId || d.supplier),
+    defaultStore: clean(d.defaultStore || d.defaultStoreId || d.storeId),
+    invoice: clean(d.invoice),
+    incomingDocumentNumber: clean(d.incomingDocumentNumber),
+    dueDate: clean(d.dueDate),
+    transportInvoiceNumber: clean(d.transportInvoiceNumber),
+    comment: clean(d.comment),
+    status: clean(d.status),
+    items: (Array.isArray(d.items) ? d.items : []).map((item,index)=>({
+      num: item?.num ?? index + 1,
+      productId: clean(item?.productId || item?.product),
+      amount: Number(item?.actualAmount ?? item?.amount ?? 0),
+      price: Number(item?.price ?? 0),
+      sum: Number(item?.sum ?? 0),
+      vatPercent: item?.vatPercent ?? null
+    }))
+  };
+}
 function validateIncoming(d) {
   const errors = [];
   if (!clean(d.documentNumber)) errors.push("Не удалось сформировать номер накладной.");
@@ -356,8 +380,8 @@ export async function onRequestPost(context) {
       entityId: clean(document.id || originalDocument.id || documentNumber),
       entityLabel: `${type === "incoming" ? "Приходная накладная" : "Расходная накладная"} №${documentNumber || "—"}`,
       documentNumber,
-      before: inferredBefore,
-      after: auditAfter,
+      before: inferredBefore ? auditDocumentSnapshot(inferredBefore) : null,
+      after: auditDocumentSnapshot(auditAfter),
       restaurantIds: departmentIds,
       restaurantNames: Array.isArray(body?.chainScope?.selectedDepartmentNames) ? body.chainScope.selectedDepartmentNames : [],
       metadata: {
