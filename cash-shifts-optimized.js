@@ -5,6 +5,10 @@ function add(v,n){const d=new Date(v+"T00:00:00");d.setDate(d.getDate()+n);retur
 function money(v){const n=Number(v);return Number.isFinite(n)?n.toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:2}):"—"}
 function esc(v){return String(v??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[c]))}
 function v(o,k,f=null){return o&&o[k]!==undefined&&o[k]!==null&&o[k]!==""?o[k]:f}
+function first(o,keys,f=""){for(const k of keys){const x=o?.[k];if(x!==undefined&&x!==null&&String(x).trim()!=="")return x}return f}
+function departmentId(s){return String(first(s,["_departmentId","departmentId","departmentID","departmentGuid","organizationId","organisationId","restaurantId"],s?.department?.id??s?.organization?.id??s?.restaurant?.id??"")).trim()}
+function cashRegisterName(s){return String(first(s,["cashRegisterName","cashRegName","cashDeskName","registerName","terminalName","fiscalRegisterName"],"")).trim()}
+function cashierName(s){return String(first(s,["responsibleUserName","cashierName","responsibleCashierName","userName","employeeName"],"")).trim()}
 async function getIikoBinding(){if(window.SH_IikoContext?.getBinding)return await window.SH_IikoContext.getBinding();const state=window.SH_IikoContext?.get?await window.SH_IikoContext.get():null;return{connection:state?.connection||null,departmentIds:window.SH_IikoContext?.departmentIds?window.SH_IikoContext.departmentIds(state):[]}}
 function open(s){return !v(s,"closeDate",null)||String(v(s,"sessionStatus","")).toUpperCase()==="OPEN"}
 function totals(shifts){return shifts.reduce((a,s)=>{a.sales+=Number(v(s,"payOrders",0))||0;return a},{sales:0})}
@@ -14,8 +18,65 @@ function setStatus(t,c=""){const e=$("cs-status");e.textContent=t;e.className="c
 function render(shifts){
  const t=totals(shifts),o=shifts.filter(open).length;$("cs-total").textContent=shifts.length;$("cs-open").textContent=o;$("cs-closed").textContent=shifts.length-o;$("cs-sales").textContent=t.sales?money(t.sales):"—";
  if(!shifts.length){$("cs-table-wrap").innerHTML='<div class="cs-empty">За выбранный период кассовые смены не найдены.</div>';return}
- $("cs-table-wrap").innerHTML=`<table class="cs-table"><thead><tr><th>Опер. день</th><th>Касса / ФР</th><th>№ смены</th><th>Фиск. №</th><th>Серийный №</th><th>Открыта</th><th>Закрыта</th><th>Ответственный кассир (ID)</th><th>Заказы</th><th>Наличные</th><th>Карта</th><th>Кредит</th><th>Внесения</th><th>Изъятия</th><th>Изъятие при закрытии</th><th>Остаток</th><th>Расхождение</th><th>Статус</th><th>Проводки</th></tr></thead><tbody>${shifts.map((s,i)=>{const st=String(v(s,"sessionStatus","")).toUpperCase();return `<tr><td>${esc(s._operationDay||v(s,"_dateKey",v(s,"openDate","—")))}</td><td><b>${esc(v(s,"cashRegNumber","—"))}</b>${v(s,"cashRegSerial",null)?`<span class="cs-secondary">${esc(s.cashRegSerial)}</span>`:""}</td><td>${esc(v(s,"sessionNumber","—"))}</td><td>${esc(v(s,"fiscalNumber","—"))}</td><td>${esc(v(s,"cashRegSerial","—"))}</td><td>${esc(String(v(s,"openDate",null)||"—").replace("T"," ").replace(/\.\d+(?=Z|$)/,""))}</td><td>${esc(String(v(s,"closeDate",null)||"—").replace("T"," ").replace(/\.\d+(?=Z|$)/,""))}</td><td><span class="cs-id">${esc(v(s,"responsibleUser","—"))}</span></td><td>${money(v(s,"payOrders",null))}</td><td>${money(v(s,"salesCash",null))}</td><td>${money(v(s,"salesCard",null))}</td><td>${money(v(s,"salesCredit",null))}</td><td>${money(v(s,"payIn",null))}</td><td>${money(v(s,"payOut",null))}</td><td>${money(v(s,"payIncome",null))}</td><td>${money(v(s,"cashRemain",null))}</td><td>${money(v(s,"cashDiff",null))}</td><td><span class="cs-badge ${open(s)?"cs-open":"cs-closed"}">${esc(st||"—")}</span></td><td>${paymentHtml(s,i)}</td></tr>`}).join("")}</tbody></table>`
+ $("cs-table-wrap").innerHTML=\`<table class="cs-table"><thead><tr><th>Ресторан</th><th>Опер. день</th><th>Касса / ФР</th><th>№ смены</th><th>Фиск. №</th><th>Серийный №</th><th>Открыта</th><th>Закрыта</th><th>Кассир</th><th>Заказы</th><th>Наличные</th><th>Карта</th><th>Кредит</th><th>Внесения</th><th>Изъятия</th><th>Изъятие при закрытии</th><th>Остаток</th><th>Расхождение</th><th>Статус</th><th>Проводки</th></tr></thead><tbody>${shifts.map((s,i)=>{const st=String(v(s,"sessionStatus","")).toUpperCase(),regName=cashRegisterName(s),cashier=cashierName(s),cashierId=v(s,"responsibleUser","—");return \`<tr>
+<td><span class="cs-restaurant">${esc(v(s,"_restaurantName","Не определён"))}</span>${departmentId(s)?\`<span class="cs-secondary cs-dept-id">${esc(departmentId(s))}</span>\`:""}</td>
+<td>${esc(s._operationDay||v(s,"_dateKey",v(s,"openDate","—")))}</td>
+<td><b>${esc(regName||(\`Касса № ${v(s,"cashRegNumber","—")}\`))}</b><span class="cs-secondary">№ ${esc(v(s,"cashRegNumber","—"))}${v(s,"cashRegSerial",null)?\` · ${esc(s.cashRegSerial)}\`:""}</span></td>
+<td>${esc(v(s,"sessionNumber","—"))}</td><td>${esc(v(s,"fiscalNumber","—"))}</td><td>${esc(v(s,"cashRegSerial","—"))}</td>
+<td>${esc(String(v(s,"openDate",null)||"—").replace("T"," ").replace(/\.\d+(?=Z|$)/,""))}</td>
+<td>${esc(String(v(s,"closeDate",null)||"—").replace("T"," ").replace(/\.\d+(?=Z|$)/,""))}</td>
+<td>${cashier?\`<b>${esc(cashier)}</b><span class="cs-secondary cs-id">${esc(cashierId)}</span>\`:\`<span class="cs-id">${esc(cashierId)}</span>\`}</td>
+<td>${money(v(s,"payOrders",null))}</td><td>${money(v(s,"salesCash",null))}</td><td>${money(v(s,"salesCard",null))}</td><td>${money(v(s,"salesCredit",null))}</td><td>${money(v(s,"payIn",null))}</td><td>${money(v(s,"payOut",null))}</td><td>${money(v(s,"payIncome",null))}</td><td>${money(v(s,"cashRemain",null))}</td><td>${money(v(s,"cashDiff",null))}</td><td><span class="cs-badge ${open(s)?"cs-open":"cs-closed"}">${esc(st||"—")}</span></td><td>${paymentHtml(s,i)}</td></tr>\`}).join("")}</tbody></table>\`
 }
 async function post(c,body){const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)(API,{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify({...c,...body})},90000);const d=await r.json().catch(()=>({success:false,message:`HTTP ${r.status}`}));if(!r.ok||!d.success)throw new Error(d.message||`HTTP ${r.status}`);return d}
-async function load(){const binding=await getIikoBinding(),c=binding?.connection,departmentIds=Array.isArray(binding?.departmentIds)?binding.departmentIds.map(String).filter(Boolean):[];if(!c?.ip||!c?.port||!c?.login||!c?.password){setStatus("Нет сохранённого подключения к SH Server.","error");return}if(!departmentIds.length){setStatus("Не найден Department ID выбранного SH Server. Переподключитесь через Настройки.","error");return}const from=$("cs-from").value,to=$("cs-to").value;if(!from||!to){setStatus("Выберите период.","error");return}const b=$("cs-load");b.disabled=true;setStatus("Получаем кассовые смены…");try{const all=[];let start=from,listRequests=0;while(start<=to){const days=Math.floor((new Date(to+"T00:00:00")-new Date(start+"T00:00:00"))/86400000)+1;const chunk=Math.min(62,days);const end=new Date(start+"T00:00:00");end.setDate(end.getDate()+chunk-1);const endStr=`${end.getFullYear()}-${pad(end.getMonth()+1)}-${pad(end.getDate())}`;const d=await post(c,{mode:"list",from:start,to:endStr,departmentIds});listRequests++;all.push(...(d.shifts||[]));start=add(start,chunk)}const seen=new Set(),base=all.filter(s=>{const k=s._sessionId||s.id||JSON.stringify(s);if(seen.has(k))return false;seen.add(k);return true});render(base);if(!base.length){setStatus(`Смен не найдено. Запросов к AnarSystem: ${listRequests}.`,"ok");return}setStatus(`Найдено ${base.length} смен. Загружаем детали…`);const enriched=[];let detailRequests=0;for(let i=0;i<base.length;i+=30){const slice=base.slice(i,i+30),ids=slice.map(s=>s._sessionId||s.id).filter(Boolean);const d=await post(c,{mode:"details",sessionIds:ids,departmentIds,from,to});detailRequests++;const map=new Map((d.details||[]).map(x=>[String(x.sessionId),x]));for(const s of slice){const x=map.get(String(s._sessionId||s.id));enriched.push(x?.success?{...s,...(x.shift||{}),_payments:x.payments||[],_operationDay:x.operationDay||s._operationDay}:s)}render(enriched);setStatus(`Детали: ${enriched.length} из ${base.length}.`,enriched.length===base.length?"ok":"")}setStatus(`Загружено ${enriched.length} смен. Запросы объединены: список ${listRequests}, детали ${detailRequests}.`,"ok")}catch(e){render([]);setStatus(e.message||"Ошибка получения смен","error")}finally{b.disabled=false}}
+async function load(){
+ const binding=await getIikoBinding(),c=binding?.connection,departmentIds=Array.isArray(binding?.departmentIds)?binding.departmentIds.map(String).filter(Boolean):[];
+ if(!c?.ip||!c?.port||!c?.login||!c?.password){setStatus("Нет сохранённого подключения к SH Server.","error");return}
+ if(!departmentIds.length){setStatus("Не найден Department ID выбранного SH Server. Переподключитесь через Настройки.","error");return}
+ const from=$("cs-from").value,to=$("cs-to").value;if(!from||!to){setStatus("Выберите период.","error");return}
+ const restaurants=Array.isArray(binding?.restaurants)?binding.restaurants:[];
+ const restaurantNames=new Map(restaurants.map(r=>[String(r?.id||""),String(r?.name||r?.id||"Ресторан")]));
+ const allDepartmentIds=Array.isArray(binding?.allDepartmentIds)?binding.allDepartmentIds.map(String).filter(Boolean):departmentIds;
+ const chainScope={
+   mode:String(binding?.identity?.mode||c?.connectionType||"RMS").toUpperCase(),
+   allowedDepartmentIds:allDepartmentIds,
+   selectedDepartmentIds:departmentIds,
+   selectedDepartmentNames:restaurants.filter(r=>departmentIds.includes(String(r?.id||""))).map(r=>String(r?.name||"")).filter(Boolean)
+ };
+ const decorate=list=>(list||[]).map(s=>{
+   const id=departmentId(s);
+   const fallback=departmentIds.length===1?restaurantNames.get(departmentIds[0]):"";
+   return {...s,_restaurantName:restaurantNames.get(id)||fallback||"Не определён"};
+ });
+ const b=$("cs-load");b.disabled=true;setStatus("Получаем кассовые смены…");
+ try{
+   const all=[];let start=from,listRequests=0;
+   while(start<=to){
+     const days=Math.floor((new Date(to+"T00:00:00")-new Date(start+"T00:00:00"))/86400000)+1;
+     const chunk=Math.min(62,days),end=new Date(start+"T00:00:00");end.setDate(end.getDate()+chunk-1);
+     const endStr=\`${end.getFullYear()}-${pad(end.getMonth()+1)}-${pad(end.getDate())}\`;
+     const d=await post(c,{mode:"list",from:start,to:endStr,departmentIds,chainScope});
+     listRequests++;all.push(...decorate(d.shifts||[]));start=add(start,chunk)
+   }
+   const seen=new Set(),base=all.filter(s=>{const k=s._sessionId||s.id||JSON.stringify(s);if(seen.has(k))return false;seen.add(k);return true});
+   render(base);
+   if(!base.length){setStatus(\`Смен не найдено. Запросов к Smart Horeca: ${listRequests}.\`,"ok");return}
+   setStatus(\`Найдено ${base.length} смен. Загружаем детали…\`);
+   const enriched=[];let detailRequests=0;
+   for(let i=0;i<base.length;i+=30){
+     const slice=base.slice(i,i+30),ids=slice.map(s=>s._sessionId||s.id).filter(Boolean);
+     const d=await post(c,{mode:"details",sessionIds:ids,departmentIds,chainScope,from,to});
+     detailRequests++;
+     const map=new Map((d.details||[]).map(x=>[String(x.sessionId),x]));
+     for(const s of slice){
+       const x=map.get(String(s._sessionId||s.id));
+       enriched.push(x?.success?{...s,...(x.shift||{}),_payments:x.payments||[],_operationDay:x.operationDay||s._operationDay}:s)
+     }
+     render(enriched);
+     setStatus(\`Детали: ${enriched.length} из ${base.length}.\`,enriched.length===base.length?"ok":"")
+   }
+   setStatus(\`Загружено ${enriched.length} смен. Ресторан указан в каждой строке. Запросы: список ${listRequests}, детали ${detailRequests}.\`,"ok")
+ }catch(e){render([]);setStatus(e.message||"Ошибка получения смен","error")}
+ finally{b.disabled=false}
+}
 document.addEventListener("DOMContentLoaded",()=>{$("cs-from").value=day(-6);$("cs-to").value=day(0);$("cs-load").addEventListener("click",load);$("cs-table-wrap").addEventListener("click",e=>{const btn=e.target.closest("[data-payment-toggle]");if(!btn)return;const id=btn.getAttribute("data-payment-toggle"),box=$(id);if(!box)return;const isOpen=box.style.display!=="none";box.style.display=isOpen?"none":"grid";btn.classList.toggle("is-open",!isOpen);btn.setAttribute("aria-expanded",String(!isOpen));});load()});})();
