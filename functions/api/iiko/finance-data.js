@@ -14,12 +14,12 @@ function shiftDepartmentId(x){for(const v of[
 ]){const s=String(v??"").trim();if(s)return s}return"";}
 function recordsFrom(p){if(!p||typeof p!=="object")return[];const groups=[["CARD",p.cashlessRecords],["PAYIN",p.payInRecords],["PAYOUT",p.payOutRecords||p.payOuts]];const out=[];for(const [fallback,list] of groups)if(Array.isArray(list))for(const r of list){const i=r?.info||{};out.push({id:i.id??r.id??null,group:i.group??r.group??fallback,sum:i.sum??r.sum??r.actualSum??r.originalSum??null,actualSum:r.actualSum??null,originalSum:r.originalSum??i.sum??null,accountId:i.accountId??r.accountId??r.editedPayAccountId??r.originalPayAccountId??null,counteragentId:i.counteragentId??r.counteragentId??null,paymentTypeId:i.paymentTypeId??r.paymentTypeId??null,type:i.type??r.type??null,cashierId:i.cashierId??r.cashierId??null,date:i.date??r.date??null,creationDate:i.creationDate??r.creationDate??null,comment:i.comment??r.comment??r.editableComment??"",status:r.status??i.status??null});}return out;}
 async function mapLimit(items,limit,worker){const result=new Array(items.length);let cursor=0;async function run(){while(true){const i=cursor++;if(i>=items.length)return;result[i]=await worker(items[i],i)}}await Promise.all(Array.from({length:Math.min(limit,items.length)},run));return result;}
-async function shiftsForRange(connection,from,to,departmentId=""){
+async function shiftsForRange(connection,from,to,departmentId="",departmentName=""){
   const q=new URLSearchParams({openDateFrom:from,openDateTo:to,status:"ANY"});
   if(departmentId)q.set("departmentId",departmentId);
   const primary=await iikoJson(connection,`/resto/api/v2/cashshifts/list?${q.toString()}`);
   if(primary.ok){
-    return{ok:true,shifts:extractList(primary.payload).map(x=>({...normalizeShift(x,from,"ANY"),_departmentId:shiftDepartmentId(x)||departmentId||""})).filter(Boolean),authCacheHit:Boolean(primary.auth?.cacheHit),format:"range+ANY"};
+    return{ok:true,shifts:extractList(primary.payload).map(x=>({...normalizeShift(x,from,"ANY"),_departmentId:shiftDepartmentId(x)||departmentId||"",_departmentName:String(departmentName||"").trim()})).filter(Boolean),authCacheHit:Boolean(primary.auth?.cacheHit),format:"range+ANY"};
   }
   const all=[];const errors=[];let authCacheHit=Boolean(primary.auth?.cacheHit);
   for(const status of ["OPEN","CLOSED"]){
@@ -27,7 +27,7 @@ async function shiftsForRange(connection,from,to,departmentId=""){
     if(departmentId)fq.set("departmentId",departmentId);
     const r=await iikoJson(connection,`/resto/api/v2/cashshifts/list?${fq.toString()}`);
     authCacheHit=authCacheHit||Boolean(r.auth?.cacheHit);
-    if(r.ok)all.push(...extractList(r.payload).map(x=>({...normalizeShift(x,from,status),_departmentId:shiftDepartmentId(x)||departmentId||""})).filter(Boolean));
+    if(r.ok)all.push(...extractList(r.payload).map(x=>({...normalizeShift(x,from,status),_departmentId:shiftDepartmentId(x)||departmentId||"",_departmentName:String(departmentName||"").trim()})).filter(Boolean));
     else errors.push({status,httpStatus:r.status,message:(r.text||"").slice(0,500)});
   }
   return all.length?{ok:true,shifts:all,authCacheHit,format:"range+OPEN+CLOSED",fallback:true}:{ok:false,shifts:[],authCacheHit,error:{from,to,departmentId,httpStatus:primary.status,message:(primary.text||"").slice(0,500),fallbackErrors:errors}};
@@ -69,8 +69,15 @@ const subsetRequested=chainMode&&departmentIds.length>0&&allowedIds.length>depar
 // In CHAIN always request each selected Department separately, including the
 // "all restaurants" selection. This guarantees every shift can be labeled
 // with its restaurant even when the cash-shift payload itself omits Department.
-const targets=chainMode&&departmentIds.length?departmentIds:[""];
-const rangeResults=await mapLimit(targets,4,departmentId=>shiftsForRange(connection,iso(from),iso(to),departmentId));
+const departmentNames=new Map(
+  (Array.isArray(b?.chainScope?.departments)?b.chainScope.departments:[])
+    .map(x=>[String(x?.id||"").trim().toLowerCase(),String(x?.name||"").trim()])
+    .filter(x=>x[0])
+);
+const targets=chainMode&&departmentIds.length
+  ? departmentIds.map(id=>({id,name:departmentNames.get(String(id).trim().toLowerCase())||""}))
+  : [{id:"",name:""}];
+const rangeResults=await mapLimit(targets,4,target=>shiftsForRange(connection,iso(from),iso(to),target.id,target.name));
 const all=[],errors=[],formats=new Set();let authCacheHit=false;
 for(const r of rangeResults){
   authCacheHit=authCacheHit||r.authCacheHit===true;
@@ -87,6 +94,6 @@ if(subsetRequested){
 return jsonResponse({
   success:true,mode:"list",from:b.from,to:b.to,count:shifts.length,shifts,errors,
   endpoint:"/resto/api/v2/cashshifts/list",
-  meta:{days,rangeRequests:targets.length,formats:[...formats],departmentIds,allowedDepartmentIds:allowedIds,detectedDepartmentIds,departmentScopeApplied:chainMode&&departmentIds.length>0,subsetRequested,chainMode,authCacheHit}
+  meta:{days,rangeRequests:targets.length,formats:[...formats],departmentIds,allowedDepartmentIds:allowedIds,detectedDepartmentIds,departmentScopeApplied:chainMode&&departmentIds.length>0,subsetRequested,chainMode,restaurantNamesAttached:[...departmentNames.values()].filter(Boolean).length,authCacheHit}
 });
 }catch(e){return jsonResponse({success:false,message:e?.message||"Ошибка получения финансовых данных"},502);}}
