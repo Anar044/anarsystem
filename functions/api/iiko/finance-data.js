@@ -8,6 +8,7 @@ function extractList(p){if(Array.isArray(p))return p;for(const k of ["items","se
 function sid(x){return String(x?.id??x?.sessionId??x?.sessionID??x?.uuid??x?.UUID??"").trim();}
 function shiftDate(x,f){for(const k of ["businessDate","operatingDay","operationalDay","date","openDate","openedAt","openTime","startDate","startTime"]){const v=x?.[k];const m=String(v??"").match(/(\d{4})[-.](\d{2})[-.](\d{2})/);if(m)return `${m[1]}-${m[2]}-${m[3]}`;}return f;}
 function normalizeShift(x,date,status){return x&&typeof x==="object"?{...x,_sessionId:sid(x),_dateKey:shiftDate(x,date),_requestedStatus:status}:null;}
+function normDepartmentId(value){return String(value??"").trim().replace(/^\{+|\}+$/g,"").toLowerCase()}
 function shiftDepartmentId(x){for(const v of[
   x?.departmentId,x?.departmentID,x?.department?.id,x?.department?.uuid,x?.department?.guid,x?.departmentGuid,
   x?.organizationId,x?.organisationId,x?.restaurantId,x?.organization?.id,x?.organisation?.id,x?.restaurant?.id
@@ -71,11 +72,11 @@ const subsetRequested=chainMode&&departmentIds.length>0&&allowedIds.length>depar
 // with its restaurant even when the cash-shift payload itself omits Department.
 const departmentNames=new Map(
   (Array.isArray(b?.chainScope?.departments)?b.chainScope.departments:[])
-    .map(x=>[String(x?.id||"").trim().toLowerCase(),String(x?.name||"").trim()])
+    .map(x=>[normDepartmentId(x?.id),String(x?.name||"").trim()])
     .filter(x=>x[0])
 );
 const targets=chainMode&&departmentIds.length
-  ? departmentIds.map(id=>({id,name:departmentNames.get(String(id).trim().toLowerCase())||""}))
+  ? departmentIds.map(id=>({id,name:departmentNames.get(normDepartmentId(id))||""}))
   : [{id:"",name:""}];
 const rangeResults=await mapLimit(targets,4,target=>shiftsForRange(connection,iso(from),iso(to),target.id,target.name));
 const all=[],errors=[],formats=new Set();let authCacheHit=false;
