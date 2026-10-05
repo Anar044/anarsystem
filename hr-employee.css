@@ -71,5 +71,43 @@
 .hep-dirty{color:#f2c466}
 .hep-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .hep-link{display:inline-flex;align-items:center;text-decoration:none}
-@media(max-width:1100px){.hep-grid,.hep-money-layout{grid-template-columns:1fr}.hep-stat-grid,.hep-schedule{grid-template-columns:repeat(2,minmax(0,1fr))}.hep-plan-list{grid-template-columns:1fr 1fr}}
+.hep-pay-editor{display:grid;grid-template-columns:180px minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:stretch}
+.hep-pay-date{padding:14px;border:1px solid #263543;border-radius:13px;background:#0d141d}
+.hep-pay-rate-card{padding:14px;border:1px solid #263543;border-radius:13px;background:#0d141d}
+.hep-pay-rate-card.factual{border-color:rgba(66,211,146,.28);background:linear-gradient(180deg,rgba(66,211,146,.055),#0d141d 62%)}
+.hep-pay-rate-card.official{border-color:rgba(89,139,255,.28);background:linear-gradient(180deg,rgba(89,139,255,.055),#0d141d 62%)}
+.hep-pay-rate-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px}
+.hep-pay-rate-head strong{display:block;color:#eef4f8;font-size:12px}
+.hep-pay-rate-head div>span{display:block;color:#708093;font-size:9px;margin-top:4px}
+.hep-pay-rate-head>span{padding:4px 7px;border-radius:999px;background:#17222c;border:1px solid #2b3a48;color:#9eacb9;font-size:8px;font-weight:900;text-transform:uppercase}
+.hep-pay-rate-card.factual .hep-pay-rate-head>span{color:#82e7b3;border-color:rgba(66,211,146,.25);background:rgba(66,211,146,.08)}
+.hep-pay-rate-card.official .hep-pay-rate-head>span{color:#96bfff;border-color:rgba(89,139,255,.26);background:rgba(89,139,255,.08)}
+.hep-pay-note{grid-column:1/-1}
+.hep-pay-actions{grid-column:1/-1;display:flex;align-items:center;justify-content:flex-end;gap:10px;padding-top:2px}
+.hep-pay-current{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.hep-pay-current-card{padding:16px;border:1px solid #263543;border-radius:13px;background:#0d141d}
+.hep-pay-current-card.factual{box-shadow:inset 3px 0 0 rgba(66,211,146,.6)}
+.hep-pay-current-card.official{box-shadow:inset 3px 0 0 rgba(89,139,255,.6)}
+.hep-pay-current-card h3{margin:0;color:#eef4f8;font-size:13px}
+.hep-pay-current-card>p{margin:5px 0 12px;color:#6f8092;font-size:9px}
+.hep-pay-rate-value{display:flex;align-items:baseline;gap:7px;margin-bottom:12px}
+.hep-pay-rate-value strong{font-size:26px;color:#f4f8fb}
+.hep-pay-rate-value span{font-size:10px;color:#8191a1}
+.hep-pay-mini{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.hep-pay-mini div{padding:9px;border-radius:9px;background:#101923;border:1px solid #202d38}
+.hep-pay-mini span{display:block;color:#6c7d8e;font-size:8px;text-transform:uppercase;font-weight:800}
+.hep-pay-mini strong{display:block;color:#dfe8ef;font-size:10px;margin-top:5px}
+.hep-pay-period{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding-top:10px;border-top:1px solid #1d2833;color:#738395;font-size:9px}
+.hep-pay-period b{color:#cfd9e1}
+.hep-pay-history{overflow:auto}
+.hep-pay-table{width:100%;min-width:900px;border-collapse:collapse}
+.hep-pay-table th{padding:10px 11px;text-align:left;color:#748598;font-size:8px;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #263440;background:#0d141d}
+.hep-pay-table td{padding:11px;border-bottom:1px solid #1e2a35;color:#ccd6de;font-size:10px;vertical-align:top}
+.hep-pay-table tr.current{background:rgba(66,211,146,.045)}
+.hep-pay-table strong{color:#eef4f7}
+.hep-pay-pill{display:inline-flex;padding:4px 7px;border-radius:999px;background:#18232d;border:1px solid #2a3946;color:#9aa9b8;font-size:8px;font-weight:900}
+.hep-pay-pill.current{color:#82e7b3;border-color:rgba(66,211,146,.24);background:rgba(66,211,146,.08)}
+.hep-pay-empty{padding:30px;text-align:center;color:#748496;font-size:11px;border:1px dashed #2a3947;border-radius:12px;background:#0d141d}
+.hep-legacy-note{padding:12px;border:1px solid #2b3743;border-radius:11px;background:#0d141d;color:#8d9baa;font-size:10px;line-height:1.5}
+@media(max-width:1100px){.hep-grid,.hep-money-layout,.hep-pay-editor,.hep-pay-current{grid-template-columns:1fr}.hep-pay-date{grid-column:1/-1}.hep-stat-grid,.hep-schedule{grid-template-columns:repeat(2,minmax(0,1fr))}.hep-plan-list{grid-template-columns:1fr 1fr}}
 @media(max-width:760px){.hep-hero{grid-template-columns:auto 1fr}.hep-hero-actions{grid-column:1/-1;justify-content:flex-start}.hep-grid,.hep-fields,.hep-stat-grid,.hep-schedule,.hep-plan-list{grid-template-columns:1fr}.hep-field.span2,.hep-card.full{grid-column:auto}.hep-history-change{grid-template-columns:1fr}.hep-history-arrow{display:none}.hep-hero-title h1{font-size:23px}}
