@@ -58,7 +58,7 @@ export async function onRequestPost({request,env}){
     if(action==='SAVE_CORRECTION'){
       requireCapability(state.user,'canCorrect');
       if(!employeeId||!workDate)return json({success:false,message:'Не указан сотрудник или дата'},400);
-      const allowed=new Set(['','WORK','WORK_REST','LEAVE','LEAVE_WITH_WORK','ABSENT','REST','REVIEW','NO_SCHEDULE','WORK_NO_SCHEDULE']);
+      const allowed=new Set(['','WORK','WORK_HOLIDAY','WORK_REST','LEAVE','LEAVE_WITH_WORK','ABSENT','REST','REVIEW','NO_SCHEDULE','WORK_NO_SCHEDULE']);
       const statusOverride=clean(body.statusOverride,40).toUpperCase();
       if(!allowed.has(statusOverride))return json({success:false,message:'Недопустимый статус корректировки'},400);
       const worked=mins(body.workedMinutesOverride,{allowNull:true,max:1440}),planned=mins(body.plannedMinutesOverride,{allowNull:true,max:1440}),reason=clean(body.reason,1600);
