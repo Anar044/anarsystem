@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="light" style="background:#f4f8fc;visibility:hidden">
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Smart Horeca — Табель</title>
-  <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
+  <script>(function(){try{document.documentElement.dataset.theme='dark';localStorage.setItem('shReportsTheme','dark')}catch(e){}})();</script>
   <link rel="stylesheet" href="app-shell.css">
   <link rel="stylesheet" href="hr-pnl.css?v=20260916-4">
-  <link rel="stylesheet" href="/hr-timesheet.css?v=20261006-leave-v1">
+  <link rel="stylesheet" href="/hr-timesheet.css?v=20261006-matrix-v1">
 </head>
 <body data-protected="true" style="background:#0b1017">
   <div class="app-shell">
@@ -18,78 +18,82 @@
           <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
           <div>
             <span class="topbar-title">Табель</span>
-            <div class="topbar-sub">Фактический Face ID · официальный график · отпуска · контроль отклонений</div>
+            <div class="topbar-sub">Месячная матрица · факт Face ID · официальный график · отпуска</div>
           </div>
         </div>
       </header>
 
       <div class="app-content">
-        <section class="hr-page">
-          <div class="hr-head">
+        <section class="hr-page ts-page">
+          <div class="hr-head ts-head">
             <div>
-              <h1>Табель рабочего времени</h1>
-              <p>Отпуска из карточки сотрудника автоматически накладываются на соответствующий контур табеля. Сырые Face ID отметки остаются неизменяемым источником фактического времени.</p>
+              <div class="ts-kicker">УЧЁТ РАБОЧЕГО ВРЕМЕНИ</div>
+              <h1>Табель сотрудников</h1>
+              <p>Один сотрудник — одна строка, дни месяца — по колонкам. Нажмите на день, чтобы увидеть вход/выход, график, отпуск и отклонения.</p>
             </div>
-            <div class="hr-actions"><span id="tsStatus" class="hr-status">Готово</span><button id="tsRefresh" class="hr-primary">↻ Пересчитать</button></div>
+            <div class="hr-actions">
+              <span id="tsStatus" class="hr-status">Готово</span>
+              <button id="tsExport" class="hr-link-button" type="button">Экспорт CSV</button>
+              <button id="tsPrint" class="hr-link-button" type="button">Печать</button>
+              <button id="tsRefresh" class="hr-primary" type="button">↻ Пересчитать</button>
+            </div>
           </div>
 
-          <section class="hr-source-grid">
-            <article class="hr-source-card"><span>Фактический источник</span><strong>Face ID / ZKTeco + график</strong><small>Face ID даёт время; график определяет рабочий/выходной день + фактические отпуска</small></article>
-            <article class="hr-source-card active"><span>Официальный источник</span><strong>График + календарь</strong><small>Плановые дни + официальные отпуска</small></article>
-            <article class="hr-source-card"><span>Следующий слой</span><strong>Payroll v2</strong><small>Начисления из подтверждённого табеля</small></article>
-          </section>
-
-          <section class="hr-card">
-            <div class="hr-toolbar hr-timesheet-toolbar">
-              <label>С даты<input id="tsFrom" type="date"></label>
-              <label>По дату<input id="tsTo" type="date"></label>
-              <label>Сотрудник<select id="tsEmployee"><option value="">Все сотрудники</option></select></label>
+          <section class="ts-control-card">
+            <div class="ts-month-nav">
+              <button id="tsPrevMonth" type="button" class="ts-nav-btn" aria-label="Предыдущий месяц">‹</button>
+              <label class="ts-month-picker"><span>Месяц</span><input id="tsMonth" type="month"></label>
+              <button id="tsNextMonth" type="button" class="ts-nav-btn" aria-label="Следующий месяц">›</button>
+              <button id="tsTodayMonth" type="button" class="hr-link-button">Текущий месяц</button>
+            </div>
+            <div class="ts-filter-grid">
+              <label><span>Должность</span><select id="tsRole"><option value="">Все должности</option></select></label>
+              <label><span>Сотрудник</span><select id="tsEmployee"><option value="">Все сотрудники</option></select></label>
+              <label><span>Поиск</span><input id="tsSearch" type="search" placeholder="ФИО или табельный №"></label>
+              <label class="ts-check"><input id="tsProblemsOnly" type="checkbox"><span>Только проблемы</span></label>
             </div>
           </section>
 
           <div id="tsError" class="hr-error" hidden></div>
 
-          <nav class="ts-contour-tabs" aria-label="Контур табеля">
-            <button id="tsFactualTab" type="button" class="ts-contour-tab active" data-mode="FACTUAL"><span>Фактический табель</span><small>Face ID + фактические отпуска</small></button>
-            <button id="tsOfficialTab" type="button" class="ts-contour-tab" data-mode="OFFICIAL"><span>Официальный табель</span><small>График + официальные отпуска</small></button>
+          <nav class="ts-contour-switch" aria-label="Контур табеля">
+            <button id="tsFactualTab" class="active" data-mode="FACTUAL" type="button">
+              <strong>Фактический</strong><span>Face ID + фактические отпуска</span>
+            </button>
+            <button id="tsOfficialTab" data-mode="OFFICIAL" type="button">
+              <strong>Официальный</strong><span>График + официальный отпуск</span>
+            </button>
           </nav>
 
-          <section id="tsSummary" class="hr-summary-grid"></section>
+          <section id="tsSummary" class="ts-summary-strip"></section>
 
-          <section id="tsFactualPanel" class="hr-card">
-            <div class="hr-card-title-row">
-              <div>
-                <div class="hr-card-title">Фактический табель</div>
-                <div class="hr-card-sub">«Y / Нет» ставится только при реально заданном графике сотрудника. Если график должности ещё не настроен, день показывается как «График не задан» и не считается отсутствием. Выходной по заданному графику показывается как «İ / Выходной».</div>
-              </div>
-              <div id="tsFactualCount" class="hr-muted">0 строк</div>
-            </div>
-            <div class="hr-table-scroll">
-              <table class="ts-table">
-                <thead><tr><th>Дата</th><th class="text-left">Сотрудник</th><th>Статус</th><th>Первый вход</th><th>Последний выход</th><th>Факт</th><th>Отпуск</th><th>Ошибки</th></tr></thead>
-                <tbody id="tsFactualRows"></tbody>
-              </table>
-            </div>
+          <section class="ts-legend" aria-label="Условные обозначения">
+            <span><b class="lg work">Р</b>Работа</span>
+            <span><b class="lg rest">İ</b>Выходной</span>
+            <span><b class="lg leave">ƏM</b>Отпуск</span>
+            <span><b class="lg absent">Y</b>Нет</span>
+            <span><b class="lg review">!</b>Проверить</span>
+            <span><b class="lg no-schedule">—</b>Нет графика</span>
           </section>
 
-          <section id="tsOfficialPanel" class="hr-card" hidden>
-            <div class="hr-card-title-row">
+          <section class="ts-matrix-card">
+            <div class="ts-matrix-title">
               <div>
-                <div class="hr-card-title">Официальный табель</div>
-                <div class="hr-card-sub">Строится из основного графика должности и официального производственного календаря. Официальный отпуск из карточки сотрудника автоматически заменяет плановый статус дня.</div>
+                <strong id="tsMatrixTitle">Фактический табель</strong>
+                <span id="tsMatrixSub">—</span>
               </div>
-              <div id="tsOfficialCount" class="hr-muted">0 строк</div>
+              <div id="tsMatrixCount" class="hr-muted">0 сотрудников</div>
             </div>
-            <div class="hr-table-scroll">
-              <table class="ts-table">
-                <thead><tr><th>Дата</th><th class="text-left">Сотрудник</th><th>Статус</th><th>План</th><th>Смена</th><th>График</th><th>Отпуск</th><th>Календарь</th></tr></thead>
-                <tbody id="tsOfficialRows"></tbody>
+            <div id="tsMatrixScroll" class="ts-matrix-scroll">
+              <table id="tsMatrix" class="ts-matrix">
+                <thead id="tsMatrixHead"></thead>
+                <tbody id="tsMatrixBody"></tbody>
               </table>
             </div>
           </section>
 
           <details class="hr-card ts-diagnostics">
-            <summary><strong>Диагностика Face ID</strong><span>Интервалы и проблемы исходных отметок</span></summary>
+            <summary><strong>Детализация событий Face ID</strong><span>Сырые интервалы и ошибки журнала</span></summary>
             <div class="ts-diagnostic-grid">
               <section>
                 <div class="hr-card-title-row"><div><div class="hr-card-title">Рабочие интервалы</div><div class="hr-card-sub">Каждая корректная пара IN → OUT.</div></div><div id="tsIntervalCount" class="hr-muted">0 интервалов</div></div>
@@ -101,26 +105,32 @@
               </section>
             </div>
           </details>
-
-          <section class="hr-card hr-next">
-            <div class="hr-card-title">Что уже связано</div>
-            <p>Фактические отпуска → фактический табель. График в фактическом табеле используется только для определения рабочего/выходного дня, а фактическое время всегда берётся из Face ID. Официальные отпуска → официальный табель.</p>
-            <div class="hr-flow"><span>Карточка сотрудника</span><b>→</b><span>Отпуска</span><b>→</b><span>Факт / официальный табель</span><b>→</b><span>Подтверждение</span><b>→</b><span>Payroll v2</span></div>
-          </section>
         </section>
       </div>
     </main>
   </div>
 
+  <aside id="tsDayDrawer" class="ts-day-drawer" hidden>
+    <div class="ts-drawer-backdrop" data-drawer-close></div>
+    <section class="ts-drawer-panel">
+      <header>
+        <div><div class="ts-kicker">ДЕТАЛИ ДНЯ</div><h2 id="tsDrawerTitle">—</h2><p id="tsDrawerSub">—</p></div>
+        <button type="button" class="ts-drawer-close" data-drawer-close>×</button>
+      </header>
+      <div id="tsDrawerBody" class="ts-drawer-body"></div>
+      <footer><a id="tsDrawerEmployee" class="hr-link-button" href="#">Открыть карточку сотрудника</a></footer>
+    </section>
+  </aside>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="auth-config.js"></script>
   <script src="auth.js"></script>
   <script src="iiko-context.js?v=20261003-chain-3"></script>
-  <script src="app-shell.js?v=20261006-hr-timesheet-1"></script>
+  <script src="app-shell.js?v=20261006-hr-timesheet-2"></script>
   <script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
   <script src="/hr-light-theme.js?v=20260917-1"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=14"></script>
-  <script src="/hr-timesheet.js?v=20261006-explicit-schedule-v2"></script>
+  <script src="/hr-timesheet.js?v=20261006-matrix-v1"></script>
 </body>
 </html>
