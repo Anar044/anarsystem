@@ -344,6 +344,24 @@
       ['Изменено HR',changed,'changed'],
       ['Отклонено',rejected,'rejected']
     ].map(x=>`<article class="ts-ot-stat ${x[2]}"><span>${esc(x[0])}</span><strong>${x[1]}</strong></article>`).join('');
+    const globalRule=(data.overtimeRules||[]).find(x=>x.employeeId==='*')||{thresholdMinutes:600,payableFromMinutes:600,note:''};
+    const access=data.access||{};
+    $('tsGlobalOvertimeRule').innerHTML=`
+      <div class="ts-global-rule-copy">
+        <strong>Общее правило дополнительных часов</strong>
+        <small>Используется для сотрудников без индивидуального правила. Индивидуальная настройка в карточке дня имеет приоритет.</small>
+      </div>
+      <div class="ts-global-rule-fields">
+        <label><span>Доп. часы после, ч</span><input id="tsGlobalOtThreshold" type="number" min="0.25" max="24" step="0.25" value="${esc(hoursInput(globalRule.thresholdMinutes))}" ${access.canSetOvertimeRule?'':'disabled'}></label>
+        <label><span>Оплачивать после, ч</span><input id="tsGlobalOtPayable" type="number" min="0.25" max="24" step="0.25" value="${esc(hoursInput(globalRule.payableFromMinutes))}" ${access.canSetOvertimeRule?'':'disabled'}></label>
+        <label class="ts-global-note"><span>Комментарий</span><input id="tsGlobalOtNote" type="text" maxlength="1000" value="${esc(globalRule.note||'')}" placeholder="Например: стандарт 10 часов" ${access.canSetOvertimeRule?'':'disabled'}></label>
+        ${access.canSetOvertimeRule?'<button id="tsSaveGlobalOtRule" type="button" class="hr-link-button">Сохранить правило</button>':'<span class="ts-permission-note">Изменение доступно HR / Owner</span>'}
+      </div>`;
+    if($('tsSaveGlobalOtRule'))$('tsSaveGlobalOtRule').onclick=()=>{
+      const threshold=inputMinutes($('tsGlobalOtThreshold')?.value),payable=inputMinutes($('tsGlobalOtPayable')?.value);
+      if(threshold===null||payable===null)return alert('Проверьте общее правило дополнительных часов');
+      runAdjustment({action:'SAVE_OVERTIME_RULE',employeeId:'',thresholdMinutes:threshold,payableFromMinutes:payable,note:$('tsGlobalOtNote')?.value||''},'Общее правило дополнительных часов сохранено');
+    };
     $('tsOvertimeRows').innerHTML=rows.length?rows.map(x=>`
       <tr>
         <td>${esc(x.workDate)}</td>
