@@ -42,10 +42,12 @@ function model(row,adj,tax){
   const taxableRewards=Number(tot.taxableRewards||0),exemptRewards=Number(tot.exemptRewards||0),rewards=Number(tot.rewards||0);
   const advances=Number(tot.advances||0),deductions=Number(tot.deductions||0),drafts=Number(tot.drafts||0);
   const official=calcGross(officialGross,s);
-  const combinedTaxGross=officialGross+(additionalTaxable?additionalGross:0)+taxableRewards;
+  const additionalTaxBase=officialGross+(additionalTaxable?additionalGross:0);
+  const additionalCombined=calcGross(additionalTaxBase,s);
+  const combinedTaxGross=additionalTaxBase+taxableRewards;
   const combined=calcGross(combinedTaxGross,s);
-  const incrementalEmployeeTax=r(Math.max(0,combined.employee.total-official.employee.total));
-  const additionalNet=r(additionalGross-(additionalTaxable?Math.min(additionalGross,incrementalEmployeeTax):0));
+  const additionalEmployeeTax=r(Math.max(0,additionalCombined.employee.total-official.employee.total));
+  const additionalNet=r(additionalGross-(additionalTaxable?Math.min(additionalGross,additionalEmployeeTax):0));
   const beforeDeductions=r(combined.net+(additionalTaxable?0:additionalGross)+exemptRewards);
   const finalPayable=r(Math.max(0,beforeDeductions-advances-deductions));
   const employerCost=r(combined.totalEmployerCost+(additionalTaxable?0:additionalGross)+exemptRewards);
