@@ -243,6 +243,16 @@ jobs:
           fi
           echo 'AI assistant read-only/authenticated contract passed'
 
+      - name: Verify Payroll styles survive app shell cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "hr-payroll-v3.css" app-shell.js
+          grep -q "hrp-critical-styles" app-shell.js
+          grep -q "p.includes('hr-payroll')" hr-light-theme.js
+          grep -q "hr-payroll-v3.css" hr-payroll.html
+          echo 'Payroll style preservation contract passed'
+
       - name: Verify iiko authentication is centralized
         shell: bash
         run: |
