@@ -33,16 +33,23 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
-    await ensureTimesheetAdjustmentTables(env.DB);
     const url=new URL(request.url),from=ymd(url.searchParams.get('from')),to=ymd(url.searchParams.get('to'));
     if(!from||!to||from>to)return json({success:false,message:'Некорректный период'},400);
-    const userId=state.user.id;
-    const [c,r,o]=await Promise.all([
-      env.DB.prepare(`SELECT * FROM hr_timesheet_day_corrections WHERE user_id=?1 AND work_date>=?2 AND work_date<=?3 ORDER BY work_date,iiko_employee_id`).bind(userId,from,to).all(),
-      env.DB.prepare(`SELECT * FROM hr_overtime_rules WHERE user_id=?1 ORDER BY iiko_employee_id`).bind(userId).all(),
-      env.DB.prepare(`SELECT * FROM hr_overtime_requests WHERE user_id=?1 AND work_date>=?2 AND work_date<=?3 ORDER BY work_date,iiko_employee_id`).bind(userId,from,to).all()
-    ]);
-    return json({success:true,access:hrAccessForUser(state.user),corrections:(c.results||[]).map(correctionDto),rules:r.results||[],overtime:(o.results||[]).map(overtimeDto),defaults:{overtimeThresholdMinutes:DEFAULT_OVERTIME_THRESHOLD_MINUTES}});
+    const userId=state.user.id,access=hrAccessForUser(state.user);
+    try{
+      const [c,r,o]=await Promise.all([
+        env.DB.prepare(`SELECT * FROM hr_timesheet_day_corrections WHERE user_id=?1 AND work_date>=?2 AND work_date<=?3 ORDER BY work_date,iiko_employee_id`).bind(userId,from,to).all(),
+        env.DB.prepare(`SELECT * FROM hr_overtime_rules WHERE user_id=?1 ORDER BY iiko_employee_id`).bind(userId).all(),
+        env.DB.prepare(`SELECT * FROM hr_overtime_requests WHERE user_id=?1 AND work_date>=?2 AND work_date<=?3 ORDER BY work_date,iiko_employee_id`).bind(userId,from,to).all()
+      ]);
+      return json({success:true,access,corrections:(c.results||[]).map(correctionDto),rules:r.results||[],overtime:(o.results||[]).map(overtimeDto),defaults:{overtimeThresholdMinutes:DEFAULT_OVERTIME_THRESHOLD_MINUTES}});
+    }catch(inner){
+      const message=String(inner?.message||inner||'');
+      if(/no such table|does not exist/i.test(message)){
+        return json({success:true,access,corrections:[],rules:[],overtime:[],defaults:{overtimeThresholdMinutes:DEFAULT_OVERTIME_THRESHOLD_MINUTES},storageReady:false});
+      }
+      throw inner;
+    }
   }catch(e){console.error('[HR-TIMESHEET-ADJUSTMENTS-GET]',e);return json({success:false,message:e?.message||String(e)},e?.status||500)}
 }
 
