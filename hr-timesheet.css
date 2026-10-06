@@ -96,6 +96,13 @@
 .ts-detail-status{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px;border:1px solid #273642;border-radius:12px;background:#0d141c}
 .ts-detail-status strong{font-size:14px;color:#edf3f7}
 .ts-detail-status span{font-size:9px;color:#8191a1}
+.ts-detail-status .lg{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:30px;padding:0 7px;border-radius:8px;border:1px solid #2b3945;background:#17212b;color:#dce5ec;font-size:10px}
+.ts-detail-status .lg.work{color:#82e7b3;border-color:rgba(66,211,146,.28);background:rgba(66,211,146,.08)}
+.ts-detail-status .lg.rest{color:#9aa8b6}
+.ts-detail-status .lg.leave{color:#d2b7ff;border-color:rgba(174,121,255,.28);background:rgba(174,121,255,.08)}
+.ts-detail-status .lg.absent{color:#ff9aa6;border-color:rgba(255,104,120,.28);background:rgba(255,104,120,.08)}
+.ts-detail-status .lg.review{color:#f2c466;border-color:rgba(242,196,102,.3);background:rgba(242,196,102,.08)}
+.ts-detail-status .lg.holiday{color:#8fbcff;border-color:rgba(89,139,255,.28);background:rgba(89,139,255,.08)}
 .ts-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ts-detail-box{padding:11px;border:1px solid #23313d;border-radius:10px;background:#0d141c}
 .ts-detail-box span{display:block;color:#738394;font-size:8px;text-transform:uppercase;font-weight:800}
