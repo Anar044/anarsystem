@@ -7,7 +7,7 @@
   <script>(function(){try{document.documentElement.dataset.theme='dark';localStorage.setItem('shReportsTheme','dark')}catch(e){}})();</script>
   <link rel="stylesheet" href="app-shell.css">
   <link rel="stylesheet" href="hr-pnl.css?v=20260916-4">
-  <link rel="stylesheet" href="/hr-timesheet.css?v=20261006-matrix-approval-v2">
+  <link rel="stylesheet" href="/hr-timesheet.css?v=20261006-corrections-overtime-v1">
 </head>
 <body data-protected="true" style="background:#0b1017">
   <div class="app-shell">
@@ -74,7 +74,7 @@
                 <strong id="tsApprovalTitle">Черновик</strong>
                 <p id="tsApprovalMeta">Менеджер ещё не подтвердил табель.</p>
               </div>
-              <span id="tsApprovalBadge" class="ts-approval-badge draft">Черновик</span>
+              <div class="ts-approval-badges"><span id="tsAccessBadge" class="ts-access-badge">Роль: —</span><span id="tsApprovalBadge" class="ts-approval-badge draft">Черновик</span></div>
             </div>
             <div class="ts-approval-flow">
               <div id="tsManagerStep" class="ts-approval-step"><span>1</span><div><strong>Менеджер</strong><small id="tsManagerMeta">Ожидает подтверждения</small></div></div>
@@ -112,6 +112,24 @@
               <table id="tsMatrix" class="ts-matrix">
                 <thead id="tsMatrixHead"></thead>
                 <tbody id="tsMatrixBody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="ts-overtime-card">
+            <div class="ts-overtime-head">
+              <div>
+                <span class="ts-kicker">ДОПОЛНИТЕЛЬНЫЕ ЧАСЫ</span>
+                <strong>Контроль и подтверждение HR</strong>
+                <p>Дополнительные часы рассчитываются по дневному нормативу сотрудника. До подтверждения HR они не попадают в оплачиваемые часы.</p>
+              </div>
+              <div id="tsOvertimeCount" class="hr-muted">0 записей</div>
+            </div>
+            <div class="ts-overtime-stats" id="tsOvertimeStats"></div>
+            <div class="hr-table-scroll">
+              <table class="ts-overtime-table">
+                <thead><tr><th>Дата</th><th class="text-left">Сотрудник</th><th>Факт</th><th>Норма</th><th>Доп. часы</th><th>Менеджер</th><th>HR</th><th>В оплату</th><th></th></tr></thead>
+                <tbody id="tsOvertimeRows"></tbody>
               </table>
             </div>
           </section>
@@ -155,6 +173,6 @@
   <script src="/hr-light-theme.js?v=20260917-1"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=14"></script>
-  <script src="/hr-timesheet.js?v=20261006-matrix-approval-v2"></script>
+  <script src="/hr-timesheet.js?v=20261006-corrections-overtime-v1"></script>
 </body>
 </html>
