@@ -7,7 +7,7 @@
   <script>(function(){try{document.documentElement.dataset.theme='dark';localStorage.setItem('shReportsTheme','dark')}catch(e){}})();</script>
   <link rel="stylesheet" href="app-shell.css">
   <link rel="stylesheet" href="hr-pnl.css?v=20260916-4">
-  <link rel="stylesheet" href="/hr-timesheet.css?v=20261006-matrix-v1">
+  <link rel="stylesheet" href="/hr-timesheet.css?v=20261006-matrix-approval-v2">
 </head>
 <body data-protected="true" style="background:#0b1017">
   <div class="app-shell">
@@ -66,6 +66,30 @@
           </nav>
 
           <section id="tsSummary" class="ts-summary-strip"></section>
+
+          <section class="ts-approval-card">
+            <div class="ts-approval-head">
+              <div>
+                <span class="ts-kicker">ПОДТВЕРЖДЕНИЕ ТАБЕЛЯ</span>
+                <strong id="tsApprovalTitle">Черновик</strong>
+                <p id="tsApprovalMeta">Менеджер ещё не подтвердил табель.</p>
+              </div>
+              <span id="tsApprovalBadge" class="ts-approval-badge draft">Черновик</span>
+            </div>
+            <div class="ts-approval-flow">
+              <div id="tsManagerStep" class="ts-approval-step"><span>1</span><div><strong>Менеджер</strong><small id="tsManagerMeta">Ожидает подтверждения</small></div></div>
+              <b>→</b>
+              <div id="tsHrStep" class="ts-approval-step"><span>2</span><div><strong>HR</strong><small id="tsHrMeta">После менеджера</small></div></div>
+              <b>→</b>
+              <div id="tsPayrollStep" class="ts-approval-step"><span>3</span><div><strong>Payroll</strong><small>Только после HR</small></div></div>
+            </div>
+            <div class="ts-approval-actions">
+              <input id="tsApprovalComment" type="text" maxlength="1600" placeholder="Комментарий к подтверждению (необязательно)">
+              <button id="tsManagerApprove" type="button" class="hr-link-button">Подтвердить менеджером</button>
+              <button id="tsHrApprove" type="button" class="hr-primary">Утвердить HR</button>
+              <button id="tsReopen" type="button" class="hr-link-button danger">Вернуть в черновик</button>
+            </div>
+          </section>
 
           <section class="ts-legend" aria-label="Условные обозначения">
             <span><b class="lg work">Р</b>Работа</span>
@@ -131,6 +155,6 @@
   <script src="/hr-light-theme.js?v=20260917-1"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=14"></script>
-  <script src="/hr-timesheet.js?v=20261006-matrix-v1"></script>
+  <script src="/hr-timesheet.js?v=20261006-matrix-approval-v2"></script>
 </body>
 </html>
