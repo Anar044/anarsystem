@@ -41,6 +41,15 @@ function calendarInfo(date){const sp=SPECIAL_2026.get(date);if(sp)return{type:sp
 
 async function ensure(db){
   if(!db)throw new Error('D1 binding DB не настроен.');
+  const required=['hr_employees','hr_devices','hr_attendance_events','hr_employee_leave_entries','hr_leave_type_settings','hr_employee_profiles','hr_role_schedules','hr_role_schedule_days','hr_employee_schedule_overrides'];
+  try{
+    const placeholders=required.map((_,i)=>`?${i+1}`).join(',');
+    const check=await db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN (${placeholders})`).bind(...required).all();
+    const found=new Set((check.results||[]).map(x=>String(x.name||'')));
+    if(required.every(x=>found.has(x)))return;
+  }catch(error){
+    console.warn('[HR-TIMESHEET-SCHEMA-CHECK]',String(error?.message||error));
+  }
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_employees (
       user_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,employee_code TEXT NOT NULL DEFAULT '',first_name TEXT NOT NULL DEFAULT '',middle_name TEXT NOT NULL DEFAULT '',last_name TEXT NOT NULL DEFAULT '',display_name TEXT NOT NULL DEFAULT '',role_code TEXT NOT NULL DEFAULT '',role_name TEXT NOT NULL DEFAULT '',department_code TEXT NOT NULL DEFAULT '',hire_date TEXT NOT NULL DEFAULT '',fire_date TEXT NOT NULL DEFAULT '',is_deleted INTEGER NOT NULL DEFAULT 0,synced_at TEXT NOT NULL,PRIMARY KEY(user_id,iiko_employee_id)
@@ -71,9 +80,9 @@ async function ensure(db){
       user_id TEXT NOT NULL,override_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,schedule_id TEXT NOT NULL,effective_from TEXT NOT NULL,effective_to TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT '',is_active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,override_id)
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_employee_schedule_current ON hr_employee_schedule_overrides(user_id,iiko_employee_id,is_active,effective_from DESC)`)
+  
   ]);
 }
-
 function normalizeEmployee(events,employee,timeZone,from,to){
   const sorted=[...events].sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time)));
   const intervals=[],issues=[];let open=null,last=null;
@@ -144,16 +153,16 @@ export async function onRequestGet({request,env}){
     const span=(new Date(`${to}T00:00:00Z`)-new Date(`${from}T00:00:00Z`))/86400000;if(span>92)return json({success:false,message:'Для табеля выберите период не более 93 дней'},400);
     const userId=auth.user.id,scope=await resolveHrRestaurantScope(request,env,userId);
 
-    const [employeeRows,deviceRows,eventRows,profileRows,leaveRows,scheduleRows,dayRuleRows,typeRows,overrideRows]=await Promise.all([
-      env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all(),
-      env.DB.prepare(`SELECT device_id,name,timezone FROM hr_devices WHERE user_id=?1`).bind(userId).all(),
-      env.DB.prepare(`SELECT event_id,device_id,iiko_employee_id,event_time,event_type FROM hr_attendance_events WHERE user_id=?1 AND iiko_employee_id<>'' AND event_time>=?2 AND event_time<=?3 ORDER BY iiko_employee_id,event_time`).bind(userId,`${isoDayShift(from,-1)}T00:00:00.000Z`,`${isoDayShift(to,1)}T23:59:59.999Z`).all(),
-      env.DB.prepare(`SELECT iiko_employee_id,factual_hire_date,factual_fire_date,official_hire_date,official_fire_date,work_capacity_percent FROM hr_employee_profiles WHERE user_id=?1`).bind(userId).all(),
-      env.DB.prepare(`SELECT leave_id,iiko_employee_id,contour,leave_type,date_from,date_to,days,status,note FROM hr_employee_leave_entries WHERE user_id=?1 AND status='APPROVED' AND date_from<=?3 AND date_to>=?2 ORDER BY date_from`).bind(userId,from,to).all(),
-      env.DB.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 AND is_active=1 AND valid_from<=?2 AND (valid_to='' OR valid_to>=?3) ORDER BY is_default DESC,valid_from DESC`).bind(userId,to,from).all(),
-      env.DB.prepare(`SELECT schedule_id,weekday,shift_start,shift_end,break_minutes FROM hr_role_schedule_days WHERE user_id=?1`).bind(userId).all(),
-      env.DB.prepare(`SELECT leave_type,display_name FROM hr_leave_type_settings WHERE user_id=?1`).bind(userId).all(),
-      env.DB.prepare(`SELECT override_id,iiko_employee_id,schedule_id,effective_from,effective_to,note,is_active FROM hr_employee_schedule_overrides WHERE user_id=?1 AND is_active=1 AND effective_from<=?2 AND (effective_to='' OR effective_to>=?3)`).bind(userId,to,from).all()
+    const [employeeRows,deviceRows,eventRows,profileRows,leaveRows,scheduleRows,dayRuleRows,typeRows,overrideRows]=await env.DB.batch([
+      env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId),
+      env.DB.prepare(`SELECT device_id,name,timezone FROM hr_devices WHERE user_id=?1`).bind(userId),
+      env.DB.prepare(`SELECT event_id,device_id,iiko_employee_id,event_time,event_type FROM hr_attendance_events WHERE user_id=?1 AND iiko_employee_id<>'' AND event_time>=?2 AND event_time<=?3 ORDER BY iiko_employee_id,event_time`).bind(userId,`${isoDayShift(from,-1)}T00:00:00.000Z`,`${isoDayShift(to,1)}T23:59:59.999Z`),
+      env.DB.prepare(`SELECT iiko_employee_id,factual_hire_date,factual_fire_date,official_hire_date,official_fire_date,work_capacity_percent FROM hr_employee_profiles WHERE user_id=?1`).bind(userId),
+      env.DB.prepare(`SELECT leave_id,iiko_employee_id,contour,leave_type,date_from,date_to,days,status,note FROM hr_employee_leave_entries WHERE user_id=?1 AND status='APPROVED' AND date_from<=?3 AND date_to>=?2 ORDER BY date_from`).bind(userId,from,to),
+      env.DB.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 AND is_active=1 AND valid_from<=?2 AND (valid_to='' OR valid_to>=?3) ORDER BY is_default DESC,valid_from DESC`).bind(userId,to,from),
+      env.DB.prepare(`SELECT schedule_id,weekday,shift_start,shift_end,break_minutes FROM hr_role_schedule_days WHERE user_id=?1`).bind(userId),
+      env.DB.prepare(`SELECT leave_type,display_name FROM hr_leave_type_settings WHERE user_id=?1`).bind(userId),
+      env.DB.prepare(`SELECT override_id,iiko_employee_id,schedule_id,effective_from,effective_to,note,is_active FROM hr_employee_schedule_overrides WHERE user_id=?1 AND is_active=1 AND effective_from<=?2 AND (effective_to='' OR effective_to>=?3)`).bind(userId,to,from)
     ]);
 
     const devices=deviceRows.results||[],deviceMap=new Map(devices.map(x=>[String(x.device_id),x]));
