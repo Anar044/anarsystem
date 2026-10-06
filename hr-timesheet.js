@@ -59,13 +59,93 @@
   function issueLabel(code){
     return({MISSING_OUT:'Нет отметки выхода',MISSING_IN:'Нет отметки входа',DUPLICATE_IN:'Повторный вход',DUPLICATE_OUT:'Повторный выход',UNKNOWN_EVENT_TYPE:'Неизвестный тип события',INVALID_ORDER:'Выход раньше входа',LONG_INTERVAL:'Интервал больше 15 часов'})[code]||code||'Проверить';
   }
+  async function digestText(text){
+    try{
+      const bytes=new TextEncoder().encode(String(text||'')),hash=await crypto.subtle.digest('SHA-256',bytes);
+      return [...new Uint8Array(hash)].map(x=>x.toString(16).padStart(2,'0')).join('');
+    }catch{return String(text||'').slice(0,128)}
+  }
+  function normalizeRuleRow(x){
+    return{
+      employeeId:String(x?.employeeId??x?.iiko_employee_id??''),
+      thresholdMinutes:Number(x?.thresholdMinutes??x?.threshold_minutes??600),
+      payableFromMinutes:Number(x?.payableFromMinutes??x?.payable_from_minutes??600),
+      note:String(x?.note||''),
+      updatedAt:String(x?.updatedAt??x?.updated_at??'')
+    };
+  }
+  function ruleFor(employeeId,rules){
+    const specific=rules.find(x=>x.employeeId===String(employeeId)),global=rules.find(x=>x.employeeId==='*'),base=specific||global||null;
+    const threshold=Math.max(1,Number(base?.thresholdMinutes||600));
+    const payable=Math.max(threshold,Number(base?.payableFromMinutes||threshold));
+    return{thresholdMinutes:threshold,payableFromMinutes:payable,source:specific?'EMPLOYEE':global?'GLOBAL':'DEFAULT',note:base?.note||''};
+  }
+  function applyCorrection(day,c){
+    if(!c)return{...day,corrected:false,correction:null,rawStatus:day.status,rawWorkedMinutes:Number(day.workedMinutes||0),rawPlannedMinutes:Number(day.plannedMinutes||0)};
+    const out={...day,corrected:true,correction:c,rawStatus:day.status,rawWorkedMinutes:Number(day.workedMinutes||0),rawPlannedMinutes:Number(day.plannedMinutes||0)};
+    if(c.statusOverride)out.status=c.statusOverride;
+    if(Number(c.workedMinutesOverride)>=0)out.workedMinutes=Number(c.workedMinutesOverride);
+    if(Number(c.plannedMinutesOverride)>=0)out.plannedMinutes=Number(c.plannedMinutesOverride);
+    return out;
+  }
+  async function loadAdjustmentOverlay(range,t){
+    const fetcher=window.SH_IikoContext?.fetchWithTimeout||fetch,q=new URLSearchParams({from:range.from,to:range.to});
+    const r=await fetcher(`/api/hr/timesheet-adjustments?${q}`,{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}},30000);
+    const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API корректировок'}));
+    if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);
+    return j;
+  }
+  async function mergeAdjustmentOverlay(base,overlay){
+    const corrections=new Map((overlay.corrections||[]).map(x=>[`${x.employeeId}|${x.workDate}|${x.contour||'FACTUAL'}`,x]));
+    const overtime=new Map((overlay.overtime||[]).map(x=>[`${x.employeeId}|${x.workDate}`,x]));
+    const rules=(overlay.rules||[]).map(normalizeRuleRow);
+    base.access=overlay.access||base.access||{};
+    base.overtimeRules=rules;
+    base.factualDays=(base.factualDays||[]).map(day=>{
+      let x=applyCorrection(day,corrections.get(`${day.employeeId}|${day.workDate}|FACTUAL`));
+      const rule=ruleFor(day.employeeId,rules),worked=Math.max(0,Number(x.workedMinutes||0)),candidate=Math.max(0,worked-rule.thresholdMinutes),payableCandidate=Math.max(0,worked-rule.payableFromMinutes);
+      const req=overtime.get(`${day.employeeId}|${day.workDate}`)||null,approvedState=Boolean(req&&['HR_APPROVED','HR_CHANGED'].includes(req.status));
+      const approved=approvedState?Math.min(candidate,Math.max(0,Number(req.approvedMinutes||0))):0;
+      x={
+        ...x,normMinutes:Math.min(worked,rule.thresholdMinutes),overtimeThresholdMinutes:rule.thresholdMinutes,overtimePayableFromMinutes:rule.payableFromMinutes,
+        overtimeRuleSource:rule.source,overtimeRuleNote:rule.note,overtimeCandidateMinutes:candidate,overtimePayableCandidateMinutes:payableCandidate,
+        unpaidOvertimePotentialMinutes:Math.max(0,candidate-payableCandidate),overtimeStatus:req?.status||'NONE',overtimeRequestedMinutes:Number(req?.requestedMinutes||0),
+        approvedOvertimeMinutes:approved,payrollOvertimeMinutes:Math.min(approved,payableCandidate),overtimeManagerReason:req?.managerReason||'',
+        overtimeHrComment:req?.hrComment||'',overtimeManager:req?.manager||null,overtimeHr:req?.hr||null,overtimeRequestId:req?.id||'',
+        overtimeDayEquivalent:rule.thresholdMinutes>0?approved/rule.thresholdMinutes:0
+      };
+      return x;
+    });
+    base.officialDays=(base.officialDays||[]).map(day=>applyCorrection(day,corrections.get(`${day.employeeId}|${day.workDate}|OFFICIAL`)));
+    const overlayVersion=JSON.stringify({
+      corrections:(overlay.corrections||[]).map(x=>[x.id,x.employeeId,x.workDate,x.contour,x.statusOverride,x.workedMinutesOverride,x.plannedMinutesOverride,x.updatedAt]),
+      overtime:(overlay.overtime||[]).map(x=>[x.id,x.employeeId,x.workDate,x.status,x.requestedMinutes,x.approvedMinutes,x.updatedAt]),
+      rules:rules.map(x=>[x.employeeId,x.thresholdMinutes,x.payableFromMinutes,x.updatedAt])
+    });
+    const addon=await digestText(overlayVersion);
+    base.snapshotHashes={
+      FACTUAL:await digestText(`${base.snapshotHashes?.FACTUAL||''}|${addon}|FACTUAL`),
+      OFFICIAL:await digestText(`${base.snapshotHashes?.OFFICIAL||''}|${addon}|OFFICIAL`)
+    };
+    return base;
+  }
   async function api(){
     const range=monthRange($('tsMonth').value),t=await authToken(),q=new URLSearchParams({from:range.from,to:range.to});
     const fetcher=window.SH_IikoContext?.fetchWithTimeout||fetch;
     const r=await fetcher(`/api/hr/timesheet?${q}`,{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}},90000);
     const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));
     if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);
-    return j;
+    try{
+      const overlay=await loadAdjustmentOverlay(range,t);
+      return await mergeAdjustmentOverlay(j,overlay);
+    }catch(error){
+      console.warn('HR adjustment overlay unavailable:',error);
+      j.access=j.access||{role:'OWNER',label:'Владелец',canManagerApprove:true,canHrApprove:true,canReopen:true,canCorrect:true,canSetOvertimeRule:true,canViewPayroll:true};
+      j.overtimeRules=[];
+      j.factualDays=(j.factualDays||[]).map(x=>({...x,rawStatus:x.status,rawWorkedMinutes:Number(x.workedMinutes||0),rawPlannedMinutes:Number(x.plannedMinutes||0),corrected:false,correction:null,normMinutes:Math.min(Number(x.workedMinutes||0),600),overtimeThresholdMinutes:600,overtimePayableFromMinutes:600,overtimeRuleSource:'DEFAULT',overtimeCandidateMinutes:Math.max(0,Number(x.workedMinutes||0)-600),overtimePayableCandidateMinutes:Math.max(0,Number(x.workedMinutes||0)-600),unpaidOvertimePotentialMinutes:0,overtimeStatus:'NONE',overtimeRequestedMinutes:0,approvedOvertimeMinutes:0,payrollOvertimeMinutes:0,overtimeManagerReason:'',overtimeHrComment:'',overtimeRequestId:'',overtimeDayEquivalent:0}));
+      j.officialDays=(j.officialDays||[]).map(x=>({...x,rawStatus:x.status,rawWorkedMinutes:0,rawPlannedMinutes:Number(x.plannedMinutes||0),corrected:false,correction:null}));
+      return j;
+    }
   }
 
   async function adjustmentApi(body){
