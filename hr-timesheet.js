@@ -170,7 +170,7 @@
       if(q&&!String(`${e.name} ${e.code} ${e.roleName}`).toLowerCase().includes(q))return false;
       if(problemsOnly){
         const days=byEmp.get(e.id);
-        if(!days||![...days.values()].some(x=>pSet.has(x.status)||Number(x.issueCount||0)>0))return false;
+        if(!days||![...days.values()].some(x=>pSet.has(x.status)||Number(x.issueCount||0)>0||(Number(x.overtimeCandidateMinutes||0)>0&&!['HR_APPROVED','HR_CHANGED'].includes(x.overtimeStatus||''))))return false;
       }
       return true;
     }).sort((a,b)=>String(a.name||a.code).localeCompare(String(b.name||b.code),'ru'));
@@ -221,10 +221,17 @@
         work:days.filter(x=>['WORK','WORK_REST','WORK_NO_SCHEDULE','REVIEW','LEAVE_WITH_WORK'].includes(x.status)&&Number(x.workedMinutes||0)>0).length,
         plan:days.reduce((s,x)=>s+Number(x.plannedMinutes||0),0),
         fact:days.reduce((s,x)=>s+Number(x.workedMinutes||0),0),
+        norm:days.reduce((s,x)=>s+Number(x.normMinutes||0),0),
+        overtimeCandidate:days.reduce((s,x)=>s+Number(x.overtimeCandidateMinutes||0),0),
+        overtimeApproved:days.reduce((s,x)=>s+Number(x.approvedOvertimeMinutes||0),0),
+        overtimePayroll:days.reduce((s,x)=>s+Number(x.payrollOvertimeMinutes||0),0),
+        overtimeUnpaid:days.reduce((s,x)=>s+Number(x.unpaidOvertimePotentialMinutes||0),0),
+        overtimePending:days.reduce((s,x)=>s+(Number(x.overtimeCandidateMinutes||0)>0&&!['HR_APPROVED','HR_CHANGED','HR_REJECTED'].includes(x.overtimeStatus||'')?Number(x.overtimeRequestedMinutes||x.overtimeCandidateMinutes||0):0),0),
+        extraDays:days.reduce((s,x)=>s+Number(x.overtimeDayEquivalent||0),0),
         leave:days.filter(x=>x.status==='LEAVE').length,
         absent:days.filter(x=>x.status==='ABSENT').length,
         rest:days.filter(x=>x.status==='REST').length,
-        issues:days.filter(x=>['REVIEW','LEAVE_WITH_WORK','WORK_REST','WORK_NO_SCHEDULE'].includes(x.status)||Number(x.issueCount||0)>0).length
+        issues:days.filter(x=>['REVIEW','LEAVE_WITH_WORK','WORK_REST','WORK_NO_SCHEDULE'].includes(x.status)||Number(x.issueCount||0)>0||(Number(x.overtimeCandidateMinutes||0)>0&&!['HR_APPROVED','HR_CHANGED'].includes(x.overtimeStatus||''))).length
       };
     }
     return{
@@ -242,7 +249,11 @@
       const t=buildEmployeeTotals(rows),noSchedule=rows.filter(x=>x.status==='NO_SCHEDULE').length;
       $('tsSummary').innerHTML=[
         ['Сотрудников',employees.length,'по текущему фильтру'],
-        ['Факт',hoursLong(t.fact),'Face ID'],
+        ['Факт',hoursLong(t.fact),'все фактически отработанные часы'],
+        ['Норма',hoursLong(t.norm),'учитываемые нормативные часы'],
+        ['Доп. часы HR',hoursLong(t.overtimeApproved),'только подтверждённые HR'],
+        ['Ожидает HR',hoursLong(t.overtimePending),'ещё не подтверждено'],
+        ['Неоплач. доп.',hoursLong(t.overtimeUnpaid),'между нормой и порогом оплаты'],
         ['Рабочих дней',t.work,'с фактическим временем'],
         ['Отпуск',t.leave,'дней'],
         ['Y / Нет',t.absent,'рабочих дней без отметок'],
@@ -269,7 +280,7 @@
     $('tsMatrixCount').textContent=`${employees.length} сотрудников`;
 
     const totalHeads=mode==='FACTUAL'
-      ?['Раб. дни','План','Факт','Отп.','Y','İ','Пров.']
+      ?['Раб. дни','План','Факт','Норма','Доп.ч','Ожид.','Неопл.','Отп.','Y','İ','Пров.']
       :['Раб. дни','План','Отп.','İ','Празд.'];
 
     $('tsMatrixHead').innerHTML=`<tr>
@@ -290,12 +301,13 @@
       const map=byEmp.get(e.id)||new Map(),employeeDays=[...map.values()],totals=buildEmployeeTotals(employeeDays);
       const cells=days.map(d=>{
         const date=`${range.year}-${pad(range.month)}-${pad(d)}`,x=map.get(date),v=dayView(x);
-        const problems=x&&(Number(x.issueCount||0)>0||['REVIEW','LEAVE_WITH_WORK','WORK_REST','WORK_NO_SCHEDULE'].includes(x.status));
-        const title=x?`${e.name} · ${date} · ${v.label}${v.sub?' · '+v.sub:''}`:`${e.name} · ${date}`;
-        return `<td class="ts-day-cell ${v.cls}" data-employee-id="${esc(e.id)}" data-date="${date}" title="${esc(title)}"><div class="ts-day-box"><span class="ts-day-code">${esc(v.code)}</span>${v.sub?`<span class="ts-day-sub">${esc(v.sub)}</span>`:''}</div>${problems?'<i class="problem-dot"></i>':''}</td>`;
+        const overtimePending=x&&Number(x.overtimeCandidateMinutes||0)>0&&!['HR_APPROVED','HR_CHANGED'].includes(x.overtimeStatus||'');
+        const problems=x&&(Number(x.issueCount||0)>0||['REVIEW','LEAVE_WITH_WORK','WORK_REST','WORK_NO_SCHEDULE'].includes(x.status)||overtimePending);
+        const title=x?`${e.name} · ${date} · ${v.label}${v.sub?' · '+v.sub:''}${x.overtimeCandidateMinutes>0?' · доп. '+hours(x.overtimeCandidateMinutes)+' ч':''}${x.corrected?' · ручная корректировка':''}`:`${e.name} · ${date}`;
+        return `<td class="ts-day-cell ${v.cls} ${x?.corrected?'corrected':''}" data-employee-id="${esc(e.id)}" data-date="${date}" title="${esc(title)}"><div class="ts-day-box"><span class="ts-day-code">${esc(v.code)}</span>${v.sub?`<span class="ts-day-sub">${esc(v.sub)}</span>`:''}</div>${problems?'<i class="problem-dot"></i>':''}${x?.corrected?'<i class="correction-dot"></i>':''}${x&&Number(x.overtimeCandidateMinutes||0)>0?`<span class="overtime-mini">+${esc(hours(x.overtimeCandidateMinutes))}</span>`:''}</td>`;
       }).join('');
       const totalsHtml=mode==='FACTUAL'
-        ?`<td class="ts-total-cell">${totals.work}</td><td class="ts-total-cell">${esc(hours(totals.plan))}</td><td class="ts-total-cell emph">${esc(hours(totals.fact))}</td><td class="ts-total-cell">${totals.leave}</td><td class="ts-total-cell">${totals.absent}</td><td class="ts-total-cell">${totals.rest}</td><td class="ts-total-cell">${totals.issues}</td>`
+        ?`<td class="ts-total-cell">${totals.work}</td><td class="ts-total-cell">${esc(hours(totals.plan))}</td><td class="ts-total-cell emph">${esc(hours(totals.fact))}</td><td class="ts-total-cell">${esc(hours(totals.norm))}</td><td class="ts-total-cell overtime-ok">${esc(hours(totals.overtimeApproved))}</td><td class="ts-total-cell overtime-wait">${esc(hours(totals.overtimePending))}</td><td class="ts-total-cell">${esc(hours(totals.overtimeUnpaid))}</td><td class="ts-total-cell">${totals.leave}</td><td class="ts-total-cell">${totals.absent}</td><td class="ts-total-cell">${totals.rest}</td><td class="ts-total-cell">${totals.issues}</td>`
         :`<td class="ts-total-cell">${totals.work}</td><td class="ts-total-cell emph">${esc(hours(totals.plan))}</td><td class="ts-total-cell">${totals.leave}</td><td class="ts-total-cell">${totals.rest}</td><td class="ts-total-cell">${totals.holiday}</td>`;
       return `<tr>
         <td class="ts-employee-cell"><a class="ts-employee-main" href="/hr-employee.html?id=${encodeURIComponent(e.id)}">${esc(e.name||e.code||'—')}</a><span class="ts-employee-meta">${e.code?'№ '+esc(e.code):''}${e.roleName?' · '+esc(e.roleName):''}</span></td>
