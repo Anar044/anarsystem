@@ -123,8 +123,8 @@ export async function onRequestPost({request,env}){
       const approved=mins(body.approvedMinutes,{max:1440}),comment=clean(body.hrComment,1600);
       if(approved===null||approved<0||approved>Number(oldRow.candidate_minutes||0))return json({success:false,message:'HR не может подтвердить больше рассчитанных дополнительных часов'},400);
       const status=approved===Number(oldRow.requested_minutes||0)?'HR_APPROVED':'HR_CHANGED';
-      await env.DB.prepare(`UPDATE hr_overtime_requests SET approved_minutes=?5,hr_comment=?6,status=?7,hr_id=?8,hr_label=?9,hr_at=?10,updated_at=?10 WHERE user_id=?1 AND iiko_employee_id=?2 AND work_date=?3`)
-        .bind(userId,employeeId,workDate,'',approved,comment,status,actorId,actor,t).run();
+      await env.DB.prepare(`UPDATE hr_overtime_requests SET approved_minutes=?4,hr_comment=?5,status=?6,hr_id=?7,hr_label=?8,hr_at=?9,updated_at=?9 WHERE user_id=?1 AND iiko_employee_id=?2 AND work_date=?3`)
+        .bind(userId,employeeId,workDate,approved,comment,status,actorId,actor,t).run();
       const after=overtimeDto(await overtimeRow(env.DB,userId,employeeId,workDate));
       await audit({auditAction:'APPROVE',entityType:'HR_OVERTIME_REQUEST',entityId:after.id,entityLabel:`Доп. часы · ${employeeId} · ${workDate}`,before:old,after,metadata:{employeeId,workDate}});
       return json({success:true,access,overtime:after});
