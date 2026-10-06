@@ -5,8 +5,8 @@
   const pad=n=>String(n).padStart(2,'0');
   const monthNames=['','Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
   const dayNames=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
-  let data={employees:[],factualDays:[],officialDays:[],intervals:[],issues:[],summary:{}};
-  let busy=false,mode='FACTUAL',drawerDay=null,approval=null,approvalBusy=false;
+  let data={employees:[],factualDays:[],officialDays:[],intervals:[],issues:[],summary:{},access:{}};
+  let busy=false,mode='FACTUAL',drawerDay=null,approval=null,approvalBusy=false,adjustmentBusy=false;
 
   async function authToken(){
     const client=await window.SHAuth?.createClient?.();
@@ -40,6 +40,14 @@
     const m=Math.max(0,Number(min||0)),h=Math.floor(m/60),r=Math.round(m%60);
     return`${h} ч ${pad(r)} мин`;
   }
+  function hoursInput(min){const n=Math.max(0,Number(min||0))/60;return Number.isInteger(n)?String(n):String(Math.round(n*100)/100)}
+  function inputMinutes(v){if(v===null||v===undefined||String(v).trim()==='')return null;const n=Number(v);return Number.isFinite(n)&&n>=0?Math.round(n*60):null}
+  function overtimeStatusLabel(v){
+    return({NONE:'Не отправлено',DRAFT:'Черновик',MANAGER_SUBMITTED:'Ожидает HR',HR_APPROVED:'Подтверждено HR',HR_CHANGED:'Изменено HR',HR_REJECTED:'Отклонено HR'})[v]||v||'—';
+  }
+  function overtimeStatusClass(v){
+    return({HR_APPROVED:'approved',HR_CHANGED:'changed',HR_REJECTED:'rejected',MANAGER_SUBMITTED:'pending'})[v]||'draft';
+  }
   function localDateTime(v){
     if(!v)return'—';
     try{return new Date(v).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}catch{return String(v)}
@@ -60,6 +68,14 @@
     return j;
   }
 
+  async function adjustmentApi(body){
+    const t=await authToken(),fetcher=window.SH_IikoContext?.fetchWithTimeout||fetch;
+    const r=await fetcher('/api/hr/timesheet-adjustments',{method:'POST',headers:{Authorization:`Bearer ${t}`,Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify(body)},60000);
+    const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));
+    if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);
+    if(j.access)data.access=j.access;
+    return j;
+  }
   async function approvalApi(method='GET',body=null){
     const t=await authToken(),fetcher=window.SH_IikoContext?.fetchWithTimeout||fetch,month=$('tsMonth').value,snapshotHash=data?.snapshotHashes?.[mode]||'';
     let url='/api/hr/timesheet-approval';
