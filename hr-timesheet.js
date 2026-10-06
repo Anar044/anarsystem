@@ -6,7 +6,7 @@
   const monthNames=['','Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
   const dayNames=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
   let data={employees:[],factualDays:[],officialDays:[],intervals:[],issues:[],summary:{}};
-  let busy=false,mode='FACTUAL',drawerDay=null;
+  let busy=false,mode='FACTUAL',drawerDay=null,approval=null,approvalBusy=false;
 
   async function authToken(){
     const client=await window.SHAuth?.createClient?.();
@@ -58,6 +58,74 @@
     const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));
     if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);
     return j;
+  }
+
+  async function approvalApi(method='GET',body=null){
+    const t=await authToken(),fetcher=window.SH_IikoContext?.fetchWithTimeout||fetch,month=$('tsMonth').value,snapshotHash=data?.snapshotHashes?.[mode]||'';
+    let url='/api/hr/timesheet-approval';
+    const opt={method,headers:{Authorization:`Bearer ${t}`,Accept:'application/json','Content-Type':'application/json'}};
+    if(method==='GET'){
+      const q=new URLSearchParams({month,contour:mode,snapshotHash});url+=`?${q}`;
+    }else{
+      opt.body=JSON.stringify({...body,month,contour:mode,snapshotHash});
+    }
+    const r=await fetcher(url,opt,60000);
+    const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));
+    if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);
+    return j;
+  }
+
+  function approvalDate(v){
+    if(!v)return'—';
+    try{return new Date(v).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}catch{return String(v)}
+  }
+  function renderApproval(){
+    const a=approval||{status:'DRAFT'},status=a.status||'DRAFT',badge=$('tsApprovalBadge'),title=$('tsApprovalTitle'),meta=$('tsApprovalMeta');
+    const managerDone=Boolean(a.manager),hrDone=Boolean(a.hr)&&status==='HR_APPROVED';
+    $('tsManagerStep')?.classList.toggle('done',managerDone);
+    $('tsManagerStep')?.classList.toggle('current',status==='DRAFT'||status==='STALE');
+    $('tsHrStep')?.classList.toggle('done',hrDone);
+    $('tsHrStep')?.classList.toggle('current',status==='MANAGER_APPROVED');
+    $('tsPayrollStep')?.classList.toggle('done',status==='HR_APPROVED');
+    $('tsManagerMeta').textContent=a.manager?`${a.manager.label} · ${approvalDate(a.manager.at)}`:'Ожидает подтверждения';
+    $('tsHrMeta').textContent=a.hr?`${a.hr.label} · ${approvalDate(a.hr.at)}`:(status==='MANAGER_APPROVED'?'Ожидает HR':'После менеджера');
+    if($('tsApprovalComment'))$('tsApprovalComment').value=a.comment||'';
+
+    if(status==='HR_APPROVED'){
+      title.textContent='Табель утверждён HR';meta.textContent='Эта версия готова для следующего слоя Payroll.';
+      badge.textContent='Утверждён';badge.className='ts-approval-badge hr';
+    }else if(status==='MANAGER_APPROVED'){
+      title.textContent='Менеджер подтвердил';meta.textContent='Ожидается утверждение HR.';
+      badge.textContent='Менеджер ✓';badge.className='ts-approval-badge manager';
+    }else if(status==='STALE'){
+      title.textContent='Табель изменился';meta.textContent='После подтверждения изменились Face ID, график, отпуск или другие данные. Нужно подтвердить заново.';
+      badge.textContent='Нужно заново';badge.className='ts-approval-badge stale';
+    }else{
+      title.textContent='Черновик';meta.textContent='Менеджер ещё не подтвердил текущую версию табеля.';
+      badge.textContent='Черновик';badge.className='ts-approval-badge draft';
+    }
+
+    $('tsManagerApprove').disabled=approvalBusy||status==='MANAGER_APPROVED'||status==='HR_APPROVED';
+    $('tsHrApprove').disabled=approvalBusy||status!=='MANAGER_APPROVED';
+    $('tsReopen').disabled=approvalBusy||status==='DRAFT';
+  }
+  async function loadApproval(){
+    try{
+      approvalBusy=true;renderApproval();
+      const r=await approvalApi('GET');approval=r.approval||{status:'DRAFT'};
+    }catch(e){
+      console.error(e);approval={status:'DRAFT',comment:''};
+    }finally{approvalBusy=false;renderApproval()}
+  }
+  async function approvalAction(action){
+    if(approvalBusy)return;
+    try{
+      approvalBusy=true;renderApproval();setStatus('Сохраняем подтверждение…','loading');
+      const r=await approvalApi('POST',{action,comment:$('tsApprovalComment')?.value||''});
+      approval=r.approval||approval;renderApproval();setStatus('Готово','ok');
+    }catch(e){
+      console.error(e);setStatus(e?.message||'Ошибка подтверждения','error');alert(e?.message||'Ошибка подтверждения');
+    }finally{approvalBusy=false;renderApproval()}
   }
 
   function selectedEmployee(){return $('tsEmployee')?.value||''}
@@ -235,7 +303,7 @@
     $('tsOfficialTab').classList.toggle('active',!factual);
     renderSummary();renderMatrix();renderIntervals();renderIssues();
   }
-  function render(){renderFilters();renderMode()}
+  function render(){renderFilters();renderMode();renderApproval()}
 
   function findDay(employeeId,date){
     return dayList().find(x=>x.employeeId===employeeId&&x.workDate===date)||null;
@@ -328,14 +396,14 @@
     const err=$('tsError');
     try{
       busy=true;$('tsRefresh').disabled=true;err.hidden=true;setStatus('Загрузка месяца…','loading');
-      data=await api();render();setStatus('Готово','ok');
+      data=await api();approval=null;render();await loadApproval();setStatus('Готово','ok');
     }catch(e){
       console.error(e);err.hidden=false;err.textContent=e?.message||String(e);setStatus('Ошибка','error');
     }finally{busy=false;$('tsRefresh').disabled=false}
   }
 
   function onFilter(){renderMode()}
-  function setMode(next){mode=next;if(mode==='OFFICIAL'&&$('tsProblemsOnly'))$('tsProblemsOnly').checked=false;closeDrawer();renderMode()}
+  async function setMode(next){mode=next;if(mode==='OFFICIAL'&&$('tsProblemsOnly'))$('tsProblemsOnly').checked=false;closeDrawer();approval=null;renderMode();renderApproval();await loadApproval()}
   function changeMonth(delta){$('tsMonth').value=shiftMonth($('tsMonth').value,delta);load()}
 
   function bind(){
@@ -357,6 +425,9 @@
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('tsDayDrawer').hidden)closeDrawer()});
     $('tsExport').onclick=exportCsv;
     $('tsPrint').onclick=()=>window.print();
+    $('tsManagerApprove').onclick=()=>approvalAction('MANAGER_APPROVE');
+    $('tsHrApprove').onclick=()=>approvalAction('HR_APPROVE');
+    $('tsReopen').onclick=()=>approvalAction('REOPEN');
   }
 
   async function init(){
