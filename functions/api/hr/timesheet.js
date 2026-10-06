@@ -293,6 +293,7 @@ export async function onRequestGet({request,env}){
       rules:{duplicateWindowMinutes:10,longIntervalMinutes:900,factualFuture:'FUTURE',factualNoMarkScheduled:'ABSENT',factualNoMarkRest:'REST',factualNoRoleSchedule:'NO_SCHEDULE',factualWorkOnRest:'WORK_REST',factualWorkNoRoleSchedule:'WORK_NO_SCHEDULE',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE',overtimeApproval:'MANAGER_TO_HR',defaultOvertimeThresholdMinutes:600},
       summary:{factual:factualSummary,official:officialSummary,raw:{intervals:intervals.length,issues:issues.length}},
       employees,devices:devices.map(x=>({id:x.device_id,name:x.name,timezone:x.timezone||'Asia/Baku'})),
+      overtimeRules:overtimeRules.map(x=>({employeeId:String(x.iiko_employee_id||''),thresholdMinutes:Number(x.threshold_minutes||600),payableFromMinutes:Number(x.payable_from_minutes||600),note:x.note||'',updatedAt:x.updated_at||''})),
       factualDays,officialDays,intervals,issues
     });
   }catch(error){console.error('[HR-TIMESHEET-GET]',error);return json({success:false,message:error?.message||String(error)},500)}
