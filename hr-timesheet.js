@@ -328,11 +328,41 @@
     $('tsIssueRows').innerHTML=list.length?list.map(x=>`<tr><td>${esc(localDateTime(x.eventTime))}</td><td class="text-left"><div class="hr-name">${esc(x.employeeName||'—')}</div><div class="hr-sub">${x.employeeCode?'№ '+esc(x.employeeCode):''}</div></td><td><span class="hr-badge pending">${esc(issueLabel(x.code))}</span>${x.durationMinutes?`<div class="hr-sub">${esc(hoursLong(x.durationMinutes))}</div>`:''}</td><td><code class="hr-event-code">${esc(x.eventId||'—')}</code></td></tr>`).join(''):'<tr><td colspan="4" class="hr-empty">Проблем Face ID за выбранный месяц нет</td></tr>';
   }
 
+  function renderOvertime(){
+    const card=document.querySelector('.ts-overtime-card');
+    if(!card)return;
+    if(mode!=='FACTUAL'){card.hidden=true;return}
+    card.hidden=false;
+    const ids=new Set(filteredEmployees().map(x=>x.id));
+    const rows=(data.factualDays||[]).filter(x=>ids.has(x.employeeId)&&(Number(x.overtimeCandidateMinutes||0)>0||x.overtimeStatus&&x.overtimeStatus!=='NONE')).sort((a,b)=>String(a.workDate).localeCompare(String(b.workDate))||String(a.employeeName).localeCompare(String(b.employeeName),'ru'));
+    const approved=rows.filter(x=>x.overtimeStatus==='HR_APPROVED').length,changed=rows.filter(x=>x.overtimeStatus==='HR_CHANGED').length,rejected=rows.filter(x=>x.overtimeStatus==='HR_REJECTED').length,pending=rows.filter(x=>x.overtimeStatus==='MANAGER_SUBMITTED').length,notSent=rows.filter(x=>!x.overtimeStatus||x.overtimeStatus==='NONE').length;
+    $('tsOvertimeCount').textContent=`${rows.length} записей`;
+    $('tsOvertimeStats').innerHTML=[
+      ['Не отправлено',notSent,'manager'],
+      ['Ожидает HR',pending,'pending'],
+      ['Подтверждено',approved,'approved'],
+      ['Изменено HR',changed,'changed'],
+      ['Отклонено',rejected,'rejected']
+    ].map(x=>`<article class="ts-ot-stat ${x[2]}"><span>${esc(x[0])}</span><strong>${x[1]}</strong></article>`).join('');
+    $('tsOvertimeRows').innerHTML=rows.length?rows.map(x=>`
+      <tr>
+        <td>${esc(x.workDate)}</td>
+        <td class="text-left"><div class="hr-name">${esc(x.employeeName||'—')}</div><div class="hr-sub">${esc(x.roleName||'')}</div></td>
+        <td><strong>${esc(hours(x.workedMinutes))}</strong></td>
+        <td>${esc(hours(x.overtimeThresholdMinutes))}</td>
+        <td><strong>${esc(hours(x.overtimeCandidateMinutes))}</strong></td>
+        <td><span class="ts-ot-badge ${overtimeStatusClass(x.overtimeStatus)}">${esc(x.overtimeStatus==='NONE'?'Не отправлено':x.overtimeStatus==='MANAGER_SUBMITTED'?'Отправлено':'Есть решение')}</span>${x.overtimeManagerReason?`<div class="hr-sub ts-ot-reason">${esc(x.overtimeManagerReason)}</div>`:''}</td>
+        <td><span class="ts-ot-badge ${overtimeStatusClass(x.overtimeStatus)}">${esc(overtimeStatusLabel(x.overtimeStatus))}</span>${x.overtimeHrComment?`<div class="hr-sub ts-ot-reason">${esc(x.overtimeHrComment)}</div>`:''}</td>
+        <td><strong class="${Number(x.payrollOvertimeMinutes||0)>0?'ts-payroll-ot':''}">${esc(hours(x.payrollOvertimeMinutes))}</strong></td>
+        <td><button type="button" class="hr-link-button ts-open-day" data-employee-id="${esc(x.employeeId)}" data-date="${esc(x.workDate)}">Открыть</button></td>
+      </tr>`).join(''):'<tr><td colspan="9" class="hr-empty">Дополнительных часов за выбранный месяц нет.</td></tr>';
+  }
+
   function renderMode(){
     const factual=mode==='FACTUAL';
     $('tsFactualTab').classList.toggle('active',factual);
     $('tsOfficialTab').classList.toggle('active',!factual);
-    renderSummary();renderMatrix();renderIntervals();renderIssues();
+    renderSummary();renderMatrix();renderIntervals();renderIssues();renderOvertime();
   }
   function render(){renderFilters();renderMode();renderApproval()}
 
