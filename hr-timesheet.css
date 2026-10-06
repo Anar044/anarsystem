@@ -22,7 +22,7 @@
 .ts-contour-switch button.active{border-color:rgba(66,211,146,.48);box-shadow:inset 3px 0 0 #42d392;background:rgba(66,211,146,.055)}
 .ts-contour-switch button.active strong{color:#7ee5b0}
 
-.ts-summary-strip{display:grid;grid-template-columns:repeat(6,minmax(130px,1fr));gap:8px;margin:0 0 12px}
+.ts-summary-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:0 0 12px}
 .ts-summary-item{padding:11px 12px;border:1px solid #23313d;border-radius:12px;background:#101822}
 .ts-summary-item span{display:block;color:#718194;font-size:8px;text-transform:uppercase;font-weight:900;letter-spacing:.04em}
 .ts-summary-item strong{display:block;margin-top:5px;color:#eff4f7;font-size:16px}
@@ -33,6 +33,8 @@
 .ts-approval-head .ts-kicker{margin-bottom:5px}
 .ts-approval-head strong{display:block;color:#edf3f7;font-size:13px}
 .ts-approval-head p{margin:4px 0 0;color:#748496;font-size:9px}
+.ts-approval-badges{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.ts-access-badge{display:inline-flex;align-items:center;padding:6px 9px;border-radius:999px;border:1px solid rgba(89,139,255,.28);background:rgba(89,139,255,.08);color:#9cc3ff;font-size:8px;font-weight:900;text-transform:uppercase}
 .ts-approval-badge{display:inline-flex;align-items:center;padding:6px 9px;border-radius:999px;border:1px solid #31404d;background:#17212b;color:#a7b3be;font-size:8px;font-weight:900;text-transform:uppercase}
 .ts-approval-badge.manager{color:#f2c466;border-color:rgba(242,196,102,.28);background:rgba(242,196,102,.08)}
 .ts-approval-badge.hr{color:#82e7b3;border-color:rgba(66,211,146,.28);background:rgba(66,211,146,.08)}
@@ -93,9 +95,63 @@
 .ts-day-cell.future .ts-day-box{background:transparent;color:#4f5d69}
 .ts-day-cell.holiday .ts-day-box{background:rgba(89,139,255,.09);color:#8fbcff}
 .ts-day-cell .problem-dot{position:absolute;top:4px;right:5px;width:5px;height:5px;border-radius:50%;background:#ff6d7d}
+.ts-day-cell .correction-dot{position:absolute;top:4px;left:5px;width:5px;height:5px;border-radius:50%;background:#8fbcff}
+.ts-day-cell.corrected .ts-day-box{box-shadow:inset 0 0 0 1px rgba(143,188,255,.24)}
+.overtime-mini{position:absolute;right:3px;bottom:2px;padding:1px 3px;border-radius:4px;background:rgba(242,196,102,.14);color:#f2c466;font-size:6px;font-weight:900;line-height:1.2}
+.ts-total-cell.overtime-ok{color:#82e7b3}
+.ts-total-cell.overtime-wait{color:#f2c466}
 .ts-total-cell{min-width:70px;padding:0 8px;text-align:center;color:#cdd7df;font-weight:800}
 .ts-total-cell.emph{color:#82e7b3}
 .ts-empty-row td{padding:28px;color:#728292;text-align:center}
+
+.ts-overtime-card{margin-top:14px;border:1px solid #22303c;border-radius:16px;background:#101822;overflow:hidden}
+.ts-overtime-card[hidden]{display:none}
+.ts-overtime-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:14px 16px;border-bottom:1px solid #22303c}
+.ts-overtime-head strong{display:block;color:#edf3f7;font-size:13px}
+.ts-overtime-head p{max-width:760px;margin:5px 0 0;color:#748496;font-size:9px;line-height:1.5}
+.ts-overtime-stats{display:grid;grid-template-columns:repeat(5,minmax(110px,1fr));gap:8px;padding:12px 16px;border-bottom:1px solid #22303c}
+.ts-ot-stat{padding:9px 10px;border:1px solid #263541;border-radius:10px;background:#0d141c}
+.ts-ot-stat span{display:block;color:#768697;font-size:8px;text-transform:uppercase;font-weight:900}
+.ts-ot-stat strong{display:block;margin-top:4px;color:#e4ecf2;font-size:14px}
+.ts-ot-stat.approved{border-color:rgba(66,211,146,.24)}.ts-ot-stat.approved strong{color:#82e7b3}
+.ts-ot-stat.changed{border-color:rgba(89,139,255,.28)}.ts-ot-stat.changed strong{color:#9cc3ff}
+.ts-ot-stat.rejected{border-color:rgba(255,104,120,.28)}.ts-ot-stat.rejected strong{color:#ff9ba6}
+.ts-ot-stat.pending{border-color:rgba(242,196,102,.28)}.ts-ot-stat.pending strong{color:#f2c466}
+.ts-overtime-table{width:100%;border-collapse:collapse;min-width:980px}
+.ts-overtime-table th,.ts-overtime-table td{padding:9px 10px;border-bottom:1px solid #1e2b36;text-align:center;font-size:9px;color:#cdd7df}
+.ts-overtime-table th{color:#758597;font-size:8px;text-transform:uppercase;background:#0d151e}
+.ts-overtime-table .text-left{text-align:left}
+.ts-ot-badge{display:inline-flex;padding:4px 7px;border-radius:999px;border:1px solid #31404d;background:#17212b;color:#a7b3be;font-size:7px;font-weight:900;white-space:nowrap}
+.ts-ot-badge.pending{color:#f2c466;border-color:rgba(242,196,102,.28);background:rgba(242,196,102,.08)}
+.ts-ot-badge.approved{color:#82e7b3;border-color:rgba(66,211,146,.28);background:rgba(66,211,146,.08)}
+.ts-ot-badge.changed{color:#9cc3ff;border-color:rgba(89,139,255,.28);background:rgba(89,139,255,.08)}
+.ts-ot-badge.rejected{color:#ff9ba6;border-color:rgba(255,104,120,.28);background:rgba(255,104,120,.08)}
+.ts-ot-reason{max-width:220px;margin:4px auto 0;white-space:normal;line-height:1.35}
+.ts-payroll-ot{color:#82e7b3}
+
+.ts-edit-card{padding:13px;border:1px solid #273642;border-radius:12px;background:#0d141c;display:grid;gap:11px}
+.ts-edit-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.ts-edit-head strong{display:block;color:#e9f0f5;font-size:11px}
+.ts-edit-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ts-edit-grid.two{grid-template-columns:160px 1fr}
+.ts-edit-grid label,.ts-edit-full,.ts-rule-inputs label{display:grid;gap:5px}
+.ts-edit-grid label>span,.ts-edit-full>span,.ts-rule-inputs label>span{color:#748496;font-size:8px;font-weight:900;text-transform:uppercase}
+.ts-edit-grid input,.ts-edit-grid select,.ts-edit-grid textarea,.ts-edit-full textarea,.ts-rule-inputs input{width:100%;box-sizing:border-box;border:1px solid #293846;border-radius:9px;background:#101923;color:#e8eef3;padding:8px 9px;font:inherit}
+.ts-edit-grid input,.ts-edit-grid select,.ts-rule-inputs input{height:36px}
+.ts-edit-grid textarea,.ts-edit-full textarea{min-height:72px;resize:vertical}
+.ts-edit-grid .wide{grid-column:2}
+.ts-edit-actions{display:flex;gap:8px;flex-wrap:wrap}
+.ts-permission-note{padding:9px 10px;border-radius:9px;background:#141d26;color:#7f8f9f;font-size:9px}
+.ts-rule-box{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;padding:11px;border:1px dashed #31404d;border-radius:10px;background:#101923}
+.ts-rule-box>div>strong{display:block;color:#e0e8ee;font-size:10px}
+.ts-rule-box>div>small{display:block;margin-top:3px;max-width:310px;color:#708092;font-size:8px;line-height:1.4}
+.ts-rule-inputs{display:flex;align-items:end;gap:7px}
+.ts-rule-inputs label{min-width:125px}
+.ts-workflow-block{display:grid;gap:9px;padding-top:10px;border-top:1px solid #21303b}
+.ts-workflow-title{display:flex;align-items:center;gap:8px}
+.ts-workflow-title>span{display:flex;align-items:center;justify-content:center;width:23px;height:23px;border-radius:50%;background:#18232d;color:#82e7b3;font-size:8px;font-weight:900}
+.ts-workflow-title strong{display:block;color:#dfe8ee;font-size:10px}
+.ts-workflow-title small{display:block;margin-top:2px;color:#6f7f90;font-size:8px}
 
 .ts-diagnostics{margin-top:14px;padding:0;overflow:hidden}
 .ts-diagnostics>summary{display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer;list-style:none}
@@ -135,13 +191,19 @@
   .ts-filter-grid{grid-template-columns:1fr 1fr}
   .ts-approval-actions{grid-template-columns:1fr 1fr}
   .ts-summary-strip{grid-template-columns:repeat(3,1fr)}
+  .ts-overtime-stats{grid-template-columns:repeat(3,1fr)}
+  .ts-rule-box{grid-template-columns:1fr}
 }
 @media(max-width:760px){
-  .ts-filter-grid,.ts-contour-switch,.ts-summary-strip,.ts-approval-actions{grid-template-columns:1fr}
+  .ts-filter-grid,.ts-contour-switch,.ts-summary-strip,.ts-approval-actions,.ts-overtime-stats,.ts-edit-grid,.ts-edit-grid.two{grid-template-columns:1fr}
   .ts-matrix .ts-employee-head,.ts-matrix .ts-employee-cell{min-width:185px;width:185px}
   .ts-employee-main,.ts-employee-meta{max-width:160px}
   .ts-day-head,.ts-day-cell{min-width:48px;width:48px}
   .ts-detail-grid{grid-template-columns:1fr}
+  .ts-edit-grid .wide{grid-column:auto}
+  .ts-rule-inputs{display:grid;grid-template-columns:1fr}
+  .ts-approval-head,.ts-overtime-head{flex-direction:column}
+  .ts-approval-badges{justify-content:flex-start}
 }
 @media print{
   .sidebar,.topbar,.ts-control-card,.ts-contour-switch,.ts-summary-strip,.ts-approval-card,.ts-legend,.ts-diagnostics,.hr-actions,.ts-day-drawer{display:none!important}
