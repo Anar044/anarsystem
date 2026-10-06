@@ -310,6 +310,9 @@ jobs:
             "/nakladnye.html"
             "/ai-documents.html"
             "/ai-assistant.html"
+            "/hr-payroll.html"
+            "/hr-compensation.html"
+            "/hr-payroll-adjustments.html"
             "/rashodnye-nakladnye.html"
             "/akty-spisaniya.html"
           )
@@ -362,6 +365,11 @@ jobs:
             "/api/assets"
             "/api/asset-meta"
             "/api/asset-files"
+            "/api/hr/payroll"
+            "/api/hr/payroll-adjustments"
+            "/api/hr/payroll-tax-settings"
+            "/api/hr/compensation"
+            "/api/hr/timesheet"
           )
           for path in "${routes[@]}"; do
             code=$(curl -sS -X OPTIONS -o /tmp/api.txt -w '%{http_code}' "$PREVIEW_BASE$path" || true)
