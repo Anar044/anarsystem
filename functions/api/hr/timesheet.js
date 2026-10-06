@@ -1,9 +1,5 @@
 import { getUser } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
-import {
-  loadTimesheetAdjustments,overtimeRuleFor,
-  correctionDto,overtimeDto,hrAccessForUser
-} from './_lib/timesheet-adjustments.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -21,8 +17,8 @@ function cycleWorkDay(date,s){if(!s?.anchor_date||!Number(s.work_days||0))return
 function employmentActive(date,hire,fire){if(hire&&date<hire)return false;if(fire&&date>fire)return false;return true}
 async function snapshotHash(rows,kind){
   const compact=(rows||[]).map(x=>kind==='FACTUAL'
-    ? [x.employeeId,x.workDate,x.status,Number(x.workedMinutes||0),Number(x.plannedMinutes||0),Number(x.normMinutes||0),Number(x.approvedOvertimeMinutes||0),x.overtimeStatus||'',Number(x.issueCount||0),x.leaveId||'',x.scheduleName||'',x.scheduleSource||'',x.correction?.updatedAt||'']
-    : [x.employeeId,x.workDate,x.status,Number(x.plannedMinutes||0),x.leaveId||'',x.scheduleName||'',x.scheduleSource||'',x.calendarType||'',x.correction?.updatedAt||'']);
+    ? [x.employeeId,x.workDate,x.status,Number(x.workedMinutes||0),Number(x.plannedMinutes||0),Number(x.issueCount||0),x.leaveId||'',x.scheduleName||'',x.scheduleSource||'']
+    : [x.employeeId,x.workDate,x.status,Number(x.plannedMinutes||0),x.leaveId||'',x.scheduleName||'',x.scheduleSource||'',x.calendarType||'']);
   const bytes=new TextEncoder().encode(JSON.stringify(compact));
   const digest=await crypto.subtle.digest('SHA-256',bytes);
   return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
@@ -135,15 +131,6 @@ function schedulePlan(date,schedule,dayRules){
 function leaveForDate(employeeId,date,contour,leaves){
   return (leaves||[]).find(x=>String(x.iiko_employee_id)===String(employeeId)&&String(x.contour)===contour&&x.status==='APPROVED'&&x.date_from<=date&&x.date_to>=date)||null;
 }
-function applyDayCorrection(day,row){
-  if(!row)return day;
-  const c=correctionDto(row);
-  const out={...day,corrected:true,correction:c,rawStatus:day.status,rawWorkedMinutes:Number(day.workedMinutes||0),rawPlannedMinutes:Number(day.plannedMinutes||0)};
-  if(c.statusOverride)out.status=c.statusOverride;
-  if(Number(c.workedMinutesOverride)>=0)out.workedMinutes=Number(c.workedMinutesOverride);
-  if(Number(c.plannedMinutesOverride)>=0)out.plannedMinutes=Number(c.plannedMinutesOverride);
-  return out;
-}
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
 
@@ -156,10 +143,6 @@ export async function onRequestGet({request,env}){
     if(from>to)return json({success:false,message:'Дата начала не может быть позже даты окончания'},400);
     const span=(new Date(`${to}T00:00:00Z`)-new Date(`${from}T00:00:00Z`))/86400000;if(span>92)return json({success:false,message:'Для табеля выберите период не более 93 дней'},400);
     const userId=auth.user.id,scope=await resolveHrRestaurantScope(request,env,userId);
-    const adjustments=await loadTimesheetAdjustments(env.DB,userId,from,to);
-    const correctionMap=new Map((adjustments.corrections||[]).map(x=>[`${x.iiko_employee_id}|${x.work_date}|${x.contour}`,x]));
-    const overtimeMap=new Map((adjustments.overtime||[]).map(x=>[`${x.iiko_employee_id}|${x.work_date}`,x]));
-    const overtimeRules=adjustments.rules||[];
 
     const [employeeRows,deviceRows,eventRows,profileRows,leaveRows,scheduleRows,dayRuleRows,typeRows,overrideRows]=await Promise.all([
       env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all(),
@@ -209,43 +192,13 @@ export async function onRequestGet({request,env}){
           else if(raw?.status==='REVIEW')status='REVIEW';
           else if(worked)status=!scheduleConfigured?'WORK_NO_SCHEDULE':(plan.scheduled?'WORK':'WORK_REST');
           else status=!scheduleConfigured?'NO_SCHEDULE':(plan.scheduled?'ABSENT':'REST');
-          let factualDay=applyDayCorrection({
+          factualDays.push({
             employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,roleName:employee.roleName,departmentCode:employee.departmentCode,workDate:date,
-            status,firstIn:raw?.firstIn||'',lastOut:raw?.lastOut||'',workedMinutes:Number(raw?.workedMinutes||0),rawWorkedMinutes:Number(raw?.workedMinutes||0),intervalCount:Number(raw?.intervalCount||0),issueCount:Number(raw?.issueCount||0),
-            scheduleConfigured,scheduled:Boolean(plan?.scheduled),plannedMinutes:Math.round(Number(plan?.plannedMinutes||0)*capacity),rawPlannedMinutes:Math.round(Number(plan?.plannedMinutes||0)*capacity),shiftStart:plan?.shiftStart||'',shiftEnd:plan?.shiftEnd||'',
+            status,firstIn:raw?.firstIn||'',lastOut:raw?.lastOut||'',workedMinutes:Number(raw?.workedMinutes||0),intervalCount:Number(raw?.intervalCount||0),issueCount:Number(raw?.issueCount||0),
+            scheduleConfigured,scheduled:Boolean(plan?.scheduled),plannedMinutes:Math.round(Number(plan?.plannedMinutes||0)*capacity),shiftStart:plan?.shiftStart||'',shiftEnd:plan?.shiftEnd||'',
             scheduleName:plan?.scheduleName||'',scheduleSource:plan?.source||'',scheduleOverrideId:plan?.overrideId||'',scheduleOverrideNote:plan?.overrideNote||'',
-            leaveId:leave?.leave_id||'',leaveType:leave?.leave_type||'',leaveName:leave?.leaveName||'',leaveNote:leave?.note||'',corrected:false,correction:null
-          },correctionMap.get(`${employee.id}|${date}|FACTUAL`));
-          const overtimeRule=overtimeRuleFor(employee.id,overtimeRules,Number(factualDay.plannedMinutes||0));
-          const workedMinutes=Math.max(0,Number(factualDay.workedMinutes||0));
-          const overtimeCandidateMinutes=Math.max(0,workedMinutes-overtimeRule.thresholdMinutes);
-          const payableCandidateMinutes=Math.max(0,workedMinutes-overtimeRule.payableFromMinutes);
-          const overtimeRequest=overtimeDto(overtimeMap.get(`${employee.id}|${date}`));
-          const overtimeApprovedStatus=Boolean(overtimeRequest&&['HR_APPROVED','HR_CHANGED'].includes(overtimeRequest.status));
-          const approvedOvertimeMinutes=overtimeApprovedStatus?Math.min(overtimeCandidateMinutes,Math.max(0,Number(overtimeRequest.approvedMinutes||0))):0;
-          const payrollOvertimeMinutes=Math.min(approvedOvertimeMinutes,payableCandidateMinutes);
-          factualDay={
-            ...factualDay,
-            normMinutes:Math.min(workedMinutes,overtimeRule.thresholdMinutes),
-            overtimeThresholdMinutes:overtimeRule.thresholdMinutes,
-            overtimePayableFromMinutes:overtimeRule.payableFromMinutes,
-            overtimeRuleSource:overtimeRule.source,
-            overtimeRuleNote:overtimeRule.note||'',
-            overtimeCandidateMinutes,
-            overtimePayableCandidateMinutes:payableCandidateMinutes,
-            unpaidOvertimePotentialMinutes:Math.max(0,overtimeCandidateMinutes-payableCandidateMinutes),
-            overtimeStatus:overtimeRequest?.status||'NONE',
-            overtimeRequestedMinutes:Number(overtimeRequest?.requestedMinutes||0),
-            approvedOvertimeMinutes,
-            payrollOvertimeMinutes,
-            overtimeManagerReason:overtimeRequest?.managerReason||'',
-            overtimeHrComment:overtimeRequest?.hrComment||'',
-            overtimeManager:overtimeRequest?.manager||null,
-            overtimeHr:overtimeRequest?.hr||null,
-            overtimeRequestId:overtimeRequest?.id||'',
-            overtimeDayEquivalent:overtimeRule.thresholdMinutes>0?approvedOvertimeMinutes/overtimeRule.thresholdMinutes:0
-          };
-          factualDays.push(factualDay);
+            leaveId:leave?.leave_id||'',leaveType:leave?.leave_type||'',leaveName:leave?.leaveName||'',leaveNote:leave?.note||''
+          });
         }
         if(employmentActive(date,officialHire,officialFire)){
           const schedule=scheduleForDate(employee.id,employee.roleCode,date,schedules,overrides),plan=schedulePlan(date,schedule,dayRules),calendar=calendarInfo(date),leave=leaveForDate(employee.id,date,'OFFICIAL',leaves);
@@ -253,12 +206,11 @@ export async function onRequestGet({request,env}){
           let status=leave?'LEAVE':plan.scheduled?(calendar.type==='HOLIDAY'||calendar.type==='MOURNING'?'WORK_HOLIDAY':'WORK'):'REST';
           if(plan.source==='CALENDAR'&&(calendar.type==='HOLIDAY'||calendar.type==='TRANSFERRED_REST'||calendar.type==='WEEKEND'||calendar.type==='MOURNING')){status=leave?'LEAVE':'REST';planned=0}
           if(plan.source==='CALENDAR'&&calendar.type==='SHORT_WORKDAY')planned=Math.round(7*60*capacity);
-          const officialDay=applyDayCorrection({
+          officialDays.push({
             employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,roleName:employee.roleName,departmentCode:employee.departmentCode,workDate:date,
-            status,plannedMinutes:planned,rawPlannedMinutes:planned,workedMinutes:0,rawWorkedMinutes:0,shiftStart:plan.shiftStart,shiftEnd:plan.shiftEnd,breakMinutes:plan.breakMinutes,scheduleName:plan.scheduleName,scheduleSource:plan.source,scheduleOverrideId:plan.overrideId||'',scheduleOverrideNote:plan.overrideNote||'',
-            calendarType:calendar.type,calendarName:calendar.name,leaveId:leave?.leave_id||'',leaveType:leave?.leave_type||'',leaveName:leave?.leaveName||'',leaveNote:leave?.note||'',corrected:false,correction:null
-          },correctionMap.get(`${employee.id}|${date}|OFFICIAL`));
-          officialDays.push(officialDay);
+            status,plannedMinutes:planned,shiftStart:plan.shiftStart,shiftEnd:plan.shiftEnd,breakMinutes:plan.breakMinutes,scheduleName:plan.scheduleName,scheduleSource:plan.source,scheduleOverrideId:plan.overrideId||'',scheduleOverrideNote:plan.overrideNote||'',
+            calendarType:calendar.type,calendarName:calendar.name,leaveId:leave?.leave_id||'',leaveType:leave?.leave_type||'',leaveName:leave?.leaveName||'',leaveNote:leave?.note||''
+          });
         }
       }
     }
@@ -268,15 +220,7 @@ export async function onRequestGet({request,env}){
       leaveDays:factualDays.filter(x=>x.status==='LEAVE').length,absentDays:factualDays.filter(x=>x.status==='ABSENT').length,
       restDays:factualDays.filter(x=>x.status==='REST').length,workedRestDays:factualDays.filter(x=>x.status==='WORK_REST').length,
       noScheduleDays:factualDays.filter(x=>x.status==='NO_SCHEDULE').length,workedNoScheduleDays:factualDays.filter(x=>x.status==='WORK_NO_SCHEDULE').length,
-      workedMinutes:factualDays.reduce((s,x)=>s+x.workedMinutes,0),normMinutes:factualDays.reduce((s,x)=>s+Number(x.normMinutes||0),0),
-      overtimeCandidateMinutes:factualDays.reduce((s,x)=>s+Number(x.overtimeCandidateMinutes||0),0),
-      approvedOvertimeMinutes:factualDays.reduce((s,x)=>s+Number(x.approvedOvertimeMinutes||0),0),
-      payrollOvertimeMinutes:factualDays.reduce((s,x)=>s+Number(x.payrollOvertimeMinutes||0),0),
-      unpaidOvertimePotentialMinutes:factualDays.reduce((s,x)=>s+Number(x.unpaidOvertimePotentialMinutes||0),0),
-      overtimePendingDays:factualDays.filter(x=>x.overtimeCandidateMinutes>0&&['NONE','MANAGER_SUBMITTED'].includes(x.overtimeStatus)).length,
-      overtimeRejectedDays:factualDays.filter(x=>x.overtimeStatus==='HR_REJECTED').length,
-      correctedDays:factualDays.filter(x=>x.corrected).length,
-      reviewDays:factualDays.filter(x=>['REVIEW','LEAVE_WITH_WORK'].includes(x.status)).length
+      workedMinutes:factualDays.reduce((s,x)=>s+x.workedMinutes,0),reviewDays:factualDays.filter(x=>['REVIEW','LEAVE_WITH_WORK'].includes(x.status)).length
     };
     const officialSummary={
       rows:officialDays.length,workDays:officialDays.filter(x=>['WORK','WORK_HOLIDAY'].includes(x.status)).length,leaveDays:officialDays.filter(x=>x.status==='LEAVE').length,
@@ -286,13 +230,11 @@ export async function onRequestGet({request,env}){
     const [factualSnapshotHash,officialSnapshotHash]=await Promise.all([snapshotHash(factualDays,'FACTUAL'),snapshotHash(officialDays,'OFFICIAL')]);
 
     return json({
-      success:true,period:{from,to},engine:'TIMESHEET_V3_CORRECTIONS_OVERTIME',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
-      access:hrAccessForUser(auth.user),
+      success:true,period:{from,to},engine:'TIMESHEET_V2_EMPLOYEE_OVERRIDE',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
       snapshotHashes:{FACTUAL:factualSnapshotHash,OFFICIAL:officialSnapshotHash},
-      rules:{duplicateWindowMinutes:10,longIntervalMinutes:900,factualFuture:'FUTURE',factualNoMarkScheduled:'ABSENT',factualNoMarkRest:'REST',factualNoRoleSchedule:'NO_SCHEDULE',factualWorkOnRest:'WORK_REST',factualWorkNoRoleSchedule:'WORK_NO_SCHEDULE',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE',overtimeApproval:'MANAGER_TO_HR',defaultOvertimeThresholdMinutes:600},
+      rules:{duplicateWindowMinutes:10,longIntervalMinutes:900,factualFuture:'FUTURE',factualNoMarkScheduled:'ABSENT',factualNoMarkRest:'REST',factualNoRoleSchedule:'NO_SCHEDULE',factualWorkOnRest:'WORK_REST',factualWorkNoRoleSchedule:'WORK_NO_SCHEDULE',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
       summary:{factual:factualSummary,official:officialSummary,raw:{intervals:intervals.length,issues:issues.length}},
       employees,devices:devices.map(x=>({id:x.device_id,name:x.name,timezone:x.timezone||'Asia/Baku'})),
-      overtimeRules:overtimeRules.map(x=>({employeeId:String(x.iiko_employee_id||''),thresholdMinutes:Number(x.threshold_minutes||600),payableFromMinutes:Number(x.payable_from_minutes||600),note:x.note||'',updatedAt:x.updated_at||''})),
       factualDays,officialDays,intervals,issues
     });
   }catch(error){console.error('[HR-TIMESHEET-GET]',error);return json({success:false,message:error?.message||String(error)},500)}
