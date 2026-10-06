@@ -13,6 +13,7 @@ function monthBounds(month){const [y,m]=month.split('-').map(Number);const last=
 function weekday(date){const d=new Date(`${date}T00:00:00Z`).getUTCDay();return d===0?7:d}
 function shiftMinutes(start,end,breakMinutes=0){const [sh,sm]=String(start||'00:00').split(':').map(Number),[eh,em]=String(end||'00:00').split(':').map(Number);let a=sh*60+sm,b=eh*60+em;if(b<=a)b+=1440;return Math.max(0,b-a-Number(breakMinutes||0))}
 function localParts(value,timeZone='Asia/Baku'){const d=new Date(value);if(Number.isNaN(d.getTime()))return{date:'',time:''};const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d);const m=Object.fromEntries(parts.map(x=>[x.type,x.value]));return{date:`${m.year}-${m.month}-${m.day}`,time:`${m.hour}:${m.minute}`}}
+function chunkList(values,size=50){const out=[];for(let i=0;i<(values||[]).length;i+=size)out.push(values.slice(i,i+size));return out}
 
 const MONTH_NORMS_2026={1:{days:19,hours:151},2:{days:20,hours:160},3:{days:14,hours:111},4:{days:22,hours:176},5:{days:17,hours:134},6:{days:20,hours:159},7:{days:23,hours:184},8:{days:21,hours:168},9:{days:22,hours:176},10:{days:22,hours:176},11:{days:19,hours:152},12:{days:22,hours:175}};
 
@@ -24,7 +25,8 @@ async function ensure(db){
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_compensation_terms (user_id TEXT NOT NULL,term_id TEXT NOT NULL,role_code TEXT NOT NULL,effective_from TEXT NOT NULL,effective_to TEXT NOT NULL DEFAULT '',official_gross REAL NOT NULL DEFAULT 0,additional_amount REAL NOT NULL DEFAULT 0,additional_payment_method TEXT NOT NULL DEFAULT 'CASH',additional_tax_treatment TEXT NOT NULL DEFAULT 'TAXABLE',additional_legal_basis TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT '',is_active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,term_id))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_schedules (user_id TEXT NOT NULL,schedule_id TEXT NOT NULL,role_code TEXT NOT NULL,schedule_name TEXT NOT NULL,pattern_type TEXT NOT NULL DEFAULT 'WEEKLY',weekdays TEXT NOT NULL DEFAULT '1,2,3,4,5',work_days INTEGER NOT NULL DEFAULT 5,off_days INTEGER NOT NULL DEFAULT 2,anchor_date TEXT NOT NULL DEFAULT '',shift_start TEXT NOT NULL,shift_end TEXT NOT NULL,break_minutes INTEGER NOT NULL DEFAULT 0,valid_from TEXT NOT NULL,valid_to TEXT NOT NULL DEFAULT '',is_default INTEGER NOT NULL DEFAULT 0,is_active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,schedule_id))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_schedule_days (user_id TEXT NOT NULL,schedule_id TEXT NOT NULL,weekday INTEGER NOT NULL,shift_start TEXT NOT NULL,shift_end TEXT NOT NULL,break_minutes INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,schedule_id,weekday))`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS hr_attendance_events (user_id TEXT NOT NULL,event_id TEXT NOT NULL,device_id TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'ZKTECO',source_uid TEXT NOT NULL,external_employee_id TEXT NOT NULL DEFAULT '',iiko_employee_id TEXT NOT NULL DEFAULT '',event_time TEXT NOT NULL,event_type TEXT NOT NULL DEFAULT 'UNKNOWN',raw_payload TEXT NOT NULL DEFAULT '{}',imported_at TEXT NOT NULL,PRIMARY KEY(user_id,event_id),UNIQUE(user_id,device_id,source_uid))`)
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_attendance_events (user_id TEXT NOT NULL,event_id TEXT NOT NULL,device_id TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'ZKTECO',source_uid TEXT NOT NULL,external_employee_id TEXT NOT NULL DEFAULT '',iiko_employee_id TEXT NOT NULL DEFAULT '',event_time TEXT NOT NULL,event_type TEXT NOT NULL DEFAULT 'UNKNOWN',raw_payload TEXT NOT NULL DEFAULT '{}',imported_at TEXT NOT NULL,PRIMARY KEY(user_id,event_id),UNIQUE(user_id,device_id,source_uid))`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_devices (user_id TEXT NOT NULL,device_id TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'ZKTECO',name TEXT NOT NULL,location TEXT NOT NULL DEFAULT '',connection_mode TEXT NOT NULL DEFAULT 'LOCAL_CONNECTOR',timezone TEXT NOT NULL DEFAULT 'Asia/Baku',is_active INTEGER NOT NULL DEFAULT 1,last_sync_at TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,device_id))`)
   ]);
 }
 
@@ -64,32 +66,54 @@ export async function onRequestGet({request,env}){
     if(b.year!==2026)return json({success:false,message:'В HR Preview производственный календарь Payroll пока настроен на 2026 год.'},400);
     const userId=auth.user.id,norm=MONTH_NORMS_2026[b.month];
     const scope=await resolveHrRestaurantScope(request,env,userId);
-    const [employeesR,employeeTermsR,roleTermsR,schedulesR,daysR,eventsR]=await Promise.all([
+    const [employeesR,employeeTermsR,roleTermsR,schedulesR,daysR,devicesR]=await Promise.all([
       env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,first_name,middle_name,last_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all(),
       env.DB.prepare(`SELECT * FROM hr_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY iiko_employee_id,effective_from DESC`).bind(userId).all(),
       env.DB.prepare(`SELECT * FROM hr_role_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY role_code,effective_from DESC`).bind(userId).all(),
       env.DB.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 AND is_active=1 AND is_default=1 AND valid_from<=?3 AND (valid_to='' OR valid_to>=?2) ORDER BY role_code,valid_from DESC`).bind(userId,b.from,b.to).all(),
       env.DB.prepare(`SELECT * FROM hr_role_schedule_days WHERE user_id=?1 ORDER BY schedule_id,weekday`).bind(userId).all(),
-      env.DB.prepare(`SELECT event_id,device_id,iiko_employee_id,event_time,event_type FROM hr_attendance_events WHERE user_id=?1 AND iiko_employee_id<>'' AND event_time>=?2 AND event_time<=?3 ORDER BY iiko_employee_id,event_time`).bind(userId,`${isoDayShift(b.from,-1)}T00:00:00.000Z`,`${isoDayShift(b.to,1)}T23:59:59.999Z`).all()
+      env.DB.prepare(`SELECT device_id,name,timezone,is_active,last_sync_at FROM hr_devices WHERE user_id=?1 AND is_active=1 ORDER BY name`).bind(userId).all()
     ]);
-    const employeeTerms=employeeTermsR.results||[],roleTerms=roleTermsR.results||[],schedules=schedulesR.results||[],scheduleDays=daysR.results||[];
+    const employeeTerms=employeeTermsR.results||[],roleTerms=roleTermsR.results||[],schedules=schedulesR.results||[],scheduleDays=daysR.results||[],activeDevices=devicesR.results||[];
     const scheduleByRole=new Map();for(const s of schedules){if(!scheduleByRole.has(String(s.role_code)))scheduleByRole.set(String(s.role_code),s)}
     const dayRulesBySchedule=new Map();for(const d of scheduleDays){const id=String(d.schedule_id);if(!dayRulesBySchedule.has(id))dayRulesBySchedule.set(id,[]);dayRulesBySchedule.get(id).push(d)}
-    const eventsByEmployee=new Map();for(const e of eventsR.results||[]){const id=String(e.iiko_employee_id||'');if(!eventsByEmployee.has(id))eventsByEmployee.set(id,[]);eventsByEmployee.get(id).push(e)}
     const rows=[];
     const scopedEmployees=filterEmployeesByScope(employeesR.results||[],scope);
+    const scopedIds=[...new Set(scopedEmployees.filter(e=>!Number(e.is_deleted)).map(e=>String(e.iiko_employee_id||'')).filter(Boolean))];
+    const faceIdConnected=activeDevices.length>0;
+    const eventsByEmployee=new Map(),overtimeByEmployee=new Map();
+    if(faceIdConnected&&scopedIds.length){
+      for(const ids of chunkList(scopedIds,50)){
+        const qs=ids.map(()=>'?').join(',');
+        const part=await env.DB.prepare(`SELECT event_id,device_id,iiko_employee_id,event_time,event_type FROM hr_attendance_events WHERE user_id=? AND iiko_employee_id IN (${qs}) AND event_time>=? AND event_time<=? ORDER BY iiko_employee_id,event_time`).bind(userId,...ids,`${isoDayShift(b.from,-1)}T00:00:00.000Z`,`${isoDayShift(b.to,1)}T23:59:59.999Z`).all();
+        for(const e of part.results||[]){const id=String(e.iiko_employee_id||'');if(!eventsByEmployee.has(id))eventsByEmployee.set(id,[]);eventsByEmployee.get(id).push(e)}
+      }
+    }
+    if(scopedIds.length){
+      try{
+        for(const ids of chunkList(scopedIds,50)){
+          const qs=ids.map(()=>'?').join(',');
+          const part=await env.DB.prepare(`SELECT iiko_employee_id,approved_minutes,status FROM hr_overtime_requests WHERE user_id=? AND iiko_employee_id IN (${qs}) AND work_date>=? AND work_date<=? AND status IN ('HR_APPROVED','HR_CHANGED')`).bind(userId,...ids,b.from,b.to).all();
+          for(const x of part.results||[]){const id=String(x.iiko_employee_id||'');overtimeByEmployee.set(id,(overtimeByEmployee.get(id)||0)+Math.max(0,Number(x.approved_minutes||0)))}
+        }
+      }catch(error){
+        if(!/no such table|does not exist/i.test(String(error?.message||error)))console.warn('[HR-PAYROLL-OVERTIME]',error);
+      }
+    }
     for(const e of scopedEmployees){if(Number(e.is_deleted))continue;if(e.hire_date&&e.hire_date>b.to)continue;if(e.fire_date&&e.fire_date<b.from)continue;
       const id=String(e.iiko_employee_id),roleCode=String(e.role_code||''),full=[e.last_name,e.first_name,e.middle_name].filter(Boolean).join(' ')||e.display_name||e.employee_code||id;
       const individualRaw=activeTerm(employeeTerms,'iiko_employee_id',id,b.to),roleRaw=activeTerm(roleTerms,'role_code',roleCode,b.to),termRaw=individualRaw||roleRaw,sourceType=individualRaw?'EMPLOYEE':(roleRaw?'ROLE':'');
       const term=individualRaw?termDto(individualRaw,'employeeId'):(roleRaw?termDto(roleRaw,'roleCode'):null),calculation=term?calculateCompensation({officialGross:term.officialGross,additionalAmount:term.additionalAmount,additionalTaxTreatment:term.additionalTaxTreatment,calculationDate:b.to}):null;
       const schedule=scheduleByRole.get(roleCode)||null,dayRules=schedule?dayRulesBySchedule.get(String(schedule.schedule_id))||[]:[],plannedMinutes=plannedMinutesForSchedule(schedule,dayRules,b.from,b.to);
-      const attendance=normalizeEmployee(eventsByEmployee.get(id)||[],b.from,b.to),actualMinutes=attendance.intervals.reduce((a,x)=>a+x.durationMinutes,0),normMinutes=norm.hours*60,varianceMinutes=actualMinutes-(plannedMinutes||normMinutes);
+      const attendance=faceIdConnected?normalizeEmployee(eventsByEmployee.get(id)||[],b.from,b.to):{intervals:[],issues:0};
+      const actualMinutes=faceIdConnected?attendance.intervals.reduce((a,x)=>a+x.durationMinutes,0):null,normMinutes=norm.hours*60,varianceMinutes=faceIdConnected?actualMinutes-(plannedMinutes||normMinutes):null;
+      const overtimeApprovedMinutes=Math.max(0,Number(overtimeByEmployee.get(id)||0));
       const termChanges=overlapTermCount(employeeTerms,'iiko_employee_id',id,b.from,b.to)+(individualRaw?0:overlapTermCount(roleTerms,'role_code',roleCode,b.from,b.to));
-      let status='READY';const flags=[];if(!term){status='NO_TERMS';flags.push('Нет условий оплаты')}if(attendance.issues){status='REVIEW';flags.push(`Ошибки табеля: ${attendance.issues}`)}if(termChanges>1){status='REVIEW';flags.push('Изменение условий внутри месяца')}if(Math.abs(varianceMinutes)>=60){status='REVIEW';flags.push('Есть отклонение факта от плана')}
-      rows.push({employeeId:id,employeeCode:e.employee_code||'',employeeName:full,roleCode,roleName:e.role_name||roleCode,sourceType,term,schedule:schedule?{id:schedule.schedule_id,name:schedule.schedule_name,patternType:schedule.pattern_type}:null,normMinutes,plannedMinutes:plannedMinutes||normMinutes,actualMinutes,varianceMinutes,attendanceIssues:attendance.issues,status,flags,calculation});
+      let status='READY';const flags=[];if(!term){status='NO_TERMS';flags.push('Нет условий оплаты')}if(faceIdConnected&&attendance.issues){status='REVIEW';flags.push(`Ошибки табеля: ${attendance.issues}`)}if(termChanges>1){status='REVIEW';flags.push('Изменение условий внутри месяца')}if(faceIdConnected&&Math.abs(varianceMinutes)>=60){status='REVIEW';flags.push('Есть отклонение факта от плана')}
+      rows.push({employeeId:id,employeeCode:e.employee_code||'',employeeName:full,roleCode,roleName:e.role_name||roleCode,sourceType,term,schedule:schedule?{id:schedule.schedule_id,name:schedule.schedule_name,patternType:schedule.pattern_type}:null,normMinutes,plannedMinutes:plannedMinutes||normMinutes,actualMinutes,varianceMinutes,attendanceIssues:attendance.issues,attendanceMode:faceIdConnected?'FACE_ID':'NOT_CONNECTED',overtimeApprovedMinutes,status,flags,calculation});
     }
     const configured=rows.filter(r=>r.calculation),sum=k=>round2(configured.reduce((a,r)=>a+Number(r.calculation?.[k]||0),0));
     const totals={officialGross:round2(configured.reduce((a,r)=>a+Number(r.calculation?.official?.gross||0),0)),officialNet:round2(configured.reduce((a,r)=>a+Number(r.calculation?.official?.net||0),0)),additional:round2(configured.reduce((a,r)=>a+Number(r.term?.additionalAmount||0),0)),employeeReceives:sum('totalEmployeeReceives'),employerCost:sum('totalEmployerCost')};
-    return json({success:true,engine:'MONTHLY_PAYROLL_PREVIEW_V1',month,period:{from:b.from,to:b.to},currency:'AZN',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,ruleProfile:AZ_PAYROLL_RULE_PROFILE,calendar:{year:2026,workDays:norm.days,normHours:norm.hours,source:'ƏƏSMN 2026 istehsalat təqvimi'},summary:{employees:rows.length,configured:configured.length,ready:rows.filter(r=>r.status==='READY').length,review:rows.filter(r=>r.status==='REVIEW').length,withoutTerms:rows.filter(r=>r.status==='NO_TERMS').length,normMinutes:rows.length*norm.hours*60,actualMinutes:rows.reduce((a,r)=>a+r.actualMinutes,0)},totals,rows,notes:['Черновой Payroll: отклонение Face ID само по себе не уменьшает оклад.','Отпуска, больничные, ночные, праздничные и сверхурочные будут отдельными подтверждёнными начислениями/удержаниями.','Для сменных графиков план берётся из основного графика должности; индивидуальные назначения смен A/B будут добавлены отдельным слоем.']});
+    return json({success:true,engine:'MONTHLY_PAYROLL_V2',month,period:{from:b.from,to:b.to},currency:'AZN',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,ruleProfile:AZ_PAYROLL_RULE_PROFILE,calendar:{year:2026,workDays:norm.days,normHours:norm.hours,source:'ƏƏSMN 2026 istehsalat təqvimi'},attendance:{mode:faceIdConnected?'FACE_ID':'NOT_CONNECTED',activeDevices:activeDevices.length,label:faceIdConnected?'Face ID подключён':'Face ID пока не подключён'},summary:{employees:rows.length,configured:configured.length,ready:rows.filter(r=>r.status==='READY').length,review:rows.filter(r=>r.status==='REVIEW').length,withoutTerms:rows.filter(r=>r.status==='NO_TERMS').length,normMinutes:rows.length*norm.hours*60,actualMinutes:faceIdConnected?rows.reduce((a,r)=>a+Number(r.actualMinutes||0),0):null,overtimeApprovedMinutes:rows.reduce((a,r)=>a+Number(r.overtimeApprovedMinutes||0),0)},totals,rows,notes:[faceIdConnected?'Face ID участвует только как источник фактического времени и сам по себе не уменьшает оклад.':'Face ID не подключён: фактическое время не участвует в расчёте и не блокирует Payroll.','Подтверждённые HR дополнительные часы показываются отдельно; денежная сумма не рассчитывается до настройки правила оплаты сверхурочных.','Базовая зарплата рассчитывается из активных условий оплаты, налогового профиля и подтверждённых корректировок.']});
   }catch(e){console.error('[HR-PAYROLL-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
 }
