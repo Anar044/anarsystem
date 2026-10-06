@@ -127,7 +127,7 @@ function overallRows(list){
   $('hrpTable').className='hrp-table mode-overall';
   $('hrpHead').innerHTML=head([
     {label:'Сотрудник',left:true},{label:'Источник'},{label:'Статус'},{label:'Раб. дни'},{label:'Месячный факт. оклад'},{label:'Начислено факт.'},{label:'Официальный Gross'},
-    {label:'Доп. часть'},{label:'Доп. день'},{label:'Доп. часы, ₽'},{label:'Вознаграждения'},{label:'Аванс'},{label:'Удержания'},
+    {label:'Доп. часть'},{label:'Доп. день'},{label:'Оплач. доп. часы'},{label:'Вознаграждения'},{label:'Аванс'},{label:'Удержания'},
     {label:'Основная выплата'},{label:'Отдельно доп. часы'},{label:'Всего к выплате',cls:'accent-head'},{label:'Стоимость ресторану'},{label:'Проверить',left:true}
   ]);
   return list.map(m=>`<tr>
