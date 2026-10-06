@@ -335,7 +335,7 @@
   }
 
   function onFilter(){renderMode()}
-  function setMode(next){mode=next;closeDrawer();renderMode()}
+  function setMode(next){mode=next;if(mode==='OFFICIAL'&&$('tsProblemsOnly'))$('tsProblemsOnly').checked=false;closeDrawer();renderMode()}
   function changeMonth(delta){$('tsMonth').value=shiftMonth($('tsMonth').value,delta);load()}
 
   function bind(){
