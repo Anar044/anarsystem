@@ -92,10 +92,10 @@ export function overtimeRuleFor(employeeId,rules,plannedMinutes=0){
   const specific=rows.find(x=>String(x.iiko_employee_id)===String(employeeId));
   const global=rows.find(x=>String(x.iiko_employee_id)==='*');
   const base=specific||global||null;
-  const fallback=Math.max(1,num(plannedMinutes,0)||DEFAULT_OVERTIME_THRESHOLD_MINUTES);
+  const fallback=DEFAULT_OVERTIME_THRESHOLD_MINUTES;
   const threshold=Math.max(1,num(base?.threshold_minutes,fallback));
   const payable=Math.max(threshold,num(base?.payable_from_minutes,threshold));
-  return{thresholdMinutes:threshold,payableFromMinutes:payable,source:specific?'EMPLOYEE':global?'GLOBAL':'SCHEDULE',note:base?.note||''};
+  return{thresholdMinutes:threshold,payableFromMinutes:payable,source:specific?'EMPLOYEE':global?'GLOBAL':'DEFAULT',note:base?.note||''};
 }
 export function correctionDto(row){
   if(!row)return null;
