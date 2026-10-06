@@ -79,13 +79,19 @@ export async function ensureTimesheetAdjustmentTables(db){
   ]);
 }
 export async function loadTimesheetAdjustments(db,userId,from,to){
-  await ensureTimesheetAdjustmentTables(db);
-  const [c,r,o]=await Promise.all([
-    db.prepare(`SELECT * FROM hr_timesheet_day_corrections WHERE user_id=?1 AND work_date>=?2 AND work_date<=?3`).bind(userId,from,to).all(),
-    db.prepare(`SELECT * FROM hr_overtime_rules WHERE user_id=?1`).bind(userId).all(),
-    db.prepare(`SELECT * FROM hr_overtime_requests WHERE user_id=?1 AND work_date>=?2 AND work_date<=?3`).bind(userId,from,to).all()
-  ]);
-  return{corrections:c.results||[],rules:r.results||[],overtime:o.results||[]};
+  if(!db)throw new Error('D1 binding DB не настроен.');
+  try{
+    const [c,r,o]=await Promise.all([
+      db.prepare(`SELECT * FROM hr_timesheet_day_corrections WHERE user_id=?1 AND work_date>=?2 AND work_date<=?3`).bind(userId,from,to).all(),
+      db.prepare(`SELECT * FROM hr_overtime_rules WHERE user_id=?1`).bind(userId).all(),
+      db.prepare(`SELECT * FROM hr_overtime_requests WHERE user_id=?1 AND work_date>=?2 AND work_date<=?3`).bind(userId,from,to).all()
+    ]);
+    return{corrections:c.results||[],rules:r.results||[],overtime:o.results||[]};
+  }catch(error){
+    const message=String(error?.message||error||'');
+    if(/no such table|does not exist/i.test(message))return{corrections:[],rules:[],overtime:[]};
+    throw error;
+  }
 }
 export function overtimeRuleFor(employeeId,rules,plannedMinutes=0){
   const rows=Array.isArray(rules)?rules:[];
