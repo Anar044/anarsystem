@@ -36,8 +36,10 @@ function calcGross(gross,s){
   return{gross:r(g),taxableIncome:r(taxable),employee,employer,net:r(g-employee.total),totalEmployerCost:r(g+employer.total)}
 }
 function model(row,adj,tax){
-  const term=row.term||null,s=tax.settings||{},tot=adj?.totals||{},meal=adj?.meal||{};
-  const officialGross=Number(term?.officialGross||0),additionalGross=Number(term?.additionalAmount||0);
+  const term=row.term||null,s=tax.settings||{},tot=adj?.totals||{},meal=adj?.meal||{},accrual=row.accrual||{},proration=row.proration||{},ot=row.overtime||{};
+  const monthlyOfficialGross=Number(term?.officialGross||0),monthlyFactualGross=Number(accrual.monthlyFactualGross??(Number(term?.officialGross||0)+Number(term?.additionalAmount||0)));
+  const officialGross=Number(accrual.officialAccruedGross??monthlyOfficialGross),factualBaseGross=Number(accrual.factualBaseGross??monthlyFactualGross);
+  const additionalGross=Number(accrual.additionalAccruedGross??Math.max(0,factualBaseGross-officialGross)),extraDayPay=Number(accrual.extraDayPay||0);
   const treatment=String(term?.additionalTaxTreatment||'TAXABLE').toUpperCase(),additionalTaxable=treatment==='TAXABLE';
   const taxableRewards=Number(tot.taxableRewards||0),exemptRewards=Number(tot.exemptRewards||0),rewards=Number(tot.rewards||0);
   const advances=Number(tot.advances||0),deductions=Number(tot.deductions||0),drafts=Number(tot.drafts||0);
@@ -48,23 +50,28 @@ function model(row,adj,tax){
   const combined=calcGross(combinedTaxGross,s);
   const additionalEmployeeTax=r(Math.max(0,additionalCombined.employee.total-official.employee.total));
   const additionalNet=r(additionalGross-(additionalTaxable?Math.min(additionalGross,additionalEmployeeTax):0));
-  const beforeDeductions=r(combined.net+(additionalTaxable?0:additionalGross)+exemptRewards);
-  const finalPayable=r(Math.max(0,beforeDeductions-advances-deductions));
-  const employerCost=r(combined.totalEmployerCost+(additionalTaxable?0:additionalGross)+exemptRewards);
-  const factualBaseGross=r(officialGross+additionalGross);
-  const fullAccrualGross=r(factualBaseGross+rewards);
-  const cap=r(beforeDeductions*.20),overCap=deductions>cap+.009;
-  const overtimeMinutes=Number(row.overtimeApprovedMinutes||0);
+  const regularBeforeDeductions=r(combined.net+(additionalTaxable?0:additionalGross)+exemptRewards);
+  const regularPayable=r(Math.max(0,regularBeforeDeductions-advances-deductions));
+  const finalPayable=r(regularPayable+extraDayPay);
+  const employerCost=r(combined.totalEmployerCost+(additionalTaxable?0:additionalGross)+exemptRewards+extraDayPay);
+  const fullAccrualGross=r(factualBaseGross+rewards+extraDayPay);
+  const cap=r(regularBeforeDeductions*.20),overCap=deductions>cap+.009;
+  const overtimeMinutes=Number(ot.payableMinutes??row.overtimeApprovedMinutes??0),approvedOvertimeMinutes=Number(ot.approvedMinutes||0),unpaidOvertimeMinutes=Number(ot.unpaidGapMinutes||0),extraDayEquivalent=Number(ot.extraDayEquivalent||0);
   const reasons=[...(row.flags||[])];
   if(drafts>0)reasons.push(`Черновики корректировок: ${drafts}`);
   if(Number(meal.pendingDeduction||0)>0)reasons.push(`Питание к подтверждению: ${money(meal.pendingDeduction)}`);
   if(overCap)reasons.push(`Удержания выше контрольных 20%: ${money(cap)}`);
-  if(overtimeMinutes>0)reasons.push(`Подтверждены доп. часы: ${hours(overtimeMinutes)} — сумма ещё не рассчитана`);
   let status=row.status||'READY';
   if(!term)status='NO_TERMS';
-  else if(status==='REVIEW'||drafts>0||Number(meal.pendingDeduction||0)>0||overCap||overtimeMinutes>0)status='REVIEW';
+  else if(status==='REVIEW'||drafts>0||Number(meal.pendingDeduction||0)>0||overCap)status='REVIEW';
   else status='READY';
-  return{row,adj:adj||{},term,officialGross,additionalGross,additionalNet,rewards,taxableRewards,exemptRewards,advances,deductions,drafts,official,combined,beforeDeductions,finalPayable,employerCost,factualBaseGross,fullAccrualGross,cap,overCap,overtimeMinutes,meal,status,reasons};
+  return{
+    row,adj:adj||{},term,proration,accrual,ot,
+    monthlyOfficialGross,monthlyFactualGross,officialGross,additionalGross,additionalNet,extraDayPay,
+    rewards,taxableRewards,exemptRewards,advances,deductions,drafts,official,combined,
+    regularBeforeDeductions,regularPayable,finalPayable,employerCost,factualBaseGross,fullAccrualGross,
+    cap,overCap,overtimeMinutes,approvedOvertimeMinutes,unpaidOvertimeMinutes,extraDayEquivalent,meal,status,reasons
+  };
 }
 function buildModels(p,a,tax){const map=new Map((a.employees||[]).map(x=>[String(x.id),x]));return(p.rows||[]).map(row=>model(row,map.get(String(row.employeeId)),tax||{}))}
 
@@ -90,12 +97,13 @@ function renderFilters(){
 }
 function renderSummary(){
   const list=selectedModels(),sum=fn=>r(list.reduce((a,m)=>a+Number(fn(m)||0),0));
-  const factualFund=sum(m=>m.factualBaseGross),officialGross=sum(m=>m.officialGross),payable=sum(m=>m.finalPayable),cost=sum(m=>m.employerCost);
+  const factualFund=sum(m=>m.factualBaseGross),officialGross=sum(m=>m.officialGross),extraPay=sum(m=>m.extraDayPay),payable=sum(m=>m.finalPayable),cost=sum(m=>m.employerCost);
   $('hrpSummary').innerHTML=[
     ['Сотрудников',list.length,`С условиями: ${list.filter(m=>m.term).length}`],
-    ['Фактический фонд',money(factualFund),'Официальная + дополнительная часть'],
-    ['Официальный Gross',money(officialGross),'Белая часть начислений'],
-    ['К выплате',money(payable),'После авансов и удержаний'],
+    ['Фактический фонд',money(factualFund),'База после расчёта неполного месяца'],
+    ['Официальный Gross',money(officialGross),'Начислено за расчётные дни'],
+    ['Доп. часы отдельно',money(extraPay),'Отдельное начисление и выплата'],
+    ['К выплате',money(payable),'Основная + отдельная выплата доп. часов'],
     ['Стоимость ресторану',money(cost),'Начисления + взносы работодателя']
   ].map(x=>`<article class="hr-summary-card"><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
 }
@@ -105,56 +113,71 @@ function renderContext(){
   $('hrpTaxProfile').textContent=`${t.mode==='MANUAL'?'Ручной':'Системный'}${t.active?.effectiveFrom?' · с '+t.active.effectiveFrom:''}`;
   $('hrpAttendance').textContent=p.attendance?.mode==='FACE_ID'?`Face ID · устройств: ${Number(p.attendance.activeDevices||0)}`:'Face ID пока не подключён';
   $('hrpAttendance').className=p.attendance?.mode==='FACE_ID'?'connected':'not-connected';
-  $('hrpOvertime').textContent=hours(p.summary?.overtimeApprovedMinutes||0);
+  $('hrpOvertime').textContent=`${hours(p.summary?.overtimePayableMinutes||0)} · ${Number(p.summary?.overtimeExtraDays||0).toLocaleString('ru-RU',{maximumFractionDigits:2})} дн. · ${money(p.summary?.overtimeExtraPay||0)}`;
 }
 function head(cols){return`<tr>${cols.map(c=>`<th class="${c.left?'text-left':''} ${c.cls||''}">${esc(c.label)}</th>`).join('')}</tr>`}
+function daysCell(m,kind='factual'){
+  const p=m.proration||{},norm=Number(p.normWorkDays||0),value=kind==='official'?Number(p.officialWorkDays||0):Number(p.factualWorkDays||0);
+  const partial=norm>0&&value<norm;
+  return `<span class="hrp-days ${partial?'partial':''}">${value} / ${norm}</span>`;
+}
 function overallRows(list){
   $('hrpTableTitle').textContent='Общий расчёт';
-  $('hrpTableSub').textContent='Фактический оклад, официальная часть, корректировки и итоговая выплата';
+  $('hrpTableSub').textContent='Месячный оклад → расчётные дни → доп. день/часы → итоговая выплата';
   $('hrpTable').className='hrp-table mode-overall';
   $('hrpHead').innerHTML=head([
-    {label:'Сотрудник',left:true},{label:'Источник'},{label:'Статус'},{label:'Фактический оклад'},{label:'Официальный Gross'},{label:'Доп. часть'},
-    {label:'Вознаграждения'},{label:'Аванс'},{label:'Удержания'},{label:'Доп. часы HR'},{label:'К выплате',cls:'accent-head'},{label:'Стоимость ресторану'},{label:'Проверить',left:true}
+    {label:'Сотрудник',left:true},{label:'Источник'},{label:'Статус'},{label:'Раб. дни'},{label:'Месячный факт. оклад'},{label:'Начислено факт.'},{label:'Официальный Gross'},
+    {label:'Доп. часть'},{label:'Доп. день'},{label:'Доп. часы, ₽'},{label:'Вознаграждения'},{label:'Аванс'},{label:'Удержания'},
+    {label:'Основная выплата'},{label:'Отдельно доп. часы'},{label:'Всего к выплате',cls:'accent-head'},{label:'Стоимость ресторану'},{label:'Проверить',left:true}
   ]);
   return list.map(m=>`<tr>
-    <td class="text-left">${employeeCell(m)}</td><td>${sourceBadge(m)}</td><td>${statusBadge(m)}</td>
-    <td class="hrp-money">${m.term?money(m.factualBaseGross):'—'}</td><td>${m.term?money(m.officialGross):'—'}</td><td>${m.term?money(m.additionalGross):'—'}</td>
+    <td class="text-left">${employeeCell(m)}</td><td>${sourceBadge(m)}</td><td>${statusBadge(m)}</td><td>${m.term?daysCell(m):'—'}</td>
+    <td class="hrp-monthly">${m.term?money(m.monthlyFactualGross):'—'}</td><td class="hrp-money">${m.term?money(m.factualBaseGross):'—'}</td>
+    <td>${m.term?money(m.officialGross):'—'}</td><td>${m.term?money(m.additionalGross):'—'}</td>
+    <td class="${m.extraDayEquivalent?'hrp-overtime':''}">${m.extraDayEquivalent?m.extraDayEquivalent.toLocaleString('ru-RU',{maximumFractionDigits:2})+' дн.':'0'}</td>
+    <td class="${m.overtimeMinutes?'hrp-overtime':''}">${m.overtimeMinutes?hours(m.overtimeMinutes):'0 ч'}</td>
     <td class="hrp-plus">${money(m.rewards)}</td><td class="hrp-minus">${money(m.advances)}</td><td class="hrp-minus">${money(m.deductions)}</td>
-    <td class="${m.overtimeMinutes?'hrp-overtime':''}">${hours(m.overtimeMinutes)}</td><td class="hrp-final">${m.term?money(m.finalPayable):'—'}</td>
-    <td class="hrp-money">${m.term?money(m.employerCost):'—'}</td><td class="text-left hrp-flags">${reasonCell(m)}</td>
+    <td class="hrp-regular">${m.term?money(m.regularPayable):'—'}</td><td class="hrp-extra-pay">${m.term?money(m.extraDayPay):'—'}</td>
+    <td class="hrp-final">${m.term?money(m.finalPayable):'—'}</td><td class="hrp-money">${m.term?money(m.employerCost):'—'}</td>
+    <td class="text-left hrp-flags">${reasonCell(m)}</td>
   </tr>`).join('');
 }
 function factualRows(list){
   $('hrpTableTitle').textContent='Фактическая часть';
-  $('hrpTableSub').textContent='Полная договорённая зарплата и реальные суммы к выплате';
+  $('hrpTableSub').textContent='Неполный месяц и дополнительный день считаются по формулам из HR ТЗ';
   $('hrpTable').className='hrp-table mode-factual';
   $('hrpHead').innerHTML=head([
-    {label:'Сотрудник',left:true},{label:'Фактический оклад'},{label:'Официальный Net'},{label:'Доп. часть Gross'},{label:'Доп. часть Net'},
-    {label:'Вознаграждения'},{label:'Начислено до удержаний'},{label:'Аванс'},{label:'Удержания'},{label:'Питание / долг'},{label:'Доп. часы HR'},{label:'К выплате',cls:'accent-head'},{label:'Статус'}
+    {label:'Сотрудник',left:true},{label:'Месячный факт. оклад'},{label:'Норма дней'},{label:'Расчётные дни'},{label:'Начислено за дни'},
+    {label:'Официальный Net'},{label:'Доп. часть Gross'},{label:'Доп. часть Net'},{label:'Вознаграждения'},
+    {label:'Оплач. доп. часы'},{label:'Неоплач. промежуток'},{label:'Доп. день'},{label:'Отдельная выплата'},
+    {label:'Основная выплата'},{label:'Всего к выплате',cls:'accent-head'},{label:'Статус'}
   ]);
   return list.map(m=>{
-    const meal=m.meal||{},mealText=meal.source?`<b>${money(meal.monthNetIncrease)}</b><div class="hr-sub">лимит ${money(meal.limit)} · сверх ${money(meal.overLimit)}</div>`:'—';
     return`<tr>
-      <td class="text-left">${employeeCell(m)}</td><td class="hrp-money">${m.term?money(m.factualBaseGross):'—'}</td>
+      <td class="text-left">${employeeCell(m)}</td><td class="hrp-monthly">${m.term?money(m.monthlyFactualGross):'—'}</td>
+      <td>${m.term?Number(m.proration?.normWorkDays||0):'—'}</td><td>${m.term?Number(m.proration?.factualWorkDays||0):'—'}</td><td class="hrp-money">${m.term?money(m.factualBaseGross):'—'}</td>
       <td>${m.term?money(m.official.net):'—'}</td><td>${m.term?money(m.additionalGross):'—'}</td><td>${m.term?money(m.additionalNet):'—'}</td>
-      <td class="hrp-plus">${money(m.rewards)}</td><td class="hrp-money">${m.term?money(m.beforeDeductions):'—'}</td>
-      <td class="hrp-minus">${money(m.advances)}</td><td class="hrp-minus">${money(m.deductions)}</td><td>${mealText}</td>
-      <td class="${m.overtimeMinutes?'hrp-overtime':''}">${hours(m.overtimeMinutes)}</td><td class="hrp-final">${m.term?money(m.finalPayable):'—'}</td><td>${statusBadge(m)}</td>
+      <td class="hrp-plus">${money(m.rewards)}</td><td class="${m.overtimeMinutes?'hrp-overtime':''}">${hours(m.overtimeMinutes)}</td>
+      <td class="${m.unpaidOvertimeMinutes?'hrp-unpaid-ot':''}">${hours(m.unpaidOvertimeMinutes)}</td>
+      <td class="${m.extraDayEquivalent?'hrp-overtime':''}">${m.extraDayEquivalent.toLocaleString('ru-RU',{maximumFractionDigits:2})}</td>
+      <td class="hrp-extra-pay">${m.term?money(m.extraDayPay):'—'}</td><td class="hrp-regular">${m.term?money(m.regularPayable):'—'}</td>
+      <td class="hrp-final">${m.term?money(m.finalPayable):'—'}</td><td>${statusBadge(m)}</td>
     </tr>`;
   }).join('');
 }
 function officialRows(list){
   $('hrpTableTitle').textContent='Официальная часть';
-  $('hrpTableSub').textContent='Белая зарплата, налоги сотрудника и взносы работодателя';
+  $('hrpTableSub').textContent='Официальный Gross также пропорционален официальным датам приёма/увольнения';
   $('hrpTable').className='hrp-table mode-official';
   $('hrpHead').innerHTML=head([
-    {label:'Сотрудник',left:true},{label:'Gross'},{label:'Налоговая база'},{label:'Подоходный',cls:'tax-head'},{label:'Соц. сотр.',cls:'tax-head'},
+    {label:'Сотрудник',left:true},{label:'Месячный Gross'},{label:'Раб. дни'},{label:'Начислено Gross'},{label:'Налоговая база'},{label:'Подоходный',cls:'tax-head'},{label:'Соц. сотр.',cls:'tax-head'},
     {label:'Безраб. сотр.',cls:'tax-head'},{label:'Мед. сотр.',cls:'tax-head'},{label:'Удержания сотрудника'},{label:'Официальный Net',cls:'accent-head'},
     {label:'Соц. работ.',cls:'employer-head'},{label:'Безраб. работ.',cls:'employer-head'},{label:'Мед. работ.',cls:'employer-head'},
     {label:'Взносы работодателя'},{label:'Официальная стоимость'}
   ]);
   return list.map(m=>{const o=m.official;return`<tr>
-    <td class="text-left">${employeeCell(m)}</td><td class="hrp-money">${m.term?money(o.gross):'—'}</td><td>${m.term?money(o.taxableIncome):'—'}</td>
+    <td class="text-left">${employeeCell(m)}</td><td class="hrp-monthly">${m.term?money(m.monthlyOfficialGross):'—'}</td><td>${m.term?daysCell(m,'official'):'—'}</td>
+    <td class="hrp-money">${m.term?money(o.gross):'—'}</td><td>${m.term?money(o.taxableIncome):'—'}</td>
     <td class="hrp-tax">${m.term?money(o.employee.incomeTax):'—'}</td><td class="hrp-tax">${m.term?money(o.employee.socialInsurance):'—'}</td>
     <td class="hrp-tax">${m.term?money(o.employee.unemploymentInsurance):'—'}</td><td class="hrp-tax">${m.term?money(o.employee.medicalInsurance):'—'}</td>
     <td class="hrp-minus">${m.term?money(o.employee.total):'—'}</td><td class="hrp-final">${m.term?money(o.net):'—'}</td>
