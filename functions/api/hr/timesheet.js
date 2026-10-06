@@ -9,6 +9,7 @@ function isoDayShift(day,delta){const d=new Date(`${day}T00:00:00.000Z`);d.setUT
 function dateList(from,to){const out=[];for(let d=from;d<=to;d=isoDayShift(d,1))out.push(d);return out}
 function minutes(ms){return Math.max(0,Math.round(ms/60000))}
 function timeZoneOf(v){const z=clean(v)||'Asia/Baku';try{new Intl.DateTimeFormat('en-US',{timeZone:z}).format(new Date());return z}catch{return'Asia/Baku'}}
+function todayBaku(){try{return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())}catch{return new Date().toISOString().slice(0,10)}}
 function localParts(value,timeZone){const d=new Date(value);if(Number.isNaN(d.getTime()))return{date:'',time:''};const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d);const m=Object.fromEntries(parts.map(x=>[x.type,x.value]));return{date:`${m.year}-${m.month}-${m.day}`,time:`${m.hour}:${m.minute}`}}
 function weekday1(date){const d=new Date(`${date}T00:00:00Z`).getUTCDay();return d===0?7:d}
 function shiftMinutes(start,end,breakMinutes=0){if(!/^\d{2}:\d{2}$/.test(start||'')||!/^\d{2}:\d{2}$/.test(end||''))return 0;const [sh,sm]=start.split(':').map(Number),[eh,em]=end.split(':').map(Number);let m=(eh*60+em)-(sh*60+sm);if(m<=0)m+=1440;return Math.max(0,m-Math.max(0,Number(breakMinutes||0)))}
@@ -178,7 +179,8 @@ export async function onRequestGet({request,env}){
           const schedule=scheduleForDate(employee.id,employee.roleCode,date,schedules,overrides),plan=schedule?schedulePlan(date,schedule,dayRules):null,leave=leaveForDate(employee.id,date,'FACTUAL',leaves);
           const worked=Number(raw?.workedMinutes||0)>0,scheduleConfigured=Boolean(schedule);
           let status;
-          if(leave)status=worked?'LEAVE_WITH_WORK':'LEAVE';
+          if(date>todayBaku())status='FUTURE';
+          else if(leave)status=worked?'LEAVE_WITH_WORK':'LEAVE';
           else if(raw?.status==='REVIEW')status='REVIEW';
           else if(worked)status=!scheduleConfigured?'WORK_NO_SCHEDULE':(plan.scheduled?'WORK':'WORK_REST');
           else status=!scheduleConfigured?'NO_SCHEDULE':(plan.scheduled?'ABSENT':'REST');
@@ -219,7 +221,7 @@ export async function onRequestGet({request,env}){
 
     return json({
       success:true,period:{from,to},engine:'TIMESHEET_V2_EMPLOYEE_OVERRIDE',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
-      rules:{duplicateWindowMinutes:10,longIntervalMinutes:900,factualNoMarkScheduled:'ABSENT',factualNoMarkRest:'REST',factualNoRoleSchedule:'NO_SCHEDULE',factualWorkOnRest:'WORK_REST',factualWorkNoRoleSchedule:'WORK_NO_SCHEDULE',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
+      rules:{duplicateWindowMinutes:10,longIntervalMinutes:900,factualFuture:'FUTURE',factualNoMarkScheduled:'ABSENT',factualNoMarkRest:'REST',factualNoRoleSchedule:'NO_SCHEDULE',factualWorkOnRest:'WORK_REST',factualWorkNoRoleSchedule:'WORK_NO_SCHEDULE',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
       summary:{factual:factualSummary,official:officialSummary,raw:{intervals:intervals.length,issues:issues.length}},
       employees,devices:devices.map(x=>({id:x.device_id,name:x.name,timezone:x.timezone||'Asia/Baku'})),
       factualDays,officialDays,intervals,issues
