@@ -13,7 +13,7 @@
     if(p.includes('hr-role-schedules'))ensureCss('/hr-role-schedules-legal.css?v=20260917-light-1','hr-role-schedules-legal.css');
     if(p.includes('hr-compensation'))ensureCss('/hr-compensation.css?v=20260917-light-1','hr-compensation.css');
     if(p.includes('hr-payroll-adjustments'))ensureCss('/hr-payroll-adjustments.css?v=20260917-light-1','hr-payroll-adjustments.css');
-    else if(p.includes('hr-payroll.html'))ensureCss('/hr-payroll-v2.css?v=20260917-light-1','hr-payroll-v2.css');
+    else if(p.includes('hr-payroll'))ensureCss('/hr-payroll-v3.css?v=20261006-payroll-v2-2','hr-payroll-v3.css');
     if(p.includes('hr-calendar'))ensureCss('/hr-calendar.css?v=20260917-light-1','hr-calendar.css');
   }
 
