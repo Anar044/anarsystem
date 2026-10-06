@@ -153,16 +153,31 @@ export async function onRequestGet({request,env}){
     const span=(new Date(`${to}T00:00:00Z`)-new Date(`${from}T00:00:00Z`))/86400000;if(span>92)return json({success:false,message:'Для табеля выберите период не более 93 дней'},400);
     const userId=auth.user.id,scope=await resolveHrRestaurantScope(request,env,userId);
 
-    const [employeeRows,deviceRows,eventRows,profileRows,leaveRows,scheduleRows,dayRuleRows,typeRows,overrideRows]=await env.DB.batch([
-      env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId),
+    const employeeRows=await env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all();
+    const scopedEmployeeRows=filterEmployeesByScope(employeeRows.results||[],scope);
+    const employees=scopedEmployeeRows.map(x=>({
+      id:String(x.iiko_employee_id),code:x.employee_code||'',name:x.display_name||'',roleCode:x.role_code||'',roleName:x.role_name||'',departmentCode:x.department_code||'',
+      hireDate:x.hire_date||'',fireDate:x.fire_date||'',deleted:Boolean(x.is_deleted)
+    }));
+    const employeeIds=[...new Set(employees.map(x=>String(x.id||'')).filter(Boolean))];
+    const roleCodes=[...new Set(employees.map(x=>String(x.roleCode||'')).filter(Boolean))];
+    const empIn=employeeIds.length?employeeIds.map(()=>'?').join(','):'NULL';
+    const roleIn=roleCodes.length?roleCodes.map(()=>'?').join(','):'NULL';
+    const attendanceSql=`SELECT event_id,device_id,iiko_employee_id,event_time,event_type FROM hr_attendance_events WHERE user_id=? AND iiko_employee_id IN (${empIn}) AND event_time>=? AND event_time<=? ORDER BY iiko_employee_id,event_time`;
+    const profileSql=`SELECT iiko_employee_id,factual_hire_date,factual_fire_date,official_hire_date,official_fire_date,work_capacity_percent FROM hr_employee_profiles WHERE user_id=? AND iiko_employee_id IN (${empIn})`;
+    const leaveSql=`SELECT leave_id,iiko_employee_id,contour,leave_type,date_from,date_to,days,status,note FROM hr_employee_leave_entries WHERE user_id=? AND iiko_employee_id IN (${empIn}) AND status='APPROVED' AND date_from<=? AND date_to>=? ORDER BY date_from`;
+    const scheduleSql=`SELECT * FROM hr_role_schedules WHERE user_id=? AND role_code IN (${roleIn}) AND is_active=1 AND valid_from<=? AND (valid_to='' OR valid_to>=?) ORDER BY is_default DESC,valid_from DESC`;
+    const overrideSql=`SELECT override_id,iiko_employee_id,schedule_id,effective_from,effective_to,note,is_active FROM hr_employee_schedule_overrides WHERE user_id=? AND iiko_employee_id IN (${empIn}) AND is_active=1 AND effective_from<=? AND (effective_to='' OR effective_to>=?)`;
+
+    const [deviceRows,eventRows,profileRows,leaveRows,scheduleRows,dayRuleRows,typeRows,overrideRows]=await env.DB.batch([
       env.DB.prepare(`SELECT device_id,name,timezone FROM hr_devices WHERE user_id=?1`).bind(userId),
-      env.DB.prepare(`SELECT event_id,device_id,iiko_employee_id,event_time,event_type FROM hr_attendance_events WHERE user_id=?1 AND iiko_employee_id<>'' AND event_time>=?2 AND event_time<=?3 ORDER BY iiko_employee_id,event_time`).bind(userId,`${isoDayShift(from,-1)}T00:00:00.000Z`,`${isoDayShift(to,1)}T23:59:59.999Z`),
-      env.DB.prepare(`SELECT iiko_employee_id,factual_hire_date,factual_fire_date,official_hire_date,official_fire_date,work_capacity_percent FROM hr_employee_profiles WHERE user_id=?1`).bind(userId),
-      env.DB.prepare(`SELECT leave_id,iiko_employee_id,contour,leave_type,date_from,date_to,days,status,note FROM hr_employee_leave_entries WHERE user_id=?1 AND status='APPROVED' AND date_from<=?3 AND date_to>=?2 ORDER BY date_from`).bind(userId,from,to),
-      env.DB.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 AND is_active=1 AND valid_from<=?2 AND (valid_to='' OR valid_to>=?3) ORDER BY is_default DESC,valid_from DESC`).bind(userId,to,from),
+      env.DB.prepare(attendanceSql).bind(userId,...employeeIds,`${isoDayShift(from,-1)}T00:00:00.000Z`,`${isoDayShift(to,1)}T23:59:59.999Z`),
+      env.DB.prepare(profileSql).bind(userId,...employeeIds),
+      env.DB.prepare(leaveSql).bind(userId,...employeeIds,to,from),
+      env.DB.prepare(scheduleSql).bind(userId,...roleCodes,to,from),
       env.DB.prepare(`SELECT schedule_id,weekday,shift_start,shift_end,break_minutes FROM hr_role_schedule_days WHERE user_id=?1`).bind(userId),
       env.DB.prepare(`SELECT leave_type,display_name FROM hr_leave_type_settings WHERE user_id=?1`).bind(userId),
-      env.DB.prepare(`SELECT override_id,iiko_employee_id,schedule_id,effective_from,effective_to,note,is_active FROM hr_employee_schedule_overrides WHERE user_id=?1 AND is_active=1 AND effective_from<=?2 AND (effective_to='' OR effective_to>=?3)`).bind(userId,to,from)
+      env.DB.prepare(overrideSql).bind(userId,...employeeIds,to,from)
     ]);
 
     const devices=deviceRows.results||[],deviceMap=new Map(devices.map(x=>[String(x.device_id),x]));
@@ -172,10 +187,6 @@ export async function onRequestGet({request,env}){
     const schedules=scheduleRows.results||[],overrides=overrideRows.results||[],dayRules=new Map();
     for(const r of dayRuleRows.results||[]){const id=String(r.schedule_id);if(!dayRules.has(id))dayRules.set(id,[]);dayRules.get(id).push(r)}
 
-    const employees=filterEmployeesByScope(employeeRows.results||[],scope).map(x=>({
-      id:String(x.iiko_employee_id),code:x.employee_code||'',name:x.display_name||'',roleCode:x.role_code||'',roleName:x.role_name||'',departmentCode:x.department_code||'',
-      hireDate:x.hire_date||'',fireDate:x.fire_date||'',deleted:Boolean(x.is_deleted)
-    }));
     const events=eventRows.results||[],byEmployee=new Map();for(const e of events){const id=String(e.iiko_employee_id||'');if(!byEmployee.has(id))byEmployee.set(id,[]);byEmployee.get(id).push(e)}
     const intervals=[],issues=[];
     for(const employee of employees){const list=byEmployee.get(employee.id)||[];if(!list.length)continue;const firstDevice=deviceMap.get(String(list[0].device_id));const zone=timeZoneOf(firstDevice?.timezone||'Asia/Baku');const r=normalizeEmployee(list,employee,zone,from,to);intervals.push(...r.intervals);for(const issue of r.issues){const p=localParts(issue.eventTime,zone);if(p.date>=from&&p.date<=to)issues.push({...issue,employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,workDate:p.date})}}
