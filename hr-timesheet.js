@@ -96,8 +96,9 @@
     try{return new Date(v).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}catch{return String(v)}
   }
   function renderApproval(){
-    const a=approval||{status:'DRAFT'},status=a.status||'DRAFT',badge=$('tsApprovalBadge'),title=$('tsApprovalTitle'),meta=$('tsApprovalMeta');
+    const a=approval||{status:'DRAFT'},status=a.status||'DRAFT',badge=$('tsApprovalBadge'),title=$('tsApprovalTitle'),meta=$('tsApprovalMeta'),access=data.access||{};
     const managerDone=Boolean(a.manager),hrDone=Boolean(a.hr)&&status==='HR_APPROVED';
+    if($('tsAccessBadge'))$('tsAccessBadge').textContent=`Роль: ${access.label||'Владелец'}`;
     $('tsManagerStep')?.classList.toggle('done',managerDone);
     $('tsManagerStep')?.classList.toggle('current',status==='DRAFT'||status==='STALE');
     $('tsHrStep')?.classList.toggle('done',hrDone);
@@ -121,14 +122,16 @@
       badge.textContent='Черновик';badge.className='ts-approval-badge draft';
     }
 
-    $('tsManagerApprove').disabled=approvalBusy||status==='MANAGER_APPROVED'||status==='HR_APPROVED';
-    $('tsHrApprove').disabled=approvalBusy||status!=='MANAGER_APPROVED';
-    $('tsReopen').disabled=approvalBusy||status==='DRAFT';
+    $('tsManagerApprove').disabled=approvalBusy||!access.canManagerApprove||status==='MANAGER_APPROVED'||status==='HR_APPROVED';
+    $('tsHrApprove').disabled=approvalBusy||!access.canHrApprove||status!=='MANAGER_APPROVED';
+    $('tsReopen').disabled=approvalBusy||!access.canReopen||status==='DRAFT'||(status==='HR_APPROVED'&&!access.canHrApprove);
+    $('tsManagerApprove').title=access.canManagerApprove?'':'Доступно роли Manager / Owner';
+    $('tsHrApprove').title=access.canHrApprove?'':'Доступно роли HR / Owner';
   }
   async function loadApproval(){
     try{
       approvalBusy=true;renderApproval();
-      const r=await approvalApi('GET');approval=r.approval||{status:'DRAFT'};
+      const r=await approvalApi('GET');approval=r.approval||{status:'DRAFT'};if(r.access)data.access=r.access;
     }catch(e){
       console.error(e);approval={status:'DRAFT',comment:''};
     }finally{approvalBusy=false;renderApproval()}
@@ -138,7 +141,7 @@
     try{
       approvalBusy=true;renderApproval();setStatus('Сохраняем подтверждение…','loading');
       const r=await approvalApi('POST',{action,comment:$('tsApprovalComment')?.value||''});
-      approval=r.approval||approval;renderApproval();setStatus('Готово','ok');
+      approval=r.approval||approval;if(r.access)data.access=r.access;renderApproval();setStatus('Готово','ok');
     }catch(e){
       console.error(e);setStatus(e?.message||'Ошибка подтверждения','error');alert(e?.message||'Ошибка подтверждения');
     }finally{approvalBusy=false;renderApproval()}
