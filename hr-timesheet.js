@@ -374,6 +374,119 @@
   function detailBox(label,value){
     return `<div class="ts-detail-box"><span>${esc(label)}</span><strong>${esc(value||'—')}</strong></div>`;
   }
+  function correctionStatusOptions(current){
+    const list=mode==='FACTUAL'
+      ?[['','Автоматически'],['WORK','Работа'],['WORK_REST','Работа в выходной'],['ABSENT','Y / Нет'],['REST','İ / Выходной'],['LEAVE','ƏM / Отпуск'],['LEAVE_WITH_WORK','Отпуск + работа'],['REVIEW','Проверить'],['NO_SCHEDULE','График не задан'],['WORK_NO_SCHEDULE','Работа без графика']]
+      :[['','Автоматически'],['WORK','Работа'],['WORK_HOLIDAY','Работа в праздник'],['REST','Выходной'],['LEAVE','Отпуск'],['REVIEW','Проверить']];
+    return list.map(([v,l])=>`<option value="${esc(v)}" ${String(current||'')===v?'selected':''}>${esc(l)}</option>`).join('');
+  }
+  function correctionEditor(x){
+    const access=data.access||{},c=x.correction||null;
+    const workedValue=c&&Number(c.workedMinutesOverride)>=0?hoursInput(c.workedMinutesOverride):'';
+    const plannedValue=c&&Number(c.plannedMinutesOverride)>=0?hoursInput(c.plannedMinutesOverride):'';
+    return `
+      <section class="ts-edit-card">
+        <div class="ts-edit-head"><div><span class="ts-kicker">РУЧНАЯ КОРРЕКТИРОВКА</span><strong>${c?'Есть корректировка':'Автоматический расчёт'}</strong></div>${c?'<span class="ts-ot-badge changed">Изменено вручную</span>':''}</div>
+        ${c?`<div class="ts-detail-note"><strong>Последняя причина:</strong> ${esc(c.reason||'—')}<br><small>${esc(c.actorLabel||'')} · ${esc(approvalDate(c.updatedAt))}</small></div>`:''}
+        <div class="ts-edit-grid">
+          <label><span>Статус</span><select id="tsCorrectionStatus" ${access.canCorrect?'':'disabled'}>${correctionStatusOptions(c?.statusOverride||'')}</select></label>
+          <label><span>Факт, часов</span><input id="tsCorrectionWorked" type="number" min="0" max="24" step="0.25" value="${esc(workedValue)}" placeholder="Авто: ${esc(hoursInput(x.rawWorkedMinutes??x.workedMinutes))}" ${mode==='FACTUAL'&&access.canCorrect?'':'disabled'}></label>
+          <label><span>План, часов</span><input id="tsCorrectionPlanned" type="number" min="0" max="24" step="0.25" value="${esc(plannedValue)}" placeholder="Авто: ${esc(hoursInput(x.rawPlannedMinutes??x.plannedMinutes))}" ${access.canCorrect?'':'disabled'}></label>
+        </div>
+        <label class="ts-edit-full"><span>Причина изменения *</span><textarea id="tsCorrectionReason" maxlength="1600" placeholder="Например: сотрудник забыл отметиться на выходе" ${access.canCorrect?'':'disabled'}>${esc(c?.reason||'')}</textarea></label>
+        <div class="ts-edit-actions">
+          <button id="tsSaveCorrection" type="button" class="hr-primary" ${access.canCorrect?'':'disabled'}>Сохранить корректировку</button>
+          ${c?`<button id="tsDeleteCorrection" type="button" class="hr-link-button danger" ${access.canCorrect?'':'disabled'}>Вернуть автоматический расчёт</button>`:''}
+        </div>
+        ${access.canCorrect?'':'<div class="ts-permission-note">Для изменения нужна роль Manager, HR или Owner.</div>'}
+      </section>`;
+  }
+  function overtimeEditor(x){
+    if(mode!=='FACTUAL')return'';
+    const access=data.access||{},candidate=Number(x.overtimeCandidateMinutes||0),status=x.overtimeStatus||'NONE',hasRequest=Boolean(x.overtimeRequestId);
+    const requested=Number(x.overtimeRequestedMinutes||candidate),approved=Number(x.approvedOvertimeMinutes||x.overtimeRequestedMinutes||candidate);
+    return `
+      <section class="ts-edit-card ts-overtime-editor">
+        <div class="ts-edit-head"><div><span class="ts-kicker">ДОПОЛНИТЕЛЬНЫЕ ЧАСЫ</span><strong>${esc(overtimeStatusLabel(status))}</strong></div><span class="ts-ot-badge ${overtimeStatusClass(status)}">${esc(overtimeStatusLabel(status))}</span></div>
+        <div class="ts-detail-grid">
+          ${detailBox('Факт',hoursLong(x.workedMinutes))}
+          ${detailBox('Дневная норма',hoursLong(x.overtimeThresholdMinutes))}
+          ${detailBox('Рассчитано доп.',hoursLong(candidate))}
+          ${detailBox('В оплату после HR',hoursLong(x.payrollOvertimeMinutes))}
+          ${detailBox('Порог оплаты',hoursLong(x.overtimePayableFromMinutes))}
+          ${detailBox('Неоплачиваемый промежуток',hoursLong(x.unpaidOvertimePotentialMinutes))}
+        </div>
+        <div class="ts-rule-box">
+          <div><strong>Правило сотрудника</strong><small>По ТЗ норматив можно менять индивидуально. Если отдельного правила нет, используется норматив графика.</small></div>
+          <div class="ts-rule-inputs">
+            <label><span>Доп. часы после, ч</span><input id="tsRuleThreshold" type="number" min="0.25" max="24" step="0.25" value="${esc(hoursInput(x.overtimeThresholdMinutes))}" ${access.canSetOvertimeRule?'':'disabled'}></label>
+            <label><span>Оплачивать после, ч</span><input id="tsRulePayable" type="number" min="0.25" max="24" step="0.25" value="${esc(hoursInput(x.overtimePayableFromMinutes))}" ${access.canSetOvertimeRule?'':'disabled'}></label>
+            ${access.canSetOvertimeRule?'<button id="tsSaveOvertimeRule" type="button" class="hr-link-button">Сохранить правило</button>':''}
+          </div>
+        </div>
+        ${candidate>0||hasRequest?`
+          <div class="ts-workflow-block">
+            <div class="ts-workflow-title"><span>1</span><div><strong>Менеджер</strong><small>Указывает причину и отправляет HR.</small></div></div>
+            <div class="ts-edit-grid two">
+              <label><span>Отправить HR, часов</span><input id="tsOvertimeRequested" type="number" min="0" max="24" step="0.25" value="${esc(hoursInput(requested))}" ${access.canManagerApprove?'':'disabled'}></label>
+              <label class="wide"><span>Причина дополнительных часов *</span><textarea id="tsOvertimeManagerReason" maxlength="1600" ${access.canManagerApprove?'':'disabled'}>${esc(x.overtimeManagerReason||'')}</textarea></label>
+            </div>
+            ${access.canManagerApprove&&candidate>0?'<button id="tsSubmitOvertime" type="button" class="hr-link-button">Отправить дополнительные часы HR</button>':''}
+          </div>
+          <div class="ts-workflow-block">
+            <div class="ts-workflow-title"><span>2</span><div><strong>HR</strong><small>Подтверждает, изменяет количество или отклоняет.</small></div></div>
+            <div class="ts-edit-grid two">
+              <label><span>Подтвердить, часов</span><input id="tsOvertimeApproved" type="number" min="0" max="24" step="0.25" value="${esc(hoursInput(approved))}" ${access.canHrApprove&&status==='MANAGER_SUBMITTED'?'':'disabled'}></label>
+              <label class="wide"><span>Комментарий HR</span><textarea id="tsOvertimeHrComment" maxlength="1600" ${access.canHrApprove&&status==='MANAGER_SUBMITTED'?'':'disabled'}>${esc(x.overtimeHrComment||'')}</textarea></label>
+            </div>
+            <div class="ts-edit-actions">
+              ${access.canHrApprove&&status==='MANAGER_SUBMITTED'?'<button id="tsApproveOvertime" type="button" class="hr-primary">Подтвердить HR</button><button id="tsRejectOvertime" type="button" class="hr-link-button danger">Отклонить</button>':''}
+              ${access.canReopen&&hasRequest?'<button id="tsResetOvertime" type="button" class="hr-link-button">Сбросить решение</button>':''}
+            </div>
+          </div>`:candidate<=0?'<div class="ts-detail-note">Дополнительных часов по текущему нормативу нет.</div>':''}
+      </section>`;
+  }
+  async function runAdjustment(payload,successText){
+    if(adjustmentBusy)return;
+    const keep=drawerDay?{...drawerDay}:null;
+    try{
+      adjustmentBusy=true;setStatus('Сохраняем изменения…','loading');
+      document.querySelectorAll('.ts-drawer-body button').forEach(b=>b.disabled=true);
+      await adjustmentApi(payload);
+      await load();
+      if(keep)openDrawer(keep.employeeId,keep.date);
+      setStatus(successText||'Готово','ok');
+    }catch(e){
+      console.error(e);setStatus(e?.message||'Ошибка','error');alert(e?.message||'Не удалось сохранить изменение');
+    }finally{adjustmentBusy=false}
+  }
+  function bindDrawerActions(x){
+    const employeeId=x.employeeId,workDate=x.workDate,kind=mode;
+    if($('tsSaveCorrection'))$('tsSaveCorrection').onclick=()=>{
+      const worked=inputMinutes($('tsCorrectionWorked')?.value),planned=inputMinutes($('tsCorrectionPlanned')?.value);
+      if($('tsCorrectionWorked')?.value&&worked===null)return alert('Проверьте фактические часы');
+      if($('tsCorrectionPlanned')?.value&&planned===null)return alert('Проверьте плановые часы');
+      runAdjustment({action:'SAVE_CORRECTION',employeeId,workDate,contour:kind,statusOverride:$('tsCorrectionStatus')?.value||'',workedMinutesOverride:worked,plannedMinutesOverride:planned,reason:$('tsCorrectionReason')?.value||''},'Корректировка сохранена');
+    };
+    if($('tsDeleteCorrection'))$('tsDeleteCorrection').onclick=()=>runAdjustment({action:'DELETE_CORRECTION',employeeId,workDate,contour:kind},'Автоматический расчёт восстановлен');
+    if($('tsSaveOvertimeRule'))$('tsSaveOvertimeRule').onclick=()=>{
+      const threshold=inputMinutes($('tsRuleThreshold')?.value),payable=inputMinutes($('tsRulePayable')?.value);
+      if(threshold===null||payable===null)return alert('Проверьте пороги дополнительных часов');
+      runAdjustment({action:'SAVE_OVERTIME_RULE',employeeId,thresholdMinutes:threshold,payableFromMinutes:payable,note:'Индивидуальное правило из табеля'},'Правило дополнительных часов сохранено');
+    };
+    if($('tsSubmitOvertime'))$('tsSubmitOvertime').onclick=()=>{
+      const requested=inputMinutes($('tsOvertimeRequested')?.value);
+      if(requested===null)return alert('Проверьте количество дополнительных часов');
+      runAdjustment({action:'SUBMIT_OVERTIME',employeeId,workDate,candidateMinutes:Number(x.overtimeCandidateMinutes||0),requestedMinutes:requested,managerReason:$('tsOvertimeManagerReason')?.value||''},'Дополнительные часы отправлены HR');
+    };
+    if($('tsApproveOvertime'))$('tsApproveOvertime').onclick=()=>{
+      const approved=inputMinutes($('tsOvertimeApproved')?.value);
+      if(approved===null)return alert('Проверьте подтверждаемое время');
+      runAdjustment({action:'HR_APPROVE_OVERTIME',employeeId,workDate,approvedMinutes:approved,hrComment:$('tsOvertimeHrComment')?.value||''},'Дополнительные часы подтверждены HR');
+    };
+    if($('tsRejectOvertime'))$('tsRejectOvertime').onclick=()=>runAdjustment({action:'HR_REJECT_OVERTIME',employeeId,workDate,hrComment:$('tsOvertimeHrComment')?.value||''},'Дополнительные часы отклонены HR');
+    if($('tsResetOvertime'))$('tsResetOvertime').onclick=()=>runAdjustment({action:'RESET_OVERTIME',employeeId,workDate},'Решение по дополнительным часам сброшено');
+  }
   function openDrawer(employeeId,date){
     const employee=employeeById(employeeId),x=findDay(employeeId,date),v=dayView(x);
     drawerDay={employeeId,date};
@@ -392,6 +505,8 @@
           ${detailBox('Смена',x.shiftStart&&x.shiftEnd?`${x.shiftStart}–${x.shiftEnd}`:'—')}
           ${detailBox('План',hoursLong(x.plannedMinutes))}
           ${detailBox('Факт',hoursLong(x.workedMinutes))}
+          ${detailBox('Норма для расчёта',hoursLong(x.normMinutes))}
+          ${detailBox('Доп. часы до HR',hoursLong(x.overtimeCandidateMinutes))}
           ${detailBox('Первый вход',localTime(x.firstIn))}
           ${detailBox('Последний выход',localTime(x.lastOut))}
           ${detailBox('Источник графика',x.scheduleSource==='EMPLOYEE'?'Индивидуальный':x.scheduleSource==='ROLE'?'Должность':'—')}
@@ -400,6 +515,9 @@
         ${x.leaveName?`<div class="ts-detail-note"><strong>Отпуск:</strong> ${esc(x.leaveName)}${x.leaveNote?'<br>'+esc(x.leaveNote):''}</div>`:''}
         ${x.scheduleOverrideNote?`<div class="ts-detail-note"><strong>Комментарий к индивидуальному графику:</strong><br>${esc(x.scheduleOverrideNote)}</div>`:''}
         ${issueItems.length?`<div class="ts-detail-note"><strong>Проблемы Face ID:</strong><br>${issueItems.map(i=>esc(issueLabel(i.code))).join('<br>')}</div>`:''}
+        ${x.corrected?`<div class="ts-detail-note"><strong>Автоматические данные до корректировки:</strong><br>Статус: ${esc(x.rawStatus||'—')} · Факт: ${esc(hoursLong(x.rawWorkedMinutes))} · План: ${esc(hoursLong(x.rawPlannedMinutes))}</div>`:''}
+        ${correctionEditor(x)}
+        ${overtimeEditor(x)}
       `;
     }else{
       $('tsDrawerBody').innerHTML=`
@@ -414,10 +532,13 @@
         </div>
         ${x.leaveName?`<div class="ts-detail-note"><strong>Официальный отпуск:</strong> ${esc(x.leaveName)}${x.leaveNote?'<br>'+esc(x.leaveNote):''}</div>`:''}
         ${x.scheduleOverrideNote?`<div class="ts-detail-note"><strong>Комментарий к индивидуальному графику:</strong><br>${esc(x.scheduleOverrideNote)}</div>`:''}
+        ${x.corrected?`<div class="ts-detail-note"><strong>Автоматические данные до корректировки:</strong><br>Статус: ${esc(x.rawStatus||'—')} · План: ${esc(hoursLong(x.rawPlannedMinutes))}</div>`:''}
+        ${correctionEditor(x)}
       `;
     }
     $('tsDayDrawer').hidden=false;
     document.body.style.overflow='hidden';
+    if(x)bindDrawerActions(x);
   }
   function closeDrawer(){
     $('tsDayDrawer').hidden=true;
