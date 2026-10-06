@@ -1,7 +1,7 @@
 import { getUser } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
 import {
-  ensureTimesheetAdjustmentTables,loadTimesheetAdjustments,overtimeRuleFor,
+  loadTimesheetAdjustments,overtimeRuleFor,
   correctionDto,overtimeDto,hrAccessForUser
 } from './_lib/timesheet-adjustments.js';
 
@@ -76,7 +76,6 @@ async function ensure(db){
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_employee_schedule_current ON hr_employee_schedule_overrides(user_id,iiko_employee_id,is_active,effective_from DESC)`)
   ]);
-  await ensureTimesheetAdjustmentTables(db);
 }
 
 function normalizeEmployee(events,employee,timeZone,from,to){
