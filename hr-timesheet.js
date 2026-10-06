@@ -553,7 +553,7 @@
   function exportCsv(){
     const range=monthRange($('tsMonth').value),employees=filteredEmployees(),byEmp=employeeDaysMap(),days=Array.from({length:range.days},(_,i)=>i+1);
     const headers=['Сотрудник','Табельный №','Должность',...days.map(d=>String(d))];
-    if(mode==='FACTUAL')headers.push('Рабочих дней','План часов','Факт часов','Отпуск','Y/Нет','Выходные','Проверить');
+    if(mode==='FACTUAL')headers.push('Рабочих дней','План часов','Факт часов','Норма часов','Доп. часы подтверждено HR','Доп. часы ожидает HR','Неоплачиваемые доп. часы','Доп. дни эквивалент','Отпуск','Y/Нет','Выходные','Проверить');
     else headers.push('Рабочих дней','План часов','Отпуск','Выходные','Работа в праздник');
     const lines=[headers.map(csvValue).join(';')];
     for(const e of employees){
@@ -563,7 +563,7 @@
         const date=`${range.year}-${pad(range.month)}-${pad(d)}`,v=dayView(map.get(date));
         rows.push(v.code+(v.sub?` ${v.sub}`:''));
       }
-      if(mode==='FACTUAL')rows.push(totals.work,(totals.plan/60).toFixed(2),(totals.fact/60).toFixed(2),totals.leave,totals.absent,totals.rest,totals.issues);
+      if(mode==='FACTUAL')rows.push(totals.work,(totals.plan/60).toFixed(2),(totals.fact/60).toFixed(2),(totals.norm/60).toFixed(2),(totals.overtimeApproved/60).toFixed(2),(totals.overtimePending/60).toFixed(2),(totals.overtimeUnpaid/60).toFixed(2),totals.extraDays.toFixed(2),totals.leave,totals.absent,totals.rest,totals.issues);
       else rows.push(totals.work,(totals.plan/60).toFixed(2),totals.leave,totals.rest,totals.holiday);
       lines.push(rows.map(csvValue).join(';'));
     }
@@ -602,6 +602,9 @@
     $('tsOfficialTab').onclick=()=>setMode('OFFICIAL');
     $('tsMatrixBody').addEventListener('click',e=>{
       const cell=e.target.closest('.ts-day-cell');if(cell)openDrawer(cell.dataset.employeeId,cell.dataset.date);
+    });
+    $('tsOvertimeRows')?.addEventListener('click',e=>{
+      const btn=e.target.closest('.ts-open-day');if(btn)openDrawer(btn.dataset.employeeId,btn.dataset.date);
     });
     document.querySelectorAll('[data-drawer-close]').forEach(x=>x.addEventListener('click',closeDrawer));
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('tsDayDrawer').hidden)closeDrawer()});
