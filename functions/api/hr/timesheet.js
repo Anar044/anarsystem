@@ -15,6 +15,14 @@ function weekday1(date){const d=new Date(`${date}T00:00:00Z`).getUTCDay();return
 function shiftMinutes(start,end,breakMinutes=0){if(!/^\d{2}:\d{2}$/.test(start||'')||!/^\d{2}:\d{2}$/.test(end||''))return 0;const [sh,sm]=start.split(':').map(Number),[eh,em]=end.split(':').map(Number);let m=(eh*60+em)-(sh*60+sm);if(m<=0)m+=1440;return Math.max(0,m-Math.max(0,Number(breakMinutes||0)))}
 function cycleWorkDay(date,s){if(!s?.anchor_date||!Number(s.work_days||0))return false;const delta=Math.floor((new Date(`${date}T00:00:00Z`)-new Date(`${s.anchor_date}T00:00:00Z`))/86400000);if(delta<0)return false;const cycle=Math.max(1,Number(s.work_days||0)+Number(s.off_days||0));return ((delta%cycle)+cycle)%cycle<Number(s.work_days||0)}
 function employmentActive(date,hire,fire){if(hire&&date<hire)return false;if(fire&&date>fire)return false;return true}
+async function snapshotHash(rows,kind){
+  const compact=(rows||[]).map(x=>kind==='FACTUAL'
+    ? [x.employeeId,x.workDate,x.status,Number(x.workedMinutes||0),Number(x.plannedMinutes||0),Number(x.issueCount||0),x.leaveId||'',x.scheduleName||'',x.scheduleSource||'']
+    : [x.employeeId,x.workDate,x.status,Number(x.plannedMinutes||0),x.leaveId||'',x.scheduleName||'',x.scheduleSource||'',x.calendarType||'']);
+  const bytes=new TextEncoder().encode(JSON.stringify(compact));
+  const digest=await crypto.subtle.digest('SHA-256',bytes);
+  return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
 
 const LEAVE_NAMES={MAIN:'Основной отпуск',SENIORITY:'По стажу',CHILD:'По ребёнку',DISABILITY:'Инвалидность',EXTRA_1:'Дополнительный вид 1',EXTRA_2:'Дополнительный вид 2'};
 const SPECIAL_2026=new Map(Object.entries({
@@ -219,8 +227,11 @@ export async function onRequestGet({request,env}){
       restDays:officialDays.filter(x=>x.status==='REST').length,plannedMinutes:officialDays.reduce((s,x)=>s+x.plannedMinutes,0),holidayWorkDays:officialDays.filter(x=>x.status==='WORK_HOLIDAY').length
     };
 
+    const [factualSnapshotHash,officialSnapshotHash]=await Promise.all([snapshotHash(factualDays,'FACTUAL'),snapshotHash(officialDays,'OFFICIAL')]);
+
     return json({
       success:true,period:{from,to},engine:'TIMESHEET_V2_EMPLOYEE_OVERRIDE',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
+      snapshotHashes:{FACTUAL:factualSnapshotHash,OFFICIAL:officialSnapshotHash},
       rules:{duplicateWindowMinutes:10,longIntervalMinutes:900,factualFuture:'FUTURE',factualNoMarkScheduled:'ABSENT',factualNoMarkRest:'REST',factualNoRoleSchedule:'NO_SCHEDULE',factualWorkOnRest:'WORK_REST',factualWorkNoRoleSchedule:'WORK_NO_SCHEDULE',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
       summary:{factual:factualSummary,official:officialSummary,raw:{intervals:intervals.length,issues:issues.length}},
       employees,devices:devices.map(x=>({id:x.device_id,name:x.name,timezone:x.timezone||'Asia/Baku'})),
