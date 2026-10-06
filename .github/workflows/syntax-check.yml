@@ -372,6 +372,29 @@ jobs:
             esac
           done
 
+      - name: Diagnose HR Pages runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          health_code=$(curl -sS -o /tmp/hr-health.json -w '%{http_code}' "$PREVIEW_BASE/api/hr/runtime-health" || true)
+          echo "/api/hr/runtime-health -> HTTP $health_code"
+          cat /tmp/hr-health.json || true
+          echo
+
+          options_code=$(curl -sS -X OPTIONS -o /tmp/hr-options.txt -w '%{http_code}' "$PREVIEW_BASE/api/hr/timesheet" || true)
+          echo "/api/hr/timesheet OPTIONS -> HTTP $options_code"
+          cat /tmp/hr-options.txt || true
+          echo
+
+          get_code=$(curl -sS -o /tmp/hr-timesheet.json -w '%{http_code}' "$PREVIEW_BASE/api/hr/timesheet?from=2026-10-01&to=2026-10-31" || true)
+          echo "/api/hr/timesheet unauthenticated -> HTTP $get_code"
+          cat /tmp/hr-timesheet.json || true
+          echo
+
+          test "$health_code" = "200"
+          test "$options_code" = "204"
+          test "$get_code" = "401"
+
       - name: Verify iiko state requires authentication
         shell: bash
         run: |
