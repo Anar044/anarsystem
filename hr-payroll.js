@@ -4,12 +4,25 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const money=v=>`${(Number(v)||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})} ₼`;
 const hours=v=>{if(v===null||v===undefined)return'—';const m=Math.max(0,Number(v)||0),h=Math.floor(m/60),r=Math.round(m%60);return r?`${h} ч ${String(r).padStart(2,'0')} мин`:`${h} ч`};
 const r=v=>Math.round((Number(v)||0)*100)/100,pct=v=>(Number(v)||0)/100;
-let mode='OVERALL',state={payroll:null,adjustments:null,tax:null,models:[]},busy=false;
+let mode='OVERALL',state={payroll:null,adjustments:null,tax:null,settlements:null,models:[]},busy=false,paymentEmployeeId='';
 
 function monthNow(){const d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0');return y===2026?`${y}-${m}`:'2026-10'}
 async function token(){const c=await window.SHAuth?.createClient?.();if(!c)throw new Error('Supabase Auth не готов');const{data,error}=await c.auth.getSession();const t=data?.session?.access_token;if(error||!t)throw new Error('Сессия пользователя не найдена');return t}
 async function fetchJson(url,t){const res=await (window.SH_IikoContext?.fetchWithTimeout||fetch)(url,{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}},90000),j=await res.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!res.ok||!j.success)throw new Error(j.message||`HTTP ${res.status}`);return j}
-async function api(){const t=await token(),month=$('hrpMonth').value||monthNow();const[p,a,tax]=await Promise.all([fetchJson(`/api/hr/payroll?month=${encodeURIComponent(month)}`,t),fetchJson(`/api/hr/payroll-adjustments?month=${encodeURIComponent(month)}`,t),fetchJson(`/api/hr/payroll-tax-settings?month=${encodeURIComponent(month)}`,t)]);return{payroll:p,adjustments:a,tax}}
+async function api(){
+  const t=await token(),month=$('hrpMonth').value||monthNow();
+  const p=await fetchJson(`/api/hr/payroll?month=${encodeURIComponent(month)}`,t);
+  const[a,tax,settlements]=await Promise.all([
+    fetchJson(`/api/hr/payroll-adjustments?month=${encodeURIComponent(month)}`,t),
+    fetchJson(`/api/hr/payroll-tax-settings?month=${encodeURIComponent(month)}`,t),
+    fetchJson(`/api/hr/overtime-settlements?month=${encodeURIComponent(month)}`,t)
+  ]);
+  return{payroll:p,adjustments:a,tax,settlements};
+}
+async function settlementPost(body){
+  const t=await token(),res=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/hr/overtime-settlements',{method:'POST',headers:{Authorization:`Bearer ${t}`,Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify(body)},60000);
+  const j=await res.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!res.ok||!j.success)throw new Error(j.message||`HTTP ${res.status}`);return j;
+}
 function setStatus(text,kind=''){const e=$('hrpStatus');e.textContent=text;e.className=`hr-status ${kind}`.trim()}
 function showError(text=''){const e=$('hrpError');e.hidden=!text;e.textContent=text}
 
@@ -104,7 +117,8 @@ function renderSummary(){
     ['Официальный Gross',money(officialGross),'Начислено за расчётные дни'],
     ['Доп. часы отдельно',money(extraPay),'Отдельное начисление и выплата'],
     ['К выплате',money(payable),'Основная + отдельная выплата доп. часов'],
-    ['Стоимость ресторану',money(cost),'Начисления + взносы работодателя']
+    ['Стоимость ресторану',money(cost),'Начисления + взносы работодателя'],
+    ['Долг по доп. часам',money(state.settlements?.summary?.closingDebt||0),`Сотрудников с долгом: ${Number(state.settlements?.summary?.withDebt||0)}`]
   ].map(x=>`<article class="hr-summary-card"><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
 }
 function renderContext(){
@@ -194,7 +208,7 @@ function renderTable(){
 function renderTabs(){
   document.querySelectorAll('.hrp-tab').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));
 }
-function render(){renderFilters();renderSummary();renderContext();renderTabs();renderTable()}
+function render(){renderFilters();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
 function onFilter(){renderSummary();renderTable()}
 async function load(){
   if(busy)return;
