@@ -146,8 +146,10 @@ function parseRtLine(line,timeZone){
   const status=clean(kv.INOUTSTATUS??kv.STATUS??kv.STATE??"0",20);
   const verify=clean(kv.VERIFYTYPE??kv.VERIFIED??kv.VERIFY??"",20);
   const workCode=clean(kv.WORKCODE??"",40);
-  if(pin&&local)return{pin,localTime:local,eventTime:parseLocalDateTime(local,timeZone),status,verify,workCode,raw};
-  return parseAttLine(raw,timeZone);
+  const event=Number(kv.EVENT??kv.EVENTTYPE??0);
+  // Security PUSH RTLOG also contains door/alarm/system events. They are not attendance punches.
+  if(!pin||pin==="0"||!local||!Number.isFinite(event)||event>=20)return null;
+  return{pin,localTime:local,eventTime:parseLocalDateTime(local,timeZone),status,verify,workCode,raw};
 }
 function isAccSecurityPush(url){
   return String(url.searchParams.get("DeviceType")||"").toLowerCase()==="acc" ||
