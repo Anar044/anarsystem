@@ -104,7 +104,7 @@ function deviceAllowedForScope(row,scope){
 }
 
 async function snapshot(db,userId,scope=null){
-  const [devices,employees,bindings,events,tokens,admsRows]=await Promise.all([
+  const [devices,employees,bindings,events,tokens,admsRows,admsRawRows]=await Promise.all([
     db.prepare(`SELECT * FROM hr_devices WHERE user_id=?1 ORDER BY is_active DESC,name COLLATE NOCASE`).bind(userId).all(),
     db.prepare(`SELECT * FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY is_deleted,last_name COLLATE NOCASE,first_name COLLATE NOCASE,display_name COLLATE NOCASE`).bind(userId).all(),
     db.prepare(`SELECT * FROM hr_employee_device_bindings WHERE user_id=?1 ORDER BY updated_at DESC`).bind(userId).all(),
@@ -112,9 +112,10 @@ async function snapshot(db,userId,scope=null){
       FROM hr_attendance_events e LEFT JOIN hr_employees h ON h.user_id=e.user_id AND h.iiko_employee_id=e.iiko_employee_id
       WHERE e.user_id=?1 ORDER BY e.event_time DESC LIMIT 300`).bind(userId).all(),
     db.prepare(`SELECT device_id,last_used_at,rotated_at FROM hr_device_tokens WHERE user_id=?1`).bind(userId).all(),
-    db.prepare(`SELECT device_id,serial_number,model,last_seen_at,last_event_at,push_version,firmware,last_ip,last_user_agent FROM hr_zkteco_adms_devices WHERE user_id=?1 AND enabled=1`).bind(userId).all()
+    db.prepare(`SELECT device_id,serial_number,model,last_seen_at,last_event_at,push_version,firmware,last_ip,last_user_agent FROM hr_zkteco_adms_devices WHERE user_id=?1 AND enabled=1`).bind(userId).all(),
+    db.prepare(`SELECT raw_id,device_id,serial_number,table_name,event_time,external_employee_id,event_status,verify_type,work_code,raw_line,received_at FROM hr_zkteco_adms_raw WHERE user_id=?1 ORDER BY received_at DESC LIMIT 200`).bind(userId).all()
   ]);
-  const allDevices=devices.results||[],allEmployees=employees.results||[],allBindings=bindings.results||[],allEvents=events.results||[],ts=tokens.results||[],adms=admsRows.results||[];
+  const allDevices=devices.results||[],allEmployees=employees.results||[],allBindings=bindings.results||[],allEvents=events.results||[],ts=tokens.results||[],adms=admsRows.results||[],allAdmsRaw=admsRawRows.results||[];
   const selectedRestaurants=new Set(Array.isArray(scope?.selectedDepartmentIds)?scope.selectedDepartmentIds.map(String):[]);
   const subset=isHrSubsetScope(scope);
   const ds=subset?allDevices.filter(x=>selectedRestaurants.has(String(x.restaurant_id))):allDevices;
@@ -131,7 +132,8 @@ async function snapshot(db,userId,scope=null){
     employees:es.map(x=>({id:x.iiko_employee_id,code:x.employee_code,name:x.display_name,firstName:x.first_name,lastName:x.last_name,roleName:x.role_name,departmentCode:x.department_code,deleted:Boolean(x.is_deleted),fireDate:x.fire_date||''})),
     bindings:bs.map(x=>({deviceId:x.device_id,employeeId:x.iiko_employee_id,provider:x.provider,externalEmployeeId:x.external_employee_id,externalLabel:x.external_label||''})),
     events:ev.map(x=>({id:x.event_id,deviceId:x.device_id,provider:x.provider,sourceUid:x.source_uid,externalEmployeeId:x.external_employee_id,employeeId:x.iiko_employee_id,employeeName:x.employee_name||'',employeeCode:x.employee_code||'',eventTime:x.event_time,eventType:x.event_type,importedAt:x.imported_at})),
-    counts:{devices:ds.filter(x=>x.is_active).length,admsDevices:ds.filter(x=>admsMap.has(String(x.device_id))).length,admsOnline:ds.filter(x=>{const z=admsMap.get(String(x.device_id)),seen=z?.last_seen_at?new Date(z.last_seen_at).getTime():0;return Boolean(seen&&nowMs-seen<5*60*1000)}).length,unassignedDevices:ds.filter(x=>!clean(x.restaurant_id)).length,employees:es.filter(x=>!x.is_deleted&&!x.fire_date).length,bindings:bs.length,events:ev.length,unmatchedEvents:ev.filter(x=>!x.iiko_employee_id).length,deviceTokens:ts.filter(x=>ds.some(d=>String(d.device_id)===String(x.device_id))).length}
+    rawAdms:(subset?allAdmsRaw.filter(x=>selectedDeviceIds.has(String(x.device_id))):allAdmsRaw).map(x=>({id:x.raw_id,deviceId:x.device_id,serialNumber:x.serial_number,tableName:x.table_name,eventTime:x.event_time||'',externalEmployeeId:x.external_employee_id||'',status:x.event_status||'',verifyType:x.verify_type||'',workCode:x.work_code||'',rawLine:x.raw_line||'',receivedAt:x.received_at||''})),
+    counts:{devices:ds.filter(x=>x.is_active).length,admsDevices:ds.filter(x=>admsMap.has(String(x.device_id))).length,admsOnline:ds.filter(x=>{const z=admsMap.get(String(x.device_id)),seen=z?.last_seen_at?new Date(z.last_seen_at).getTime():0;return Boolean(seen&&nowMs-seen<5*60*1000)}).length,unassignedDevices:ds.filter(x=>!clean(x.restaurant_id)).length,employees:es.filter(x=>!x.is_deleted&&!x.fire_date).length,bindings:bs.length,events:ev.length,unmatchedEvents:ev.filter(x=>!x.iiko_employee_id).length,deviceTokens:ts.filter(x=>ds.some(d=>String(d.device_id)===String(x.device_id))).length,rawAdms:(subset?allAdmsRaw.filter(x=>selectedDeviceIds.has(String(x.device_id))):allAdmsRaw).length}
   };
 }
 
