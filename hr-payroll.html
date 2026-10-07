@@ -7,7 +7,7 @@
   <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
   <link rel="stylesheet" href="app-shell.css">
   <link rel="stylesheet" href="hr-pnl.css?v=20260916-12">
-  <link rel="stylesheet" href="/hr-payroll-v3.css?v=20261007-payroll-v2-3">
+  <link rel="stylesheet" href="/hr-payroll-v3.css?v=20261007-overtime-ledger-1">
   <style id="hrp-critical-styles">
 .hrp-kicker{display:block;margin-bottom:6px;color:#42d392;font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
 .hrp-month{display:flex;flex-direction:column;gap:5px;color:#7f8e9f;font-size:9px;font-weight:800;text-transform:uppercase}
@@ -142,6 +142,59 @@
           </div>
         </section>
 
+        <section class="hr-card hrp-settlement-card">
+          <div class="hr-card-title-row hrp-settlement-head">
+            <div>
+              <span class="hrp-kicker">ОТДЕЛЬНЫЕ ВЫПЛАТЫ</span>
+              <div class="hr-card-title">Реестр доплат за дополнительные часы</div>
+              <div class="hr-card-sub">Начислено → выплачено → остаток долга. Непогашенный остаток переносится на следующий месяц.</div>
+            </div>
+            <div id="hrpSettlementCount" class="hr-muted">0 сотрудников с движением</div>
+          </div>
+          <div id="hrpSettlementSummary" class="hrp-settlement-summary"></div>
+          <div class="hr-table-scroll">
+            <table class="hrp-settlement-table">
+              <thead>
+                <tr>
+                  <th class="text-left">Сотрудник</th>
+                  <th>Долг на начало</th>
+                  <th>Начислено</th>
+                  <th>Оплач. часы</th>
+                  <th>Доп. день</th>
+                  <th>Выплачено</th>
+                  <th>Остаток долга</th>
+                  <th class="text-left">Выплаты месяца</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="hrpSettlementRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <div id="hrpPaymentModal" class="hrp-payment-modal" hidden>
+          <div class="hrp-payment-backdrop" data-payment-close></div>
+          <section class="hrp-payment-dialog" role="dialog" aria-modal="true" aria-labelledby="hrpPaymentTitle">
+            <div class="hrp-payment-head">
+              <div><span class="hrp-kicker">ДОПЛАТА ЗА ДОПОЛНИТЕЛЬНЫЕ ЧАСЫ</span><strong id="hrpPaymentTitle">Зарегистрировать выплату</strong></div>
+              <button type="button" class="hr-link-button" data-payment-close>Закрыть</button>
+            </div>
+            <div id="hrpPaymentEmployee" class="hrp-payment-employee">—</div>
+            <div class="hrp-payment-grid">
+              <label><span>Дата выплаты</span><input id="hrpPaymentDate" type="date"></label>
+              <label><span>Сумма, AZN</span><input id="hrpPaymentAmount" type="number" min="0.01" step="0.01"></label>
+              <label><span>Способ</span><select id="hrpPaymentMethod"><option value="CASH">Наличные</option><option value="BANK">Банк</option><option value="OTHER">Другое</option></select></label>
+              <label><span>Документ / №</span><input id="hrpPaymentReference" type="text" maxlength="180" placeholder="Необязательно"></label>
+            </div>
+            <label class="hrp-payment-note"><span>Комментарий</span><textarea id="hrpPaymentNote" maxlength="1000" placeholder="Необязательно"></textarea></label>
+            <div class="hrp-payment-total"><span>Текущий долг</span><strong id="hrpPaymentDebt">0,00 ₼</strong></div>
+            <div class="hrp-payment-actions">
+              <button id="hrpPaymentSave" type="button" class="hr-primary">Зарегистрировать выплату</button>
+              <button type="button" class="hr-link-button" data-payment-close>Отмена</button>
+            </div>
+          </section>
+        </div>
+
         <section class="hrp-explain">
           <article><strong>Неполный месяц</strong><span>Фактический месячный оклад делится на норму рабочих дней и умножается на расчётные рабочие дни между фактическими датами приёма и увольнения.</span></article>
           <article><strong>Официальная часть</strong><span>Официальный Gross отдельно пропорционируется по официальным датам приёма/увольнения, после чего считаются налоги, официальный Net и взносы работодателя.</span></article>
@@ -160,6 +213,6 @@
 <script src="/hr-light-theme.js?v=20260917-1"></script>
 <script src="mobile-responsive.js?v=1"></script>
 <script src="documents-nav.js?v=20"></script>
-<script src="/hr-payroll.js?v=20261007-payroll-v2-3"></script>
+<script src="/hr-payroll.js?v=20261007-overtime-ledger-1"></script>
 </body>
 </html>
