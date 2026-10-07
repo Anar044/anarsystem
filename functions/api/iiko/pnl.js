@@ -11,8 +11,10 @@
 // ============================================================
 
 import { clean, getOlapFields, iikoJson } from './_lib/iiko-client.js';
+import { getUser } from './_lib/user-state.js';
+import { listAccountingJournal } from '../hr/_lib/payroll-accounting.js';
 
-function corsHeaders(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type'}}
+function corsHeaders(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...corsHeaders()}})}
 function norm(s){return clean(s).toLowerCase().replace(/[\s._()\/-]+/g,'')}
 function findField(fs,candidates){for(const c of candidates){const q=norm(c),x=fs.find(f=>norm(f.name)===q||norm(f.title)===q);if(x)return x.name}for(const c of candidates){const q=norm(c),x=fs.find(f=>norm(f.name).includes(q)||norm(f.title).includes(q));if(x)return x.name}return null}
@@ -54,8 +56,9 @@ function accountRoleTotal(list){return(list||[]).reduce((a,x)=>a+Number(x.value|
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
 
-export async function onRequestPost({request}){
+export async function onRequestPost({request,env}){
   try{
+    const auth=await getUser(request,env).catch(()=>null);
     const b=await request.json();
     const from=clean(b.from).slice(0,10),to=clean(b.to||b.from).slice(0,10);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return json({success:false,message:'Укажите корректный период'},400);
@@ -148,10 +151,28 @@ export async function onRequestPost({request}){
         value:value(r,amount),
         accountId:accountId?rowText(r,accountId):'',
         accountType:rowText(r,accountType),
-        counterAccount:counterAccount?rowText(r,counterAccount):''
+        counterAccount:counterAccount?rowText(r,counterAccount):'',
+        source:'SH_SERVER'
       };
       return{...item,role:accountTypeRole(item.accountType)};
     }).filter(x=>x.name);
+
+    let smartHorecaJournal=[];
+    if(auth?.user?.id&&env?.DB){
+      try{
+        smartHorecaJournal=await listAccountingJournal(env.DB,{
+          userId:auth.user.id,from,to,
+          departmentCodes:departmentCodes.length?departmentCodes:[]
+        });
+        for(const j of smartHorecaJournal){
+          const a=number(j.amount);
+          if(a<=0)continue;
+          const debit={name:clean(j.debit_account_name)||'Счёт',value:a,accountId:clean(j.debit_account_id),accountType:clean(j.debit_account_type),counterAccount:clean(j.credit_account_name),source:'SMART_HORECA',sourceType:j.source_type,sourceId:j.source_id};
+          const credit={name:clean(j.credit_account_name)||'Счёт',value:-a,accountId:clean(j.credit_account_id),accountType:clean(j.credit_account_type),counterAccount:clean(j.debit_account_name),source:'SMART_HORECA',sourceType:j.source_type,sourceId:j.source_id};
+          postings.push({...debit,role:accountTypeRole(debit.accountType)},{...credit,role:accountTypeRole(credit.accountType)});
+        }
+      }catch(error){console.warn('[PNL-SMART-HORECA-JOURNAL]',error)}
+    }
 
     const revenueAccounts=groupAccounts(postings,'REVENUE');
     const cogsAccounts=groupAccounts(postings,'COGS');
@@ -220,7 +241,7 @@ export async function onRequestPost({request}){
       accounts:postings.map(x=>({...x,pnlCategory:x.role})),
       accountTypeSummary:{REVENUE:revenueAccounts,COGS:cogsAccounts,OPEX:opexAccounts,OTHER_INCOME:otherIncomeAccounts,OTHER_EXPENSE:otherExpenseAccounts},
       salesFields,transactionFields,
-      sourceNote:`iiko Server · P&L блоки определяются по Account.Type; Account.Id используется для группировки; Account.Name берётся напрямую из iiko · P&L выручка: TRANSACTIONS · без кассовых смен${scopeWarning?' · ⚠ TRANSACTIONS без фильтра ресторана':''}`,
+      sourceNote:`SH Server · P&L по Account.Type + Smart Horeca бухгалтерский журнал · P&L выручка: TRANSACTIONS · без кассовых смен${smartHorecaJournal.length?` · Payroll проводок: ${smartHorecaJournal.length}`:''}${scopeWarning?' · ⚠ TRANSACTIONS без фильтра ресторана':''}`,
       meta:{
         departmentIds,
         scopedDepartmentIds,
@@ -233,7 +254,8 @@ export async function onRequestPost({request}){
         transactionDepartmentField:transactionDepartment||null,
         transactionDepartmentValues,
         salesFieldsCacheHit:salesMeta.cacheHit,
-        transactionFieldsCacheHit:transactionMeta.cacheHit
+        transactionFieldsCacheHit:transactionMeta.cacheHit,
+        smartHorecaJournalEntries:smartHorecaJournal.length
       },
       debug:{
         salesRequest:categoryQuery.request,
