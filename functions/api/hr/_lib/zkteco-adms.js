@@ -81,7 +81,14 @@ export async function ensureZktecoAdmsTables(db){
       query_text TEXT NOT NULL DEFAULT '',body_length INTEGER NOT NULL DEFAULT 0,body_preview TEXT NOT NULL DEFAULT '',
       received_at TEXT NOT NULL,PRIMARY KEY(user_id,request_id)
     )`),
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_zkteco_requests_device_time ON hr_zkteco_adms_requests(user_id,device_id,received_at DESC)`)
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_zkteco_requests_device_time ON hr_zkteco_adms_requests(user_id,device_id,received_at DESC)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_zkteco_adms_commands (
+      user_id TEXT NOT NULL,command_id INTEGER NOT NULL,device_id TEXT NOT NULL,serial_number TEXT NOT NULL,
+      command_text TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'PENDING',created_at TEXT NOT NULL,sent_at TEXT NOT NULL DEFAULT '',
+      acknowledged_at TEXT NOT NULL DEFAULT '',return_code TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY(user_id,command_id)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_zkteco_commands_pending ON hr_zkteco_adms_commands(user_id,device_id,status,created_at)`)
   ]);
 }
 export async function registerAdmsDevice(db,{userId,deviceId,serialNumber,model="SenseFace 2A"}){
@@ -222,18 +229,58 @@ export async function handleCdata({request,env}){
     return plain(`OK: ${result.lines}\n`,200);
   }catch(error){console.error("[ZK-ADMS-CDATA]",error);return plain("ERROR\n",200)}
 }
+export async function queueAdmsCommand(db,row,commandText){
+  await ensureZktecoAdmsTables(db);
+  const text=clean(commandText,2000);if(!text)throw new Error("Пустая команда ADMS.");
+  const maxRow=await db.prepare(`SELECT MAX(command_id) AS max_id FROM hr_zkteco_adms_commands WHERE user_id=?1`).bind(row.user_id).first();
+  const commandId=Math.max(1,Number(maxRow?.max_id||0)+1),t=now();
+  await db.prepare(`INSERT INTO hr_zkteco_adms_commands(user_id,command_id,device_id,serial_number,command_text,status,created_at)
+    VALUES(?1,?2,?3,?4,?5,'PENDING',?6)`).bind(row.user_id,commandId,row.device_id,row.serial_number,text,t).run();
+  return commandId;
+}
+async function nextAdmsCommand(db,row){
+  await ensureZktecoAdmsTables(db);
+  return db.prepare(`SELECT command_id,command_text,status,sent_at FROM hr_zkteco_adms_commands
+    WHERE user_id=?1 AND device_id=?2 AND status IN ('PENDING','SENT')
+    ORDER BY CASE status WHEN 'PENDING' THEN 0 ELSE 1 END,created_at LIMIT 1`).bind(row.user_id,row.device_id).first();
+}
+async function markAdmsCommandSent(db,row,commandId){
+  await db.prepare(`UPDATE hr_zkteco_adms_commands SET status='SENT',sent_at=?4
+    WHERE user_id=?1 AND device_id=?2 AND command_id=?3`).bind(row.user_id,row.device_id,commandId,now()).run();
+}
+async function acknowledgeAdmsCommand(db,row,commandId,returnCode=""){
+  if(!commandId)return;
+  await db.prepare(`UPDATE hr_zkteco_adms_commands SET status='ACK',acknowledged_at=?4,return_code=?5
+    WHERE user_id=?1 AND device_id=?2 AND command_id=?3`).bind(row.user_id,row.device_id,commandId,now(),clean(returnCode,80)).run();
+}
 export async function handleGetRequest({request,env}){
   try{
     const url=new URL(request.url),sn=normalizeSn(url.searchParams.get("SN")||url.searchParams.get("sn"));if(!sn)return plain("OK\n");
     const row=await admsDeviceBySerial(env.DB,sn);if(!row)return plain("OK\n");
     await touchAdmsDevice(env.DB,row,request,{pushVersion:url.searchParams.get("pushver")||""});
     await logAdmsRequest(env.DB,row,request,{endpoint:"getrequest"});
+    const cmd=await nextAdmsCommand(env.DB,row);
+    if(cmd){
+      await markAdmsCommandSent(env.DB,row,cmd.command_id);
+      return plain(`C:${cmd.command_id}:${cmd.command_text}\n`);
+    }
     return plain("OK\n");
   }catch(error){console.error("[ZK-ADMS-GETREQUEST]",error);return plain("OK\n")}
 }
 export async function handleDeviceCmd({request,env}){
   try{
-    const url=new URL(request.url),sn=normalizeSn(url.searchParams.get("SN")||url.searchParams.get("sn"));if(sn){const row=await admsDeviceBySerial(env.DB,sn);if(row){await touchAdmsDevice(env.DB,row,request,{});await logAdmsRequest(env.DB,row,request,{endpoint:"devicecmd"})}}
+    const url=new URL(request.url),sn=normalizeSn(url.searchParams.get("SN")||url.searchParams.get("sn"));
+    if(sn){
+      const row=await admsDeviceBySerial(env.DB,sn);
+      if(row){
+        const body=request.method==="POST"?await request.text():"";
+        await touchAdmsDevice(env.DB,row,request,{});
+        await logAdmsRequest(env.DB,row,request,{endpoint:"devicecmd",body});
+        const id=Number(url.searchParams.get("ID")||url.searchParams.get("id")||0);
+        const ret=url.searchParams.get("Return")||url.searchParams.get("return")||"";
+        if(id)await acknowledgeAdmsCommand(env.DB,row,id,ret);
+      }
+    }
     return plain("OK\n");
   }catch(error){console.error("[ZK-ADMS-DEVICECMD]",error);return plain("OK\n")}
 }
