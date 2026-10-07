@@ -290,6 +290,13 @@ jobs:
         run: |
           set -euo pipefail
           grep -q "hr_payroll_accounting_config" functions/api/hr/_lib/payroll-accounting.js
+          grep -q "hr_payroll_bank_accounts" functions/api/hr/_lib/payroll-accounting.js
+          grep -q "getPayrollBankAccounts" functions/api/hr/payroll-accounting-settings.js
+          grep -q "hr_overtime_payment_sources" functions/api/hr/overtime-settlements.js
+          grep -q "bankAccountId" functions/api/hr/overtime-settlements.js
+          grep -q "hrpPaymentBankAccount" hr-payroll.html
+          grep -q "hrpaBankList" hr-payroll-accounting.html
+          grep -q "bankAccounts:state.bankAccounts" hr-payroll-accounting.js
           grep -q "sh_accounting_journal" functions/api/hr/_lib/payroll-accounting.js
           grep -q "syncOvertimeAccrualPosting" functions/api/hr/payroll.js
           grep -q "syncOvertimePaymentPosting" functions/api/hr/overtime-settlements.js
