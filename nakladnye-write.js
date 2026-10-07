@@ -218,7 +218,7 @@
     row.querySelector('[data-f="actualAmount"]').value = Number.isFinite(actual) ? actual.toFixed(3).replace(/\.000$/, '') : '0';
     row.querySelector('[data-f="sum"]').value = Number.isFinite(sum) ? sum.toFixed(2) : '0.00';
     var vatEl = row.querySelector('[data-vat-sum]');
-    if (vatEl) vatEl.textContent = 'НДС: ' + vatSum.toFixed(2) + ' ₼';
+    if (vatEl) vatEl.textContent = 'НДС: ' + vatSum.toFixed(2) + ' ₼ · без НДС: ' + (sum - vatSum).toFixed(2) + ' ₼';
   }
 
   function addItem(item) {
