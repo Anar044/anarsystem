@@ -2,7 +2,7 @@
   'use strict';
   const $=id=>document.getElementById(id);
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let data={items:[],roles:[],counts:{}},busy=false;
+  let data={items:[],roles:[],counts:{}},accessData={members:[],roles:[]},busy=false;
 
   async function token(){
     const client=await window.SHAuth?.createClient?.();
@@ -13,6 +13,26 @@
     return t;
   }
   function setStatus(text,kind=''){const el=$('hrStatus');if(!el)return;el.textContent=text;el.className=`hr-status ${kind}`.trim()}
+  function canManageAccess(){return Boolean(window.SHAccess?.can?.('access.manage'))}
+  function accessMember(employeeId){return (accessData.members||[]).find(x=>String(x.employeeId||'')===String(employeeId||''))||null}
+  function accessRoleNames(member){
+    if(!member)return[];
+    if(member.isOwner)return['Владелец'];
+    const map=new Map((accessData.roles||[]).map(x=>[x.id,x.name]));
+    return (member.roleIds||[]).map(id=>map.get(id)||id).filter(Boolean);
+  }
+  function accessCell(x){
+    if(!canManageAccess())return'';
+    const member=accessMember(x.id);
+    if(!member){
+      return `<td class="hr-access-cell"><span class="hr-badge fired">Нет доступа</span><div><a class="hr-access-action" href="/site-users.html?employee=${encodeURIComponent(x.id)}">Предоставить</a></div></td>`;
+    }
+    const status=member.isOwner?'OWNER':String(member.status||'PENDING').toUpperCase();
+    const label=status==='OWNER'?'Владелец':status==='ACTIVE'?'Активен':status==='DISABLED'?'Отключён':'Ожидает входа';
+    const cls=(status==='ACTIVE'||status==='OWNER')?'active':status==='PENDING'?'pending':'fired';
+    const roles=accessRoleNames(member);
+    return `<td class="hr-access-cell"><span class="hr-badge ${cls}">${esc(label)}</span>${roles.length?`<div class="hr-sub hr-access-roles">${esc(roles.join(' · '))}</div>`:''}${member.isOwner?'':`<div><a class="hr-access-action" href="/site-users.html?employee=${encodeURIComponent(x.id)}">Настроить</a></div>`}</td>`;
+  }
   function fullName(x){return [x.lastName,x.firstName,x.middleName].filter(Boolean).join(' ')||x.name||x.code||'Без имени'}
   function isFired(x){return Boolean(x.deleted||x.fireDate)}
   function filtered(){
@@ -42,7 +62,7 @@
     if([...select.options].some(o=>o.value===current))select.value=current;
   }
   function renderRows(){
-    const rows=filtered(),tbody=$('hrTable').querySelector('tbody');
+    const rows=filtered(),tbody=$('hrTable').querySelector('tbody'),manage=canManageAccess();
     tbody.innerHTML=rows.map(x=>{
       const fired=isFired(x),linked=Boolean(x.attendanceExternalId);
       return`<tr>
@@ -54,8 +74,9 @@
         <td>${esc(x.fireDate||'—')}</td>
         <td>${linked?`<span class="hr-badge linked">${esc(x.attendanceProvider||'DEVICE')} · ${esc(x.attendanceExternalId)}</span>`:'<span class="hr-badge pending">Не связан</span>'}</td>
         <td><span class="hr-badge ${fired?'fired':'active'}">${fired?'Уволен':'Активен'}</span></td>
+        ${accessCell(x)}
       </tr>`;
-    }).join('')||'<tr><td colspan="8" class="hr-empty">Сотрудники не найдены</td></tr>';
+    }).join('')||`<tr><td colspan="${manage?9:8}" class="hr-empty">Сотрудники не найдены</td></tr>`;
     $('hrRowCount').textContent=`${rows.length} сотрудников`;
   }
   function render(){renderSummary();renderRoles();renderRows()}
@@ -69,7 +90,16 @@
       const response=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/hr/employees',{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}},60000);
       const result=await response.json().catch(()=>({success:false,message:'Сервер вернул некорректный ответ'}));
       if(!response.ok||!result.success)throw new Error(result.message||`HTTP ${response.status}`);
-      data=result;render();
+      data=result;
+      if(canManageAccess()){
+        try{
+          const ar=await fetch('/api/access/admin',{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'},cache:'no-store'});
+          const aj=await ar.json().catch(()=>({}));
+          if(ar.ok&&aj.success)accessData={members:aj.members||[],roles:aj.roles||[]};
+          else console.warn('Access directory unavailable',aj.message||ar.status);
+        }catch(accessError){console.warn('Access directory unavailable',accessError)}
+      }else accessData={members:[],roles:[]};
+      render();
       setStatus(`Синхронизировано · ${result.counts?.active||0} активных`,'ok');
     }catch(e){
       console.error(e);error.hidden=false;error.textContent=e?.message||String(e);setStatus('Ошибка','error');
@@ -81,6 +111,13 @@
     $('hrRoleFilter').addEventListener('change',renderRows);
     $('hrStatusFilter').addEventListener('change',renderRows);
   }
-  async function init(){bind();await load()}
+  async function init(){
+    await window.SHAccess?.load?.();
+    const manage=canManageAccess();
+    if($('hrAccessUsers'))$('hrAccessUsers').hidden=!manage;
+    if($('hrAccessHead'))$('hrAccessHead').hidden=!manage;
+    bind();
+    await load();
+  }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
