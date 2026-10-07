@@ -72,7 +72,7 @@ if(auth?.user?.id&&context.env?.DB){
   try{
     const to=String(balanceResult.timestamp||body.timestamp||new Date().toISOString()).slice(0,10);
     const departmentCodes=Array.isArray(body?.chainScope?.selectedDepartmentCodes)?body.chainScope.selectedDepartmentCodes.map(String).filter(Boolean):[];
-    smartJournal=await listAccountingJournal(context.env.DB,{userId:auth.user.id,from:"1900-01-01",to,departmentCodes});
+    smartJournal=await listAccountingJournal(context.env.DB,{userId:auth.user.id,from:"1900-01-01",to,departmentCodes:[...new Set([...departmentCodes,...departmentIds])].filter(Boolean)});
   }catch(error){console.warn("[ACCOUNTS-SMART-HORECA-JOURNAL]",error)}
 }
 const overlay=new Map();
