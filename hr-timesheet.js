@@ -57,7 +57,7 @@
     try{return new Date(v).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}catch{return String(v)}
   }
   function issueLabel(code){
-    return({MISSING_OUT:'Нет отметки выхода',MISSING_IN:'Нет отметки входа',DUPLICATE_IN:'Повторный вход',DUPLICATE_OUT:'Повторный выход',UNKNOWN_EVENT_TYPE:'Неизвестный тип события',INVALID_ORDER:'Выход раньше входа',LONG_INTERVAL:'Интервал больше 15 часов'})[code]||code||'Проверить';
+    return({MISSING_OUT:'Нет отметки выхода',MISSING_IN:'Нет отметки входа',MISSING_PAIR:'Только одна пробивка за смену',DUPLICATE_MARK:'Повторная пробивка менее чем через 10 секунд',DUPLICATE_IN:'Повторный вход',DUPLICATE_OUT:'Повторный выход',UNKNOWN_EVENT_TYPE:'Неизвестный тип события',INVALID_ORDER:'Выход раньше входа',LONG_INTERVAL:'Интервал больше 15 часов'})[code]||code||'Проверить';
   }
   async function digestText(text){
     try{
@@ -232,7 +232,7 @@
   function searchText(){return String($('tsSearch')?.value||'').trim().toLowerCase()}
   function problemStatuses(){
     if(mode!=='FACTUAL')return new Set([]);
-    return new Set(faceIdConnected()?['ABSENT','REVIEW','LEAVE_WITH_WORK','WORK_REST','NO_SCHEDULE','WORK_NO_SCHEDULE']:['REVIEW','LEAVE_WITH_WORK','WORK_REST','NO_SCHEDULE','WORK_NO_SCHEDULE']);
+    return new Set(faceIdConnected()?['INCOMPLETE','REVIEW','LEAVE_WITH_WORK']:['REVIEW','LEAVE_WITH_WORK']);
   }
   function dayList(){return mode==='FACTUAL'?(data.factualDays||[]):(data.officialDays||[])}
   function faceIdConnected(){return Array.isArray(data.devices)&&data.devices.length>0}
@@ -280,6 +280,8 @@
         LEAVE:['ƏM','', 'leave','Отпуск'],
         LEAVE_WITH_WORK:['ƏM+Р',hours(x.workedMinutes),'review','Отпуск + работа'],
         ABSENT:faceIdConnected()?['Y','', 'absent','Нет']:['—','', 'manual-empty','Факт не введён'],
+        INCOMPLETE:['!','', 'absent','Неполная явка'],
+        FREE_NO_MARKS:['·','', 'manual-empty','Нет пробивок'],
         REST:['İ','', 'rest','Выходной'],
         NO_SCHEDULE:['—','', 'no-schedule','График не задан'],
         WORK_NO_SCHEDULE:['Р?',hours(x.workedMinutes),'review','Работа без графика'],
@@ -302,7 +304,7 @@
   function buildEmployeeTotals(days){
     if(mode==='FACTUAL'){
       return{
-        work:days.filter(x=>['WORK','WORK_REST','WORK_NO_SCHEDULE','REVIEW','LEAVE_WITH_WORK'].includes(x.status)&&Number(x.workedMinutes||0)>0).length,
+        work:days.filter(x=>['WORK','REVIEW','LEAVE_WITH_WORK'].includes(x.status)&&Number(x.workedMinutes||0)>0).length,
         plan:days.reduce((s,x)=>s+Number(x.plannedMinutes||0),0),
         fact:days.reduce((s,x)=>s+Number(x.workedMinutes||0),0),
         norm:days.reduce((s,x)=>s+Number(x.normMinutes||0),0),
