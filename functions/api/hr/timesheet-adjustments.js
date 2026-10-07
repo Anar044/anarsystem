@@ -66,9 +66,10 @@ export async function onRequestPost({request,env}){
       requireCapability(state.user,'canCorrect');
       if(!employeeId||!workDate)return json({success:false,message:'Не указан сотрудник или дата'},400);
       const allowed=new Set(['','WORK','WORK_HOLIDAY','WORK_REST','LEAVE','LEAVE_WITH_WORK','ABSENT','REST','REVIEW','NO_SCHEDULE','WORK_NO_SCHEDULE']);
-      const statusOverride=clean(body.statusOverride,40).toUpperCase();
+      let statusOverride=clean(body.statusOverride,40).toUpperCase();
       if(!allowed.has(statusOverride))return json({success:false,message:'Недопустимый статус корректировки'},400);
       const worked=mins(body.workedMinutesOverride,{allowNull:true,max:1440}),planned=mins(body.plannedMinutesOverride,{allowNull:true,max:1440}),reason=clean(body.reason,1600);
+      if(kind==='FACTUAL'&&worked!==null&&worked>0&&!statusOverride)statusOverride='WORK';
       if(worked===null||planned===null)return json({success:false,message:'Часы корректировки указаны неверно'},400);
       if(!reason)return json({success:false,message:'Укажите причину ручной корректировки'},400);
       const old=correctionDto(await correctionRow(env.DB,userId,employeeId,workDate,kind)),id=old?.id||crypto.randomUUID();
@@ -77,8 +78,14 @@ export async function onRequestPost({request,env}){
         ON CONFLICT(user_id,iiko_employee_id,work_date,contour) DO UPDATE SET status_override=excluded.status_override,worked_minutes_override=excluded.worked_minutes_override,planned_minutes_override=excluded.planned_minutes_override,reason=excluded.reason,actor_id=excluded.actor_id,actor_label=excluded.actor_label,updated_at=excluded.updated_at`)
         .bind(userId,id,employeeId,workDate,kind,statusOverride,worked,planned,reason,actorId,actor,t).run();
       const after=correctionDto(await correctionRow(env.DB,userId,employeeId,workDate,kind));
-      await audit({auditAction:'UPDATE',entityType:'HR_TIMESHEET_CORRECTION',entityId:id,entityLabel:`Корректировка табеля · ${employeeId} · ${workDate}`,before:old,after,metadata:{employeeId,workDate,contour:kind}});
-      return json({success:true,access,correction:after});
+      let resetOvertime=null;
+      if(kind==='FACTUAL'){
+        resetOvertime=overtimeDto(await overtimeRow(env.DB,userId,employeeId,workDate));
+        if(resetOvertime)await env.DB.prepare(`DELETE FROM hr_overtime_requests WHERE user_id=?1 AND iiko_employee_id=?2 AND work_date=?3`).bind(userId,employeeId,workDate).run();
+      }
+      await audit({auditAction:'UPDATE',entityType:'HR_TIMESHEET_CORRECTION',entityId:id,entityLabel:`Корректировка табеля · ${employeeId} · ${workDate}`,before:old,after,metadata:{employeeId,workDate,contour:kind,overtimeReset:Boolean(resetOvertime)}});
+      if(resetOvertime)await audit({auditAction:'REOPEN',entityType:'HR_OVERTIME_REQUEST',entityId:resetOvertime.id||`${employeeId}:${workDate}`,entityLabel:`Сброс доп. часов после изменения факта · ${employeeId} · ${workDate}`,before:resetOvertime,after:null,metadata:{employeeId,workDate,reason:'FACTUAL_CORRECTION_CHANGED'}});
+      return json({success:true,access,correction:after,overtimeReset:Boolean(resetOvertime)});
     }
 
     if(action==='DELETE_CORRECTION'){
@@ -86,8 +93,14 @@ export async function onRequestPost({request,env}){
       if(!employeeId||!workDate)return json({success:false,message:'Не указан сотрудник или дата'},400);
       const old=correctionDto(await correctionRow(env.DB,userId,employeeId,workDate,kind));
       if(old)await env.DB.prepare(`DELETE FROM hr_timesheet_day_corrections WHERE user_id=?1 AND iiko_employee_id=?2 AND work_date=?3 AND contour=?4`).bind(userId,employeeId,workDate,kind).run();
-      await audit({auditAction:'DELETE',entityType:'HR_TIMESHEET_CORRECTION',entityId:old?.id||`${employeeId}:${workDate}:${kind}`,entityLabel:`Корректировка табеля · ${employeeId} · ${workDate}`,before:old,after:null,metadata:{employeeId,workDate,contour:kind}});
-      return json({success:true,access,deleted:Boolean(old)});
+      let resetOvertime=null;
+      if(kind==='FACTUAL'){
+        resetOvertime=overtimeDto(await overtimeRow(env.DB,userId,employeeId,workDate));
+        if(resetOvertime)await env.DB.prepare(`DELETE FROM hr_overtime_requests WHERE user_id=?1 AND iiko_employee_id=?2 AND work_date=?3`).bind(userId,employeeId,workDate).run();
+      }
+      await audit({auditAction:'DELETE',entityType:'HR_TIMESHEET_CORRECTION',entityId:old?.id||`${employeeId}:${workDate}:${kind}`,entityLabel:`Корректировка табеля · ${employeeId} · ${workDate}`,before:old,after:null,metadata:{employeeId,workDate,contour:kind,overtimeReset:Boolean(resetOvertime)}});
+      if(resetOvertime)await audit({auditAction:'REOPEN',entityType:'HR_OVERTIME_REQUEST',entityId:resetOvertime.id||`${employeeId}:${workDate}`,entityLabel:`Сброс доп. часов после отмены факта · ${employeeId} · ${workDate}`,before:resetOvertime,after:null,metadata:{employeeId,workDate,reason:'FACTUAL_CORRECTION_DELETED'}});
+      return json({success:true,access,deleted:Boolean(old),overtimeReset:Boolean(resetOvertime)});
     }
 
     if(action==='SAVE_OVERTIME_RULE'){
