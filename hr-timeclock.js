@@ -70,12 +70,21 @@
   function hideDeviceToken(){currentDeviceToken='';$('deviceTokenValue').textContent='';$('deviceTokenPanel').hidden=true}
   async function copyDeviceToken(){if(!currentDeviceToken)return;try{await navigator.clipboard.writeText(currentDeviceToken);setStatus('Ключ скопирован','ok')}catch{const ta=document.createElement('textarea');ta.value=currentDeviceToken;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();setStatus('Ключ скопирован','ok')}}
 
-  async function load(){if(busy)return;const err=$('tcError');try{busy=true;$('tcRefresh').disabled=true;err.hidden=true;setStatus('Загрузка…','loading');data=await api();render();setStatus('Готово','ok')}catch(e){console.error(e);err.hidden=false;err.textContent=e?.message||String(e);setStatus('Ошибка','error')}finally{busy=false;$('tcRefresh').disabled=false}}
+  async function load(){if(busy)return;const err=$('tcError');try{busy=true;$('tcRefresh').disabled=true;err.hidden=true;setStatus('Загрузка…','loading');data=await api();render();setStatus('Готово','ok');const hasSystem=(data.events||[]).some(x=>String(x.externalEmployeeId)==='0');if(hasSystem&&!sessionStorage.getItem('shHrZkSystemCleanup')){sessionStorage.setItem('shHrZkSystemCleanup','1');setTimeout(cleanupSystemEvents,250)}}catch(e){console.error(e);err.hidden=false;err.textContent=e?.message||String(e);setStatus('Ошибка','error')}finally{busy=false;$('tcRefresh').disabled=false}}
   async function saveDevice(ev){ev.preventDefault();try{setStatus('Сохраняем…','loading');data=await api({action:'saveDevice',provider:$('deviceProvider').value,model:$('deviceModel').value,serialNumber:$('deviceSerial').value,name:$('deviceName').value,location:$('deviceLocation').value,timezone:$('deviceTimezone').value,connectionMode:$('deviceConnectionMode').value});$('deviceName').value='';$('deviceLocation').value='';$('deviceSerial').value='';render();setStatus('Устройство добавлено','ok')}catch(e){$('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error')}}
   async function rotateDeviceToken(deviceId){try{const d=(data.devices||[]).find(x=>x.id===deviceId);if(d?.tokenConfigured&&!confirm('Старый ключ перестанет работать сразу после перевыпуска. Продолжить?'))return;setStatus('Создаём ключ…','loading');const result=await api({action:'rotateDeviceToken',deviceId});data=result;render();showDeviceToken(deviceId,result.deviceToken);setStatus('Новый ключ создан','ok')}catch(e){$('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error')}}
   async function revokeDeviceToken(deviceId){if(!confirm('Отозвать ключ устройства? Connector сразу потеряет доступ к отправке событий.'))return;try{setStatus('Отзываем ключ…','loading');data=await api({action:'revokeDeviceToken',deviceId});hideDeviceToken();render();setStatus('Ключ отозван','ok')}catch(e){$('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error')}}
   async function link(ev){ev.preventDefault();try{setStatus('Сохраняем связь…','loading');data=await api({action:'linkEmployee',deviceId:$('bindingDevice').value,employeeId:$('bindingEmployee').value,externalEmployeeId:$('bindingExternalId').value,externalLabel:$('bindingLabel').value});$('bindingExternalId').value='';$('bindingLabel').value='';render();setStatus('Связь сохранена','ok')}catch(e){$('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error')}}
   async function unlink(deviceId,employeeId){if(!confirm('Удалить связь сотрудника с устройством?'))return;try{data=await api({action:'unlinkEmployee',deviceId,employeeId});render();setStatus('Связь удалена','ok')}catch(e){$('tcError').hidden=false;$('tcError').textContent=e.message}}
+  async function cleanupSystemEvents(){
+    const device=(data.devices||[]).find(x=>x.connectionMode==='ADMS_PUSH'&&x.active)||(data.devices||[])[0];
+    if(!device)return;
+    try{
+      const out=await api({action:'cleanupSystemEvents',deviceId:device.id});
+      data=out;render();
+      if(Number(out.deletedSystemEvents||0)>0)setStatus('Служебные события очищены: '+out.deletedSystemEvents,'ok');
+    }catch(_){}
+  }
   async function requestAttendanceLog(){
     const device=(data.devices||[]).find(x=>x.connectionMode==='ADMS_PUSH'&&x.active)||(data.devices||[])[0];
     if(!device){$('tcError').hidden=false;$('tcError').textContent='ADMS устройство не найдено';return}
