@@ -325,6 +325,28 @@ async function readData(db,serverScope,scope){
     };
   });
 
+  const requisitionsWithProgress=requisitions.map(r=>{
+    const linkedOrders=orders.filter(o=>o.requisitionId===r.id&&o.effectiveStatus!=="CANCELLED");
+    const orderedByProduct=new Map(),receivedByProduct=new Map();
+    for(const o of linkedOrders){
+      for(const line of o.lines||[]){
+        orderedByProduct.set(line.productId,n(orderedByProduct.get(line.productId))+n(line.orderedQty));
+        receivedByProduct.set(line.productId,n(receivedByProduct.get(line.productId))+n(line.receivedQty));
+      }
+    }
+    const lineProgress=(r.lines||[]).map(line=>{
+      const requested=n(line.quantity),ordered=n(orderedByProduct.get(line.productId)),received=n(receivedByProduct.get(line.productId));
+      const pct=requested>0?Math.min(100,received/requested*100):0;
+      return{productId:line.productId,requestedQty:requested,orderedQty:q(ordered),receivedQty:q(received),remainingQty:q(Math.max(0,requested-received)),completionPercent:Math.round(pct*10)/10};
+    });
+    const anyOrdered=lineProgress.some(x=>x.orderedQty>0.0005),anyReceived=lineProgress.some(x=>x.receivedQty>0.0005);
+    const fullyOrdered=lineProgress.length>0&&lineProgress.every(x=>x.orderedQty>=x.requestedQty-0.0005);
+    const fullyReceived=lineProgress.length>0&&lineProgress.every(x=>x.receivedQty>=x.requestedQty-0.0005);
+    const completionPercent=lineProgress.length?Math.round(lineProgress.reduce((s,x)=>s+x.completionPercent,0)/lineProgress.length*10)/10:0;
+    const effectiveStatus=r.status==="CANCELLED"?"CANCELLED":r.status==="CLOSED"?"CLOSED":fullyReceived&&linkedOrders.length?"COMPLETED":anyReceived?"PARTIALLY_FULFILLED":fullyOrdered?"ORDERED":anyOrdered?"PARTIALLY_ORDERED":r.status;
+    return{...r,effectiveStatus,completionPercent,lineProgress,linkedOrders:linkedOrders.map(o=>({id:o.id,number:o.number,effectiveStatus:o.effectiveStatus,supplierId:o.supplierId,supplierName:o.supplierName,totalAmount:o.totalAmount,completionPercent:o.completionPercent}))};
+  });
+
   const supplierMap=new Map();
   for(const o of orders.filter(x=>x.effectiveStatus!=="CANCELLED")){
     const key=o.supplierId||o.supplierName;if(!supplierMap.has(key))supplierMap.set(key,{supplierId:o.supplierId,supplierName:o.supplierName,orders:0,totalAmount:0,receivedAmount:0,completedOrders:0,avgCompletion:0,_completion:0});
@@ -332,15 +354,15 @@ async function readData(db,serverScope,scope){
     s.receivedAmount+=(o.receipts||[]).reduce((a,r)=>a+n(r.totalAmount),0);
   }
   const supplierPerformance=[...supplierMap.values()].map(s=>({...s,totalAmount:money(s.totalAmount),receivedAmount:money(s.receivedAmount),avgCompletion:s.orders?Math.round(s._completion/s.orders*10)/10:0,_completion:undefined})).sort((a,b)=>b.totalAmount-a.totalAmount);
-  const estimate=requisitions.reduce((s,r)=>s+n(r.totalEstimate),0),ordered=orders.filter(x=>x.effectiveStatus!=="CANCELLED").reduce((s,o)=>s+n(o.totalAmount),0),receivedAmount=receipts.reduce((s,r)=>s+n(r.totalAmount),0);
+  const estimate=requisitionsWithProgress.reduce((s,r)=>s+n(r.totalEstimate),0),ordered=orders.filter(x=>x.effectiveStatus!=="CANCELLED").reduce((s,o)=>s+n(o.totalAmount),0),receivedAmount=receipts.reduce((s,r)=>s+n(r.totalAmount),0);
   const stockNorms=(normsR.results||[]).filter(x=>rowAllowed(x,scope)).map(x=>({
     storeId:x.store_id,storeName:x.store_name,productId:x.product_id,productName:x.product_name,unit:x.unit,
     minStock:x.min_stock===null?null:n(x.min_stock),targetStock:x.target_stock===null?null:n(x.target_stock),
     leadDays:n(x.lead_days),enabled:Number(x.enabled)!==0,updatedAt:x.updated_at,updatedBy:x.updated_by_name||x.updated_by
   }));
   return{
-    requisitions,orders,receipts,stockNorms,supplierPerformance,
-    analytics:{requisitionEstimate:money(estimate),orderedAmount:money(ordered),receivedAmount:money(receivedAmount),estimatedSavings:money(Math.max(0,estimate-ordered)),activeOrders:orders.filter(x=>!["COMPLETED","CANCELLED"].includes(x.effectiveStatus)).length,completedOrders:orders.filter(x=>x.effectiveStatus==="COMPLETED").length,pendingApprovals:requisitions.filter(x=>x.status==="PENDING_APPROVAL").length}
+    requisitions:requisitionsWithProgress,orders,receipts,stockNorms,supplierPerformance,
+    analytics:{requisitionEstimate:money(estimate),orderedAmount:money(ordered),receivedAmount:money(receivedAmount),estimatedSavings:money(Math.max(0,estimate-ordered)),activeOrders:orders.filter(x=>!["COMPLETED","CANCELLED"].includes(x.effectiveStatus)).length,completedOrders:orders.filter(x=>x.effectiveStatus==="COMPLETED").length,pendingApprovals:requisitionsWithProgress.filter(x=>x.status==="PENDING_APPROVAL").length,completedRequisitions:requisitionsWithProgress.filter(x=>x.effectiveStatus==="COMPLETED").length}
   };
 }
 
@@ -420,6 +442,17 @@ export async function onRequestPost({request,env}){
       for(const x of lines)stmts.push(db.prepare(`INSERT INTO procurement_requisition_lines(id,requisition_id,product_id,product_name,unit,quantity,expected_price,current_stock,min_stock,max_stock,store_id,store_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)`).bind(uid(),r.id,x.productId,x.productName,x.unit,x.quantity,x.unitPrice,x.currentStock,x.minStock,x.maxStock,x.storeId,x.storeName));
       await db.batch(stmts);await log(c,"UPDATE","PURCHASE_REQUISITION",r,before,{id:r.id,number:r.number,status:r.status,warehouseId,warehouseName,totalEstimate:total,requiredApprovalLevel:level,lines});
       return json({success:true,id:r.id,status:r.status});
+    }
+
+    if(action==="close-requisition"){
+      const r=await reqRow(db,c.scope,clean(body?.id),c.serverScope);
+      if(["DRAFT","PENDING_APPROVAL","CANCELLED","CLOSED"].includes(r.status)){const e=new Error("Эту заявку нельзя закрыть вручную.");e.status=409;throw e}
+      const reason=clean(body?.reason);if(!reason)throw new Error("Укажите причину ручного закрытия заявки.");
+      const before={status:r.status,comment:r.comment};
+      const nextComment=[clean(r.comment), "Закрыто вручную: "+reason].filter(Boolean).join("\n");
+      await db.prepare("UPDATE procurement_requisitions SET status='CLOSED',comment=?2,updated_at=?3,updated_by=?4 WHERE id=?1").bind(r.id,nextComment,stamp,userId).run();
+      await log(c,"CLOSE","PURCHASE_REQUISITION",r,before,{status:"CLOSED",reason});
+      return json({success:true,id:r.id,status:"CLOSED"});
     }
 
     if(["submit-requisition","approve-requisition","cancel-requisition"].includes(action)){
