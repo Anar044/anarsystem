@@ -200,34 +200,81 @@ function renderKpis(){
   $('proc-kpi-match').textContent=completed.filter(x=>x.matchStatus==='MATCHED').length+' совпали без расхождений';
   $('proc-tab-needs-count').textContent=state.needs.length;$('proc-tab-norms-count').textContent=(d.stockNorms||[]).length;$('proc-tab-pr-count').textContent=(d.requisitions||[]).length;$('proc-tab-po-count').textContent=(d.orders||[]).length;
 }
+function purchaseMatrixRows(){
+  const products=new Map();
+  for(const row of state.purchaseRows){
+    let p=products.get(row.productId);
+    if(!p){
+      p={
+        productId:row.productId,productName:row.productName,productNum:row.productNum,groupName:row.groupName,unit:row.unit,
+        byStore:new Map(),totalStock:0,lastPrice:row.lastPrice,lastSupplier:row.lastSupplier
+      };
+      products.set(row.productId,p);
+    }
+    p.byStore.set(row.storeId,row);
+    p.totalStock+=num(row.currentStock);
+    if(!p.lastPrice&&row.lastPrice){p.lastPrice=row.lastPrice;p.lastSupplier=row.lastSupplier}
+  }
+  return [...products.values()].sort((a,b)=>a.productName.localeCompare(b.productName,'ru'));
+}
 function renderNeeds(){
   const store=$('proc-needs-store'),current=store.value;
   const stores=[...new Map(state.purchaseRows.map(x=>[x.storeId,{id:x.storeId,name:x.storeName}])).values()].sort((a,b)=>a.name.localeCompare(b.name,'ru'));
-  store.innerHTML='<option value="">Все склады</option>'+stores.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('');if(stores.some(x=>x.id===current))store.value=current;
-  const qv=($('proc-needs-search').value||'').trim().toLowerCase(),sid=store.value,filter=$('proc-needs-filter')?.value||'all';
-  const visible=state.purchaseRows.filter(x=>{
-    if(sid&&x.storeId!==sid)return false;
-    if(qv&&![x.productName,x.productNum,x.groupName,x.storeName].join(' ').toLowerCase().includes(qv))return false;
-    if(filter==='recommended'&&!x.autoRecommended)return false;
-    if(filter==='negative'&&!(x.currentStock<0))return false;
-    if(filter==='zero'&&Math.abs(x.currentStock)>1e-12)return false;
-    if(filter==='no_norm'&&(x.minStock!==null||x.maxStock!==null))return false;
+  store.innerHTML='<option value="">Выберите склад</option>'+stores.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('');
+  const targetStoreId=stores.some(x=>x.id===current)?current:(stores[0]?.id||'');
+  if(targetStoreId)store.value=targetStoreId;
+
+  const qv=($('proc-needs-search').value||'').trim().toLowerCase(),filter=$('proc-needs-filter')?.value||'all';
+  const matrix=purchaseMatrixRows();
+  const visible=matrix.filter(p=>{
+    const target=p.byStore.get(targetStoreId);
+    if(qv&&![p.productName,p.productNum,p.groupName].join(' ').toLowerCase().includes(qv))return false;
+    if(!target)return filter==='all';
+    if(filter==='recommended'&&!target.autoRecommended)return false;
+    if(filter==='negative'&&!(target.currentStock<0))return false;
+    if(filter==='zero'&&Math.abs(target.currentStock)>1e-12)return false;
+    if(filter==='no_norm'&&(target.minStock!==null||target.maxStock!==null))return false;
     return true;
   });
-  const recommendedVisible=visible.filter(x=>x.autoRecommended);
-  $('proc-needs-meta').textContent=visible.length+' товаров · '+recommendedVisible.length+' требуют закупки';
-  const tb=$('proc-needs-table').querySelector('tbody');
-  tb.innerHTML=visible.map(x=>'<tr>'+
-    '<td><input class="proc-need-check" type="checkbox" data-need="'+esc(x.id)+'" '+(state.selectedNeeds.has(x.id)?'checked':'')+'></td>'+
-    '<td><strong>'+esc(x.productName)+'</strong><small>'+esc([x.productNum,x.groupName].filter(Boolean).join(' · ')||x.productId)+'</small></td>'+
-    '<td>'+esc(x.storeName)+'</td>'+
-    '<td class="'+(x.currentStock<0?'proc-negative':Math.abs(x.currentStock)<=1e-12?'proc-low':'proc-good')+'">'+qty(x.currentStock)+' '+esc(x.unit)+'</td>'+
-    '<td>'+(x.minStock===null?'—':qty(x.minStock))+' / '+(x.maxStock===null?'—':qty(x.maxStock))+
-      (x.normSource!=='NONE'?'<small>'+(x.normSource==='SMART_HORECA'?'Smart Horeca':'Server')+'</small>':'')+'</td>'+
-    '<td>'+(x.autoRecommended?'<strong>'+qty(x.recommendedQty)+' '+esc(x.unit)+'</strong><small>авторекомендация</small>':'<span class="proc-status-badge neutral">Ручной заказ</span>')+'</td>'+
-    '<td>'+(x.lastPrice?money(x.lastPrice):'—')+(x.lastSupplier?'<small>'+esc(x.lastSupplier)+'</small>':'')+'</td>'+
-    '<td>'+(x.autoRecommended?money(x.estimated):'—')+'</td>'+
-    '<td><button class="proc-btn small '+(x.autoRecommended?'primary':'ghost')+'" data-create-need="'+esc(x.id)+'">'+(x.autoRecommended?'Создать PR':'В PR')+'</button></td></tr>').join('')||'<tr><td colspan="9" class="proc-empty">Товары по выбранному фильтру не найдены.</td></tr>';
+  const targetName=stores.find(x=>x.id===targetStoreId)?.name||'склад';
+  const recommendedVisible=visible.filter(p=>p.byStore.get(targetStoreId)?.autoRecommended);
+  $('proc-needs-meta').textContent=visible.length+' товаров · '+recommendedVisible.length+' требуют закупки на «'+targetName+'»';
+
+  const table=$('proc-needs-table');
+  const head=table.querySelector('thead');
+  head.innerHTML='<tr><th></th><th>Товар</th>'+
+    stores.map(s=>'<th class="proc-store-col '+(s.id===targetStoreId?'target':'')+'">'+esc(s.name)+(s.id===targetStoreId?'<small>склад заказа</small>':'')+'</th>').join('')+
+    '<th>Всего</th><th>Min / Max<br><small>'+esc(targetName)+'</small></th><th>Рекомендация</th><th>Последняя цена</th><th></th></tr>';
+
+  const tb=table.querySelector('tbody');
+  tb.innerHTML=visible.map(p=>{
+    const target=p.byStore.get(targetStoreId);
+    const selectedId=target?.id||'';
+    const cells=stores.map(s=>{
+      const x=p.byStore.get(s.id);
+      if(!x)return '<td class="proc-stock-cell empty">—</td>';
+      const cls=x.currentStock<0?'proc-negative':Math.abs(x.currentStock)<=1e-12?'proc-low':'proc-good';
+      return '<td class="proc-stock-cell '+(s.id===targetStoreId?'target ':'')+cls+'"><strong>'+qty(x.currentStock)+'</strong><small>'+esc(x.unit||p.unit)+(x.autoRecommended?' · ↓ '+qty(x.recommendedQty):'')+'</small></td>';
+    }).join('');
+    const minmax=target
+      ? (target.minStock===null?'—':qty(target.minStock))+' / '+(target.maxStock===null?'—':qty(target.maxStock))+
+        (target.normSource!=='NONE'?'<small>'+(target.normSource==='SMART_HORECA'?'Smart Horeca':'Server')+'</small>':'')
+      : '—';
+    const recommendation=target?.autoRecommended
+      ? '<strong>'+qty(target.recommendedQty)+' '+esc(target.unit)+'</strong><small>авторекомендация</small>'
+      : '<span class="proc-status-badge neutral">Ручной заказ</span>';
+    const price=target?.lastPrice||p.lastPrice;
+    const supplier=target?.lastSupplier||p.lastSupplier;
+    return '<tr>'+
+      '<td><input class="proc-need-check" type="checkbox" data-need="'+esc(selectedId)+'" '+(selectedId&&state.selectedNeeds.has(selectedId)?'checked':'')+' '+(!selectedId?'disabled':'')+'></td>'+
+      '<td><strong>'+esc(p.productName)+'</strong><small>'+esc([p.productNum,p.groupName].filter(Boolean).join(' · ')||p.productId)+'</small></td>'+
+      cells+
+      '<td class="'+(p.totalStock<0?'proc-negative':Math.abs(p.totalStock)<=1e-12?'proc-low':'proc-good')+'"><strong>'+qty(p.totalStock)+'</strong><small>'+esc(p.unit)+'</small></td>'+
+      '<td>'+minmax+'</td>'+
+      '<td>'+recommendation+'</td>'+
+      '<td>'+(price?money(price):'—')+(supplier?'<small>'+esc(supplier)+'</small>':'')+'</td>'+
+      '<td>'+(selectedId?'<button class="proc-btn small '+(target?.autoRecommended?'primary':'ghost')+'" data-create-need="'+esc(selectedId)+'">'+(target?.autoRecommended?'Создать PR':'В PR')+'</button>':'—')+'</td></tr>';
+  }).join('')||'<tr><td colspan="'+(stores.length+7)+'" class="proc-empty">Товары по выбранному фильтру не найдены.</td></tr>';
   $('proc-create-selected').disabled=state.selectedNeeds.size===0;
 }
 function normRows(){
@@ -488,31 +535,29 @@ function bind(){
   $('proc-modal-close').onclick=closeModal;$('proc-modal').addEventListener('click',e=>{if(e.target===$('proc-modal'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('proc-modal').hidden)closeModal()});
   document.querySelectorAll('.proc-tabs button[data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
   $('proc-refresh').onclick=loadAll;$('proc-new-pr').onclick=()=>openPrModal();
-  $('proc-needs-search').oninput=renderNeeds;$('proc-needs-store').onchange=renderNeeds;$('proc-needs-filter').onchange=renderNeeds;
+  $('proc-needs-search').oninput=renderNeeds;$('proc-needs-store').onchange=()=>{state.selectedNeeds.clear();renderNeeds()};$('proc-needs-filter').onchange=renderNeeds;
   $('proc-norms-search').oninput=renderNorms;$('proc-norms-store').onchange=renderNorms;$('proc-norms-filter').onchange=renderNorms;$('proc-norms-save').onclick=saveNorms;
   $('proc-norms-table').addEventListener('input',e=>{const row=e.target.closest('[data-norm-row]');if(!row)return;updateNormDraftFromRow(row);renderKpis()});
   $('proc-norms-table').addEventListener('change',e=>{const row=e.target.closest('[data-norm-row]');if(!row)return;updateNormDraftFromRow(row)});
   $('proc-select-all-needs').onclick=()=>{
-    const visible=[...document.querySelectorAll('#proc-needs-table [data-need]')];if(!visible.length)return;
-    const stores=[...new Set(visible.map(x=>state.purchaseRows.find(r=>r.id===x.dataset.need)?.storeId).filter(Boolean))];
-    if(stores.length>1&&!$('proc-needs-store').value){toast('Чтобы выбрать много товаров, сначала выберите один склад.','error');return}
-    const all=visible.every(x=>x.checked);visible.forEach(x=>{x.checked=!all;if(!all)state.selectedNeeds.add(x.dataset.need);else state.selectedNeeds.delete(x.dataset.need)});$('proc-create-selected').disabled=state.selectedNeeds.size===0;
+    const visible=[...document.querySelectorAll('#proc-needs-table [data-need]:not(:disabled)')];if(!visible.length)return;
+    const all=visible.every(x=>x.checked);
+    visible.forEach(x=>{x.checked=!all;if(!all)state.selectedNeeds.add(x.dataset.need);else state.selectedNeeds.delete(x.dataset.need)});
+    $('proc-create-selected').disabled=state.selectedNeeds.size===0;
   };
   $('proc-create-selected').onclick=()=>{
     const rows=state.purchaseRows.filter(x=>state.selectedNeeds.has(x.id));if(!rows.length)return;
-    const stores=[...new Set(rows.map(x=>x.storeId))];if(stores.length>1){toast('Одна PR создаётся на один склад. Выберите товары одного склада.','error');return}
     openPrModal(rows);
   };
   $('proc-needs-table').addEventListener('change',e=>{
-    const c=e.target.closest('[data-need]');if(!c)return;
-    if(c.checked){
-      const row=state.purchaseRows.find(x=>x.id===c.dataset.need),selected=state.purchaseRows.filter(x=>state.selectedNeeds.has(x.id));
-      if(row&&selected.some(x=>x.storeId!==row.storeId)){c.checked=false;toast('В одну PR можно выбрать товары только одного склада.','error');return}
-      state.selectedNeeds.add(c.dataset.need);
-    }else state.selectedNeeds.delete(c.dataset.need);
+    const checkbox=e.target.closest('[data-need]');if(!checkbox)return;
+    checkbox.checked?state.selectedNeeds.add(checkbox.dataset.need):state.selectedNeeds.delete(checkbox.dataset.need);
     $('proc-create-selected').disabled=state.selectedNeeds.size===0;
   });
-  $('proc-needs-table').addEventListener('click',e=>{const b=e.target.closest('[data-create-need]');if(!b)return;const row=state.purchaseRows.find(x=>x.id===b.dataset.createNeed);if(row)openPrModal([row])});
+  $('proc-needs-table').addEventListener('click',e=>{
+    const b=e.target.closest('[data-create-need]');if(!b)return;
+    const row=state.purchaseRows.find(x=>x.id===b.dataset.createNeed);if(row)openPrModal([row]);
+  });
   $('proc-pr-list').addEventListener('click',e=>{
     const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prQuote||b.dataset.poCreate;if(!id)return;
     const r=(state.data?.requisitions||[]).find(x=>x.id===id);
