@@ -4,7 +4,7 @@
 const $=id=>document.getElementById(id);
 const state={
   token:'',binding:null,data:null,refs:{suppliers:[],warehouses:[],products:[]},
-  stockRows:[],needs:[],historyDocs:[],supplierBalances:new Map(),latestByProduct:new Map(),priceBySupplierProduct:new Map(),
+  stockRows:[],purchaseRows:[],needs:[],historyDocs:[],supplierBalances:new Map(),latestByProduct:new Map(),priceBySupplierProduct:new Map(),
   productById:new Map(),productLabelToId:new Map(),selectedNeeds:new Set(),
   normDrafts:new Map(),dirtyNorms:new Set(),busy:false,tab:'needs'
 };
@@ -89,7 +89,7 @@ async function loadStocks(){
   const mode=chainScope().mode,isChain=mode==='CHAIN';
   const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/stock-balances',{
     method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify(connectionBody({date:today(),time:'23:59:59',includeZero:false})),cache:'no-store'
+    body:JSON.stringify(connectionBody({date:today(),time:'23:59:59',includeZero:true})),cache:'no-store'
   },60000);
   const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false)throw Error('Остатки: '+(j.message||('HTTP '+r.status)));
   state.stockRows=Array.isArray(j.rows)?j.rows:[];return j;
@@ -158,24 +158,30 @@ function historyPrice(pid,supplierId=''){
   return state.latestByProduct.get(key(pid))||null;
 }
 function computeNeeds(){
-  const needs=[];
+  const rows=[];
   for(const r of state.stockRows){
-    const id=normId(r.storeId,r.productId),local=state.normDrafts.get(id),amount=num(r.amount);
-    if(local&&local.persisted&&local.enabled===false)continue;
-    const hasLocal=!!(local&&local.persisted);
+    const id=normId(r.storeId,r.productId),local=state.normDrafts.get(id),amount=num(r.amount),hasLocal=!!(local&&local.persisted);
+    const localDisabled=hasLocal&&local.enabled===false;
     const min=hasLocal
       ? (local.minStock===null||local.minStock===undefined?null:num(local.minStock))
       : (r.minAmount===null||r.minAmount===undefined?null:num(r.minAmount));
     const max=hasLocal
       ? (local.targetStock===null||local.targetStock===undefined?null:num(local.targetStock))
       : (r.maxAmount===null||r.maxAmount===undefined?null:num(r.maxAmount));
-    if(min===null||!(amount<min))continue;
-    const target=max!==null&&max>=min?max:min,recommended=Math.max(0,target-amount);if(!(recommended>0))continue;
+    const target=min!==null?(max!==null&&max>=min?max:min):null;
+    const recommended=(!localDisabled&&min!==null&&amount<min)?Math.max(0,target-amount):0;
     const h=historyPrice(r.productId),price=h?num(h.price):Math.max(0,num(r.unitCost));
-    needs.push({id,productId:key(r.productId),productName:r.productName||productName(r.productId),productNum:r.productNum||'',groupName:r.categoryName||r.groupName||'',unit:r.unit||'',storeId:key(r.storeId),storeName:r.storeName||r.storeId,currentStock:amount,minStock:min,maxStock:max,recommendedQty:recommended,lastPrice:price,lastSupplier:h?.supplierName||'',estimated:recommended*price,normSource:hasLocal?'SMART_HORECA':'SERVER'});
+    rows.push({
+      id,productId:key(r.productId),productName:r.productName||productName(r.productId),productNum:r.productNum||'',
+      groupName:r.categoryName||r.groupName||'',unit:r.unit||'',storeId:key(r.storeId),storeName:r.storeName||r.storeId,
+      currentStock:amount,minStock:min,maxStock:max,recommendedQty:recommended,lastPrice:price,lastSupplier:h?.supplierName||'',
+      estimated:recommended*price,normSource:hasLocal?'SMART_HORECA':(min!==null||max!==null?'SERVER':'NONE'),
+      autoRecommended:recommended>0,manualQty:recommended>0?recommended:1
+    });
   }
-  state.needs=needs.sort((a,b)=>b.estimated-a.estimated||a.productName.localeCompare(b.productName,'ru'));
-  const live=new Set(needs.map(x=>x.id));state.selectedNeeds=new Set([...state.selectedNeeds].filter(x=>live.has(x)));
+  state.purchaseRows=rows.sort((a,b)=>(b.autoRecommended-a.autoRecommended)||a.storeName.localeCompare(b.storeName,'ru')||a.productName.localeCompare(b.productName,'ru'));
+  state.needs=state.purchaseRows.filter(x=>x.autoRecommended);
+  const live=new Set(state.purchaseRows.map(x=>x.id));state.selectedNeeds=new Set([...state.selectedNeeds].filter(x=>live.has(x)));
 }
 function scopeLabel(){
   const s=chainScope(),names=s.selectedDepartmentNames||[];
@@ -196,22 +202,32 @@ function renderKpis(){
 }
 function renderNeeds(){
   const store=$('proc-needs-store'),current=store.value;
-  const stores=[...new Map(state.needs.map(x=>[x.storeId,{id:x.storeId,name:x.storeName}])).values()].sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+  const stores=[...new Map(state.purchaseRows.map(x=>[x.storeId,{id:x.storeId,name:x.storeName}])).values()].sort((a,b)=>a.name.localeCompare(b.name,'ru'));
   store.innerHTML='<option value="">Все склады</option>'+stores.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('');if(stores.some(x=>x.id===current))store.value=current;
-  const qv=($('proc-needs-search').value||'').trim().toLowerCase(),sid=store.value;
-  const visible=state.needs.filter(x=>(!sid||x.storeId===sid)&&(!qv||[x.productName,x.productNum,x.groupName,x.storeName].join(' ').toLowerCase().includes(qv)));
-  $('proc-needs-meta').textContent=visible.length+' позиций · '+money(visible.reduce((s,x)=>s+x.estimated,0));
+  const qv=($('proc-needs-search').value||'').trim().toLowerCase(),sid=store.value,filter=$('proc-needs-filter')?.value||'all';
+  const visible=state.purchaseRows.filter(x=>{
+    if(sid&&x.storeId!==sid)return false;
+    if(qv&&![x.productName,x.productNum,x.groupName,x.storeName].join(' ').toLowerCase().includes(qv))return false;
+    if(filter==='recommended'&&!x.autoRecommended)return false;
+    if(filter==='negative'&&!(x.currentStock<0))return false;
+    if(filter==='zero'&&Math.abs(x.currentStock)>1e-12)return false;
+    if(filter==='no_norm'&&(x.minStock!==null||x.maxStock!==null))return false;
+    return true;
+  });
+  const recommendedVisible=visible.filter(x=>x.autoRecommended);
+  $('proc-needs-meta').textContent=visible.length+' товаров · '+recommendedVisible.length+' требуют закупки';
   const tb=$('proc-needs-table').querySelector('tbody');
   tb.innerHTML=visible.map(x=>'<tr>'+
     '<td><input class="proc-need-check" type="checkbox" data-need="'+esc(x.id)+'" '+(state.selectedNeeds.has(x.id)?'checked':'')+'></td>'+
     '<td><strong>'+esc(x.productName)+'</strong><small>'+esc([x.productNum,x.groupName].filter(Boolean).join(' · ')||x.productId)+'</small></td>'+
     '<td>'+esc(x.storeName)+'</td>'+
-    '<td class="'+(x.currentStock<0?'proc-negative':'proc-low')+'">'+qty(x.currentStock)+' '+esc(x.unit)+'</td>'+
-    '<td>'+qty(x.minStock)+' / '+(x.maxStock===null?'—':qty(x.maxStock))+'<small>'+(x.normSource==='SMART_HORECA'?'Smart Horeca':'Server')+'</small></td>'+
-    '<td><strong>'+qty(x.recommendedQty)+' '+esc(x.unit)+'</strong></td>'+
+    '<td class="'+(x.currentStock<0?'proc-negative':Math.abs(x.currentStock)<=1e-12?'proc-low':'proc-good')+'">'+qty(x.currentStock)+' '+esc(x.unit)+'</td>'+
+    '<td>'+(x.minStock===null?'—':qty(x.minStock))+' / '+(x.maxStock===null?'—':qty(x.maxStock))+
+      (x.normSource!=='NONE'?'<small>'+(x.normSource==='SMART_HORECA'?'Smart Horeca':'Server')+'</small>':'')+'</td>'+
+    '<td>'+(x.autoRecommended?'<strong>'+qty(x.recommendedQty)+' '+esc(x.unit)+'</strong><small>авторекомендация</small>':'<span class="proc-status-badge neutral">Ручной заказ</span>')+'</td>'+
     '<td>'+(x.lastPrice?money(x.lastPrice):'—')+(x.lastSupplier?'<small>'+esc(x.lastSupplier)+'</small>':'')+'</td>'+
-    '<td>'+money(x.estimated)+'</td>'+
-    '<td><button class="proc-btn small ghost" data-create-need="'+esc(x.id)+'">Создать PR</button></td></tr>').join('')||'<tr><td colspan="9" class="proc-empty">Потребность пока не рассчитана. Задайте Min и целевой остаток во вкладке «Нормы запаса» или создайте PR вручную.</td></tr>';
+    '<td>'+(x.autoRecommended?money(x.estimated):'—')+'</td>'+
+    '<td><button class="proc-btn small '+(x.autoRecommended?'primary':'ghost')+'" data-create-need="'+esc(x.id)+'">'+(x.autoRecommended?'Создать PR':'В PR')+'</button></td></tr>').join('')||'<tr><td colspan="9" class="proc-empty">Товары по выбранному фильтру не найдены.</td></tr>';
   $('proc-create-selected').disabled=state.selectedNeeds.size===0;
 }
 function normRows(){
@@ -352,11 +368,12 @@ function collectPrLines(){
   });
 }
 function openPrModal(seed=[],existing=null){
-  const lines=(existing?.lines?.length?existing.lines:seed.length?seed:[{productId:'',productName:'',quantity:1,expectedPrice:0}]).map(x=>({...x,quantity:x.quantity??x.recommendedQty,expectedPrice:x.expectedPrice??x.lastPrice,currentStock:x.currentStock,minStock:x.minStock,maxStock:x.maxStock,storeId:x.storeId,storeName:x.storeName}));
+  const lines=(existing?.lines?.length?existing.lines:seed.length?seed:[{productId:'',productName:'',quantity:1,expectedPrice:0}]).map(x=>({...x,quantity:x.quantity??x.recommendedQty??x.manualQty??1,expectedPrice:x.expectedPrice??x.lastPrice,currentStock:x.currentStock,minStock:x.minStock,maxStock:x.maxStock,storeId:x.storeId,storeName:x.storeName}));
+  const source=existing?.source||(seed.length&&seed.every(x=>x.autoRecommended)?'AUTO_MINMAX':'MANUAL');
   const sameStore=lines.length&&lines.every(x=>key(x.storeId)===key(lines[0].storeId))?lines[0].storeId:'',warehouse=existing?.warehouseId||sameStore||state.refs.warehouses[0]?.id||'',lead=num(state.data?.settings?.defaultLeadDays,2);
-  openModal(existing?'Изменить заявку '+existing.number:'Новая заявка на закупку','PURCHASE REQUISITION','<form id="proc-pr-form"><datalist id="proc-products-list">'+productOptions()+'</datalist><div class="proc-form-grid"><label class="proc-field"><span>Склад назначения</span><select id="proc-pr-warehouse">'+warehouseOptions(warehouse)+'</select></label><label class="proc-field"><span>Нужно к дате</span><input id="proc-pr-needed" type="date" value="'+esc(existing?.neededBy||addDays(today(),lead))+'"></label><label class="proc-field"><span>Источник</span><input value="'+esc(existing?.source|| (seed.length?'AUTO_MINMAX':'MANUAL'))+'" disabled></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-pr-comment" placeholder="Причина, проект, пожелания закупщику…">'+esc(existing?.comment||'')+'</textarea></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Позиции заявки</strong><button id="proc-pr-add-line" type="button" class="proc-btn small ghost">＋ Добавить</button></div><div id="proc-pr-lines">'+lines.map(prLineHtml).join('')+'</div></div><div class="proc-modal-summary"><span>Оценочная сумма заявки</span><strong id="proc-pr-total">0,00 ₼</strong></div><div class="proc-modal-actions"><button type="button" class="proc-btn ghost" id="proc-pr-cancel">Отмена</button><button class="proc-btn primary" type="submit">'+(existing?'Сохранить изменения':'Создать PR')+'</button></div></form>');
+  openModal(existing?'Изменить заявку '+existing.number:'Новая заявка на закупку','PURCHASE REQUISITION','<form id="proc-pr-form"><datalist id="proc-products-list">'+productOptions()+'</datalist><div class="proc-form-grid"><label class="proc-field"><span>Склад назначения</span><select id="proc-pr-warehouse">'+warehouseOptions(warehouse)+'</select></label><label class="proc-field"><span>Нужно к дате</span><input id="proc-pr-needed" type="date" value="'+esc(existing?.neededBy||addDays(today(),lead))+'"></label><label class="proc-field"><span>Источник</span><input value="'+esc(source)+'" disabled></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-pr-comment" placeholder="Причина, проект, пожелания закупщику…">'+esc(existing?.comment||'')+'</textarea></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Позиции заявки</strong><button id="proc-pr-add-line" type="button" class="proc-btn small ghost">＋ Добавить</button></div><div id="proc-pr-lines">'+lines.map(prLineHtml).join('')+'</div></div><div class="proc-modal-summary"><span>Оценочная сумма заявки</span><strong id="proc-pr-total">0,00 ₼</strong></div><div class="proc-modal-actions"><button type="button" class="proc-btn ghost" id="proc-pr-cancel">Отмена</button><button class="proc-btn primary" type="submit">'+(existing?'Сохранить изменения':'Создать PR')+'</button></div></form>');
   bindEditRows($('proc-pr-lines'));recalcPrModal();$('proc-pr-cancel').onclick=closeModal;$('proc-pr-add-line').onclick=()=>{$('proc-pr-lines').insertAdjacentHTML('beforeend',prLineHtml({quantity:1}));bindEditRows($('proc-pr-lines'));recalcPrModal()};
-  $('proc-pr-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const wid=key($('proc-pr-warehouse').value),w=state.refs.warehouses.find(x=>key(x.id)===wid);if(!wid)throw Error('Выберите склад назначения.');const payload={id:existing?.id,warehouseId:wid,warehouseName:w?.name||'',neededBy:$('proc-pr-needed').value,comment:$('proc-pr-comment').value,source:existing?.source||(seed.length?'AUTO_MINMAX':'MANUAL'),lines:collectPrLines()};await procPost(existing?'update-requisition':'create-requisition',payload);closeModal();await reloadProc();switchTab('requisitions');toast(existing?'Заявка обновлена.':'Заявка создана.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
+  $('proc-pr-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const wid=key($('proc-pr-warehouse').value),w=state.refs.warehouses.find(x=>key(x.id)===wid);if(!wid)throw Error('Выберите склад назначения.');const payload={id:existing?.id,warehouseId:wid,warehouseName:w?.name||'',neededBy:$('proc-pr-needed').value,comment:$('proc-pr-comment').value,source,lines:collectPrLines()};await procPost(existing?'update-requisition':'create-requisition',payload);closeModal();await reloadProc();switchTab('requisitions');toast(existing?'Заявка обновлена.':'Заявка создана.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
 }
 function quoteLineHtml(l,supplierId){
   const h=historyPrice(l.productId,supplierId),price=h?num(h.price):num(l.expectedPrice);
@@ -471,14 +488,31 @@ function bind(){
   $('proc-modal-close').onclick=closeModal;$('proc-modal').addEventListener('click',e=>{if(e.target===$('proc-modal'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('proc-modal').hidden)closeModal()});
   document.querySelectorAll('.proc-tabs button[data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
   $('proc-refresh').onclick=loadAll;$('proc-new-pr').onclick=()=>openPrModal();
-  $('proc-needs-search').oninput=renderNeeds;$('proc-needs-store').onchange=renderNeeds;
+  $('proc-needs-search').oninput=renderNeeds;$('proc-needs-store').onchange=renderNeeds;$('proc-needs-filter').onchange=renderNeeds;
   $('proc-norms-search').oninput=renderNorms;$('proc-norms-store').onchange=renderNorms;$('proc-norms-filter').onchange=renderNorms;$('proc-norms-save').onclick=saveNorms;
   $('proc-norms-table').addEventListener('input',e=>{const row=e.target.closest('[data-norm-row]');if(!row)return;updateNormDraftFromRow(row);renderKpis()});
   $('proc-norms-table').addEventListener('change',e=>{const row=e.target.closest('[data-norm-row]');if(!row)return;updateNormDraftFromRow(row)});
-  $('proc-select-all-needs').onclick=()=>{const visible=[...document.querySelectorAll('#proc-needs-table [data-need]')];const all=visible.length&&visible.every(x=>x.checked);visible.forEach(x=>{x.checked=!all;if(!all)state.selectedNeeds.add(x.dataset.need);else state.selectedNeeds.delete(x.dataset.need)});$('proc-create-selected').disabled=state.selectedNeeds.size===0};
-  $('proc-create-selected').onclick=()=>{const rows=state.needs.filter(x=>state.selectedNeeds.has(x.id));if(!rows.length)return;openPrModal(rows)};
-  $('proc-needs-table').addEventListener('change',e=>{const c=e.target.closest('[data-need]');if(!c)return;c.checked?state.selectedNeeds.add(c.dataset.need):state.selectedNeeds.delete(c.dataset.need);$('proc-create-selected').disabled=state.selectedNeeds.size===0});
-  $('proc-needs-table').addEventListener('click',e=>{const b=e.target.closest('[data-create-need]');if(!b)return;const row=state.needs.find(x=>x.id===b.dataset.createNeed);if(row)openPrModal([row])});
+  $('proc-select-all-needs').onclick=()=>{
+    const visible=[...document.querySelectorAll('#proc-needs-table [data-need]')];if(!visible.length)return;
+    const stores=[...new Set(visible.map(x=>state.purchaseRows.find(r=>r.id===x.dataset.need)?.storeId).filter(Boolean))];
+    if(stores.length>1&&!$('proc-needs-store').value){toast('Чтобы выбрать много товаров, сначала выберите один склад.','error');return}
+    const all=visible.every(x=>x.checked);visible.forEach(x=>{x.checked=!all;if(!all)state.selectedNeeds.add(x.dataset.need);else state.selectedNeeds.delete(x.dataset.need)});$('proc-create-selected').disabled=state.selectedNeeds.size===0;
+  };
+  $('proc-create-selected').onclick=()=>{
+    const rows=state.purchaseRows.filter(x=>state.selectedNeeds.has(x.id));if(!rows.length)return;
+    const stores=[...new Set(rows.map(x=>x.storeId))];if(stores.length>1){toast('Одна PR создаётся на один склад. Выберите товары одного склада.','error');return}
+    openPrModal(rows);
+  };
+  $('proc-needs-table').addEventListener('change',e=>{
+    const c=e.target.closest('[data-need]');if(!c)return;
+    if(c.checked){
+      const row=state.purchaseRows.find(x=>x.id===c.dataset.need),selected=state.purchaseRows.filter(x=>state.selectedNeeds.has(x.id));
+      if(row&&selected.some(x=>x.storeId!==row.storeId)){c.checked=false;toast('В одну PR можно выбрать товары только одного склада.','error');return}
+      state.selectedNeeds.add(c.dataset.need);
+    }else state.selectedNeeds.delete(c.dataset.need);
+    $('proc-create-selected').disabled=state.selectedNeeds.size===0;
+  });
+  $('proc-needs-table').addEventListener('click',e=>{const b=e.target.closest('[data-create-need]');if(!b)return;const row=state.purchaseRows.find(x=>x.id===b.dataset.createNeed);if(row)openPrModal([row])});
   $('proc-pr-list').addEventListener('click',e=>{
     const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prQuote||b.dataset.poCreate;if(!id)return;
     const r=(state.data?.requisitions||[]).find(x=>x.id===id);
