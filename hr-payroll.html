@@ -7,7 +7,7 @@
   <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
   <link rel="stylesheet" href="app-shell.css">
   <link rel="stylesheet" href="hr-pnl.css?v=20260916-12">
-  <link rel="stylesheet" href="/hr-payroll-v3.css?v=20261007-settlement-tab-2">
+  <link rel="stylesheet" href="/hr-payroll-v3.css?v=20261007-manual-flow-1">
   <style id="hrp-critical-styles">
 .hrp-kicker{display:block;margin-bottom:6px;color:#42d392;font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
 .hrp-month{display:flex;flex-direction:column;gap:5px;color:#7f8e9f;font-size:9px;font-weight:800;text-transform:uppercase}
@@ -100,6 +100,12 @@
 .hrp-payment-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
 @media(max-width:900px){.hrp-settlement-summary{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:620px){.hrp-settlement-summary,.hrp-payment-grid{grid-template-columns:1fr}.hrp-payment-modal{padding:10px}.hrp-payment-actions{flex-direction:column}}
+
+.hrp-empty-settlement{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:22px 12px}
+.hrp-empty-settlement strong{color:#dfe8ee;font-size:10px}
+.hrp-empty-settlement span{max-width:720px;color:#718294;font-size:9px;line-height:1.5;text-align:center}
+.hrp-empty-settlement .hr-link-button{margin-top:3px}
+.hrp-explain[hidden]{display:none!important}
 
 </style>
 </head>
@@ -256,6 +262,6 @@
 <script src="/hr-light-theme.js?v=20260917-1"></script>
 <script src="mobile-responsive.js?v=1"></script>
 <script src="documents-nav.js?v=20"></script>
-<script src="/hr-payroll.js?v=20261007-settlement-tab-2"></script>
+<script src="/hr-payroll.js?v=20261007-manual-flow-1"></script>
 </body>
 </html>
