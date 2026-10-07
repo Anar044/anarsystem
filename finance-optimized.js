@@ -72,10 +72,15 @@ function modalStatus(text,kind=''){
   el.textContent=text;
   el.className='fin-modal-status '+kind;
 }
+async function getAuthToken(){
+  const client=await window.SHAuth?.createClient?.();if(!client)return'';
+  const{data}=await client.auth.getSession();return data?.session?.access_token||'';
+}
 async function post(url,body,timeout=90000){
+  const token=await getAuthToken();
   const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)(url,{
     method:'POST',
-    headers:{'Content-Type':'application/json','Accept':'application/json'},
+    headers:{'Content-Type':'application/json','Accept':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},
     body:JSON.stringify(body)
   },timeout);
   const raw=await r.text();
