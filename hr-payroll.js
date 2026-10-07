@@ -229,7 +229,7 @@ function renderSettlements(){
     ['Остаток долга',money(sum.closingDebt||0),`Сотрудников с долгом: ${Number(sum.withDebt||0)}`]
   ].map(x=>`<article><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
   tbody.innerHTML=rows.length?rows.map(x=>{
-    const payments=(x.payments||[]).map(p=>`<div class="hrp-payment-chip"><span>${esc(p.date)} · ${esc(money(p.amount))} · ${esc(settlementMethod(p.method))}</span>${p.reference?`<small>${esc(p.reference)}</small>`:''}${canSettle?`<button type="button" class="hrp-cancel-payment" data-payment-id="${esc(p.id)}" title="Отменить выплату">×</button>`:''}</div>`).join('');
+    const payments=(x.payments||[]).map(p=>`<div class="hrp-payment-chip"><span>${esc(p.date)} · ${esc(money(p.amount))} · ${esc(settlementMethod(p.method))}${p.accountName?' · '+esc(p.accountName):''}</span>${p.reference?`<small>${esc(p.reference)}</small>`:''}${canSettle?`<button type="button" class="hrp-cancel-payment" data-payment-id="${esc(p.id)}" title="Отменить выплату">×</button>`:''}</div>`).join('');
     return`<tr>
       <td class="text-left"><div class="hr-name">${esc(x.name||'—')}</div><div class="hr-sub">${esc(x.roleName||'')} · ${esc(x.code||'')}</div></td>
       <td>${money(x.openingDebt)}</td>
@@ -249,6 +249,15 @@ function defaultPaymentDate(month){
   const a=month.split('-').map(Number),last=new Date(Date.UTC(a[0],a[1],0)).getUTCDate();
   return month+'-'+String(last).padStart(2,'0');
 }
+function paymentRow(){return (state.settlements?.rows||[]).find(x=>String(x.id)===String(paymentEmployeeId))||null}
+function updatePaymentAccountSelector(){
+  const row=paymentRow(),method=$('hrpPaymentMethod').value,field=$('hrpPaymentBankField'),select=$('hrpPaymentBankAccount');
+  field.hidden=method!=='BANK';
+  if(method!=='BANK')return;
+  const banks=row?.paymentAccounts?.banks||[],def=banks.find(x=>x.isDefault)||banks[0]||null;
+  select.innerHTML=banks.length?banks.map(x=>`<option value="${esc(x.id)}">${esc(x.name||x.id)}${x.isDefault?' — по умолчанию':''}</option>`).join(''):'<option value="">Банковские счета не настроены</option>';
+  if(def)select.value=String(def.id);
+}
 function openPayment(employeeId){
   const row=(state.settlements?.rows||[]).find(x=>String(x.id)===String(employeeId));if(!row)return;
   paymentEmployeeId=String(employeeId);
@@ -257,7 +266,7 @@ function openPayment(employeeId){
   $('hrpPaymentDate').value=defaultPaymentDate($('hrpMonth').value||monthNow());
   $('hrpPaymentAmount').value=Number(row.closingDebt||0).toFixed(2);
   $('hrpPaymentAmount').max=Number(row.closingDebt||0).toFixed(2);
-  $('hrpPaymentMethod').value='CASH';$('hrpPaymentReference').value='';$('hrpPaymentNote').value='';
+  $('hrpPaymentMethod').value='CASH';$('hrpPaymentReference').value='';$('hrpPaymentNote').value='';updatePaymentAccountSelector();
   $('hrpPaymentModal').hidden=false;document.body.style.overflow='hidden';
 }
 function closePayment(){paymentEmployeeId='';$('hrpPaymentModal').hidden=true;document.body.style.overflow=''}
@@ -267,7 +276,9 @@ async function savePayment(){
   if(!paymentDate||!Number.isFinite(amount)||amount<=0)return alert('Укажите дату и сумму выплаты.');
   try{
     paymentBusy=true;$('hrpPaymentSave').disabled=true;setStatus('Сохраняем выплату…','loading');
-    const out=await settlementPost({action:'RECORD_PAYMENT',month:$('hrpMonth').value||monthNow(),employeeId:paymentEmployeeId,paymentDate,amount,paymentMethod:$('hrpPaymentMethod').value,reference:$('hrpPaymentReference').value||'',note:$('hrpPaymentNote').value||''});
+    const method=$('hrpPaymentMethod').value,bankAccountId=method==='BANK'?$('hrpPaymentBankAccount').value:'';
+    if(method==='BANK'&&!bankAccountId)throw new Error('Выберите банковский счёт для выплаты.');
+    const out=await settlementPost({action:'RECORD_PAYMENT',month:$('hrpMonth').value||monthNow(),employeeId:paymentEmployeeId,paymentDate,amount,paymentMethod:method,bankAccountId,reference:$('hrpPaymentReference').value||'',note:$('hrpPaymentNote').value||''});
     state.settlements=out;renderSummary();renderSettlements();closePayment();setStatus('Готово','ok');
   }catch(e){console.error(e);alert(e?.message||'Не удалось зарегистрировать выплату');setStatus('Ошибка','error')}
   finally{paymentBusy=false;$('hrpPaymentSave').disabled=false}
@@ -311,6 +322,7 @@ function bind(){
     const cancel=e.target.closest('.hrp-cancel-payment');if(cancel)cancelPayment(cancel.dataset.paymentId);
   });
   document.querySelectorAll('[data-payment-close]').forEach(x=>x.addEventListener('click',closePayment));
+  $('hrpPaymentMethod').onchange=updatePaymentAccountSelector;
   $('hrpPaymentSave').onclick=savePayment;
 }
 function init(){$('hrpMonth').value=monthNow();bind();load()}
