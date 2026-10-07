@@ -1,5 +1,6 @@
 import { getUser, loadPrivateIikoState, privateConnection, hasPrivateConnection } from "./iiko/_lib/user-state.js";
-import { resolveRestaurantScope } from "./iiko/_lib/restaurant-scope.js";
+import { resolveRestaurantScope, cookieDepartmentIds } from "./iiko/_lib/restaurant-scope.js";
+import { resolveAccessForUser, hasPermission, requirePermission } from "./access/_lib/access-control.js";
 import { serverScopeFromConnection, logAuditEvent } from "./_lib/audit-log.js";
 
 const HEADERS={
@@ -202,19 +203,85 @@ async function ensure(db){
   await ensureColumn("procurement_order_lines","vat_percent","REAL NOT NULL DEFAULT 0");
 }
 
+function scopedByAccess(state,request,access){
+  const base=resolveRestaurantScope({state,request,strict:true});
+  if(access?.isOwner||access?.scope?.mode!=="SELECTED")return base;
+
+  const allowedIds=new Set((access.scope.departmentIds||[]).map(clean).filter(Boolean));
+  const allowedCodes=new Set((access.scope.departmentCodes||[]).map(clean).filter(Boolean));
+  const permitted=(base.allRestaurants||[]).filter(r=>allowedIds.has(clean(r.id))||allowedCodes.has(clean(r.code)));
+  const permittedIds=unique(permitted.map(x=>x.id));
+  if(!permittedIds.length){
+    const e=new Error("Для пользователя не назначены доступные подразделения.");e.status=403;e.code="ACCESS_SCOPE_EMPTY";throw e;
+  }
+
+  const explicitlyRequested=cookieDepartmentIds(request);
+  const forbidden=explicitlyRequested.filter(id=>!permittedIds.includes(id));
+  if(forbidden.length){
+    const e=new Error("У пользователя нет доступа к выбранному подразделению.");e.status=403;e.code="ACCESS_SCOPE_FORBIDDEN";throw e;
+  }
+
+  const selected=explicitlyRequested.length?explicitlyRequested:permittedIds;
+  const narrowed=resolveRestaurantScope({state,requestedIds:selected,strict:true});
+  return{...narrowed,allowedDepartmentIds:permittedIds,allRestaurants:permitted};
+}
+
 async function contextFor(request,env){
   const auth=await getUser(request,env);
   if(!auth){const e=new Error("Необходима авторизация.");e.status=401;throw e}
-  const stored=await loadPrivateIikoState(env.DB,auth.user.id,env);
+  const access=await resolveAccessForUser(env.DB,auth.user,{claimInvite:true});
+  if(!access.allowed){const e=new Error("Доступ к Smart Horeca не назначен.");e.status=403;e.code=access.reason||"ACCESS_DENIED";throw e}
+  const stored=await loadPrivateIikoState(env.DB,access.ownerUserId,env);
   if(!stored?.found||!hasPrivateConnection(stored.state)){const e=new Error("Сначала подключите Smart Horeca Server в настройках.");e.status=409;throw e}
   const connection=privateConnection(stored.state);
   const serverScope=await serverScopeFromConnection(connection);
   if(!serverScope)throw new Error("Не удалось определить контур подключенного сервера.");
-  const scope=resolveRestaurantScope({state:stored.state,request,strict:true});
+  const scope=scopedByAccess(stored.state,request,access);
   await ensure(env.DB);
-  return{auth,stored,connection,serverScope,scope};
+  return{auth,access,stored,connection,serverScope,scope,storageUserId:access.ownerUserId};
 }
 
+const PROCUREMENT_VIEW_PERMISSIONS={
+  catalog:["procurement.request.create"],
+  requests:["procurement.request.view_own","procurement.request.view_all"],
+  approvals:["procurement.approve"],
+  sourcing:["procurement.sourcing"],
+  orders:["procurement.po.manage"],
+  receiving:["procurement.receive"],
+  analytics:["procurement.analytics"],
+  norms:["procurement.norms.manage"],
+  settings:["procurement.settings.manage"]
+};
+const PROCUREMENT_ACTION_PERMISSIONS={
+  "save-stock-norms":"procurement.norms.manage",
+  "save-settings":"procurement.settings.manage",
+  "create-requisition":"procurement.request.create",
+  "update-requisition":"procurement.request.create",
+  "close-requisition":"procurement.request.create",
+  "submit-requisition":"procurement.request.create",
+  "cancel-requisition":"procurement.request.create",
+  "approve-requisition":"procurement.approve",
+  "add-quote":"procurement.sourcing",
+  "create-order":"procurement.po.manage",
+  "send-order":"procurement.po.manage",
+  "confirm-order":"procurement.po.manage",
+  "cancel-order":"procurement.po.manage",
+  "sync-receipt":"procurement.receive",
+  "receive-order":"procurement.receive"
+};
+function requireAnyPermission(access,list){
+  if((list||[]).some(p=>hasPermission(access,p)))return;
+  const e=new Error("Недостаточно прав для этого раздела закупок.");e.status=403;e.code="ACCESS_DENIED";throw e;
+}
+function redactProcurementCosts(data){
+  const clone=structuredClone(data);
+  clone.requisitions=(clone.requisitions||[]).map(r=>({...r,totalEstimate:null,quotes:[],lines:(r.lines||[]).map(l=>({...l,expectedPrice:null})),linkedOrders:(r.linkedOrders||[]).map(o=>({...o,totalAmount:null}))}));
+  clone.orders=(clone.orders||[]).map(o=>({...o,totalAmount:null,lines:(o.lines||[]).map(l=>({...l,unitPrice:null})),receipts:(o.receipts||[]).map(r=>({...r,totalAmount:null,lines:(r.lines||[]).map(l=>({...l,unitPrice:null}))}))}));
+  clone.receipts=(clone.receipts||[]).map(r=>({...r,totalAmount:null,lines:(r.lines||[]).map(l=>({...l,unitPrice:null}))}));
+  clone.supplierPerformance=[];
+  if(clone.analytics)clone.analytics={...clone.analytics,requisitionEstimate:null,orderedAmount:null,receivedAmount:null,estimatedSavings:null};
+  return clone;
+}
 function scopeData(scope){
   const ids=unique(scope?.selectedDepartmentIds||[]);
   const names=unique((scope?.selectedRestaurants||[]).map(x=>x?.name));
@@ -330,7 +397,7 @@ async function readData(db,serverScope,scope){
   const orderLinesBy=new Map();for(const l of orderLinesR.results||[]){if(!orderIds.has(l.order_id))continue;if(!orderLinesBy.has(l.order_id))orderLinesBy.set(l.order_id,[]);orderLinesBy.get(l.order_id).push(l)}
 
   const requisitions=reqRows.map(r=>({
-    id:r.id,number:r.number,status:r.status,source:r.source,createdAt:r.created_at,updatedAt:r.updated_at,createdBy:r.created_by_name||r.created_by,
+    id:r.id,number:r.number,status:r.status,source:r.source,createdAt:r.created_at,updatedAt:r.updated_at,createdById:r.created_by,createdBy:r.created_by_name||r.created_by,
     restaurantIds:parse(r.restaurant_ids_json,[]),restaurantNames:parse(r.restaurant_names_json,[]),warehouseId:r.warehouse_id,warehouseName:r.warehouse_name,
     neededBy:r.needed_by,comment:r.comment,totalEstimate:n(r.total_estimate),requiredApprovalLevel:r.required_approval_level,
     approvedBy:r.approved_by_name||r.approved_by,approvedAt:r.approved_at,
@@ -358,7 +425,7 @@ async function readData(db,serverScope,scope){
     return{
       id:o.id,number:o.number,requisitionId:o.requisition_id,quoteId:o.quote_id,supplierId:o.supplier_id,supplierName:o.supplier_name,
       warehouseId:o.warehouse_id,warehouseName:o.warehouse_name,status:o.status,effectiveStatus,createdAt:o.created_at,updatedAt:o.updated_at,
-      createdBy:o.created_by_name||o.created_by,sentAt:o.sent_at,confirmedAt:o.confirmed_at,comment:o.comment,totalAmount:n(o.total_amount),
+      createdById:o.created_by,createdBy:o.created_by_name||o.created_by,sentAt:o.sent_at,confirmedAt:o.confirmed_at,comment:o.comment,totalAmount:n(o.total_amount),
       restaurantIds:parse(o.restaurant_ids_json,[]),restaurantNames:parse(o.restaurant_names_json,[]),
       orderedQty:q(orderedQty),receivedQty:q(receivedQty),completionPercent:orderedQty>0?Math.round(receivedQty/orderedQty*1000)/10:0,matchStatus,
       lines,receipts:rs
@@ -411,15 +478,30 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const c=await contextFor(request,env);
-    const data=await readData(env.DB,c.serverScope,c.scope);
-    return json({success:true,settings:await settings(env.DB,c.serverScope),scope:{mode:c.scope.mode,isChain:c.scope.isChain,selectedDepartmentIds:c.scope.selectedDepartmentIds,selectedRestaurants:c.scope.selectedRestaurants,fullSelection:isFullScope(c.scope)},...data});
-  }catch(error){return json({success:false,message:error?.message||String(error)},error?.status||500)}
+    const url=new URL(request.url),view=clean(url.searchParams.get("view")||"catalog").toLowerCase();
+    requireAnyPermission(c.access,PROCUREMENT_VIEW_PERMISSIONS[view]||PROCUREMENT_VIEW_PERMISSIONS.catalog);
+    let data=await readData(env.DB,c.serverScope,c.scope);
+
+    if(view==="requests"&&!hasPermission(c.access,"procurement.request.view_all")){
+      data={...data,requisitions:(data.requisitions||[]).filter(r=>clean(r.createdById)===clean(c.auth.user.id)),orders:[],receipts:[],supplierPerformance:[]};
+    }
+    if(view==="approvals")data={...data,requisitions:(data.requisitions||[]).filter(r=>r.status==="PENDING_APPROVAL"),orders:[],receipts:[],supplierPerformance:[]};
+    if(view==="catalog"||view==="norms")data={...data,requisitions:[],orders:[],receipts:[],supplierPerformance:[]};
+    if(view==="sourcing")data={...data,orders:[],receipts:[]};
+    if(view==="orders"||view==="receiving")data={...data,requisitions:[],supplierPerformance:view==="orders"?data.supplierPerformance:[]};
+    if(!hasPermission(c.access,"procurement.prices.view")&&!hasPermission(c.access,"sensitive.cost.view"))data=redactProcurementCosts(data);
+
+    return json({success:true,settings:view==="settings"?await settings(env.DB,c.serverScope):undefined,access:{permissions:c.access.permissions,scope:c.access.scope},scope:{mode:c.scope.mode,isChain:c.scope.isChain,selectedDepartmentIds:c.scope.selectedDepartmentIds,selectedRestaurants:c.scope.selectedRestaurants,fullSelection:isFullScope(c.scope)},...data});
+  }catch(error){return json({success:false,message:error?.message||String(error),code:error?.code||""},error?.status||500)}
 }
 
 export async function onRequestPost({request,env}){
   try{
     const body=await request.json().catch(()=>({})),action=clean(body?.action).toLowerCase();
     const c=await contextFor(request,env);c.request=request;c.env=env;
+    const requiredPermission=PROCUREMENT_ACTION_PERMISSIONS[action];
+    if(requiredPermission)requirePermission(c.access,requiredPermission);
+    else{const e=new Error("Действие закупок не разрешено.");e.status=403;e.code="ACCESS_ACTION_UNKNOWN";throw e}
     const db=env.DB,user=c.auth.user,userId=clean(user.id),userName=actor(user),stamp=now(),sd=scopeData(c.scope),s=await settings(db,c.serverScope);
 
     if(action==="save-stock-norms"){
