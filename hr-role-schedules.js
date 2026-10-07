@@ -32,6 +32,38 @@
     <td><span class="hr-badge active">Из iiko</span></td><td><button type="button" class="hr-link-button" data-role-setup="${esc(r.code)}">${r.hasDefaultSchedule?'Изменить график':'Настроить график'}</button></td></tr>`).join(''):'<tr><td colspan="7" class="hr-empty">Должности ещё не синхронизированы.</td></tr>';
     $('rsRoleRows').querySelectorAll('[data-role-setup]').forEach(b=>b.onclick=()=>setupRole(b.dataset.roleSetup))}
 
+  function renderAttendanceRules(){
+    const list=(data.roles||[]).filter(x=>!x.deleted);
+    $('rsAttendanceRuleCount').textContent=`${list.length} должностей`;
+    $('rsAttendanceRuleRows').innerHTML=list.length?list.map(r=>{
+      const hours=Math.max(1,Number(r.dailyNormMinutes||480))/60;
+      const shift=String(r.shiftType||'DAY').toUpperCase()==='NIGHT'?'NIGHT':'DAY';
+      const window=shift==='NIGHT'?'12:00 → 11:59':'05:00 → 04:59';
+      return `<tr data-attendance-role="${esc(r.code)}">
+        <td class="text-left"><div class="hr-name">${esc(r.name)}</div><div class="hr-sub">${esc(r.code)}</div></td>
+        <td>${Number(r.employeeCount||0)}</td>
+        <td><input data-attendance-norm type="number" min="1" max="24" step="0.25" value="${Number(hours.toFixed(2))}"> <span class="hr-muted">ч</span></td>
+        <td><select data-attendance-shift><option value="DAY" ${shift==='DAY'?'selected':''}>Дневная</option><option value="NIGHT" ${shift==='NIGHT'?'selected':''}>Ночная</option></select></td>
+        <td><span class="hr-attendance-window">${window}</span></td>
+        <td><div class="hr-attendance-rule-actions"><button type="button" class="hr-link-button" data-attendance-save>Сохранить</button></div></td>
+      </tr>`;
+    }).join(''):'<tr><td colspan="6" class="hr-empty">Должности ещё не синхронизированы.</td></tr>';
+    $('rsAttendanceRuleRows').querySelectorAll('[data-attendance-shift]').forEach(sel=>sel.onchange=()=>{
+      const row=sel.closest('[data-attendance-role]'),badge=row?.querySelector('.hr-attendance-window');if(badge)badge.textContent=sel.value==='NIGHT'?'12:00 → 11:59':'05:00 → 04:59';
+    });
+    $('rsAttendanceRuleRows').querySelectorAll('[data-attendance-save]').forEach(btn=>btn.onclick=()=>saveAttendanceRule(btn.closest('[data-attendance-role]')));
+  }
+  async function saveAttendanceRule(row){
+    if(!row)return;
+    try{
+      const roleCode=row.dataset.attendanceRole,hours=Number(row.querySelector('[data-attendance-norm]').value||0),shiftType=row.querySelector('[data-attendance-shift]').value;
+      if(!Number.isFinite(hours)||hours<=0||hours>24)throw new Error('Норма рабочего дня должна быть от 1 до 24 часов.');
+      setStatus('Сохраняем правило учёта…','loading');
+      data=await api({action:'saveAttendanceRule',roleCode,dailyNormMinutes:Math.round(hours*60),shiftType});
+      render();setStatus('Правило фактического учёта сохранено','ok');
+    }catch(e){$('rsError').hidden=false;$('rsError').textContent=e.message;setStatus('Ошибка','error')}
+  }
+
   function scheduleMinutes(s){return (s.dayRules||[]).reduce((sum,r)=>sum+netMinutes(r.shiftStart,r.shiftEnd,r.breakMinutes),0)}
   function fmtPattern(s){if(s.patternType==='CYCLE')return `${s.workDays}/${s.offDays} · суммированный`;const count=(s.weekdays||[]).length;return count===6?'6/1':count===5?'5/2':(s.weekdays||[]).map(x=>dayShort[x]||x).join(', ')}
   function renderSchedules(){const list=(data.schedules||[]).filter(x=>x.active);$('rsScheduleCount').textContent=`${list.length} графиков`;$('rsScheduleRows').innerHTML=list.length?list.map(s=>{
@@ -90,7 +122,7 @@
     setStatus('Настройка основного графика для '+(role?.name||roleCode),'loading');
   }
 
-  function render(){renderSummary();renderRoleSelect();renderRoles();renderSchedules();updateLivePreview()}
+  function render(){renderSummary();renderRoleSelect();renderRoles();renderAttendanceRules();renderSchedules();updateLivePreview()}
   function resetForm(){$('rsId').value='';$('rsName').value='';$('rsPattern').value='WEEKLY';$('rsStart').value='09:00';$('rsEnd').value='18:00';$('rsBreak').value='60';$('rsValidFrom').value=today();$('rsValidTo').value='';$('rsWorkDays').value='2';$('rsOffDays').value='2';$('rsAnchor').value=today();$('rsAccountingMonths').value='1';$('rsDefault').checked=false;setWeekdays([1,2,3,4,5]);renderDayRules(weeklySeed([1,2,3,4,5],'09:00','18:00',60));updatePattern()}
 
   function editSchedule(id){const s=(data.schedules||[]).find(x=>x.id===id);if(!s)return;$('rsId').value=s.id;$('rsRole').value=s.roleCode;$('rsName').value=s.name;$('rsPattern').value=s.patternType;$('rsStart').value=s.shiftStart;$('rsEnd').value=s.shiftEnd;$('rsBreak').value=s.breakMinutes;$('rsValidFrom').value=s.validFrom;$('rsValidTo').value=s.validTo||'';$('rsWorkDays').value=s.workDays||2;$('rsOffDays').value=s.offDays||2;$('rsAnchor').value=s.anchorDate||today();$('rsAccountingMonths').value=s.accountingPeriodMonths||1;$('rsDefault').checked=Boolean(s.isDefault);setWeekdays(s.weekdays||[]);if(s.patternType==='WEEKLY')renderDayRules(s.dayRules||[]);updatePattern();document.querySelector('.hr-schedule-builder')?.scrollIntoView({behavior:'smooth',block:'start'});setStatus('Редактирование графика','loading')}
