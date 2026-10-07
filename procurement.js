@@ -55,6 +55,7 @@ function applyProcurementView(){
   const heroP=document.querySelector('.proc-hero p');if(heroP)heroP.textContent=meta.subtitle;
   const flow=document.querySelector('.proc-flow'),kpis=document.querySelector('.proc-kpis'),tabs=document.querySelector('.proc-tabs');
   if(tabs)tabs.style.display='none';
+  const newPr=$('proc-new-pr');if(newPr)newPr.style.display=['catalog','requests'].includes(state.view)?'':'none';
   const compact=state.view!=='catalog';
   if(flow)flow.style.display=compact?'none':'';
   if(kpis)kpis.style.display=compact?'none':'';
