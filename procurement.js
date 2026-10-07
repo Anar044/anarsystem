@@ -464,12 +464,46 @@ function approvalCard(r){
     prLinesHtml(r,true)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
     '<div class="proc-doc-footer"><strong>'+(r.totalEstimate?money(r.totalEstimate):'Сумма уточняется')+'</strong><div class="proc-actions"><button class="proc-btn small primary" data-pr-approve="'+r.id+'">Согласовать</button><button class="proc-btn small danger" data-pr-cancel="'+r.id+'">Отклонить</button></div></div></article>';
 }
+function quoteLineByProduct(quote,productId){
+  return (quote?.lines||[]).find(x=>key(x.productId)===key(productId))||null;
+}
+function quoteComparisonHtml(r){
+  const quotes=r.quotes||[],lines=r.lines||[];
+  if(!quotes.length)return '<div class="proc-history-note">Предложений пока нет. Добавьте поставщика и укажите цены по каждой позиции.</div>';
+
+  const bestPriceByProduct=new Map();
+  for(const line of lines){
+    const prices=quotes.map(qt=>num(quoteLineByProduct(qt,line.productId)?.unitPrice,0)).filter(x=>x>0);
+    if(prices.length)bestPriceByProduct.set(key(line.productId),Math.min(...prices));
+  }
+
+  const head='<thead><tr><th class="quote-product-col">Товар / количество</th>'+
+    quotes.map(qt=>'<th class="quote-supplier-col"><strong>'+esc(qt.supplierName||qt.supplierId)+'</strong><small>'+money(qt.totalAmount)+' всего</small><small>'+(qt.deliveryDays?esc(qt.deliveryDays+' дн.'):'срок —')+(qt.paymentTerms?' · '+esc(qt.paymentTerms):'')+'</small></th>').join('')+
+    '</tr></thead>';
+
+  const bodyRows=lines.map(line=>{
+    const best=bestPriceByProduct.get(key(line.productId));
+    return '<tr><td class="quote-product-cell"><strong>'+esc(line.productName||line.productId)+'</strong><small>'+qty(line.quantity)+' '+esc(line.unit||'')+'</small></td>'+
+      quotes.map(qt=>{
+        const ql=quoteLineByProduct(qt,line.productId);
+        if(!ql)return '<td class="quote-price-cell missing"><span>Не предложил</span></td>';
+        const price=num(ql.unitPrice),lineQty=num(ql.quantity||line.quantity),lineTotal=num(ql.total||lineQty*price),isBest=best>0&&Math.abs(price-best)<0.0001;
+        return '<td class="quote-price-cell '+(isBest?'best':'')+'"><strong>'+money(price)+' <em>/ '+esc(ql.unit||line.unit||'ед.')+'</em></strong><span>'+qty(lineQty)+' × '+money(price)+' = '+money(lineTotal)+'</span>'+(isBest?'<b>Лучшая цена</b>':'')+'</td>';
+      }).join('')+'</tr>';
+  }).join('');
+
+  const totals='<tr class="quote-total-row"><td><strong>Итого предложение</strong></td>'+
+    quotes.map(qt=>'<td><strong>'+money(qt.totalAmount)+'</strong>'+(r.status==='APPROVED'?'<button class="proc-btn small primary quote-po-btn" data-po-create="'+r.id+'" data-quote="'+qt.id+'">Создать PO</button>':'')+'</td>').join('')+'</tr>';
+
+  return '<div class="proc-quote-compare-wrap"><table class="proc-quote-compare">'+head+'<tbody>'+bodyRows+totals+'</tbody></table></div>'+
+    '<div class="proc-quote-legend"><span><i class="best-dot"></i> зелёным отмечена минимальная цена по конкретному товару</span><span>Итог поставщика считается по всем его строкам</span></div>';
+}
 function sourcingCard(r){
-  const quotes=(r.quotes||[]).map(qt=>'<div class="proc-quote '+(qt.status==='SELECTED'?'selected':'')+'"><strong>'+esc(qt.supplierName||qt.supplierId)+'</strong><span>'+money(qt.totalAmount)+'</span><small>'+esc((qt.deliveryDays?qt.deliveryDays+' дн. · ':'')+(qt.paymentTerms||'условия не указаны'))+'</small>'+(r.status==='APPROVED'?'<button class="proc-btn small primary" data-po-create="'+r.id+'" data-quote="'+qt.id+'">Создать PO</button>':'')+'</div>').join('');
-  return '<article class="proc-doc-card"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+new Date(r.createdAt).toLocaleDateString('ru-RU')+'</span></div><span class="proc-status-badge '+statusTone(r.effectiveStatus||r.status)+'">'+esc(statusLabel(r.effectiveStatus||r.status))+'</span></div>'+
-    prLinesHtml(r,true)+
-    '<div class="proc-quotes"><div class="proc-quotes-head"><strong>Предложения поставщиков · '+(r.quotes||[]).length+'</strong><button class="proc-btn small ghost" data-pr-quote="'+r.id+'">+ Предложение</button></div>'+(quotes?'<div class="proc-quote-grid">'+quotes+'</div>':'<div class="proc-history-note">Предложений пока нет.</div>')+'</div>'+
-    '<div class="proc-doc-footer"><strong>'+(r.totalEstimate?money(r.totalEstimate):'Сумма уточняется')+'</strong><span class="proc-history-note">'+((r.linkedOrders||[]).length?'Создано PO: '+r.linkedOrders.length:'PO ещё не создан')+'</span></div></article>';
+  const effective=r.effectiveStatus||r.status;
+  return '<article class="proc-doc-card sourcing-card"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+new Date(r.createdAt).toLocaleDateString('ru-RU')+'</span></div><span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span></div>'+
+    '<div class="proc-sourcing-request"><div class="proc-quotes-head"><strong>Что нужно купить</strong><span class="proc-history-note">'+(r.lines||[]).length+' позиций</span></div>'+prLinesHtml(r,false)+'</div>'+
+    '<div class="proc-quotes"><div class="proc-quotes-head"><strong>Сравнение предложений · '+(r.quotes||[]).length+'</strong><button class="proc-btn small ghost" data-pr-quote="'+r.id+'">+ Предложение</button></div>'+quoteComparisonHtml(r)+'</div>'+
+    '<div class="proc-doc-footer"><strong>Оценка PR: '+(r.totalEstimate?money(r.totalEstimate):'—')+'</strong><span class="proc-history-note">'+((r.linkedOrders||[]).length?'Создано PO: '+r.linkedOrders.length:'PO ещё не создан')+'</span></div></article>';
 }
 function renderRequisitions(){
   const box=$('proc-pr-list'),all=state.data?.requisitions||[],view=state.view||currentProcurementView();
