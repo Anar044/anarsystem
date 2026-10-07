@@ -64,3 +64,34 @@
 .procurement-nav-group .documents-subnav a{padding-left:10px!important}
 
 .proc-status.warning{display:block;border-color:#5a4721;background:#241d10;color:#efc66f}
+
+.sourcing-card{overflow:hidden}
+.proc-sourcing-request{margin-top:12px;padding:11px;border:1px solid #1e2d38;border-radius:10px;background:#0d151c}
+.proc-quote-compare-wrap{margin-top:9px;overflow:auto;border:1px solid #21313e;border-radius:11px}
+.proc-quote-compare{width:100%;min-width:720px;border-collapse:collapse;background:#0c141b}
+.proc-quote-compare th,.proc-quote-compare td{padding:11px 12px;border-right:1px solid #1d2a35;border-bottom:1px solid #1d2a35;vertical-align:top}
+.proc-quote-compare th:last-child,.proc-quote-compare td:last-child{border-right:0}
+.proc-quote-compare tr:last-child td{border-bottom:0}
+.proc-quote-compare thead th{background:#101b24;text-align:left;color:#8594a4;font-size:10px;text-transform:none;letter-spacing:0}
+.proc-quote-compare .quote-product-col{min-width:210px}
+.proc-quote-compare .quote-supplier-col{min-width:200px}
+.proc-quote-compare .quote-supplier-col strong{display:block;color:#f0f5f8;font-size:13px}
+.proc-quote-compare .quote-supplier-col small{display:block;margin-top:4px;color:#778596;font-size:9.5px;font-weight:500}
+.quote-product-cell strong{display:block;color:#edf3f7;font-size:11.5px}
+.quote-product-cell small{display:block;margin-top:4px;color:#758394;font-size:9.5px}
+.quote-price-cell{position:relative;min-width:190px}
+.quote-price-cell>strong{display:block;color:#eaf0f5;font-size:12px}
+.quote-price-cell>strong em{color:#758494;font-size:9px;font-style:normal;font-weight:600}
+.quote-price-cell>span{display:block;margin-top:4px;color:#748292;font-size:9.5px}
+.quote-price-cell.best{background:rgba(66,211,146,.07);box-shadow:inset 0 0 0 1px rgba(66,211,146,.20)}
+.quote-price-cell.best>strong{color:#77e3b0}
+.quote-price-cell.best>b{display:inline-flex;margin-top:7px;padding:3px 6px;border-radius:999px;background:#163928;color:#74dfab;font-size:8.5px;text-transform:uppercase;letter-spacing:.04em}
+.quote-price-cell.missing{color:#61707f}
+.quote-price-cell.missing span{margin-top:2px}
+.quote-total-row td{background:#101921;vertical-align:middle}
+.quote-total-row td>strong{display:block;color:#f1f5f8;font-size:14px}
+.quote-po-btn{width:100%;margin-top:8px}
+.proc-quote-legend{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:8px;color:#708090;font-size:9.5px}
+.proc-quote-legend span{display:flex;align-items:center;gap:6px}
+.best-dot{width:8px;height:8px;border-radius:50%;background:#42d392;box-shadow:0 0 0 3px rgba(66,211,146,.10)}
+@media(max-width:760px){.proc-quote-compare{min-width:650px}.proc-quote-legend{flex-direction:column}}
