@@ -219,6 +219,7 @@ function orderActions(o){
   if(o.status==='APPROVED')a.push('<button class="proc-btn small primary" data-po-send="'+o.id+'">Отправлен поставщику</button>');
   if(['APPROVED','SENT'].includes(o.status))a.push('<button class="proc-btn small primary" data-po-confirm="'+o.id+'">Поставщик подтвердил</button>');
   if(['APPROVED','SENT','CONFIRMED','PARTIALLY_RECEIVED'].includes(o.status))a.push('<button class="proc-btn small ghost" data-po-receive="'+o.id+'">Приёмка</button>');
+  if(['APPROVED','SENT','CONFIRMED','PARTIALLY_RECEIVED'].includes(o.status))a.push('<button class="proc-btn small ghost" data-po-link="'+o.id+'">Привязать накладную</button>');
   a.push('<button class="proc-btn small ghost" data-po-copy="'+o.id+'">Копировать PO</button>');
   a.push('<button class="proc-btn small danger" data-po-cancel="'+o.id+'">Отменить</button>');return a.join('');
 }
@@ -284,6 +285,22 @@ function openQuoteModal(r){
 }
 async function simpleAction(action,id,message){try{setBusy(true);await procPost(action,{id});await reloadProc();toast(message)}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
 async function createPoFromQuote(reqId,quoteId){try{setBusy(true);await procPost('create-order',{requisitionId:reqId,quoteId});await reloadProc();switchTab('orders');toast('Заказ PO создан.')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
+function openLinkInvoiceModal(o){
+  const linked=new Set((o.receipts||[]).map(r=>String(r.iikoDocumentNumber||'').trim().toLowerCase()));
+  const candidates=(state.historyDocs||[]).filter(d=>{
+    const sameSupplier=!o.supplierId||key(d.supplierId)===key(o.supplierId);
+    const sameStore=!o.warehouseId||key(d.storeId)===key(o.warehouseId)||(d.items||[]).some(x=>key(x.storeId)===key(o.warehouseId));
+    const unlinked=!linked.has(String(d.documentNumber||'').trim().toLowerCase());
+    return sameSupplier&&sameStore&&unlinked;
+  }).slice(0,80);
+  if(!candidates.length){toast('За последние 90 дней подходящих накладных этого поставщика и склада не найдено.','error');return}
+  const opts=candidates.map((d,i)=>'<option value="'+i+'">'+esc((d.documentNumber||'без №')+' · '+String(d.dateIncoming||d.incomingDate||'').slice(0,10)+' · '+money(d.sum||d.documentSum||0))+'</option>').join('');
+  openModal('Привязать накладную к '+o.number,'PO ↔ ПРИЁМКА ↔ НАКЛАДНАЯ','<div class="proc-form-grid"><label class="proc-field wide"><span>Существующая приходная накладная</span><select id="proc-link-invoice">'+opts+'</select></label></div><div id="proc-link-preview" class="proc-edit-lines"></div><div class="proc-history-note">Подходит для накладных, созданных вручную или через AI Документы. Smart Horeca не создаёт дубликат — только связывает существующий документ с PO и проверяет количество/цены.</div><div class="proc-modal-actions"><button id="proc-link-cancel" type="button" class="proc-btn ghost">Отмена</button><button id="proc-link-save" type="button" class="proc-btn primary">Связать с PO</button></div>');
+  function selected(){return candidates[Number($('proc-link-invoice').value||0)]}
+  function preview(){const d=selected();$('proc-link-preview').innerHTML='<div class="proc-edit-head"><strong>'+esc(d?.documentNumber||'Накладная')+'</strong><span class="proc-history-note">'+esc(d?.supplierName||'')+'</span></div>'+(d?.items||[]).map(x=>'<div class="proc-line"><span>'+esc(x.productName||x.productId||'Товар')+'</span><strong>'+qty(x.actualAmount??x.amount)+' × '+money(x.price)+'</strong><span>'+money(x.sum||num(x.actualAmount??x.amount)*num(x.price))+'</span></div>').join('')}
+  $('proc-link-invoice').onchange=preview;preview();$('proc-link-cancel').onclick=closeModal;
+  $('proc-link-save').onclick=async()=>{const d=selected();if(!d)return;const lines=(d.items||[]).map(x=>({productId:key(x.productId),productName:x.productName||productName(x.productId),unit:x.amountUnit||unitFor(x.productId),quantity:num(x.actualAmount??x.amount),unitPrice:num(x.price)})).filter(x=>x.productId&&x.quantity>0);try{setBusy(true);await procPost('receive-order',{id:o.id,iikoDocumentNumber:d.documentNumber||d.incomingDocumentNumber||'',iikoDocumentId:d.id||'',iikoStatus:d.status||'PROCESSED',documentDate:String(d.dateIncoming||d.incomingDate||today()).slice(0,10),comment:d.comment||('Связано с '+o.number),lines});closeModal();await reloadProc();toast('Накладная привязана к PO. Выполнена сверка количества и цен.')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}};
+}
 function receiptLineHtml(l){
   return '<div class="proc-edit-row" data-receipt-line data-product-id="'+esc(l.productId)+'"><div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div><div class="proc-field"><span>Принимаем</span><input data-f="quantity" type="number" min="0.001" max="'+num(l.remainingQty)+'" step="0.001" value="'+num(l.remainingQty)+'"></div><div class="proc-field"><span>Цена накладной</span><input data-f="price" type="number" min="0.01" step="0.01" value="'+num(l.unitPrice)+'"></div><strong class="line-total">'+money(num(l.remainingQty)*num(l.unitPrice))+'</strong><span></span><input data-f="unit" type="hidden" value="'+esc(l.unit||'')+'"></div>';
 }
@@ -359,8 +376,9 @@ function bind(){
     if(b.dataset.prCancel&&confirm('Отменить заявку '+(r?.number||'')+'?'))return simpleAction('cancel-requisition',id,'Заявка отменена.');
   });
   $('proc-po-list').addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poCopy||b.dataset.poCancel;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
+    const b=e.target.closest('button');if(!b)return;const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poLink||b.dataset.poCopy||b.dataset.poCancel;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
     if(b.dataset.poReceive&&o)return openReceiptModal(o);
+    if(b.dataset.poLink&&o)return openLinkInvoiceModal(o);
     if(b.dataset.poCopy&&o)return copyPo(o);
     if(b.dataset.poSend)return simpleAction('send-order',id,'PO отмечен как отправленный поставщику.');
     if(b.dataset.poConfirm)return simpleAction('confirm-order',id,'Поставщик подтвердил заказ.');
