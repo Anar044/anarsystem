@@ -35,7 +35,20 @@ export async function ensurePayrollAccountingTables(db){
       updated_at TEXT NOT NULL,
       PRIMARY KEY(user_id,scope_key)
     )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS sh_accounting_journal (
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_payroll_bank_accounts (
+      user_id TEXT NOT NULL,
+      scope_key TEXT NOT NULL DEFAULT '*',
+      account_id TEXT NOT NULL,
+      account_name TEXT NOT NULL DEFAULT '',
+      account_type TEXT NOT NULL DEFAULT '',
+      is_default INTEGER NOT NULL DEFAULT 0,
+      display_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(user_id,scope_key,account_id)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_payroll_bank_accounts_scope ON hr_payroll_bank_accounts(user_id,scope_key,is_default,display_order)`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS sh_accounting_journal (
       user_id TEXT NOT NULL,
       entry_id TEXT NOT NULL,
       source_key TEXT NOT NULL,
@@ -75,7 +88,38 @@ export async function getPayrollAccountingConfig(db,userId,departmentCode=""){
   return fallback?{...fallback,effective_scope_key:"*"}:null;
 }
 export function payrollAccountingReady(config){
-  return Boolean(config?.salary_expense_account_id&&config?.employee_payable_account_id&&config?.cash_account_id&&config?.bank_account_id);
+  return Boolean(config?.salary_expense_account_id&&config?.employee_payable_account_id&&config?.cash_account_id);
+}
+export async function getPayrollBankAccounts(db,userId,departmentCode=""){
+  await ensurePayrollAccountingTables(db);
+  const exact=scopeKey(departmentCode);
+  let rows=[];
+  if(exact!=="*"){
+    const r=await db.prepare(`SELECT account_id,account_name,account_type,is_default,display_order FROM hr_payroll_bank_accounts WHERE user_id=?1 AND scope_key=?2 ORDER BY is_default DESC,display_order,account_name`).bind(userId,exact).all();
+    rows=r.results||[];
+    if(rows.length)return rows.map(x=>({...x,effective_scope_key:exact}));
+  }
+  const r=await db.prepare(`SELECT account_id,account_name,account_type,is_default,display_order FROM hr_payroll_bank_accounts WHERE user_id=?1 AND scope_key='*' ORDER BY is_default DESC,display_order,account_name`).bind(userId).all();
+  rows=r.results||[];
+  return rows.map(x=>({...x,effective_scope_key:"*"}));
+}
+export async function savePayrollBankAccounts(db,userId,scope,accounts=[],actorId=""){
+  await ensurePayrollAccountingTables(db);
+  const key=scopeKey(scope),t=now(),unique=new Map();
+  for(const raw of Array.isArray(accounts)?accounts:[]){
+    const id=clean(raw?.id||raw?.accountId,180);if(!id||unique.has(id))continue;
+    unique.set(id,{id,name:clean(raw?.name||raw?.accountName,300),type:clean(raw?.type||raw?.accountType,120),isDefault:Boolean(raw?.isDefault)});
+    if(unique.size>=20)break;
+  }
+  const list=[...unique.values()];
+  if(list.length&&!list.some(x=>x.isDefault))list[0].isDefault=true;
+  if(list.filter(x=>x.isDefault).length>1){let seen=false;for(const x of list){if(x.isDefault&&!seen)seen=true;else x.isDefault=false}}
+  await db.prepare(`DELETE FROM hr_payroll_bank_accounts WHERE user_id=?1 AND scope_key=?2`).bind(userId,key).run();
+  if(list.length){
+    const stmts=list.map((x,i)=>db.prepare(`INSERT INTO hr_payroll_bank_accounts(user_id,scope_key,account_id,account_name,account_type,is_default,display_order,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8)`).bind(userId,key,x.id,x.name,x.type,x.isDefault?1:0,i,t));
+    for(let i=0;i<stmts.length;i+=50)await db.batch(stmts.slice(i,i+50));
+  }
+  return getPayrollBankAccounts(db,userId,key==="*"?"":key);
 }
 export async function savePayrollAccountingConfig(db,userId,scope,config,actorId=""){
   await ensurePayrollAccountingTables(db);
@@ -184,18 +228,22 @@ export async function syncOvertimeAccrualPosting(db,{userId,month,employeeId,emp
   });
   return{posted:Boolean(row),entry:row,configScope:config.effective_scope_key};
 }
-export async function syncOvertimePaymentPosting(db,{userId,paymentId,employeeId,employeeName,departmentCode,paymentDate,amount,paymentMethod,reference,note}){
+export async function syncOvertimePaymentPosting(db,{userId,paymentId,employeeId,employeeName,departmentCode,paymentDate,amount,paymentMethod,paymentAccount,reference,note}){
   const config=await getPayrollAccountingConfig(db,userId,departmentCode);
   if(!payrollAccountingReady(config))return{posted:false,reason:"ACCOUNTING_NOT_CONFIGURED",configScope:config?.effective_scope_key||null};
+  const method=String(paymentMethod||"CASH").toUpperCase();
   let out={id:config.cash_account_id,name:config.cash_account_name,type:config.cash_account_type};
-  if(String(paymentMethod).toUpperCase()==="BANK")out={id:config.bank_account_id,name:config.bank_account_name,type:config.bank_account_type};
-  else if(String(paymentMethod).toUpperCase()==="OTHER"&&config.other_payment_account_id)out={id:config.other_payment_account_id,name:config.other_payment_account_name,type:config.other_payment_account_type};
+  if(method==="BANK"){
+    out=paymentAccount?.id?{id:clean(paymentAccount.id,180),name:clean(paymentAccount.name,300),type:clean(paymentAccount.type,120)}:{id:config.bank_account_id,name:config.bank_account_name,type:config.bank_account_type};
+  }else if(method==="OTHER"&&config.other_payment_account_id){
+    out={id:config.other_payment_account_id,name:config.other_payment_account_name,type:config.other_payment_account_type};
+  }
   if(!out.id)return{posted:false,reason:"PAYMENT_ACCOUNT_NOT_CONFIGURED",configScope:config.effective_scope_key};
   const row=await upsertPair(db,{
     userId,sourceKey:`HR_OT_PAYMENT:${paymentId}`,sourceType:"HR_OVERTIME_PAYMENT",sourceId:paymentId,postingDate:paymentDate,month:String(paymentDate).slice(0,7),departmentCode,
     description:`Выплата доп. часов · ${clean(employeeName,220)}${reference?` · ${clean(reference,100)}`:""}`,
     debit:{id:config.employee_payable_account_id,name:config.employee_payable_account_name,type:config.employee_payable_account_type},
-    credit:out,amount,metadata:{employeeId,employeeName,paymentMethod,reference,note,configScope:config.effective_scope_key}
+    credit:out,amount,metadata:{employeeId,employeeName,paymentMethod:method,paymentAccount:out,reference,note,configScope:config.effective_scope_key}
   });
   return{posted:Boolean(row),entry:row,configScope:config.effective_scope_key};
 }
