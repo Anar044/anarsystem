@@ -7,7 +7,7 @@
   <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
   <link rel="stylesheet" href="app-shell.css">
   <link rel="stylesheet" href="hr-pnl.css?v=20260916-12">
-  <link rel="stylesheet" href="/hr-payroll-v3.css?v=20261007-overtime-ledger-1">
+  <link rel="stylesheet" href="/hr-payroll-v3.css?v=20261007-overtime-ledger-2">
   <style id="hrp-critical-styles">
 .hrp-kicker{display:block;margin-bottom:6px;color:#42d392;font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
 .hrp-month{display:flex;flex-direction:column;gap:5px;color:#7f8e9f;font-size:9px;font-weight:800;text-transform:uppercase}
@@ -59,6 +59,45 @@
   .hrp-context,.hrp-tabs,.hrp-filters{grid-template-columns:1fr}.hrp-tab{border-right:0;border-bottom:1px solid #22303c}.hrp-tab:last-child{border-bottom:0}
   .hrp-filters input{grid-column:auto}.hrp-context{gap:6px}
 }
+.hrp-settlement-card{margin-top:12px;padding:0!important;overflow:hidden}
+.hrp-settlement-head{padding:14px 16px;border-bottom:1px solid #22303c}
+.hrp-settlement-summary{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:8px;padding:12px 16px;border-bottom:1px solid #22303c;background:#0e161f}
+.hrp-settlement-summary article{padding:10px 11px;border:1px solid #263541;border-radius:10px;background:#101923}
+.hrp-settlement-summary span{display:block;color:#748496;font-size:8px;font-weight:900;text-transform:uppercase}
+.hrp-settlement-summary strong{display:block;margin-top:4px;color:#edf3f7;font-size:14px}
+.hrp-settlement-summary small{display:block;margin-top:3px;color:#667789;font-size:8px}
+.hrp-settlement-table{width:100%;min-width:1350px;border-collapse:collapse}
+.hrp-settlement-table th,.hrp-settlement-table td{padding:9px 10px;border-bottom:1px solid #1d2a35;text-align:center;white-space:nowrap;font-size:9px;color:#cbd5de}
+.hrp-settlement-table th{background:#0c141d;color:#758698;font-size:8px;font-weight:900;text-transform:uppercase}
+.hrp-settlement-table .text-left{text-align:left}
+.hrp-payment-paid{color:#82e7b3!important;font-weight:900}
+.hrp-debt{color:#ffb071!important;font-weight:900;background:rgba(255,149,73,.04)}
+.hrp-debt-zero{color:#6f8494!important;font-weight:800}
+.hrp-payment-history{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:230px}
+.hrp-payment-chip{display:flex;align-items:center;gap:6px;padding:4px 6px;border:1px solid #2a3a47;border-radius:8px;background:#101a24;color:#aebbc6;font-size:8px}
+.hrp-payment-chip small{color:#6f7f8f}
+.hrp-cancel-payment{width:18px;height:18px;padding:0;border:1px solid rgba(255,104,120,.28);border-radius:50%;background:rgba(255,104,120,.08);color:#ff9ba6;cursor:pointer;font-weight:900}
+.hrp-pay-debt{white-space:nowrap}
+.hrp-payment-modal[hidden]{display:none}
+.hrp-payment-modal{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;padding:20px}
+.hrp-payment-backdrop{position:absolute;inset:0;background:rgba(3,8,13,.72);backdrop-filter:blur(3px)}
+.hrp-payment-dialog{position:relative;width:min(720px,100%);padding:16px;border:1px solid #2b3b48;border-radius:16px;background:#101923;box-shadow:0 24px 80px rgba(0,0,0,.42)}
+.hrp-payment-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:1px solid #22303c}
+.hrp-payment-head strong{display:block;color:#edf3f7;font-size:13px}
+.hrp-payment-employee{display:flex;flex-direction:column;gap:3px;margin:12px 0;padding:10px 11px;border-radius:10px;background:#0d151e;border:1px solid #24333f}
+.hrp-payment-employee strong{color:#e7eef4}.hrp-payment-employee span{color:#738395;font-size:9px}
+.hrp-payment-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
+.hrp-payment-grid label,.hrp-payment-note{display:grid;gap:5px}
+.hrp-payment-grid label>span,.hrp-payment-note>span{color:#748496;font-size:8px;font-weight:900;text-transform:uppercase}
+.hrp-payment-grid input,.hrp-payment-grid select,.hrp-payment-note textarea{width:100%;box-sizing:border-box;border:1px solid #293846;border-radius:9px;background:#0d151e;color:#e8eef3;padding:8px 9px;font:inherit}
+.hrp-payment-grid input,.hrp-payment-grid select{height:38px}
+.hrp-payment-note{margin-top:9px}.hrp-payment-note textarea{min-height:76px;resize:vertical}
+.hrp-payment-total{display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding:10px 11px;border:1px solid rgba(171,120,255,.24);border-radius:10px;background:rgba(171,120,255,.06)}
+.hrp-payment-total span{color:#8393a3;font-size:9px}.hrp-payment-total strong{color:#d7b8ff;font-size:14px}
+.hrp-payment-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+@media(max-width:900px){.hrp-settlement-summary{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:620px){.hrp-settlement-summary,.hrp-payment-grid{grid-template-columns:1fr}.hrp-payment-modal{padding:10px}.hrp-payment-actions{flex-direction:column}}
+
 </style>
 </head>
 <body data-protected="true" style="background:#0b1017">
@@ -213,6 +252,6 @@
 <script src="/hr-light-theme.js?v=20260917-1"></script>
 <script src="mobile-responsive.js?v=1"></script>
 <script src="documents-nav.js?v=20"></script>
-<script src="/hr-payroll.js?v=20261007-overtime-ledger-1"></script>
+<script src="/hr-payroll.js?v=20261007-overtime-ledger-2"></script>
 </body>
 </html>
