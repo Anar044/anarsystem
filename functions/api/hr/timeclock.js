@@ -121,7 +121,8 @@ async function snapshot(db,userId,scope=null){
   const es=filterEmployeesByScope(allEmployees,scope);
   const employeeIds=new Set(es.map(x=>String(x.iiko_employee_id)));
   const bs=subset?allBindings.filter(x=>employeeIds.has(String(x.iiko_employee_id))):allBindings;
-  const ev=subset?allEvents.filter(x=>x.iiko_employee_id&&employeeIds.has(String(x.iiko_employee_id))):allEvents;
+  const selectedDeviceIds=new Set(ds.map(x=>String(x.device_id)));
+  const ev=subset?allEvents.filter(x=>selectedDeviceIds.has(String(x.device_id))||(x.iiko_employee_id&&employeeIds.has(String(x.iiko_employee_id)))):allEvents;
   const tokenMap=new Map(ts.map(x=>[String(x.device_id),x])),admsMap=new Map(adms.map(x=>[String(x.device_id),x])),nowMs=Date.now();
   return{
     restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes,deviceScope:subset?'SCOPED_BY_RESTAURANT':'ALL'}:null,
