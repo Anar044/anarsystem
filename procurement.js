@@ -132,7 +132,8 @@ function seedNormDrafts(){
   state.dirtyNorms=new Set();
 }
 async function loadProcurement(){
-  const r=await authFetch('/api/procurement',{method:'GET',cache:'no-store'});const j=await r.json().catch(()=>({}));
+  const view=state.view||currentProcurementView();
+  const r=await authFetch('/api/procurement?view='+encodeURIComponent(view),{method:'GET',cache:'no-store'});const j=await r.json().catch(()=>({}));
   if(!r.ok||j.success===false)throw Error(j.message||('HTTP '+r.status));state.data=j;seedNormDrafts();return j;
 }
 function chainScope(){
@@ -786,18 +787,18 @@ async function loadAll(){
     renderAll();applyProcurementView();
     document.documentElement.style.visibility='visible';
 
-    setStatus('Загружаем остатки, справочники и историю цен…');
-    const tasks=[
-      ['Справочники',loadReferences],
-      ['Остатки',loadStocks],
-      ['История цен',loadHistory],
-      ['Баланс поставщиков',loadSupplierBalances]
-    ];
+    const view=state.view||currentProcurementView(),canCost=window.SHAccess?.can?.('procurement.prices.view')||window.SHAccess?.can?.('sensitive.cost.view')||false;
+    const tasks=[];
+    if(['catalog','sourcing','receiving','norms'].includes(view))tasks.push(['Справочники',loadReferences]);
+    if(['catalog','norms'].includes(view))tasks.push(['Остатки',loadStocks]);
+    if(canCost&&['catalog','sourcing'].includes(view))tasks.push(['История цен',loadHistory]);
+    if(canCost&&['sourcing','analytics'].includes(view))tasks.push(['Баланс поставщиков',loadSupplierBalances]);
+    setStatus(tasks.length?'Загружаем данные раздела…':'Данные закупок загружены.');
     const results=await Promise.allSettled(tasks.map(x=>x[1]()));
     const warnings=[];
     results.forEach((r,i)=>{if(r.status==='rejected'){const msg=r.reason?.message||String(r.reason);warnings.push(tasks[i][0]+': '+msg);console.warn('Procurement optional load failed',tasks[i][0],r.reason)}});
 
-    try{await reconcileLinkedReceipts()}catch(e){warnings.push('Сверка накладных: '+(e?.message||String(e)));console.warn('Procurement reconciliation failed',e)}
+    if(['orders','receiving'].includes(view)){try{await reconcileLinkedReceipts()}catch(e){warnings.push('Сверка накладных: '+(e?.message||String(e)));console.warn('Procurement reconciliation failed',e)}}
     renderAll();applyProcurementView();
     try{await flushPending()}catch(e){console.warn('Pending receipt flush failed',e)}
 
