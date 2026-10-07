@@ -234,6 +234,7 @@
               <label><span>Дата выплаты</span><input id="hrpPaymentDate" type="date"></label>
               <label><span>Сумма, AZN</span><input id="hrpPaymentAmount" type="number" min="0.01" step="0.01"></label>
               <label><span>Способ</span><select id="hrpPaymentMethod"><option value="CASH">Наличные</option><option value="BANK">Банк</option><option value="OTHER">Другое</option></select></label>
+              <label id="hrpPaymentBankField" hidden><span>С банковского счёта</span><select id="hrpPaymentBankAccount"></select></label>
               <label><span>Документ / №</span><input id="hrpPaymentReference" type="text" maxlength="180" placeholder="Необязательно"></label>
             </div>
             <label class="hrp-payment-note"><span>Комментарий</span><textarea id="hrpPaymentNote" maxlength="1000" placeholder="Необязательно"></textarea></label>
@@ -263,6 +264,6 @@
 <script src="/hr-light-theme.js?v=20260917-1"></script>
 <script src="mobile-responsive.js?v=1"></script>
 <script src="documents-nav.js?v=20"></script>
-<script src="/hr-payroll.js?v=20261007-accounting-1"></script>
+<script src="/hr-payroll.js?v=20261007-multi-bank-1"></script>
 </body>
 </html>
