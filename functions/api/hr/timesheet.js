@@ -42,7 +42,7 @@ function calendarInfo(date){const sp=SPECIAL_2026.get(date);if(sp)return{type:sp
 
 async function ensure(db){
   if(!db)throw new Error('D1 binding DB не настроен.');
-  const required=['hr_employees','hr_devices','hr_attendance_events','hr_employee_leave_entries','hr_leave_type_settings','hr_employee_profiles','hr_role_schedules','hr_role_schedule_days','hr_employee_schedule_overrides'];
+  const required=['hr_employees','hr_devices','hr_attendance_events','hr_employee_leave_entries','hr_leave_type_settings','hr_employee_profiles','hr_role_schedules','hr_role_schedule_days','hr_employee_schedule_overrides','hr_role_attendance_rules','hr_employee_attendance_rules'];
   try{
     const placeholders=required.map((_,i)=>`?${i+1}`).join(',');
     const check=await db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN (${placeholders})`).bind(...required).all();
@@ -80,9 +80,58 @@ async function ensure(db){
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_schedule_overrides (
       user_id TEXT NOT NULL,override_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,schedule_id TEXT NOT NULL,effective_from TEXT NOT NULL,effective_to TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT '',is_active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,override_id)
     )`),
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_employee_schedule_current ON hr_employee_schedule_overrides(user_id,iiko_employee_id,is_active,effective_from DESC)`)
-  
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_employee_schedule_current ON hr_employee_schedule_overrides(user_id,iiko_employee_id,is_active,effective_from DESC)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_attendance_rules (
+      user_id TEXT NOT NULL,role_code TEXT NOT NULL,daily_norm_minutes INTEGER NOT NULL DEFAULT 480,shift_type TEXT NOT NULL DEFAULT 'DAY',updated_at TEXT NOT NULL DEFAULT '',PRIMARY KEY(user_id,role_code)
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_attendance_rules (
+      user_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,shift_type_override TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL DEFAULT '',PRIMARY KEY(user_id,iiko_employee_id)
+    )`)
   ]);
+}
+function clockMinutes(v){const m=/^(\d{2}):(\d{2})$/.exec(String(v||''));return m?Number(m[1])*60+Number(m[2]):0}
+function freeShiftMeta(shiftType){
+  const type=String(shiftType||'DAY').toUpperCase()==='NIGHT'?'NIGHT':'DAY';
+  return type==='NIGHT'
+    ?{type,startMinute:12*60,start:'12:00',end:'11:59',label:'Ночная'}
+    :{type,startMinute:5*60,start:'05:00',end:'04:59',label:'Дневная'};
+}
+function freeWorkDate(eventTime,timeZone,shiftType){
+  const p=localParts(eventTime,timeZone),meta=freeShiftMeta(shiftType),m=clockMinutes(p.time);
+  return m>=meta.startMinute?p.date:isoDayShift(p.date,-1);
+}
+function aggregateFreeAttendance(events,employee,timeZone,from,to,roleRule,employeeRule){
+  const roleShift=['DAY','NIGHT'].includes(String(roleRule?.shift_type||'').toUpperCase())?String(roleRule.shift_type).toUpperCase():'DAY';
+  const overrideShift=['DAY','NIGHT'].includes(String(employeeRule?.shift_type_override||'').toUpperCase())?String(employeeRule.shift_type_override).toUpperCase():'';
+  const shiftType=overrideShift||roleShift,meta=freeShiftMeta(shiftType),normMinutes=Math.max(60,Number(roleRule?.daily_norm_minutes||480));
+  const groups=new Map(),issues=[],intervals=[];
+  const sorted=[...(events||[])].filter(x=>x?.event_time).sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time)));
+  for(const e of sorted){
+    const workDate=freeWorkDate(e.event_time,timeZone,shiftType);
+    if(workDate<from||workDate>to)continue;
+    if(!groups.has(workDate))groups.set(workDate,[]);
+    groups.get(workDate).push(e);
+  }
+  const days=new Map();
+  for(const [workDate,items] of groups){
+    const unique=[];let lastMs=null;
+    for(const e of items){
+      const ms=new Date(e.event_time).getTime();
+      if(Number.isFinite(lastMs)&&Number.isFinite(ms)&&ms-lastMs<10000){
+        issues.push({code:'DUPLICATE_MARK',eventId:e.event_id||'',eventTime:e.event_time||'',deviceId:e.device_id||'',employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,workDate});
+        continue;
+      }
+      unique.push(e);lastMs=ms;
+    }
+    if(!unique.length)continue;
+    const first=unique[0],last=unique[unique.length-1],complete=unique.length>=2;
+    const workedMinutes=complete?minutes(new Date(last.event_time)-new Date(first.event_time)):0;
+    const status=complete?'OK':'INCOMPLETE';
+    if(!complete)issues.push({code:'MISSING_PAIR',eventId:first.event_id||'',eventTime:first.event_time||'',deviceId:first.device_id||'',employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,workDate});
+    if(complete)intervals.push({employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,roleName:employee.roleName,workDate,startTime:first.event_time,endTime:last.event_time,startLocal:localParts(first.event_time,timeZone).time,endLocal:localParts(last.event_time,timeZone).time,durationMinutes:workedMinutes,status:'OK',startEventId:first.event_id,endEventId:last.event_id,startDeviceId:first.device_id,endDeviceId:last.device_id,markCount:unique.length,aggregation:'FIRST_LAST'});
+    days.set(workDate,{employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,roleName:employee.roleName,workDate,firstIn:first.event_time,lastOut:complete?last.event_time:'',workedMinutes,intervalCount:complete?1:0,issueCount:complete?0:1,status,markCount:unique.length,shiftType,shiftLabel:meta.label,shiftStart:meta.start,shiftEnd:meta.end,normMinutes,attendanceSource:overrideShift?'EMPLOYEE':'ROLE'});
+  }
+  return{days,issues,intervals,shiftType,shiftMeta:meta,normMinutes,source:overrideShift?'EMPLOYEE':'ROLE'};
 }
 function normalizeEmployee(events,employee,timeZone,from,to){
   const sorted=[...events].sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time)));
@@ -163,30 +212,34 @@ export async function onRequestGet({request,env}){
     const employeeIds=[...new Set(employees.map(x=>String(x.id||'')).filter(Boolean))];
     const employeeChunks=chunkList(employeeIds,50);
 
-    const [deviceRows,scheduleRows,dayRuleRows,typeRows]=await env.DB.batch([
+    const [deviceRows,scheduleRows,dayRuleRows,typeRows,roleAttendanceRows]=await env.DB.batch([
       env.DB.prepare(`SELECT device_id,name,timezone FROM hr_devices WHERE user_id=?1`).bind(userId),
       env.DB.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 AND is_active=1 AND valid_from<=?2 AND (valid_to='' OR valid_to>=?3) ORDER BY is_default DESC,valid_from DESC`).bind(userId,to,from),
       env.DB.prepare(`SELECT schedule_id,weekday,shift_start,shift_end,break_minutes FROM hr_role_schedule_days WHERE user_id=?1`).bind(userId),
-      env.DB.prepare(`SELECT leave_type,display_name FROM hr_leave_type_settings WHERE user_id=?1`).bind(userId)
+      env.DB.prepare(`SELECT leave_type,display_name FROM hr_leave_type_settings WHERE user_id=?1`).bind(userId),
+      env.DB.prepare(`SELECT role_code,daily_norm_minutes,shift_type,updated_at FROM hr_role_attendance_rules WHERE user_id=?1`).bind(userId)
     ]);
 
-    const eventResults=[],profileResults=[],leaveResults=[],overrideResults=[];
+    const eventResults=[],profileResults=[],leaveResults=[],overrideResults=[],employeeAttendanceResults=[];
     for(const ids of employeeChunks){
       const empIn=ids.map(()=>'?').join(',');
       const attendanceSql=`SELECT event_id,device_id,iiko_employee_id,event_time,event_type FROM hr_attendance_events WHERE user_id=? AND iiko_employee_id IN (${empIn}) AND event_time>=? AND event_time<=? ORDER BY iiko_employee_id,event_time`;
       const profileSql=`SELECT iiko_employee_id,factual_hire_date,factual_fire_date,official_hire_date,official_fire_date,work_capacity_percent FROM hr_employee_profiles WHERE user_id=? AND iiko_employee_id IN (${empIn})`;
       const leaveSql=`SELECT leave_id,iiko_employee_id,contour,leave_type,date_from,date_to,days,status,note FROM hr_employee_leave_entries WHERE user_id=? AND iiko_employee_id IN (${empIn}) AND status='APPROVED' AND date_from<=? AND date_to>=? ORDER BY date_from`;
       const overrideSql=`SELECT override_id,iiko_employee_id,schedule_id,effective_from,effective_to,note,is_active FROM hr_employee_schedule_overrides WHERE user_id=? AND iiko_employee_id IN (${empIn}) AND is_active=1 AND effective_from<=? AND (effective_to='' OR effective_to>=?)`;
-      const [eventPart,profilePart,leavePart,overridePart]=await env.DB.batch([
+      const attendanceRuleSql=`SELECT iiko_employee_id,shift_type_override,updated_at FROM hr_employee_attendance_rules WHERE user_id=? AND iiko_employee_id IN (${empIn})`;
+      const [eventPart,profilePart,leavePart,overridePart,employeeAttendancePart]=await env.DB.batch([
         env.DB.prepare(attendanceSql).bind(userId,...ids,`${isoDayShift(from,-1)}T00:00:00.000Z`,`${isoDayShift(to,1)}T23:59:59.999Z`),
         env.DB.prepare(profileSql).bind(userId,...ids),
         env.DB.prepare(leaveSql).bind(userId,...ids,to,from),
-        env.DB.prepare(overrideSql).bind(userId,...ids,to,from)
+        env.DB.prepare(overrideSql).bind(userId,...ids,to,from),
+        env.DB.prepare(attendanceRuleSql).bind(userId,...ids)
       ]);
       eventResults.push(...(eventPart.results||[]));
       profileResults.push(...(profilePart.results||[]));
       leaveResults.push(...(leavePart.results||[]));
       overrideResults.push(...(overridePart.results||[]));
+      employeeAttendanceResults.push(...(employeeAttendancePart.results||[]));
     }
 
     const eventRows={results:eventResults},profileRows={results:profileResults},leaveRows={results:leaveResults},overrideRows={results:overrideResults};
@@ -195,15 +248,20 @@ export async function onRequestGet({request,env}){
     const customTypes=new Map((typeRows.results||[]).map(x=>[x.leave_type,x.display_name]));
     const leaves=(leaveRows.results||[]).map(x=>({...x,leaveName:clean(customTypes.get(x.leave_type))||LEAVE_NAMES[x.leave_type]||x.leave_type}));
     const schedules=scheduleRows.results||[],overrides=overrideRows.results||[],dayRules=new Map();
+    const roleAttendanceMap=new Map((roleAttendanceRows.results||[]).map(x=>[String(x.role_code||''),x]));
+    const employeeAttendanceMap=new Map((employeeAttendanceResults||[]).map(x=>[String(x.iiko_employee_id||''),x]));
     for(const r of dayRuleRows.results||[]){const id=String(r.schedule_id);if(!dayRules.has(id))dayRules.set(id,[]);dayRules.get(id).push(r)}
 
     const events=eventRows.results||[],byEmployee=new Map();for(const e of events){const id=String(e.iiko_employee_id||'');if(!byEmployee.has(id))byEmployee.set(id,[]);byEmployee.get(id).push(e)}
-    const intervals=[],issues=[];
-    for(const employee of employees){const list=byEmployee.get(employee.id)||[];if(!list.length)continue;const firstDevice=deviceMap.get(String(list[0].device_id));const zone=timeZoneOf(firstDevice?.timezone||'Asia/Baku');const r=normalizeEmployee(list,employee,zone,from,to);intervals.push(...r.intervals);for(const issue of r.issues){const p=localParts(issue.eventTime,zone);if(p.date>=from&&p.date<=to)issues.push({...issue,employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,workDate:p.date})}}
-
-    const rawDayMap=new Map();
-    for(const x of intervals){const key=`${x.employeeId}|${x.workDate}`;let d=rawDayMap.get(key);if(!d){d={employeeId:x.employeeId,employeeCode:x.employeeCode,employeeName:x.employeeName,roleName:x.roleName,workDate:x.workDate,firstIn:x.startTime,lastOut:x.endTime,workedMinutes:0,intervalCount:0,issueCount:0,status:'OK'};rawDayMap.set(key,d)}d.workedMinutes+=x.durationMinutes;d.intervalCount++;if(x.startTime<d.firstIn)d.firstIn=x.startTime;if(x.endTime>d.lastOut)d.lastOut=x.endTime;if(x.status!=='OK')d.status='REVIEW'}
-    for(const i of issues){const key=`${i.employeeId}|${i.workDate}`;let d=rawDayMap.get(key);if(!d){const e=employees.find(x=>x.id===i.employeeId)||{};d={employeeId:i.employeeId,employeeCode:i.employeeCode||e.code||'',employeeName:i.employeeName||e.name||'',roleName:e.roleName||'',workDate:i.workDate,firstIn:'',lastOut:'',workedMinutes:0,intervalCount:0,issueCount:0,status:'REVIEW'};rawDayMap.set(key,d)}d.issueCount++;d.status='REVIEW'}
+    const intervals=[],issues=[],rawDayMap=new Map(),attendanceConfigByEmployee=new Map();
+    for(const employee of employees){
+      const list=byEmployee.get(employee.id)||[],firstDevice=deviceMap.get(String(list[0]?.device_id||'')),zone=timeZoneOf(firstDevice?.timezone||'Asia/Baku');
+      const roleRule=roleAttendanceMap.get(String(employee.roleCode||''))||null,employeeRule=employeeAttendanceMap.get(employee.id)||null;
+      const r=aggregateFreeAttendance(list,employee,zone,from,to,roleRule,employeeRule);
+      attendanceConfigByEmployee.set(employee.id,{shiftType:r.shiftType,shiftMeta:r.shiftMeta,normMinutes:r.normMinutes,source:r.source});
+      intervals.push(...r.intervals);issues.push(...r.issues);
+      for(const [workDate,day] of r.days)rawDayMap.set(`${employee.id}|${workDate}`,day);
+    }
 
     const dates=dateList(from,to),factualDays=[],officialDays=[];
     for(const employee of employees){
@@ -214,19 +272,19 @@ export async function onRequestGet({request,env}){
       for(const date of dates){
         const raw=rawDayMap.get(`${employee.id}|${date}`)||null;
         if(employmentActive(date,factualHire,factualFire)){
-          const schedule=scheduleForDate(employee.id,employee.roleCode,date,schedules,overrides),plan=schedule?schedulePlan(date,schedule,dayRules):null,leave=leaveForDate(employee.id,date,'FACTUAL',leaves);
-          const worked=Number(raw?.workedMinutes||0)>0,scheduleConfigured=Boolean(schedule);
+          const leave=leaveForDate(employee.id,date,'FACTUAL',leaves),cfg=attendanceConfigByEmployee.get(employee.id)||{shiftType:'DAY',shiftMeta:freeShiftMeta('DAY'),normMinutes:480,source:'ROLE'};
+          const complete=Boolean(raw&&raw.lastOut),hasMark=Boolean(raw?.firstIn),worked=complete&&Number(raw?.workedMinutes||0)>0;
           let status;
           if(date>todayBaku())status='FUTURE';
-          else if(leave)status=worked?'LEAVE_WITH_WORK':'LEAVE';
-          else if(raw?.status==='REVIEW')status='REVIEW';
-          else if(worked)status=!scheduleConfigured?'WORK_NO_SCHEDULE':(plan.scheduled?'WORK':'WORK_REST');
-          else status=!scheduleConfigured?'NO_SCHEDULE':(plan.scheduled?'ABSENT':'REST');
+          else if(leave)status=hasMark?'LEAVE_WITH_WORK':'LEAVE';
+          else if(raw?.status==='INCOMPLETE')status='INCOMPLETE';
+          else if(worked)status='WORK';
+          else status='FREE_NO_MARKS';
           factualDays.push({
             employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,roleName:employee.roleName,departmentCode:employee.departmentCode,workDate:date,
-            status,firstIn:raw?.firstIn||'',lastOut:raw?.lastOut||'',workedMinutes:Number(raw?.workedMinutes||0),intervalCount:Number(raw?.intervalCount||0),issueCount:Number(raw?.issueCount||0),
-            scheduleConfigured,scheduled:Boolean(plan?.scheduled),plannedMinutes:Math.round(Number(plan?.plannedMinutes||0)*capacity),shiftStart:plan?.shiftStart||'',shiftEnd:plan?.shiftEnd||'',
-            scheduleName:plan?.scheduleName||'',scheduleSource:plan?.source||'',scheduleOverrideId:plan?.overrideId||'',scheduleOverrideNote:plan?.overrideNote||'',
+            status,firstIn:raw?.firstIn||'',lastOut:raw?.lastOut||'',workedMinutes:Number(raw?.workedMinutes||0),intervalCount:Number(raw?.intervalCount||0),issueCount:Number(raw?.issueCount||0),markCount:Number(raw?.markCount||0),
+            scheduleConfigured:true,scheduled:hasMark,plannedMinutes:hasMark?Math.round(Number(cfg.normMinutes||480)*capacity):0,roleNormMinutes:Math.round(Number(cfg.normMinutes||480)*capacity),
+            shiftType:cfg.shiftType,shiftStart:cfg.shiftMeta.start,shiftEnd:cfg.shiftMeta.end,scheduleName:`Свободный график · ${cfg.shiftMeta.label}`,scheduleSource:cfg.source==='EMPLOYEE'?'EMPLOYEE':'ROLE',scheduleOverrideId:'',scheduleOverrideNote:'',
             leaveId:leave?.leave_id||'',leaveType:leave?.leave_type||'',leaveName:leave?.leaveName||'',leaveNote:leave?.note||''
           });
         }
@@ -246,11 +304,11 @@ export async function onRequestGet({request,env}){
     }
 
     const factualSummary={
-      rows:factualDays.length,workedDays:factualDays.filter(x=>['WORK','WORK_REST','REVIEW','LEAVE_WITH_WORK'].includes(x.status)&&x.workedMinutes>0).length,
-      leaveDays:factualDays.filter(x=>x.status==='LEAVE').length,absentDays:factualDays.filter(x=>x.status==='ABSENT').length,
-      restDays:factualDays.filter(x=>x.status==='REST').length,workedRestDays:factualDays.filter(x=>x.status==='WORK_REST').length,
-      noScheduleDays:factualDays.filter(x=>x.status==='NO_SCHEDULE').length,workedNoScheduleDays:factualDays.filter(x=>x.status==='WORK_NO_SCHEDULE').length,
-      workedMinutes:factualDays.reduce((s,x)=>s+x.workedMinutes,0),reviewDays:factualDays.filter(x=>['REVIEW','LEAVE_WITH_WORK'].includes(x.status)).length
+      rows:factualDays.length,workedDays:factualDays.filter(x=>['WORK','LEAVE_WITH_WORK'].includes(x.status)&&x.workedMinutes>0).length,
+      leaveDays:factualDays.filter(x=>x.status==='LEAVE').length,absentDays:0,
+      restDays:0,workedRestDays:0,
+      noScheduleDays:0,workedNoScheduleDays:0,incompleteDays:factualDays.filter(x=>x.status==='INCOMPLETE').length,
+      workedMinutes:factualDays.reduce((s,x)=>s+x.workedMinutes,0),reviewDays:factualDays.filter(x=>['INCOMPLETE','LEAVE_WITH_WORK'].includes(x.status)).length
     };
     const officialSummary={
       rows:officialDays.length,workDays:officialDays.filter(x=>['WORK','WORK_HOLIDAY'].includes(x.status)).length,leaveDays:officialDays.filter(x=>x.status==='LEAVE').length,
@@ -260,9 +318,9 @@ export async function onRequestGet({request,env}){
     const [factualSnapshotHash,officialSnapshotHash]=await Promise.all([snapshotHash(factualDays,'FACTUAL'),snapshotHash(officialDays,'OFFICIAL')]);
 
     return json({
-      success:true,period:{from,to},engine:'TIMESHEET_V2_EMPLOYEE_OVERRIDE',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
+      success:true,period:{from,to},engine:'TIMESHEET_V3_FREE_SHIFT_FIRST_LAST',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
       snapshotHashes:{FACTUAL:factualSnapshotHash,OFFICIAL:officialSnapshotHash},
-      rules:{duplicateWindowMinutes:10,longIntervalMinutes:900,factualFuture:'FUTURE',factualNoMarkScheduled:'ABSENT',factualNoMarkRest:'REST',factualNoRoleSchedule:'NO_SCHEDULE',factualWorkOnRest:'WORK_REST',factualWorkNoRoleSchedule:'WORK_NO_SCHEDULE',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
+      rules:{duplicateWindowSeconds:10,factualMode:'FREE_SCHEDULE_FIRST_LAST',dayShift:'05:00-04:59',nightShift:'12:00-11:59',lateness:false,earlyDeparture:false,incompleteStatus:'INCOMPLETE',noMarksStatus:'FREE_NO_MARKS',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
       summary:{factual:factualSummary,official:officialSummary,raw:{intervals:intervals.length,issues:issues.length}},
       employees,devices:devices.map(x=>({id:x.device_id,name:x.name,timezone:x.timezone||'Asia/Baku'})),
       factualDays,officialDays,intervals,issues
