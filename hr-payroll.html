@@ -7,7 +7,7 @@
   <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
   <link rel="stylesheet" href="app-shell.css">
   <link rel="stylesheet" href="hr-pnl.css?v=20260916-12">
-  <link rel="stylesheet" href="/hr-payroll-v3.css?v=20261007-overtime-ledger-2">
+  <link rel="stylesheet" href="/hr-payroll-v3.css?v=20261007-settlement-tab-1">
   <style id="hrp-critical-styles">
 .hrp-kicker{display:block;margin-bottom:6px;color:#42d392;font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
 .hrp-month{display:flex;flex-direction:column;gap:5px;color:#7f8e9f;font-size:9px;font-weight:800;text-transform:uppercase}
@@ -155,6 +155,7 @@
             <button id="hrpOverallTab" class="hrp-tab active" type="button" data-mode="OVERALL">Общий расчёт<span>Итог к выплате</span></button>
             <button id="hrpFactualTab" class="hrp-tab" type="button" data-mode="FACTUAL">Фактическая часть<span>Полная договорённая зарплата</span></button>
             <button id="hrpOfficialTab" class="hrp-tab" type="button" data-mode="OFFICIAL">Официальная часть<span>Gross, налоги и взносы</span></button>
+            <button id="hrpSettlementsTab" class="hrp-tab" type="button" data-mode="SETTLEMENTS">Выплаты доп. часов<span>Начислено · выплачено · остаток долга</span></button>
           </div>
           <div class="hrp-filters">
             <input id="hrpSearch" type="search" placeholder="ФИО или табельный №">
@@ -168,7 +169,7 @@
           </div>
         </section>
 
-        <section class="hr-card hrp-main-card">
+        <section id="hrpMainCard" class="hr-card hrp-main-card">
           <div class="hr-card-title-row">
             <div><div id="hrpTableTitle" class="hr-card-title">Общий расчёт</div><div id="hrpTableSub" class="hr-card-sub">—</div></div>
             <div id="hrpCount" class="hr-muted">0 сотрудников</div>
@@ -181,7 +182,7 @@
           </div>
         </section>
 
-        <section class="hr-card hrp-settlement-card">
+        <section id="hrpSettlementCard" class="hr-card hrp-settlement-card" hidden>
           <div class="hr-card-title-row hrp-settlement-head">
             <div>
               <span class="hrp-kicker">ОТДЕЛЬНЫЕ ВЫПЛАТЫ</span>
@@ -252,6 +253,6 @@
 <script src="/hr-light-theme.js?v=20260917-1"></script>
 <script src="mobile-responsive.js?v=1"></script>
 <script src="documents-nav.js?v=20"></script>
-<script src="/hr-payroll.js?v=20261007-overtime-ledger-2"></script>
+<script src="/hr-payroll.js?v=20261007-settlement-tab-1"></script>
 </body>
 </html>
