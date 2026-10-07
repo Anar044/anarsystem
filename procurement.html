@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Horeca — Закупки</title>
+<script>(function(){try{localStorage.setItem('shReportsTheme','dark');document.documentElement.dataset.theme='dark'}catch(e){document.documentElement.dataset.theme='dark'}})();</script>
+<link rel="stylesheet" href="/app-shell.css?v=20261007-proc-1">
+<link rel="stylesheet" href="/procurement.css?v=20261007-proc-1">
+</head>
+<body data-protected="true" class="procurement-page-body">
+<div class="app-shell">
+  <aside class="sidebar"></aside>
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+        <span class="topbar-title">Закупки</span>
+        <div class="topbar-sub">Потребность · заявки PR · поставщики · заказы PO · приёмка</div>
+      </div>
+      <div class="top-actions">
+        <span id="proc-scope-label" class="proc-scope-label">Текущий ресторан</span>
+        <span class="user-chip"><span class="user-avatar" data-auth-avatar>A</span><span data-auth-name>Пользователь</span></span>
+        <button class="icon-btn" data-auth-logout>Выйти</button>
+      </div>
+    </header>
+
+    <div class="app-content">
+      <section class="proc-page">
+        <section class="proc-hero">
+          <div>
+            <div class="eyebrow">PROCURE-TO-PAY · SMART HORECA</div>
+            <h1>Закупки и исполнение заказов</h1>
+            <p>От потребности по остаткам до фактической приёмки и накладной в Smart Horeca Server.</p>
+          </div>
+          <div class="proc-hero-actions">
+            <button id="proc-refresh" class="proc-btn secondary">↻ Обновить</button>
+            <button id="proc-new-pr" class="proc-btn primary">＋ Новая заявка</button>
+          </div>
+        </section>
+
+        <div id="proc-status" class="proc-status">Загружаем данные…</div>
+
+        <section class="proc-flow">
+          <article><b>1</b><div><strong>Потребность</strong><span>Остатки, min/max</span></div><i>→</i></article>
+          <article><b>2</b><div><strong>Заявка PR</strong><span>Что и куда купить</span></div><i>→</i></article>
+          <article><b>3</b><div><strong>Согласование</strong><span>Лимиты и контроль</span></div><i>→</i></article>
+          <article><b>4</b><div><strong>Поставщики</strong><span>Цены и условия</span></div><i>→</i></article>
+          <article><b>5</b><div><strong>Заказ PO</strong><span>Подтверждение</span></div><i>→</i></article>
+          <article><b>6</b><div><strong>Приёмка</strong><span>Факт и расхождения</span></div></article>
+        </section>
+
+        <section class="proc-kpis">
+          <article><span>Ниже минимального остатка</span><strong id="proc-kpi-needs">0</strong><small id="proc-kpi-needs-sum">0,00 ₼ оценочно</small></article>
+          <article><span>Ждут согласования</span><strong id="proc-kpi-approvals">0</strong><small>заявок PR</small></article>
+          <article><span>Активные PO</span><strong id="proc-kpi-orders">0</strong><small id="proc-kpi-orders-sum">0,00 ₼</small></article>
+          <article class="accent"><span>Выполнено</span><strong id="proc-kpi-completed">0</strong><small id="proc-kpi-match">0 совпали без расхождений</small></article>
+        </section>
+
+        <nav class="proc-tabs" aria-label="Разделы закупок">
+          <button class="active" data-tab="needs">Потребность <span id="proc-tab-needs-count">0</span></button>
+          <button data-tab="requisitions">Заявки PR <span id="proc-tab-pr-count">0</span></button>
+          <button data-tab="orders">Заказы PO <span id="proc-tab-po-count">0</span></button>
+          <button data-tab="analytics">Аналитика</button>
+          <button data-tab="settings">Настройки</button>
+        </nav>
+
+        <section class="proc-panel" data-panel="needs">
+          <div class="proc-panel-head">
+            <div><h2>Автоматическая потребность</h2><p>Smart Horeca сравнивает фактический остаток с min/max из складских данных.</p></div>
+            <div class="proc-panel-actions">
+              <button id="proc-select-all-needs" class="proc-btn ghost">Выбрать всё</button>
+              <button id="proc-create-selected" class="proc-btn primary">Создать PR из выбранного</button>
+            </div>
+          </div>
+          <div class="proc-toolbar">
+            <input id="proc-needs-search" placeholder="Поиск по товару, складу, группе…">
+            <select id="proc-needs-store"><option value="">Все склады</option></select>
+            <span id="proc-needs-meta">—</span>
+          </div>
+          <div class="proc-table-wrap">
+            <table class="proc-table" id="proc-needs-table">
+              <thead><tr><th></th><th>Товар</th><th>Склад</th><th>Остаток</th><th>Min / Max</th><th>Рекомендуем заказать</th><th>Последняя цена</th><th>Оценка</th><th></th></tr></thead>
+              <tbody><tr><td colspan="9" class="proc-empty">Загрузка…</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="proc-panel" data-panel="requisitions" hidden>
+          <div class="proc-panel-head">
+            <div><h2>Заявки на закупку (PR)</h2><p>Фиксируем потребность до выбора поставщика и создания заказа.</p></div>
+          </div>
+          <div id="proc-pr-list" class="proc-card-list"></div>
+        </section>
+
+        <section class="proc-panel" data-panel="orders" hidden>
+          <div class="proc-panel-head">
+            <div><h2>Заказы поставщикам (PO)</h2><p>Заказано → подтверждено → принято. Система контролирует количество и цены.</p></div>
+            <a class="proc-btn ghost" href="/nakladnye.html">Приходные накладные ↗</a>
+          </div>
+          <div id="proc-po-list" class="proc-card-list"></div>
+        </section>
+
+        <section class="proc-panel" data-panel="analytics" hidden>
+          <div class="proc-panel-head">
+            <div><h2>Аналитика закупок</h2><p>Стоимость закупок, экономия и исполнение поставщиками.</p></div>
+            <a class="proc-btn ghost" href="/supplier-balances.html">Баланс поставщиков ↗</a>
+          </div>
+          <div class="proc-analytics-grid">
+            <article><span>Оценка PR</span><strong id="proc-a-estimate">0,00 ₼</strong></article>
+            <article><span>Заказано</span><strong id="proc-a-ordered">0,00 ₼</strong></article>
+            <article><span>Принято</span><strong id="proc-a-received">0,00 ₼</strong></article>
+            <article><span>Расчётная экономия</span><strong id="proc-a-savings">0,00 ₼</strong></article>
+          </div>
+          <div class="proc-table-wrap">
+            <table class="proc-table" id="proc-suppliers-table">
+              <thead><tr><th>Поставщик</th><th>Заказов</th><th>Сумма PO</th><th>Принято</th><th>Выполнено</th><th>Среднее исполнение</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="proc-panel" data-panel="settings" hidden>
+          <div class="proc-panel-head">
+            <div><h2>Настройки закупок</h2><p>Порог согласования, автоматическая потребность и правила приёмки.</p></div>
+          </div>
+          <form id="proc-settings-form" class="proc-settings-form">
+            <div class="proc-settings-grid">
+              <label><span>Менеджер согласует до</span><div><input id="proc-limit-manager" type="number" min="0" step="1"><b>₼</b></div></label>
+              <label><span>Директор согласует до</span><div><input id="proc-limit-director" type="number" min="0" step="1"><b>₼</b></div></label>
+              <label><span>Срок закупки по умолчанию</span><div><input id="proc-lead-days" type="number" min="0" step="1"><b>дней</b></div></label>
+            </div>
+            <label class="proc-check"><input id="proc-auto-needs" type="checkbox"><span>Автоматически рассчитывать потребность по min/max остатков</span></label>
+            <label class="proc-check"><input id="proc-over-receipt" type="checkbox"><span>Разрешать приёмку сверх подтверждённого количества PO</span></label>
+            <div class="proc-settings-note">Сумма выше лимита директора автоматически требует уровень «Владелец». На этом этапе согласование фиксирует пользователя и время; разграничение ролей аккаунтов добавим поверх существующих прав.</div>
+            <button class="proc-btn primary" type="submit">Сохранить настройки</button>
+          </form>
+        </section>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div id="proc-modal" class="proc-modal-backdrop" hidden>
+  <div class="proc-modal" role="dialog" aria-modal="true">
+    <div class="proc-modal-head"><div><div id="proc-modal-eyebrow" class="eyebrow">ЗАКУПКИ</div><h2 id="proc-modal-title">—</h2></div><button id="proc-modal-close" class="proc-icon-btn" type="button">×</button></div>
+    <div id="proc-modal-body" class="proc-modal-body"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth-config.js"></script>
+<script src="/auth.js"></script>
+<script src="/iiko-context.js?v=20261003-chain-3"></script>
+<script src="/app-shell.js?v=20261007-proc-1"></script>
+<script src="/smart-horeca-sidebar-brand.js?v=20260920-1"></script>
+<script src="/mobile-responsive.js?v=1"></script>
+<script src="/procurement.js?v=20261007-proc-1"></script>
+</body>
+</html>
