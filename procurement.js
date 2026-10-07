@@ -4,7 +4,7 @@
 const $=id=>document.getElementById(id);
 const state={
   token:'',binding:null,data:null,refs:{suppliers:[],warehouses:[],products:[]},
-  stockRows:[],needs:[],historyDocs:[],latestByProduct:new Map(),priceBySupplierProduct:new Map(),
+  stockRows:[],needs:[],historyDocs:[],supplierBalances:new Map(),latestByProduct:new Map(),priceBySupplierProduct:new Map(),
   productById:new Map(),productLabelToId:new Map(),selectedNeeds:new Set(),busy:false,tab:'needs'
 };
 
@@ -81,6 +81,16 @@ async function loadStocks(){
   },60000);
   const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false)throw Error(j.message||('Остатки HTTP '+r.status));
   state.stockRows=Array.isArray(j.rows)?j.rows:[];return j;
+}
+async function loadSupplierBalances(){
+  try{
+    const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/supplier-balances',{
+      method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},
+      body:JSON.stringify(connectionBody({timestamp:today()+'T23:59:59'})),cache:'no-store'
+    },65000);
+    const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false)throw Error(j.message||('Баланс поставщиков HTTP '+r.status));
+    state.supplierBalances=new Map((j.rows||[]).map(x=>[key(x.id),{debt:num(x.debt),advance:num(x.advance),total:num(x.total),name:x.name||''}]));
+  }catch(e){console.warn('Supplier balances unavailable',e);state.supplierBalances=new Map()}
 }
 async function loadHistory(){
   try{
@@ -209,6 +219,7 @@ function orderActions(o){
   if(o.status==='APPROVED')a.push('<button class="proc-btn small primary" data-po-send="'+o.id+'">Отправлен поставщику</button>');
   if(['APPROVED','SENT'].includes(o.status))a.push('<button class="proc-btn small primary" data-po-confirm="'+o.id+'">Поставщик подтвердил</button>');
   if(['APPROVED','SENT','CONFIRMED','PARTIALLY_RECEIVED'].includes(o.status))a.push('<button class="proc-btn small ghost" data-po-receive="'+o.id+'">Приёмка</button>');
+  a.push('<button class="proc-btn small ghost" data-po-copy="'+o.id+'">Копировать PO</button>');
   a.push('<button class="proc-btn small danger" data-po-cancel="'+o.id+'">Отменить</button>');return a.join('');
 }
 function renderOrders(){
@@ -222,7 +233,7 @@ function renderOrders(){
 function renderAnalytics(){
   const a=state.data?.analytics||{};$('proc-a-estimate').textContent=money(a.requisitionEstimate);$('proc-a-ordered').textContent=money(a.orderedAmount);$('proc-a-received').textContent=money(a.receivedAmount);$('proc-a-savings').textContent=money(a.estimatedSavings);
   const tb=$('proc-suppliers-table').querySelector('tbody'),rows=state.data?.supplierPerformance||[];
-  tb.innerHTML=rows.map(x=>'<tr><td><strong>'+esc(x.supplierName||x.supplierId)+'</strong></td><td>'+num(x.orders)+'</td><td>'+money(x.totalAmount)+'</td><td>'+money(x.receivedAmount)+'</td><td>'+num(x.completedOrders)+'</td><td>'+num(x.avgCompletion).toFixed(1)+'%</td></tr>').join('')||'<tr><td colspan="6" class="proc-empty">Данных по поставщикам пока нет.</td></tr>';
+  tb.innerHTML=rows.map(x=>{const b=state.supplierBalances.get(key(x.supplierId))||{};return '<tr><td><strong>'+esc(x.supplierName||x.supplierId)+'</strong></td><td>'+num(x.orders)+'</td><td>'+money(x.totalAmount)+'</td><td>'+money(x.receivedAmount)+'</td><td>'+money(b.debt||0)+'</td><td>'+money(b.advance||0)+'</td><td>'+num(x.completedOrders)+'</td><td>'+num(x.avgCompletion).toFixed(1)+'%</td></tr>'}).join('')||'<tr><td colspan="8" class="proc-empty">Данных по поставщикам пока нет.</td></tr>';
 }
 function renderSettings(){
   const s=state.data?.settings||{},tiers=s.approvalTiers||[],m=tiers.find(x=>x.code==='MANAGER'),d=tiers.find(x=>x.code==='DIRECTOR');
@@ -309,13 +320,18 @@ function openReceiptModal(o){
   }
   $('proc-receipt-save').onclick=()=>save(false);$('proc-receipt-post').onclick=()=>save(true);
 }
+async function copyPo(o){
+  const lines=(o.lines||[]).map((l,i)=>(i+1)+'. '+(l.productName||l.productId)+' — '+qty(l.orderedQty)+' '+(l.unit||'')+' × '+money(l.unitPrice)).join('\n');
+  const text=['Smart Horeca · Purchase Order',o.number,'Поставщик: '+(o.supplierName||o.supplierId),'Склад: '+(o.warehouseName||o.warehouseId),'',lines,'','Итого: '+money(o.totalAmount),'Комментарий: '+(o.comment||'—')].join('\n');
+  try{await navigator.clipboard.writeText(text);toast('PO скопирован. Можно отправить поставщику в удобном канале.')}catch(e){toast('Не удалось скопировать PO: '+(e.message||e),'error')}
+}
 async function reloadProc(){await loadProcurement();renderAll()}
 async function loadAll(){
   try{
     setBusy(true);setStatus('Загружаем закупки, остатки, поставщиков и историю цен…');
     state.token=await authToken();state.binding=await window.SH_IikoContext.getBinding();
     if(!state.binding?.connection?.ip)throw Error('Сначала подключите Smart Horeca Server в настройках.');
-    await Promise.all([loadProcurement(),loadReferences(),loadStocks(),loadHistory()]);
+    await Promise.all([loadProcurement(),loadReferences(),loadStocks(),loadHistory(),loadSupplierBalances()]);
     await reconcileLinkedReceipts();
     renderAll();await flushPending();setStatus('Данные закупок обновлены.','ok');setTimeout(()=>setStatus(''),2500);
   }catch(e){console.error(e);setStatus(e.message||String(e),'error')}finally{setBusy(false);document.documentElement.style.visibility='visible'}
@@ -343,8 +359,9 @@ function bind(){
     if(b.dataset.prCancel&&confirm('Отменить заявку '+(r?.number||'')+'?'))return simpleAction('cancel-requisition',id,'Заявка отменена.');
   });
   $('proc-po-list').addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poCancel;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
+    const b=e.target.closest('button');if(!b)return;const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poCopy||b.dataset.poCancel;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
     if(b.dataset.poReceive&&o)return openReceiptModal(o);
+    if(b.dataset.poCopy&&o)return copyPo(o);
     if(b.dataset.poSend)return simpleAction('send-order',id,'PO отмечен как отправленный поставщику.');
     if(b.dataset.poConfirm)return simpleAction('confirm-order',id,'Поставщик подтвердил заказ.');
     if(b.dataset.poCancel&&confirm('Отменить PO '+(o?.number||'')+'?'))return simpleAction('cancel-order',id,'PO отменён.');
