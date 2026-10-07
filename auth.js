@@ -204,6 +204,23 @@
         setTimeout(() => window.location.replace("login.html"), 900);
     }
 
+    async function initSiteAccess() {
+        if (window.SHAccess?.load) return window.SHAccess.load();
+        let script = document.getElementById("sh-site-access-script");
+        if (!script) {
+            script = document.createElement("script");
+            script.id = "sh-site-access-script";
+            script.src = "/site-access.js?v=20261008-access-1";
+            document.head.appendChild(script);
+        }
+        await new Promise((resolve, reject) => {
+            if (window.SHAccess?.load) { resolve(); return; }
+            script.addEventListener("load", resolve, { once: true });
+            script.addEventListener("error", () => reject(new Error("Не удалось загрузить права доступа.")), { once: true });
+        });
+        return window.SHAccess?.load?.();
+    }
+
     async function initUserUI() {
         const user = window.SH_CURRENT_USER || await getUser();
         if (!user) return;
@@ -221,6 +238,7 @@
 
     async function initProtected() {
         await protectPage();
+        await initSiteAccess();
         await initUserUI();
         setTimeout(() => {
             if (document.getElementById("pnl-nav-loader-script")) return;
