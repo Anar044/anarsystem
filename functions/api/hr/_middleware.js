@@ -1,10 +1,27 @@
 import { getUser } from '../iiko/_lib/user-state.js';
 import { loadPayrollTaxContext, calculateCompensationBySettings } from './_lib/payroll-tax-engine.js';
+import { resolveAccessForUser, hasPermission } from '../access/_lib/access-control.js';
 
 function r(v){return Math.round((Number(v)||0)*100)/100}
 function money(v){return Math.max(0,r(v))}
 function monthEnd(month){if(!/^\d{4}-\d{2}$/.test(String(month||'')))return'';const[y,m]=month.split('-').map(Number),d=new Date(Date.UTC(y,m,0)).getUTCDate();return`${month}-${String(d).padStart(2,'0')}`}
 function target(path){return path.endsWith('/api/hr/compensation')||path.endsWith('/api/hr/payroll')||path.endsWith('/api/hr/payroll-adjustments')}
+function accessRule(path,method){
+  const write=!['GET','HEAD','OPTIONS'].includes(String(method||'GET').toUpperCase());
+  if(path.endsWith('/api/hr/device-ingest'))return null;
+  if(path.endsWith('/api/hr/employees'))return write?'hr.employees.manage':'hr.employees.view';
+  if(path.endsWith('/api/hr/role-schedules'))return write?'hr.schedules.manage':'hr.schedules.view';
+  if(path.endsWith('/api/hr/work-calendar'))return write?'hr.schedules.manage':'hr.schedules.view';
+  if(path.endsWith('/api/hr/timeclock'))return write?'hr.attendance.manage':'hr.attendance.view';
+  if(path.endsWith('/api/hr/timesheet'))return write?'hr.timesheet.manage':'hr.timesheet.view';
+  if(path.endsWith('/api/hr/compensation'))return write?'hr.compensation.manage':'hr.compensation.view';
+  if(path.endsWith('/api/hr/payroll-adjustments'))return write?'hr.payroll.calculate':'hr.payroll.view';
+  if(path.endsWith('/api/hr/payroll'))return write?'hr.payroll.calculate':'hr.payroll.view';
+  if(path.endsWith('/api/hr/payroll-tax-settings'))return'hr.tax_settings.manage';
+  if(path.includes('/api/hr/meal-transactions'))return write?'hr.payroll.calculate':'hr.payroll.view';
+  return null;
+}
+function denied(message,status=403){return new Response(JSON.stringify({success:false,message}),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}})}
 function profileMeta(t){return{asOf:t.asOf,source:t.source,mode:t.mode,active:t.active?{id:t.active.id,effectiveFrom:t.active.effectiveFrom,effectiveTo:t.active.effectiveTo,mode:t.active.mode,updatedAt:t.active.updatedAt}:null,settings:t.settings}}
 function calcTerm(term,tax){return term?calculateCompensationBySettings({officialGross:term.officialGross,additionalAmount:term.additionalAmount,additionalTaxTreatment:term.additionalTaxTreatment},tax.settings):null}
 
@@ -37,11 +54,24 @@ function patchAdjustments(data,tax){
 }
 
 export async function onRequest(context){
-  const path=new URL(context.request.url).pathname;if(!target(path))return context.next();
+  const path=new URL(context.request.url).pathname,rule=accessRule(path,context.request.method);
+  let auth=null,access=null;
+  if(rule){
+    auth=await getUser(context.request,context.env);
+    if(!auth?.user)return denied('Требуется авторизация.',401);
+    access=await resolveAccessForUser(context.env.DB,auth.user,{claimInvite:true});
+    if(!access.allowed)return denied('Доступ к Smart Horeca не назначен.',403);
+    if(!hasPermission(access,rule))return denied('Недостаточно прав: '+rule,403);
+  }
+
+  if(!target(path))return context.next();
   let body={};if(context.request.method!=='GET'&&context.request.method!=='HEAD')body=await context.request.clone().json().catch(()=>({}));
-  const auth=await getUser(context.request,context.env);const response=await context.next();if(!auth||!response.ok)return response;
+  if(!auth)auth=await getUser(context.request,context.env);
+  if(!auth)return context.next();
+  if(!access)access=await resolveAccessForUser(context.env.DB,auth.user,{claimInvite:true});
+  const response=await context.next();if(!response.ok)return response;
   const data=await response.clone().json().catch(()=>null);if(!data?.success)return response;
-  const asOf=String(data.asOf||body.asOf||data.period?.to||monthEnd(data.month)||new Date().toISOString().slice(0,10)),tax=await loadPayrollTaxContext(context.env.DB,auth.user.id,asOf);
+  const asOf=String(data.asOf||body.asOf||data.period?.to||monthEnd(data.month)||new Date().toISOString().slice(0,10)),tax=await loadPayrollTaxContext(context.env.DB,access?.ownerUserId||auth.user.id,asOf);
   if(path.endsWith('/compensation'))patchCompensation(data,tax);else if(path.endsWith('/payroll-adjustments'))patchAdjustments(data,tax);else if(path.endsWith('/payroll'))patchPayroll(data,tax);
   const headers=new Headers(response.headers);headers.delete('content-length');headers.set('Content-Type','application/json; charset=utf-8');headers.set('Cache-Control','no-store');
   return new Response(JSON.stringify(data),{status:response.status,statusText:response.statusText,headers});
