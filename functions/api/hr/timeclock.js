@@ -207,6 +207,14 @@ export async function onRequestPost({request,env}){
       await env.DB.prepare(`DELETE FROM hr_device_tokens WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId).run();
       return json({success:true,deviceId,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId,scope)});
     }
+    if(action==='cleanupSystemEvents'){
+      const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
+      const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);
+      if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
+      const result=await env.DB.prepare(`DELETE FROM hr_attendance_events
+        WHERE user_id=?1 AND device_id=?2 AND external_employee_id='0'`).bind(userId,deviceId).run();
+      return json({success:true,deletedSystemEvents:Number(result.meta?.changes||0),...await snapshot(env.DB,userId,scope)});
+    }
     if(action==='requestAttendanceLog'){
       const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
       const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);
