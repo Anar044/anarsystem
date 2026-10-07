@@ -59,6 +59,7 @@
 
         <nav class="proc-tabs" aria-label="Разделы закупок">
           <button class="active" data-tab="needs">Потребность <span id="proc-tab-needs-count">0</span></button>
+          <button data-tab="norms">Нормы запаса <span id="proc-tab-norms-count">0</span></button>
           <button data-tab="requisitions">Заявки PR <span id="proc-tab-pr-count">0</span></button>
           <button data-tab="orders">Заказы PO <span id="proc-tab-po-count">0</span></button>
           <button data-tab="analytics">Аналитика</button>
@@ -67,7 +68,7 @@
 
         <section class="proc-panel" data-panel="needs">
           <div class="proc-panel-head">
-            <div><h2>Автоматическая потребность</h2><p>Smart Horeca сравнивает фактический остаток с min/max из складских данных.</p></div>
+            <div><h2>Автоматическая потребность</h2><p>Smart Horeca сравнивает фактический остаток с min/max Server или с собственными нормами запаса.</p></div>
             <div class="proc-panel-actions">
               <button id="proc-select-all-needs" class="proc-btn ghost">Выбрать всё</button>
               <button id="proc-create-selected" class="proc-btn primary">Создать PR из выбранного</button>
@@ -82,6 +83,39 @@
             <table class="proc-table" id="proc-needs-table">
               <thead><tr><th></th><th>Товар</th><th>Склад</th><th>Остаток</th><th>Min / Max</th><th>Рекомендуем заказать</th><th>Последняя цена</th><th>Оценка</th><th></th></tr></thead>
               <tbody><tr><td colspan="9" class="proc-empty">Загрузка…</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="proc-panel" data-panel="norms" hidden>
+          <div class="proc-panel-head">
+            <div>
+              <h2>Нормы запаса Smart Horeca</h2>
+              <p>На Server min/max сейчас не заданы. Здесь можно установить собственный минимум и целевой остаток отдельно для каждого товара и склада.</p>
+            </div>
+            <div class="proc-panel-actions">
+              <button id="proc-norms-save" class="proc-btn primary">Сохранить изменения</button>
+            </div>
+          </div>
+          <div class="proc-toolbar">
+            <input id="proc-norms-search" placeholder="Поиск по товару, складу, группе…">
+            <select id="proc-norms-store"><option value="">Все склады</option></select>
+            <select id="proc-norms-filter">
+              <option value="all">Все позиции</option>
+              <option value="configured">Только настроенные</option>
+              <option value="unconfigured">Без нормы</option>
+              <option value="negative">Отрицательный остаток</option>
+              <option value="zero">Нулевой остаток</option>
+            </select>
+            <span id="proc-norms-meta">—</span>
+          </div>
+          <div class="proc-norms-tip">
+            <strong>Логика:</strong> если остаток ниже Min, система рекомендует заказать до Целевого остатка. Например: остаток 3, Min 5, Цель 10 → заказать 7.
+          </div>
+          <div class="proc-table-wrap">
+            <table class="proc-table proc-norms-table" id="proc-norms-table">
+              <thead><tr><th>Товар</th><th>Склад</th><th>Остаток</th><th>Min</th><th>Целевой остаток</th><th>Срок, дней</th><th>Авто</th><th>Источник</th></tr></thead>
+              <tbody><tr><td colspan="8" class="proc-empty">Загрузка…</td></tr></tbody>
             </table>
           </div>
         </section>
