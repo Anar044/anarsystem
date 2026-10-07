@@ -723,6 +723,10 @@ async function saveSettings(e){
 }
 function bind(){
   state.view=currentProcurementView();
+  // Apply the requested workflow section before any API calls so the default catalog never flashes.
+  applyProcurementView();
+  document.body?.classList.remove('procurement-view-booting');
+  document.documentElement.style.visibility='visible';
   $('proc-modal-close').onclick=closeModal;$('proc-modal').addEventListener('click',e=>{if(e.target===$('proc-modal'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('proc-modal').hidden)closeModal()});
   document.querySelectorAll('.proc-tabs button[data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
   $('proc-refresh').onclick=loadAll;$('proc-new-pr').onclick=()=>openPrModal();
