@@ -116,7 +116,7 @@
           '<div class="inc-items-head"><strong>Позиции накладной</strong><span class="inc-total">Итого: <b id="inc-total">0,00</b> ₼</span></div>' +
           '<div id="inc-items"></div>' +
           '<button id="inc-add" class="inc-btn" type="button" style="margin-top:10px">＋ Добавить позицию</button>' +
-          '<datalist id="inc-product-options"></datalist><datalist id="inc-pack-options"><option value="0.1"></option><option value="0.25"></option><option value="0.5"></option><option value="1"></option><option value="2"></option><option value="2.1"></option><option value="2.5"></option><option value="5"></option><option value="10"></option></datalist>' +
+          '<datalist id="inc-product-options"></datalist>' +
           '<div class="inc-note">Фасовка × упаковок = итоговое количество. Цена указывается за упаковку с учётом выбранного НДС. «Сохранить» создаёт/обновляет накладную без проведения, «Сохранить и провести» сразу проводит её по складу.</div>' +
           '<div class="inc-actions"><button id="inc-cancel" class="inc-btn" type="button">Отмена</button><button id="inc-save" class="inc-btn" type="button">Сохранить</button><button id="inc-save-process" class="inc-btn inc-primary" type="button">Сохранить и провести</button></div>' +
         '</div>' +
@@ -215,6 +215,7 @@
     var packs = productPackagings(productId);
     var selectedId = String(selectedContainerId || '').replace(/[{}]/g, '').toLowerCase();
     var size = Number(packageSize || 1);
+    if (!packs.length) return '<option value="__base__" selected>Основная единица · 1</option>';
     var matched = false;
     var options = packs.map(function (p, index) {
       var pid = String(p.id || '').replace(/[{}]/g, '').toLowerCase();
@@ -225,23 +226,30 @@
       var normalizedCount = String(Number(p.count)).replace(',', '.').replace(/\s+/g, '');
       var namePart = rawName && normalizedName !== normalizedCount ? rawName + ' · ' : '';
       var label = namePart + Number(p.count).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
-      return '<option value="' + esc(pid || ('__iiko_' + index)) + '" data-count="' + esc(p.count) + '" data-name="' + esc(p.name || p.num || '') + '"' + (isSelected ? ' selected' : '') + '>' + esc(label) + '</option>';
+      return '<option value="' + esc(pid || ('__iiko_' + index)) + '"' + (isSelected ? ' selected' : '') + '>' + esc(label) + '</option>';
     }).join('');
-    return options + '<option value="__manual__"' + (!matched ? ' selected' : '') + '>Другая / вручную</option>';
+    if (matched) return options;
+    if (packs.length === 1) return options.replace('<option ', '<option selected ');
+    return '<option value="" selected disabled>Выберите фасовку iiko</option>' + options;
   }
 
-  function applyInvoicePackaging(row, keepManual) {
+  function applyInvoicePackaging(row) {
     var productText = row.querySelector('[data-f="product"]').value;
     var productId = resolveProductId(productText);
     var choice = row.querySelector('[data-f="packageChoice"]');
     var size = row.querySelector('[data-f="packageSize"]');
     var containerId = row.querySelector('[data-f="containerId"]');
     if (!choice || !size || !containerId) return;
-    if (choice.value === '__manual__') {
+    size.readOnly = true;
+    size.classList.add('inc-pack-locked');
+    if (choice.value === '__base__') {
       containerId.value = '';
-      size.readOnly = false;
-      size.classList.remove('inc-pack-locked');
-      if (!keepManual || !(Number(size.value) > 0)) size.value = '1';
+      size.value = '1';
+      return;
+    }
+    if (!choice.value) {
+      containerId.value = '';
+      size.value = '0';
       return;
     }
     var selected = productPackagings(productId).find(function (p) {
@@ -250,23 +258,20 @@
     if (selected) {
       containerId.value = selected.id || '';
       size.value = Number(selected.count || 1);
-      size.readOnly = true;
-      size.classList.add('inc-pack-locked');
     } else {
       containerId.value = '';
-      size.readOnly = false;
-      size.classList.remove('inc-pack-locked');
+      size.value = '0';
     }
   }
 
-  function refreshInvoicePackaging(row, keepManual) {
+  function refreshInvoicePackaging(row) {
     var productId = resolveProductId(row.querySelector('[data-f="product"]').value);
     var choice = row.querySelector('[data-f="packageChoice"]');
     var size = row.querySelector('[data-f="packageSize"]');
     var containerId = row.querySelector('[data-f="containerId"]');
     if (!choice || !size || !containerId) return;
     choice.innerHTML = invoicePackagingOptions(productId, containerId.value, size.value);
-    applyInvoicePackaging(row, keepManual);
+    applyInvoicePackaging(row);
   }
 
   function vatOptions(selected) {
@@ -320,11 +325,11 @@
     row.querySelector('.inc-danger').onclick = function () { row.remove(); recalc(); };
     row.querySelector('[data-f="product"]').addEventListener('change', function () {
       row.querySelector('[data-f="containerId"]').value = '';
-      refreshInvoicePackaging(row, false);
+      refreshInvoicePackaging(row);
       recalcItem(row);recalc();
     });
     row.querySelector('[data-f="packageChoice"]').addEventListener('change', function () {
-      applyInvoicePackaging(row, true);
+      applyInvoicePackaging(row);
       recalcItem(row);recalc();
     });
     ['packageSize', 'packages', 'price'].forEach(function (name) {
@@ -332,7 +337,7 @@
     });
     row.querySelector('[data-f="vatPercent"]').addEventListener('change', function () { recalcItem(row); recalc(); });
     $('inc-items').appendChild(row);
-    applyInvoicePackaging(row, true);
+    applyInvoicePackaging(row);
     recalcItem(row);
     recalc();
   }
@@ -399,7 +404,9 @@
         var vatSum = vatPercent > 0 ? sum * vatPercent / (100 + vatPercent) : 0;
         var priceWithoutVat = vatPercent > 0 ? price / (1 + vatPercent / 100) : price;
         if (!productId) throw new Error('Строка ' + (index + 1) + ': выберите товар из списка iiko.');
-        if (!(packageSize > 0)) throw new Error('Строка ' + (index + 1) + ': фасовка должна быть больше 0.');
+        var containerId = row.querySelector('[data-f="containerId"]').value || '';
+        if (productPackagings(productId).length && !containerId) throw new Error('Строка ' + (index + 1) + ': выберите фасовку из iiko.');
+        if (!(packageSize > 0)) throw new Error('Строка ' + (index + 1) + ': фасовка не определена в iiko.');
         if (!(packages > 0)) throw new Error('Строка ' + (index + 1) + ': количество упаковок должно быть больше 0.');
         if (!(price >= 0)) throw new Error('Строка ' + (index + 1) + ': цена не может быть отрицательной.');
         return {
@@ -409,7 +416,7 @@
           actualAmount: actualAmount,
           actualUnitWeight: packageSize,
           amountUnit: row.querySelector('[data-f="amountUnit"]').value || undefined,
-          containerId: row.querySelector('[data-f="containerId"]').value || undefined,
+          containerId: containerId || undefined,
           vatPercent: vatPercent,
           vatSum: Number(vatSum.toFixed(2)),
           priceWithoutVat: Number(priceWithoutVat.toFixed(4)),
