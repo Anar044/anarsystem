@@ -28,7 +28,13 @@ async function ensure(db){
       PRIMARY KEY(user_id,override_id)
     )`),
     db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_hr_employee_schedule_start ON hr_employee_schedule_overrides(user_id,iiko_employee_id,effective_from)`),
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_employee_schedule_current ON hr_employee_schedule_overrides(user_id,iiko_employee_id,is_active,effective_from DESC)`)
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_employee_schedule_current ON hr_employee_schedule_overrides(user_id,iiko_employee_id,is_active,effective_from DESC)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_attendance_rules (
+      user_id TEXT NOT NULL,role_code TEXT NOT NULL,daily_norm_minutes INTEGER NOT NULL DEFAULT 480,shift_type TEXT NOT NULL DEFAULT 'DAY',updated_at TEXT NOT NULL DEFAULT '',PRIMARY KEY(user_id,role_code)
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_attendance_rules (
+      user_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,shift_type_override TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL DEFAULT '',PRIMARY KEY(user_id,iiko_employee_id)
+    )`)
   ]);
 }
 
@@ -89,10 +95,19 @@ export async function onRequestGet({request,env}){
     if(!employeeId)return json({success:false,message:'Не указан сотрудник'},400);
     const scope=await resolveHrRestaurantScope(request,env,state.user.id),employee=await employeeRow(env.DB,state.user.id,employeeId,scope);
     if(!employee)return json({success:false,message:'Сотрудник не найден или недоступен в выбранном ресторане'},404);
-    const [choices,items]=await Promise.all([scheduleChoices(env.DB,state.user.id,employee.role_code||''),history(env.DB,state.user.id,employeeId)]);
+    const [choices,items,roleAttendance,employeeAttendance]=await Promise.all([
+      scheduleChoices(env.DB,state.user.id,employee.role_code||''),
+      history(env.DB,state.user.id,employeeId),
+      env.DB.prepare(`SELECT daily_norm_minutes,shift_type,updated_at FROM hr_role_attendance_rules WHERE user_id=?1 AND role_code=?2 LIMIT 1`).bind(state.user.id,employee.role_code||'').first(),
+      env.DB.prepare(`SELECT shift_type_override,updated_at FROM hr_employee_attendance_rules WHERE user_id=?1 AND iiko_employee_id=?2 LIMIT 1`).bind(state.user.id,employeeId).first()
+    ]);
     const current=items.find(x=>x.effectiveFrom<=asOf&&(!x.effectiveTo||x.effectiveTo>=asOf))||null;
     const roleDefault=choices.find(x=>x.isDefault&&x.validFrom<=asOf&&(!x.validTo||x.validTo>=asOf))||null;
-    return json({success:true,asOf,employee:{id:employeeId,name:employeeName(employee),code:employee.employee_code||'',roleCode:employee.role_code||'',roleName:employee.role_name||''},currentOverride:current,roleDefault,choices,history:items});
+    const roleShift=['DAY','NIGHT'].includes(String(roleAttendance?.shift_type||'').toUpperCase())?String(roleAttendance.shift_type).toUpperCase():'DAY';
+    const overrideShift=['DAY','NIGHT'].includes(String(employeeAttendance?.shift_type_override||'').toUpperCase())?String(employeeAttendance.shift_type_override).toUpperCase():'';
+    return json({success:true,asOf,employee:{id:employeeId,name:employeeName(employee),code:employee.employee_code||'',roleCode:employee.role_code||'',roleName:employee.role_name||''},currentOverride:current,roleDefault,choices,history:items,
+      attendanceRule:{roleDailyNormMinutes:Number(roleAttendance?.daily_norm_minutes||480),roleShiftType:roleShift,shiftTypeOverride:overrideShift,effectiveShiftType:overrideShift||roleShift,source:overrideShift?'EMPLOYEE':'ROLE'}
+    });
   }catch(e){console.error('[HR-EMPLOYEE-SCHEDULE-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
 }
 
@@ -105,6 +120,20 @@ export async function onRequestPost({request,env}){
     const scope=await resolveHrRestaurantScope(request,env,state.user.id),employee=await employeeRow(env.DB,state.user.id,employeeId,scope);
     if(!employee)return json({success:false,message:'Сотрудник не найден или недоступен в выбранном ресторане'},404);
     const connection=privateConnection(state.state);
+
+    if(action==='saveAttendanceRule'){
+      const shiftTypeOverride=clean(body.shiftTypeOverride,20).toUpperCase();
+      if(shiftTypeOverride&&!['DAY','NIGHT'].includes(shiftTypeOverride))return json({success:false,message:'Тип смены должен быть DAY, NIGHT или пустым для наследования должности'},400);
+      const before=await env.DB.prepare(`SELECT shift_type_override,updated_at FROM hr_employee_attendance_rules WHERE user_id=?1 AND iiko_employee_id=?2 LIMIT 1`).bind(state.user.id,employeeId).first();
+      const t=now();
+      await env.DB.prepare(`INSERT INTO hr_employee_attendance_rules(user_id,iiko_employee_id,shift_type_override,updated_at)
+        VALUES(?1,?2,?3,?4)
+        ON CONFLICT(user_id,iiko_employee_id) DO UPDATE SET shift_type_override=excluded.shift_type_override,updated_at=excluded.updated_at`)
+        .bind(state.user.id,employeeId,shiftTypeOverride,t).run();
+      await logAuditEvent({request,env,connection,action:'UPDATE',entityType:'HR_EMPLOYEE_ATTENDANCE_RULE',entityId:employeeId,entityLabel:`Учёт времени · ${employeeName(employee)}`,
+        before:before?{shiftTypeOverride:before.shift_type_override||''}:null,after:{shiftTypeOverride},restaurantIds:scope?.selectedDepartmentIds||[],metadata:{roleCode:employee.role_code||''}});
+      return json({success:true,message:shiftTypeOverride?'Тип смены сотрудника сохранён':'Сотрудник снова наследует тип смены должности'});
+    }
 
     if(action==='saveOverride'){
       const scheduleId=clean(body.scheduleId,160),effectiveFrom=dateOnly(body.effectiveFrom),note=clean(body.note,1200);
