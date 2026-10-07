@@ -74,7 +74,14 @@ export async function ensureZktecoAdmsTables(db){
       work_code TEXT NOT NULL DEFAULT '',raw_line TEXT NOT NULL DEFAULT '',received_at TEXT NOT NULL,
       PRIMARY KEY(user_id,raw_id),UNIQUE(user_id,device_id,source_uid)
     )`),
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_zkteco_raw_device_time ON hr_zkteco_adms_raw(user_id,device_id,received_at DESC)`)
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_zkteco_raw_device_time ON hr_zkteco_adms_raw(user_id,device_id,received_at DESC)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_zkteco_adms_requests (
+      user_id TEXT NOT NULL,request_id TEXT NOT NULL,device_id TEXT NOT NULL,serial_number TEXT NOT NULL,
+      endpoint TEXT NOT NULL DEFAULT '',method TEXT NOT NULL DEFAULT '',table_name TEXT NOT NULL DEFAULT '',
+      query_text TEXT NOT NULL DEFAULT '',body_length INTEGER NOT NULL DEFAULT 0,body_preview TEXT NOT NULL DEFAULT '',
+      received_at TEXT NOT NULL,PRIMARY KEY(user_id,request_id)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_zkteco_requests_device_time ON hr_zkteco_adms_requests(user_id,device_id,received_at DESC)`)
   ]);
 }
 export async function registerAdmsDevice(db,{userId,deviceId,serialNumber,model="SenseFace 2A"}){
@@ -109,6 +116,32 @@ export async function touchAdmsDevice(db,row,request,extra={}){
     .bind(row.user_id,row.device_id,t,push,firmware,ip,ua).run();
   await db.prepare(`UPDATE hr_devices SET last_sync_at=?3,updated_at=?3 WHERE user_id=?1 AND device_id=?2`).bind(row.user_id,row.device_id,t).run();
 }
+function isAttendanceTable(table){
+  const t=String(table||"").toUpperCase();
+  return ["ATTLOG","RTLOG","TRANSACTION","TRANSACTIONS","ATTENDANCE"].includes(t);
+}
+function safeRequestBodyPreview(table,body){
+  if(!isAttendanceTable(table))return "";
+  return String(body||"").slice(0,8000);
+}
+export async function logAdmsRequest(db,row,request,{endpoint="",tableName="",body=""}={}){
+  await ensureZktecoAdmsTables(db);
+  const url=new URL(request.url),query=[...url.searchParams.entries()].map(([k,v])=>k+"="+v).join("&");
+  await db.prepare(`INSERT INTO hr_zkteco_adms_requests(user_id,request_id,device_id,serial_number,endpoint,method,table_name,query_text,body_length,body_preview,received_at)
+    VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)`)
+    .bind(row.user_id,"zkreq_"+crypto.randomUUID(),row.device_id,row.serial_number,clean(endpoint,80),request.method,clean(tableName,60).toUpperCase(),clean(query,3000),String(body||"").length,safeRequestBodyPreview(tableName,body),now()).run();
+}
+function parseRtLine(line,timeZone){
+  const raw=String(line||"").trim();if(!raw)return null;
+  const kv=keyValueLine(raw);
+  const pin=clean(kv.PIN||kv.USERID||kv.USER||kv.ENROLLNUMBER,120);
+  const local=clean(kv.DATETIME||kv.TIME||kv.TIMESTAMP,40);
+  const status=clean(kv.INOUTSTATUS??kv.STATUS??kv.STATE??"0",20);
+  const verify=clean(kv.VERIFYTYPE??kv.VERIFIED??kv.VERIFY??"",20);
+  const workCode=clean(kv.WORKCODE??"",40);
+  if(pin&&local)return{pin,localTime:local,eventTime:parseLocalDateTime(local,timeZone),status,verify,workCode,raw};
+  return parseAttLine(raw,timeZone);
+}
 export async function ingestAdmsPayload(db,row,{tableName,body,request}){
   await ensureZktecoAdmsTables(db);
   const table=clean(tableName,60).toUpperCase(),receivedAt=now(),lines=String(body||"").split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
@@ -116,18 +149,18 @@ export async function ingestAdmsPayload(db,row,{tableName,body,request}){
   const employeeMap=new Map((bindings.results||[]).map(x=>[String(x.external_employee_id),String(x.iiko_employee_id)]));
   let parsed=0,matched=0,unmatched=0,invalid=0,lastEvent="";
   for(const line of lines){
-    if(table==="ATTLOG"){
-      const rec=parseAttLine(line,row.timezone||"Asia/Baku");
+    if(isAttendanceTable(table)){
+      const rec=table==="ATTLOG"?parseAttLine(line,row.timezone||"Asia/Baku"):parseRtLine(line,row.timezone||"Asia/Baku");
       if(!rec||!rec.eventTime){invalid++;continue}
       parsed++;
-      const sourceUid=await sha256(`${row.serial_number}|ATTLOG|${rec.pin}|${rec.localTime}|${rec.status}|${rec.verify}|${rec.workCode}`);
+      const sourceUid=await sha256(`${row.serial_number}|${table}|${rec.pin}|${rec.localTime}|${rec.status}|${rec.verify}|${rec.workCode}`);
       const employeeId=employeeMap.get(String(rec.pin))||"";if(employeeId)matched++;else unmatched++;
       const rawId="zkraw_"+crypto.randomUUID(),eventId="evt_"+crypto.randomUUID(),type=direction(rec.status);
       const payload={protocol:"ZKTECO_ADMS",serialNumber:row.serial_number,pin:rec.pin,localTime:rec.localTime,status:rec.status,verify:rec.verify,workCode:rec.workCode,raw:rec.raw};
       await db.batch([
         db.prepare(`INSERT OR IGNORE INTO hr_zkteco_adms_raw(user_id,raw_id,device_id,serial_number,table_name,source_uid,event_time,external_employee_id,event_status,verify_type,work_code,raw_line,received_at)
-          VALUES(?1,?2,?3,?4,'ATTLOG',?5,?6,?7,?8,?9,?10,?11,?12)`)
-          .bind(row.user_id,rawId,row.device_id,row.serial_number,sourceUid,rec.eventTime,rec.pin,rec.status,rec.verify,rec.workCode,rec.raw.slice(0,16000),receivedAt),
+          VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)`)
+          .bind(row.user_id,rawId,row.device_id,row.serial_number,table,sourceUid,rec.eventTime,rec.pin,rec.status,rec.verify,rec.workCode,rec.raw.slice(0,16000),receivedAt),
         db.prepare(`INSERT OR IGNORE INTO hr_attendance_events(user_id,event_id,device_id,provider,source_uid,external_employee_id,iiko_employee_id,event_time,event_type,raw_payload,imported_at)
           VALUES(?1,?2,?3,'ZKTECO',?4,?5,?6,?7,?8,?9,?10)`)
           .bind(row.user_id,eventId,row.device_id,sourceUid,rec.pin,employeeId,rec.eventTime,type,jsonSafe(payload).slice(0,16000),receivedAt)
@@ -148,14 +181,17 @@ export function admsOptions(serialNumber){
   const sn=normalizeSn(serialNumber);
   return [
     `GET OPTION FROM: ${sn}`,
-    "ATTLOGStamp=None",
+    "ATTLOGStamp=0",
     "OPERLOGStamp=9999",
-    "TransTimes=00:00",
+    "ATTPHOTOStamp=9999",
+    "ErrorDelay=30",
+    "Delay=10",
+    "TransTimes=00:00;23:59",
     "TransInterval=1",
     "TransFlag=TransData AttLog",
     "Realtime=1",
     "Encrypt=None",
-    "ServerVer=SmartHoreca-1.0",
+    "ServerVer=2.2.14",
     ""
   ].join("\n");
 }
@@ -166,8 +202,9 @@ export async function handleCdata({request,env}){
     const row=await admsDeviceBySerial(env.DB,sn);
     if(!row)return plain("ERROR: DEVICE NOT REGISTERED\n",200);
     await touchAdmsDevice(env.DB,row,request,{pushVersion:url.searchParams.get("pushver")||url.searchParams.get("PushVersion")||"",firmware:url.searchParams.get("FWVersion")||""});
-    if(request.method==="GET")return plain(admsOptions(sn),200);
-    const body=await request.text(),table=url.searchParams.get("table")||url.searchParams.get("Table")||"";
+    if(request.method==="GET"){await logAdmsRequest(env.DB,row,request,{endpoint:"cdata"});return plain(admsOptions(sn),200)}
+    const body=await request.text(),table=url.searchParams.get("table")||url.searchParams.get("Table")||url.searchParams.get("type")||"";
+    await logAdmsRequest(env.DB,row,request,{endpoint:"cdata",tableName:table,body});
     const result=await ingestAdmsPayload(env.DB,row,{tableName:table,body,request});
     return plain(`OK: ${result.lines}\n`,200);
   }catch(error){console.error("[ZK-ADMS-CDATA]",error);return plain("ERROR\n",200)}
@@ -177,12 +214,13 @@ export async function handleGetRequest({request,env}){
     const url=new URL(request.url),sn=normalizeSn(url.searchParams.get("SN")||url.searchParams.get("sn"));if(!sn)return plain("OK\n");
     const row=await admsDeviceBySerial(env.DB,sn);if(!row)return plain("OK\n");
     await touchAdmsDevice(env.DB,row,request,{pushVersion:url.searchParams.get("pushver")||""});
+    await logAdmsRequest(env.DB,row,request,{endpoint:"getrequest"});
     return plain("OK\n");
   }catch(error){console.error("[ZK-ADMS-GETREQUEST]",error);return plain("OK\n")}
 }
 export async function handleDeviceCmd({request,env}){
   try{
-    const url=new URL(request.url),sn=normalizeSn(url.searchParams.get("SN")||url.searchParams.get("sn"));if(sn){const row=await admsDeviceBySerial(env.DB,sn);if(row)await touchAdmsDevice(env.DB,row,request,{})}
+    const url=new URL(request.url),sn=normalizeSn(url.searchParams.get("SN")||url.searchParams.get("sn"));if(sn){const row=await admsDeviceBySerial(env.DB,sn);if(row){await touchAdmsDevice(env.DB,row,request,{});await logAdmsRequest(env.DB,row,request,{endpoint:"devicecmd"})}}
     return plain("OK\n");
   }catch(error){console.error("[ZK-ADMS-DEVICECMD]",error);return plain("OK\n")}
 }
