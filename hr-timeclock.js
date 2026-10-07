@@ -74,7 +74,19 @@
   async function revokeDeviceToken(deviceId){if(!confirm('Отозвать ключ устройства? Connector сразу потеряет доступ к отправке событий.'))return;try{setStatus('Отзываем ключ…','loading');data=await api({action:'revokeDeviceToken',deviceId});hideDeviceToken();render();setStatus('Ключ отозван','ok')}catch(e){$('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error')}}
   async function link(ev){ev.preventDefault();try{setStatus('Сохраняем связь…','loading');data=await api({action:'linkEmployee',deviceId:$('bindingDevice').value,employeeId:$('bindingEmployee').value,externalEmployeeId:$('bindingExternalId').value,externalLabel:$('bindingLabel').value});$('bindingExternalId').value='';$('bindingLabel').value='';render();setStatus('Связь сохранена','ok')}catch(e){$('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error')}}
   async function unlink(deviceId,employeeId){if(!confirm('Удалить связь сотрудника с устройством?'))return;try{data=await api({action:'unlinkEmployee',deviceId,employeeId});render();setStatus('Связь удалена','ok')}catch(e){$('tcError').hidden=false;$('tcError').textContent=e.message}}
-  function bind(){$('tcRefresh').onclick=load;$('deviceForm').onsubmit=saveDevice;$('bindingForm').onsubmit=link;$('copyDeviceToken').onclick=copyDeviceToken;$('closeDeviceToken').onclick=hideDeviceToken;$('deviceConnectionMode').onchange=()=>{$('deviceSerial').required=$('deviceConnectionMode').value==='ADMS_PUSH'}}
+  async function requestAttendanceLog(){
+    const device=(data.devices||[]).find(x=>x.connectionMode==='ADMS_PUSH'&&x.active)||(data.devices||[])[0];
+    if(!device){$('tcError').hidden=false;$('tcError').textContent='ADMS устройство не найдено';return}
+    try{
+      setStatus('Запрашиваем ATTLOG…','loading');
+      const out=await api({action:'requestAttendanceLog',deviceId:device.id});
+      data=out;render();
+      setStatus('Запрос ATTLOG поставлен в очередь','ok');
+    }catch(e){
+      $('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error');
+    }
+  }
+  function bind(){$('tcRefresh').onclick=load;$('requestAttlog').onclick=requestAttendanceLog;$('deviceForm').onsubmit=saveDevice;$('bindingForm').onsubmit=link;$('copyDeviceToken').onclick=copyDeviceToken;$('closeDeviceToken').onclick=hideDeviceToken;$('deviceConnectionMode').onchange=()=>{$('deviceSerial').required=$('deviceConnectionMode').value==='ADMS_PUSH'}}
   async function init(){bind();await load()}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
