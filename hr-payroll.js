@@ -240,7 +240,7 @@ function renderSettlements(){
       <td class="text-left"><div class="hrp-payment-history">${payments||'<span class="hr-muted">Нет выплат</span>'}</div></td>
       <td>${canSettle&&Number(x.closingDebt||0)>0?`<button type="button" class="hr-primary hrp-pay-debt" data-employee-id="${esc(x.id)}">Выплатить</button>`:''}</td>
     </tr>`;
-  }).join(''):'<tr><td colspan="9" class="hr-empty">Начислений, выплат и долга по дополнительным часам пока нет.</td></tr>';
+  }).join(''):`<tr><td colspan="9" class="hr-empty"><div class="hrp-empty-settlement"><strong>Начислений, выплат и долга по дополнительным часам пока нет.</strong><span>Пока Face ID не подключён, цикл можно проверить вручную: Табель → открыть день → ввести фактические часы → Manager → HR → вернуться в Payroll.</span><a class="hr-link-button" href="/hr-timesheet">Открыть табель и создать тестовый факт</a></div></td></tr>`;
 }
 function defaultPaymentDate(month){
   const today=new Date().toISOString().slice(0,10);
@@ -288,6 +288,7 @@ function renderTabs(){
   if($('hrpMainCard'))$('hrpMainCard').hidden=settlements;
   if($('hrpSettlementCard'))$('hrpSettlementCard').hidden=!settlements;
   if($('hrpState'))$('hrpState').hidden=settlements;
+  const explain=document.querySelector('.hrp-explain');if(explain)explain.hidden=settlements;
   document.querySelector('.hrp-filter-card')?.classList.toggle('settlement-mode',settlements);
 }
 function render(){renderFilters();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
