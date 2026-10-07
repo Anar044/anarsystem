@@ -207,6 +207,33 @@ export async function onRequestPost({request,env}){
       await env.DB.prepare(`DELETE FROM hr_device_tokens WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId).run();
       return json({success:true,deviceId,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId,scope)});
     }
+    if(action==='rebuildAttendanceFromRaw'){
+      const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
+      const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);
+      if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
+      const bindings=await env.DB.prepare(`SELECT external_employee_id,iiko_employee_id FROM hr_employee_device_bindings WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId).all();
+      const map=new Map((bindings.results||[]).map(x=>[String(x.external_employee_id),String(x.iiko_employee_id)]));
+      const raw=await env.DB.prepare(`SELECT source_uid,event_time,external_employee_id,event_status,verify_type,work_code,raw_line,received_at,table_name
+        FROM hr_zkteco_adms_raw WHERE user_id=?1 AND device_id=?2 ORDER BY event_time ASC,received_at ASC`).bind(userId,deviceId).all();
+      await env.DB.prepare(`DELETE FROM hr_attendance_events WHERE user_id=?1 AND device_id=?2 AND provider='ZKTECO'`).bind(userId,deviceId).run();
+      const lastByPin=new Map();const nextType=new Map();let rebuilt=0,duplicates=0,ignored=0;
+      const stm=[];
+      for(const r of (raw.results||[])){
+        const pin=String(r.external_employee_id||'').trim(),eventMatch=String(r.raw_line||'').match(/(?:^|\s)event(?:type)?=(\d+)/i);
+        const eventCode=eventMatch?Number(eventMatch[1]):0;
+        if(!pin||pin==='0'||eventCode>=20){ignored++;continue}
+        const t=new Date(r.event_time).getTime(),last=lastByPin.get(pin);
+        if(Number.isFinite(t)&&Number.isFinite(last)&&t-last<10000){duplicates++;continue}
+        const type=nextType.get(pin)||'IN';nextType.set(pin,type==='IN'?'OUT':'IN');lastByPin.set(pin,t);
+        const employeeId=map.get(pin)||'',eventId=uid('evt');
+        const payload={protocol:'ZKTECO_ADMS_REBUILT',sourceTable:r.table_name,pin,status:r.event_status||'',verify:r.verify_type||'',workCode:r.work_code||'',raw:r.raw_line||'',inferredDirection:true};
+        stm.push(env.DB.prepare(`INSERT OR IGNORE INTO hr_attendance_events(user_id,event_id,device_id,provider,source_uid,external_employee_id,iiko_employee_id,event_time,event_type,raw_payload,imported_at)
+          VALUES(?1,?2,?3,'ZKTECO',?4,?5,?6,?7,?8,?9,?10)`).bind(userId,eventId,deviceId,r.source_uid,pin,employeeId,r.event_time,type,JSON.stringify(payload).slice(0,16000),r.received_at||now()));
+        rebuilt++;
+      }
+      for(let i=0;i<stm.length;i+=50)await env.DB.batch(stm.slice(i,i+50));
+      return json({success:true,rebuilt,duplicates,ignored,...await snapshot(env.DB,userId,scope)});
+    }
     if(action==='cleanupSystemEvents'){
       const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
       const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);
