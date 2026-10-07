@@ -230,8 +230,12 @@
   function selectedEmployee(){return $('tsEmployee')?.value||''}
   function selectedRole(){return $('tsRole')?.value||''}
   function searchText(){return String($('tsSearch')?.value||'').trim().toLowerCase()}
-  function problemStatuses(){return mode==='FACTUAL'?new Set(['ABSENT','REVIEW','LEAVE_WITH_WORK','WORK_REST','NO_SCHEDULE','WORK_NO_SCHEDULE']):new Set([])}
+  function problemStatuses(){
+    if(mode!=='FACTUAL')return new Set([]);
+    return new Set(faceIdConnected()?['ABSENT','REVIEW','LEAVE_WITH_WORK','WORK_REST','NO_SCHEDULE','WORK_NO_SCHEDULE']:['REVIEW','LEAVE_WITH_WORK','WORK_REST','NO_SCHEDULE','WORK_NO_SCHEDULE']);
+  }
   function dayList(){return mode==='FACTUAL'?(data.factualDays||[]):(data.officialDays||[])}
+  function faceIdConnected(){return Array.isArray(data.devices)&&data.devices.length>0}
 
   function employeeDaysMap(){
     const map=new Map();
@@ -275,7 +279,7 @@
         WORK_REST:['РВ',hours(x.workedMinutes),'holiday','Работа в выходной'],
         LEAVE:['ƏM','', 'leave','Отпуск'],
         LEAVE_WITH_WORK:['ƏM+Р',hours(x.workedMinutes),'review','Отпуск + работа'],
-        ABSENT:['Y','', 'absent','Нет'],
+        ABSENT:faceIdConnected()?['Y','', 'absent','Нет']:['—','', 'manual-empty','Факт не введён'],
         REST:['İ','', 'rest','Выходной'],
         NO_SCHEDULE:['—','', 'no-schedule','График не задан'],
         WORK_NO_SCHEDULE:['Р?',hours(x.workedMinutes),'review','Работа без графика'],
@@ -326,17 +330,17 @@
   function renderSummary(){
     const employees=filteredEmployees(),ids=new Set(employees.map(x=>x.id)),rows=dayList().filter(x=>ids.has(x.employeeId));
     if(mode==='FACTUAL'){
-      const t=buildEmployeeTotals(rows),noSchedule=rows.filter(x=>x.status==='NO_SCHEDULE').length;
+      const t=buildEmployeeTotals(rows),noSchedule=rows.filter(x=>x.status==='NO_SCHEDULE').length,connected=faceIdConnected();
       $('tsSummary').innerHTML=[
         ['Сотрудников',employees.length,'по текущему фильтру'],
-        ['Факт',hoursLong(t.fact),'все фактически отработанные часы'],
+        ['Факт',hoursLong(t.fact),connected?'Face ID + ручные корректировки':'ручной ввод до подключения Face ID'],
         ['Норма',hoursLong(t.norm),'учитываемые нормативные часы'],
         ['Доп. часы HR',hoursLong(t.overtimeApproved),'только подтверждённые HR'],
         ['Ожидает HR',hoursLong(t.overtimePending),'ещё не подтверждено'],
         ['Неоплач. доп.',hoursLong(t.overtimeUnpaid),'между нормой и порогом оплаты'],
         ['Рабочих дней',t.work,'с фактическим временем'],
         ['Отпуск',t.leave,'дней'],
-        ['Y / Нет',t.absent,'рабочих дней без отметок'],
+        connected?['Y / Нет',t.absent,'рабочих дней без отметок']:['Режим учёта','Ручной','Face ID пока не подключён'],
         ['Нет графика',noSchedule,'не считаются отсутствием']
       ].map(x=>`<article class="ts-summary-item"><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
     }else{
@@ -484,14 +488,15 @@
     const plannedValue=c&&Number(c.plannedMinutesOverride)>=0?hoursInput(c.plannedMinutesOverride):'';
     return `
       <section class="ts-edit-card">
-        <div class="ts-edit-head"><div><span class="ts-kicker">РУЧНАЯ КОРРЕКТИРОВКА</span><strong>${c?'Есть корректировка':'Автоматический расчёт'}</strong></div>${c?'<span class="ts-ot-badge changed">Изменено вручную</span>':''}</div>
+        <div class="ts-edit-head"><div><span class="ts-kicker">${mode==='FACTUAL'&&!faceIdConnected()?'РУЧНОЙ УЧЁТ ВРЕМЕНИ':'РУЧНАЯ КОРРЕКТИРОВКА'}</span><strong>${c?'Есть ручные данные':mode==='FACTUAL'&&!faceIdConnected()?'Face ID не подключён':'Автоматический расчёт'}</strong></div>${c?'<span class="ts-ot-badge changed">Изменено вручную</span>':''}</div>
+        ${mode==='FACTUAL'&&!faceIdConnected()?'<div class="ts-manual-mode-note"><strong>Ручной режим:</strong> введите фактически отработанные часы. Статус можно оставить «Автоматически» — при факте больше 0 система сохранит день как «Работа». После сохранения дополнительные часы пересчитаются автоматически.</div>':''}
         ${c?`<div class="ts-detail-note"><strong>Последняя причина:</strong> ${esc(c.reason||'—')}<br><small>${esc(c.actorLabel||'')} · ${esc(approvalDate(c.updatedAt))}</small></div>`:''}
         <div class="ts-edit-grid">
           <label><span>Статус</span><select id="tsCorrectionStatus" ${access.canCorrect?'':'disabled'}>${correctionStatusOptions(c?.statusOverride||'')}</select></label>
           <label><span>Факт, часов</span><input id="tsCorrectionWorked" type="number" min="0" max="24" step="0.25" value="${esc(workedValue)}" placeholder="Авто: ${esc(hoursInput(x.rawWorkedMinutes??x.workedMinutes))}" ${mode==='FACTUAL'&&access.canCorrect?'':'disabled'}></label>
           <label><span>План, часов</span><input id="tsCorrectionPlanned" type="number" min="0" max="24" step="0.25" value="${esc(plannedValue)}" placeholder="Авто: ${esc(hoursInput(x.rawPlannedMinutes??x.plannedMinutes))}" ${access.canCorrect?'':'disabled'}></label>
         </div>
-        <label class="ts-edit-full"><span>Причина изменения *</span><textarea id="tsCorrectionReason" maxlength="1600" placeholder="Например: сотрудник забыл отметиться на выходе" ${access.canCorrect?'':'disabled'}>${esc(c?.reason||'')}</textarea></label>
+        <label class="ts-edit-full"><span>Причина изменения *</span><textarea id="tsCorrectionReason" maxlength="1600" placeholder="${mode==='FACTUAL'&&!faceIdConnected()?'Например: фактические часы по смене / ручной табель':'Например: сотрудник забыл отметиться на выходе'}" ${access.canCorrect?'':'disabled'}>${esc(c?.reason||'')}</textarea></label>
         <div class="ts-edit-actions">
           <button id="tsSaveCorrection" type="button" class="hr-primary" ${access.canCorrect?'':'disabled'}>Сохранить корректировку</button>
           ${c?`<button id="tsDeleteCorrection" type="button" class="hr-link-button danger" ${access.canCorrect?'':'disabled'}>Вернуть автоматический расчёт</button>`:''}
@@ -550,10 +555,11 @@
     try{
       adjustmentBusy=true;setStatus('Сохраняем изменения…','loading');
       document.querySelectorAll('.ts-drawer-body button').forEach(b=>b.disabled=true);
-      await adjustmentApi(payload);
+      const result=await adjustmentApi(payload);
       await load();
       if(keep)openDrawer(keep.employeeId,keep.date);
-      setStatus(successText||'Готово','ok');
+      const suffix=result?.overtimeReset?' Решение Manager/HR по доп. часам сброшено — нужно отправить заново.':'';
+      setStatus((successText||'Готово')+suffix,'ok');
     }catch(e){
       console.error(e);setStatus(e?.message||'Ошибка','error');alert(e?.message||'Не удалось сохранить изменение');
     }finally{adjustmentBusy=false}
@@ -605,10 +611,10 @@
           ${detailBox('Факт',hoursLong(x.workedMinutes))}
           ${detailBox('Норма для расчёта',hoursLong(x.normMinutes))}
           ${detailBox('Доп. часы до HR',hoursLong(x.overtimeCandidateMinutes))}
-          ${detailBox('Первый вход',localTime(x.firstIn))}
-          ${detailBox('Последний выход',localTime(x.lastOut))}
+          ${faceIdConnected()?detailBox('Первый вход',localTime(x.firstIn)):detailBox('Источник факта',x.corrected?'Ручной ввод':'Не введён')}
+          ${faceIdConnected()?detailBox('Последний выход',localTime(x.lastOut)):detailBox('Face ID','Не подключён')}
           ${detailBox('Источник графика',x.scheduleSource==='EMPLOYEE'?'Индивидуальный':x.scheduleSource==='ROLE'?'Должность':'—')}
-          ${detailBox('Ошибок Face ID',String(x.issueCount||0))}
+          ${faceIdConnected()?detailBox('Ошибок Face ID',String(x.issueCount||0)):detailBox('Режим','Ручной учёт')}
         </div>
         ${x.leaveName?`<div class="ts-detail-note"><strong>Отпуск:</strong> ${esc(x.leaveName)}${x.leaveNote?'<br>'+esc(x.leaveNote):''}</div>`:''}
         ${x.scheduleOverrideNote?`<div class="ts-detail-note"><strong>Комментарий к индивидуальному графику:</strong><br>${esc(x.scheduleOverrideNote)}</div>`:''}
