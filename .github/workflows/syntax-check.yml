@@ -308,6 +308,24 @@ jobs:
           grep -q "hrpa-critical-styles" app-shell.js
           echo 'Payroll accounting journal contract passed'
 
+      - name: Verify SenseFace 2A ADMS contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f functions/api/hr/_lib/zkteco-adms.js
+          test -f functions/iclock/cdata.js
+          test -f functions/iclock/cdata.aspx.js
+          test -f functions/iclock/getrequest.js
+          test -f functions/iclock/getrequest.aspx.js
+          grep -q "hr_zkteco_adms_devices" functions/api/hr/_lib/zkteco-adms.js
+          grep -q "hr_zkteco_adms_raw" functions/api/hr/_lib/zkteco-adms.js
+          grep -q "ATTLOGStamp=None" functions/api/hr/_lib/zkteco-adms.js
+          grep -q "Realtime=1" functions/api/hr/_lib/zkteco-adms.js
+          grep -q "registerAdmsDevice" functions/api/hr/timeclock.js
+          grep -q "ADMS_PUSH" hr-timeclock.js
+          grep -q "RAW ADMS" hr-timeclock.html
+          echo 'SenseFace ADMS contract passed'
+
       - name: Verify Payroll styles survive app shell cleanup
         shell: bash
         run: |
@@ -390,6 +408,7 @@ jobs:
             "/hr-payroll-v3.css"
             "/hr-compensation.html"
             "/hr-payroll-adjustments.html"
+            "/hr-timeclock.html"
             "/rashodnye-nakladnye.html"
             "/akty-spisaniya.html"
           )
@@ -449,6 +468,7 @@ jobs:
             "/api/hr/payroll-tax-settings"
             "/api/hr/compensation"
             "/api/hr/timesheet"
+            "/api/hr/timeclock"
           )
           for path in "${routes[@]}"; do
             code=$(curl -sS -X OPTIONS -o /tmp/api.txt -w '%{http_code}' "$PREVIEW_BASE$path" || true)
@@ -458,6 +478,25 @@ jobs:
               *) cat /tmp/api.txt || true; exit 1 ;;
             esac
           done
+
+      - name: Smoke test ZKTeco ADMS routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in "/iclock/cdata?SN=CI-UNKNOWN" "/iclock/cdata.aspx?SN=CI-UNKNOWN"; do
+            code=$(curl -sS -o /tmp/adms.txt -w '%{http_code}' "$PREVIEW_BASE$path" || true)
+            echo "$path -> HTTP $code"
+            cat /tmp/adms.txt || true
+            test "$code" = "200"
+            grep -q "DEVICE NOT REGISTERED" /tmp/adms.txt
+          done
+          for path in "/iclock/getrequest?SN=CI-UNKNOWN" "/iclock/getrequest.aspx?SN=CI-UNKNOWN"; do
+            code=$(curl -sS -o /tmp/adms.txt -w '%{http_code}' "$PREVIEW_BASE$path" || true)
+            echo "$path -> HTTP $code"
+            test "$code" = "200"
+            grep -q "OK" /tmp/adms.txt
+          done
+          echo 'ZKTeco ADMS route smoke passed'
 
       - name: Diagnose HR Pages runtime
         shell: bash
