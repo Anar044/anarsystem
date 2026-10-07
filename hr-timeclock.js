@@ -40,7 +40,30 @@
   function renderAdmsSetup(){$('admsServerHost').textContent=location.hostname;$('admsServerPort').textContent=location.protocol==='https:'?'443':(location.port||'80')}
   function render(){renderSummary();renderDevices();renderDeleteButtons();renderSelectors();renderBindings();renderRawAdms();renderEvents();renderAdmsSetup()}
 
-  function renderDeleteButtons(){\n    document.querySelectorAll('#deviceList .hr-device-card').forEach((card,index)=>{\n      const d=(data.devices||[])[index];if(!d)return;\n      let actions=card.querySelector('.hr-device-actions');\n      if(!actions){actions=document.createElement('div');actions.className='hr-device-actions';card.querySelector('.hr-device-meta')?.appendChild(actions)}\n      if(actions.querySelector('[data-delete-device]'))return;\n      const btn=document.createElement('button');btn.type='button';btn.className='hr-link-button danger';btn.dataset.deleteDevice=d.id;btn.textContent='Удалить';btn.onclick=()=>deleteDevice(d.id);actions.appendChild(btn);\n    });\n  }\n  async function deleteDevice(deviceId){\n    const d=(data.devices||[]).find(x=>String(x.id)===String(deviceId));\n    if(!confirm('Удалить устройство «'+(d?.name||deviceId)+'»? Связи сотрудников и RAW ADMS этого устройства будут удалены.'))return;\n    try{setStatus('Удаляем устройство…','loading');data=await api({action:'deleteDevice',deviceId});render();setStatus('Устройство удалено','ok')}\n    catch(e){$('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error')}\n  }\n  function showDeviceToken(deviceId,value){currentDeviceToken=String(value||'');const d=(data.devices||[]).find(x=>x.id===deviceId);$('deviceTokenTitle').textContent=`${d?.name||'Устройство'} · новый ключ`;$('deviceTokenValue').textContent=currentDeviceToken;$('deviceTokenPanel').hidden=false;$('deviceTokenPanel').scrollIntoView({behavior:'smooth',block:'nearest'})}
+  function renderDeleteButtons(){
+    document.querySelectorAll('#deviceList .hr-device-card').forEach((card,index)=>{
+      const d=(data.devices||[])[index];if(!d)return;
+      let actions=card.querySelector('.hr-device-actions');
+      if(!actions){actions=document.createElement('div');actions.className='hr-device-actions';card.querySelector('.hr-device-meta')?.appendChild(actions)}
+      if(actions.querySelector('[data-delete-device]'))return;
+      const btn=document.createElement('button');
+      btn.type='button';btn.className='hr-link-button danger';btn.dataset.deleteDevice=d.id;btn.textContent='Удалить';
+      btn.onclick=()=>deleteDevice(d.id);actions.appendChild(btn);
+    });
+  }
+  async function deleteDevice(deviceId){
+    const d=(data.devices||[]).find(x=>String(x.id)===String(deviceId));
+    if(!confirm('Удалить устройство «'+(d?.name||deviceId)+'»? Связи сотрудников и RAW ADMS этого устройства будут удалены.'))return;
+    try{
+      setStatus('Удаляем устройство…','loading');
+      data=await api({action:'deleteDevice',deviceId});
+      render();
+      setStatus('Устройство удалено','ok');
+    }catch(e){
+      $('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error');
+    }
+  }
+  function showDeviceToken(deviceId,value){currentDeviceToken=String(value||'');const d=(data.devices||[]).find(x=>x.id===deviceId);$('deviceTokenTitle').textContent=`${d?.name||'Устройство'} · новый ключ`;$('deviceTokenValue').textContent=currentDeviceToken;$('deviceTokenPanel').hidden=false;$('deviceTokenPanel').scrollIntoView({behavior:'smooth',block:'nearest'})}
   function hideDeviceToken(){currentDeviceToken='';$('deviceTokenValue').textContent='';$('deviceTokenPanel').hidden=true}
   async function copyDeviceToken(){if(!currentDeviceToken)return;try{await navigator.clipboard.writeText(currentDeviceToken);setStatus('Ключ скопирован','ok')}catch{const ta=document.createElement('textarea');ta.value=currentDeviceToken;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();setStatus('Ключ скопирован','ok')}}
 
