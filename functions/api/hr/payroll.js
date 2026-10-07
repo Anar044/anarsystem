@@ -1,6 +1,7 @@
 import { getUser } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
 import { calculateCompensation, AZ_PAYROLL_RULE_PROFILE } from './_lib/az-payroll-rules.js';
+import { syncOvertimeAccrualPosting } from './_lib/payroll-accounting.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -162,7 +163,7 @@ export async function onRequestGet({request,env}){
       if(Number(ot.payableMinutes||0)>0)flags.push(`Доп. часы к отдельной оплате: ${Math.round(ot.payableMinutes)} мин`);
       if(Number(ot.unpaidGapMinutes||0)>0)flags.push(`Неоплачиваемый промежуток доп. часов: ${Math.round(ot.unpaidGapMinutes)} мин`);
       rows.push({
-        employeeId:id,employeeCode:e.employee_code||'',employeeName:full,roleCode,roleName:e.role_name||roleCode,sourceType,term,
+        employeeId:id,employeeCode:e.employee_code||'',employeeName:full,departmentCode:e.department_code||'',roleCode,roleName:e.role_name||roleCode,sourceType,term,
         schedule:schedule?{id:schedule.schedule_id,name:schedule.schedule_name,patternType:schedule.pattern_type}:null,
         normMinutes,plannedMinutes:plannedMinutes||normMinutes,actualMinutes,varianceMinutes,attendanceIssues:attendance.issues,attendanceMode:faceIdConnected?'FACE_ID':'NOT_CONNECTED',
         proration:{normWorkDays:norm.days,factualWorkDays:factualPayDays,officialWorkDays:officialPayDays,factualFactor:round2(factualFactor),officialFactor:round2(officialFactor),factualHireDate:factualHire,factualFireDate:factualFire,officialHireDate:officialHire,officialFireDate:officialFire,source:faceIdConnected?'EMPLOYMENT_PLUS_ATTENDANCE':'EMPLOYMENT_CALENDAR'},
@@ -195,6 +196,21 @@ export async function onRequestGet({request,env}){
       console.warn('[HR-PAYROLL-ACCRUAL-SNAPSHOT]',error);
     }
 
+    let accountingPosted=0,accountingPending=0,accountingErrors=0;
+    for(const row of rows){
+      try{
+        const result=await syncOvertimeAccrualPosting(env.DB,{
+          userId,month,employeeId:String(row.employeeId),employeeName:row.employeeName||row.employeeCode||String(row.employeeId),
+          departmentCode:row.departmentCode||'',amount:Number(row.accrual?.extraDayPay||0),
+          payableMinutes:Number(row.overtime?.payableMinutes||0),extraDayEquivalent:Number(row.overtime?.extraDayEquivalent||0)
+        });
+        if(result?.posted)accountingPosted++;
+        else if(result?.reason==='ACCOUNTING_NOT_CONFIGURED')accountingPending++;
+      }catch(error){
+        accountingErrors++;console.warn('[HR-PAYROLL-ACCOUNTING-ACCRUAL]',row.employeeId,error);
+      }
+    }
+
     const totals={
       monthlyFactualGross:round2(configured.reduce((a,r)=>a+Number(r.accrual?.monthlyFactualGross||0),0)),
       factualBaseGross:round2(configured.reduce((a,r)=>a+Number(r.accrual?.factualBaseGross||0),0)),
@@ -215,7 +231,8 @@ export async function onRequestGet({request,env}){
         overtimeApprovedMinutes:round2(rows.reduce((a,r)=>a+Number(r.overtime?.approvedMinutes||0),0)),
         overtimePayableMinutes:round2(rows.reduce((a,r)=>a+Number(r.overtime?.payableMinutes||0),0)),
         overtimeUnpaidGapMinutes:round2(rows.reduce((a,r)=>a+Number(r.overtime?.unpaidGapMinutes||0),0)),
-        overtimeExtraDays:round2(rows.reduce((a,r)=>a+Number(r.overtime?.extraDayEquivalent||0),0)),overtimeExtraPay:totals.extraDayPay
+        overtimeExtraDays:round2(rows.reduce((a,r)=>a+Number(r.overtime?.extraDayEquivalent||0),0)),overtimeExtraPay:totals.extraDayPay,
+        accountingPosted,accountingPending,accountingErrors
       },
       totals,rows,
       notes:[
@@ -223,7 +240,8 @@ export async function onRequestGet({request,env}){
         'Неполный месяц: фактический месячный оклад / норма рабочих дней × расчётные рабочие дни.',
         'Дополнительный день: оплачиваемые подтверждённые HR часы / дневной норматив; сумма = фактический месячный оклад / норма рабочих дней × дополнительный день.',
         'Часы между порогом дополнительных часов и порогом оплаты показываются отдельно как нерассчитываемые дополнительные часы.',
-        'Оплата дополнительных часов учитывается как отдельное начисление и отдельная выплата.'
+        'Оплата дополнительных часов учитывается как отдельное начисление и отдельная выплата.',
+        accountingPending?'Для части начислений не настроены реальные бухгалтерские счета SH Server; проводки ожидают настройки Payroll → Бухгалтерия.':'Начисления дополнительных часов синхронизированы с бухгалтерским журналом Smart Horeca по реальным счетам SH Server.'
       ]
     });
   }catch(e){console.error('[HR-PAYROLL-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
