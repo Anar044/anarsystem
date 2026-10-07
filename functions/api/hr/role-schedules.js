@@ -88,7 +88,16 @@ async function ensure(db){
       legal_profile TEXT NOT NULL DEFAULT 'AZ_LABOR_CODE',
       validated_at TEXT NOT NULL DEFAULT '',
       PRIMARY KEY(user_id,schedule_id)
-    )`)
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_attendance_rules (
+      user_id TEXT NOT NULL,
+      role_code TEXT NOT NULL,
+      daily_norm_minutes INTEGER NOT NULL DEFAULT 480,
+      shift_type TEXT NOT NULL DEFAULT 'DAY',
+      updated_at TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY(user_id,role_code)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_role_attendance_rules_user ON hr_role_attendance_rules(user_id,role_code)`)
   ]);
 }
 
@@ -101,12 +110,13 @@ async function seedRolesFromEmployees(db,userId){
 
 async function snapshot(db,userId,scope=null){
   await seedRolesFromEmployees(db,userId);
-  const [rolesResult,schedulesResult,countsResult,daysResult,settingsResult]=await Promise.all([
+  const [rolesResult,schedulesResult,countsResult,daysResult,settingsResult,attendanceRulesResult]=await Promise.all([
     db.prepare(`SELECT * FROM hr_roles WHERE user_id=?1 ORDER BY is_deleted ASC,role_name COLLATE NOCASE,role_code COLLATE NOCASE`).bind(userId).all(),
     db.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 ORDER BY is_active DESC,is_default DESC,role_code COLLATE NOCASE,valid_from DESC,schedule_name COLLATE NOCASE`).bind(userId).all(),
     db.prepare(`SELECT role_code,department_code,is_deleted,fire_date,employee_code FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>''`).bind(userId).all().catch(()=>({results:[]})),
     db.prepare(`SELECT schedule_id,weekday,shift_start,shift_end,break_minutes FROM hr_role_schedule_days WHERE user_id=?1 ORDER BY weekday`).bind(userId).all(),
-    db.prepare(`SELECT schedule_id,accounting_mode,accounting_period_months,legal_profile,validated_at FROM hr_role_schedule_settings WHERE user_id=?1`).bind(userId).all()
+    db.prepare(`SELECT schedule_id,accounting_mode,accounting_period_months,legal_profile,validated_at FROM hr_role_schedule_settings WHERE user_id=?1`).bind(userId).all(),
+    db.prepare(`SELECT role_code,daily_norm_minutes,shift_type,updated_at FROM hr_role_attendance_rules WHERE user_id=?1`).bind(userId).all()
   ]);
   const employeeCounts=new Map();
   for(const x of filterEmployeesByScope(countsResult.results||[],scope)){
@@ -117,6 +127,7 @@ async function snapshot(db,userId,scope=null){
   const visibleRoleCodes=new Set(employeeCounts.keys());
   const dayMap=new Map();for(const d of daysResult.results||[]){const id=String(d.schedule_id||'');if(!dayMap.has(id))dayMap.set(id,[]);dayMap.get(id).push({weekday:Number(d.weekday),shiftStart:d.shift_start,shiftEnd:d.shift_end,breakMinutes:Number(d.break_minutes||0)});}
   const settingsMap=new Map((settingsResult.results||[]).map(s=>[String(s.schedule_id||''),s]));
+  const attendanceRuleMap=new Map((attendanceRulesResult.results||[]).map(r=>[String(r.role_code||''),r]));
   const schedules=(schedulesResult.results||[]).filter(s=>!subset||visibleRoleCodes.has(String(s.role_code||''))).map(s=>{
     const settings=settingsMap.get(String(s.schedule_id))||{};
     const weekdays=String(s.weekdays||'').split(',').map(Number).filter(Boolean);
@@ -133,7 +144,10 @@ async function snapshot(db,userId,scope=null){
   });
   const scheduleCounts=new Map();const defaultRoles=new Set();
   for(const s of schedules){if(s.active)scheduleCounts.set(s.roleCode,(scheduleCounts.get(s.roleCode)||0)+1);if(s.active&&s.isDefault)defaultRoles.add(s.roleCode)}
-  const roles=(rolesResult.results||[]).filter(r=>!subset||visibleRoleCodes.has(String(r.role_code||''))).map(r=>({id:r.iiko_role_id||'',code:r.role_code,name:r.role_name||r.role_code,deleted:Boolean(r.is_deleted),syncedAt:r.synced_at||'',employeeCount:employeeCounts.get(String(r.role_code))||0,scheduleCount:scheduleCounts.get(String(r.role_code))||0,hasDefaultSchedule:defaultRoles.has(String(r.role_code))}));
+  const roles=(rolesResult.results||[]).filter(r=>!subset||visibleRoleCodes.has(String(r.role_code||''))).map(r=>{
+    const ar=attendanceRuleMap.get(String(r.role_code||''))||{};
+    return{id:r.iiko_role_id||'',code:r.role_code,name:r.role_name||r.role_code,deleted:Boolean(r.is_deleted),syncedAt:r.synced_at||'',employeeCount:employeeCounts.get(String(r.role_code))||0,scheduleCount:scheduleCounts.get(String(r.role_code))||0,hasDefaultSchedule:defaultRoles.has(String(r.role_code)),dailyNormMinutes:Number(ar.daily_norm_minutes||480),shiftType:['DAY','NIGHT'].includes(String(ar.shift_type||'').toUpperCase())?String(ar.shift_type).toUpperCase():'DAY',attendanceRuleUpdatedAt:ar.updated_at||''};
+  });
   const activeRoles=roles.filter(r=>!r.deleted);
   return{roles,schedules,legalBasis,schedulePolicyScope:'NETWORK_SHARED',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,counts:{roles:activeRoles.length,employees:activeRoles.reduce((a,r)=>a+r.employeeCount,0),schedules:schedules.filter(x=>x.active).length,rolesWithoutDefault:activeRoles.filter(r=>!r.hasDefaultSchedule).length}};
 }
@@ -164,6 +178,20 @@ export async function onRequestPost({request,env}){
     const scope=await resolveHrRestaurantScope(request,env,userId);
     const body=await request.json().catch(()=>({})),action=clean(body.action);
     if(action==='syncRoles')return await syncRoles(request,env,userId,scope);
+    if(action==='saveAttendanceRule'){
+      const roleCode=clean(body.roleCode),shiftType=clean(body.shiftType).toUpperCase();
+      const dailyNormMinutes=int(body.dailyNormMinutes,60,24*60,480);
+      if(!roleCode)return json({success:false,message:'Не указана должность'},400);
+      if(!['DAY','NIGHT'].includes(shiftType))return json({success:false,message:'Тип смены должен быть DAY или NIGHT'},400);
+      const role=await env.DB.prepare(`SELECT role_code FROM hr_roles WHERE user_id=?1 AND role_code=?2 AND is_deleted=0 LIMIT 1`).bind(userId,roleCode).first();
+      if(!role)return json({success:false,message:'Должность не найдена'},404);
+      const t=now();
+      await env.DB.prepare(`INSERT INTO hr_role_attendance_rules(user_id,role_code,daily_norm_minutes,shift_type,updated_at)
+        VALUES(?1,?2,?3,?4,?5)
+        ON CONFLICT(user_id,role_code) DO UPDATE SET daily_norm_minutes=excluded.daily_norm_minutes,shift_type=excluded.shift_type,updated_at=excluded.updated_at`)
+        .bind(userId,roleCode,dailyNormMinutes,shiftType,t).run();
+      return json({success:true,roleCode,dailyNormMinutes,shiftType,...await snapshot(env.DB,userId,scope)});
+    }
     if(action==='saveSchedule'){
       const roleCode=clean(body.roleCode),name=clean(body.name),scheduleId=clean(body.id)||uid('hrs'),patternType=(clean(body.patternType)||'WEEKLY').toUpperCase();
       const shiftStart=timeOnly(body.shiftStart),shiftEnd=timeOnly(body.shiftEnd),breakMinutes=int(body.breakMinutes,0,600,0),validFrom=dateOnly(body.validFrom),validTo=dateOnly(body.validTo);
