@@ -149,6 +149,57 @@ function parseRtLine(line,timeZone){
   if(pin&&local)return{pin,localTime:local,eventTime:parseLocalDateTime(local,timeZone),status,verify,workCode,raw};
   return parseAttLine(raw,timeZone);
 }
+function isAccSecurityPush(url){
+  return String(url.searchParams.get("DeviceType")||"").toLowerCase()==="acc" ||
+    String(url.searchParams.get("pushver")||url.searchParams.get("PushVersion")||"").startsWith("3");
+}
+async function registryCodeFor(sn){
+  return (await sha256("smart-horeca-zk-acc|"+normalizeSn(sn))).slice(0,16).toUpperCase();
+}
+export async function accPushOptions(serialNumber){
+  const sn=normalizeSn(serialNumber),code=await registryCodeFor(sn);
+  return [
+    "registry=ok",
+    `RegistryCode=${code}`,
+    "ServerVersion=3.1.2",
+    "ServerName=SmartHoreca-ADMS",
+    "PushVersion=3.1.2",
+    "PushProtVer=3.1.2",
+    "ErrorDelay=30",
+    "RequestDelay=5",
+    "TransTimes=00:00;23:59",
+    "TransInterval=1",
+    "TransTables=User Transaction",
+    "Realtime=1",
+    `SessionID=${code}`,
+    "TimeoutSec=10",
+    ""
+  ].join("\r\n");
+}
+function decodeZkTimeSecond(raw){
+  let value=Number(raw);if(!Number.isFinite(value)||value<0)return "";
+  const sec=value%60;value=Math.floor(value/60);
+  const min=value%60;value=Math.floor(value/60);
+  const hour=value%24;value=Math.floor(value/24);
+  const day=value%31+1;value=Math.floor(value/31);
+  const month=value%12+1;value=Math.floor(value/12);
+  const year=value+2000;
+  const d=new Date(Date.UTC(year,month-1,day,hour,min,sec));
+  if(Number.isNaN(d.getTime()))return "";
+  return `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")} ${String(hour).padStart(2,"0")}:${String(min).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
+}
+function parseTransactionLine(line,timeZone){
+  const raw=String(line||"").trim();if(!raw)return null;
+  const kv=keyValueLine(raw.replace(/^transaction\s+/i,""));
+  const pin=clean(kv.PIN||kv.USERID||kv.USER,120);
+  const local=clean(kv.TIME||kv.DATETIME||kv.TIMESTAMP||decodeZkTimeSecond(kv.TIME_SECOND),40);
+  const status=clean(kv.INOUTSTATE??kv.INOUTSTATUS??kv.STATUS??"0",20);
+  const verify=clean(kv.VERIFIED??kv.VERIFYTYPE??kv.VERIFY??"",20);
+  const workCode=clean(kv.WORKCODE??"",40);
+  const event=Number(kv.EVENTTYPE??kv.EVENT??0);
+  if(!pin||!local||!Number.isFinite(event)||event>=20)return null;
+  return{pin,localTime:local,eventTime:parseLocalDateTime(local,timeZone),status,verify,workCode,raw};
+}
 export async function ingestAdmsPayload(db,row,{tableName,body,request}){
   await ensureZktecoAdmsTables(db);
   const table=clean(tableName,60).toUpperCase(),receivedAt=now(),lines=String(body||"").split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
@@ -157,7 +208,7 @@ export async function ingestAdmsPayload(db,row,{tableName,body,request}){
   let parsed=0,matched=0,unmatched=0,invalid=0,lastEvent="";
   for(const line of lines){
     if(isAttendanceTable(table)){
-      const rec=table==="ATTLOG"?parseAttLine(line,row.timezone||"Asia/Baku"):parseRtLine(line,row.timezone||"Asia/Baku");
+      const rec=table==="ATTLOG"?parseAttLine(line,row.timezone||"Asia/Baku"):table==="TRANSACTION"?parseTransactionLine(line,row.timezone||"Asia/Baku"):parseRtLine(line,row.timezone||"Asia/Baku");
       if(!rec||!rec.eventTime){invalid++;continue}
       parsed++;
       const sourceUid=await sha256(`${row.serial_number}|${table}|${rec.pin}|${rec.localTime}|${rec.status}|${rec.verify}|${rec.workCode}`);
@@ -221,6 +272,7 @@ export async function handleCdata({request,env}){
     if(request.method==="GET"){
       const pushVersion=url.searchParams.get("pushver")||url.searchParams.get("PushVersion")||"3.1.2";
       await logAdmsRequest(env.DB,row,request,{endpoint:"cdata"});
+      if(isAccSecurityPush(url))return plain(await accPushOptions(sn),200);
       return plain(admsOptions(sn,pushVersion),200);
     }
     const body=await request.text(),table=url.searchParams.get("table")||url.searchParams.get("Table")||url.searchParams.get("type")||"";
@@ -253,6 +305,42 @@ async function acknowledgeAdmsCommand(db,row,commandId,returnCode=""){
   await db.prepare(`UPDATE hr_zkteco_adms_commands SET status='ACK',acknowledged_at=?4,return_code=?5
     WHERE user_id=?1 AND device_id=?2 AND command_id=?3`).bind(row.user_id,row.device_id,commandId,now(),clean(returnCode,80)).run();
 }
+export async function handleRegistry({request,env}){
+  try{
+    const url=new URL(request.url),sn=normalizeSn(url.searchParams.get("SN")||url.searchParams.get("sn"));
+    if(!sn)return plain("ERROR: SN REQUIRED\n");
+    const row=await admsDeviceBySerial(env.DB,sn);if(!row)return plain("ERROR: DEVICE NOT REGISTERED\n");
+    const body=request.method==="POST"?await request.text():"";
+    await touchAdmsDevice(env.DB,row,request,{pushVersion:"3.1.2"});
+    await logAdmsRequest(env.DB,row,request,{endpoint:"registry",body});
+    return plain(`RegistryCode=${await registryCodeFor(sn)}\r\n`);
+  }catch(error){console.error("[ZK-ADMS-REGISTRY]",error);return plain("ERROR\n")}
+}
+export async function handlePush({request,env}){
+  try{
+    const url=new URL(request.url),sn=normalizeSn(url.searchParams.get("SN")||url.searchParams.get("sn"));
+    if(!sn)return plain("ERROR: SN REQUIRED\n");
+    const row=await admsDeviceBySerial(env.DB,sn);if(!row)return plain("ERROR: DEVICE NOT REGISTERED\n");
+    const body=request.method==="POST"?await request.text():"";
+    await touchAdmsDevice(env.DB,row,request,{pushVersion:"3.1.2"});
+    await logAdmsRequest(env.DB,row,request,{endpoint:"push",body});
+    return plain(await accPushOptions(sn));
+  }catch(error){console.error("[ZK-ADMS-PUSH]",error);return plain("ERROR\n")}
+}
+export async function handleQueryData({request,env}){
+  try{
+    const url=new URL(request.url),sn=normalizeSn(url.searchParams.get("SN")||url.searchParams.get("sn"));
+    if(!sn)return plain("ERROR: SN REQUIRED\n");
+    const row=await admsDeviceBySerial(env.DB,sn);if(!row)return plain("ERROR: DEVICE NOT REGISTERED\n");
+    const body=await request.text();
+    const table=clean(url.searchParams.get("tablename")||url.searchParams.get("table")||"transaction",60).toUpperCase();
+    await touchAdmsDevice(env.DB,row,request,{pushVersion:"3.1.2"});
+    await logAdmsRequest(env.DB,row,request,{endpoint:"querydata",tableName:table,body});
+    const result=await ingestAdmsPayload(env.DB,row,{tableName:table,body,request});
+    const count=url.searchParams.get("count")||result.lines;
+    return plain(`${table.toLowerCase()}=${count}\n`);
+  }catch(error){console.error("[ZK-ADMS-QUERYDATA]",error);return plain("ERROR\n")}
+}
 export async function handleGetRequest({request,env}){
   try{
     const url=new URL(request.url),sn=normalizeSn(url.searchParams.get("SN")||url.searchParams.get("sn"));if(!sn)return plain("OK\n");
@@ -276,8 +364,14 @@ export async function handleDeviceCmd({request,env}){
         const body=request.method==="POST"?await request.text():"";
         await touchAdmsDevice(env.DB,row,request,{});
         await logAdmsRequest(env.DB,row,request,{endpoint:"devicecmd",body});
-        const id=Number(url.searchParams.get("ID")||url.searchParams.get("id")||0);
-        const ret=url.searchParams.get("Return")||url.searchParams.get("return")||"";
+        let id=Number(url.searchParams.get("ID")||url.searchParams.get("id")||0);
+        let ret=url.searchParams.get("Return")||url.searchParams.get("return")||"";
+        if(body){
+          for(const line of body.split(/\r?\n/)){
+            const fields={};for(const part of line.split("&")){const i=part.indexOf("=");if(i>0)fields[part.slice(0,i).toUpperCase()]=part.slice(i+1)}
+            const bodyId=Number(fields.ID||0);if(bodyId){id=bodyId;ret=fields.RETURN||ret;await acknowledgeAdmsCommand(env.DB,row,bodyId,fields.RETURN||"")}
+          }
+        }
         if(id)await acknowledgeAdmsCommand(env.DB,row,id,ret);
       }
     }
