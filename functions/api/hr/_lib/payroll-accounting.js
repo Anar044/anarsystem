@@ -166,8 +166,12 @@ async function upsertPair(db,{userId,sourceKey,sourceType,sourceId,postingDate,m
   return db.prepare(`SELECT * FROM sh_accounting_journal WHERE user_id=?1 AND source_key=?2 LIMIT 1`).bind(userId,sourceKey).first();
 }
 export async function syncOvertimeAccrualPosting(db,{userId,month,employeeId,employeeName,departmentCode,amount,payableMinutes,extraDayEquivalent}){
-  const config=await getPayrollAccountingConfig(db,userId,departmentCode);
   const sourceKey=`HR_OT_ACCRUAL:${month}:${employeeId}`;
+  if(money(amount)<=0){
+    await cancelAccountingSource(db,userId,sourceKey);
+    return{posted:false,reason:"ZERO_ACCRUAL",sourceKey};
+  }
+  const config=await getPayrollAccountingConfig(db,userId,departmentCode);
   if(!payrollAccountingReady(config)){
     return{posted:false,reason:"ACCOUNTING_NOT_CONFIGURED",sourceKey,configScope:config?.effective_scope_key||null};
   }
