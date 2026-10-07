@@ -432,6 +432,11 @@ export async function onRequestPost({request,env}){
 
     if(action==="receive-order"){
       const o=await orderRow(db,c.scope,clean(body?.id),c.serverScope);
+      const incomingDocNo=clean(body?.iikoDocumentNumber);
+      if(incomingDocNo){
+        const duplicate=await db.prepare("SELECT id,order_id,total_amount FROM procurement_receipts WHERE server_scope=?1 AND iiko_document_number=?2 LIMIT 1").bind(c.serverScope,incomingDocNo).first();
+        if(duplicate)return json({success:true,id:o.id,receiptId:duplicate.id,status:o.status,totalAmount:n(duplicate.total_amount),duplicate:true});
+      }
       if(["CANCELLED","COMPLETED"].includes(o.status)){const e=new Error("Этот заказ уже закрыт.");e.status=409;throw e}
       const orderLines=(await db.prepare("SELECT * FROM procurement_order_lines WHERE order_id=?1").bind(o.id).all()).results||[],by=new Map(orderLines.map(x=>[x.product_id,x]));
       const oldReceipts=(await db.prepare("SELECT lines_json FROM procurement_receipts WHERE order_id=?1").bind(o.id).all()).results||[],received=new Map();
