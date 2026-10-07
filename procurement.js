@@ -483,12 +483,12 @@ function quoteComparisonHtml(r){
 
   const bodyRows=lines.map(line=>{
     const best=bestPriceByProduct.get(key(line.productId));
-    return '<tr><td class="quote-product-cell"><strong>'+esc(line.productName||line.productId)+'</strong><small>'+qty(line.quantity)+' '+esc(line.unit||'')+'</small></td>'+
+    return '<tr><td class="quote-product-cell"><strong>'+esc(line.productName||line.productId)+'</strong><small>'+qty(line.packageCount||line.quantity)+' уп. × '+qty(line.packageSize||1)+' '+esc(line.unit||'')+' = '+qty(line.quantity)+' '+esc(line.unit||'')+' · НДС '+num(line.vatPercent)+'%</small></td>'+
       quotes.map(qt=>{
         const ql=quoteLineByProduct(qt,line.productId);
         if(!ql)return '<td class="quote-price-cell missing"><span>Не предложил</span></td>';
-        const price=num(ql.unitPrice),lineQty=num(ql.quantity||line.quantity),lineTotal=num(ql.total||lineQty*price),isBest=best>0&&Math.abs(price-best)<0.0001;
-        return '<td class="quote-price-cell '+(isBest?'best':'')+'"><strong>'+money(price)+' <em>/ '+esc(ql.unit||line.unit||'ед.')+'</em></strong><span>'+qty(lineQty)+' × '+money(price)+' = '+money(lineTotal)+'</span>'+(isBest?'<b>Лучшая цена</b>':'')+'</td>';
+        const price=num(ql.unitPrice),packCount=num(ql.packageCount, num(ql.quantity||line.quantity)/num(ql.packageSize||line.packageSize||1)),lineTotal=num(ql.total||packCount*price),isBest=best>0&&Math.abs(price-best)<0.0001;
+        return '<td class="quote-price-cell '+(isBest?'best':'')+'"><strong>'+money(price)+' <em>/ упак.</em></strong><span>'+qty(packCount)+' уп. × '+money(price)+' = '+money(lineTotal)+' · НДС '+num(ql.vatPercent??line.vatPercent)+'%</span>'+(isBest?'<b>Лучшая цена</b>':'')+'</td>';
       }).join('')+'</tr>';
   }).join('');
 
