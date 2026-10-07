@@ -162,7 +162,7 @@ export async function onRequestPost({request,env}){
       try{
         smartHorecaJournal=await listAccountingJournal(env.DB,{
           userId:auth.user.id,from,to,
-          departmentCodes:departmentCodes.length?departmentCodes:[]
+          departmentCodes:[...new Set([...departmentCodes,...departmentIds])].filter(Boolean)
         });
         for(const j of smartHorecaJournal){
           const a=number(j.amount);
