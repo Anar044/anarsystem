@@ -214,8 +214,11 @@ export async function onRequestPost({request,env}){
       if(String(d.connection_mode)!=='ADMS_PUSH')return json({success:false,message:'Запрос ATTLOG доступен только для ADMS PUSH устройств.'},409);
       const zk=await env.DB.prepare(`SELECT * FROM hr_zkteco_adms_devices WHERE user_id=?1 AND device_id=?2 AND enabled=1 LIMIT 1`).bind(userId,deviceId).first();
       if(!zk)return json({success:false,message:'ADMS устройство не зарегистрировано.'},409);
-      await env.DB.prepare(`UPDATE hr_zkteco_adms_commands SET status='SUPERSEDED' WHERE user_id=?1 AND device_id=?2 AND status IN ('PENDING','SENT') AND command_text LIKE 'DATA QUERY ATTLOG%'`).bind(userId,deviceId).run();
-      const commandText='DATA QUERY ATTLOG StartTime=2020-01-01 00:00:00\tEndTime=2030-12-31 23:59:59';
+      await env.DB.prepare(`UPDATE hr_zkteco_adms_commands SET status='SUPERSEDED' WHERE user_id=?1 AND device_id=?2 AND status IN ('PENDING','SENT') AND (command_text LIKE 'DATA QUERY ATTLOG%' OR command_text LIKE 'DATA QUERY tablename=transaction%')`).bind(userId,deviceId).run();
+      const pushVersion=String(zk.push_version||'');
+      const commandText=pushVersion.startsWith('3')
+        ? 'DATA QUERY tablename=transaction,fielddesc=*,filter=*'
+        : 'DATA QUERY ATTLOG StartTime=2020-01-01 00:00:00\tEndTime=2030-12-31 23:59:59';
       const commandId=await queueAdmsCommand(env.DB,zk,commandText);
       return json({success:true,commandId,commandStatus:'PENDING',message:'Запрос журнала поставлен в очередь. SenseFace получит его при следующем ADMS polling.',...await snapshot(env.DB,userId,scope)});
     }
