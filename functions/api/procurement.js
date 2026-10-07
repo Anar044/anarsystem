@@ -258,7 +258,9 @@ function normalizeLines(lines,{allowZeroPrice=false}={}){
     const packageSize=q(raw?.packageSize??raw?.packingSize??1)||1;
     const packageCount=q(raw?.packageCount??raw?.packages??(sourceQuantity>0?sourceQuantity/packageSize:0));
     const quantity=q(packageSize*packageCount);
+    const containerId=clean(raw?.containerId);
     if(!(packageSize>0))throw new Error("Фасовка должна быть больше нуля.");
+    if(!containerId&&Math.abs(packageSize-1)>0.0005)throw new Error("Ручная фасовка запрещена. Выберите фасовку из iiko.");
     if(!(packageCount>0)||!(quantity>0))throw new Error("Количество упаковок должно быть больше нуля.");
     const vatPercent=n(raw?.vatPercent??raw?.ndsPercent,0);
     if(![0,2,8,18].includes(vatPercent))throw new Error("НДС должен быть 0%, 2%, 8% или 18%.");
@@ -270,7 +272,7 @@ function normalizeLines(lines,{allowZeroPrice=false}={}){
       quantity,
       packageSize,
       packageCount,
-      containerId:clean(raw?.containerId),
+      containerId,
       packageName:clean(raw?.packageName),
       vatPercent,
       unitPrice:price,
