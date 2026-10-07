@@ -66,7 +66,7 @@ async function loadReferences(){
     method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},
     body:JSON.stringify({connection:state.binding.connection,departmentIds:state.binding.departmentIds||[],chainScope:chainScope()}),cache:'no-store'
   },65000);
-  const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false)throw Error(j.message||('Справочники HTTP '+r.status));
+  const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false)throw Error('Справочники: '+(j.message||('HTTP '+r.status)));
   state.refs={suppliers:j.suppliers||[],warehouses:j.warehouses||[],products:j.products||[]};
   state.productById=new Map(state.refs.products.map(x=>[key(x.id),x]));
   state.productLabelToId=new Map();
@@ -77,9 +77,9 @@ async function loadStocks(){
   const mode=chainScope().mode,isChain=mode==='CHAIN';
   const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/stock-balances',{
     method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify(connectionBody({date:today(),time:'23:59:59',includeZero:!isChain})),cache:'no-store'
+    body:JSON.stringify(connectionBody({date:today(),time:'23:59:59',includeZero:false})),cache:'no-store'
   },60000);
-  const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false)throw Error(j.message||('Остатки HTTP '+r.status));
+  const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false)throw Error('Остатки: '+(j.message||('HTTP '+r.status)));
   state.stockRows=Array.isArray(j.rows)?j.rows:[];return j;
 }
 async function loadSupplierBalances(){
@@ -345,13 +345,38 @@ async function copyPo(o){
 async function reloadProc(){await loadProcurement();renderAll()}
 async function loadAll(){
   try{
-    setBusy(true);setStatus('Загружаем закупки, остатки, поставщиков и историю цен…');
+    setBusy(true);setStatus('Загружаем закупки…');
     state.token=await authToken();state.binding=await window.SH_IikoContext.getBinding();
     if(!state.binding?.connection?.ip)throw Error('Сначала подключите Smart Horeca Server в настройках.');
-    await Promise.all([loadProcurement(),loadReferences(),loadStocks(),loadHistory(),loadSupplierBalances()]);
-    await reconcileLinkedReceipts();
-    renderAll();await flushPending();setStatus('Данные закупок обновлены.','ok');setTimeout(()=>setStatus(''),2500);
-  }catch(e){console.error(e);setStatus(e.message||String(e),'error')}finally{setBusy(false);document.documentElement.style.visibility='visible'}
+
+    // D1 procurement data must stay usable even if one heavy SH Server report is slow.
+    await loadProcurement();
+    renderAll();
+    document.documentElement.style.visibility='visible';
+
+    setStatus('Загружаем остатки, справочники и историю цен…');
+    const tasks=[
+      ['Справочники',loadReferences],
+      ['Остатки',loadStocks],
+      ['История цен',loadHistory],
+      ['Баланс поставщиков',loadSupplierBalances]
+    ];
+    const results=await Promise.allSettled(tasks.map(x=>x[1]()));
+    const warnings=[];
+    results.forEach((r,i)=>{if(r.status==='rejected'){const msg=r.reason?.message||String(r.reason);warnings.push(tasks[i][0]+': '+msg);console.warn('Procurement optional load failed',tasks[i][0],r.reason)}});
+
+    try{await reconcileLinkedReceipts()}catch(e){warnings.push('Сверка накладных: '+(e?.message||String(e)));console.warn('Procurement reconciliation failed',e)}
+    renderAll();
+    try{await flushPending()}catch(e){console.warn('Pending receipt flush failed',e)}
+
+    if(warnings.length){
+      setStatus('Основной модуль загружен. Не удалось обновить: '+warnings.join(' · '),'error');
+    }else{
+      setStatus('Данные закупок обновлены.','ok');setTimeout(()=>setStatus(''),2500);
+    }
+  }catch(e){
+    console.error(e);setStatus(e.message||String(e),'error');document.documentElement.style.visibility='visible';
+  }finally{setBusy(false);document.documentElement.style.visibility='visible'}
 }
 async function saveSettings(e){
   e.preventDefault();try{setBusy(true);const m=num($('proc-limit-manager').value),d=num($('proc-limit-director').value);if(d<m)throw Error('Лимит директора должен быть не меньше лимита менеджера.');const settings={approvalTiers:[{code:'MANAGER',name:'Менеджер',maxAmount:m},{code:'DIRECTOR',name:'Директор',maxAmount:d},{code:'OWNER',name:'Владелец',maxAmount:null}],autoNeedEnabled:$('proc-auto-needs').checked,defaultLeadDays:Math.max(0,Math.round(num($('proc-lead-days').value))),allowOverReceipt:$('proc-over-receipt').checked,targetMode:'MAX_OR_MIN'};await procPost('save-settings',{settings});await reloadProc();toast('Настройки закупок сохранены.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}
