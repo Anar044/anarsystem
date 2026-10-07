@@ -230,7 +230,7 @@ function procurementLineFromInvoiceItem(x){
   return{productId:key(x.productId),productName:x.productName||productName(x.productId),unit:x.amountUnit||unitFor(x.productId),quantity:actualAmount||packageSize*count,packageSize,packageCount:count,vatPercent:num(x.vatPercent,0),unitPrice:num(x.price)};
 }
 function receiptSignature(lines){
-  return (lines||[]).map(x=>[key(x.productId),Number(x.quantity??x.actualAmount??x.amount??0).toFixed(3),Number(x.unitPrice??x.price??0).toFixed(4)].join(':')).sort().join('|');
+  return (lines||[]).map(x=>[key(x.productId),Number(x.quantity??x.actualAmount??x.amount??0).toFixed(3),Number(x.packageSize??x.actualUnitWeight??1).toFixed(3),Number(x.packageCount??x.amount??0).toFixed(3),Number(x.vatPercent??0).toFixed(2),Number(x.unitPrice??x.price??0).toFixed(4)].join(':')).sort().join('|');
 }
 async function reconcileLinkedReceipts(){
   const receipts=state.data?.receipts||[];if(!receipts.length||!state.historyDocs.length)return false;
@@ -710,7 +710,7 @@ function openReceiptModal(o){
     if(!rlines.length){toast('Укажите фактически принятое количество.','error');return}
     try{
       setBusy(true);setStatus('Создаём приходную накладную на Smart Horeca Server…');
-      const document={documentNumber,dateIncoming:$('proc-receipt-date').value+'T00:00:00',supplierId:o.supplierId,defaultStore:o.warehouseId,incomingDocumentNumber:o.number,comment:'Smart Horeca Procurement · '+o.number,items:rlines.map((x,i)=>{const sum=x.packageCount*x.unitPrice,vatSum=x.vatPercent>0?sum*x.vatPercent/(100+x.vatPercent):0;return{num:i+1,productId:x.productId,amount:x.packageCount,actualAmount:x.quantity,actualUnitWeight:x.packageSize,vatPercent:x.vatPercent,vatSum:Number(vatSum.toFixed(2)),priceWithoutVat:Number((x.vatPercent>0?x.unitPrice/(1+x.vatPercent/100):x.unitPrice).toFixed(4)),price:x.unitPrice,sum,store:o.warehouseId}}),documentTotal:rlines.reduce((s,x)=>s+x.packageCount*x.unitPrice,0)};
+      const document={documentNumber,dateIncoming:$('proc-receipt-date').value+'T00:00:00',supplierId:o.supplierId,defaultStore:o.warehouseId,incomingDocumentNumber:o.number,comment:'Smart Horeca Procurement · '+o.number,items:rlines.map((x,i)=>{const sum=x.packageCount*x.unitPrice,vatSum=x.vatPercent>0?sum*x.vatPercent/(100+x.vatPercent):0;return{num:i+1,productId:x.productId,amount:x.packageCount,actualAmount:x.quantity,actualUnitWeight:x.packageSize,amountUnit:x.unit,vatPercent:x.vatPercent,vatSum:Number(vatSum.toFixed(2)),priceWithoutVat:Number((x.vatPercent>0?x.unitPrice/(1+x.vatPercent/100):x.unitPrice).toFixed(4)),price:x.unitPrice,sum,store:o.warehouseId}}),documentTotal:rlines.reduce((s,x)=>s+x.packageCount*x.unitPrice,0)};
       const rr=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/document-action',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({connection:state.binding.connection,type:'incoming',action:process?'save-and-process':'save',document,departmentIds:state.binding.departmentIds||[],chainScope:chainScope()})},90000);
       const x=await rr.json().catch(()=>({}));if(!rr.ok||x.success===false)throw Error(x.message||('Server HTTP '+rr.status));
       documentNumber=x.validation?.documentNumber||x.validation?.otherSuggestedNumber||documentNumber;
