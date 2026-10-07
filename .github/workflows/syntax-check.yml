@@ -317,9 +317,11 @@ jobs:
           test -f functions/iclock/cdata.aspx.js
           test -f functions/iclock/getrequest.js
           test -f functions/iclock/getrequest.aspx.js
+          test -f functions/iclock/registry.js
+          test -f functions/iclock/push.js
           grep -q "hr_zkteco_adms_devices" functions/api/hr/_lib/zkteco-adms.js
           grep -q "hr_zkteco_adms_raw" functions/api/hr/_lib/zkteco-adms.js
-          grep -q "ATTLOGStamp=None" functions/api/hr/_lib/zkteco-adms.js
+          grep -q "ATTLOGStamp=0" functions/api/hr/_lib/zkteco-adms.js
           grep -q "Realtime=1" functions/api/hr/_lib/zkteco-adms.js
           grep -q "registerAdmsDevice" functions/api/hr/timeclock.js
           grep -q "ADMS_PUSH" hr-timeclock.js
