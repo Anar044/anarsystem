@@ -272,15 +272,12 @@ function packagingChoiceHtml(pid,{containerId='',packageSize=1}={}){
     const isSelected=(cid&&key(p.id)===cid)||(!cid&&!matched&&Math.abs(num(p.count)-size)<0.0005);
     if(isSelected)matched=true;
     const rawName=String(p.name||p.num||'').trim();
-    const normalizedName=rawName.replace(',', '.').replace(/\s+/g,'');
-    const normalizedCount=String(num(p.count)).replace(',', '.').replace(/\s+/g,'');
-    const namePart=rawName&&normalizedName!==normalizedCount?rawName+' · ':'';
-    const label=namePart+qty(p.count)+(unit?' '+unit:'');
+    const label=rawName||(qty(p.count)+(unit?' '+unit:''));
     return '<option value="'+esc(p.id||('__iiko_'+i))+'" '+(isSelected?'selected':'')+'>'+esc(label)+'</option>';
   }).join('');
   if(matched)return options;
   if(packs.length===1)return options.replace('<option ','<option selected ');
-  return '<option value="" selected disabled>Выберите фасовку iiko</option>'+options;
+  return '<option value="" selected disabled>Выберите фасовку</option>'+options;
 }
 function syncPackagingRow(row){
   const pid=key(row.dataset.productId),choice=row.querySelector('[data-f="packageChoice"]'),size=row.querySelector('[data-f="packageSize"]'),cid=row.querySelector('[data-f="containerId"]'),pname=row.querySelector('[data-f="packageName"]');
