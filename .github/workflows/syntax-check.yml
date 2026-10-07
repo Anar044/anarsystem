@@ -257,6 +257,18 @@ jobs:
           grep -q "Отдельная выплата" hr-payroll.js
           echo 'Payroll partial-month and overtime contract passed'
 
+      - name: Verify manual overtime workflow without Face ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "function faceIdConnected" hr-timesheet.js
+          grep -q "Ручной режим:" hr-timesheet.js
+          grep -q "overtimeReset" functions/api/hr/timesheet-adjustments.js
+          grep -q "FACTUAL_CORRECTION_CHANGED" functions/api/hr/timesheet-adjustments.js
+          grep -q "FACTUAL_CORRECTION_DELETED" functions/api/hr/timesheet-adjustments.js
+          grep -q "Открыть табель и создать тестовый факт" hr-payroll.js
+          echo 'Manual overtime workflow contract passed'
+
       - name: Verify Payroll overtime settlement ledger contract
         shell: bash
         run: |
