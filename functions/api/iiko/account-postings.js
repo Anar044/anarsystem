@@ -1,9 +1,11 @@
 import { clean, iikoJson, getOlapFields } from "./_lib/iiko-client.js";
+import { getUser } from "./_lib/user-state.js";
+import { listAccountingJournal } from "../hr/_lib/payroll-accounting.js";
 
 function corsHeaders(){return{
   "Access-Control-Allow-Origin":"*",
   "Access-Control-Allow-Methods":"POST, OPTIONS",
-  "Access-Control-Allow-Headers":"Content-Type"
+  "Access-Control-Allow-Headers":"Content-Type, Authorization"
 };}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store",...corsHeaders()}});}
 function norm(v){return clean(v).toLowerCase().replace(/ё/g,"е").replace(/[^a-zа-я0-9]+/g," ").trim();}
@@ -178,8 +180,9 @@ function normalizePosting(row,fields,matchedOn="account"){
 }
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()});}
 
-export async function onRequestPost({request}){
+export async function onRequestPost({request,env}){
   try{
+    const auth=await getUser(request,env).catch(()=>null);
     const body=await request.json();
     const connection={ip:clean(body.ip),port:clean(body.port),login:clean(body.login),password:String(body.password||"")};
     if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Нет подключения к SH Server"},400);
@@ -382,6 +385,41 @@ export async function onRequestPost({request}){
       return accountTextMatches(p.account,accountName,accountCode)
         ||accountTextMatches(p.accountCode,accountName,accountCode);
     });
+
+    let smartJournal=[];
+    if(auth?.user?.id&&env?.DB&&accountId){
+      try{
+        const departmentCodes=Array.isArray(body?.chainScope?.selectedDepartmentCodes)?body.chainScope.selectedDepartmentCodes.map(clean).filter(Boolean):[];
+        smartJournal=await listAccountingJournal(env.DB,{userId:auth.user.id,from,to,departmentCodes,accountId});
+        for(const j of smartJournal){
+          const amount=Math.abs(Number(j.amount||0));if(!amount)continue;
+          const debitMatch=String(j.debit_account_id||"")===String(accountId);
+          const creditMatch=String(j.credit_account_id||"")===String(accountId);
+          if(!debitMatch&&!creditMatch)continue;
+          postings.push({
+            date:j.posting_date||"",
+            number:String(j.source_id||j.entry_id||"").slice(0,36),
+            type:"Smart Horeca Payroll",
+            account:debitMatch?(j.debit_account_name||accountName):(j.credit_account_name||accountName),
+            accountCode:"",
+            correspondentAccount:debitMatch?(j.credit_account_name||""):(j.debit_account_name||""),
+            correspondentAccountCode:"",
+            correspondentCounteragent:"",
+            comment:j.description||"",
+            department:j.department_code||"",
+            legalEntity:"",
+            concept:"Payroll",
+            transactionSide:debitMatch?"Debit":"Credit",
+            debit:debitMatch?amount:0,
+            credit:creditMatch?amount:0,
+            amount:debitMatch?amount:-amount,
+            balance:null,
+            source:"SMART_HORECA",
+            sourceType:j.source_type||""
+          });
+        }
+      }catch(error){console.warn("[ACCOUNT-POSTINGS-SMART-HORECA]",error)}
+    }
     postings.sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.number).localeCompare(String(b.number)));
 
     const totals=postings.reduce((a,x)=>{a.debit+=Number(x.debit||0);a.credit+=Number(x.credit||0);return a},{debit:0,credit:0});
@@ -399,6 +437,7 @@ export async function onRequestPost({request}){
         mandatoryDateFilterKey,
         attempts,
         accountMatch:{id:accountId,code:accountCode,name:accountName},
+        smartHorecaJournalEntries:smartJournal.length,
         fields:Object.fromEntries(Object.entries(fields).map(([k,v])=>[k,v?{name:v.name,title:v.title}:null]))
       }
     });
