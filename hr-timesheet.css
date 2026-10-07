@@ -92,6 +92,7 @@
 .ts-day-cell.absent .ts-day-box{background:rgba(255,104,120,.08);color:#ff9ba6}
 .ts-day-cell.review .ts-day-box{background:rgba(242,196,102,.09);color:#f2c466}
 .ts-day-cell.no-schedule .ts-day-box{background:#121a22;color:#6f7e8c}
+.ts-day-cell.manual-empty .ts-day-box{background:rgba(89,139,255,.035);color:#6f8295;border:1px dashed rgba(89,139,255,.14)}
 .ts-day-cell.future .ts-day-box{background:transparent;color:#4f5d69}
 .ts-day-cell.holiday .ts-day-box{background:rgba(89,139,255,.09);color:#8fbcff}
 .ts-day-cell .problem-dot{position:absolute;top:4px;right:5px;width:5px;height:5px;border-radius:50%;background:#ff6d7d}
@@ -193,6 +194,8 @@
 .ts-detail-box span{display:block;color:#738394;font-size:8px;text-transform:uppercase;font-weight:800}
 .ts-detail-box strong{display:block;margin-top:5px;color:#e4ecf2;font-size:11px}
 .ts-detail-note{padding:12px;border-radius:10px;background:#141d26;color:#9eacb9;font-size:10px;line-height:1.5}
+.ts-manual-mode-note{padding:11px 12px;border:1px solid rgba(89,139,255,.24);border-radius:10px;background:rgba(89,139,255,.065);color:#9cb8d6;font-size:9px;line-height:1.5}
+.ts-manual-mode-note strong{color:#b9d4f0}
 .ts-drawer-panel footer{margin-top:auto;padding:14px 18px;border-top:1px solid #22303c}
 
 @media(max-width:1200px){
