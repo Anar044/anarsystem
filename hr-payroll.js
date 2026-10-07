@@ -118,7 +118,8 @@ function renderSummary(){
     ['Доп. часы отдельно',money(extraPay),'Отдельное начисление и выплата'],
     ['К выплате',money(payable),'Основная + отдельная выплата доп. часов'],
     ['Стоимость ресторану',money(cost),'Начисления + взносы работодателя'],
-    ['Долг по доп. часам',money(state.settlements?.summary?.closingDebt||0),`Сотрудников с долгом: ${Number(state.settlements?.summary?.withDebt||0)}`]
+    ['Долг по доп. часам',money(state.settlements?.summary?.closingDebt||0),`Сотрудников с долгом: ${Number(state.settlements?.summary?.withDebt||0)}`],
+    ['Бухгалтерские проводки',`${Number(state.payroll?.summary?.accountingPosted||0)} / ${Number(state.payroll?.summary?.accountingPosted||0)+Number(state.payroll?.summary?.accountingPending||0)}`,Number(state.payroll?.summary?.accountingPending||0)?'Есть начисления без настроенных счетов':'Начисления синхронизированы с журналом']
   ].map(x=>`<article class="hr-summary-card"><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
 }
 function renderContext(){
