@@ -430,6 +430,24 @@ export async function onRequestPost({request,env}){
       return json({success:true,id:o.id,status:next});
     }
 
+    if(action==="sync-receipt"){
+      const documentNumber=clean(body?.iikoDocumentNumber);if(!documentNumber)throw new Error("Не указан номер накладной.");
+      const receipt=await db.prepare("SELECT * FROM procurement_receipts WHERE server_scope=?1 AND iiko_document_number=?2 LIMIT 1").bind(c.serverScope,documentNumber).first();
+      if(!receipt){const e=new Error("Связанная приёмка не найдена.");e.status=404;throw e}
+      const o=await orderRow(db,c.scope,receipt.order_id,c.serverScope);
+      const lines=normalizeLines(body?.lines,{allowZeroPrice:true}).map(x=>({productId:x.productId,productName:x.productName,unit:x.unit,quantity:x.quantity,unitPrice:x.unitPrice,total:money(x.quantity*x.unitPrice)}));
+      const total=money(lines.reduce((s,x)=>s+x.total,0));
+      await db.prepare("UPDATE procurement_receipts SET iiko_status=?2,document_date=?3,total_amount=?4,lines_json=?5,comment=?6 WHERE id=?1").bind(receipt.id,clean(body?.iikoStatus||receipt.iiko_status),clean(body?.documentDate||receipt.document_date),total,JSON.stringify(lines),clean(body?.comment||receipt.comment)).run();
+      const orderLines=(await db.prepare("SELECT * FROM procurement_order_lines WHERE order_id=?1").bind(o.id).all()).results||[];
+      const receiptRows=(await db.prepare("SELECT lines_json FROM procurement_receipts WHERE order_id=?1").bind(o.id).all()).results||[],received=new Map();
+      for(const rr of receiptRows)for(const l of parse(rr.lines_json,[])){const pid=clean(l.productId);received.set(pid,n(received.get(pid))+n(l.quantity??l.receivedQty))}
+      const completed=orderLines.length>0&&orderLines.every(l=>n(received.get(l.product_id))>=n(l.confirmed_qty||l.ordered_qty)-0.0005);
+      const hasAny=[...received.values()].some(v=>v>0),next=completed?"COMPLETED":hasAny?"PARTIALLY_RECEIVED":(["CANCELLED"].includes(o.status)?o.status:"CONFIRMED");
+      await db.prepare("UPDATE procurement_orders SET status=?2,updated_at=?3 WHERE id=?1").bind(o.id,next,stamp).run();
+      await log(c,"SYNC","PURCHASE_RECEIPT",o,{status:o.status,receiptId:receipt.id},{status:next,receiptId:receipt.id,iikoDocumentNumber:documentNumber,iikoStatus:clean(body?.iikoStatus),totalAmount:total,lines});
+      return json({success:true,id:o.id,receiptId:receipt.id,status:next,totalAmount:total});
+    }
+
     if(action==="receive-order"){
       const o=await orderRow(db,c.scope,clean(body?.id),c.serverScope);
       const incomingDocNo=clean(body?.iikoDocumentNumber);
