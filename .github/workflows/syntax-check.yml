@@ -268,6 +268,9 @@ jobs:
           grep -q "closingDebt" functions/api/hr/overtime-settlements.js
           grep -q "renderSettlements" hr-payroll.js
           grep -q "Реестр доплат за дополнительные часы" hr-payroll.html
+          grep -q 'data-mode="SETTLEMENTS"' hr-payroll.html
+          grep -q "hrpSettlementCard" hr-payroll.js
+          grep -q "settlement-mode" hr-payroll-v3.css
           echo 'Payroll overtime settlement ledger contract passed'
 
       - name: Verify Payroll styles survive app shell cleanup
