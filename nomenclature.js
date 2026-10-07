@@ -19,8 +19,7 @@ function packageCard(x){
   return `<div class="nom-package-card"><div><strong>${esc(title)}</strong><span>${esc(count.toLocaleString('ru-RU',{maximumFractionDigits:3}))} основной ед.</span></div><span class="status-pill status-live">iiko</span></div>`
 }
 function newPackageRow(x={}){
-  const id=String(x.id||crypto.randomUUID());
-  return `<div class="nom-package-edit" data-package-new="1" data-package-id="${esc(id)}"><label>Название фасовки<input data-pkg="name" value="${esc(x.name||'')}" placeholder="Например: Ящик 12 кг"></label><label>Кол-во в основной единице<input data-pkg="count" type="number" min="0.001" step="0.001" value="${esc(x.count||'')}" placeholder="12"></label><label>Код фасовки<input data-pkg="num" value="${esc(x.num||'')}" placeholder="Необязательно"></label><button type="button" class="btn danger small" data-remove-package>Удалить</button></div>`
+  return `<div class="nom-package-edit" data-package-new="1"><label>Название фасовки<input data-pkg="name" value="${esc(x.name||'')}" placeholder="Например: Ящик 12 кг"></label><label>Кол-во в основной единице<input data-pkg="count" type="number" min="0.001" step="0.001" value="${esc(x.count||'')}" placeholder="12"></label><label>Код фасовки<input data-pkg="num" value="${esc(x.num||'')}" placeholder="Необязательно"></label><button type="button" class="btn danger small" data-remove-package>Удалить</button></div>`
 }
 function collectNewPackages(back,p){
   const existing=packageRows(p);
@@ -35,8 +34,20 @@ function collectNewPackages(back,p){
     const nk=name.toLowerCase();
     if(names.has(nk))throw Error('Фасовка «'+name+'» уже существует в iiko.');
     names.add(nk);
-    return{id:row.dataset.packageId||crypto.randomUUID(),name,num, count,deleted:false,minContainerWeight:0,maxContainerWeight:0,containerWeight:0,fullContainerWeight:0,useInFront:false};
+    return{name,num,count,minContainerWeight:0,maxContainerWeight:0,containerWeight:0,fullContainerWeight:0,useInFront:false};
   });
+}
+function containerForWrite(x={}){
+  return{
+    num:String(x.num||'').trim(),
+    name:String(x.name||'').trim(),
+    count:Number(x.count||0),
+    minContainerWeight:Number(x.minContainerWeight||0),
+    maxContainerWeight:Number(x.maxContainerWeight||0),
+    containerWeight:Number(x.containerWeight||0),
+    fullContainerWeight:Number(x.fullContainerWeight||0),
+    useInFront:x.useInFront===true
+  }
 }
 async function verifyPackagesInIiko(productId,created){
   if(!created.length)return;
@@ -45,8 +56,8 @@ async function verifyPackagesInIiko(productId,created){
   if(!product)throw Error('iiko сохранил изменения, но товар не удалось перечитать для проверки фасовки.');
   const actual=Array.isArray(product.containers)?product.containers:[];
   const missing=created.filter(c=>!actual.some(x=>
-    (String(x.id||'').toLowerCase()===String(c.id||'').toLowerCase())||
-    (String(x.name||'').trim().toLowerCase()===String(c.name||'').trim().toLowerCase()&&Math.abs(Number(x.count||0)-Number(c.count||0))<0.0005)
+    String(x.name||'').trim().toLowerCase()===String(c.name||'').trim().toLowerCase()&&
+    Math.abs(Number(x.count||0)-Number(c.count||0))<0.0005
   ));
   if(missing.length)throw Error('iiko не вернул созданную фасовку после сохранения: '+missing.map(x=>x.name).join(', '));
 }
@@ -68,7 +79,7 @@ function productModal(x=null){
     const out={name:g('name').value.trim(),description:g('description').value,parent:g('parent').value||null,category:g('category').value||null,num:g('num').value.trim()||null,code:g('code').value.trim()||null,mainUnit:g('mainUnit').value.trim(),defaultSalePrice:Number(g('defaultSalePrice').value||0),placeType:g('placeType').value.trim()||null,defaultIncludedInMenu:g('defaultIncludedInMenu').checked,type:g('type').value,unitWeight:Number(g('unitWeight').value||1),unitCapacity:Number(g('unitCapacity').value||0),notInStoreMovement:g('notInStoreMovement').checked};
     if(!out.name||!out.mainUnit)throw Error('Название и основная единица обязательны');
     if(x)out.id=x.id;
-    if(newPackages.length)out.containers=[...(Array.isArray(p.containers)?p.containers:[]),...newPackages];
+    if(newPackages.length)out.containers=[...(Array.isArray(p.containers)?p.containers:[]),...newPackages].filter(x=>x&&x.deleted!==true&&Number(x.count)>0).map(containerForWrite);
     const data=await api(x?'products.update':'products.save',{overrideFastCode:false,overrideNomenclatureCode:false},out);
     if(data?.errors?.length)throw Error(data.errors.map(e=>e.message||e.code||JSON.stringify(e)).join('; '));
     const productId=x?.id||data?.id||data?.items?.[0]?.id;
