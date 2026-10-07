@@ -220,6 +220,15 @@ function buildPriceHistory(){
   }
 }
 
+function procurementLineFromInvoiceItem(x){
+  const packageCount=num(x.amount,0);
+  const actualAmount=num(x.actualAmount??x.amount,0);
+  let packageSize=num(x.actualUnitWeight,0);
+  if(!(packageSize>0))packageSize=packageCount>0?actualAmount/packageCount:1;
+  if(!(packageSize>0))packageSize=1;
+  const count=packageCount>0?packageCount:(actualAmount>0?actualAmount/packageSize:0);
+  return{productId:key(x.productId),productName:x.productName||productName(x.productId),unit:x.amountUnit||unitFor(x.productId),quantity:actualAmount||packageSize*count,packageSize,packageCount:count,vatPercent:num(x.vatPercent,0),unitPrice:num(x.price)};
+}
 function receiptSignature(lines){
   return (lines||[]).map(x=>[key(x.productId),Number(x.quantity??x.actualAmount??x.amount??0).toFixed(3),Number(x.unitPrice??x.price??0).toFixed(4)].join(':')).sort().join('|');
 }
@@ -229,7 +238,7 @@ async function reconcileLinkedReceipts(){
   let changed=false;
   for(const receipt of receipts){
     const doc=byNumber.get(String(receipt.iikoDocumentNumber||'').trim().toLowerCase());if(!doc)continue;
-    const lines=(doc.items||[]).map(x=>({productId:key(x.productId),productName:x.productName||productName(x.productId),unit:x.amountUnit||unitFor(x.productId),quantity:num(x.actualAmount??x.amount),unitPrice:num(x.price)})).filter(x=>x.productId&&x.quantity>0);
+    const lines=(doc.items||[]).map(procurementLineFromInvoiceItem).filter(x=>x.productId&&x.quantity>0);
     const sameLines=receiptSignature(lines)===receiptSignature(receipt.lines||[]);
     const sameStatus=String(receipt.iikoStatus||'').toUpperCase()===String(doc.status||'').toUpperCase();
     if(sameLines&&sameStatus)continue;
@@ -662,14 +671,25 @@ function openLinkInvoiceModal(o){
   const opts=candidates.map((d,i)=>'<option value="'+i+'">'+esc((d.documentNumber||'без №')+' · '+String(d.dateIncoming||d.incomingDate||'').slice(0,10)+' · '+money(d.sum||d.documentSum||0))+'</option>').join('');
   openModal('Привязать накладную к '+o.number,'PO ↔ ПРИЁМКА ↔ НАКЛАДНАЯ','<div class="proc-form-grid"><label class="proc-field wide"><span>Существующая приходная накладная</span><select id="proc-link-invoice">'+opts+'</select></label></div><div id="proc-link-preview" class="proc-edit-lines"></div><div class="proc-history-note">Подходит для накладных, созданных вручную или через AI Документы. Smart Horeca не создаёт дубликат — только связывает существующий документ с PO и проверяет количество/цены.</div><div class="proc-modal-actions"><button id="proc-link-cancel" type="button" class="proc-btn ghost">Отмена</button><button id="proc-link-save" type="button" class="proc-btn primary">Связать с PO</button></div>');
   function selected(){return candidates[Number($('proc-link-invoice').value||0)]}
-  function preview(){const d=selected();$('proc-link-preview').innerHTML='<div class="proc-edit-head"><strong>'+esc(d?.documentNumber||'Накладная')+'</strong><span class="proc-history-note">'+esc(d?.supplierName||'')+'</span></div>'+(d?.items||[]).map(x=>'<div class="proc-line"><span>'+esc(x.productName||x.productId||'Товар')+'</span><strong>'+qty(x.actualAmount??x.amount)+' × '+money(x.price)+'</strong><span>'+money(x.sum||num(x.actualAmount??x.amount)*num(x.price))+'</span></div>').join('')}
+  function preview(){const d=selected();$('proc-link-preview').innerHTML='<div class="proc-edit-head"><strong>'+esc(d?.documentNumber||'Накладная')+'</strong><span class="proc-history-note">'+esc(d?.supplierName||'')+'</span></div>'+(d?.items||[]).map(x=>{const l=procurementLineFromInvoiceItem(x);return '<div class="proc-line"><span>'+esc(x.productName||x.productId||'Товар')+'</span><strong>'+qty(l.packageCount)+' уп. × '+qty(l.packageSize)+' '+esc(l.unit)+'</strong><span>'+money(x.price)+'/уп. · НДС '+num(x.vatPercent)+'% · '+money(x.sum||l.packageCount*num(x.price))+'</span></div>'}).join('')}
   $('proc-link-invoice').onchange=preview;preview();$('proc-link-cancel').onclick=closeModal;
-  $('proc-link-save').onclick=async()=>{const d=selected();if(!d)return;const lines=(d.items||[]).map(x=>({productId:key(x.productId),productName:x.productName||productName(x.productId),unit:x.amountUnit||unitFor(x.productId),quantity:num(x.actualAmount??x.amount),unitPrice:num(x.price)})).filter(x=>x.productId&&x.quantity>0);try{setBusy(true);await procPost('receive-order',{id:o.id,iikoDocumentNumber:d.documentNumber||d.incomingDocumentNumber||'',iikoDocumentId:d.id||'',iikoStatus:d.status||'PROCESSED',documentDate:String(d.dateIncoming||d.incomingDate||today()).slice(0,10),comment:d.comment||('Связано с '+o.number),lines});closeModal();await reloadProc();toast('Накладная привязана к PO. Выполнена сверка количества и цен.')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}};
+  $('proc-link-save').onclick=async()=>{const d=selected();if(!d)return;const lines=(d.items||[]).map(procurementLineFromInvoiceItem).filter(x=>x.productId&&x.quantity>0);try{setBusy(true);await procPost('receive-order',{id:o.id,iikoDocumentNumber:d.documentNumber||d.incomingDocumentNumber||'',iikoDocumentId:d.id||'',iikoStatus:d.status||'PROCESSED',documentDate:String(d.dateIncoming||d.incomingDate||today()).slice(0,10),comment:d.comment||('Связано с '+o.number),lines});closeModal();await reloadProc();toast('Накладная привязана к PO. Выполнена сверка количества и цен.')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}};
 }
 function receiptLineHtml(l){
-  return '<div class="proc-edit-row" data-receipt-line data-product-id="'+esc(l.productId)+'"><div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div><div class="proc-field"><span>Принимаем</span><input data-f="quantity" type="number" min="0.001" max="'+num(l.remainingQty)+'" step="0.001" value="'+num(l.remainingQty)+'"></div><div class="proc-field"><span>Цена накладной</span><input data-f="price" type="number" min="0.01" step="0.01" value="'+num(l.unitPrice)+'"></div><strong class="line-total">'+money(num(l.remainingQty)*num(l.unitPrice))+'</strong><span></span><input data-f="unit" type="hidden" value="'+esc(l.unit||'')+'"></div>';
+  const packageSize=num(l.packageSize,1)||1;
+  const packageCount=Math.max(0,num(l.remainingQty)/packageSize);
+  const vat=num(l.vatPercent,0);
+  return '<div class="proc-edit-row proc-pack-row" data-receipt-line data-product-id="'+esc(l.productId)+'"><div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div><div class="proc-field"><span>Фасовка</span><input data-f="packageSize" type="number" min="0.001" step="0.001" value="'+packageSize+'"></div><div class="proc-field"><span>Упаковок</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+packageCount+'"></div><div class="proc-field"><span>Итого '+esc(l.unit||'ед.')+'</span><input data-f="quantity" type="number" readonly value="'+num(l.remainingQty)+'"></div><div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div><div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0.01" step="0.01" value="'+num(l.unitPrice)+'"></div><strong class="line-total">'+money(packageCount*num(l.unitPrice))+'</strong><span></span><input data-f="unit" type="hidden" value="'+esc(l.unit||'')+'"></div>';
 }
-function recalcReceipt(){let t=0;document.querySelectorAll('[data-receipt-line]').forEach(row=>{const v=num(row.querySelector('[data-f="quantity"]').value)*num(row.querySelector('[data-f="price"]').value);t+=v;row.querySelector('.line-total').textContent=money(v)});if($('proc-receipt-total'))$('proc-receipt-total').textContent=money(t)}
+function recalcReceipt(){
+  let total=0;
+  document.querySelectorAll('[data-receipt-line]').forEach(row=>{
+    const pack=num(row.querySelector('[data-f="packageSize"]').value,1),count=num(row.querySelector('[data-f="packageCount"]').value),price=num(row.querySelector('[data-f="price"]').value);
+    row.querySelector('[data-f="quantity"]').value=(pack*count).toFixed(3).replace(/\.000$/,'');
+    const v=count*price;total+=v;row.querySelector('.line-total').textContent=money(v);
+  });
+  if($('proc-receipt-total'))$('proc-receipt-total').textContent=money(total);
+}
 function pendingKey(){return 'shProcurementPendingReceipt'}
 function rememberPending(p){try{localStorage.setItem(pendingKey(),JSON.stringify(p))}catch(_){}}
 function clearPending(){try{localStorage.removeItem(pendingKey())}catch(_){}}
@@ -683,14 +703,14 @@ function openReceiptModal(o){
   const lines=(o.lines||[]).filter(x=>num(x.remainingQty)>0.0005);if(!lines.length){toast('Заказ уже полностью принят.','error');return}
   const draftNo='RC-'+Date.now().toString().slice(-9);
   openModal('Приёмка · '+o.number,'ФАКТИЧЕСКОЕ ИСПОЛНЕНИЕ PO','<div class="proc-form-grid"><label class="proc-field"><span>Поставщик</span><input value="'+esc(o.supplierName||o.supplierId)+'" disabled></label><label class="proc-field"><span>Склад</span><input value="'+esc(o.warehouseName||o.warehouseId)+'" disabled></label><label class="proc-field"><span>Дата</span><input id="proc-receipt-date" type="date" value="'+today()+'"></label><label class="proc-field"><span>Номер накладной</span><input id="proc-receipt-number" value="'+draftNo+'"></label><label class="proc-field"><span>PO / входящий номер</span><input value="'+esc(o.number)+'" disabled></label><label class="proc-field"><span>Статус</span><input value="Приёмка товара" disabled></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Фактически получено</strong><span class="proc-history-note">Можно принять заказ частично.</span></div><div id="proc-receipt-lines">'+lines.map(receiptLineHtml).join('')+'</div></div><div class="proc-modal-summary"><span>Итого фактической поставки</span><strong id="proc-receipt-total">0,00 ₼</strong></div><div class="proc-history-note">После сохранения Smart Horeca создаст приходную накладную на связанном Server. Проведение сразу обновит склад.</div><div class="proc-receipt-choice"><button id="proc-receipt-cancel" class="proc-btn ghost" type="button">Отмена</button><button id="proc-receipt-save" class="proc-btn secondary" type="button">Сохранить без проведения</button><button id="proc-receipt-post" class="proc-btn primary" type="button">Сохранить и провести</button></div>');
-  document.querySelectorAll('[data-receipt-line] input').forEach(x=>x.oninput=recalcReceipt);recalcReceipt();$('proc-receipt-cancel').onclick=closeModal;
+  document.querySelectorAll('[data-receipt-line] input,[data-receipt-line] select').forEach(x=>{x.oninput=recalcReceipt;x.onchange=recalcReceipt});recalcReceipt();$('proc-receipt-cancel').onclick=closeModal;
   async function save(process){
     let documentNumber=$('proc-receipt-number').value.trim()||draftNo;
-    const rlines=[...document.querySelectorAll('[data-receipt-line]')].map(row=>({productId:row.dataset.productId,productName:productName(row.dataset.productId),unit:row.querySelector('[data-f="unit"]').value,quantity:num(row.querySelector('[data-f="quantity"]').value),unitPrice:num(row.querySelector('[data-f="price"]').value)})).filter(x=>x.quantity>0);
+    const rlines=[...document.querySelectorAll('[data-receipt-line]')].map(row=>{const packageSize=num(row.querySelector('[data-f="packageSize"]').value),packageCount=num(row.querySelector('[data-f="packageCount"]').value),vatPercent=num(row.querySelector('[data-f="vatPercent"]').value),unitPrice=num(row.querySelector('[data-f="price"]').value);return{productId:row.dataset.productId,productName:productName(row.dataset.productId),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,vatPercent,unitPrice}}).filter(x=>x.quantity>0&&x.packageCount>0);
     if(!rlines.length){toast('Укажите фактически принятое количество.','error');return}
     try{
       setBusy(true);setStatus('Создаём приходную накладную на Smart Horeca Server…');
-      const document={documentNumber,dateIncoming:$('proc-receipt-date').value+'T00:00:00',supplierId:o.supplierId,defaultStore:o.warehouseId,incomingDocumentNumber:o.number,comment:'Smart Horeca Procurement · '+o.number,items:rlines.map((x,i)=>({num:i+1,productId:x.productId,amount:x.quantity,actualAmount:x.quantity,price:x.unitPrice,sum:x.quantity*x.unitPrice,store:o.warehouseId})),documentTotal:rlines.reduce((s,x)=>s+x.quantity*x.unitPrice,0)};
+      const document={documentNumber,dateIncoming:$('proc-receipt-date').value+'T00:00:00',supplierId:o.supplierId,defaultStore:o.warehouseId,incomingDocumentNumber:o.number,comment:'Smart Horeca Procurement · '+o.number,items:rlines.map((x,i)=>{const sum=x.packageCount*x.unitPrice,vatSum=x.vatPercent>0?sum*x.vatPercent/(100+x.vatPercent):0;return{num:i+1,productId:x.productId,amount:x.packageCount,actualAmount:x.quantity,actualUnitWeight:x.packageSize,vatPercent:x.vatPercent,vatSum:Number(vatSum.toFixed(2)),priceWithoutVat:Number((x.vatPercent>0?x.unitPrice/(1+x.vatPercent/100):x.unitPrice).toFixed(4)),price:x.unitPrice,sum,store:o.warehouseId}}),documentTotal:rlines.reduce((s,x)=>s+x.packageCount*x.unitPrice,0)};
       const rr=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/document-action',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({connection:state.binding.connection,type:'incoming',action:process?'save-and-process':'save',document,departmentIds:state.binding.departmentIds||[],chainScope:chainScope()})},90000);
       const x=await rr.json().catch(()=>({}));if(!rr.ok||x.success===false)throw Error(x.message||('Server HTTP '+rr.status));
       documentNumber=x.validation?.documentNumber||x.validation?.otherSuggestedNumber||documentNumber;
@@ -703,7 +723,7 @@ function openReceiptModal(o){
   $('proc-receipt-save').onclick=()=>save(false);$('proc-receipt-post').onclick=()=>save(true);
 }
 async function copyPo(o){
-  const lines=(o.lines||[]).map((l,i)=>(i+1)+'. '+(l.productName||l.productId)+' — '+qty(l.orderedQty)+' '+(l.unit||'')+' × '+money(l.unitPrice)).join('\n');
+  const lines=(o.lines||[]).map((l,i)=>(i+1)+'. '+(l.productName||l.productId)+' — '+qty(l.packageCount||l.orderedQty)+' уп. × '+qty(l.packageSize||1)+' '+(l.unit||'')+' = '+qty(l.orderedQty)+' '+(l.unit||'')+' · '+money(l.unitPrice)+'/уп. · НДС '+num(l.vatPercent)+'%').join('\n');
   const text=['Smart Horeca · Purchase Order',o.number,'Поставщик: '+(o.supplierName||o.supplierId),'Склад: '+(o.warehouseName||o.warehouseId),'',lines,'','Итого: '+money(o.totalAmount),'Комментарий: '+(o.comment||'—')].join('\n');
   try{await navigator.clipboard.writeText(text);toast('PO скопирован. Можно отправить поставщику в удобном канале.')}catch(e){toast('Не удалось скопировать PO: '+(e.message||e),'error')}
 }
