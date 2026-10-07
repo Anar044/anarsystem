@@ -220,7 +220,11 @@
       var pid = String(p.id || '').replace(/[{}]/g, '').toLowerCase();
       var isSelected = (selectedId && pid === selectedId) || (!selectedId && !matched && Math.abs(Number(p.count) - size) < 0.0005);
       if (isSelected) matched = true;
-      var label = (p.name || p.num || ('Фасовка ' + (index + 1))) + ' · ' + Number(p.count).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
+      var rawName = String(p.name || p.num || '').trim();
+      var normalizedName = rawName.replace(',', '.').replace(/\s+/g, '');
+      var normalizedCount = String(Number(p.count)).replace(',', '.').replace(/\s+/g, '');
+      var namePart = rawName && normalizedName !== normalizedCount ? rawName + ' · ' : '';
+      var label = namePart + Number(p.count).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
       return '<option value="' + esc(pid || ('__iiko_' + index)) + '" data-count="' + esc(p.count) + '" data-name="' + esc(p.name || p.num || '') + '"' + (isSelected ? ' selected' : '') + '>' + esc(label) + '</option>';
     }).join('');
     return options + '<option value="__manual__"' + (!matched ? ' selected' : '') + '>Другая / вручную</option>';
@@ -303,7 +307,7 @@
     row.className = 'inc-item';
     row.innerHTML =
       '<label>Товар<input data-f="product" list="inc-product-options" autocomplete="off" placeholder="Начните вводить название" value="' + esc(productLabel(initialProductId, item.productName)) + '"></label>' +
-      '<label>Фасовка iiko<select data-f="packageChoice">' + invoicePackagingOptions(initialProductId, item.containerId || '', packageSize) + '</select><input data-f="packageSize" type="number" min="0.001" step="0.001" value="' + esc(packageSize) + '"></label>' +
+      '<label>Фасовка<select data-f="packageChoice">' + invoicePackagingOptions(initialProductId, item.containerId || '', packageSize) + '</select><input data-f="packageSize" type="number" min="0.001" step="0.001" value="' + esc(packageSize) + '"></label>' +
       '<label>Упаковок<input data-f="packages" type="number" min="0.001" step="0.001" value="' + esc(packages) + '"></label>' +
       '<label>Итого кол-во<input class="inc-readonly" data-f="actualAmount" type="number" readonly value="' + esc(actual) + '"></label>' +
       '<label>НДС<select data-f="vatPercent">' + vatOptions(vat) + '</select></label>' +
