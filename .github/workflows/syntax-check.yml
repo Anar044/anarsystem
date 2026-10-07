@@ -285,6 +285,22 @@ jobs:
           grep -q "settlement-mode" hr-payroll-v3.css
           echo 'Payroll overtime settlement ledger contract passed'
 
+      - name: Verify Payroll accounting journal contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "hr_payroll_accounting_config" functions/api/hr/_lib/payroll-accounting.js
+          grep -q "sh_accounting_journal" functions/api/hr/_lib/payroll-accounting.js
+          grep -q "syncOvertimeAccrualPosting" functions/api/hr/payroll.js
+          grep -q "syncOvertimePaymentPosting" functions/api/hr/overtime-settlements.js
+          grep -q "listAccountingJournal" functions/api/iiko/pnl.js
+          grep -q "listAccountingJournal" functions/api/iiko/accounts.js
+          grep -q "listAccountingJournal" functions/api/iiko/account-postings.js
+          grep -q "Бухгалтерия Payroll" hr-payroll.html
+          grep -q "Счета бухгалтерии Payroll" hr-payroll-accounting.html
+          grep -q "hrpa-critical-styles" app-shell.js
+          echo 'Payroll accounting journal contract passed'
+
       - name: Verify Payroll styles survive app shell cleanup
         shell: bash
         run: |
@@ -363,6 +379,7 @@ jobs:
             "/ai-documents.html"
             "/ai-assistant.html"
             "/hr-payroll.html"
+            "/hr-payroll-accounting.html"
             "/hr-payroll-v3.css"
             "/hr-compensation.html"
             "/hr-payroll-adjustments.html"
@@ -420,6 +437,7 @@ jobs:
             "/api/asset-files"
             "/api/hr/payroll"
             "/api/hr/payroll-adjustments"
+            "/api/hr/payroll-accounting-settings"
             "/api/hr/overtime-settlements"
             "/api/hr/payroll-tax-settings"
             "/api/hr/compensation"
