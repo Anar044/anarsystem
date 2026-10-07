@@ -262,43 +262,48 @@ function packagingByContainer(pid,containerId){
   const cid=key(containerId);if(!cid)return null;
   return productPackagings(pid).find(x=>key(x.id)===cid)||null;
 }
-function packagingChoiceHtml(pid,{containerId='',packageSize=1,packageName=''}={}){
-  const packs=productPackagings(pid),cid=key(containerId),size=num(packageSize,1);
-  let selectedManual=true,matched=false;
+function packagingChoiceHtml(pid,{containerId='',packageSize=1}={}){
+  const packs=productPackagings(pid),cid=key(containerId),size=num(packageSize,1),unit=unitFor(pid)||'';
+  if(!packs.length){
+    return '<option value="__base__" selected>Основная единица · 1'+(unit?' '+esc(unit):'')+'</option>';
+  }
+  let matched=false;
   const options=packs.map((p,i)=>{
     const isSelected=(cid&&key(p.id)===cid)||(!cid&&!matched&&Math.abs(num(p.count)-size)<0.0005);
-    if(isSelected){matched=true;selectedManual=false}
-    const unit=unitFor(pid)||'';
+    if(isSelected)matched=true;
     const rawName=String(p.name||p.num||'').trim();
     const normalizedName=rawName.replace(',', '.').replace(/\s+/g,'');
     const normalizedCount=String(num(p.count)).replace(',', '.').replace(/\s+/g,'');
     const namePart=rawName&&normalizedName!==normalizedCount?rawName+' · ':'';
     const label=namePart+qty(p.count)+(unit?' '+unit:'');
-    return '<option value="'+esc(p.id||('__iiko_'+i))+'" data-count="'+esc(p.count)+'" data-name="'+esc(p.name||p.num||'')+'" '+(isSelected?'selected':'')+'>'+esc(label)+'</option>';
+    return '<option value="'+esc(p.id||('__iiko_'+i))+'" '+(isSelected?'selected':'')+'>'+esc(label)+'</option>';
   }).join('');
-  if(!matched&&cid)selectedManual=true;
-  return options+'<option value="__manual__" '+(selectedManual?'selected':'')+'>Другая / вручную</option>';
+  if(matched)return options;
+  if(packs.length===1)return options.replace('<option ','<option selected ');
+  return '<option value="" selected disabled>Выберите фасовку iiko</option>'+options;
 }
-function syncPackagingRow(row,{preserveManual=true}={}){
+function syncPackagingRow(row){
   const pid=key(row.dataset.productId),choice=row.querySelector('[data-f="packageChoice"]'),size=row.querySelector('[data-f="packageSize"]'),cid=row.querySelector('[data-f="containerId"]'),pname=row.querySelector('[data-f="packageName"]');
   if(!choice||!size||!cid||!pname)return;
-  const oldSize=num(size.value,1),oldCid=key(cid.value),oldName=pname.value||'';
-  choice.innerHTML=packagingChoiceHtml(pid,{containerId:oldCid,packageSize:oldSize,packageName:oldName});
-  applyPackagingChoice(row,{preserveManual});
+  const oldSize=num(size.value,1),oldCid=key(cid.value);
+  choice.innerHTML=packagingChoiceHtml(pid,{containerId:oldCid,packageSize:oldSize});
+  applyPackagingChoice(row);
 }
-function applyPackagingChoice(row,{preserveManual=true}={}){
+function applyPackagingChoice(row){
   const pid=key(row.dataset.productId),choice=row.querySelector('[data-f="packageChoice"]'),size=row.querySelector('[data-f="packageSize"]'),cid=row.querySelector('[data-f="containerId"]'),pname=row.querySelector('[data-f="packageName"]');
   if(!choice||!size||!cid||!pname)return;
-  if(choice.value==='__manual__'){
-    cid.value='';pname.value='';size.readOnly=false;size.classList.remove('proc-package-locked');
-    if(!preserveManual||!(num(size.value)>0))size.value='1';
+  size.readOnly=true;size.classList.add('proc-package-locked');
+  if(choice.value==='__base__'){
+    size.value='1';cid.value='';pname.value='';return;
+  }
+  if(!choice.value){
+    size.value='0';cid.value='';pname.value='';return;
+  }
+  const pack=packagingByContainer(pid,choice.value)||productPackagings(pid).find(x=>String(x.id||'')===choice.value);
+  if(pack){
+    size.value=num(pack.count,1);cid.value=pack.id||'';pname.value=pack.name||pack.num||'';
   }else{
-    const pack=packagingByContainer(pid,choice.value)||productPackagings(pid).find(x=>String(x.id||'')===choice.value);
-    if(pack){
-      size.value=num(pack.count,1);cid.value=pack.id||'';pname.value=pack.name||pack.num||'';size.readOnly=true;size.classList.add('proc-package-locked');
-    }else{
-      cid.value='';pname.value='';size.readOnly=false;size.classList.remove('proc-package-locked');
-    }
+    size.value='0';cid.value='';pname.value='';
   }
 }
 function historyPrice(pid,supplierId=''){
@@ -660,11 +665,11 @@ function prLineHtml(line={}){
 function bindEditRows(root){
   root.querySelectorAll('[data-pr-line]').forEach(row=>{
     row.querySelector('.remove').onclick=()=>{row.remove();recalcPrModal()};
-    row.querySelector('[data-f="product"]').onchange=e=>{const pid=resolveProductLabel(e.target.value);row.dataset.productId=pid;if(pid)row.querySelector('[data-f="unit"]').value=unitFor(pid);row.querySelector('[data-f="containerId"]').value='';row.querySelector('[data-f="packageName"]').value='';syncPackagingRow(row,{preserveManual:false});recalcPrModal()};
-    row.querySelector('[data-f="packageChoice"]').onchange=()=>{applyPackagingChoice(row,{preserveManual:true});recalcPrModal()};
+    row.querySelector('[data-f="product"]').onchange=e=>{const pid=resolveProductLabel(e.target.value);row.dataset.productId=pid;if(pid)row.querySelector('[data-f="unit"]').value=unitFor(pid);row.querySelector('[data-f="containerId"]').value='';row.querySelector('[data-f="packageName"]').value='';syncPackagingRow(row);recalcPrModal()};
+    row.querySelector('[data-f="packageChoice"]').onchange=()=>{applyPackagingChoice(row);recalcPrModal()};
     ['packageSize','packageCount','price'].forEach(name=>row.querySelector('[data-f="'+name+'"]').oninput=recalcPrModal);
     row.querySelector('[data-f="vatPercent"]').onchange=recalcPrModal;
-    applyPackagingChoice(row,{preserveManual:true});
+    applyPackagingChoice(row);
   });
 }
 function recalcPrModal(){
@@ -680,8 +685,11 @@ function collectPrLines(){
   return [...document.querySelectorAll('#proc-pr-lines [data-pr-line]')].map(row=>{
     const label=row.querySelector('[data-f="product"]').value,pid=key(row.dataset.productId||resolveProductLabel(label));if(!pid)throw Error('Выберите номенклатуру из списка.');
     const packageSize=num(row.querySelector('[data-f="packageSize"]').value),packageCount=num(row.querySelector('[data-f="packageCount"]').value);
-    if(!(packageSize>0))throw Error(productName(pid)+': укажите фасовку.');if(!(packageCount>0))throw Error(productName(pid)+': укажите количество упаковок.');
-    return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value||unitFor(pid),quantity:packageSize*packageCount,packageSize,packageCount,containerId:key(row.querySelector('[data-f="containerId"]').value),packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),expectedPrice:num(row.querySelector('[data-f="price"]').value),currentStock:num(row.querySelector('[data-f="currentStock"]').value),minStock:row.querySelector('[data-f="minStock"]').value===''?null:num(row.querySelector('[data-f="minStock"]').value),maxStock:row.querySelector('[data-f="maxStock"]').value===''?null:num(row.querySelector('[data-f="maxStock"]').value),storeId:row.querySelector('[data-f="storeId"]').value,storeName:row.querySelector('[data-f="storeName"]').value};
+    const containerId=key(row.querySelector('[data-f="containerId"]').value),packs=productPackagings(pid);
+    if(packs.length&&!containerId)throw Error(productName(pid)+': выберите фасовку из iiko.');
+    if(!(packageSize>0))throw Error(productName(pid)+': фасовка не определена в iiko.');
+    if(!(packageCount>0))throw Error(productName(pid)+': укажите количество упаковок.');
+    return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value||unitFor(pid),quantity:packageSize*packageCount,packageSize,packageCount,containerId,packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),expectedPrice:num(row.querySelector('[data-f="price"]').value),currentStock:num(row.querySelector('[data-f="currentStock"]').value),minStock:row.querySelector('[data-f="minStock"]').value===''?null:num(row.querySelector('[data-f="minStock"]').value),maxStock:row.querySelector('[data-f="maxStock"]').value===''?null:num(row.querySelector('[data-f="maxStock"]').value),storeId:row.querySelector('[data-f="storeId"]').value,storeName:row.querySelector('[data-f="storeName"]').value};
   });
 }
 function openPrModal(seed=[],existing=null){
@@ -730,7 +738,7 @@ function recalcReceipt(){
   let total=0;document.querySelectorAll('[data-receipt-line]').forEach(row=>{const pack=num(row.querySelector('[data-f="packageSize"]').value,1),count=num(row.querySelector('[data-f="packageCount"]').value),price=num(row.querySelector('[data-f="price"]').value);row.querySelector('[data-f="quantity"]').value=(pack*count).toFixed(3).replace(/\.000$/,'');const v=count*price;total+=v;row.querySelector('.line-total').textContent=money(v)});if($('proc-receipt-total'))$('proc-receipt-total').textContent=money(total)
 }
 function bindReceiptPackaging(){
-  document.querySelectorAll('[data-receipt-line]').forEach(row=>{row.querySelector('[data-f="packageChoice"]').onchange=()=>{applyPackagingChoice(row,{preserveManual:true});recalcReceipt()};['packageSize','packageCount','price'].forEach(name=>row.querySelector('[data-f="'+name+'"]').oninput=recalcReceipt);row.querySelector('[data-f="vatPercent"]').onchange=recalcReceipt;applyPackagingChoice(row,{preserveManual:true})});
+  document.querySelectorAll('[data-receipt-line]').forEach(row=>{row.querySelector('[data-f="packageChoice"]').onchange=()=>{applyPackagingChoice(row);recalcReceipt()};['packageSize','packageCount','price'].forEach(name=>row.querySelector('[data-f="'+name+'"]').oninput=recalcReceipt);row.querySelector('[data-f="vatPercent"]').onchange=recalcReceipt;applyPackagingChoice(row)});
 }
 function pendingKey(){return 'shProcurementPendingReceipt'}
 function rememberPending(p){try{localStorage.setItem(pendingKey(),JSON.stringify(p))}catch(_){}}
@@ -748,7 +756,7 @@ function openReceiptModal(o){
   bindReceiptPackaging();recalcReceipt();$('proc-receipt-cancel').onclick=closeModal;
   async function save(process){
     let documentNumber=$('proc-receipt-number').value.trim()||draftNo;
-    const rlines=[...document.querySelectorAll('[data-receipt-line]')].map(row=>{const packageSize=num(row.querySelector('[data-f="packageSize"]').value),packageCount=num(row.querySelector('[data-f="packageCount"]').value),vatPercent=num(row.querySelector('[data-f="vatPercent"]').value),unitPrice=num(row.querySelector('[data-f="price"]').value);return{productId:row.dataset.productId,productName:productName(row.dataset.productId),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId:key(row.querySelector('[data-f="containerId"]').value),packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent,unitPrice}}).filter(x=>x.quantity>0&&x.packageCount>0);
+    const rlines=[...document.querySelectorAll('[data-receipt-line]')].map(row=>{const pid=key(row.dataset.productId),packageSize=num(row.querySelector('[data-f="packageSize"]').value),packageCount=num(row.querySelector('[data-f="packageCount"]').value),vatPercent=num(row.querySelector('[data-f="vatPercent"]').value),unitPrice=num(row.querySelector('[data-f="price"]').value),containerId=key(row.querySelector('[data-f="containerId"]').value);if(productPackagings(pid).length&&!containerId)throw Error(productName(pid)+': выберите фасовку из iiko.');if(!(packageSize>0))throw Error(productName(pid)+': фасовка не определена в iiko.');return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId,packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent,unitPrice}}).filter(x=>x.quantity>0&&x.packageCount>0);
     if(!rlines.length){toast('Укажите фактически принятое количество.','error');return}
     try{
       setBusy(true);setStatus('Создаём приходную накладную на Smart Horeca Server…');
