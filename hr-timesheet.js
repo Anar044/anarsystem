@@ -103,16 +103,19 @@
     base.overtimeRules=rules;
     base.factualDays=(base.factualDays||[]).map(day=>{
       let x=applyCorrection(day,corrections.get(`${day.employeeId}|${day.workDate}|FACTUAL`));
-      const rule=ruleFor(day.employeeId,rules),worked=Math.max(0,Number(x.workedMinutes||0)),candidate=Math.max(0,worked-rule.thresholdMinutes),payableCandidate=Math.max(0,worked-rule.payableFromMinutes);
+      const rule=ruleFor(day.employeeId,rules),worked=Math.max(0,Number(x.workedMinutes||0)),roleNorm=Math.max(1,Number(x.roleNormMinutes||rule.thresholdMinutes||600));
+      const threshold=rule.source==='EMPLOYEE'?Math.max(1,Number(rule.thresholdMinutes||roleNorm)):roleNorm;
+      const policyGap=Math.max(0,Number(rule.payableFromMinutes||rule.thresholdMinutes||threshold)-Number(rule.thresholdMinutes||threshold));
+      const payableFrom=threshold+policyGap,candidate=Math.max(0,worked-threshold),payableCandidate=Math.max(0,worked-payableFrom);
       const req=overtime.get(`${day.employeeId}|${day.workDate}`)||null,approvedState=Boolean(req&&['HR_APPROVED','HR_CHANGED'].includes(req.status));
       const approved=approvedState?Math.min(candidate,Math.max(0,Number(req.approvedMinutes||0))):0;
       x={
-        ...x,normMinutes:Math.min(worked,rule.thresholdMinutes),overtimeThresholdMinutes:rule.thresholdMinutes,overtimePayableFromMinutes:rule.payableFromMinutes,
+        ...x,normMinutes:roleNorm,overtimeThresholdMinutes:threshold,overtimePayableFromMinutes:payableFrom,
         overtimeRuleSource:rule.source,overtimeRuleNote:rule.note,overtimeCandidateMinutes:candidate,overtimePayableCandidateMinutes:payableCandidate,
         unpaidOvertimePotentialMinutes:Math.max(0,candidate-payableCandidate),overtimeStatus:req?.status||'NONE',overtimeRequestedMinutes:Number(req?.requestedMinutes||0),
         approvedOvertimeMinutes:approved,payrollOvertimeMinutes:Math.min(approved,payableCandidate),overtimeManagerReason:req?.managerReason||'',
         overtimeHrComment:req?.hrComment||'',overtimeManager:req?.manager||null,overtimeHr:req?.hr||null,overtimeRequestId:req?.id||'',
-        overtimeDayEquivalent:rule.thresholdMinutes>0?approved/rule.thresholdMinutes:0
+        overtimeDayEquivalent:threshold>0?approved/threshold:0
       };
       return x;
     });
@@ -317,7 +320,7 @@
         leave:days.filter(x=>x.status==='LEAVE').length,
         absent:days.filter(x=>x.status==='ABSENT').length,
         rest:days.filter(x=>x.status==='REST').length,
-        issues:days.filter(x=>['REVIEW','LEAVE_WITH_WORK','WORK_REST','WORK_NO_SCHEDULE'].includes(x.status)||Number(x.issueCount||0)>0||(Number(x.overtimeCandidateMinutes||0)>0&&!['HR_APPROVED','HR_CHANGED'].includes(x.overtimeStatus||''))).length
+        issues:days.filter(x=>['INCOMPLETE','REVIEW','LEAVE_WITH_WORK'].includes(x.status)||Number(x.issueCount||0)>0||(Number(x.overtimeCandidateMinutes||0)>0&&!['HR_APPROVED','HR_CHANGED'].includes(x.overtimeStatus||''))).length
       };
     }
     return{
