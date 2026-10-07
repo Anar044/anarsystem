@@ -95,3 +95,6 @@
 .proc-quote-legend span{display:flex;align-items:center;gap:6px}
 .best-dot{width:8px;height:8px;border-radius:50%;background:#42d392;box-shadow:0 0 0 3px rgba(66,211,146,.10)}
 @media(max-width:760px){.proc-quote-compare{min-width:650px}.proc-quote-legend{flex-direction:column}}
+
+.procurement-view-booting .proc-page{visibility:hidden!important;opacity:0!important}
+.proc-page{transition:opacity .08s linear}
