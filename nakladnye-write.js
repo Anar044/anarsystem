@@ -117,7 +117,7 @@
           '<div id="inc-items"></div>' +
           '<button id="inc-add" class="inc-btn" type="button" style="margin-top:10px">＋ Добавить позицию</button>' +
           '<datalist id="inc-product-options"></datalist><datalist id="inc-pack-options"><option value="0.1"></option><option value="0.25"></option><option value="0.5"></option><option value="1"></option><option value="2"></option><option value="2.1"></option><option value="2.5"></option><option value="5"></option><option value="10"></option></datalist>' +
-          '<div class="inc-note">«Сохранить» создаёт/обновляет накладную без проведения. «Сохранить и провести» сразу проводит документ по складу в iiko.</div>' +
+          '<div class="inc-note">Фасовка × упаковок = итоговое количество. Цена указывается за упаковку с учётом выбранного НДС. «Сохранить» создаёт/обновляет накладную без проведения, «Сохранить и провести» сразу проводит её по складу.</div>' +
           '<div class="inc-actions"><button id="inc-cancel" class="inc-btn" type="button">Отмена</button><button id="inc-save" class="inc-btn" type="button">Сохранить</button><button id="inc-save-process" class="inc-btn inc-primary" type="button">Сохранить и провести</button></div>' +
         '</div>' +
       '</div>';
