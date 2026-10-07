@@ -34,3 +34,17 @@
 .proc-switch input:checked+span{background:#1d5a40}
 .proc-switch input:checked+span:after{left:19px;background:#6ce0ac}
 .proc-dirty{display:block;margin-top:4px;color:#efc66f!important;font-size:9px!important}
+
+.proc-store-target{display:flex;align-items:center;gap:7px;height:36px;padding:0 8px 0 10px;border:1px solid #263646;border-radius:9px;background:#0a1219}
+.proc-store-target span{margin:0!important;color:#6f7d8e!important;font-size:9.5px!important;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.proc-store-target select{height:32px!important;min-width:160px!important;border:0!important;padding:0 4px!important;background:transparent!important}
+.proc-store-col{min-width:112px;text-align:center!important}
+.proc-store-col small{display:block;margin-top:3px;color:#42d392;font-size:8px;text-transform:none;letter-spacing:0}
+.proc-store-col.target{background:#13241c!important;color:#aee8cb!important}
+.proc-stock-cell{text-align:center!important;min-width:104px}
+.proc-stock-cell strong{font-size:12px}
+.proc-stock-cell small{display:block;margin-top:3px;font-size:9px;color:#718090}
+.proc-stock-cell.target{background:rgba(66,211,146,.055)}
+.proc-stock-cell.empty{color:#526171!important}
+.proc-table td:first-child{width:34px}
+.proc-table td:nth-child(2){min-width:210px}
