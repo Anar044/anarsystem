@@ -268,7 +268,12 @@ function packagingChoiceHtml(pid,{containerId='',packageSize=1,packageName=''}={
   const options=packs.map((p,i)=>{
     const isSelected=(cid&&key(p.id)===cid)||(!cid&&!matched&&Math.abs(num(p.count)-size)<0.0005);
     if(isSelected){matched=true;selectedManual=false}
-    const label=(p.name||p.num||('Фасовка '+(i+1)))+' · '+qty(p.count)+' '+(unitFor(pid)||'');
+    const unit=unitFor(pid)||'';
+    const rawName=String(p.name||p.num||'').trim();
+    const normalizedName=rawName.replace(',', '.').replace(/\s+/g,'');
+    const normalizedCount=String(num(p.count)).replace(',', '.').replace(/\s+/g,'');
+    const namePart=rawName&&normalizedName!==normalizedCount?rawName+' · ':'';
+    const label=namePart+qty(p.count)+(unit?' '+unit:'');
     return '<option value="'+esc(p.id||('__iiko_'+i))+'" data-count="'+esc(p.count)+'" data-name="'+esc(p.name||p.num||'')+'" '+(isSelected?'selected':'')+'>'+esc(label)+'</option>';
   }).join('');
   if(!matched&&cid)selectedManual=true;
@@ -643,7 +648,7 @@ function prLineHtml(line={}){
   const quantity=num(line.quantity??line.recommendedQty??line.manualQty??1),packageSize=num(line.packageSize,1)||1,packageCount=num(line.packageCount,quantity/packageSize)||1,vat=num(line.vatPercent,0);
   return '<div class="proc-edit-row proc-pack-row" data-pr-line data-product-id="'+esc(pid)+'">'+
     '<div class="proc-field"><span>Товар</span><input data-f="product" list="proc-products-list" value="'+esc(productLabel(pid,name))+'" placeholder="Начните вводить название"></div>'+
-    '<div class="proc-field proc-package-field"><span>Фасовка iiko</span><select data-f="packageChoice">'+packagingChoiceHtml(pid,{containerId:line.containerId,packageSize,packageName:line.packageName})+'</select><input data-f="packageSize" type="number" min="0.001" step="0.001" value="'+packageSize+'"></div>'+
+    '<div class="proc-field proc-package-field"><span>Фасовка</span><select data-f="packageChoice">'+packagingChoiceHtml(pid,{containerId:line.containerId,packageSize,packageName:line.packageName})+'</select><input data-f="packageSize" type="number" min="0.001" step="0.001" value="'+packageSize+'"></div>'+
     '<div class="proc-field"><span>Упаковок</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+packageCount+'"></div>'+
     '<div class="proc-field"><span>Итого '+esc(unit||'ед.')+'</span><input data-f="quantity" type="number" value="'+(packageSize*packageCount).toFixed(3).replace(/\.000$/,'')+'" readonly></div>'+
     '<div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div>'+
@@ -719,7 +724,7 @@ function openLinkInvoiceModal(o){
 }
 function receiptLineHtml(l){
   const packageSize=num(l.packageSize,1)||1,packageCount=Math.max(0,num(l.remainingQty)/packageSize),vat=num(l.vatPercent,0);
-  return '<div class="proc-edit-row proc-pack-row" data-receipt-line data-product-id="'+esc(l.productId)+'"><div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div><div class="proc-field proc-package-field"><span>Фасовка iiko</span><select data-f="packageChoice">'+packagingChoiceHtml(l.productId,{containerId:l.containerId,packageSize,packageName:l.packageName})+'</select><input data-f="packageSize" type="number" min="0.001" step="0.001" value="'+packageSize+'"></div><div class="proc-field"><span>Упаковок</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+packageCount+'"></div><div class="proc-field"><span>Итого '+esc(l.unit||'ед.')+'</span><input data-f="quantity" type="number" readonly value="'+num(l.remainingQty)+'"></div><div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div><div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0.01" step="0.01" value="'+num(l.unitPrice)+'"></div><strong class="line-total">'+money(packageCount*num(l.unitPrice))+'</strong><span></span><input data-f="containerId" type="hidden" value="'+esc(l.containerId||'')+'"><input data-f="packageName" type="hidden" value="'+esc(l.packageName||'')+'"><input data-f="unit" type="hidden" value="'+esc(l.unit||'')+'"></div>';
+  return '<div class="proc-edit-row proc-pack-row" data-receipt-line data-product-id="'+esc(l.productId)+'"><div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div><div class="proc-field proc-package-field"><span>Фасовка</span><select data-f="packageChoice">'+packagingChoiceHtml(l.productId,{containerId:l.containerId,packageSize,packageName:l.packageName})+'</select><input data-f="packageSize" type="number" min="0.001" step="0.001" value="'+packageSize+'"></div><div class="proc-field"><span>Упаковок</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+packageCount+'"></div><div class="proc-field"><span>Итого '+esc(l.unit||'ед.')+'</span><input data-f="quantity" type="number" readonly value="'+num(l.remainingQty)+'"></div><div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div><div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0.01" step="0.01" value="'+num(l.unitPrice)+'"></div><strong class="line-total">'+money(packageCount*num(l.unitPrice))+'</strong><span></span><input data-f="containerId" type="hidden" value="'+esc(l.containerId||'')+'"><input data-f="packageName" type="hidden" value="'+esc(l.packageName||'')+'"><input data-f="unit" type="hidden" value="'+esc(l.unit||'')+'"></div>';
 }
 function recalcReceipt(){
   let total=0;document.querySelectorAll('[data-receipt-line]').forEach(row=>{const pack=num(row.querySelector('[data-f="packageSize"]').value,1),count=num(row.querySelector('[data-f="packageCount"]').value),price=num(row.querySelector('[data-f="price"]').value);row.querySelector('[data-f="quantity"]').value=(pack*count).toFixed(3).replace(/\.000$/,'');const v=count*price;total+=v;row.querySelector('.line-total').textContent=money(v)});if($('proc-receipt-total'))$('proc-receipt-total').textContent=money(total)
