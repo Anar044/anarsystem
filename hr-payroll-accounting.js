@@ -1,5 +1,5 @@
 (()=>{'use strict';
-const $=id=>document.getElementById(id),state={accounts:[],config:null,scope:null,binding:null,access:null};
+const $=id=>document.getElementById(id),state={accounts:[],bankAccounts:[],config:null,scope:null,binding:null,access:null};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const TYPES={CASH:'Денежные средства',ACCOUNTS_RECEIVABLE:'Дебиторская задолженность',DEBTS_OF_EMPLOYEES:'Долги сотрудников',CURRENT_ASSET:'Текущие активы',OTHER_CURRENT_ASSET:'Основные средства',INVENTORY_ASSETS:'Складские запасы',EMPLOYEES_LIABILITY:'Расчёты с сотрудниками',ACCOUNTS_PAYABLE:'Расчёты с поставщиками',CLIENTS_LIABILITY:'Расчёты с гостями',OTHER_CURRENT_LIABILITY:'Прочие текущие обязательства',LONG_TERM_LIABILITY:'Долгосрочные обязательства',EQUITY:'Капитал',COST_OF_GOODS_SOLD:'Себестоимость / прямые издержки',INCOME:'Доходы',EXPENSES:'Расходы',OTHER_INCOME:'Прочие доходы',OTHER_EXPENSES:'Прочие расходы'};
 function typeName(t){return TYPES[String(t||'').toUpperCase()]||String(t||'—')}
@@ -39,13 +39,28 @@ function renderScope(){
   const fallback=cfg&&cfg.effectiveScopeKey!==scope.scopeKey?` Сейчас используется fallback: ${cfg.effectiveScopeKey}.`:'';
   $('hrpaScope').innerHTML=`<strong>Область настройки:</strong> ${esc(current)}.${esc(fallback)} ${selected.length?`Выбрано: ${esc(selected.join(', '))}.`:''}`;
 }
+function defaultBank(){return state.bankAccounts.find(x=>x.isDefault)||state.bankAccounts[0]||null}
+function bankAccount(id){return state.bankAccounts.find(x=>String(x.id)===String(id))||null}
+function renderBanks(){
+  const box=$('hrpaBankList'),count=$('hrpaBankCount');if(!box)return;
+  count.textContent=`${state.bankAccounts.length} банковских счетов`;
+  box.innerHTML=state.bankAccounts.length?state.bankAccounts.map(b=>`<div class="hrpa-bank-item" data-bank-id="${esc(b.id)}"><div class="hrpa-bank-main"><strong>${esc([account(b.id)?.code,b.name||account(b.id)?.name||b.id].filter(Boolean).join(' · '))}</strong><small>${esc(typeName(b.type||account(b.id)?.type))} · ID: ${esc(b.id)}</small></div><label class="hrpa-bank-default"><input type="radio" name="hrpaDefaultBank" value="${esc(b.id)}" ${b.isDefault?'checked':''}> По умолчанию</label><button type="button" class="hrpa-bank-remove" data-bank-remove="${esc(b.id)}" title="Удалить банк">×</button></div>`).join(''):'<div class="hrpa-bank-empty">Банковские счета пока не добавлены. Выплаты через банк будут недоступны, пока не добавите хотя бы один счёт.</div>';
+  box.querySelectorAll('input[name="hrpaDefaultBank"]').forEach(r=>r.onchange=()=>{state.bankAccounts=state.bankAccounts.map(x=>({...x,isDefault:String(x.id)===String(r.value)}));renderBanks();renderPreview()});
+  box.querySelectorAll('[data-bank-remove]').forEach(b=>b.onclick=()=>{const id=b.dataset.bankRemove;state.bankAccounts=state.bankAccounts.filter(x=>String(x.id)!==String(id));if(state.bankAccounts.length&&!state.bankAccounts.some(x=>x.isDefault))state.bankAccounts[0].isDefault=true;renderBanks();renderPreview()});
+}
+function addBank(){
+  const a=account($('hrpaBankCandidate')?.value);if(!a)return;
+  if(state.bankAccounts.some(x=>String(x.id)===String(a.id)))return;
+  state.bankAccounts.push({id:String(a.id),name:a.name||'',type:a.type||'',isDefault:state.bankAccounts.length===0});
+  $('hrpaBankCandidate').value='';renderBanks();renderPreview();
+}
 function renderPreview(){
-  const exp=account($('hrpaSalaryExpense').value),pay=account($('hrpaEmployeePayable').value),cash=account($('hrpaCash').value),bank=account($('hrpaBank').value);
-  const name=a=>a?esc([a.code,a.name].filter(Boolean).join(' · ')):'<em>не выбран</em>';
+  const exp=account($('hrpaSalaryExpense').value),pay=account($('hrpaEmployeePayable').value),cash=account($('hrpaCash').value),bank=defaultBank();
+  const name=a=>a?esc([a.code||account(a.id)?.code,a.name||account(a.id)?.name].filter(Boolean).join(' · ')):'<em>не выбран</em>';
   $('hrpaPreview').innerHTML=[
     ['Начисление доп. часов',name(exp),'Дт','→ Кт '+name(pay)],
     ['Выплата наличными',name(pay),'Дт','→ Кт '+name(cash)],
-    ['Выплата через банк',name(pay),'Дт','→ Кт '+name(bank)]
+    ['Выплата через банк',name(pay),'Дт','→ Кт '+name(bank)+(bank?' (по умолчанию)':'')]
   ].map(x=>`<div class="hrpa-entry"><span>${x[0]}</span><strong>${x[1]}</strong><b>${x[2]}</b><strong>${x[3]}</strong></div>`).join('');
 }
 function render(){
@@ -53,25 +68,24 @@ function render(){
   fillSelect('hrpaSalaryExpense','expense',c.salaryExpense?.id);
   fillSelect('hrpaEmployeePayable','liability',c.employeePayable?.id);
   fillSelect('hrpaCash','cash',c.cash?.id);
-  fillSelect('hrpaBank','bank',c.bank?.id);
+  fillSelect('hrpaBankCandidate','bank','',true);
   fillSelect('hrpaOther','cash',c.otherPayment?.id,true);
   fillSelect('hrpaEmployerExpense','expense',c.employerContribExpense?.id,true);
   fillSelect('hrpaTaxPayable','liability',c.taxPayable?.id,true);
-  ['hrpaSalaryExpense','hrpaEmployeePayable','hrpaCash','hrpaBank','hrpaOther'].forEach(renderMeta);
-  renderPreview();
+  ['hrpaSalaryExpense','hrpaEmployeePayable','hrpaCash','hrpaOther'].forEach(renderMeta);
+  renderBanks();renderPreview();
   $('hrpaSave').disabled=state.access?.canConfigurePayrollAccounting===false;
   if(state.access?.canConfigurePayrollAccounting===false)$('hrpaSave').title='Только владелец или Payroll может менять бухгалтерские счета';
 }
 function selectedDto(id){const a=account($(id).value);return a?{id:String(a.id),name:a.name||'',type:a.type||''}:{id:'',name:'',type:''}}
 function collect(){
-  const exp=selectedDto('hrpaSalaryExpense'),pay=selectedDto('hrpaEmployeePayable'),cash=selectedDto('hrpaCash'),bank=selectedDto('hrpaBank'),other=selectedDto('hrpaOther'),empl=selectedDto('hrpaEmployerExpense'),tax=selectedDto('hrpaTaxPayable');
-  if(!exp.id||!pay.id||!cash.id||!bank.id)throw new Error('Выберите 4 обязательных счёта: расходы на оплату труда, задолженность сотрудникам, кассу и банк.');
+  const exp=selectedDto('hrpaSalaryExpense'),pay=selectedDto('hrpaEmployeePayable'),cash=selectedDto('hrpaCash'),other=selectedDto('hrpaOther'),empl=selectedDto('hrpaEmployerExpense'),tax=selectedDto('hrpaTaxPayable');
+  if(!exp.id||!pay.id||!cash.id)throw new Error('Выберите обязательные счета: расходы на оплату труда, задолженность сотрудникам и кассу.');
   if(exp.id===pay.id)throw new Error('Расходный счёт и задолженность сотрудникам должны быть разными счетами.');
   return{
     salaryExpenseAccountId:exp.id,salaryExpenseAccountName:exp.name,salaryExpenseAccountType:exp.type,
     employeePayableAccountId:pay.id,employeePayableAccountName:pay.name,employeePayableAccountType:pay.type,
     cashAccountId:cash.id,cashAccountName:cash.name,cashAccountType:cash.type,
-    bankAccountId:bank.id,bankAccountName:bank.name,bankAccountType:bank.type,
     otherPaymentAccountId:other.id,otherPaymentAccountName:other.name,otherPaymentAccountType:other.type,
     employerContribExpenseAccountId:empl.id,employerContribExpenseAccountName:empl.name,employerContribExpenseAccountType:empl.type,
     taxPayableAccountId:tax.id,taxPayableAccountName:tax.name,taxPayableAccountType:tax.type
@@ -87,17 +101,17 @@ async function load(){
   try{
     showError();setStatus('Загрузка…');
     const[cfg]=await Promise.all([api('/api/hr/payroll-accounting-settings'),loadAccounts()]);
-    state.config=cfg.config;state.scope=cfg.scope;state.access=cfg.access;render();setStatus('Готово','ok');
+    state.config=cfg.config;state.bankAccounts=Array.isArray(cfg.bankAccounts)?cfg.bankAccounts.map(x=>({...x,isDefault:Boolean(x.isDefault)})):[];state.scope=cfg.scope;state.access=cfg.access;render();setStatus('Готово','ok');
   }catch(e){console.error(e);showError(e.message||String(e));setStatus('Ошибка','error')}
 }
 async function save(){
   try{
     showError();setStatus('Сохранение…');$('hrpaSave').disabled=true;
-    const out=await api('/api/hr/payroll-accounting-settings',{method:'POST',body:JSON.stringify({scopeKey:state.scope?.scopeKey||'*',config:collect()})});
-    state.config=out.config;state.access=out.access;render();setStatus('Сохранено','ok');
+    const out=await api('/api/hr/payroll-accounting-settings',{method:'POST',body:JSON.stringify({scopeKey:state.scope?.scopeKey||'*',config:collect(),bankAccounts:state.bankAccounts})});
+    state.config=out.config;state.bankAccounts=Array.isArray(out.bankAccounts)?out.bankAccounts.map(x=>({...x,isDefault:Boolean(x.isDefault)})):state.bankAccounts;state.access=out.access;render();setStatus('Сохранено','ok');
   }catch(e){console.error(e);showError(e.message||String(e));setStatus('Ошибка','error')}
   finally{$('hrpaSave').disabled=state.access?.canConfigurePayrollAccounting===false}
 }
-function init(){$('hrpaSave').onclick=save;load()}
+function init(){$('hrpaSave').onclick=save;$('hrpaBankAdd').onclick=addBank;load()}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
