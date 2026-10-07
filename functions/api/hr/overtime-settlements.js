@@ -2,6 +2,7 @@ import { loadRequestIikoState, privateConnection } from "../iiko/_lib/user-state
 import { resolveHrRestaurantScope, filterEmployeesByScope } from "./_lib/restaurant-scope.js";
 import { hrAccessForUser, requireCapability } from "./_lib/timesheet-adjustments.js";
 import { logAuditEvent } from "../_lib/audit-log.js";
+import { getPayrollAccountingConfig, payrollAccountingReady, syncOvertimePaymentPosting, cancelAccountingSource } from "./_lib/payroll-accounting.js";
 
 function cors(){return{"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"GET, POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type, Authorization"}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store",...cors()}})}
@@ -68,8 +69,18 @@ export async function onRequestPost({request,env}){
       const before=await snapshot(request,env,userId,month),row=before.rows.find(x=>String(x.id)===employeeId);
       if(!row)return json({success:false,message:"Сотрудник не найден в выбранном подразделении"},404);
       if(amount>Number(row.closingDebt||0)+.009)return json({success:false,message:"Сумма выплаты превышает долг "+Number(row.closingDebt||0).toFixed(2)+" AZN"},409);
+      const accounting=await getPayrollAccountingConfig(env.DB,userId,row.departmentCode||"");
+      if(!payrollAccountingReady(accounting))return json({success:false,code:"PAYROLL_ACCOUNTING_NOT_CONFIGURED",message:"Сначала настройте реальные счета Payroll: расходы на зарплату, задолженность сотрудникам, кассу и банк."},409);
+      if(method==="OTHER"&&!accounting.other_payment_account_id)return json({success:false,code:"PAYROLL_OTHER_ACCOUNT_NOT_CONFIGURED",message:"Для способа «Другое» не настроен счёт списания."},409);
       const id=crypto.randomUUID();
       await env.DB.prepare("INSERT INTO hr_overtime_payments(user_id,payment_id,iiko_employee_id,payment_date,amount,payment_method,reference,note,status,actor_id,actor_label,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'POSTED',?9,?10,?11,?11)").bind(userId,id,employeeId,paymentDate,amount,method,reference,note,actorId,actor,t).run();
+      try{
+        const posting=await syncOvertimePaymentPosting(env.DB,{userId,paymentId:id,employeeId,employeeName:row.name,departmentCode:row.departmentCode||"",paymentDate,amount,paymentMethod:method,reference,note});
+        if(!posting?.posted)throw new Error(posting?.reason||"Не удалось создать бухгалтерскую проводку");
+      }catch(error){
+        await env.DB.prepare("DELETE FROM hr_overtime_payments WHERE user_id=?1 AND payment_id=?2").bind(userId,id).run();
+        throw error;
+      }
       const after=await snapshot(request,env,userId,month);after.access=access;
       await logAuditEvent({request,env,connection,action:"CREATE",entityType:"HR_OVERTIME_PAYMENT",entityId:id,entityLabel:"Выплата доп. часов · "+row.name,before:null,after:{employeeId,paymentDate,amount,method,reference,note},restaurantIds:after.restaurantScope?.departmentIds||[],metadata:{month}});
       return json(after);
@@ -81,6 +92,7 @@ export async function onRequestPost({request,env}){
       const before=await snapshot(request,env,userId,month);if(!before.rows.some(x=>String(x.id)===String(old.iiko_employee_id)))return json({success:false,message:"Выплата относится к сотруднику вне выбранного подразделения"},403);
       const note=reason?String(old.note||"")+(old.note?" · ":"")+"Отмена: "+reason:String(old.note||"");
       await env.DB.prepare("UPDATE hr_overtime_payments SET status='CANCELLED',note=?3,actor_id=?4,actor_label=?5,updated_at=?6 WHERE user_id=?1 AND payment_id=?2").bind(userId,paymentId,note,actorId,actor,t).run();
+      await cancelAccountingSource(env.DB,userId,"HR_OT_PAYMENT:"+paymentId);
       const after=await snapshot(request,env,userId,month);after.access=access;
       await logAuditEvent({request,env,connection,action:"DELETE",entityType:"HR_OVERTIME_PAYMENT",entityId:paymentId,entityLabel:"Отмена выплаты дополнительных часов",before:old,after:{status:"CANCELLED",reason},restaurantIds:after.restaurantScope?.departmentIds||[],metadata:{month}});
       return json(after);
