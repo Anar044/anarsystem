@@ -62,3 +62,5 @@
 .proc-history-block[open]>summary:before{transform:rotate(90deg)}
 .proc-card-list.inner{padding:8px 0 0}
 .procurement-nav-group .documents-subnav a{padding-left:10px!important}
+
+.proc-status.warning{display:block;border-color:#5a4721;background:#241d10;color:#efc66f}
