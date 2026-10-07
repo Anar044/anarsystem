@@ -335,7 +335,7 @@
   function renderSummary(){
     const employees=filteredEmployees(),ids=new Set(employees.map(x=>x.id)),rows=dayList().filter(x=>ids.has(x.employeeId));
     if(mode==='FACTUAL'){
-      const t=buildEmployeeTotals(rows),noSchedule=rows.filter(x=>x.status==='NO_SCHEDULE').length,connected=faceIdConnected();
+      const t=buildEmployeeTotals(rows),incomplete=rows.filter(x=>x.status==='INCOMPLETE').length,connected=faceIdConnected();
       $('tsSummary').innerHTML=[
         ['Сотрудников',employees.length,'по текущему фильтру'],
         ['Факт',hoursLong(t.fact),connected?'Face ID + ручные корректировки':'ручной ввод до подключения Face ID'],
@@ -345,8 +345,8 @@
         ['Неоплач. доп.',hoursLong(t.overtimeUnpaid),'между нормой и порогом оплаты'],
         ['Рабочих дней',t.work,'с фактическим временем'],
         ['Отпуск',t.leave,'дней'],
-        connected?['Y / Нет',t.absent,'рабочих дней без отметок']:['Режим учёта','Ручной','Face ID пока не подключён'],
-        ['Нет графика',noSchedule,'не считаются отсутствием']
+        connected?['Неполная явка',incomplete,'есть только одна отметка']:['Режим учёта','Ручной','Face ID пока не подключён'],
+        ['График','Свободный','без опозданий и ранних уходов']
       ].map(x=>`<article class="ts-summary-item"><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
     }else{
       const t=buildEmployeeTotals(rows);
@@ -615,15 +615,15 @@
       $('tsDrawerBody').innerHTML=`
         <div class="ts-detail-status"><div><span>Статус</span><strong>${esc(v.label)}</strong></div><b class="lg ${v.cls}">${esc(v.code)}</b></div>
         <div class="ts-detail-grid">
-          ${detailBox('График',x.scheduleConfigured?(x.scheduleName||'График должности'):'Не задан')}
-          ${detailBox('Смена',x.shiftStart&&x.shiftEnd?`${x.shiftStart}–${x.shiftEnd}`:'—')}
+          ${detailBox('Режим учёта',x.scheduleName||'Свободный график')}
+          ${detailBox('Окно смены',x.shiftStart&&x.shiftEnd?`${x.shiftStart}–${x.shiftEnd} следующего дня`:'—')}
           ${detailBox('План',hoursLong(x.plannedMinutes))}
           ${detailBox('Факт',hoursLong(x.workedMinutes))}
           ${detailBox('Норма для расчёта',hoursLong(x.normMinutes))}
           ${detailBox('Доп. часы до HR',hoursLong(x.overtimeCandidateMinutes))}
           ${faceIdConnected()?detailBox('Первый вход',localTime(x.firstIn)):detailBox('Источник факта',x.corrected?'Ручной ввод':'Не введён')}
           ${faceIdConnected()?detailBox('Последний выход',localTime(x.lastOut)):detailBox('Face ID','Не подключён')}
-          ${detailBox('Источник графика',x.scheduleSource==='EMPLOYEE'?'Индивидуальный':x.scheduleSource==='ROLE'?'Должность':'—')}
+          ${detailBox('Источник смены',x.scheduleSource==='EMPLOYEE'?'Индивидуально':x.scheduleSource==='ROLE'?'Должность':'—')}
           ${faceIdConnected()?detailBox('Ошибок Face ID',String(x.issueCount||0)):detailBox('Режим','Ручной учёт')}
         </div>
         ${x.leaveName?`<div class="ts-detail-note"><strong>Отпуск:</strong> ${esc(x.leaveName)}${x.leaveNote?'<br>'+esc(x.leaveNote):''}</div>`:''}
