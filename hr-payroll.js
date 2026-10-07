@@ -201,6 +201,7 @@ function officialRows(list){
   </tr>`}).join('');
 }
 function renderTable(){
+  if(mode==='SETTLEMENTS')return;
   const list=selectedModels();$('hrpCount').textContent=`${list.length} сотрудников`;
   let body='';if(mode==='FACTUAL')body=factualRows(list);else if(mode==='OFFICIAL')body=officialRows(list);else body=overallRows(list);
   $('hrpRows').innerHTML=body||`<tr><td colspan="20" class="hr-empty">Сотрудники не найдены.</td></tr>`;
@@ -282,7 +283,12 @@ async function cancelPayment(paymentId){
 }
 
 function renderTabs(){
+  const settlements=mode==='SETTLEMENTS';
   document.querySelectorAll('.hrp-tab').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));
+  if($('hrpMainCard'))$('hrpMainCard').hidden=settlements;
+  if($('hrpSettlementCard'))$('hrpSettlementCard').hidden=!settlements;
+  if($('hrpState'))$('hrpState').hidden=settlements;
+  document.querySelector('.hrp-filter-card')?.classList.toggle('settlement-mode',settlements);
 }
 function render(){renderFilters();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
 function onFilter(){renderSummary();renderTable();renderSettlements()}
@@ -297,7 +303,7 @@ async function load(){
 function bind(){
   $('hrpRefresh').onclick=load;$('hrpMonth').onchange=load;
   $('hrpSearch').oninput=onFilter;$('hrpRole').onchange=onFilter;$('hrpState').onchange=onFilter;
-  document.querySelectorAll('.hrp-tab').forEach(b=>b.onclick=()=>{mode=b.dataset.mode||'OVERALL';renderTabs();renderTable()});
+  document.querySelectorAll('.hrp-tab').forEach(b=>b.onclick=()=>{mode=b.dataset.mode||'OVERALL';renderTabs();renderTable();renderSettlements()});
   $('hrpSettlementRows')?.addEventListener('click',e=>{
     const pay=e.target.closest('.hrp-pay-debt');if(pay){openPayment(pay.dataset.employeeId);return}
     const cancel=e.target.closest('.hrp-cancel-payment');if(cancel)cancelPayment(cancel.dataset.paymentId);
