@@ -261,14 +261,15 @@ async function loadCurrentAccountPostings(){
     const departmentIds=Array.isArray(b?.departmentIds)?b.departmentIds.map(String).filter(Boolean):[];
     const allowedDepartmentIds=Array.isArray(b?.allDepartmentIds)?b.allDepartmentIds.map(String).filter(Boolean):departmentIds;
     const selectedSet=new Set(departmentIds);
-    const selectedDepartmentNames=(Array.isArray(b?.restaurants)?b.restaurants:[])
-      .filter(x=>selectedSet.has(String(x?.id||'')))
-      .map(x=>String(x?.name||'').trim())
-      .filter(Boolean);
+    const selectedRestaurants=(Array.isArray(b?.restaurants)?b.restaurants:[])
+      .filter(x=>selectedSet.has(String(x?.id||'')));
+    const selectedDepartmentNames=selectedRestaurants.map(x=>String(x?.name||'').trim()).filter(Boolean);
+    const selectedDepartmentCodes=selectedRestaurants.map(x=>String(x?.code||'').trim()).filter(Boolean);
     const chainScope={
       mode:String(b?.identity?.mode||c?.connectionType||'RMS').toUpperCase(),
       allowedDepartmentIds,
       selectedDepartmentIds:departmentIds,
+      selectedDepartmentCodes,
       selectedDepartmentNames
     };
     const data=await post(POSTINGS,{
@@ -340,9 +341,19 @@ async function load(){
   const btn=$('fin-load');btn.disabled=true;
   try{
     status('Получаем план счетов и балансы SH Server…');
+    const allowedDepartmentIds=Array.isArray(binding?.allDepartmentIds)?binding.allDepartmentIds.map(String).filter(Boolean):departmentIds;
+    const selectedSet=new Set(departmentIds);
+    const selectedRestaurants=(Array.isArray(binding?.restaurants)?binding.restaurants:[]).filter(x=>selectedSet.has(String(x?.id||'')));
+    const chainScope={
+      mode:String(binding?.identity?.mode||c?.connectionType||'RMS').toUpperCase(),
+      allowedDepartmentIds,
+      selectedDepartmentIds:departmentIds,
+      selectedDepartmentCodes:selectedRestaurants.map(x=>String(x?.code||'').trim()).filter(Boolean),
+      selectedDepartmentNames:selectedRestaurants.map(x=>String(x?.name||'').trim()).filter(Boolean)
+    };
     const data=await post(ACCOUNTS,{
       ip:c.ip,port:c.port,login:c.login,password:c.password,
-      includeDeleted:false,timestamp:nowIikoTimestamp(),departmentIds
+      includeDeleted:false,timestamp:nowIikoTimestamp(),departmentIds,chainScope
     });
     accountItems=(data.accounts||[]).map(a=>({...a,id:String(a.id),accountParentId:a.accountParentId?String(a.accountParentId):null}));
     expanded.clear();
