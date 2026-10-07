@@ -55,7 +55,7 @@ case'charts.delete':path='/resto/api/v2/assemblyCharts/delete';method='POST';bod
 default:throw new Error('Неизвестная операция номенклатурного API')}
 return{path:buildPath(path,params),method,body}}
 function sanitizeContainerForWrite(x={}){
-  return{
+  const out={
     num:clean(x.num),
     name:clean(x.name),
     count:Number(x.count||0),
@@ -65,6 +65,11 @@ function sanitizeContainerForWrite(x={}){
     fullContainerWeight:Number(x.fullContainerWeight||0),
     useInFront:x.useInFront===true
   };
+  // Existing containers are updated by their real iiko ID.
+  // A new container has no ID and iiko assigns one.
+  const id=clean(x.id);
+  if(id)out.id=id;
+  return out;
 }
 function sanitizeMutationPayload(action,payload){
   if(!payload||typeof payload!=="object")return payload;
