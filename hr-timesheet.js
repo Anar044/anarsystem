@@ -557,7 +557,12 @@
       document.querySelectorAll('.ts-drawer-body button').forEach(b=>b.disabled=true);
       const result=await adjustmentApi(payload);
       await load();
-      if(keep)openDrawer(keep.employeeId,keep.date);
+      if(keep){
+        openDrawer(keep.employeeId,keep.date);
+        if(['SAVE_CORRECTION','SUBMIT_OVERTIME','HR_APPROVE_OVERTIME','HR_REJECT_OVERTIME','RESET_OVERTIME'].includes(String(payload?.action||''))){
+          requestAnimationFrame(()=>document.querySelector('.ts-overtime-editor')?.scrollIntoView({block:'start',behavior:'smooth'}));
+        }
+      }
       const suffix=result?.overtimeReset?' Решение Manager/HR по доп. часам сброшено — нужно отправить заново.':'';
       setStatus((successText||'Готово')+suffix,'ok');
     }catch(e){
