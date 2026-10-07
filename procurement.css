@@ -21,3 +21,16 @@
 .proc-history-note{margin-top:8px;color:#708091;font-size:9.5px}.proc-two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px}.proc-receipt-choice{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
 .proc-scope-label{display:inline-flex;align-items:center;min-height:30px;padding:0 9px;border:1px solid #243445;border-radius:9px;background:#101820;color:#8ea0b1;font-size:10px}
 @media(max-width:1280px){.proc-flow{grid-template-columns:repeat(3,1fr)}.proc-flow i{display:none}.proc-quote-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:900px){.proc-page{padding:18px 14px 40px}.proc-hero{flex-direction:column}.proc-kpis,.proc-analytics-grid{grid-template-columns:repeat(2,1fr)}.proc-flow{grid-template-columns:repeat(2,1fr)}.proc-panel-head{align-items:flex-start;flex-direction:column}.proc-toolbar{flex-wrap:wrap}.proc-toolbar input,.proc-toolbar select{min-width:0;flex:1 1 220px}.proc-toolbar span{margin-left:0}.proc-form-grid,.proc-settings-grid{grid-template-columns:1fr 1fr}.proc-edit-row{grid-template-columns:1fr 1fr}.proc-edit-row .line-total{grid-column:1/-1;text-align:left}.proc-quote-grid{grid-template-columns:1fr}}@media(max-width:600px){.proc-kpis,.proc-analytics-grid,.proc-flow,.proc-form-grid,.proc-settings-grid{grid-template-columns:1fr}.proc-line{grid-template-columns:1fr}.proc-line span:last-child{text-align:left}.proc-doc-top,.proc-doc-footer{align-items:flex-start;flex-direction:column}.proc-edit-row{grid-template-columns:1fr}.proc-edit-row .line-total{grid-column:auto}.proc-modal{width:98vw}.proc-scope-label{display:none}}
+
+.proc-norms-tip{margin:12px 14px 0;padding:10px 12px;border:1px solid #274033;border-radius:9px;background:#102019;color:#90b7a4;font-size:10.5px;line-height:1.45}
+.proc-norms-tip strong{color:#d6f2e4}
+.proc-norms-table .proc-norm-input{width:92px;height:32px;box-sizing:border-box;border:1px solid #2a3a49;border-radius:8px;background:#0a1219;color:#e8eef4;padding:0 8px;outline:0}
+.proc-norms-table .proc-norm-input.lead{width:70px}
+.proc-norms-table .proc-norm-input:focus{border-color:#42d392;box-shadow:0 0 0 2px rgba(66,211,146,.08)}
+.proc-switch{position:relative;display:inline-flex;width:38px;height:22px;vertical-align:middle}
+.proc-switch input{position:absolute;opacity:0;pointer-events:none}
+.proc-switch span{position:absolute;inset:0;border-radius:999px;background:#263441;transition:.18s}
+.proc-switch span:after{content:"";position:absolute;width:16px;height:16px;left:3px;top:3px;border-radius:50%;background:#8d9aaa;transition:.18s}
+.proc-switch input:checked+span{background:#1d5a40}
+.proc-switch input:checked+span:after{left:19px;background:#6ce0ac}
+.proc-dirty{display:block;margin-top:4px;color:#efc66f!important;font-size:9px!important}
