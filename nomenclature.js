@@ -40,7 +40,7 @@ function collectNewPackages(back,p){
 }
 async function verifyPackagesInIiko(productId,created){
   if(!created.length)return;
-  const fresh=arr(await api('products.list',{includeDeleted:true}));
+  const fresh=arr(await api('products.list',{includeDeleted:true,force:true}));
   const product=fresh.find(x=>String(x.id||'').toLowerCase()===String(productId||'').toLowerCase());
   if(!product)throw Error('iiko сохранил изменения, но товар не удалось перечитать для проверки фасовки.');
   const actual=Array.isArray(product.containers)?product.containers:[];
@@ -55,10 +55,10 @@ function productModal(x=null){
   const existingPackages=packageRows(p);
   const body=`<div class="form-grid"><label>Название<input data-f="name" value="${esc(p.name)}"></label><label>Тип<select data-f="type">${['GOODS','DISH','PREPARED','SERVICE','MODIFIER','RATE'].map(t=>`<option ${p.type===t?'selected':''}>${t}</option>`).join('')}</select></label><label>Группа<select data-f="parent"><option value="">Корневая</option>${groups.filter(g=>!g.deleted).map(g=>`<option value="${esc(g.id)}" ${String(p.parent||'')===String(g.id)?'selected':''}>${esc(g.name)}</option>`).join('')}</select></label><label>Категория<select data-f="category"><option value="">Без категории</option>${categories.filter(c=>!c.deleted).map(c=>`<option value="${esc(c.id)}" ${String(p.category||'')===String(c.id)?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label><label>Артикул / num<input data-f="num" value="${esc(p.num||'')}" placeholder="Оставьте пустым для генерации"></label><label>Код / fast code<input data-f="code" value="${esc(p.code||'')}" placeholder="Оставьте пустым для генерации"></label><label>Основная единица (UUID)<input data-f="mainUnit" value="${esc(p.mainUnit||'')}" required></label><label>Цена по умолчанию<input data-f="defaultSalePrice" type="number" step="0.000001" value="${esc(p.defaultSalePrice??0)}"></label><label>Вес единицы<input data-f="unitWeight" type="number" step="0.000001" value="${esc(p.unitWeight??1)}"></label><label>Объём единицы<input data-f="unitCapacity" type="number" step="0.000001" value="${esc(p.unitCapacity??0)}"></label><label>Место приготовления UUID<input data-f="placeType" value="${esc(p.placeType||'')}"></label><label>Описание<textarea data-f="description">${esc(p.description||'')}</textarea></label></div>
   <div style="margin-top:12px"><label class="check"><input data-f="defaultIncludedInMenu" type="checkbox" ${p.defaultIncludedInMenu?'checked':''}> включать по умолчанию в меню</label><label class="check"><input data-f="notInStoreMovement" type="checkbox" ${p.notInStoreMovement?'checked':''}> не участвует в движениях склада</label></div>
-  <section class="nom-packages"><div class="nom-packages-head"><div><h3>Фасовки</h3><p>Фасовки хранятся в карточке товара iiko. Smart Horeca не создаёт отдельную локальную фасовку.</p></div><button type="button" class="btn secondary" data-add-package>＋ Добавить фасовку</button></div>
+  <section class="nom-packages"><div class="nom-packages-head"><div><h3>Фасовки</h3><p>Фасовки хранятся в карточке товара iiko. Smart Horeca не создаёт отдельную локальную фасовку.</p></div><button type="button" class="btn secondary" data-add-package ${x?'':'disabled'}>＋ Добавить фасовку</button></div>
     <div class="nom-package-existing">${existingPackages.length?existingPackages.map(packageCard).join(''):'<div class="empty compact">В iiko фасовки пока не заведены. Будет использоваться основная единица.</div>'}</div>
     <div class="nom-package-new" data-package-editor></div>
-    <div class="nom-package-note">Новая фасовка появится в закупках и накладных только после успешного сохранения в iiko и повторной проверки карточки товара.</div>
+    <div class="nom-package-note">${x?'Новая фасовка появится в закупках и накладных только после успешного сохранения в iiko и повторной проверки карточки товара.':'Сначала сохраните новый товар в iiko, затем откройте его снова и добавьте фасовку.'}</div>
   </section>
   ${p.frontImageId?`<div style="margin-top:14px"><div class="muted">Изображение</div><img id="product-image" class="image-preview" alt=""></div>`:''}`;
 
@@ -80,7 +80,8 @@ function productModal(x=null){
   });
 
   const editor=m.querySelector('[data-package-editor]');
-  m.querySelector('[data-add-package]').onclick=()=>{
+  const addPackageButton=m.querySelector('[data-add-package]');
+  if(addPackageButton&&!addPackageButton.disabled)addPackageButton.onclick=()=>{
     editor.insertAdjacentHTML('beforeend',newPackageRow());
     const row=editor.lastElementChild;
     row.querySelector('[data-remove-package]').onclick=()=>row.remove();
