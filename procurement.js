@@ -106,6 +106,28 @@ function buildPriceHistory(){
     }
   }
 }
+
+function receiptSignature(lines){
+  return (lines||[]).map(x=>[key(x.productId),Number(x.quantity??x.actualAmount??x.amount||0).toFixed(3),Number(x.unitPrice??x.price||0).toFixed(4)].join(':')).sort().join('|');
+}
+async function reconcileLinkedReceipts(){
+  const receipts=state.data?.receipts||[];if(!receipts.length||!state.historyDocs.length)return false;
+  const byNumber=new Map(state.historyDocs.map(d=>[String(d.documentNumber||'').trim().toLowerCase(),d]).filter(x=>x[0]));
+  let changed=false;
+  for(const receipt of receipts){
+    const doc=byNumber.get(String(receipt.iikoDocumentNumber||'').trim().toLowerCase());if(!doc)continue;
+    const lines=(doc.items||[]).map(x=>({productId:key(x.productId),productName:x.productName||productName(x.productId),unit:x.amountUnit||unitFor(x.productId),quantity:num(x.actualAmount??x.amount),unitPrice:num(x.price)})).filter(x=>x.productId&&x.quantity>0);
+    const sameLines=receiptSignature(lines)===receiptSignature(receipt.lines||[]);
+    const sameStatus=String(receipt.iikoStatus||'').toUpperCase()===String(doc.status||'').toUpperCase();
+    if(sameLines&&sameStatus)continue;
+    try{
+      await procPost('sync-receipt',{iikoDocumentNumber:receipt.iikoDocumentNumber,iikoStatus:doc.status||receipt.iikoStatus,documentDate:String(doc.dateIncoming||doc.incomingDate||receipt.documentDate||today()).slice(0,10),comment:doc.comment||receipt.comment||'',lines});
+      changed=true;
+    }catch(e){console.warn('Receipt reconciliation failed',receipt.iikoDocumentNumber,e)}
+  }
+  if(changed)await loadProcurement();
+  return changed;
+}
 function unitFor(pid){const r=state.stockRows.find(x=>key(x.productId)===key(pid)&&x.unit);return r?.unit||''}
 function productName(pid){return state.productById.get(key(pid))?.name||state.stockRows.find(x=>key(x.productId)===key(pid))?.productName||pid}
 function productLabel(pid,name){const id=key(pid);return String(name||productName(id)||id)+(id?' · …'+id.slice(-6):'')}
@@ -294,6 +316,7 @@ async function loadAll(){
     state.token=await authToken();state.binding=await window.SH_IikoContext.getBinding();
     if(!state.binding?.connection?.ip)throw Error('Сначала подключите Smart Horeca Server в настройках.');
     await Promise.all([loadProcurement(),loadReferences(),loadStocks(),loadHistory()]);
+    await reconcileLinkedReceipts();
     renderAll();await flushPending();setStatus('Данные закупок обновлены.','ok');setTimeout(()=>setStatus(''),2500);
   }catch(e){console.error(e);setStatus(e.message||String(e),'error')}finally{setBusy(false);document.documentElement.style.visibility='visible'}
 }
