@@ -14,7 +14,8 @@ export function hrAccessForUser(user){
     canReopen:owner||role==='HR'||role==='MANAGER',
     canCorrect:owner||role==='HR'||role==='MANAGER',
     canSetOvertimeRule:owner||role==='HR',
-    canViewPayroll:owner||role==='HR'||role==='PAYROLL'
+    canViewPayroll:owner||role==='HR'||role==='PAYROLL',
+    canSettlePayroll:owner||role==='HR'||role==='PAYROLL'
   };
 }
 export function requireCapability(user,capability){
