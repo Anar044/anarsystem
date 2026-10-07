@@ -177,23 +177,32 @@ export async function ingestAdmsPayload(db,row,{tableName,body,request}){
   await db.prepare(`UPDATE hr_devices SET last_sync_at=?3,updated_at=?3 WHERE user_id=?1 AND device_id=?2`).bind(row.user_id,row.device_id,receivedAt).run();
   return{lines:lines.length,parsed,matched,unmatched,invalid,lastEvent};
 }
-export function admsOptions(serialNumber){
-  const sn=normalizeSn(serialNumber);
+export function admsOptions(serialNumber,pushVersion="3.1.2"){
+  const sn=normalizeSn(serialNumber),pv=clean(pushVersion,40)||"3.1.2";
   return [
     `GET OPTION FROM: ${sn}`,
+    "Stamp=0",
+    "OpStamp=0",
+    "PhotoStamp=0",
     "ATTLOGStamp=0",
-    "OPERLOGStamp=9999",
+    "OPERLOGStamp=0",
     "ATTPHOTOStamp=9999",
     "ErrorDelay=30",
     "Delay=10",
     "TransTimes=00:00;23:59",
     "TransInterval=1",
-    "TransFlag=TransData AttLog",
+    "TransFlag=TransData AttLog OpLog",
     "Realtime=1",
-    "Encrypt=None",
-    "ServerVer=2.2.14",
+    "Encrypt=0",
+    "EncryptFlag=0",
+    "SupportPing=1",
+    "PushOptionsFlag=1",
+    "MaxPostSize=1048576",
+    "Timeout=60",
+    "ServerVer=2.4.1",
+    `PushProtVer=${pv}`,
     ""
-  ].join("\n");
+  ].join("\r\n");
 }
 export async function handleCdata({request,env}){
   try{
@@ -202,7 +211,11 @@ export async function handleCdata({request,env}){
     const row=await admsDeviceBySerial(env.DB,sn);
     if(!row)return plain("ERROR: DEVICE NOT REGISTERED\n",200);
     await touchAdmsDevice(env.DB,row,request,{pushVersion:url.searchParams.get("pushver")||url.searchParams.get("PushVersion")||"",firmware:url.searchParams.get("FWVersion")||""});
-    if(request.method==="GET"){await logAdmsRequest(env.DB,row,request,{endpoint:"cdata"});return plain(admsOptions(sn),200)}
+    if(request.method==="GET"){
+      const pushVersion=url.searchParams.get("pushver")||url.searchParams.get("PushVersion")||"3.1.2";
+      await logAdmsRequest(env.DB,row,request,{endpoint:"cdata"});
+      return plain(admsOptions(sn,pushVersion),200);
+    }
     const body=await request.text(),table=url.searchParams.get("table")||url.searchParams.get("Table")||url.searchParams.get("type")||"";
     await logAdmsRequest(env.DB,row,request,{endpoint:"cdata",tableName:table,body});
     const result=await ingestAdmsPayload(env.DB,row,{tableName:table,body,request});
