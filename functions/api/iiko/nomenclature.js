@@ -58,7 +58,7 @@ async function call(action,connection,params={},payload=null){const c=normalizeC
 async function bootstrap(connection,params={}){const listParams={includeDeleted:params.includeDeleted!==false};const [products,groups,categories,scales]=await Promise.all([call('products.list',connection,listParams),call('groups.list',connection,listParams),call('categories.list',connection,listParams),call('scales.list',connection,listParams)]);return{products,groups,categories,scales}}
 async function cachedBootstrap(connection,params={},options={}){const baseKey=await connectionCacheKey(connection);const includeDeleted=params.includeDeleted!==false;const key=`${baseKey}|bootstrap|${includeDeleted?'all':'active'}`;const now=Date.now();const cached=bootstrapCache.get(key);if(!options.force&&cached?.data&&cached.expiresAt>now)return{...cached.data,__cacheHit:true};if(!options.force){const pending=bootstrapInFlight.get(key);if(pending)return pending}const pending=(async()=>{const data=await bootstrap(connection,{includeDeleted});bootstrapCache.set(key,{data,expiresAt:Date.now()+BOOTSTRAP_TTL_MS});return{...data,__cacheHit:false}})().finally(()=>{if(bootstrapInFlight.get(key)===pending)bootstrapInFlight.delete(key)});bootstrapInFlight.set(key,pending);return pending}
 async function clearBootstrapCache(connection){const baseKey=await connectionCacheKey(connection);for(const key of [...bootstrapCache.keys()])if(key.startsWith(`${baseKey}|bootstrap|`))bootstrapCache.delete(key);for(const key of [...bootstrapInFlight.keys()])if(key.startsWith(`${baseKey}|bootstrap|`))bootstrapInFlight.delete(key)}
-function canUseListBundle(params={}){return Object.keys(params||{}).every(key=>key==='includeDeleted')}
+function canUseListBundle(params={}){return Object.keys(params||{}).every(key=>key==='includeDeleted'||key==='force')}
 function isMutation(action){return /\.(save|update|delete|restore|assign)$/.test(action)||/^charts\.(save|update|delete)$/.test(action)}
 function rowsOf(value){return Array.isArray(value)?value:Array.isArray(value?.items)?value.items:Array.isArray(value?.data)?value.data:Array.isArray(value?.response)?value.response:[]}
 function mutationEntityType(action){
@@ -112,7 +112,21 @@ function mutationAfter(action,before,payload){
   if(verb==='UPDATE')return before&&payload&&typeof payload==='object'?{...before,...payload}:payload;
   return payload;
 }
-async function resolveAction(action,connection,params={},payload=null){if(action==='bootstrap')return cachedBootstrap(connection,params);const bundleKey=LIST_ACTIONS[action];if(bundleKey&&canUseListBundle(params)){const bundle=await cachedBootstrap(connection,params);return bundle[bundleKey]}const data=await call(action,connection,params,payload);if(isMutation(action))await clearBootstrapCache(connection);return data}
+async function resolveAction(action,connection,params={},payload=null){
+  if(action==='bootstrap'){
+    const {force=false,...listParams}=params||{};
+    return cachedBootstrap(connection,listParams,{force:force===true});
+  }
+  const bundleKey=LIST_ACTIONS[action];
+  if(bundleKey&&canUseListBundle(params)){
+    const {force=false,...listParams}=params||{};
+    const bundle=await cachedBootstrap(connection,listParams,{force:force===true});
+    return bundle[bundleKey];
+  }
+  const data=await call(action,connection,params,payload);
+  if(isMutation(action))await clearBootstrapCache(connection);
+  return data
+}
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
 export async function onRequestPost(context){try{
   const b=await context.request.json();
