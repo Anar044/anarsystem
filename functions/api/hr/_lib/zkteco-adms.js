@@ -202,6 +202,16 @@ function parseTransactionLine(line,timeZone){
   if(!pin||!local||!Number.isFinite(event)||event>=20)return null;
   return{pin,localTime:local,eventTime:parseLocalDateTime(local,timeZone),status,verify,workCode,raw};
 }
+async function inferredAttendanceType(db,row,rec){
+  const prior=await db.prepare(`SELECT event_time,event_type FROM hr_attendance_events
+    WHERE user_id=?1 AND device_id=?2 AND external_employee_id=?3 AND event_time<?4
+    ORDER BY event_time DESC LIMIT 1`).bind(row.user_id,row.device_id,String(rec.pin),rec.eventTime).first();
+  if(prior?.event_time){
+    const delta=new Date(rec.eventTime).getTime()-new Date(prior.event_time).getTime();
+    if(Number.isFinite(delta)&&delta>=0&&delta<10000)return{type:"DUPLICATE",duplicate:true};
+  }
+  return{type:String(prior?.event_type||"").toUpperCase()==="IN"?"OUT":"IN",duplicate:false};
+}
 export async function ingestAdmsPayload(db,row,{tableName,body,request}){
   await ensureZktecoAdmsTables(db);
   const table=clean(tableName,60).toUpperCase(),receivedAt=now(),lines=String(body||"").split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
@@ -215,16 +225,20 @@ export async function ingestAdmsPayload(db,row,{tableName,body,request}){
       parsed++;
       const sourceUid=await sha256(`${row.serial_number}|${table}|${rec.pin}|${rec.localTime}|${rec.status}|${rec.verify}|${rec.workCode}`);
       const employeeId=employeeMap.get(String(rec.pin))||"";if(employeeId)matched++;else unmatched++;
-      const rawId="zkraw_"+crypto.randomUUID(),eventId="evt_"+crypto.randomUUID(),type=direction(rec.status);
-      const payload={protocol:"ZKTECO_ADMS",serialNumber:row.serial_number,pin:rec.pin,localTime:rec.localTime,status:rec.status,verify:rec.verify,workCode:rec.workCode,raw:rec.raw};
-      await db.batch([
+      const rawId="zkraw_"+crypto.randomUUID(),eventId="evt_"+crypto.randomUUID();
+      const inferred=(table==="RTLOG"||table==="TRANSACTION")?await inferredAttendanceType(db,row,rec):{type:direction(rec.status),duplicate:false};
+      const payload={protocol:"ZKTECO_ADMS",serialNumber:row.serial_number,pin:rec.pin,localTime:rec.localTime,status:rec.status,verify:rec.verify,workCode:rec.workCode,raw:rec.raw,inferredDirection:Boolean(table==="RTLOG"||table==="TRANSACTION"),duplicateSuppressed:inferred.duplicate};
+      const statements=[
         db.prepare(`INSERT OR IGNORE INTO hr_zkteco_adms_raw(user_id,raw_id,device_id,serial_number,table_name,source_uid,event_time,external_employee_id,event_status,verify_type,work_code,raw_line,received_at)
           VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)`)
-          .bind(row.user_id,rawId,row.device_id,row.serial_number,table,sourceUid,rec.eventTime,rec.pin,rec.status,rec.verify,rec.workCode,rec.raw.slice(0,16000),receivedAt),
-        db.prepare(`INSERT OR IGNORE INTO hr_attendance_events(user_id,event_id,device_id,provider,source_uid,external_employee_id,iiko_employee_id,event_time,event_type,raw_payload,imported_at)
+          .bind(row.user_id,rawId,row.device_id,row.serial_number,table,sourceUid,rec.eventTime,rec.pin,rec.status,rec.verify,rec.workCode,rec.raw.slice(0,16000),receivedAt)
+      ];
+      if(!inferred.duplicate){
+        statements.push(db.prepare(`INSERT OR IGNORE INTO hr_attendance_events(user_id,event_id,device_id,provider,source_uid,external_employee_id,iiko_employee_id,event_time,event_type,raw_payload,imported_at)
           VALUES(?1,?2,?3,'ZKTECO',?4,?5,?6,?7,?8,?9,?10)`)
-          .bind(row.user_id,eventId,row.device_id,sourceUid,rec.pin,employeeId,rec.eventTime,type,jsonSafe(payload).slice(0,16000),receivedAt)
-      ]);
+          .bind(row.user_id,eventId,row.device_id,sourceUid,rec.pin,employeeId,rec.eventTime,inferred.type,jsonSafe(payload).slice(0,16000),receivedAt));
+      }
+      await db.batch(statements);
       if(!lastEvent||rec.eventTime>lastEvent)lastEvent=rec.eventTime;
     }else{
       // Smart Horeca intentionally does not persist biometric templates, face photos,
