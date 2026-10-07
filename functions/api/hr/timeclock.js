@@ -150,9 +150,17 @@ export async function onRequestPost({request,env}){
     const b=await request.json().catch(()=>({}));const action=clean(b.action);const userId=a.user.id;
     const scope=await resolveHrRestaurantScope(request,env,userId);
     if(action==='saveDevice'){
-      const id=clean(b.id)||uid('dev'),provider=(clean(b.provider)||'ZKTECO').toUpperCase(),name=clean(b.name),location=clean(b.location),mode=clean(b.connectionMode)||'ADMS_PUSH',timezone=clean(b.timezone)||'Asia/Baku',serialNumber=clean(b.serialNumber).toUpperCase(),model=clean(b.model)||'SenseFace 2A';
+      let id=clean(b.id)||uid('dev');const provider=(clean(b.provider)||'ZKTECO').toUpperCase(),name=clean(b.name),location=clean(b.location),mode=clean(b.connectionMode)||'ADMS_PUSH',timezone=clean(b.timezone)||'Asia/Baku',serialNumber=clean(b.serialNumber).toUpperCase(),model=clean(b.model)||'SenseFace 2A';
       if(!name)return json({success:false,message:'Укажите название устройства'},400);
       if(mode==='ADMS_PUSH'&&!serialNumber)return json({success:false,message:'Для прямого ZKTeco ADMS укажите серийный номер аппарата.'},400);
+      if(mode==='ADMS_PUSH'&&serialNumber){
+        const existingSn=await env.DB.prepare(`SELECT user_id,device_id FROM hr_zkteco_adms_devices WHERE serial_number=?1 LIMIT 1`).bind(serialNumber).first();
+        if(existingSn){
+          if(String(existingSn.user_id)!==String(userId))return json({success:false,message:'Этот серийный номер уже зарегистрирован.'},409);
+          if(!clean(b.id))id=String(existingSn.device_id);
+          else if(String(existingSn.device_id)!==String(id))return json({success:false,message:'Этот серийный номер уже привязан к другому устройству.'},409);
+        }
+      }
       const selectedRestaurants=Array.isArray(scope?.selectedDepartmentIds)?scope.selectedDepartmentIds.map(String).filter(Boolean):[];
       if(scope?.isChain&&selectedRestaurants.length!==1)return json({success:false,code:'HR_DEVICE_SINGLE_RESTAURANT_REQUIRED',message:'Для устройства Face ID в CHAIN выберите ровно один ресторан.'},409);
       const restaurantId=selectedRestaurants[0]||'';
@@ -165,6 +173,19 @@ export async function onRequestPost({request,env}){
       if(mode==='ADMS_PUSH')await registerAdmsDevice(env.DB,{userId,deviceId:id,serialNumber,model});
       else await unregisterAdmsDevice(env.DB,userId,id);
       return json({success:true,deviceId:id,ingestPath:'/api/hr/device-ingest',admsPath:'/iclock',...await snapshot(env.DB,userId,scope)});
+    }
+    if(action==='deleteDevice'){
+      const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
+      const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);
+      if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
+      await env.DB.batch([
+        env.DB.prepare(`DELETE FROM hr_employee_device_bindings WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId),
+        env.DB.prepare(`DELETE FROM hr_device_tokens WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId),
+        env.DB.prepare(`DELETE FROM hr_zkteco_adms_raw WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId),
+        env.DB.prepare(`DELETE FROM hr_zkteco_adms_devices WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId),
+        env.DB.prepare(`DELETE FROM hr_devices WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId)
+      ]);
+      return json({success:true,deletedDeviceId:deviceId,...await snapshot(env.DB,userId,scope)});
     }
     if(action==='rotateDeviceToken'){
       const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
