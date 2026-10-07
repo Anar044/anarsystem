@@ -82,7 +82,7 @@
       '.inc-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.inc-body label{display:flex;flex-direction:column;gap:6px;color:#8995a5;font-size:11px;font-weight:700}' +
       '.inc-body input,.inc-body select,.inc-body textarea{box-sizing:border-box;width:100%;border:1px solid rgba(255,255,255,.11);border-radius:9px;background:#0c131c;color:#e8edf2;padding:10px;outline:0;font:inherit}.inc-body select{min-height:40px}.inc-body textarea{min-height:70px;resize:vertical}' +
       '.inc-items-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px}.inc-items-head strong{font-size:13px}.inc-total{font-size:13px;color:#aab6c3}.inc-total b{color:#fff;font-size:16px}' +
-      '.inc-item{display:grid;grid-template-columns:minmax(260px,1.8fr) 120px 130px 130px auto;gap:8px;align-items:end;margin-top:8px;padding:10px;border:1px solid rgba(255,255,255,.07);border-radius:11px;background:#0e161f}' +
+      '.inc-item{display:grid;grid-template-columns:minmax(240px,1.7fr) 95px 95px 110px 85px 120px 120px 110px auto;gap:8px;align-items:end;margin-top:8px;padding:10px;border:1px solid rgba(255,255,255,.07);border-radius:11px;background:#0e161f}.inc-item .inc-readonly{background:#101a23;color:#9eabb7}.inc-item .inc-vat-sum{color:#8fd9b6;font-size:10px;white-space:nowrap;align-self:center}' +
       '.inc-btn{border:1px solid rgba(255,255,255,.11);border-radius:9px;padding:10px 13px;background:#1a2430;color:#dfe7ee;font-weight:750;cursor:pointer}.inc-btn:hover{filter:brightness(1.08)}.inc-btn:disabled{opacity:.5;cursor:not-allowed}' +
       '.inc-primary{background:#42d392;color:#06110b;border-color:#42d392}.inc-danger{background:#3a1e25;color:#ffb7c2}.inc-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.inc-note{margin-top:12px;padding:10px 12px;border-radius:9px;background:#13211b;color:#9fbaae;font-size:11px}' +
       '@media(max-width:850px){.inc-grid{grid-template-columns:1fr 1fr}.inc-item{grid-template-columns:1fr 1fr}.inc-item .inc-remove-wrap{grid-column:1/-1}}@media(max-width:520px){.inc-grid{grid-template-columns:1fr}.inc-item{grid-template-columns:1fr}}';
@@ -116,7 +116,7 @@
           '<div class="inc-items-head"><strong>Позиции накладной</strong><span class="inc-total">Итого: <b id="inc-total">0,00</b> ₼</span></div>' +
           '<div id="inc-items"></div>' +
           '<button id="inc-add" class="inc-btn" type="button" style="margin-top:10px">＋ Добавить позицию</button>' +
-          '<datalist id="inc-product-options"></datalist>' +
+          '<datalist id="inc-product-options"></datalist><datalist id="inc-pack-options"><option value="0.1"></option><option value="0.25"></option><option value="0.5"></option><option value="1"></option><option value="2"></option><option value="2.1"></option><option value="2.5"></option><option value="5"></option><option value="10"></option></datalist>' +
           '<div class="inc-note">«Сохранить» создаёт/обновляет накладную без проведения. «Сохранить и провести» сразу проводит документ по складу в iiko.</div>' +
           '<div class="inc-actions"><button id="inc-cancel" class="inc-btn" type="button">Отмена</button><button id="inc-save" class="inc-btn" type="button">Сохранить</button><button id="inc-save-process" class="inc-btn inc-primary" type="button">Сохранить и провести</button></div>' +
         '</div>' +
@@ -200,32 +200,60 @@
     return '';
   }
 
+  function vatOptions(selected) {
+    var current = Number(selected == null ? 0 : selected);
+    return [0, 2, 8, 18].map(function (v) {
+      return '<option value="' + v + '"' + (current === v ? ' selected' : '') + '>' + v + '%</option>';
+    }).join('');
+  }
+
+  function recalcItem(row) {
+    var pack = Number(row.querySelector('[data-f="packageSize"]').value || 0);
+    var packages = Number(row.querySelector('[data-f="packages"]').value || 0);
+    var price = Number(row.querySelector('[data-f="price"]').value || 0);
+    var vat = Number(row.querySelector('[data-f="vatPercent"]').value || 0);
+    var actual = pack * packages;
+    var sum = packages * price;
+    var vatSum = vat > 0 ? sum * vat / (100 + vat) : 0;
+    row.querySelector('[data-f="actualAmount"]').value = Number.isFinite(actual) ? actual.toFixed(3).replace(/\.000$/, '') : '0';
+    row.querySelector('[data-f="sum"]').value = Number.isFinite(sum) ? sum.toFixed(2) : '0.00';
+    var vatEl = row.querySelector('[data-vat-sum]');
+    if (vatEl) vatEl.textContent = 'НДС: ' + vatSum.toFixed(2) + ' ₼';
+  }
+
   function addItem(item) {
     item = item || {};
+    var amount = Number(item.amount != null ? item.amount : 1);
+    var actual = Number(item.actualAmount != null ? item.actualAmount : amount);
+    var packageSize = Number(item.actualUnitWeight != null ? item.actualUnitWeight : (amount > 0 ? actual / amount : 1));
+    if (!(packageSize > 0)) packageSize = 1;
+    var packages = amount > 0 ? amount : (actual > 0 ? actual / packageSize : 1);
+    var price = Number(item.price != null ? item.price : 0);
+    var vat = Number(item.vatPercent != null ? item.vatPercent : (item.ndsPercent != null ? item.ndsPercent : 0));
+    if ([0,2,8,18].indexOf(vat) < 0) vat = 0;
+    var sum = Number(item.sum != null ? item.sum : packages * price);
+
     var row = document.createElement('div');
     row.className = 'inc-item';
     row.innerHTML =
       '<label>Товар<input data-f="product" list="inc-product-options" autocomplete="off" placeholder="Начните вводить название" value="' + esc(productLabel(item.productId || item.product, item.productName)) + '"></label>' +
-      '<label>Количество<input data-f="amount" type="number" min="0.001" step="0.001" value="' + esc(item.actualAmount != null ? item.actualAmount : (item.amount != null ? item.amount : 1)) + '"></label>' +
-      '<label>Цена<input data-f="price" type="number" min="0" step="0.01" value="' + esc(item.price != null ? item.price : 0) + '"></label>' +
-      '<label>Сумма<input data-f="sum" type="number" min="0" step="0.01" value="' + esc(item.sum != null ? item.sum : 0) + '"></label>' +
-      '<div class="inc-remove-wrap"><button class="inc-btn inc-danger" type="button">Удалить</button></div>';
+      '<label>Фасовка<input data-f="packageSize" list="inc-pack-options" type="number" min="0.001" step="0.001" value="' + esc(packageSize) + '"></label>' +
+      '<label>Упаковок<input data-f="packages" type="number" min="0.001" step="0.001" value="' + esc(packages) + '"></label>' +
+      '<label>Итого кол-во<input class="inc-readonly" data-f="actualAmount" type="number" readonly value="' + esc(actual) + '"></label>' +
+      '<label>НДС<select data-f="vatPercent">' + vatOptions(vat) + '</select></label>' +
+      '<label>Цена / упак.<input data-f="price" type="number" min="0" step="0.01" value="' + esc(price) + '"></label>' +
+      '<label>Сумма с НДС<input class="inc-readonly" data-f="sum" type="number" readonly value="' + esc(sum) + '"></label>' +
+      '<div class="inc-vat-sum" data-vat-sum></div>' +
+      '<div class="inc-remove-wrap"><button class="inc-btn inc-danger" type="button">Удалить</button></div>' +
+      '<input data-f="amountUnit" type="hidden" value="' + esc(item.amountUnit || '') + '">' +
+      '<input data-f="containerId" type="hidden" value="' + esc(item.containerId || '') + '">';
     row.querySelector('.inc-danger').onclick = function () { row.remove(); recalc(); };
-    ['amount', 'price'].forEach(function (name) {
-      row.querySelector('[data-f="' + name + '"]').addEventListener('input', function () {
-        var amount = Number(row.querySelector('[data-f="amount"]').value || 0);
-        var price = Number(row.querySelector('[data-f="price"]').value || 0);
-        row.querySelector('[data-f="sum"]').value = (amount * price).toFixed(2);
-        recalc();
-      });
+    ['packageSize', 'packages', 'price'].forEach(function (name) {
+      row.querySelector('[data-f="' + name + '"]').addEventListener('input', function () { recalcItem(row); recalc(); });
     });
-    row.querySelector('[data-f="sum"]').addEventListener('input', recalc);
+    row.querySelector('[data-f="vatPercent"]').addEventListener('change', function () { recalcItem(row); recalc(); });
     $('inc-items').appendChild(row);
-    if (item.sum == null) {
-      var amount = Number(row.querySelector('[data-f="amount"]').value || 0);
-      var price = Number(row.querySelector('[data-f="price"]').value || 0);
-      row.querySelector('[data-f="sum"]').value = (amount * price).toFixed(2);
-    }
+    recalcItem(row);
     recalc();
   }
 
@@ -282,13 +310,32 @@
       var items = Array.from(document.querySelectorAll('#inc-items .inc-item')).map(function (row, index) {
         var productText = row.querySelector('[data-f="product"]').value;
         var productId = resolveProductId(productText);
-        var amount = Number(row.querySelector('[data-f="amount"]').value || 0);
+        var packageSize = Number(row.querySelector('[data-f="packageSize"]').value || 0);
+        var packages = Number(row.querySelector('[data-f="packages"]').value || 0);
+        var actualAmount = Number(row.querySelector('[data-f="actualAmount"]').value || 0);
         var price = Number(row.querySelector('[data-f="price"]').value || 0);
         var sum = Number(row.querySelector('[data-f="sum"]').value || 0);
+        var vatPercent = Number(row.querySelector('[data-f="vatPercent"]').value || 0);
+        var vatSum = vatPercent > 0 ? sum * vatPercent / (100 + vatPercent) : 0;
+        var priceWithoutVat = vatPercent > 0 ? price / (1 + vatPercent / 100) : price;
         if (!productId) throw new Error('Строка ' + (index + 1) + ': выберите товар из списка iiko.');
-        if (!(amount > 0)) throw new Error('Строка ' + (index + 1) + ': количество должно быть больше 0.');
+        if (!(packageSize > 0)) throw new Error('Строка ' + (index + 1) + ': фасовка должна быть больше 0.');
+        if (!(packages > 0)) throw new Error('Строка ' + (index + 1) + ': количество упаковок должно быть больше 0.');
         if (!(price >= 0)) throw new Error('Строка ' + (index + 1) + ': цена не может быть отрицательной.');
-        return { num: index + 1, productId: productId, amount: amount, actualAmount: amount, price: price, sum: sum };
+        return {
+          num: index + 1,
+          productId: productId,
+          amount: packages,
+          actualAmount: actualAmount,
+          actualUnitWeight: packageSize,
+          amountUnit: row.querySelector('[data-f="amountUnit"]').value || undefined,
+          containerId: row.querySelector('[data-f="containerId"]').value || undefined,
+          vatPercent: vatPercent,
+          vatSum: Number(vatSum.toFixed(2)),
+          priceWithoutVat: Number(priceWithoutVat.toFixed(4)),
+          price: price,
+          sum: sum
+        };
       });
       if (!items.length) throw new Error('Добавьте хотя бы одну позицию.');
 
