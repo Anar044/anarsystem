@@ -264,11 +264,11 @@ function packagingByContainer(pid,containerId){
 }
 function packagingChoiceHtml(pid,{containerId='',packageSize=1,packageName=''}={}){
   const packs=productPackagings(pid),cid=key(containerId),size=num(packageSize,1);
-  let selectedManual=!packs.length,matched=false;
+  let selectedManual=true,matched=false;
   const options=packs.map((p,i)=>{
     const isSelected=(cid&&key(p.id)===cid)||(!cid&&!matched&&Math.abs(num(p.count)-size)<0.0005);
     if(isSelected){matched=true;selectedManual=false}
-    const label=(p.name||p.num||('Фасовка '+(i+1)))+' · '+qty(p.count);
+    const label=(p.name||p.num||('Фасовка '+(i+1)))+' · '+qty(p.count)+' '+(unitFor(pid)||'');
     return '<option value="'+esc(p.id||('__iiko_'+i))+'" data-count="'+esc(p.count)+'" data-name="'+esc(p.name||p.num||'')+'" '+(isSelected?'selected':'')+'>'+esc(label)+'</option>';
   }).join('');
   if(!matched&&cid)selectedManual=true;
