@@ -73,6 +73,14 @@
     if(base && choices.some(function(x){return x.id===base.id;})) select.value=base.id;
     if($("hepScheduleOverrideFrom") && !$("hepScheduleOverrideFrom").value) $("hepScheduleOverrideFrom").value=today();
   }
+  function renderAttendanceRule(){
+    var rule=state?.attendanceRule||{},shift=rule.effectiveShiftType==="NIGHT"?"NIGHT":"DAY",source=rule.source==="EMPLOYEE"?"EMPLOYEE":"ROLE";
+    if($("hepAttendanceNorm")) $("hepAttendanceNorm").textContent=((Number(rule.roleDailyNormMinutes||480)/60).toFixed(2).replace(/\.00$/,""))+" ч";
+    if($("hepAttendanceShiftOverride")) $("hepAttendanceShiftOverride").value=rule.shiftTypeOverride||"";
+    if($("hepAttendanceWindow")) $("hepAttendanceWindow").textContent=shift==="NIGHT"?"12:00 → 11:59 следующего дня":"05:00 → 04:59 следующего дня";
+    var badge=$("hepAttendanceRuleSource");
+    if(badge){ badge.textContent=source==="EMPLOYEE"?"Индивидуально":"По должности"; badge.className="hep-source "+(source==="EMPLOYEE"?"individual":"smart"); }
+  }
   function renderHistory(){
     var host=$("hepScheduleOverrideHistory"); if(!host) return;
     var rows=state?.history||[], currentId=state?.currentOverride?.id||"";
@@ -94,7 +102,7 @@
       }).join("")+
       '</tbody></table>';
   }
-  function render(){ renderCurrent(); renderForm(); renderHistory(); }
+  function render(){ renderCurrent(); renderAttendanceRule(); renderForm(); renderHistory(); }
   async function load(){
     if(!employeeId || busy) return;
     try{
@@ -106,6 +114,19 @@
       if($("hepScheduleOverrideHistory")) $("hepScheduleOverrideHistory").innerHTML='<div class="hr-error">'+esc(e?.message||String(e))+'</div>';
       setStatus("Ошибка","error");
     }finally{ busy=false; }
+  }
+  async function saveAttendanceRule(){
+    if(busy) return;
+    var shiftTypeOverride=$("hepAttendanceShiftOverride")?.value||"";
+    try{
+      busy=true;
+      if($("hepAttendanceRuleSave")) $("hepAttendanceRuleSave").disabled=true;
+      setStatus("Сохраняем тип смены…","loading");
+      await api("/api/hr/employee-schedule",{method:"POST",body:JSON.stringify({action:"saveAttendanceRule",employeeId:employeeId,shiftTypeOverride:shiftTypeOverride})});
+      await loadForce();
+      setStatus(shiftTypeOverride?"Индивидуальный тип смены сохранён":"Сотрудник наследует тип смены должности","ok");
+    }catch(e){ console.error(e); setStatus(e?.message||"Ошибка","error"); }
+    finally{ busy=false; if($("hepAttendanceRuleSave")) $("hepAttendanceRuleSave").disabled=false; }
   }
   async function save(){
     if(busy) return;
@@ -136,6 +157,11 @@
     busy=was;
   }
   function bind(){
+    $("hepAttendanceRuleSave")?.addEventListener("click",saveAttendanceRule);
+    $("hepAttendanceShiftOverride")?.addEventListener("change",function(){
+      var shift=this.value || state?.attendanceRule?.roleShiftType || "DAY";
+      if($("hepAttendanceWindow")) $("hepAttendanceWindow").textContent=shift==="NIGHT"?"12:00 → 11:59 следующего дня":"05:00 → 04:59 следующего дня";
+    });
     $("hepScheduleOverrideSave")?.addEventListener("click",save);
     $("hepScheduleOverrideRefresh")?.addEventListener("click",loadForce);
     $("hepScheduleOverrideHistory")?.addEventListener("click",function(e){
