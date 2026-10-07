@@ -108,7 +108,7 @@ function buildPriceHistory(){
 }
 
 function receiptSignature(lines){
-  return (lines||[]).map(x=>[key(x.productId),Number(x.quantity??x.actualAmount??x.amount||0).toFixed(3),Number(x.unitPrice??x.price||0).toFixed(4)].join(':')).sort().join('|');
+  return (lines||[]).map(x=>[key(x.productId),Number(x.quantity??x.actualAmount??x.amount??0).toFixed(3),Number(x.unitPrice??x.price??0).toFixed(4)].join(':')).sort().join('|');
 }
 async function reconcileLinkedReceipts(){
   const receipts=state.data?.receipts||[];if(!receipts.length||!state.historyDocs.length)return false;
