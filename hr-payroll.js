@@ -4,7 +4,7 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const money=v=>`${(Number(v)||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})} ₼`;
 const hours=v=>{if(v===null||v===undefined)return'—';const m=Math.max(0,Number(v)||0),h=Math.floor(m/60),r=Math.round(m%60);return r?`${h} ч ${String(r).padStart(2,'0')} мин`:`${h} ч`};
 const r=v=>Math.round((Number(v)||0)*100)/100,pct=v=>(Number(v)||0)/100;
-let mode='OVERALL',state={payroll:null,adjustments:null,tax:null,settlements:null,models:[]},busy=false,paymentEmployeeId='';
+let mode='OVERALL',state={payroll:null,adjustments:null,tax:null,settlements:null,models:[]},busy=false,paymentBusy=false,paymentEmployeeId='';
 
 function monthNow(){const d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0');return y===2026?`${y}-${m}`:'2026-10'}
 async function token(){const c=await window.SHAuth?.createClient?.();if(!c)throw new Error('Supabase Auth не готов');const{data,error}=await c.auth.getSession();const t=data?.session?.access_token;if(error||!t)throw new Error('Сессия пользователя не найдена');return t}
@@ -205,11 +205,87 @@ function renderTable(){
   let body='';if(mode==='FACTUAL')body=factualRows(list);else if(mode==='OFFICIAL')body=officialRows(list);else body=overallRows(list);
   $('hrpRows').innerHTML=body||`<tr><td colspan="20" class="hr-empty">Сотрудники не найдены.</td></tr>`;
 }
+function settlementMethod(v){return({CASH:'Наличные',BANK:'Банк',OTHER:'Другое'})[v]||v||'—'}
+function settlementVisibleRows(){
+  const q=String($('hrpSearch')?.value||'').trim().toLowerCase(),role=$('hrpRole')?.value||'';
+  return (state.settlements?.rows||[]).filter(x=>{
+    const activity=Number(x.openingDebt||0)>0||Number(x.currentAccrued||0)>0||Number(x.currentPaid||0)>0||Number(x.closingDebt||0)>0;
+    if(!activity)return false;
+    if(q&&!String(`${x.name} ${x.code}`).toLowerCase().includes(q))return false;
+    if(role&&String(x.roleCode||'')!==role)return false;
+    return true;
+  });
+}
+function renderSettlements(){
+  const box=$('hrpSettlementSummary'),tbody=$('hrpSettlementRows');if(!box||!tbody)return;
+  const snap=state.settlements||{summary:{},rows:[],access:{}},sum=snap.summary||{},rows=settlementVisibleRows(),canSettle=Boolean(snap.access?.canSettlePayroll);
+  $('hrpSettlementCount').textContent=`${rows.length} сотрудников с движением`;
+  box.innerHTML=[
+    ['Долг на начало',money(sum.openingDebt||0),'Перенесено из прошлых месяцев'],
+    ['Начислено',money(sum.accrued||0),'Доплата текущего месяца'],
+    ['Выплачено',money(sum.paid||0),'Отдельные выплаты текущего месяца'],
+    ['Остаток долга',money(sum.closingDebt||0),`Сотрудников с долгом: ${Number(sum.withDebt||0)}`]
+  ].map(x=>`<article><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
+  tbody.innerHTML=rows.length?rows.map(x=>{
+    const payments=(x.payments||[]).map(p=>`<div class="hrp-payment-chip"><span>${esc(p.date)} · ${esc(money(p.amount))} · ${esc(settlementMethod(p.method))}</span>${p.reference?`<small>${esc(p.reference)}</small>`:''}${canSettle?`<button type="button" class="hrp-cancel-payment" data-payment-id="${esc(p.id)}" title="Отменить выплату">×</button>`:''}</div>`).join('');
+    return`<tr>
+      <td class="text-left"><div class="hr-name">${esc(x.name||'—')}</div><div class="hr-sub">${esc(x.roleName||'')} · ${esc(x.code||'')}</div></td>
+      <td>${money(x.openingDebt)}</td>
+      <td class="hrp-plus">${money(x.currentAccrued)}</td>
+      <td class="hrp-overtime">${hours(x.currentPayableMinutes||0)}</td>
+      <td>${Number(x.currentExtraDays||0).toLocaleString('ru-RU',{maximumFractionDigits:2})}</td>
+      <td class="hrp-payment-paid">${money(x.currentPaid)}</td>
+      <td class="${Number(x.closingDebt||0)>0?'hrp-debt':'hrp-debt-zero'}">${money(x.closingDebt)}</td>
+      <td class="text-left"><div class="hrp-payment-history">${payments||'<span class="hr-muted">Нет выплат</span>'}</div></td>
+      <td>${canSettle&&Number(x.closingDebt||0)>0?`<button type="button" class="hr-primary hrp-pay-debt" data-employee-id="${esc(x.id)}">Выплатить</button>`:''}</td>
+    </tr>`;
+  }).join(''):'<tr><td colspan="9" class="hr-empty">Начислений, выплат и долга по дополнительным часам пока нет.</td></tr>';
+}
+function defaultPaymentDate(month){
+  const today=new Date().toISOString().slice(0,10);
+  if(today.startsWith(month+'-'))return today;
+  const a=month.split('-').map(Number),last=new Date(Date.UTC(a[0],a[1],0)).getUTCDate();
+  return month+'-'+String(last).padStart(2,'0');
+}
+function openPayment(employeeId){
+  const row=(state.settlements?.rows||[]).find(x=>String(x.id)===String(employeeId));if(!row)return;
+  paymentEmployeeId=String(employeeId);
+  $('hrpPaymentEmployee').innerHTML=`<strong>${esc(row.name||'—')}</strong><span>${esc(row.roleName||'')} · ${esc(row.code||'')}</span>`;
+  $('hrpPaymentDebt').textContent=money(row.closingDebt||0);
+  $('hrpPaymentDate').value=defaultPaymentDate($('hrpMonth').value||monthNow());
+  $('hrpPaymentAmount').value=Number(row.closingDebt||0).toFixed(2);
+  $('hrpPaymentAmount').max=Number(row.closingDebt||0).toFixed(2);
+  $('hrpPaymentMethod').value='CASH';$('hrpPaymentReference').value='';$('hrpPaymentNote').value='';
+  $('hrpPaymentModal').hidden=false;document.body.style.overflow='hidden';
+}
+function closePayment(){paymentEmployeeId='';$('hrpPaymentModal').hidden=true;document.body.style.overflow=''}
+async function savePayment(){
+  if(paymentBusy||!paymentEmployeeId)return;
+  const amount=Number($('hrpPaymentAmount').value||0),paymentDate=$('hrpPaymentDate').value;
+  if(!paymentDate||!Number.isFinite(amount)||amount<=0)return alert('Укажите дату и сумму выплаты.');
+  try{
+    paymentBusy=true;$('hrpPaymentSave').disabled=true;setStatus('Сохраняем выплату…','loading');
+    const out=await settlementPost({action:'RECORD_PAYMENT',month:$('hrpMonth').value||monthNow(),employeeId:paymentEmployeeId,paymentDate,amount,paymentMethod:$('hrpPaymentMethod').value,reference:$('hrpPaymentReference').value||'',note:$('hrpPaymentNote').value||''});
+    state.settlements=out;renderSummary();renderSettlements();closePayment();setStatus('Готово','ok');
+  }catch(e){console.error(e);alert(e?.message||'Не удалось зарегистрировать выплату');setStatus('Ошибка','error')}
+  finally{paymentBusy=false;$('hrpPaymentSave').disabled=false}
+}
+async function cancelPayment(paymentId){
+  if(paymentBusy||!paymentId)return;
+  const reason=prompt('Причина отмены выплаты (необязательно):')??null;if(reason===null)return;
+  try{
+    paymentBusy=true;setStatus('Отменяем выплату…','loading');
+    const out=await settlementPost({action:'CANCEL_PAYMENT',month:$('hrpMonth').value||monthNow(),paymentId,reason});
+    state.settlements=out;renderSummary();renderSettlements();setStatus('Готово','ok');
+  }catch(e){console.error(e);alert(e?.message||'Не удалось отменить выплату');setStatus('Ошибка','error')}
+  finally{paymentBusy=false}
+}
+
 function renderTabs(){
   document.querySelectorAll('.hrp-tab').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));
 }
 function render(){renderFilters();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
-function onFilter(){renderSummary();renderTable()}
+function onFilter(){renderSummary();renderTable();renderSettlements()}
 async function load(){
   if(busy)return;
   try{
@@ -222,6 +298,12 @@ function bind(){
   $('hrpRefresh').onclick=load;$('hrpMonth').onchange=load;
   $('hrpSearch').oninput=onFilter;$('hrpRole').onchange=onFilter;$('hrpState').onchange=onFilter;
   document.querySelectorAll('.hrp-tab').forEach(b=>b.onclick=()=>{mode=b.dataset.mode||'OVERALL';renderTabs();renderTable()});
+  $('hrpSettlementRows')?.addEventListener('click',e=>{
+    const pay=e.target.closest('.hrp-pay-debt');if(pay){openPayment(pay.dataset.employeeId);return}
+    const cancel=e.target.closest('.hrp-cancel-payment');if(cancel)cancelPayment(cancel.dataset.paymentId);
+  });
+  document.querySelectorAll('[data-payment-close]').forEach(x=>x.addEventListener('click',closePayment));
+  $('hrpPaymentSave').onclick=savePayment;
 }
 function init(){$('hrpMonth').value=monthNow();bind();load()}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
