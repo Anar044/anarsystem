@@ -390,7 +390,7 @@ export async function onRequestPost({request,env}){
     if(auth?.user?.id&&env?.DB&&accountId){
       try{
         const departmentCodes=Array.isArray(body?.chainScope?.selectedDepartmentCodes)?body.chainScope.selectedDepartmentCodes.map(clean).filter(Boolean):[];
-        smartJournal=await listAccountingJournal(env.DB,{userId:auth.user.id,from,to,departmentCodes,accountId});
+        smartJournal=await listAccountingJournal(env.DB,{userId:auth.user.id,from,to,departmentCodes:[...new Set([...departmentCodes,...departmentIds])].filter(Boolean),accountId});
         for(const j of smartJournal){
           const amount=Math.abs(Number(j.amount||0));if(!amount)continue;
           const debitMatch=String(j.debit_account_id||"")===String(accountId);
