@@ -38,7 +38,7 @@ function collectNewPackages(back,p){
   });
 }
 function containerForWrite(x={}){
-  return{
+  const out={
     num:String(x.num||'').trim(),
     name:String(x.name||'').trim(),
     count:Number(x.count||0),
@@ -47,7 +47,11 @@ function containerForWrite(x={}){
     containerWeight:Number(x.containerWeight||0),
     fullContainerWeight:Number(x.fullContainerWeight||0),
     useInFront:x.useInFront===true
-  }
+  };
+  // iikoOffice 2023 needs the real ID for already existing containers on product update.
+  // New containers must be sent without an ID so iiko creates it.
+  if(String(x.id||'').trim())out.id=String(x.id).trim();
+  return out
 }
 async function verifyPackagesInIiko(productId,created){
   if(!created.length)return;
