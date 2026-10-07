@@ -76,6 +76,9 @@ async function ensure(db){
       product_name TEXT NOT NULL DEFAULT '',
       unit TEXT NOT NULL DEFAULT '',
       quantity REAL NOT NULL DEFAULT 0,
+      package_size REAL NOT NULL DEFAULT 1,
+      package_count REAL NOT NULL DEFAULT 0,
+      vat_percent REAL NOT NULL DEFAULT 0,
       expected_price REAL NOT NULL DEFAULT 0,
       current_stock REAL NOT NULL DEFAULT 0,
       min_stock REAL,
@@ -135,6 +138,9 @@ async function ensure(db){
       unit TEXT NOT NULL DEFAULT '',
       ordered_qty REAL NOT NULL DEFAULT 0,
       confirmed_qty REAL NOT NULL DEFAULT 0,
+      package_size REAL NOT NULL DEFAULT 1,
+      package_count REAL NOT NULL DEFAULT 0,
+      vat_percent REAL NOT NULL DEFAULT 0,
       unit_price REAL NOT NULL DEFAULT 0
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_order_lines_order ON procurement_order_lines(order_id)`),
@@ -174,6 +180,18 @@ async function ensure(db){
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_stock_norms_scope_store ON procurement_stock_norms(server_scope,store_id,product_id)`)
   ]);
+  async function ensureColumn(table,column,definition){
+    const info=await db.prepare("PRAGMA table_info("+table+")").all();
+    if(!(info.results||[]).some(x=>String(x.name||"")===column)){
+      await db.prepare("ALTER TABLE "+table+" ADD COLUMN "+column+" "+definition).run();
+    }
+  }
+  await ensureColumn("procurement_requisition_lines","package_size","REAL NOT NULL DEFAULT 1");
+  await ensureColumn("procurement_requisition_lines","package_count","REAL NOT NULL DEFAULT 0");
+  await ensureColumn("procurement_requisition_lines","vat_percent","REAL NOT NULL DEFAULT 0");
+  await ensureColumn("procurement_order_lines","package_size","REAL NOT NULL DEFAULT 1");
+  await ensureColumn("procurement_order_lines","package_count","REAL NOT NULL DEFAULT 0");
+  await ensureColumn("procurement_order_lines","vat_percent","REAL NOT NULL DEFAULT 0");
 }
 
 async function contextFor(request,env){
@@ -228,13 +246,23 @@ function normalizeLines(lines,{allowZeroPrice=false}={}){
   for(const raw of src){
     const productId=clean(raw?.productId);if(!productId)throw new Error("Не выбрана номенклатура.");
     if(seen.has(productId))throw new Error("Одна позиция не может повторяться в документе.");seen.add(productId);
-    const quantity=q(raw?.quantity??raw?.orderedQty??raw?.receivedQty);if(!(quantity>0))throw new Error("Количество должно быть больше нуля.");
+    const sourceQuantity=q(raw?.quantity??raw?.orderedQty??raw?.receivedQty);
+    const packageSize=q(raw?.packageSize??raw?.packingSize??1)||1;
+    const packageCount=q(raw?.packageCount??raw?.packages??(sourceQuantity>0?sourceQuantity/packageSize:0));
+    const quantity=q(packageSize*packageCount);
+    if(!(packageSize>0))throw new Error("Фасовка должна быть больше нуля.");
+    if(!(packageCount>0)||!(quantity>0))throw new Error("Количество упаковок должно быть больше нуля.");
+    const vatPercent=n(raw?.vatPercent??raw?.ndsPercent,0);
+    if(![0,2,8,18].includes(vatPercent))throw new Error("НДС должен быть 0%, 2%, 8% или 18%.");
     const price=money(raw?.unitPrice??raw?.expectedPrice??0);if(price<0||(!allowZeroPrice&&price<=0))throw new Error("Укажите корректную цену.");
     out.push({
       productId,
       productName:clean(raw?.productName),
       unit:clean(raw?.unit),
       quantity,
+      packageSize,
+      packageCount,
+      vatPercent,
       unitPrice:price,
       currentStock:q(raw?.currentStock),
       minStock:raw?.minStock===null||raw?.minStock===undefined?null:q(raw.minStock),
@@ -294,7 +322,7 @@ async function readData(db,serverScope,scope){
     restaurantIds:parse(r.restaurant_ids_json,[]),restaurantNames:parse(r.restaurant_names_json,[]),warehouseId:r.warehouse_id,warehouseName:r.warehouse_name,
     neededBy:r.needed_by,comment:r.comment,totalEstimate:n(r.total_estimate),requiredApprovalLevel:r.required_approval_level,
     approvedBy:r.approved_by_name||r.approved_by,approvedAt:r.approved_at,
-    lines:(reqLinesBy.get(r.id)||[]).map(l=>({id:l.id,productId:l.product_id,productName:l.product_name,unit:l.unit,quantity:n(l.quantity),expectedPrice:n(l.expected_price),currentStock:n(l.current_stock),minStock:l.min_stock===null?null:n(l.min_stock),maxStock:l.max_stock===null?null:n(l.max_stock),storeId:l.store_id,storeName:l.store_name})),
+    lines:(reqLinesBy.get(r.id)||[]).map(l=>({id:l.id,productId:l.product_id,productName:l.product_name,unit:l.unit,quantity:n(l.quantity),packageSize:n(l.package_size,1)||1,packageCount:n(l.package_count)||n(l.quantity),vatPercent:n(l.vat_percent),expectedPrice:n(l.expected_price),currentStock:n(l.current_stock),minStock:l.min_stock===null?null:n(l.min_stock),maxStock:l.max_stock===null?null:n(l.max_stock),storeId:l.store_id,storeName:l.store_name})),
     quotes:quoteRows.filter(q=>q.requisition_id===r.id).map(q=>({id:q.id,supplierId:q.supplier_id,supplierName:q.supplier_name,status:q.status,currency:q.currency,deliveryDays:n(q.delivery_days),paymentTerms:q.payment_terms,validUntil:q.valid_until,comment:q.comment,totalAmount:n(q.total_amount),lines:parse(q.lines_json,[]),createdAt:q.created_at,createdBy:q.created_by_name||q.created_by}))
   }));
 
@@ -307,7 +335,7 @@ async function readData(db,serverScope,scope){
     }
     const lines=(orderLinesBy.get(o.id)||[]).map(l=>{
       const rec=q(received.get(l.product_id)||0),ord=q(l.ordered_qty),rem=q(Math.max(0,ord-rec));
-      return{id:l.id,productId:l.product_id,productName:l.product_name,unit:l.unit,orderedQty:ord,confirmedQty:q(l.confirmed_qty||l.ordered_qty),unitPrice:n(l.unit_price),receivedQty:rec,remainingQty:rem};
+      return{id:l.id,productId:l.product_id,productName:l.product_name,unit:l.unit,orderedQty:ord,confirmedQty:q(l.confirmed_qty||l.ordered_qty),packageSize:n(l.package_size,1)||1,packageCount:n(l.package_count)||ord,vatPercent:n(l.vat_percent),unitPrice:n(l.unit_price),receivedQty:rec,remainingQty:rem};
     });
     const orderedQty=lines.reduce((s,x)=>s+x.orderedQty,0),receivedQty=lines.reduce((s,x)=>s+Math.min(x.orderedQty,x.receivedQty),0);
     const completed=lines.length>0&&lines.every(x=>x.remainingQty<=0.0005);
@@ -425,10 +453,10 @@ export async function onRequestPost({request,env}){
     if(action==="create-requisition"){
       const lines=normalizeLines(body?.lines,{allowZeroPrice:true}),warehouseId=clean(body?.warehouseId),warehouseName=clean(body?.warehouseName);
       if(!warehouseId)throw new Error("Выберите склад назначения.");
-      const total=money(lines.reduce((sum,x)=>sum+x.quantity*x.unitPrice,0)),id=uid(),number=docNo("PR"),level=approvalLevel(total,s);
+      const total=money(lines.reduce((sum,x)=>sum+x.packageCount*x.unitPrice,0)),id=uid(),number=docNo("PR"),level=approvalLevel(total,s);
       const row={id,number,restaurant_ids_json:JSON.stringify(sd.ids),restaurant_names_json:JSON.stringify(sd.names)};
       const stmts=[db.prepare(`INSERT INTO procurement_requisitions(id,server_scope,number,status,source,created_at,updated_at,created_by,created_by_name,restaurant_ids_json,restaurant_names_json,warehouse_id,warehouse_name,needed_by,comment,total_estimate,required_approval_level) VALUES(?1,?2,?3,'DRAFT',?4,?5,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`).bind(id,c.serverScope,number,clean(body?.source||"MANUAL").toUpperCase(),stamp,userId,userName,row.restaurant_ids_json,row.restaurant_names_json,warehouseId,warehouseName,clean(body?.neededBy),clean(body?.comment),total,level)];
-      for(const x of lines)stmts.push(db.prepare(`INSERT INTO procurement_requisition_lines(id,requisition_id,product_id,product_name,unit,quantity,expected_price,current_stock,min_stock,max_stock,store_id,store_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)`).bind(uid(),id,x.productId,x.productName,x.unit,x.quantity,x.unitPrice,x.currentStock,x.minStock,x.maxStock,x.storeId,x.storeName));
+      for(const x of lines)stmts.push(db.prepare(`INSERT INTO procurement_requisition_lines(id,requisition_id,product_id,product_name,unit,quantity,package_size,package_count,vat_percent,expected_price,current_stock,min_stock,max_stock,store_id,store_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`).bind(uid(),id,x.productId,x.productName,x.unit,x.quantity,x.packageSize,x.packageCount,x.vatPercent,x.unitPrice,x.currentStock,x.minStock,x.maxStock,x.storeId,x.storeName));
       await db.batch(stmts);
       await log(c,"CREATE","PURCHASE_REQUISITION",row,null,{id,number,status:"DRAFT",warehouseId,warehouseName,totalEstimate:total,requiredApprovalLevel:level,lines});
       return json({success:true,id,number,status:"DRAFT"},201);
@@ -436,10 +464,10 @@ export async function onRequestPost({request,env}){
 
     if(action==="update-requisition"){
       const r=await reqRow(db,c.scope,clean(body?.id),c.serverScope);if(r.status!=="DRAFT"){const e=new Error("Изменять можно только черновик заявки.");e.status=409;throw e}
-      const lines=normalizeLines(body?.lines,{allowZeroPrice:true}),warehouseId=clean(body?.warehouseId||r.warehouse_id),warehouseName=clean(body?.warehouseName||r.warehouse_name),total=money(lines.reduce((sum,x)=>sum+x.quantity*x.unitPrice,0)),level=approvalLevel(total,s);
+      const lines=normalizeLines(body?.lines,{allowZeroPrice:true}),warehouseId=clean(body?.warehouseId||r.warehouse_id),warehouseName=clean(body?.warehouseName||r.warehouse_name),total=money(lines.reduce((sum,x)=>sum+x.packageCount*x.unitPrice,0)),level=approvalLevel(total,s);
       const before={...r,lines:(await db.prepare("SELECT * FROM procurement_requisition_lines WHERE requisition_id=?1").bind(r.id).all()).results||[]};
       const stmts=[db.prepare("DELETE FROM procurement_requisition_lines WHERE requisition_id=?1").bind(r.id),db.prepare(`UPDATE procurement_requisitions SET updated_at=?2,updated_by=?3,warehouse_id=?4,warehouse_name=?5,needed_by=?6,comment=?7,total_estimate=?8,required_approval_level=?9 WHERE id=?1`).bind(r.id,stamp,userId,warehouseId,warehouseName,clean(body?.neededBy),clean(body?.comment),total,level)];
-      for(const x of lines)stmts.push(db.prepare(`INSERT INTO procurement_requisition_lines(id,requisition_id,product_id,product_name,unit,quantity,expected_price,current_stock,min_stock,max_stock,store_id,store_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)`).bind(uid(),r.id,x.productId,x.productName,x.unit,x.quantity,x.unitPrice,x.currentStock,x.minStock,x.maxStock,x.storeId,x.storeName));
+      for(const x of lines)stmts.push(db.prepare(`INSERT INTO procurement_requisition_lines(id,requisition_id,product_id,product_name,unit,quantity,expected_price,current_stock,min_stock,max_stock,store_id,store_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)`).bind(uid(),r.id,x.productId,x.productName,x.unit,x.quantity,x.packageSize,x.packageCount,x.vatPercent,x.unitPrice,x.currentStock,x.minStock,x.maxStock,x.storeId,x.storeName));
       await db.batch(stmts);await log(c,"UPDATE","PURCHASE_REQUISITION",r,before,{id:r.id,number:r.number,status:r.status,warehouseId,warehouseName,totalEstimate:total,requiredApprovalLevel:level,lines});
       return json({success:true,id:r.id,status:r.status});
     }
@@ -474,7 +502,7 @@ export async function onRequestPost({request,env}){
       if(!["APPROVED","PENDING_APPROVAL"].includes(r.status)){const e=new Error("Предложения поставщиков добавляются после отправки заявки на согласование.");e.status=409;throw e}
       const supplierId=clean(body?.supplierId),supplierName=clean(body?.supplierName);if(!supplierId)throw new Error("Выберите поставщика.");
       const reqLines=(await db.prepare("SELECT * FROM procurement_requisition_lines WHERE requisition_id=?1").bind(r.id).all()).results||[],reqProducts=new Set(reqLines.map(x=>x.product_id));
-      const lines=normalizeLines(body?.lines).map(x=>{if(!reqProducts.has(x.productId))throw new Error("В предложении есть позиция, которой нет в заявке.");return{productId:x.productId,productName:x.productName,unit:x.unit,quantity:x.quantity,unitPrice:x.unitPrice,total:money(x.quantity*x.unitPrice)}});
+      const lines=normalizeLines(body?.lines).map(x=>{if(!reqProducts.has(x.productId))throw new Error("В предложении есть позиция, которой нет в заявке.");return{productId:x.productId,productName:x.productName,unit:x.unit,quantity:x.quantity,packageSize:x.packageSize,packageCount:x.packageCount,vatPercent:x.vatPercent,unitPrice:x.unitPrice,total:money(x.packageCount*x.unitPrice)}});
       const total=money(lines.reduce((sum,x)=>sum+x.total,0)),id=uid();
       await db.prepare(`INSERT INTO procurement_quotes(id,server_scope,requisition_id,supplier_id,supplier_name,status,currency,delivery_days,payment_terms,valid_until,comment,lines_json,total_amount,created_at,created_by,created_by_name) VALUES(?1,?2,?3,?4,?5,'OFFERED',?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`).bind(id,c.serverScope,r.id,supplierId,supplierName,clean(body?.currency||"AZN"),Math.max(0,Math.round(n(body?.deliveryDays))),clean(body?.paymentTerms),clean(body?.validUntil),clean(body?.comment),JSON.stringify(lines),total,stamp,userId,userName).run();
       await log(c,"CREATE","SUPPLIER_QUOTE",r,null,{id,requisitionId:r.id,supplierId,supplierName,totalAmount:total,lines});
@@ -490,9 +518,9 @@ export async function onRequestPost({request,env}){
       const sourceLines=body?.lines||(quote?parse(quote.lines_json,[]):[]),lines=normalizeLines(sourceLines);
       const existing=(await db.prepare(`SELECT l.product_id,SUM(l.ordered_qty) qty FROM procurement_order_lines l JOIN procurement_orders o ON o.id=l.order_id WHERE o.requisition_id=?1 AND o.status<>'CANCELLED' GROUP BY l.product_id`).bind(r.id).all()).results||[],already=new Map(existing.map(x=>[x.product_id,n(x.qty)]));
       for(const x of lines){const req=reqBy.get(x.productId);if(!req)throw new Error("В PO есть позиция, которой нет в PR.");const remaining=q(n(req.quantity)-n(already.get(x.productId)));if(x.quantity>remaining+0.0005)throw new Error(`${req.product_name}: количество PO превышает остаток заявки (${remaining}).`)}
-      const id=uid(),number=docNo("PO"),total=money(lines.reduce((sum,x)=>sum+x.quantity*x.unitPrice,0)),row={id,number,restaurant_ids_json:r.restaurant_ids_json,restaurant_names_json:r.restaurant_names_json};
+      const id=uid(),number=docNo("PO"),total=money(lines.reduce((sum,x)=>sum+x.packageCount*x.unitPrice,0)),row={id,number,restaurant_ids_json:r.restaurant_ids_json,restaurant_names_json:r.restaurant_names_json};
       const stmts=[db.prepare(`INSERT INTO procurement_orders(id,server_scope,number,requisition_id,quote_id,supplier_id,supplier_name,warehouse_id,warehouse_name,status,created_at,updated_at,created_by,created_by_name,comment,restaurant_ids_json,restaurant_names_json,total_amount) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'APPROVED',?10,?10,?11,?12,?13,?14,?15,?16)`).bind(id,c.serverScope,number,r.id,clean(quote?.id),supplierId,supplierName,r.warehouse_id,r.warehouse_name,stamp,userId,userName,clean(body?.comment),r.restaurant_ids_json,r.restaurant_names_json,total)];
-      for(const x of lines)stmts.push(db.prepare(`INSERT INTO procurement_order_lines(id,order_id,product_id,product_name,unit,ordered_qty,confirmed_qty,unit_price) VALUES(?1,?2,?3,?4,?5,?6,?6,?7)`).bind(uid(),id,x.productId,x.productName||reqBy.get(x.productId)?.product_name||"",x.unit||reqBy.get(x.productId)?.unit||"",x.quantity,x.unitPrice));
+      for(const x of lines)stmts.push(db.prepare(`INSERT INTO procurement_order_lines(id,order_id,product_id,product_name,unit,ordered_qty,confirmed_qty,package_size,package_count,vat_percent,unit_price) VALUES(?1,?2,?3,?4,?5,?6,?6,?7,?8,?9,?10)`).bind(uid(),id,x.productId,x.productName||reqBy.get(x.productId)?.product_name||"",x.unit||reqBy.get(x.productId)?.unit||"",x.quantity,x.packageSize,x.packageCount,x.vatPercent,x.unitPrice));
       if(quote)stmts.push(db.prepare("UPDATE procurement_quotes SET status='SELECTED' WHERE id=?1").bind(quote.id));
       await db.batch(stmts);await log(c,"CREATE","PURCHASE_ORDER",row,null,{id,number,requisitionId:r.id,supplierId,supplierName,totalAmount:total,lines});
       return json({success:true,id,number,status:"APPROVED"},201);
@@ -524,7 +552,7 @@ export async function onRequestPost({request,env}){
       const receipt=await db.prepare("SELECT * FROM procurement_receipts WHERE server_scope=?1 AND iiko_document_number=?2 LIMIT 1").bind(c.serverScope,documentNumber).first();
       if(!receipt){const e=new Error("Связанная приёмка не найдена.");e.status=404;throw e}
       const o=await orderRow(db,c.scope,receipt.order_id,c.serverScope);
-      const lines=normalizeLines(body?.lines,{allowZeroPrice:true}).map(x=>({productId:x.productId,productName:x.productName,unit:x.unit,quantity:x.quantity,unitPrice:x.unitPrice,total:money(x.quantity*x.unitPrice)}));
+      const lines=normalizeLines(body?.lines,{allowZeroPrice:true}).map(x=>({productId:x.productId,productName:x.productName,unit:x.unit,quantity:x.quantity,packageSize:x.packageSize,packageCount:x.packageCount,vatPercent:x.vatPercent,unitPrice:x.unitPrice,total:money(x.packageCount*x.unitPrice)}));
       const total=money(lines.reduce((s,x)=>s+x.total,0));
       await db.prepare("UPDATE procurement_receipts SET iiko_status=?2,document_date=?3,total_amount=?4,lines_json=?5,comment=?6 WHERE id=?1").bind(receipt.id,clean(body?.iikoStatus||receipt.iiko_status),clean(body?.documentDate||receipt.document_date),total,JSON.stringify(lines),clean(body?.comment||receipt.comment)).run();
       const orderLines=(await db.prepare("SELECT * FROM procurement_order_lines WHERE order_id=?1").bind(o.id).all()).results||[];
