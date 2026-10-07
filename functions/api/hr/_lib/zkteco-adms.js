@@ -134,9 +134,8 @@ export async function ingestAdmsPayload(db,row,{tableName,body,request}){
       ]);
       if(!lastEvent||rec.eventTime>lastEvent)lastEvent=rec.eventTime;
     }else{
-      const sourceUid=await sha256(`${row.serial_number}|${table}|${line}`);
-      await db.prepare(`INSERT OR IGNORE INTO hr_zkteco_adms_raw(user_id,raw_id,device_id,serial_number,table_name,source_uid,raw_line,received_at)
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8)`).bind(row.user_id,"zkraw_"+crypto.randomUUID(),row.device_id,row.serial_number,table||"UNKNOWN",sourceUid,line.slice(0,16000),receivedAt).run();
+      // Smart Horeca intentionally does not persist biometric templates, face photos,
+      // fingerprints, passwords or card enrollment payloads. Identification remains local on SenseFace.
       parsed++;
     }
   }
@@ -153,7 +152,7 @@ export function admsOptions(serialNumber){
     "OPERLOGStamp=9999",
     "TransTimes=00:00",
     "TransInterval=1",
-    "TransFlag=TransData AttLog OpLog EnrollUser",
+    "TransFlag=TransData AttLog",
     "Realtime=1",
     "Encrypt=None",
     "ServerVer=SmartHoreca-1.0",
