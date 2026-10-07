@@ -200,6 +200,70 @@
     return '';
   }
 
+  function productById(id) {
+    var key = String(id || '').replace(/[{}]/g, '').toLowerCase();
+    return refs.products.find(function (x) { return String(x.id || '').replace(/[{}]/g, '').toLowerCase() === key; }) || null;
+  }
+
+  function productPackagings(id) {
+    var p = productById(id);
+    return p && Array.isArray(p.packagings) ? p.packagings.filter(function (x) { return Number(x.count) > 0; }) : [];
+  }
+
+  function invoicePackagingOptions(productId, selectedContainerId, packageSize) {
+    var packs = productPackagings(productId);
+    var selectedId = String(selectedContainerId || '').replace(/[{}]/g, '').toLowerCase();
+    var size = Number(packageSize || 1);
+    var matched = false;
+    var options = packs.map(function (p, index) {
+      var pid = String(p.id || '').replace(/[{}]/g, '').toLowerCase();
+      var isSelected = (selectedId && pid === selectedId) || (!selectedId && !matched && Math.abs(Number(p.count) - size) < 0.0005);
+      if (isSelected) matched = true;
+      var label = (p.name || p.num || ('Фасовка ' + (index + 1))) + ' · ' + Number(p.count).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
+      return '<option value="' + esc(pid || ('__iiko_' + index)) + '" data-count="' + esc(p.count) + '" data-name="' + esc(p.name || p.num || '') + '"' + (isSelected ? ' selected' : '') + '>' + esc(label) + '</option>';
+    }).join('');
+    return options + '<option value="__manual__"' + (!matched ? ' selected' : '') + '>Другая / вручную</option>';
+  }
+
+  function applyInvoicePackaging(row, keepManual) {
+    var productText = row.querySelector('[data-f="product"]').value;
+    var productId = resolveProductId(productText);
+    var choice = row.querySelector('[data-f="packageChoice"]');
+    var size = row.querySelector('[data-f="packageSize"]');
+    var containerId = row.querySelector('[data-f="containerId"]');
+    if (!choice || !size || !containerId) return;
+    if (choice.value === '__manual__') {
+      containerId.value = '';
+      size.readOnly = false;
+      size.classList.remove('inc-pack-locked');
+      if (!keepManual || !(Number(size.value) > 0)) size.value = '1';
+      return;
+    }
+    var selected = productPackagings(productId).find(function (p) {
+      return String(p.id || '').replace(/[{}]/g, '').toLowerCase() === String(choice.value || '').toLowerCase();
+    });
+    if (selected) {
+      containerId.value = selected.id || '';
+      size.value = Number(selected.count || 1);
+      size.readOnly = true;
+      size.classList.add('inc-pack-locked');
+    } else {
+      containerId.value = '';
+      size.readOnly = false;
+      size.classList.remove('inc-pack-locked');
+    }
+  }
+
+  function refreshInvoicePackaging(row, keepManual) {
+    var productId = resolveProductId(row.querySelector('[data-f="product"]').value);
+    var choice = row.querySelector('[data-f="packageChoice"]');
+    var size = row.querySelector('[data-f="packageSize"]');
+    var containerId = row.querySelector('[data-f="containerId"]');
+    if (!choice || !size || !containerId) return;
+    choice.innerHTML = invoicePackagingOptions(productId, containerId.value, size.value);
+    applyInvoicePackaging(row, keepManual);
+  }
+
   function vatOptions(selected) {
     var current = Number(selected == null ? 0 : selected);
     return [0, 2, 8, 18].map(function (v) {
@@ -232,12 +296,13 @@
     var vat = Number(item.vatPercent != null ? item.vatPercent : (item.ndsPercent != null ? item.ndsPercent : 0));
     if ([0,2,8,18].indexOf(vat) < 0) vat = 0;
     var sum = Number(item.sum != null ? item.sum : packages * price);
+    var initialProductId = String(item.productId || item.product || '').replace(/[{}]/g, '').toLowerCase();
 
     var row = document.createElement('div');
     row.className = 'inc-item';
     row.innerHTML =
-      '<label>Товар<input data-f="product" list="inc-product-options" autocomplete="off" placeholder="Начните вводить название" value="' + esc(productLabel(item.productId || item.product, item.productName)) + '"></label>' +
-      '<label>Фасовка<input data-f="packageSize" list="inc-pack-options" type="number" min="0.001" step="0.001" value="' + esc(packageSize) + '"></label>' +
+      '<label>Товар<input data-f="product" list="inc-product-options" autocomplete="off" placeholder="Начните вводить название" value="' + esc(productLabel(initialProductId, item.productName)) + '"></label>' +
+      '<label>Фасовка iiko<select data-f="packageChoice">' + invoicePackagingOptions(initialProductId, item.containerId || '', packageSize) + '</select><input data-f="packageSize" type="number" min="0.001" step="0.001" value="' + esc(packageSize) + '"></label>' +
       '<label>Упаковок<input data-f="packages" type="number" min="0.001" step="0.001" value="' + esc(packages) + '"></label>' +
       '<label>Итого кол-во<input class="inc-readonly" data-f="actualAmount" type="number" readonly value="' + esc(actual) + '"></label>' +
       '<label>НДС<select data-f="vatPercent">' + vatOptions(vat) + '</select></label>' +
@@ -248,11 +313,21 @@
       '<input data-f="amountUnit" type="hidden" value="' + esc(item.amountUnit || '') + '">' +
       '<input data-f="containerId" type="hidden" value="' + esc(item.containerId || '') + '">';
     row.querySelector('.inc-danger').onclick = function () { row.remove(); recalc(); };
+    row.querySelector('[data-f="product"]').addEventListener('change', function () {
+      row.querySelector('[data-f="containerId"]').value = '';
+      refreshInvoicePackaging(row, false);
+      recalcItem(row);recalc();
+    });
+    row.querySelector('[data-f="packageChoice"]').addEventListener('change', function () {
+      applyInvoicePackaging(row, true);
+      recalcItem(row);recalc();
+    });
     ['packageSize', 'packages', 'price'].forEach(function (name) {
       row.querySelector('[data-f="' + name + '"]').addEventListener('input', function () { recalcItem(row); recalc(); });
     });
     row.querySelector('[data-f="vatPercent"]').addEventListener('change', function () { recalcItem(row); recalc(); });
     $('inc-items').appendChild(row);
+    applyInvoicePackaging(row, true);
     recalcItem(row);
     recalc();
   }
