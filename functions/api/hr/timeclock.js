@@ -104,7 +104,7 @@ function deviceAllowedForScope(row,scope){
 }
 
 async function snapshot(db,userId,scope=null){
-  const [devices,employees,bindings,events,tokens,admsRows,admsRawRows,admsRequestRows]=await Promise.all([
+  const [devices,employees,bindings,events,tokens,admsRows,admsRawRows,admsRequestRows,admsCommandRows]=await Promise.all([
     db.prepare(`SELECT * FROM hr_devices WHERE user_id=?1 ORDER BY is_active DESC,name COLLATE NOCASE`).bind(userId).all(),
     db.prepare(`SELECT * FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY is_deleted,last_name COLLATE NOCASE,first_name COLLATE NOCASE,display_name COLLATE NOCASE`).bind(userId).all(),
     db.prepare(`SELECT * FROM hr_employee_device_bindings WHERE user_id=?1 ORDER BY updated_at DESC`).bind(userId).all(),
@@ -114,9 +114,10 @@ async function snapshot(db,userId,scope=null){
     db.prepare(`SELECT device_id,last_used_at,rotated_at FROM hr_device_tokens WHERE user_id=?1`).bind(userId).all(),
     db.prepare(`SELECT device_id,serial_number,model,last_seen_at,last_event_at,push_version,firmware,last_ip,last_user_agent FROM hr_zkteco_adms_devices WHERE user_id=?1 AND enabled=1`).bind(userId).all(),
     db.prepare(`SELECT raw_id,device_id,serial_number,table_name,event_time,external_employee_id,event_status,verify_type,work_code,raw_line,received_at FROM hr_zkteco_adms_raw WHERE user_id=?1 ORDER BY received_at DESC LIMIT 200`).bind(userId).all(),
-    db.prepare(`SELECT request_id,device_id,serial_number,endpoint,method,table_name,query_text,body_length,body_preview,received_at FROM hr_zkteco_adms_requests WHERE user_id=?1 ORDER BY received_at DESC LIMIT 100`).bind(userId).all()
+    db.prepare(`SELECT request_id,device_id,serial_number,endpoint,method,table_name,query_text,body_length,body_preview,received_at FROM hr_zkteco_adms_requests WHERE user_id=?1 ORDER BY received_at DESC LIMIT 100`).bind(userId).all(),
+    db.prepare(`SELECT command_id,device_id,serial_number,command_text,status,created_at,sent_at,acknowledged_at,return_code FROM hr_zkteco_adms_commands WHERE user_id=?1 ORDER BY created_at DESC LIMIT 30`).bind(userId).all()
   ]);
-  const allDevices=devices.results||[],allEmployees=employees.results||[],allBindings=bindings.results||[],allEvents=events.results||[],ts=tokens.results||[],adms=admsRows.results||[],allAdmsRaw=admsRawRows.results||[],allAdmsRequests=admsRequestRows.results||[];
+  const allDevices=devices.results||[],allEmployees=employees.results||[],allBindings=bindings.results||[],allEvents=events.results||[],ts=tokens.results||[],adms=admsRows.results||[],allAdmsRaw=admsRawRows.results||[],allAdmsRequests=admsRequestRows.results||[],allAdmsCommands=admsCommandRows.results||[];
   const selectedRestaurants=new Set(Array.isArray(scope?.selectedDepartmentIds)?scope.selectedDepartmentIds.map(String):[]);
   const subset=isHrSubsetScope(scope);
   const ds=subset?allDevices.filter(x=>selectedRestaurants.has(String(x.restaurant_id))):allDevices;
@@ -135,6 +136,7 @@ async function snapshot(db,userId,scope=null){
     events:ev.map(x=>({id:x.event_id,deviceId:x.device_id,provider:x.provider,sourceUid:x.source_uid,externalEmployeeId:x.external_employee_id,employeeId:x.iiko_employee_id,employeeName:x.employee_name||'',employeeCode:x.employee_code||'',eventTime:x.event_time,eventType:x.event_type,importedAt:x.imported_at})),
     rawAdms:(subset?allAdmsRaw.filter(x=>selectedDeviceIds.has(String(x.device_id))):allAdmsRaw).map(x=>({id:x.raw_id,deviceId:x.device_id,serialNumber:x.serial_number,tableName:x.table_name,eventTime:x.event_time||'',externalEmployeeId:x.external_employee_id||'',status:x.event_status||'',verifyType:x.verify_type||'',workCode:x.work_code||'',rawLine:x.raw_line||'',receivedAt:x.received_at||''})),
     admsRequests:(subset?allAdmsRequests.filter(x=>selectedDeviceIds.has(String(x.device_id))):allAdmsRequests).map(x=>({id:x.request_id,deviceId:x.device_id,serialNumber:x.serial_number,endpoint:x.endpoint||'',method:x.method||'',tableName:x.table_name||'',queryText:x.query_text||'',bodyLength:Number(x.body_length||0),bodyPreview:x.body_preview||'',receivedAt:x.received_at||''})),
+    admsCommands:(subset?allAdmsCommands.filter(x=>selectedDeviceIds.has(String(x.device_id))):allAdmsCommands).map(x=>({id:Number(x.command_id),deviceId:x.device_id,serialNumber:x.serial_number,commandText:x.command_text,status:x.status,createdAt:x.created_at||'',sentAt:x.sent_at||'',acknowledgedAt:x.acknowledged_at||'',returnCode:x.return_code||''})),
     counts:{devices:ds.filter(x=>x.is_active).length,admsDevices:ds.filter(x=>admsMap.has(String(x.device_id))).length,admsOnline:ds.filter(x=>{const z=admsMap.get(String(x.device_id)),seen=z?.last_seen_at?new Date(z.last_seen_at).getTime():0;return Boolean(seen&&nowMs-seen<5*60*1000)}).length,unassignedDevices:ds.filter(x=>!clean(x.restaurant_id)).length,employees:es.filter(x=>!x.is_deleted&&!x.fire_date).length,bindings:bs.length,events:ev.length,unmatchedEvents:ev.filter(x=>!x.iiko_employee_id).length,deviceTokens:ts.filter(x=>ds.some(d=>String(d.device_id)===String(x.device_id))).length,rawAdms:(subset?allAdmsRaw.filter(x=>selectedDeviceIds.has(String(x.device_id))):allAdmsRaw).length,admsRequests:(subset?allAdmsRequests.filter(x=>selectedDeviceIds.has(String(x.device_id))):allAdmsRequests).length}
   };
 }
@@ -212,10 +214,10 @@ export async function onRequestPost({request,env}){
       if(String(d.connection_mode)!=='ADMS_PUSH')return json({success:false,message:'Запрос ATTLOG доступен только для ADMS PUSH устройств.'},409);
       const zk=await env.DB.prepare(`SELECT * FROM hr_zkteco_adms_devices WHERE user_id=?1 AND device_id=?2 AND enabled=1 LIMIT 1`).bind(userId,deviceId).first();
       if(!zk)return json({success:false,message:'ADMS устройство не зарегистрировано.'},409);
-      const existing=await env.DB.prepare(`SELECT command_id,status FROM hr_zkteco_adms_commands WHERE user_id=?1 AND device_id=?2 AND status IN ('PENDING','SENT') AND command_text LIKE 'DATA QUERY ATTLOG%' ORDER BY created_at DESC LIMIT 1`).bind(userId,deviceId).first();
-      let commandId=existing?.command_id||0;
-      if(!commandId)commandId=await queueAdmsCommand(env.DB,zk,'DATA QUERY ATTLOG');
-      return json({success:true,commandId,commandStatus:existing?.status||'PENDING',message:'Запрос журнала поставлен в очередь. SenseFace получит его при следующем ADMS polling.',...await snapshot(env.DB,userId,scope)});
+      await env.DB.prepare(`UPDATE hr_zkteco_adms_commands SET status='SUPERSEDED' WHERE user_id=?1 AND device_id=?2 AND status IN ('PENDING','SENT') AND command_text LIKE 'DATA QUERY ATTLOG%'`).bind(userId,deviceId).run();
+      const commandText='DATA QUERY ATTLOG StartTime=2020-01-01 00:00:00\tEndTime=2030-12-31 23:59:59';
+      const commandId=await queueAdmsCommand(env.DB,zk,commandText);
+      return json({success:true,commandId,commandStatus:'PENDING',message:'Запрос журнала поставлен в очередь. SenseFace получит его при следующем ADMS polling.',...await snapshot(env.DB,userId,scope)});
     }
     if(action==='linkEmployee'){
       const deviceId=clean(b.deviceId),employeeId=clean(b.employeeId),externalId=clean(b.externalEmployeeId),label=clean(b.externalLabel);
