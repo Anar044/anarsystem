@@ -6,7 +6,7 @@ const state={
   token:'',binding:null,data:null,refs:{suppliers:[],warehouses:[],products:[]},
   stockRows:[],purchaseRows:[],needs:[],historyDocs:[],supplierBalances:new Map(),latestByProduct:new Map(),priceBySupplierProduct:new Map(),
   productById:new Map(),productLabelToId:new Map(),selectedNeeds:new Set(),
-  normDrafts:new Map(),dirtyNorms:new Set(),busy:false,tab:'needs'
+  normDrafts:new Map(),dirtyNorms:new Set(),busy:false,tab:'needs',view:'catalog'
 };
 
 const key=v=>String(v??'').trim().replace(/^\{+|\}+$/g,'').toLowerCase();
@@ -17,10 +17,52 @@ const money=v=>num(v).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFra
 const today=()=>new Date().toISOString().slice(0,10);
 const addDays=(date,days)=>{const d=new Date(date+'T12:00:00');d.setDate(d.getDate()+Number(days||0));return d.toISOString().slice(0,10)};
 const daysAgo=n=>{const d=new Date();d.setDate(d.getDate()-n);return d.toISOString().slice(0,10)};
-const statusLabel=s=>({DRAFT:'Черновик',PENDING_APPROVAL:'На согласовании',APPROVED:'Согласовано',SENT:'Отправлен',CONFIRMED:'Подтверждён',PARTIALLY_RECEIVED:'Частично принят',COMPLETED:'Выполнен',CANCELLED:'Отменён'}[s]||s||'—');
-const statusTone=s=>s==='CANCELLED'?'danger':['COMPLETED','APPROVED'].includes(s)?'success':['PENDING_APPROVAL','SENT','CONFIRMED','PARTIALLY_RECEIVED'].includes(s)?'warn':'neutral';
+const statusLabel=s=>({DRAFT:'Черновик',PENDING_APPROVAL:'На согласовании',APPROVED:'Согласовано',PARTIALLY_ORDERED:'Частично заказано',ORDERED:'Заказано',PARTIALLY_FULFILLED:'Частично выполнено',SENT:'Отправлен',CONFIRMED:'Подтверждён',PARTIALLY_RECEIVED:'Частично принят',COMPLETED:'Выполнен',CLOSED:'Закрыт вручную',CANCELLED:'Отменён'}[s]||s||'—');
+const statusTone=s=>['CANCELLED','CLOSED'].includes(s)?(s==='CANCELLED'?'danger':'neutral'):['COMPLETED','APPROVED','ORDERED'].includes(s)?'success':['PENDING_APPROVAL','SENT','CONFIRMED','PARTIALLY_RECEIVED','PARTIALLY_ORDERED','PARTIALLY_FULFILLED'].includes(s)?'warn':'neutral';
 const matchLabel=s=>({OPEN:'Ожидает приёмки',PARTIAL:'Частичная приёмка',MATCHED:'PO = приёмка = накладная',PRICE_MISMATCH:'Расхождение цены',QUANTITY_MISMATCH:'Расхождение количества'}[s]||s||'—');
 const approvalName=s=>({MANAGER:'Менеджер',DIRECTOR:'Директор',OWNER:'Владелец'}[s]||s||'—');
+
+const PROCUREMENT_VIEWS=new Set(['catalog','requests','approvals','sourcing','orders','receiving','analytics','norms','settings']);
+function currentProcurementView(){
+  const raw=new URLSearchParams(location.search).get('view')||'catalog';
+  return PROCUREMENT_VIEWS.has(raw)?raw:'catalog';
+}
+function viewPanel(view){
+  if(view==='catalog')return'needs';
+  if(view==='norms')return'norms';
+  if(['requests','approvals','sourcing'].includes(view))return'requisitions';
+  if(['orders','receiving'].includes(view))return'orders';
+  return view;
+}
+function viewMeta(view){
+  return({
+    catalog:{title:'Заказать товары',subtitle:'Каталог, остатки и автоматическая потребность'},
+    requests:{title:'Заявки на закупку',subtitle:'Создание PR и контроль статуса своих заявок'},
+    approvals:{title:'Согласование заявок',subtitle:'Заявки, ожидающие решения'},
+    sourcing:{title:'Работа с поставщиками',subtitle:'Предложения, сравнение цен и создание PO'},
+    orders:{title:'Заказы поставщикам',subtitle:'Отправка PO и контроль подтверждения'},
+    receiving:{title:'Приёмка поставок',subtitle:'Фактическое количество, накладные и расхождения'},
+    analytics:{title:'Аналитика закупок',subtitle:'Исполнение, суммы и поставщики'},
+    norms:{title:'Нормы запаса',subtitle:'Min и целевой остаток по товару и складу'},
+    settings:{title:'Настройки закупок',subtitle:'Лимиты согласования и правила процесса'}
+  })[view]||{title:'Закупки',subtitle:''};
+}
+function applyProcurementView(){
+  state.view=currentProcurementView();
+  const panel=viewPanel(state.view);state.tab=panel;
+  const meta=viewMeta(state.view);
+  const hero=document.querySelector('.proc-hero h1');if(hero)hero.textContent=meta.title;
+  const heroP=document.querySelector('.proc-hero p');if(heroP)heroP.textContent=meta.subtitle;
+  const flow=document.querySelector('.proc-flow'),kpis=document.querySelector('.proc-kpis'),tabs=document.querySelector('.proc-tabs');
+  if(tabs)tabs.style.display='none';
+  const compact=state.view!=='catalog';
+  if(flow)flow.style.display=compact?'none':'';
+  if(kpis)kpis.style.display=compact?'none':'';
+  document.querySelectorAll('[data-panel]').forEach(p=>p.hidden=p.dataset.panel!==panel);
+  if(state.view==='requests'||state.view==='approvals'||state.view==='sourcing')renderRequisitions();
+  if(state.view==='orders'||state.view==='receiving')renderOrders();
+}
+function goProcurementView(view){location.href='/procurement.html?view='+encodeURIComponent(view)}
 
 function setStatus(text,kind=''){
   const el=$('proc-status');if(!el)return;
@@ -343,42 +385,106 @@ async function saveNorms(){
   try{setBusy(true);await procPost('save-stock-norms',{norms});await loadProcurement();computeNeeds();renderKpis();renderNeeds();renderNorms();toast('Нормы запаса сохранены. Потребность пересчитана.')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}
 }
 
-function prActions(r){
-  const a=[];
-  if(r.status==='DRAFT'){a.push('<button class="proc-btn small ghost" data-pr-edit="'+r.id+'">Изменить</button>');a.push('<button class="proc-btn small primary" data-pr-submit="'+r.id+'">На согласование</button>')}
-  if(r.status==='PENDING_APPROVAL'){a.push('<button class="proc-btn small ghost" data-pr-quote="'+r.id+'">+ Предложение</button>');a.push('<button class="proc-btn small primary" data-pr-approve="'+r.id+'">Согласовать</button>')}
-  if(r.status==='APPROVED')a.push('<button class="proc-btn small ghost" data-pr-quote="'+r.id+'">+ Предложение</button>');
-  if(!['CANCELLED'].includes(r.status))a.push('<button class="proc-btn small danger" data-pr-cancel="'+r.id+'">Отменить</button>');
+function requesterActions(r){
+  const a=[],effective=r.effectiveStatus||r.status;
+  if(r.status==='DRAFT'){
+    a.push('<button class="proc-btn small ghost" data-pr-edit="'+r.id+'">Изменить</button>');
+    a.push('<button class="proc-btn small primary" data-pr-submit="'+r.id+'">На согласование</button>');
+    a.push('<button class="proc-btn small danger" data-pr-cancel="'+r.id+'">Отменить</button>');
+  }else if(['APPROVED','PARTIALLY_ORDERED','ORDERED','PARTIALLY_FULFILLED'].includes(effective)){
+    a.push('<button class="proc-btn small ghost" data-pr-close="'+r.id+'">Закрыть вручную</button>');
+  }
   return a.join('');
 }
-function renderRequisitions(){
-  const box=$('proc-pr-list'),rows=state.data?.requisitions||[];
-  if(!rows.length){box.innerHTML='<div class="proc-empty">Заявок пока нет.</div>';return}
-  box.innerHTML=rows.map(r=>{
-    const quotes=(r.quotes||[]).map(qt=>'<div class="proc-quote '+(qt.status==='SELECTED'?'selected':'')+'"><strong>'+esc(qt.supplierName||qt.supplierId)+'</strong><span>'+money(qt.totalAmount)+'</span><small>'+esc((qt.deliveryDays?qt.deliveryDays+' дн. · ':'')+(qt.paymentTerms||'условия не указаны'))+'</small>'+(r.status==='APPROVED'?'<button class="proc-btn small primary" data-po-create="'+r.id+'" data-quote="'+qt.id+'">Создать PO</button>':'')+'</div>').join('');
-    return '<article class="proc-doc-card"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+new Date(r.createdAt).toLocaleDateString('ru-RU')+' · '+esc(r.createdBy||'')+'</span></div><span class="proc-status-badge '+statusTone(r.status)+'">'+esc(statusLabel(r.status))+'</span></div>'+
-      '<div class="proc-line-list">'+(r.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.quantity)+' '+esc(l.unit)+'</strong><span>'+(l.expectedPrice?money(l.expectedPrice):'цена уточняется')+'</span></div>').join('')+'</div>'+
-      (r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
-      '<div class="proc-quotes"><div class="proc-quotes-head"><strong>Предложения поставщиков · '+(r.quotes||[]).length+'</strong><span class="proc-status-badge neutral">Согласование: '+esc(approvalName(r.requiredApprovalLevel))+'</span></div>'+(quotes?'<div class="proc-quote-grid">'+quotes+'</div>':'<div class="proc-history-note">Предложений пока нет. После запроса цен добавьте поставщиков и сравните условия.</div>')+'</div>'+
-      '<div class="proc-doc-footer"><strong>'+(r.totalEstimate?money(r.totalEstimate):'Сумма уточняется')+'</strong><div class="proc-actions">'+prActions(r)+'</div></div></article>';
-  }).join('');
+function prLinesHtml(r,showPrices=true){
+  return '<div class="proc-line-list">'+(r.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.quantity)+' '+esc(l.unit)+'</strong><span>'+(showPrices?(l.expectedPrice?money(l.expectedPrice):'цена уточняется'):'')+'</span></div>').join('')+'</div>';
 }
-function orderActions(o){
-  const a=[];if(o.effectiveStatus==='CANCELLED'||o.effectiveStatus==='COMPLETED')return '';
+function prProgressHtml(r){
+  const effective=r.effectiveStatus||r.status;
+  if(!['PARTIALLY_ORDERED','ORDERED','PARTIALLY_FULFILLED','COMPLETED'].includes(effective))return '';
+  return '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(r.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>'+((r.linkedOrders||[]).length)+' PO связано</span><span>'+num(r.completionPercent).toFixed(1)+'% выполнено</span></div></div>';
+}
+function requestCard(r){
+  const effective=r.effectiveStatus||r.status,done=['COMPLETED','CLOSED','CANCELLED'].includes(effective);
+  return '<article class="proc-doc-card '+(done?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+new Date(r.createdAt).toLocaleDateString('ru-RU')+' · '+esc(r.createdBy||'')+'</span></div><span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span></div>'+
+    prProgressHtml(r)+prLinesHtml(r,true)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
+    '<div class="proc-doc-footer"><strong>'+(r.totalEstimate?money(r.totalEstimate):'Сумма уточняется')+'</strong><div class="proc-actions">'+requesterActions(r)+'</div></div></article>';
+}
+function approvalCard(r){
+  return '<article class="proc-doc-card"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+new Date(r.createdAt).toLocaleDateString('ru-RU')+' · '+esc(r.createdBy||'')+'</span></div><span class="proc-status-badge warn">Нужно: '+esc(approvalName(r.requiredApprovalLevel))+'</span></div>'+
+    prLinesHtml(r,true)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
+    '<div class="proc-doc-footer"><strong>'+(r.totalEstimate?money(r.totalEstimate):'Сумма уточняется')+'</strong><div class="proc-actions"><button class="proc-btn small primary" data-pr-approve="'+r.id+'">Согласовать</button><button class="proc-btn small danger" data-pr-cancel="'+r.id+'">Отклонить</button></div></div></article>';
+}
+function sourcingCard(r){
+  const quotes=(r.quotes||[]).map(qt=>'<div class="proc-quote '+(qt.status==='SELECTED'?'selected':'')+'"><strong>'+esc(qt.supplierName||qt.supplierId)+'</strong><span>'+money(qt.totalAmount)+'</span><small>'+esc((qt.deliveryDays?qt.deliveryDays+' дн. · ':'')+(qt.paymentTerms||'условия не указаны'))+'</small>'+(r.status==='APPROVED'?'<button class="proc-btn small primary" data-po-create="'+r.id+'" data-quote="'+qt.id+'">Создать PO</button>':'')+'</div>').join('');
+  return '<article class="proc-doc-card"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+new Date(r.createdAt).toLocaleDateString('ru-RU')+'</span></div><span class="proc-status-badge '+statusTone(r.effectiveStatus||r.status)+'">'+esc(statusLabel(r.effectiveStatus||r.status))+'</span></div>'+
+    prLinesHtml(r,true)+
+    '<div class="proc-quotes"><div class="proc-quotes-head"><strong>Предложения поставщиков · '+(r.quotes||[]).length+'</strong><button class="proc-btn small ghost" data-pr-quote="'+r.id+'">+ Предложение</button></div>'+(quotes?'<div class="proc-quote-grid">'+quotes+'</div>':'<div class="proc-history-note">Предложений пока нет.</div>')+'</div>'+
+    '<div class="proc-doc-footer"><strong>'+(r.totalEstimate?money(r.totalEstimate):'Сумма уточняется')+'</strong><span class="proc-history-note">'+((r.linkedOrders||[]).length?'Создано PO: '+r.linkedOrders.length:'PO ещё не создан')+'</span></div></article>';
+}
+function renderRequisitions(){
+  const box=$('proc-pr-list'),all=state.data?.requisitions||[],view=state.view||currentProcurementView();
+  const head=document.querySelector('[data-panel="requisitions"] .proc-panel-head');
+  if(view==='approvals'){
+    if(head)head.querySelector('h2').textContent='Согласование заявок';
+    if(head)head.querySelector('p').textContent='Здесь нет предложений поставщиков — только потребность, сумма и решение.';
+    const rows=all.filter(r=>r.status==='PENDING_APPROVAL');
+    box.innerHTML=rows.map(approvalCard).join('')||'<div class="proc-empty">Нет заявок, ожидающих согласования.</div>';
+    return;
+  }
+  if(view==='sourcing'){
+    if(head)head.querySelector('h2').textContent='Работа с поставщиками';
+    if(head)head.querySelector('p').textContent='Согласованные PR, предложения поставщиков и создание PO.';
+    const rows=all.filter(r=>['APPROVED','PARTIALLY_ORDERED','ORDERED','PARTIALLY_FULFILLED'].includes(r.effectiveStatus||r.status));
+    box.innerHTML=rows.map(sourcingCard).join('')||'<div class="proc-empty">Нет согласованных заявок для работы закупщика.</div>';
+    return;
+  }
+  if(head)head.querySelector('h2').textContent='Заявки на закупку (PR)';
+  if(head)head.querySelector('p').textContent='Пользователь видит свою потребность и статус процесса без коммерческих предложений поставщиков.';
+  const active=all.filter(r=>!['COMPLETED','CLOSED','CANCELLED'].includes(r.effectiveStatus||r.status));
+  const done=all.filter(r=>['COMPLETED','CLOSED','CANCELLED'].includes(r.effectiveStatus||r.status));
+  box.innerHTML=
+    '<div class="proc-list-section"><div class="proc-list-section-title"><strong>Активные</strong><span>'+active.length+'</span></div>'+ (active.map(requestCard).join('')||'<div class="proc-empty">Активных заявок нет.</div>')+'</div>'+
+    '<details class="proc-history-block" '+(!active.length&&done.length?'open':'')+'><summary>Завершённые и закрытые · '+done.length+'</summary><div class="proc-card-list inner">'+(done.map(requestCard).join('')||'<div class="proc-empty">Истории пока нет.</div>')+'</div></details>';
+}
+function buyerOrderActions(o){
+  const a=[];if(['CANCELLED','COMPLETED'].includes(o.effectiveStatus))return '';
   if(o.status==='APPROVED')a.push('<button class="proc-btn small primary" data-po-send="'+o.id+'">Отправлен поставщику</button>');
   if(['APPROVED','SENT'].includes(o.status))a.push('<button class="proc-btn small primary" data-po-confirm="'+o.id+'">Поставщик подтвердил</button>');
-  if(['APPROVED','SENT','CONFIRMED','PARTIALLY_RECEIVED'].includes(o.status))a.push('<button class="proc-btn small ghost" data-po-receive="'+o.id+'">Приёмка</button>');
-  if(['APPROVED','SENT','CONFIRMED','PARTIALLY_RECEIVED'].includes(o.status))a.push('<button class="proc-btn small ghost" data-po-link="'+o.id+'">Привязать накладную</button>');
   a.push('<button class="proc-btn small ghost" data-po-copy="'+o.id+'">Копировать PO</button>');
-  a.push('<button class="proc-btn small danger" data-po-cancel="'+o.id+'">Отменить</button>');return a.join('');
+  a.push('<button class="proc-btn small danger" data-po-cancel="'+o.id+'">Отменить</button>');
+  return a.join('');
+}
+function receivingActions(o){
+  if(['CANCELLED','COMPLETED'].includes(o.effectiveStatus))return '';
+  return '<button class="proc-btn small primary" data-po-receive="'+o.id+'">Принять поставку</button><button class="proc-btn small ghost" data-po-link="'+o.id+'">Привязать накладную</button>';
+}
+function orderCard(o,{receiving=false}={}){
+  const lines=(o.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.orderedQty)+' '+esc(l.unit)+(receiving?'':' × '+money(l.unitPrice))+'</strong><span>принято '+qty(l.receivedQty)+' · осталось '+qty(l.remainingQty)+'</span></div>').join('');
+  return '<article class="proc-doc-card '+(o.effectiveStatus==='COMPLETED'?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId)+' · '+esc(o.warehouseName||'Склад')+' · '+new Date(o.createdAt).toLocaleDateString('ru-RU')+'</span></div><span class="proc-status-badge '+statusTone(o.effectiveStatus)+'">'+esc(statusLabel(o.effectiveStatus))+'</span></div>'+
+    '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(o.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>Принято '+qty(o.receivedQty)+' из '+qty(o.orderedQty)+'</span><span>'+num(o.completionPercent).toFixed(1)+'%</span></div></div>'+
+    '<div class="proc-line-list">'+lines+'</div>'+
+    '<div class="proc-card-row" style="margin-top:10px"><span class="proc-match '+String(o.matchStatus||'OPEN').toLowerCase()+'">'+esc(matchLabel(o.matchStatus))+'</span><span class="proc-history-note">'+((o.receipts||[]).length?'Накладные: '+(o.receipts||[]).map(r=>esc(r.iikoDocumentNumber||'без №')).join(', '):'Приёмок пока нет')+'</span></div>'+
+    '<div class="proc-doc-footer">'+(receiving?'<strong>'+qty(o.remainingQty||Math.max(0,o.orderedQty-o.receivedQty))+' к приёмке</strong>':'<strong>'+money(o.totalAmount)+'</strong>')+'<div class="proc-actions">'+(receiving?receivingActions(o):buyerOrderActions(o))+(o.effectiveStatus==='COMPLETED'?'<a class="proc-btn small ghost" href="/nakladnye.html">Открыть накладные ↗</a>':'')+'</div></div></article>';
 }
 function renderOrders(){
-  const box=$('proc-po-list'),rows=state.data?.orders||[];if(!rows.length){box.innerHTML='<div class="proc-empty">Заказов поставщикам пока нет.</div>';return}
-  box.innerHTML=rows.map(o=>'<article class="proc-doc-card"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId)+' · '+esc(o.warehouseName||'Склад')+' · '+new Date(o.createdAt).toLocaleDateString('ru-RU')+'</span></div><span class="proc-status-badge '+statusTone(o.effectiveStatus)+'">'+esc(statusLabel(o.effectiveStatus))+'</span></div>'+
-    '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(o.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>Принято '+qty(o.receivedQty)+' из '+qty(o.orderedQty)+'</span><span>'+num(o.completionPercent).toFixed(1)+'%</span></div></div>'+
-    '<div class="proc-line-list">'+(o.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.orderedQty)+' '+esc(l.unit)+' × '+money(l.unitPrice)+'</strong><span>принято '+qty(l.receivedQty)+' · осталось '+qty(l.remainingQty)+'</span></div>').join('')+'</div>'+
-    '<div class="proc-card-row" style="margin-top:10px"><span class="proc-match '+String(o.matchStatus||'OPEN').toLowerCase()+'">'+esc(matchLabel(o.matchStatus))+'</span><span class="proc-history-note">'+((o.receipts||[]).length?'Накладные: '+(o.receipts||[]).map(r=>esc(r.iikoDocumentNumber||'без №')).join(', '):'Приёмок пока нет')+'</span></div>'+
-    '<div class="proc-doc-footer"><strong>'+money(o.totalAmount)+'</strong><div class="proc-actions">'+orderActions(o)+(o.effectiveStatus==='COMPLETED'?'<a class="proc-btn small ghost" href="/nakladnye.html">Открыть накладные ↗</a>':'')+'</div></div></article>').join('');
+  const box=$('proc-po-list'),all=state.data?.orders||[],view=state.view||currentProcurementView();
+  const head=document.querySelector('[data-panel="orders"] .proc-panel-head');
+  if(view==='receiving'){
+    if(head)head.querySelector('h2').textContent='Приёмка поставок';
+    if(head)head.querySelector('p').textContent='Склад видит количество, поставщика и факт приёмки без коммерческих предложений.';
+    const active=all.filter(o=>!['COMPLETED','CANCELLED'].includes(o.effectiveStatus));
+    const done=all.filter(o=>o.effectiveStatus==='COMPLETED').slice(0,30);
+    box.innerHTML=active.map(o=>orderCard(o,{receiving:true})).join('')||'<div class="proc-empty">Нет поставок, ожидающих приёмки.</div>';
+    if(done.length)box.insertAdjacentHTML('beforeend','<details class="proc-history-block"><summary>Недавно принятые · '+done.length+'</summary><div class="proc-card-list inner">'+done.map(o=>orderCard(o,{receiving:true})).join('')+'</div></details>');
+    return;
+  }
+  if(head)head.querySelector('h2').textContent='Заказы поставщикам (PO)';
+  if(head)head.querySelector('p').textContent='Отправка заказа, подтверждение поставщика и контроль исполнения.';
+  const active=all.filter(o=>!['COMPLETED','CANCELLED'].includes(o.effectiveStatus));
+  const done=all.filter(o=>['COMPLETED','CANCELLED'].includes(o.effectiveStatus));
+  box.innerHTML=active.map(o=>orderCard(o)).join('')||'<div class="proc-empty">Активных PO нет.</div>';
+  if(done.length)box.insertAdjacentHTML('beforeend','<details class="proc-history-block"><summary>Завершённые PO · '+done.length+'</summary><div class="proc-card-list inner">'+done.map(o=>orderCard(o)).join('')+'</div></details>');
 }
 function renderAnalytics(){
   const a=state.data?.analytics||{};$('proc-a-estimate').textContent=money(a.requisitionEstimate);$('proc-a-ordered').textContent=money(a.orderedAmount);$('proc-a-received').textContent=money(a.receivedAmount);$('proc-a-savings').textContent=money(a.estimatedSavings);
@@ -389,7 +495,7 @@ function renderSettings(){
   const s=state.data?.settings||{},tiers=s.approvalTiers||[],m=tiers.find(x=>x.code==='MANAGER'),d=tiers.find(x=>x.code==='DIRECTOR');
   $('proc-limit-manager').value=m?.maxAmount??300;$('proc-limit-director').value=d?.maxAmount??2000;$('proc-lead-days').value=s.defaultLeadDays??2;$('proc-auto-needs').checked=s.autoNeedEnabled!==false;$('proc-over-receipt').checked=s.allowOverReceipt===true;
 }
-function switchTab(tab){state.tab=tab;document.querySelectorAll('.proc-tabs button[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));document.querySelectorAll('[data-panel]').forEach(p=>p.hidden=p.dataset.panel!==tab)}
+function switchTab(tab){const map={needs:'catalog',norms:'norms',requisitions:'requests',orders:'orders',analytics:'analytics',settings:'settings'};goProcurementView(map[tab]||'catalog')}
 function productOptions(){return state.refs.products.map(p=>'<option value="'+esc(productLabel(p.id,p.name))+'"></option>').join('')}
 function resolveProductLabel(v){return state.productLabelToId.get(String(v||''))||''}
 function warehouseOptions(selected=''){return '<option value="">Выберите склад</option>'+state.refs.warehouses.map(x=>'<option value="'+esc(key(x.id))+'" '+(key(x.id)===key(selected)?'selected':'')+'>'+esc(x.name)+'</option>').join('')}
@@ -420,7 +526,7 @@ function openPrModal(seed=[],existing=null){
   const sameStore=lines.length&&lines.every(x=>key(x.storeId)===key(lines[0].storeId))?lines[0].storeId:'',warehouse=existing?.warehouseId||sameStore||state.refs.warehouses[0]?.id||'',lead=num(state.data?.settings?.defaultLeadDays,2);
   openModal(existing?'Изменить заявку '+existing.number:'Новая заявка на закупку','PURCHASE REQUISITION','<form id="proc-pr-form"><datalist id="proc-products-list">'+productOptions()+'</datalist><div class="proc-form-grid"><label class="proc-field"><span>Склад назначения</span><select id="proc-pr-warehouse">'+warehouseOptions(warehouse)+'</select></label><label class="proc-field"><span>Нужно к дате</span><input id="proc-pr-needed" type="date" value="'+esc(existing?.neededBy||addDays(today(),lead))+'"></label><label class="proc-field"><span>Источник</span><input value="'+esc(source)+'" disabled></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-pr-comment" placeholder="Причина, проект, пожелания закупщику…">'+esc(existing?.comment||'')+'</textarea></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Позиции заявки</strong><button id="proc-pr-add-line" type="button" class="proc-btn small ghost">＋ Добавить</button></div><div id="proc-pr-lines">'+lines.map(prLineHtml).join('')+'</div></div><div class="proc-modal-summary"><span>Оценочная сумма заявки</span><strong id="proc-pr-total">0,00 ₼</strong></div><div class="proc-modal-actions"><button type="button" class="proc-btn ghost" id="proc-pr-cancel">Отмена</button><button class="proc-btn primary" type="submit">'+(existing?'Сохранить изменения':'Создать PR')+'</button></div></form>');
   bindEditRows($('proc-pr-lines'));recalcPrModal();$('proc-pr-cancel').onclick=closeModal;$('proc-pr-add-line').onclick=()=>{$('proc-pr-lines').insertAdjacentHTML('beforeend',prLineHtml({quantity:1}));bindEditRows($('proc-pr-lines'));recalcPrModal()};
-  $('proc-pr-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const wid=key($('proc-pr-warehouse').value),w=state.refs.warehouses.find(x=>key(x.id)===wid);if(!wid)throw Error('Выберите склад назначения.');const payload={id:existing?.id,warehouseId:wid,warehouseName:w?.name||'',neededBy:$('proc-pr-needed').value,comment:$('proc-pr-comment').value,source,lines:collectPrLines()};await procPost(existing?'update-requisition':'create-requisition',payload);closeModal();await reloadProc();switchTab('requisitions');toast(existing?'Заявка обновлена.':'Заявка создана.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
+  $('proc-pr-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const wid=key($('proc-pr-warehouse').value),w=state.refs.warehouses.find(x=>key(x.id)===wid);if(!wid)throw Error('Выберите склад назначения.');const payload={id:existing?.id,warehouseId:wid,warehouseName:w?.name||'',neededBy:$('proc-pr-needed').value,comment:$('proc-pr-comment').value,source,lines:collectPrLines()};await procPost(existing?'update-requisition':'create-requisition',payload);closeModal();await reloadProc();toast(existing?'Заявка обновлена.':'Заявка создана.');goProcurementView('requests')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
 }
 function quoteLineHtml(l,supplierId){
   const h=historyPrice(l.productId,supplierId),price=h?num(h.price):num(l.expectedPrice);
@@ -434,7 +540,7 @@ function openQuoteModal(r){
   $('proc-quote-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const sid=key($('proc-quote-supplier').value),sup=state.refs.suppliers.find(x=>key(x.id)===sid);if(!sid)throw Error('Выберите поставщика.');const lines=[...document.querySelectorAll('[data-quote-line]')].map(row=>{const pid=row.dataset.productId;return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:num(row.querySelector('[data-f="quantity"]').value),unitPrice:num(row.querySelector('[data-f="price"]').value)}});await procPost('add-quote',{requisitionId:r.id,supplierId:sid,supplierName:sup?.name||'',deliveryDays:num($('proc-quote-days').value),paymentTerms:$('proc-quote-payment').value,validUntil:$('proc-quote-valid').value,comment:$('proc-quote-comment').value,lines});closeModal();await reloadProc();toast('Предложение поставщика сохранено.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
 }
 async function simpleAction(action,id,message){try{setBusy(true);await procPost(action,{id});await reloadProc();toast(message)}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
-async function createPoFromQuote(reqId,quoteId){try{setBusy(true);await procPost('create-order',{requisitionId:reqId,quoteId});await reloadProc();switchTab('orders');toast('Заказ PO создан.')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
+async function createPoFromQuote(reqId,quoteId){try{setBusy(true);await procPost('create-order',{requisitionId:reqId,quoteId});await reloadProc();toast('Заказ PO создан.');goProcurementView('orders')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
 function openLinkInvoiceModal(o){
   const linked=new Set((o.receipts||[]).map(r=>String(r.iikoDocumentNumber||'').trim().toLowerCase()));
   const candidates=(state.historyDocs||[]).filter(d=>{
@@ -501,7 +607,7 @@ async function loadAll(){
 
     // D1 procurement data must stay usable even if one heavy SH Server report is slow.
     await loadProcurement();
-    renderAll();
+    renderAll();applyProcurementView();
     document.documentElement.style.visibility='visible';
 
     setStatus('Загружаем остатки, справочники и историю цен…');
@@ -516,7 +622,7 @@ async function loadAll(){
     results.forEach((r,i)=>{if(r.status==='rejected'){const msg=r.reason?.message||String(r.reason);warnings.push(tasks[i][0]+': '+msg);console.warn('Procurement optional load failed',tasks[i][0],r.reason)}});
 
     try{await reconcileLinkedReceipts()}catch(e){warnings.push('Сверка накладных: '+(e?.message||String(e)));console.warn('Procurement reconciliation failed',e)}
-    renderAll();
+    renderAll();applyProcurementView();
     try{await flushPending()}catch(e){console.warn('Pending receipt flush failed',e)}
 
     if(warnings.length){
@@ -532,6 +638,7 @@ async function saveSettings(e){
   e.preventDefault();try{setBusy(true);const m=num($('proc-limit-manager').value),d=num($('proc-limit-director').value);if(d<m)throw Error('Лимит директора должен быть не меньше лимита менеджера.');const settings={approvalTiers:[{code:'MANAGER',name:'Менеджер',maxAmount:m},{code:'DIRECTOR',name:'Директор',maxAmount:d},{code:'OWNER',name:'Владелец',maxAmount:null}],autoNeedEnabled:$('proc-auto-needs').checked,defaultLeadDays:Math.max(0,Math.round(num($('proc-lead-days').value))),allowOverReceipt:$('proc-over-receipt').checked,targetMode:'MAX_OR_MIN'};await procPost('save-settings',{settings});await reloadProc();toast('Настройки закупок сохранены.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}
 }
 function bind(){
+  state.view=currentProcurementView();
   $('proc-modal-close').onclick=closeModal;$('proc-modal').addEventListener('click',e=>{if(e.target===$('proc-modal'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('proc-modal').hidden)closeModal()});
   document.querySelectorAll('.proc-tabs button[data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
   $('proc-refresh').onclick=loadAll;$('proc-new-pr').onclick=()=>openPrModal();
@@ -559,10 +666,11 @@ function bind(){
     const row=state.purchaseRows.find(x=>x.id===b.dataset.createNeed);if(row)openPrModal([row]);
   });
   $('proc-pr-list').addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prQuote||b.dataset.poCreate;if(!id)return;
+    const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prClose||b.dataset.prQuote||b.dataset.poCreate;if(!id)return;
     const r=(state.data?.requisitions||[]).find(x=>x.id===id);
     if(b.dataset.prEdit&&r)return openPrModal([],r);
     if(b.dataset.prQuote&&r)return openQuoteModal(r);
+    if(b.dataset.prClose&&r){const reason=prompt('Причина ручного закрытия '+r.number+':');if(reason?.trim())return procPost('close-requisition',{id:r.id,reason:reason.trim()}).then(()=>reloadProc()).then(()=>toast('Заявка закрыта.')).catch(e=>toast(e.message||String(e),'error'));return}
     if(b.dataset.poCreate)return createPoFromQuote(b.dataset.poCreate,b.dataset.quote);
     if(b.dataset.prSubmit)return simpleAction('submit-requisition',id,'Заявка отправлена на согласование.');
     if(b.dataset.prApprove)return simpleAction('approve-requisition',id,'Заявка согласована.');
