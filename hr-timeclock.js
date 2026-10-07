@@ -2,7 +2,7 @@
   'use strict';
   const $=id=>document.getElementById(id);
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let data={devices:[],employees:[],bindings:[],events:[],rawAdms:[],admsRequests:[],counts:{}},busy=false,currentDeviceToken='';
+  let data={devices:[],employees:[],bindings:[],events:[],rawAdms:[],admsRequests:[],admsCommands:[],counts:{}},busy=false,currentDeviceToken='';
 
   async function token(){const client=await window.SHAuth?.createClient?.();if(!client)throw new Error('Supabase Auth не готов');const{data,error}=await client.auth.getSession();const t=data?.session?.access_token;if(error||!t)throw new Error('Сессия пользователя не найдена');return t}
   function setStatus(text,kind=''){const el=$('tcStatus');if(!el)return;el.textContent=text;el.className=`hr-status ${kind}`.trim()}
@@ -37,9 +37,11 @@
 
   function renderEvents(){const list=data.events||[];$('eventCount').textContent=`${list.length} последних событий`;$('eventRows').innerHTML=list.length?list.map(x=>`<tr><td>${esc(localDate(x.eventTime))}</td><td class="text-left"><div class="hr-name">${esc(x.employeeName||'Не сопоставлен')}</div>${x.employeeCode?`<div class="hr-sub">№ ${esc(x.employeeCode)}</div>`:''}</td><td><span class="hr-badge ${x.eventType==='IN'?'active':x.eventType==='OUT'?'pending':''}">${esc(x.eventType)}</span></td><td>${esc(deviceName(x.deviceId))}</td><td>${esc(x.externalEmployeeId||'—')}</td><td>${x.employeeId?'<span class="hr-badge linked">Связан</span>':'<span class="hr-badge pending">Не сопоставлен</span>'}</td></tr>`).join(''):'<tr><td colspan="6" class="hr-empty">Журнал пока пуст. События появятся после подключения устройства.</td></tr>';}
   function renderAdmsRequests(){const list=data.admsRequests||[];const c=$('admsRequestCount'),rows=$('admsRequestRows');if(!c||!rows)return;c.textContent=`${list.length} запросов`;rows.innerHTML=list.length?list.map(x=>`<tr><td>${esc(localDate(x.receivedAt))}</td><td>${esc(x.endpoint||'—')}</td><td>${esc(x.method||'—')}</td><td>${esc(x.tableName||'—')}</td><td>${Number(x.bodyLength||0)} B</td><td class="text-left"><code>${esc(x.queryText||'—')}</code></td></tr>`).join(''):'<tr><td colspan="6" class="hr-empty">Диагностика пока пуста. После следующего контакта аппарата здесь появится запрос.</td></tr>';}
+  function renderAdmsCommands(){const rows=$('admsCommandRows');if(!rows)return;const list=data.admsCommands||[];rows.innerHTML=list.length?list.map(x=>`<tr><td>${Number(x.id||0)}</td><td><span class="hr-badge ${x.status==='ACK'?'linked':x.status==='SENT'?'active':'pending'}">${esc(x.status||'—')}</span></td><td>${esc(localDate(x.createdAt))}</td><td>${esc(x.sentAt?localDate(x.sentAt):'—')}</td><td>${esc(x.acknowledgedAt?localDate(x.acknowledgedAt):'—')}${x.returnCode?' · '+esc(x.returnCode):''}</td><td class="text-left"><code>${esc(x.commandText||'')}</code></td></tr>`).join(''):'<tr><td colspan="6" class="hr-empty">Команды аппарату ещё не отправлялись.</td></tr>';}
+
   function renderRawAdms(){const list=data.rawAdms||[];$('rawAdmsCount').textContent=`${list.length} записей`;$('rawAdmsRows').innerHTML=list.length?list.map(x=>`<tr><td>${esc(localDate(x.receivedAt))}</td><td>${esc(x.tableName||'—')}</td><td>${esc(x.serialNumber||'—')}</td><td>${esc(x.externalEmployeeId||'—')}</td><td>${esc(x.eventTime?localDate(x.eventTime):'—')}</td><td>${esc(x.status||'—')}</td><td>${esc(x.verifyType||'—')}</td><td class="text-left"><code>${esc(x.rawLine||'')}</code></td></tr>`).join(''):'<tr><td colspan="8" class="hr-empty">RAW ADMS пока пуст. После первого подключения здесь увидим точный формат данных SenseFace 2A.</td></tr>';}
   function renderAdmsSetup(){$('admsServerHost').textContent=location.hostname;$('admsServerPort').textContent=location.protocol==='https:'?'443':(location.port||'80')}
-  function render(){renderSummary();renderDevices();renderDeleteButtons();renderSelectors();renderBindings();renderAdmsRequests();renderRawAdms();renderEvents();renderAdmsSetup()}
+  function render(){renderSummary();renderDevices();renderDeleteButtons();renderSelectors();renderBindings();renderAdmsRequests();renderAdmsCommands();renderRawAdms();renderEvents();renderAdmsSetup()}
 
   function renderDeleteButtons(){
     document.querySelectorAll('#deviceList .hr-device-card').forEach((card,index)=>{
