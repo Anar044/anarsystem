@@ -7,7 +7,7 @@
   <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
   <link rel="stylesheet" href="app-shell.css">
   <link rel="stylesheet" href="hr-pnl.css?v=20260916-12">
-  <link rel="stylesheet" href="/hr-employee.css?v=20261006-schedule-v2">
+  <link rel="stylesheet" href="/hr-employee.css?v=20261008-free-shift-1">
 </head>
 <body data-protected="true" style="background:#0b1017">
   <div class="app-shell">
@@ -250,6 +250,24 @@
                 <div id="hepScheduleContent"></div>
                 <div class="hep-links"><a class="hr-link-button hep-link" href="/hr-role-schedules.html">Открыть графики и должности</a><a class="hr-link-button hep-link" href="/hr-timesheet.html">Открыть табель</a></div>
               </article>
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div><div class="hep-card-title">Фактический учёт Face ID</div><div class="hep-card-sub">Свободный график: опоздания и ранние уходы не рассчитываются. Норма часов берётся из должности, а тип смены можно переопределить для конкретного сотрудника.</div></div>
+                  <span id="hepAttendanceRuleSource" class="hep-source smart">По должности</span>
+                </div>
+                <div class="hep-fields">
+                  <label class="hep-field"><span>Норма рабочего дня</span><div id="hepAttendanceNorm" class="hep-readonly">—</div><small>Настраивается на должности.</small></label>
+                  <label class="hep-field"><span>Тип смены</span>
+                    <select id="hepAttendanceShiftOverride">
+                      <option value="">По должности</option>
+                      <option value="DAY">Дневная</option>
+                      <option value="NIGHT">Ночная</option>
+                    </select>
+                  </label>
+                  <label class="hep-field"><span>Рабочее окно</span><div id="hepAttendanceWindow" class="hep-readonly">—</div><small>Первая и последняя отметка считаются внутри этого окна.</small></label>
+                  <div class="hep-field"><span>Сохранение</span><button id="hepAttendanceRuleSave" type="button" class="hr-primary">Сохранить тип смены</button></div>
+                </div>
+              </article>
 
               <article class="hep-card full">
                 <div class="hep-card-head">
@@ -382,6 +400,6 @@
   <script src="/hr-light-theme.js?v=20260917-1"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=21"></script>
-  <script src="/hr-employee.js?v=20261006-schedule-v2"></script><script src="/hr-employee-schedule.js?v=20261006-1"></script>
+  <script src="/hr-employee.js?v=20261006-schedule-v2"></script><script src="/hr-employee-schedule.js?v=20261008-free-shift-1"></script>
 </body>
 </html>
