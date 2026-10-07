@@ -222,15 +222,12 @@
       var isSelected = (selectedId && pid === selectedId) || (!selectedId && !matched && Math.abs(Number(p.count) - size) < 0.0005);
       if (isSelected) matched = true;
       var rawName = String(p.name || p.num || '').trim();
-      var normalizedName = rawName.replace(',', '.').replace(/\s+/g, '');
-      var normalizedCount = String(Number(p.count)).replace(',', '.').replace(/\s+/g, '');
-      var namePart = rawName && normalizedName !== normalizedCount ? rawName + ' · ' : '';
-      var label = namePart + Number(p.count).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
+      var label = rawName || Number(p.count).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
       return '<option value="' + esc(pid || ('__iiko_' + index)) + '"' + (isSelected ? ' selected' : '') + '>' + esc(label) + '</option>';
     }).join('');
     if (matched) return options;
     if (packs.length === 1) return options.replace('<option ', '<option selected ');
-    return '<option value="" selected disabled>Выберите фасовку iiko</option>' + options;
+    return '<option value="" selected disabled>Выберите фасовку</option>' + options;
   }
 
   function applyInvoicePackaging(row) {
