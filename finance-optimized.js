@@ -283,7 +283,8 @@ async function loadCurrentAccountPostings(){
     $('fin-modal-result').textContent=(change<0?'− ':'')+money(Math.abs(change))+' ₼';
     $('fin-modal-count').textContent=String(data.count||0);
     renderPostings(data.postings||[]);
-    modalStatus('Проводки загружены из SH OLAP · '+(data.count||0)+' строк.','ok');
+    const local=Number(data.meta?.smartHorecaJournalEntries||0);
+    modalStatus((local?'Проводки: SH OLAP + Smart Horeca Payroll':'Проводки загружены из SH OLAP')+' · '+(data.count||0)+' строк'+(local?' · Payroll: '+local:''),'ok');
   }catch(error){
     modalStatus(error.message||'Не удалось загрузить проводки','error');
     $('fin-modal-body').innerHTML='<tr><td colspan="10" class="fin-empty fin-error-cell">'+esc(error.message||'Ошибка загрузки проводок')+'</td></tr>';
@@ -362,7 +363,8 @@ async function load(){
     });
     renderSummary();
     renderGroups();
-    status('Готово: '+accountItems.length+' счетов. Нажмите на счёт, чтобы открыть дебет, кредит и проводки за период.','ok');
+    const local=Number(data.meta?.smartHorecaJournalEntries||0);
+    status('Готово: '+accountItems.length+' счетов · источник SH Server'+(local?' + Smart Horeca Payroll ('+local+' проводок)':'')+'. Нажмите на счёт, чтобы открыть дебет, кредит и проводки за период.','ok');
   }catch(error){
     status(error.message||'Ошибка загрузки плана счетов','error');
   }finally{
