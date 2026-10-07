@@ -5,7 +5,8 @@ const $=id=>document.getElementById(id);
 const state={
   token:'',binding:null,data:null,refs:{suppliers:[],warehouses:[],products:[]},
   stockRows:[],needs:[],historyDocs:[],supplierBalances:new Map(),latestByProduct:new Map(),priceBySupplierProduct:new Map(),
-  productById:new Map(),productLabelToId:new Map(),selectedNeeds:new Set(),busy:false,tab:'needs'
+  productById:new Map(),productLabelToId:new Map(),selectedNeeds:new Set(),
+  normDrafts:new Map(),dirtyNorms:new Set(),busy:false,tab:'needs'
 };
 
 const key=v=>String(v??'').trim().replace(/^\{+|\}+$/g,'').toLowerCase();
@@ -47,9 +48,20 @@ async function procPost(action,payload={}){
   const r=await authFetch('/api/procurement',{method:'POST',body:JSON.stringify({action,...payload}),cache:'no-store'});
   const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false)throw Error(j.message||('HTTP '+r.status));return j;
 }
+function normId(storeId,productId){return key(storeId)+'|'+key(productId)}
+function seedNormDrafts(){
+  state.normDrafts=new Map();
+  for(const x of state.data?.stockNorms||[]){
+    state.normDrafts.set(normId(x.storeId,x.productId),{
+      storeId:key(x.storeId),storeName:x.storeName||'',productId:key(x.productId),productName:x.productName||'',unit:x.unit||'',
+      minStock:x.minStock,targetStock:x.targetStock,leadDays:num(x.leadDays),enabled:x.enabled!==false,persisted:true
+    });
+  }
+  state.dirtyNorms=new Set();
+}
 async function loadProcurement(){
   const r=await authFetch('/api/procurement',{method:'GET',cache:'no-store'});const j=await r.json().catch(()=>({}));
-  if(!r.ok||j.success===false)throw Error(j.message||('HTTP '+r.status));state.data=j;return j;
+  if(!r.ok||j.success===false)throw Error(j.message||('HTTP '+r.status));state.data=j;seedNormDrafts();return j;
 }
 function chainScope(){
   const b=state.binding||{},selected=Array.isArray(b.departmentIds)?b.departmentIds.map(String):[],allowed=Array.isArray(b.allDepartmentIds)?b.allDepartmentIds.map(String):selected;
@@ -148,12 +160,19 @@ function historyPrice(pid,supplierId=''){
 function computeNeeds(){
   const needs=[];
   for(const r of state.stockRows){
-    const min=r.minAmount===null||r.minAmount===undefined?null:num(r.minAmount),max=r.maxAmount===null||r.maxAmount===undefined?null:num(r.maxAmount),amount=num(r.amount);
+    const id=normId(r.storeId,r.productId),local=state.normDrafts.get(id),amount=num(r.amount);
+    if(local&&local.persisted&&local.enabled===false)continue;
+    const hasLocal=!!(local&&local.persisted);
+    const min=hasLocal
+      ? (local.minStock===null||local.minStock===undefined?null:num(local.minStock))
+      : (r.minAmount===null||r.minAmount===undefined?null:num(r.minAmount));
+    const max=hasLocal
+      ? (local.targetStock===null||local.targetStock===undefined?null:num(local.targetStock))
+      : (r.maxAmount===null||r.maxAmount===undefined?null:num(r.maxAmount));
     if(min===null||!(amount<min))continue;
-    const target=max!==null&&max>min?max:min,recommended=Math.max(0,target-amount);if(!(recommended>0))continue;
+    const target=max!==null&&max>=min?max:min,recommended=Math.max(0,target-amount);if(!(recommended>0))continue;
     const h=historyPrice(r.productId),price=h?num(h.price):Math.max(0,num(r.unitCost));
-    const id=key(r.storeId)+'|'+key(r.productId);
-    needs.push({id,productId:key(r.productId),productName:r.productName||productName(r.productId),productNum:r.productNum||'',groupName:r.categoryName||r.groupName||'',unit:r.unit||'',storeId:key(r.storeId),storeName:r.storeName||r.storeId,currentStock:amount,minStock:min,maxStock:max,recommendedQty:recommended,lastPrice:price,lastSupplier:h?.supplierName||'',estimated:recommended*price});
+    needs.push({id,productId:key(r.productId),productName:r.productName||productName(r.productId),productNum:r.productNum||'',groupName:r.categoryName||r.groupName||'',unit:r.unit||'',storeId:key(r.storeId),storeName:r.storeName||r.storeId,currentStock:amount,minStock:min,maxStock:max,recommendedQty:recommended,lastPrice:price,lastSupplier:h?.supplierName||'',estimated:recommended*price,normSource:hasLocal?'SMART_HORECA':'SERVER'});
   }
   state.needs=needs.sort((a,b)=>b.estimated-a.estimated||a.productName.localeCompare(b.productName,'ru'));
   const live=new Set(needs.map(x=>x.id));state.selectedNeeds=new Set([...state.selectedNeeds].filter(x=>live.has(x)));
@@ -162,7 +181,7 @@ function scopeLabel(){
   const s=chainScope(),names=s.selectedDepartmentNames||[];
   $('proc-scope-label').textContent=s.mode==='CHAIN'?(names.length?names.join(', '):'CHAIN'):'Текущий ресторан';
 }
-function renderAll(){computeNeeds();scopeLabel();renderKpis();renderNeeds();renderRequisitions();renderOrders();renderAnalytics();renderSettings()}
+function renderAll(){computeNeeds();scopeLabel();renderKpis();renderNeeds();renderNorms();renderRequisitions();renderOrders();renderAnalytics();renderSettings()}
 function renderKpis(){
   const d=state.data||{},a=d.analytics||{};
   $('proc-kpi-needs').textContent=state.needs.length.toLocaleString('ru-RU');
@@ -173,7 +192,7 @@ function renderKpis(){
   const completed=(d.orders||[]).filter(x=>x.effectiveStatus==='COMPLETED');
   $('proc-kpi-completed').textContent=completed.length.toLocaleString('ru-RU');
   $('proc-kpi-match').textContent=completed.filter(x=>x.matchStatus==='MATCHED').length+' совпали без расхождений';
-  $('proc-tab-needs-count').textContent=state.needs.length;$('proc-tab-pr-count').textContent=(d.requisitions||[]).length;$('proc-tab-po-count').textContent=(d.orders||[]).length;
+  $('proc-tab-needs-count').textContent=state.needs.length;$('proc-tab-norms-count').textContent=(d.stockNorms||[]).length;$('proc-tab-pr-count').textContent=(d.requisitions||[]).length;$('proc-tab-po-count').textContent=(d.orders||[]).length;
 }
 function renderNeeds(){
   const store=$('proc-needs-store'),current=store.value;
@@ -188,12 +207,79 @@ function renderNeeds(){
     '<td><strong>'+esc(x.productName)+'</strong><small>'+esc([x.productNum,x.groupName].filter(Boolean).join(' · ')||x.productId)+'</small></td>'+
     '<td>'+esc(x.storeName)+'</td>'+
     '<td class="'+(x.currentStock<0?'proc-negative':'proc-low')+'">'+qty(x.currentStock)+' '+esc(x.unit)+'</td>'+
-    '<td>'+qty(x.minStock)+' / '+(x.maxStock===null?'—':qty(x.maxStock))+'</td>'+
+    '<td>'+qty(x.minStock)+' / '+(x.maxStock===null?'—':qty(x.maxStock))+'<small>'+(x.normSource==='SMART_HORECA'?'Smart Horeca':'Server')+'</small></td>'+
     '<td><strong>'+qty(x.recommendedQty)+' '+esc(x.unit)+'</strong></td>'+
     '<td>'+(x.lastPrice?money(x.lastPrice):'—')+(x.lastSupplier?'<small>'+esc(x.lastSupplier)+'</small>':'')+'</td>'+
     '<td>'+money(x.estimated)+'</td>'+
-    '<td><button class="proc-btn small ghost" data-create-need="'+esc(x.id)+'">Создать PR</button></td></tr>').join('')||'<tr><td colspan="9" class="proc-empty">Позиций ниже min не найдено. Можно создать заявку вручную.</td></tr>';
+    '<td><button class="proc-btn small ghost" data-create-need="'+esc(x.id)+'">Создать PR</button></td></tr>').join('')||'<tr><td colspan="9" class="proc-empty">Потребность пока не рассчитана. Задайте Min и целевой остаток во вкладке «Нормы запаса» или создайте PR вручную.</td></tr>';
+  $('proc-create-selected').disabled=state.selectedNeeds.size===0;
 }
+function normRows(){
+  const map=new Map();
+  for(const r of state.stockRows){
+    const id=normId(r.storeId,r.productId);
+    map.set(id,{
+      id,storeId:key(r.storeId),storeName:r.storeName||r.storeId,productId:key(r.productId),productName:r.productName||productName(r.productId),
+      productNum:r.productNum||'',groupName:r.categoryName||r.groupName||'',unit:r.unit||'',currentStock:num(r.amount),
+      serverMin:r.minAmount===null||r.minAmount===undefined?null:num(r.minAmount),serverMax:r.maxAmount===null||r.maxAmount===undefined?null:num(r.maxAmount)
+    });
+  }
+  for(const x of state.data?.stockNorms||[]){
+    const id=normId(x.storeId,x.productId);
+    if(!map.has(id))map.set(id,{id,storeId:key(x.storeId),storeName:x.storeName||x.storeId,productId:key(x.productId),productName:x.productName||productName(x.productId),productNum:'',groupName:'',unit:x.unit||'',currentStock:0,serverMin:null,serverMax:null});
+  }
+  return [...map.values()].sort((a,b)=>a.storeName.localeCompare(b.storeName,'ru')||a.productName.localeCompare(b.productName,'ru'));
+}
+function effectiveNormDraft(row){
+  const draft=state.normDrafts.get(row.id);
+  if(draft)return draft;
+  return{
+    storeId:row.storeId,storeName:row.storeName,productId:row.productId,productName:row.productName,unit:row.unit,
+    minStock:row.serverMin,targetStock:row.serverMax,leadDays:num(state.data?.settings?.defaultLeadDays,2),enabled:true,persisted:false
+  };
+}
+function renderNorms(){
+  const table=$('proc-norms-table');if(!table)return;
+  const rows=normRows(),store=$('proc-norms-store'),current=store.value;
+  const stores=[...new Map(rows.map(x=>[x.storeId,{id:x.storeId,name:x.storeName}])).values()].sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+  store.innerHTML='<option value="">Все склады</option>'+stores.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('');if(stores.some(x=>x.id===current))store.value=current;
+  const qv=($('proc-norms-search').value||'').trim().toLowerCase(),sid=store.value,filter=$('proc-norms-filter').value;
+  const visible=rows.filter(row=>{
+    const d=effectiveNormDraft(row),configured=!!d.persisted;
+    if(sid&&row.storeId!==sid)return false;
+    if(qv&&![row.productName,row.productNum,row.groupName,row.storeName].join(' ').toLowerCase().includes(qv))return false;
+    if(filter==='configured'&&!configured)return false;if(filter==='unconfigured'&&configured)return false;
+    if(filter==='negative'&&!(row.currentStock<0))return false;if(filter==='zero'&&Math.abs(row.currentStock)>1e-12)return false;
+    return true;
+  });
+  $('proc-norms-meta').textContent=visible.length+' из '+rows.length+' · настроено '+(state.data?.stockNorms||[]).length;
+  const tb=table.querySelector('tbody');
+  tb.innerHTML=visible.map(row=>{
+    const d=effectiveNormDraft(row),configured=!!d.persisted,min=d.minStock,target=d.targetStock,source=configured?'Smart Horeca':(row.serverMin!==null||row.serverMax!==null?'Server':'Не задано');
+    return '<tr data-norm-row="'+esc(row.id)+'" data-store-id="'+esc(row.storeId)+'" data-store-name="'+esc(row.storeName)+'" data-product-id="'+esc(row.productId)+'" data-product-name="'+esc(row.productName)+'" data-unit="'+esc(row.unit)+'">'+
+      '<td><strong>'+esc(row.productName)+'</strong><small>'+esc([row.productNum,row.groupName].filter(Boolean).join(' · ')||row.productId)+'</small></td>'+
+      '<td>'+esc(row.storeName)+'</td><td class="'+(row.currentStock<0?'proc-negative':Math.abs(row.currentStock)<=1e-12?'proc-low':'')+'">'+qty(row.currentStock)+' '+esc(row.unit)+'</td>'+
+      '<td><input class="proc-norm-input" data-norm-field="minStock" type="number" min="0" step="0.001" value="'+(min===null||min===undefined?'':esc(min))+'" placeholder="—"></td>'+
+      '<td><input class="proc-norm-input" data-norm-field="targetStock" type="number" min="0" step="0.001" value="'+(target===null||target===undefined?'':esc(target))+'" placeholder="—"></td>'+
+      '<td><input class="proc-norm-input lead" data-norm-field="leadDays" type="number" min="0" step="1" value="'+num(d.leadDays)+'"></td>'+
+      '<td><label class="proc-switch"><input data-norm-field="enabled" type="checkbox" '+(d.enabled!==false?'checked':'')+'><span></span></label></td>'+
+      '<td><span class="proc-status-badge '+(configured?'success':source==='Server'?'warn':'neutral')+'">'+esc(source)+'</span>'+(state.dirtyNorms.has(row.id)?'<small class="proc-dirty">изменено</small>':'')+'</td></tr>';
+  }).join('')||'<tr><td colspan="8" class="proc-empty">По выбранным фильтрам позиций нет.</td></tr>';
+}
+function updateNormDraftFromRow(row){
+  const id=row.dataset.normRow,base=effectiveNormDraft(normRows().find(x=>x.id===id)||{id,storeId:row.dataset.storeId,storeName:row.dataset.storeName,productId:row.dataset.productId,productName:row.dataset.productName,unit:row.dataset.unit,serverMin:null,serverMax:null});
+  const read=name=>row.querySelector('[data-norm-field="'+name+'"]');
+  const minEl=read('minStock'),targetEl=read('targetStock'),leadEl=read('leadDays'),enabledEl=read('enabled');
+  state.normDrafts.set(id,{...base,storeId:row.dataset.storeId,storeName:row.dataset.storeName,productId:row.dataset.productId,productName:row.dataset.productName,unit:row.dataset.unit,minStock:minEl.value===''?null:num(minEl.value),targetStock:targetEl.value===''?null:num(targetEl.value),leadDays:Math.max(0,Math.round(num(leadEl.value))),enabled:enabledEl.checked,persisted:true});
+  state.dirtyNorms.add(id);
+}
+async function saveNorms(){
+  const ids=[...state.dirtyNorms];if(!ids.length){toast('Изменений норм запаса нет.');return}
+  const norms=ids.map(id=>state.normDrafts.get(id)).filter(Boolean);
+  for(const x of norms)if(x.minStock!==null&&x.targetStock!==null&&x.targetStock<x.minStock){toast((x.productName||x.productId)+': целевой остаток должен быть не меньше Min.','error');return}
+  try{setBusy(true);await procPost('save-stock-norms',{norms});await loadProcurement();computeNeeds();renderKpis();renderNeeds();renderNorms();toast('Нормы запаса сохранены. Потребность пересчитана.')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}
+}
+
 function prActions(r){
   const a=[];
   if(r.status==='DRAFT'){a.push('<button class="proc-btn small ghost" data-pr-edit="'+r.id+'">Изменить</button>');a.push('<button class="proc-btn small primary" data-pr-submit="'+r.id+'">На согласование</button>')}
@@ -386,9 +472,12 @@ function bind(){
   document.querySelectorAll('.proc-tabs button[data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
   $('proc-refresh').onclick=loadAll;$('proc-new-pr').onclick=()=>openPrModal();
   $('proc-needs-search').oninput=renderNeeds;$('proc-needs-store').onchange=renderNeeds;
-  $('proc-select-all-needs').onclick=()=>{const visible=[...document.querySelectorAll('#proc-needs-table [data-need]')];const all=visible.length&&visible.every(x=>x.checked);visible.forEach(x=>{x.checked=!all;if(!all)state.selectedNeeds.add(x.dataset.need);else state.selectedNeeds.delete(x.dataset.need)})};
-  $('proc-create-selected').onclick=()=>{const rows=state.needs.filter(x=>state.selectedNeeds.has(x.id));if(!rows.length){toast('Выберите позиции для заявки.','error');return}openPrModal(rows)};
-  $('proc-needs-table').addEventListener('change',e=>{const c=e.target.closest('[data-need]');if(!c)return;c.checked?state.selectedNeeds.add(c.dataset.need):state.selectedNeeds.delete(c.dataset.need)});
+  $('proc-norms-search').oninput=renderNorms;$('proc-norms-store').onchange=renderNorms;$('proc-norms-filter').onchange=renderNorms;$('proc-norms-save').onclick=saveNorms;
+  $('proc-norms-table').addEventListener('input',e=>{const row=e.target.closest('[data-norm-row]');if(!row)return;updateNormDraftFromRow(row);renderKpis()});
+  $('proc-norms-table').addEventListener('change',e=>{const row=e.target.closest('[data-norm-row]');if(!row)return;updateNormDraftFromRow(row)});
+  $('proc-select-all-needs').onclick=()=>{const visible=[...document.querySelectorAll('#proc-needs-table [data-need]')];const all=visible.length&&visible.every(x=>x.checked);visible.forEach(x=>{x.checked=!all;if(!all)state.selectedNeeds.add(x.dataset.need);else state.selectedNeeds.delete(x.dataset.need)});$('proc-create-selected').disabled=state.selectedNeeds.size===0};
+  $('proc-create-selected').onclick=()=>{const rows=state.needs.filter(x=>state.selectedNeeds.has(x.id));if(!rows.length)return;openPrModal(rows)};
+  $('proc-needs-table').addEventListener('change',e=>{const c=e.target.closest('[data-need]');if(!c)return;c.checked?state.selectedNeeds.add(c.dataset.need):state.selectedNeeds.delete(c.dataset.need);$('proc-create-selected').disabled=state.selectedNeeds.size===0});
   $('proc-needs-table').addEventListener('click',e=>{const b=e.target.closest('[data-create-need]');if(!b)return;const row=state.needs.find(x=>x.id===b.dataset.createNeed);if(row)openPrModal([row])});
   $('proc-pr-list').addEventListener('click',e=>{
     const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prQuote||b.dataset.poCreate;if(!id)return;
