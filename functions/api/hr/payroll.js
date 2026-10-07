@@ -44,7 +44,19 @@ async function ensure(db){
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_schedule_days (user_id TEXT NOT NULL,schedule_id TEXT NOT NULL,weekday INTEGER NOT NULL,shift_start TEXT NOT NULL,shift_end TEXT NOT NULL,break_minutes INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,schedule_id,weekday))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_attendance_events (user_id TEXT NOT NULL,event_id TEXT NOT NULL,device_id TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'ZKTECO',source_uid TEXT NOT NULL,external_employee_id TEXT NOT NULL DEFAULT '',iiko_employee_id TEXT NOT NULL DEFAULT '',event_time TEXT NOT NULL,event_type TEXT NOT NULL DEFAULT 'UNKNOWN',raw_payload TEXT NOT NULL DEFAULT '{}',imported_at TEXT NOT NULL,PRIMARY KEY(user_id,event_id),UNIQUE(user_id,device_id,source_uid))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_devices (user_id TEXT NOT NULL,device_id TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'ZKTECO',name TEXT NOT NULL,location TEXT NOT NULL DEFAULT '',connection_mode TEXT NOT NULL DEFAULT 'LOCAL_CONNECTOR',timezone TEXT NOT NULL DEFAULT 'Asia/Baku',is_active INTEGER NOT NULL DEFAULT 1,last_sync_at TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,device_id))`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_profiles (user_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,fin TEXT NOT NULL DEFAULT '',ssn TEXT NOT NULL DEFAULT '',birth_date TEXT NOT NULL DEFAULT '',phone_primary TEXT NOT NULL DEFAULT '',phone_secondary TEXT NOT NULL DEFAULT '',email_personal TEXT NOT NULL DEFAULT '',address TEXT NOT NULL DEFAULT '',emergency_contact_name TEXT NOT NULL DEFAULT '',emergency_contact_relation TEXT NOT NULL DEFAULT '',emergency_contact_phone TEXT NOT NULL DEFAULT '',education_level TEXT NOT NULL DEFAULT '',education_institution TEXT NOT NULL DEFAULT '',specialty TEXT NOT NULL DEFAULT '',employment_type TEXT NOT NULL DEFAULT 'MAIN',factual_hire_date TEXT NOT NULL DEFAULT '',factual_fire_date TEXT NOT NULL DEFAULT '',official_hire_date TEXT NOT NULL DEFAULT '',official_fire_date TEXT NOT NULL DEFAULT '',official_employer_name TEXT NOT NULL DEFAULT '',official_employer_voen TEXT NOT NULL DEFAULT '',quota_category TEXT NOT NULL DEFAULT 'NONE',work_capacity_percent INTEGER NOT NULL DEFAULT 100,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,iiko_employee_id))`)
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_profiles (user_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,fin TEXT NOT NULL DEFAULT '',ssn TEXT NOT NULL DEFAULT '',birth_date TEXT NOT NULL DEFAULT '',phone_primary TEXT NOT NULL DEFAULT '',phone_secondary TEXT NOT NULL DEFAULT '',email_personal TEXT NOT NULL DEFAULT '',address TEXT NOT NULL DEFAULT '',emergency_contact_name TEXT NOT NULL DEFAULT '',emergency_contact_relation TEXT NOT NULL DEFAULT '',emergency_contact_phone TEXT NOT NULL DEFAULT '',education_level TEXT NOT NULL DEFAULT '',education_institution TEXT NOT NULL DEFAULT '',specialty TEXT NOT NULL DEFAULT '',employment_type TEXT NOT NULL DEFAULT 'MAIN',factual_hire_date TEXT NOT NULL DEFAULT '',factual_fire_date TEXT NOT NULL DEFAULT '',official_hire_date TEXT NOT NULL DEFAULT '',official_fire_date TEXT NOT NULL DEFAULT '',official_employer_name TEXT NOT NULL DEFAULT '',official_employer_voen TEXT NOT NULL DEFAULT '',quota_category TEXT NOT NULL DEFAULT 'NONE',work_capacity_percent INTEGER NOT NULL DEFAULT 100,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,iiko_employee_id))`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_overtime_payroll_accruals (
+      user_id TEXT NOT NULL,
+      month TEXT NOT NULL,
+      iiko_employee_id TEXT NOT NULL,
+      amount REAL NOT NULL DEFAULT 0,
+      payable_minutes REAL NOT NULL DEFAULT 0,
+      extra_day_equivalent REAL NOT NULL DEFAULT 0,
+      source_version TEXT NOT NULL DEFAULT 'PAYROLL_V2',
+      calculated_at TEXT NOT NULL,
+      PRIMARY KEY(user_id,month,iiko_employee_id)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_overtime_payroll_accruals_employee ON hr_overtime_payroll_accruals(user_id,iiko_employee_id,month)`)
   ]);
 }
 
@@ -160,6 +172,29 @@ export async function onRequestGet({request,env}){
       });
     }
     const configured=rows.filter(r=>r.term);
+
+    // Snapshot only overtime accruals that changed. This gives the payment ledger
+    // a stable monthly history without turning every Payroll GET into hundreds of writes.
+    try{
+      const existingR=await env.DB.prepare(`SELECT iiko_employee_id,amount,payable_minutes,extra_day_equivalent FROM hr_overtime_payroll_accruals WHERE user_id=?1 AND month=?2`).bind(userId,month).all();
+      const existing=new Map((existingR.results||[]).map(x=>[String(x.iiko_employee_id),x]));
+      const visibleIds=new Set(rows.map(x=>String(x.employeeId)));
+      const statements=[],t=new Date().toISOString();
+      for(const row of rows){
+        const id=String(row.employeeId),amount=round2(row.accrual?.extraDayPay||0),payable=round2(row.overtime?.payableMinutes||0),daysEq=round2(row.overtime?.extraDayEquivalent||0),old=existing.get(id);
+        if(amount>0||payable>0||daysEq>0){
+          const changed=!old||Math.abs(Number(old.amount||0)-amount)>.009||Math.abs(Number(old.payable_minutes||0)-payable)>.009||Math.abs(Number(old.extra_day_equivalent||0)-daysEq)>.009;
+          if(changed)statements.push(env.DB.prepare(`INSERT INTO hr_overtime_payroll_accruals(user_id,month,iiko_employee_id,amount,payable_minutes,extra_day_equivalent,source_version,calculated_at) VALUES(?1,?2,?3,?4,?5,?6,'PAYROLL_V2_PARTIAL_OVERTIME',?7) ON CONFLICT(user_id,month,iiko_employee_id) DO UPDATE SET amount=excluded.amount,payable_minutes=excluded.payable_minutes,extra_day_equivalent=excluded.extra_day_equivalent,source_version=excluded.source_version,calculated_at=excluded.calculated_at`).bind(userId,month,id,amount,payable,daysEq,t));
+        }else if(old){
+          statements.push(env.DB.prepare(`DELETE FROM hr_overtime_payroll_accruals WHERE user_id=?1 AND month=?2 AND iiko_employee_id=?3`).bind(userId,month,id));
+        }
+      }
+      // Do not touch accruals of employees outside the current CHAIN scope.
+      if(statements.length)for(let i=0;i<statements.length;i+=50)await env.DB.batch(statements.slice(i,i+50));
+    }catch(error){
+      console.warn('[HR-PAYROLL-ACCRUAL-SNAPSHOT]',error);
+    }
+
     const totals={
       monthlyFactualGross:round2(configured.reduce((a,r)=>a+Number(r.accrual?.monthlyFactualGross||0),0)),
       factualBaseGross:round2(configured.reduce((a,r)=>a+Number(r.accrual?.factualBaseGross||0),0)),
