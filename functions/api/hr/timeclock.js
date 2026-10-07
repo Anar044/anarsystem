@@ -1,6 +1,6 @@
 import { getUser } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope, hrScopeKeys, isHrSubsetScope } from './_lib/restaurant-scope.js';
-import { ensureZktecoAdmsTables, registerAdmsDevice, unregisterAdmsDevice } from './_lib/zkteco-adms.js';
+import { ensureZktecoAdmsTables, registerAdmsDevice, unregisterAdmsDevice, queueAdmsCommand } from './_lib/zkteco-adms.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -204,6 +204,18 @@ export async function onRequestPost({request,env}){
       const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
       await env.DB.prepare(`DELETE FROM hr_device_tokens WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId).run();
       return json({success:true,deviceId,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId,scope)});
+    }
+    if(action==='requestAttendanceLog'){
+      const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
+      const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);
+      if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
+      if(String(d.connection_mode)!=='ADMS_PUSH')return json({success:false,message:'Запрос ATTLOG доступен только для ADMS PUSH устройств.'},409);
+      const zk=await env.DB.prepare(`SELECT * FROM hr_zkteco_adms_devices WHERE user_id=?1 AND device_id=?2 AND enabled=1 LIMIT 1`).bind(userId,deviceId).first();
+      if(!zk)return json({success:false,message:'ADMS устройство не зарегистрировано.'},409);
+      const existing=await env.DB.prepare(`SELECT command_id,status FROM hr_zkteco_adms_commands WHERE user_id=?1 AND device_id=?2 AND status IN ('PENDING','SENT') AND command_text LIKE 'DATA QUERY ATTLOG%' ORDER BY created_at DESC LIMIT 1`).bind(userId,deviceId).first();
+      let commandId=existing?.command_id||0;
+      if(!commandId)commandId=await queueAdmsCommand(env.DB,zk,'DATA QUERY ATTLOG');
+      return json({success:true,commandId,commandStatus:existing?.status||'PENDING',message:'Запрос журнала поставлен в очередь. SenseFace получит его при следующем ADMS polling.',...await snapshot(env.DB,userId,scope)});
     }
     if(action==='linkEmployee'){
       const deviceId=clean(b.deviceId),employeeId=clean(b.employeeId),externalId=clean(b.externalEmployeeId),label=clean(b.externalLabel);
