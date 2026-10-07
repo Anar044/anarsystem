@@ -6,7 +6,7 @@ const state={
   token:'',binding:null,data:null,refs:{suppliers:[],warehouses:[],products:[]},
   stockRows:[],purchaseRows:[],needs:[],historyDocs:[],supplierBalances:new Map(),latestByProduct:new Map(),priceBySupplierProduct:new Map(),
   productById:new Map(),productLabelToId:new Map(),selectedNeeds:new Set(),
-  normDrafts:new Map(),dirtyNorms:new Set(),busy:false,tab:'needs',view:'catalog'
+  normDrafts:new Map(),dirtyNorms:new Set(),busy:false,tab:'needs',view:'catalog',cacheWarnings:[]
 };
 
 const key=v=>String(v??'').trim().replace(/^\{+|\}+$/g,'').toLowerCase();
@@ -33,6 +33,33 @@ function viewPanel(view){
   if(['requests','approvals','sourcing'].includes(view))return'requisitions';
   if(['orders','receiving'].includes(view))return'orders';
   return view;
+}
+function procurementCacheKey(kind){
+  const b=state.binding||{},conn=b.connection||{},scope=(b.departmentIds||[]).map(String).sort().join(',');
+  return 'shProcurementCache:'+kind+':'+String(conn.ip||'')+':'+String(conn.port||'')+':'+scope;
+}
+function saveLocalCache(kind,value){
+  try{localStorage.setItem(procurementCacheKey(kind),JSON.stringify({savedAt:new Date().toISOString(),value}))}catch(e){console.warn('Procurement cache save failed',kind,e)}
+}
+function readLocalCache(kind){
+  try{
+    const raw=localStorage.getItem(procurementCacheKey(kind));if(!raw)return null;
+    const parsed=JSON.parse(raw);return parsed&&parsed.value?parsed:null;
+  }catch(e){return null}
+}
+function cacheAgeLabel(savedAt){
+  if(!savedAt)return '';
+  const ms=Date.now()-new Date(savedAt).getTime(),m=Math.max(0,Math.round(ms/60000));
+  if(m<60)return m+' мин. назад';
+  const h=Math.round(m/60);if(h<48)return h+' ч. назад';
+  return Math.round(h/24)+' дн. назад';
+}
+function ensureProcurementSidebarOpen(){
+  const group=document.querySelector('.procurement-nav-group');if(!group)return;
+  const sub=group.querySelector('.documents-subnav'),toggle=group.querySelector('.documents-nav-toggle');
+  group.classList.add('open');if(sub)sub.hidden=false;if(toggle){toggle.classList.add('active');toggle.setAttribute('aria-expanded','true')}
+  const view=state.view||currentProcurementView();
+  group.querySelectorAll('[data-procurement-view]').forEach(a=>a.classList.toggle('active',a.dataset.procurementView===view));
 }
 function viewMeta(view){
   return({
@@ -62,6 +89,8 @@ function applyProcurementView(){
   document.querySelectorAll('[data-panel]').forEach(p=>p.hidden=p.dataset.panel!==panel);
   if(state.view==='requests'||state.view==='approvals'||state.view==='sourcing')renderRequisitions();
   if(state.view==='orders'||state.view==='receiving')renderOrders();
+  ensureProcurementSidebarOpen();
+  setTimeout(ensureProcurementSidebarOpen,100);
 }
 function goProcurementView(view){location.href='/procurement.html?view='+encodeURIComponent(view)}
 
@@ -117,25 +146,44 @@ function connectionBody(extra={}){
   return{...c,departmentIds:b.departmentIds||[],chainScope:chainScope(),...extra};
 }
 async function loadReferences(){
-  const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/invoice-reference-data',{
-    method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({connection:state.binding.connection,departmentIds:state.binding.departmentIds||[],chainScope:chainScope()}),cache:'no-store'
-  },65000);
-  const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false)throw Error('Справочники: '+(j.message||('HTTP '+r.status)));
-  state.refs={suppliers:j.suppliers||[],warehouses:j.warehouses||[],products:j.products||[]};
-  state.productById=new Map(state.refs.products.map(x=>[key(x.id),x]));
+  try{
+    const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/invoice-reference-data',{
+      method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},
+      body:JSON.stringify({connection:state.binding.connection,departmentIds:state.binding.departmentIds||[],chainScope:chainScope()}),cache:'no-store'
+    },65000);
+    const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false)throw Error('Справочники: '+(j.message||('HTTP '+r.status)));
+    state.refs={suppliers:j.suppliers||[],warehouses:j.warehouses||[],products:j.products||[]};
+    saveLocalCache('refs',state.refs);
+  }catch(e){
+    const cached=readLocalCache('refs');
+    if(!cached)throw e;
+    state.refs=cached.value||{suppliers:[],warehouses:[],products:[]};
+    state.cacheWarnings.push('Справочники недоступны — используем кэш '+cacheAgeLabel(cached.savedAt));
+    console.warn('Procurement references cache fallback',e);
+  }
+  state.productById=new Map((state.refs.products||[]).map(x=>[key(x.id),x]));
   state.productLabelToId=new Map();
-  for(const p of state.refs.products){state.productLabelToId.set(productLabel(p.id,p.name),key(p.id))}
-  return j;
+  for(const p of state.refs.products||[])state.productLabelToId.set(productLabel(p.id,p.name),key(p.id));
+  return state.refs;
 }
 async function loadStocks(){
-  const mode=chainScope().mode,isChain=mode==='CHAIN';
-  const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/stock-balances',{
-    method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify(connectionBody({date:today(),time:'23:59:59',includeZero:true})),cache:'no-store'
-  },60000);
-  const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false)throw Error('Остатки: '+(j.message||('HTTP '+r.status)));
-  state.stockRows=Array.isArray(j.rows)?j.rows:[];return j;
+  try{
+    const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/stock-balances',{
+      method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},
+      body:JSON.stringify(connectionBody({date:today(),time:'23:59:59',includeZero:true})),cache:'no-store'
+    },60000);
+    const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false)throw Error('Остатки: '+(j.message||('HTTP '+r.status)));
+    state.stockRows=Array.isArray(j.rows)?j.rows:[];
+    saveLocalCache('stocks',state.stockRows);
+    return j;
+  }catch(e){
+    const cached=readLocalCache('stocks');
+    if(!cached)throw e;
+    state.stockRows=Array.isArray(cached.value)?cached.value:[];
+    state.cacheWarnings.push('Остатки недоступны — используем кэш '+cacheAgeLabel(cached.savedAt));
+    console.warn('Procurement stocks cache fallback',e);
+    return{success:true,rows:state.stockRows,cached:true};
+  }
 }
 async function loadSupplierBalances(){
   try{
@@ -602,7 +650,7 @@ async function copyPo(o){
 async function reloadProc(){await loadProcurement();renderAll()}
 async function loadAll(){
   try{
-    setBusy(true);setStatus('Загружаем закупки…');
+    setBusy(true);state.cacheWarnings=[];setStatus('Загружаем закупки…');
     state.token=await authToken();state.binding=await window.SH_IikoContext.getBinding();
     if(!state.binding?.connection?.ip)throw Error('Сначала подключите Smart Horeca Server в настройках.');
 
@@ -626,8 +674,9 @@ async function loadAll(){
     renderAll();applyProcurementView();
     try{await flushPending()}catch(e){console.warn('Pending receipt flush failed',e)}
 
-    if(warnings.length){
-      setStatus('Основной модуль загружен. Не удалось обновить: '+warnings.join(' · '),'error');
+    const allWarnings=[...state.cacheWarnings,...warnings];
+    if(allWarnings.length){
+      setStatus('Модуль загружен. '+allWarnings.join(' · '),'warning');
     }else{
       setStatus('Данные закупок обновлены.','ok');setTimeout(()=>setStatus(''),2500);
     }
