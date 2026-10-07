@@ -173,7 +173,8 @@
       $('inc-supplier').innerHTML = optionHtml(refs.suppliers, 'Выберите поставщика');
       $('inc-store').innerHTML = optionHtml(refs.warehouses, 'Выберите склад');
       buildProductMaps();
-      setEditorStatus('Справочники загружены: ' + refs.suppliers.length + ' поставщиков · ' + refs.warehouses.length + ' складов · ' + refs.products.length + ' товаров', 'success');
+      var packagingCount = refs.products.reduce(function (sum, p) { return sum + (Array.isArray(p.packagings) ? p.packagings.length : 0); }, 0);
+      setEditorStatus('Справочники загружены: ' + refs.suppliers.length + ' поставщиков · ' + refs.warehouses.length + ' складов · ' + refs.products.length + ' товаров · ' + packagingCount + ' фасовок iiko', 'success');
       return refs;
     })().finally(function () { loadingRefs = null; });
     return loadingRefs;
