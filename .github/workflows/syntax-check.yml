@@ -257,6 +257,19 @@ jobs:
           grep -q "Отдельная выплата" hr-payroll.js
           echo 'Payroll partial-month and overtime contract passed'
 
+      - name: Verify Payroll overtime settlement ledger contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "hr_overtime_payroll_accruals" functions/api/hr/payroll.js
+          grep -q "hr_overtime_payments" functions/api/hr/overtime-settlements.js
+          grep -q "RECORD_PAYMENT" functions/api/hr/overtime-settlements.js
+          grep -q "CANCEL_PAYMENT" functions/api/hr/overtime-settlements.js
+          grep -q "closingDebt" functions/api/hr/overtime-settlements.js
+          grep -q "renderSettlements" hr-payroll.js
+          grep -q "Реестр доплат за дополнительные часы" hr-payroll.html
+          echo 'Payroll overtime settlement ledger contract passed'
+
       - name: Verify Payroll styles survive app shell cleanup
         shell: bash
         run: |
@@ -392,6 +405,7 @@ jobs:
             "/api/asset-files"
             "/api/hr/payroll"
             "/api/hr/payroll-adjustments"
+            "/api/hr/overtime-settlements"
             "/api/hr/payroll-tax-settings"
             "/api/hr/compensation"
             "/api/hr/timesheet"
