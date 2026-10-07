@@ -153,7 +153,26 @@ async function ensure(db){
       created_by TEXT NOT NULL DEFAULT '',
       created_by_name TEXT NOT NULL DEFAULT ''
     )`),
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_receipts_order ON procurement_receipts(server_scope,order_id,created_at DESC)`)
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_receipts_order ON procurement_receipts(server_scope,order_id,created_at DESC)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS procurement_stock_norms (
+      server_scope TEXT NOT NULL,
+      store_id TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      store_name TEXT NOT NULL DEFAULT '',
+      product_name TEXT NOT NULL DEFAULT '',
+      unit TEXT NOT NULL DEFAULT '',
+      min_stock REAL,
+      target_stock REAL,
+      lead_days INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      restaurant_ids_json TEXT NOT NULL DEFAULT '[]',
+      restaurant_names_json TEXT NOT NULL DEFAULT '[]',
+      updated_at TEXT NOT NULL,
+      updated_by TEXT NOT NULL DEFAULT '',
+      updated_by_name TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY(server_scope,store_id,product_id)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_stock_norms_scope_store ON procurement_stock_norms(server_scope,store_id,product_id)`)
   ]);
 }
 
@@ -247,13 +266,14 @@ async function log(context,action,entityType,row,before,after,meta={}){
 }
 
 async function readData(db,serverScope,scope){
-  const [reqsR,reqLinesR,quotesR,ordersR,orderLinesR,receiptsR]=await Promise.all([
+  const [reqsR,reqLinesR,quotesR,ordersR,orderLinesR,receiptsR,normsR]=await Promise.all([
     db.prepare("SELECT * FROM procurement_requisitions WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 500").bind(serverScope).all(),
     db.prepare(`SELECT l.* FROM procurement_requisition_lines l JOIN procurement_requisitions r ON r.id=l.requisition_id WHERE r.server_scope=?1 ORDER BY l.rowid`).bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_quotes WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_orders WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 500").bind(serverScope).all(),
     db.prepare(`SELECT l.* FROM procurement_order_lines l JOIN procurement_orders o ON o.id=l.order_id WHERE o.server_scope=?1 ORDER BY l.rowid`).bind(serverScope).all(),
-    db.prepare("SELECT * FROM procurement_receipts WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all()
+    db.prepare("SELECT * FROM procurement_receipts WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
+    db.prepare("SELECT * FROM procurement_stock_norms WHERE server_scope=?1 ORDER BY store_name,product_name").bind(serverScope).all()
   ]);
   const reqRows=(reqsR.results||[]).filter(x=>rowAllowed(x,scope));
   const reqIds=new Set(reqRows.map(x=>x.id));
@@ -313,8 +333,13 @@ async function readData(db,serverScope,scope){
   }
   const supplierPerformance=[...supplierMap.values()].map(s=>({...s,totalAmount:money(s.totalAmount),receivedAmount:money(s.receivedAmount),avgCompletion:s.orders?Math.round(s._completion/s.orders*10)/10:0,_completion:undefined})).sort((a,b)=>b.totalAmount-a.totalAmount);
   const estimate=requisitions.reduce((s,r)=>s+n(r.totalEstimate),0),ordered=orders.filter(x=>x.effectiveStatus!=="CANCELLED").reduce((s,o)=>s+n(o.totalAmount),0),receivedAmount=receipts.reduce((s,r)=>s+n(r.totalAmount),0);
+  const stockNorms=(normsR.results||[]).filter(x=>rowAllowed(x,scope)).map(x=>({
+    storeId:x.store_id,storeName:x.store_name,productId:x.product_id,productName:x.product_name,unit:x.unit,
+    minStock:x.min_stock===null?null:n(x.min_stock),targetStock:x.target_stock===null?null:n(x.target_stock),
+    leadDays:n(x.lead_days),enabled:Number(x.enabled)!==0,updatedAt:x.updated_at,updatedBy:x.updated_by_name||x.updated_by
+  }));
   return{
-    requisitions,orders,receipts,supplierPerformance,
+    requisitions,orders,receipts,stockNorms,supplierPerformance,
     analytics:{requisitionEstimate:money(estimate),orderedAmount:money(ordered),receivedAmount:money(receivedAmount),estimatedSavings:money(Math.max(0,estimate-ordered)),activeOrders:orders.filter(x=>!["COMPLETED","CANCELLED"].includes(x.effectiveStatus)).length,completedOrders:orders.filter(x=>x.effectiveStatus==="COMPLETED").length,pendingApprovals:requisitions.filter(x=>x.status==="PENDING_APPROVAL").length}
   };
 }
@@ -334,6 +359,37 @@ export async function onRequestPost({request,env}){
     const body=await request.json().catch(()=>({})),action=clean(body?.action).toLowerCase();
     const c=await contextFor(request,env);c.request=request;c.env=env;
     const db=env.DB,user=c.auth.user,userId=clean(user.id),userName=actor(user),stamp=now(),sd=scopeData(c.scope),s=await settings(db,c.serverScope);
+
+    if(action==="save-stock-norms"){
+      const rows=Array.isArray(body?.norms)?body.norms:[];if(!rows.length)throw new Error("Нет изменений норм запаса.");
+      const sd=scopeData(c.scope),statements=[],saved=[];
+      for(const raw of rows){
+        const storeId=clean(raw?.storeId),productId=clean(raw?.productId);if(!storeId||!productId)continue;
+        const minStock=raw?.minStock===null||raw?.minStock===undefined||raw?.minStock===""?null:q(raw.minStock);
+        const targetStock=raw?.targetStock===null||raw?.targetStock===undefined||raw?.targetStock===""?null:q(raw.targetStock);
+        const enabled=raw?.enabled===false?0:1,leadDays=Math.max(0,Math.round(n(raw?.leadDays)));
+        if(minStock!==null&&minStock<0)throw new Error("Минимальный остаток не может быть отрицательным.");
+        if(targetStock!==null&&targetStock<0)throw new Error("Целевой остаток не может быть отрицательным.");
+        if(minStock!==null&&targetStock!==null&&targetStock<minStock)throw new Error("Целевой остаток должен быть не меньше минимального.");
+        const storeName=clean(raw?.storeName),productName=clean(raw?.productName),unit=clean(raw?.unit);
+        if(minStock===null&&targetStock===null){
+          statements.push(db.prepare("DELETE FROM procurement_stock_norms WHERE server_scope=?1 AND store_id=?2 AND product_id=?3").bind(c.serverScope,storeId,productId));
+          saved.push({storeId,productId,deleted:true});
+        }else{
+          statements.push(db.prepare(`INSERT INTO procurement_stock_norms(server_scope,store_id,product_id,store_name,product_name,unit,min_stock,target_stock,lead_days,enabled,restaurant_ids_json,restaurant_names_json,updated_at,updated_by,updated_by_name)
+            VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
+            ON CONFLICT(server_scope,store_id,product_id) DO UPDATE SET
+              store_name=excluded.store_name,product_name=excluded.product_name,unit=excluded.unit,min_stock=excluded.min_stock,target_stock=excluded.target_stock,
+              lead_days=excluded.lead_days,enabled=excluded.enabled,restaurant_ids_json=excluded.restaurant_ids_json,restaurant_names_json=excluded.restaurant_names_json,
+              updated_at=excluded.updated_at,updated_by=excluded.updated_by,updated_by_name=excluded.updated_by_name`)
+            .bind(c.serverScope,storeId,productId,storeName,productName,unit,minStock,targetStock,leadDays,enabled,JSON.stringify(sd.ids),JSON.stringify(sd.names),stamp,userId,userName));
+          saved.push({storeId,storeName,productId,productName,unit,minStock,targetStock,leadDays,enabled:enabled===1});
+        }
+      }
+      for(let i=0;i<statements.length;i+=50)await db.batch(statements.slice(i,i+50));
+      await logAuditEvent({request,env,connection:c.connection,action:"UPDATE",entityType:"PROCUREMENT_STOCK_NORMS",entityId:c.serverScope,entityLabel:"Нормы запаса закупок",before:null,after:saved,restaurantIds:sd.ids,restaurantNames:sd.names,metadata:{count:saved.length}});
+      return json({success:true,count:saved.length});
+    }
 
     if(action==="save-settings"){
       const input=body?.settings&&typeof body.settings==="object"?body.settings:{};
