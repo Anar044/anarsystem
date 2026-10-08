@@ -108,68 +108,6 @@
     $('hepFaceId').textContent=e.attendanceExternalId?`${e.attendanceProvider||'DEVICE'} · ${e.attendanceExternalId}`:'Не связан';
   }
 
-  function renderLegacyPay(){
-    const card=$('hepLegacyPayCard'),host=$('hepLegacyPay');
-    if(!card||!host)return;
-    const c=data?.compensation||{},term=c.term||{},calc=c.calculation||{},official=calc.official||{};
-    card.hidden=!c.configured;
-    if(!c.configured){host.innerHTML='';return}
-    host.innerHTML=`<div class="hep-legacy-note">Старая модель: <b>${esc(c.sourceLabel||'Условия оплаты')}</b>. Официальный Gross: <b>${money(term.officialGross)}</b>, дополнительная выплата: <b>${money(term.additionalAmount)}</b>, рассчитанный Net: <b>${money(official.net)}</b>. Эти значения показываются только для справки и не переносятся автоматически в новую схему.</div>`;
-  }
-
-  function currentPayMarkup(term){
-    if(!term)return '<div class="hep-pay-empty">Новые условия оплаты ещё не заведены. Ниже можно создать первую запись.</div>';
-    const preview=term.officialPayrollPreview;
-    const factualUnit=term.factualRateType==='HOURLY'?'₼ / час':'₼ / месяц';
-    const officialUnit=term.officialRateType==='HOURLY'?'₼ / час':'₼ / месяц';
-    const officialMini=term.officialRateType==='MONTHLY'&&preview
-      ? `<div><span>Net</span><strong>${money(preview.net)}</strong></div><div><span>Удержания</span><strong>${money(preview.employee?.total)}</strong></div><div><span>Стоимость</span><strong>${money(preview.totalEmployerCost)}</strong></div>`
-      : '<div><span>Net</span><strong>По табелю</strong></div><div><span>Налоги</span><strong>В Payroll</strong></div><div><span>Расчёт</span><strong>По часам</strong></div>';
-    return `<div class="hep-pay-current">
-      <div class="hep-pay-current-card factual">
-        <div class="hep-pay-active-line"><span>ДЕЙСТВУЕТ СЕЙЧАС</span><b>с ${esc(term.effectiveFrom)}</b></div>
-        <h3>Фактическая зарплата</h3><p>Внутренняя ставка сотрудника</p>
-        <div class="hep-pay-rate-value"><strong>${money(term.factualRate).replace(' ₼','')}</strong><span>${esc(factualUnit)}</span></div>
-        <div class="hep-pay-mini"><div><span>Тип</span><strong>${esc(rateTypeLabel(term.factualRateType))}</strong></div><div><span>Валюта</span><strong>AZN</strong></div><div><span>Контур</span><strong>Фактический</strong></div></div>
-        <div class="hep-pay-period"><span>Период текущей ставки</span><b>${esc(term.effectiveFrom)} → ${esc(term.effectiveTo||'без ограничения')}</b></div>
-      </div>
-      <div class="hep-pay-current-card official">
-        <div class="hep-pay-active-line"><span>ДЕЙСТВУЕТ СЕЙЧАС</span><b>с ${esc(term.effectiveFrom)}</b></div>
-        <h3>Официальная зарплата</h3><p>Gross ставка для белого Payroll</p>
-        <div class="hep-pay-rate-value"><strong>${money(term.officialRate).replace(' ₼','')}</strong><span>${esc(officialUnit)}</span></div>
-        <div class="hep-pay-mini">${officialMini}</div>
-        <div class="hep-pay-period"><span>Период текущей ставки</span><b>${esc(term.effectiveFrom)} → ${esc(term.effectiveTo||'без ограничения')}</b></div>
-      </div>
-    </div>`;
-  }
-
-  function renderPayHistory(){
-    const host=$('hepPayHistory');if(!host)return;
-    const rows=Array.isArray(payTerms?.history)?payTerms.history:[];
-    const currentId=payTerms?.current?.id||'';
-    if(!rows.length){host.innerHTML='<div class="hep-pay-empty">История ставок пока пустая.</div>';return}
-    host.innerHTML=`<table class="hep-pay-table"><thead><tr><th>Период</th><th>Фактическая</th><th>Официальная</th><th>Комментарий</th><th>Статус</th></tr></thead><tbody>${rows.map(x=>`
-      <tr class="${x.id===currentId?'current':''}">
-        <td><strong>${esc(x.effectiveFrom)}</strong><div class="audit-secondary">→ ${esc(x.effectiveTo||'без ограничения')}</div></td>
-        <td><strong>${money(x.factualRate)}</strong><div class="audit-secondary">${esc(rateTypeLabel(x.factualRateType))}</div></td>
-        <td><strong>${money(x.officialRate)}</strong><div class="audit-secondary">${esc(rateTypeLabel(x.officialRateType))}</div></td>
-        <td>${esc(x.note||'—')}</td>
-        <td><span class="hep-pay-pill ${x.id===currentId?'current':''}">${x.id===currentId?'Действует':'История'}</span></td>
-      </tr>`).join('')}</tbody></table>`;
-  }
-
-  function primePayForm(){
-    const current=payTerms?.current;
-    if(!$('hepPayEffectiveFrom'))return;
-    const today=isoToday();
-    $('hepPayEffectiveFrom').value=current?.effectiveFrom===today?addDays(today,1):today;
-    $('hepFactualRateType').value=current?.factualRateType||'MONTHLY';
-    $('hepFactualRate').value=current?.factualRate??'';
-    $('hepOfficialRateType').value=current?.officialRateType||'MONTHLY';
-    $('hepOfficialRate').value=current?.officialRate??'';
-    $('hepPayNote').value='';
-  }
-
   function renderPay(){
     const host=$('hepPayContent');if(!host)return;
     const c=data?.compensation||{},term=c.term||{},calc=c.calculation||{},official=calc.official||{};
@@ -366,23 +304,6 @@
     }catch(e){$('hepLeaveStatus').textContent=e?.message||'Ошибка';$('hepLeaveStatus').className='hr-status error'}
   }
 
-  function renderSchedule(){
-    const s=data?.schedule||{};
-    if(!s.configured||!s.schedule){
-      $('hepScheduleContent').innerHTML='<div class="hep-placeholder"><div><strong>Основной график не назначен</strong><p>Для должности сотрудника нет активного основного графика на текущую дату.</p></div></div>';
-      return;
-    }
-    const x=s.schedule,days=['','Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
-    const mode=x.patternType==='CYCLE'?`${x.workDays}/${x.offDays}`:(x.weekdays||[]).map(d=>days[d]||d).join(', ');
-    const shift=`${x.shiftStart||'—'}–${x.shiftEnd||'—'}${x.breakMinutes?` · перерыв ${x.breakMinutes} мин`:''}`;
-    $('hepScheduleContent').innerHTML=`
-      <div class="hep-schedule">
-        <div class="hep-schedule-cell"><span>Шаблон</span><strong>${esc(x.name||'—')}</strong></div>
-        <div class="hep-schedule-cell"><span>Режим</span><strong>${esc(mode||'—')}</strong></div>
-        <div class="hep-schedule-cell"><span>Смена</span><strong>${esc(shift)}</strong></div>
-        <div class="hep-schedule-cell"><span>Период</span><strong>${esc(x.validFrom||'—')} → ${esc(x.validTo||'без ограничения')}</strong></div>
-      </div>`;
-  }
 
   function render(){
     renderHero();fillProfile(data?.profile||{});renderWork();renderPay();setDirty(false);
