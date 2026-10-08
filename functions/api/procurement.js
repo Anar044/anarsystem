@@ -31,6 +31,16 @@ function q(v){return Math.round((n(v)||0)*1000)/1000}
 function parse(v,f){try{return JSON.parse(String(v||""))}catch{return f}}
 function now(){return new Date().toISOString()}
 function uid(){return crypto.randomUUID()}
+function randomToken(){
+  const bytes=crypto.getRandomValues(new Uint8Array(32));let raw="";
+  for(const b of bytes)raw+=String.fromCharCode(b);
+  return btoa(raw).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+async function tokenHash(value){
+  const data=new TextEncoder().encode(clean(value));
+  const digest=new Uint8Array(await crypto.subtle.digest("SHA-256",data));
+  return [...digest].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
 function dateKey(){return new Date().toISOString().slice(0,10).replace(/-/g,"")}
 function docNo(prefix){return `${prefix}-${dateKey()}-${uid().slice(0,6).toUpperCase()}`}
 function actor(user){return clean(user?.user_metadata?.full_name||user?.user_metadata?.name||user?.email||user?.id)}
@@ -108,6 +118,20 @@ async function ensure(db){
     )`),
     db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_proc_rfq_scope_number ON procurement_rfqs(server_scope,number)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_rfq_req ON procurement_rfqs(server_scope,requisition_id,created_at DESC)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS procurement_rfq_suppliers (
+      id TEXT PRIMARY KEY,
+      server_scope TEXT NOT NULL,
+      rfq_id TEXT NOT NULL,
+      supplier_id TEXT NOT NULL,
+      supplier_name TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      token_hash TEXT NOT NULL DEFAULT '',
+      token_created_at TEXT NOT NULL DEFAULT '',
+      token_expires_at TEXT NOT NULL DEFAULT '',
+      responded_at TEXT NOT NULL DEFAULT ''
+    )`),
+    db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_proc_rfq_supplier_unique ON procurement_rfq_suppliers(rfq_id,supplier_id)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_rfq_supplier_scope ON procurement_rfq_suppliers(server_scope,rfq_id,status)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS procurement_quotes (
       id TEXT PRIMARY KEY,
       server_scope TEXT NOT NULL,
@@ -284,6 +308,7 @@ const PROCUREMENT_ACTION_PERMISSIONS={
   "create-rfq":"procurement.sourcing",
   "send-rfq":"procurement.sourcing",
   "close-rfq":"procurement.sourcing",
+  "create-rfq-link":"procurement.sourcing",
   "add-quote":"procurement.sourcing",
   "create-order":"procurement.po.manage",
   "send-order":"procurement.po.manage",
@@ -633,11 +658,29 @@ export async function onRequestPost({request,env}){
       }
       if(!normalized.length)throw new Error("Выберите хотя бы одного поставщика для RFQ.");
       const id=uid(),number=docNo("RFQ"),deadline=clean(body?.deadline),message=clean(body?.message),row={id,number,restaurant_ids_json:r.restaurant_ids_json,restaurant_names_json:r.restaurant_names_json};
-      await db.prepare(`INSERT INTO procurement_rfqs(id,server_scope,requisition_id,number,status,deadline,message,supplier_ids_json,supplier_names_json,created_at,created_by,created_by_name)
+      const stmts=[db.prepare(`INSERT INTO procurement_rfqs(id,server_scope,requisition_id,number,status,deadline,message,supplier_ids_json,supplier_names_json,created_at,created_by,created_by_name)
         VALUES(?1,?2,?3,?4,'DRAFT',?5,?6,?7,?8,?9,?10,?11)`)
-        .bind(id,c.serverScope,r.id,number,deadline,message,JSON.stringify(normalized.map(x=>x.id)),JSON.stringify(normalized.map(x=>x.name)),stamp,userId,userName).run();
+        .bind(id,c.serverScope,r.id,number,deadline,message,JSON.stringify(normalized.map(x=>x.id)),JSON.stringify(normalized.map(x=>x.name)),stamp,userId,userName)];
+      for(const s of normalized)stmts.push(db.prepare(`INSERT INTO procurement_rfq_suppliers(id,server_scope,rfq_id,supplier_id,supplier_name,status) VALUES(?1,?2,?3,?4,?5,'PENDING')`).bind(uid(),c.serverScope,id,s.id,s.name));
+      await db.batch(stmts);
       await log(c,"CREATE","REQUEST_FOR_QUOTATION",row,null,{id,number,requisitionId:r.id,deadline,suppliers:normalized});
       return json({success:true,id,number,status:"DRAFT"},201);
+    }
+
+    if(action==="create-rfq-link"){
+      const rfqId=clean(body?.id),supplierId=clean(body?.supplierId);
+      if(!rfqId||!supplierId)throw new Error("Не указан RFQ или поставщик.");
+      const rfq=await db.prepare("SELECT q.*,r.restaurant_ids_json,r.restaurant_names_json FROM procurement_rfqs q JOIN procurement_requisitions r ON r.id=q.requisition_id WHERE q.id=?1 AND q.server_scope=?2 LIMIT 1").bind(rfqId,c.serverScope).first();
+      if(!rfq){const e=new Error("RFQ не найден.");e.status=404;throw e}
+      assertAllowed(rfq,c.scope);
+      if(rfq.status==="CLOSED"){const e=new Error("RFQ уже закрыт.");e.status=409;throw e}
+      const supplier=await db.prepare("SELECT * FROM procurement_rfq_suppliers WHERE rfq_id=?1 AND supplier_id=?2 LIMIT 1").bind(rfqId,supplierId).first();
+      if(!supplier){const e=new Error("Поставщик не входит в этот RFQ.");e.status=404;throw e}
+      const token=randomToken(),hash=await tokenHash(token),expires=new Date(Date.now()+7*24*3600*1000).toISOString();
+      await db.prepare("UPDATE procurement_rfq_suppliers SET token_hash=?2,token_created_at=?3,token_expires_at=?4 WHERE id=?1").bind(supplier.id,hash,stamp,expires).run();
+      const origin=new URL(request.url).origin,link=origin+"/rfq-response.html?token="+encodeURIComponent(token);
+      await log(c,"CREATE_LINK","REQUEST_FOR_QUOTATION",rfq,null,{rfqId,supplierId,supplierName:supplier.supplier_name,expiresAt:expires});
+      return json({success:true,id:rfqId,supplierId,link,expiresAt:expires});
     }
 
     if(["send-rfq","close-rfq"].includes(action)){
@@ -674,6 +717,7 @@ export async function onRequestPost({request,env}){
       const lines=normalizeLines(body?.lines).map(x=>{if(!reqProducts.has(x.productId))throw new Error("В предложении есть позиция, которой нет в заявке.");return{productId:x.productId,productName:x.productName,unit:x.unit,quantity:x.quantity,packageSize:x.packageSize,packageCount:x.packageCount,containerId:x.containerId,packageName:x.packageName,vatPercent:x.vatPercent,unitPrice:x.unitPrice,total:money(x.packageCount*x.unitPrice)}});
       const total=money(lines.reduce((sum,x)=>sum+x.total,0)),id=uid();
       await db.prepare(`INSERT INTO procurement_quotes(id,server_scope,requisition_id,rfq_id,supplier_id,supplier_name,status,currency,delivery_days,payment_terms,valid_until,comment,lines_json,total_amount,created_at,created_by,created_by_name) VALUES(?1,?2,?3,?4,?5,?6,'OFFERED',?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)`).bind(id,c.serverScope,r.id,rfqId,supplierId,supplierName,clean(body?.currency||"AZN"),Math.max(0,Math.round(n(body?.deliveryDays))),clean(body?.paymentTerms),clean(body?.validUntil),clean(body?.comment),JSON.stringify(lines),total,stamp,userId,userName).run();
+      if(rfqId)await db.prepare("UPDATE procurement_rfq_suppliers SET status='RESPONDED',responded_at=?3 WHERE rfq_id=?1 AND supplier_id=?2").bind(rfqId,supplierId,stamp).run();
       await log(c,"CREATE","SUPPLIER_QUOTE",r,null,{id,rfqId,requisitionId:r.id,supplierId,supplierName,totalAmount:total,lines});
       return json({success:true,id,totalAmount:total},201);
     }
