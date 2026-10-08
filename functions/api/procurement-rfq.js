@@ -58,7 +58,8 @@ async function accessByToken(db,raw){
   const token=clean(raw);if(!token)return{error:"Ссылка RFQ не указана.",status:400};
   const hash=await tokenHash(token);
   const s=await db.prepare(`SELECT s.*,q.number AS rfq_number,q.status AS rfq_status,q.deadline,q.message,q.requisition_id,
-    r.number AS pr_number,r.warehouse_name,r.status AS pr_status
+    q.created_by_name AS rfq_created_by_name,q.created_by AS rfq_created_by,
+    r.number AS pr_number,r.warehouse_name,r.status AS pr_status,r.restaurant_names_json,r.created_by_name AS pr_created_by_name
     FROM procurement_rfq_suppliers s
     JOIN procurement_rfqs q ON q.id=s.rfq_id
     JOIN procurement_requisitions r ON r.id=q.requisition_id
@@ -91,6 +92,8 @@ export async function onRequestGet({request,env}){
       rfq:{
         number:s.rfq_number,prNumber:s.pr_number,status:s.rfq_status,deadline:s.deadline,message:s.message,
         supplierId:s.supplier_id,supplierName:s.supplier_name,warehouseName:s.warehouse_name||"",
+        restaurantNames:parse(s.restaurant_names_json,[]),
+        requestedBy:s.rfq_created_by_name||s.pr_created_by_name||s.rfq_created_by||"",
         responseStatus:s.status,respondedAt:s.responded_at||"",
         lines:(linesR.results||[]).map(publicLine),
         existing:existing?{
