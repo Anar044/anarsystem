@@ -34,6 +34,16 @@
         }
     }
 
+    function captureInvite() {
+        const params = new URLSearchParams(window.location.search);
+        const invite = params.get("invite") || "";
+        if (invite) {
+            try { localStorage.setItem("sh_pending_invite", invite); } catch {}
+            return invite;
+        }
+        try { return localStorage.getItem("sh_pending_invite") || ""; } catch { return ""; }
+    }
+
     function redirectTarget() {
         const params = new URLSearchParams(window.location.search);
         const next = params.get("next");
@@ -87,6 +97,7 @@
     }
 
     async function initLogin() {
+        const invite = captureInvite();
         if (!requireConfigured()) return;
         const sb = await createClient();
         const user = await getUser();
@@ -112,6 +123,7 @@
     }
 
     async function initRegister() {
+        const invite = captureInvite();
         if (!requireConfigured()) return;
         const sb = await createClient();
         const existing = await getUser();
@@ -133,13 +145,13 @@
             if (password.length < 8) { showMessage("Пароль должен содержать минимум 8 символов.", "error"); return; }
             if (password !== password2) { showMessage("Пароли не совпадают.", "error"); return; }
             setBusy(button, true, "Создаём аккаунт...");
-            const redirectTo = `${window.location.origin}/auth-callback.html`;
+            const redirectTo = `${window.location.origin}/auth-callback.html${invite ? '?invite=' + encodeURIComponent(invite) : ''}`;
             const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo, data: { first_name: firstName, last_name: lastName, phone } } });
             setBusy(button, false);
             if (error) { showMessage(error.message || "Не удалось зарегистрировать аккаунт.", "error"); return; }
             if (data.session) { window.location.replace("index.html"); return; }
             form.reset();
-            showMessage(`Регистрация создана. Мы отправили письмо на ${email}. Подтвердите email, затем войдите в SH_Reports.`, "success");
+            showMessage(`Регистрация создана. Мы отправили письмо на ${email}. Подтвердите email, затем войдите в Smart Horeca.`, "success");
         });
     }
 
@@ -179,12 +191,13 @@
             const { error } = await sb.auth.updateUser({ password });
             setBusy(button, false);
             if (error) { showMessage(error.message || "Не удалось изменить пароль.", "error"); return; }
-            showMessage("Пароль изменён. Теперь можно войти в SH_Reports.", "success");
+            showMessage("Пароль изменён. Теперь можно войти в Smart Horeca.", "success");
             setTimeout(() => window.location.replace("index.html"), 1200);
         });
     }
 
     async function initCallback() {
+        const invite = captureInvite();
         if (!requireConfigured()) return;
         const sb = await createClient();
         showMessage("Подтверждаем email...", "info");
@@ -197,10 +210,10 @@
         }
         const { data } = await sb.auth.getSession();
         if (data.session) {
-            showMessage("Email подтверждён. Входим в SH_Reports...", "success");
+            showMessage("Email подтверждён. Входим в Smart Horeca...", "success");
             setTimeout(() => window.location.replace("index.html"), 500); return;
         }
-        showMessage("Email подтверждён. Теперь войдите в SH_Reports.", "success");
+        showMessage("Email подтверждён. Теперь войдите в Smart Horeca.", "success");
         setTimeout(() => window.location.replace("login.html"), 900);
     }
 
