@@ -956,7 +956,7 @@ function openReceiptModal(o){
 
       setBusy(true);
       modalStatus(process?'Сохраняем и проводим накладную в Smart Horeca Server…':'Сохраняем накладную в Smart Horeca Server…','loading');
-      const document={
+      const incomingDocument={
         documentNumber,
         dateIncoming:$('proc-receipt-date').value+'T00:00:00',
         supplierId:o.supplierId,
@@ -984,7 +984,7 @@ function openReceiptModal(o){
         body:JSON.stringify({
           type:'incoming',
           action:process?'save-and-process':'save',
-          document,
+          document:incomingDocument,
           departmentIds:state.binding.departmentIds||[],
           chainScope:chainScope()
         }),
