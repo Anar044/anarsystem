@@ -110,12 +110,9 @@ async function seedRolesFromEmployees(db,userId){
 
 async function snapshot(db,userId,scope=null){
   await seedRolesFromEmployees(db,userId);
-  const [rolesResult,schedulesResult,countsResult,daysResult,settingsResult,attendanceRulesResult]=await Promise.all([
+  const [rolesResult,countsResult,attendanceRulesResult]=await Promise.all([
     db.prepare(`SELECT * FROM hr_roles WHERE user_id=?1 ORDER BY is_deleted ASC,role_name COLLATE NOCASE,role_code COLLATE NOCASE`).bind(userId).all(),
-    db.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 ORDER BY is_active DESC,is_default DESC,role_code COLLATE NOCASE,valid_from DESC,schedule_name COLLATE NOCASE`).bind(userId).all(),
     db.prepare(`SELECT role_code,department_code,is_deleted,fire_date,employee_code FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>''`).bind(userId).all().catch(()=>({results:[]})),
-    db.prepare(`SELECT schedule_id,weekday,shift_start,shift_end,break_minutes FROM hr_role_schedule_days WHERE user_id=?1 ORDER BY weekday`).bind(userId).all(),
-    db.prepare(`SELECT schedule_id,accounting_mode,accounting_period_months,legal_profile,validated_at FROM hr_role_schedule_settings WHERE user_id=?1`).bind(userId).all(),
     db.prepare(`SELECT role_code,daily_norm_minutes,shift_type,updated_at FROM hr_role_attendance_rules WHERE user_id=?1`).bind(userId).all()
   ]);
   const employeeCounts=new Map();
@@ -123,33 +120,14 @@ async function snapshot(db,userId,scope=null){
     if(Number(x.is_deleted)||(x.fire_date&&String(x.fire_date).trim()))continue;
     const code=String(x.role_code||'');if(code)employeeCounts.set(code,(employeeCounts.get(code)||0)+1);
   }
-  const subset=isHrSubsetScope(scope);
-  const visibleRoleCodes=new Set(employeeCounts.keys());
-  const dayMap=new Map();for(const d of daysResult.results||[]){const id=String(d.schedule_id||'');if(!dayMap.has(id))dayMap.set(id,[]);dayMap.get(id).push({weekday:Number(d.weekday),shiftStart:d.shift_start,shiftEnd:d.shift_end,breakMinutes:Number(d.break_minutes||0)});}
-  const settingsMap=new Map((settingsResult.results||[]).map(s=>[String(s.schedule_id||''),s]));
+  const subset=isHrSubsetScope(scope),visibleRoleCodes=new Set(employeeCounts.keys());
   const attendanceRuleMap=new Map((attendanceRulesResult.results||[]).map(r=>[String(r.role_code||''),r]));
-  const schedules=(schedulesResult.results||[]).filter(s=>!subset||visibleRoleCodes.has(String(s.role_code||''))).map(s=>{
-    const settings=settingsMap.get(String(s.schedule_id))||{};
-    const weekdays=String(s.weekdays||'').split(',').map(Number).filter(Boolean);
-    const storedDays=dayMap.get(String(s.schedule_id))||[];
-    const dayRules=storedDays.length?storedDays:weekdays.map(day=>({weekday:day,shiftStart:s.shift_start,shiftEnd:s.shift_end,breakMinutes:Number(s.break_minutes||0)}));
-    return{
-      id:s.schedule_id,roleCode:s.role_code,name:s.schedule_name,patternType:s.pattern_type,
-      weekdays,workDays:Number(s.work_days||0),offDays:Number(s.off_days||0),anchorDate:s.anchor_date||'',
-      shiftStart:s.shift_start,shiftEnd:s.shift_end,breakMinutes:Number(s.break_minutes||0),dayRules,
-      accountingMode:settings.accounting_mode||(s.pattern_type==='CYCLE'?'SUMMARIZED':'NORMAL_WEEKLY'),accountingPeriodMonths:Number(settings.accounting_period_months||1),
-      legalProfile:settings.legal_profile||'',validatedAt:settings.validated_at||'',validFrom:s.valid_from,validTo:s.valid_to||'',
-      isDefault:Boolean(s.is_default),active:Boolean(s.is_active),createdAt:s.created_at,updatedAt:s.updated_at
-    };
-  });
-  const scheduleCounts=new Map();const defaultRoles=new Set();
-  for(const s of schedules){if(s.active)scheduleCounts.set(s.roleCode,(scheduleCounts.get(s.roleCode)||0)+1);if(s.active&&s.isDefault)defaultRoles.add(s.roleCode)}
   const roles=(rolesResult.results||[]).filter(r=>!subset||visibleRoleCodes.has(String(r.role_code||''))).map(r=>{
     const ar=attendanceRuleMap.get(String(r.role_code||''))||{};
-    return{id:r.iiko_role_id||'',code:r.role_code,name:r.role_name||r.role_code,deleted:Boolean(r.is_deleted),syncedAt:r.synced_at||'',employeeCount:employeeCounts.get(String(r.role_code))||0,scheduleCount:scheduleCounts.get(String(r.role_code))||0,hasDefaultSchedule:defaultRoles.has(String(r.role_code)),dailyNormMinutes:Number(ar.daily_norm_minutes||480),shiftType:['DAY','NIGHT'].includes(String(ar.shift_type||'').toUpperCase())?String(ar.shift_type).toUpperCase():'DAY',attendanceRuleUpdatedAt:ar.updated_at||''};
+    return{id:r.iiko_role_id||'',code:r.role_code,name:r.role_name||r.role_code,deleted:Boolean(r.is_deleted),syncedAt:r.synced_at||'',employeeCount:employeeCounts.get(String(r.role_code))||0,dailyNormMinutes:Number(ar.daily_norm_minutes||480),shiftType:['DAY','NIGHT'].includes(String(ar.shift_type||'').toUpperCase())?String(ar.shift_type).toUpperCase():'DAY',attendanceRuleUpdatedAt:ar.updated_at||''};
   });
   const activeRoles=roles.filter(r=>!r.deleted);
-  return{roles,schedules,legalBasis,schedulePolicyScope:'NETWORK_SHARED',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,counts:{roles:activeRoles.length,employees:activeRoles.reduce((a,r)=>a+r.employeeCount,0),schedules:schedules.filter(x=>x.active).length,rolesWithoutDefault:activeRoles.filter(r=>!r.hasDefaultSchedule).length}};
+  return{roles,schedules:[],legalBasis,schedulePolicyScope:'FREE_SHIFT_ROLE_NORM',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,counts:{roles:activeRoles.length,employees:activeRoles.reduce((a,r)=>a+r.employeeCount,0),dayRoles:activeRoles.filter(r=>r.shiftType!=='NIGHT').length,nightRoles:activeRoles.filter(r=>r.shiftType==='NIGHT').length}};
 }
 
 async function syncRoles(request,env,userId,scope=null){
@@ -192,6 +170,7 @@ export async function onRequestPost({request,env}){
         .bind(userId,roleCode,dailyNormMinutes,shiftType,t).run();
       return json({success:true,roleCode,dailyNormMinutes,shiftType,...await snapshot(env.DB,userId,scope)});
     }
+    if(['saveSchedule','disableSchedule'].includes(action))return json({success:false,message:'Старые шаблоны графиков отключены. Используйте норму должности и тип смены Face ID.'},410);
     if(action==='saveSchedule'){
       const roleCode=clean(body.roleCode),name=clean(body.name),scheduleId=clean(body.id)||uid('hrs'),patternType=(clean(body.patternType)||'WEEKLY').toUpperCase();
       const shiftStart=timeOnly(body.shiftStart),shiftEnd=timeOnly(body.shiftEnd),breakMinutes=int(body.breakMinutes,0,600,0),validFrom=dateOnly(body.validFrom),validTo=dateOnly(body.validTo);
