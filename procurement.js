@@ -1064,7 +1064,7 @@ function openReceiptModal(o){
     '</div>'+
     '<div class="proc-grn-explain"><strong>Сначала фиксируем факт приёмки GRN.</strong><span>Накладная — отдельный документ. Её можно создать сейчас или привязать позже.</span></div>'+
     '<div class="proc-edit-lines"><div class="proc-edit-head"><strong>Фактически получено</strong><span class="proc-history-note">Можно принять PO частично.</span></div><div id="proc-receipt-lines">'+lines.map(receiptLineHtml).join('')+'</div></div>'+
-    '<div class="proc-modal-summary"><span>Оценка GRN по цене PO</span><strong id="proc-receipt-total">0,00 ₼</strong></div>'+
+    '<div class="proc-modal-summary"><span>Расчётная сумма по текущей цене</span><strong id="proc-receipt-total">0,00 ₼</strong></div>'+
     '<div class="proc-history-note">Поле «Цена / упак.» используется для накладной. GRN фиксирует фактическое количество, а Smart Horeca затем отдельно сверяет цену накладной с PO.</div>'+
     '<div id="proc-receipt-status" class="proc-receipt-status" hidden></div>'+
     '<div class="proc-receipt-choice"><button id="proc-receipt-cancel" class="proc-btn ghost" type="button">Отмена</button><button id="proc-grn-only" class="proc-btn secondary" type="button">Сохранить только GRN</button>'+(canCost?'<button id="proc-grn-draft" class="proc-btn secondary" type="button">GRN + накладная</button><button id="proc-grn-post" class="proc-btn primary" type="button">GRN + провести</button>':'')+'</div>'
