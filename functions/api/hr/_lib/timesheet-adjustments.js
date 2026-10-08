@@ -2,7 +2,23 @@ const clean=v=>String(v??'').trim();
 const num=(v,fallback=-1)=>{const n=Number(v);return Number.isFinite(n)?Math.round(n):fallback};
 export const DEFAULT_OVERTIME_THRESHOLD_MINUTES=600;
 
-export function hrAccessForUser(user){
+export function hrAccessForUser(user,workspaceAccess=null){
+  if(workspaceAccess!==null){
+    const perms=new Set(workspaceAccess?.allowed?workspaceAccess.permissions||[]:[]);
+    const can=permission=>perms.has('*')||perms.has(permission);
+    return{
+      role:workspaceAccess?.isOwner?'OWNER':'MEMBER',
+      label:workspaceAccess?.isOwner?'Владелец':(workspaceAccess?.displayName||'Сотрудник'),
+      canManagerApprove:can('hr.timesheet.manager_approve'),
+      canHrApprove:can('hr.timesheet.hr_approve'),
+      canReopen:can('hr.timesheet.manage')||can('hr.timesheet.hr_approve'),
+      canCorrect:can('hr.timesheet.manage'),
+      canSetOvertimeRule:can('hr.timesheet.hr_approve'),
+      canViewPayroll:can('hr.payroll.view'),
+      canSettlePayroll:can('hr.payroll.pay'),
+      canConfigurePayrollAccounting:can('hr.payroll.calculate')
+    };
+  }
   const raw=clean(user?.app_metadata?.hr_role||user?.app_metadata?.app_role||user?.app_metadata?.role).toUpperCase();
   const role=['OWNER','ADMIN','MANAGER','HR','PAYROLL','VIEWER'].includes(raw)?raw:'OWNER';
   const owner=role==='OWNER'||role==='ADMIN';
@@ -19,8 +35,8 @@ export function hrAccessForUser(user){
     canConfigurePayrollAccounting:owner||role==='PAYROLL'
   };
 }
-export function requireCapability(user,capability){
-  const access=hrAccessForUser(user);
+export function requireCapability(user,capability,workspaceAccess=null){
+  const access=hrAccessForUser(user,workspaceAccess);
   if(!access[capability]){const e=new Error('Недостаточно прав для этого действия');e.status=403;e.access=access;throw e}
   return access;
 }
