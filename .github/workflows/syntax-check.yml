@@ -549,3 +549,4 @@ jobs:
           set -euo pipefail
           node --test tests/hr-punch-correction.test.mjs
           node --test tests/hr-live-shift.test.mjs
+          node --test tests/hr-timesheet-performance.test.mjs
