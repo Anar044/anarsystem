@@ -3,6 +3,29 @@ const clean=v=>String(v??'').trim();
 const emailKey=v=>clean(v).toLowerCase();
 const jsonParse=(v,fallback)=>{try{const x=JSON.parse(String(v||''));return x??fallback}catch{return fallback}};
 const uid=()=>crypto.randomUUID();
+const WORKSPACE_COOKIE='sh_workspace_id';
+const inviteToken=()=>{
+  const bytes=crypto.getRandomValues(new Uint8Array(32));
+  let s='';for(const b of bytes)s+=String.fromCharCode(b);
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+};
+async function tokenHash(value){
+  const raw=new TextEncoder().encode(clean(value));
+  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',raw));
+  return [...digest].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function cookieValue(request,name){
+  const raw=request?.headers?.get?.('Cookie')||'';
+  for(const part of raw.split(';')){
+    const i=part.indexOf('=');if(i<0)continue;
+    if(part.slice(0,i).trim()!==name)continue;
+    try{return decodeURIComponent(part.slice(i+1).trim())}catch{return part.slice(i+1).trim()}
+  }
+  return'';
+}
+export function workspaceCookie(workspaceId,maxAge=31536000){
+  return WORKSPACE_COOKIE+'='+encodeURIComponent(clean(workspaceId))+'; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age='+Math.max(0,Number(maxAge)||0);
+}
 
 export const PERMISSIONS=[
   ['dashboard.view','Главная','Просмотр Dashboard'],
@@ -97,6 +120,29 @@ export const ROLE_TEMPLATES=[
 export async function ensureAccessTables(db){
   if(!db)throw new Error('D1 binding DB не настроен.');
   await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS sh_workspaces (
+      id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL UNIQUE,
+      server_owner_user_id TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT 'Smart Horeca',
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_sh_workspaces_owner ON sh_workspaces(owner_user_id,status)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sh_workspace_invites (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      owner_user_id TEXT NOT NULL,
+      member_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      expires_at TEXT NOT NULL,
+      accepted_at TEXT,
+      created_at TEXT NOT NULL
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_sh_workspace_invites_member ON sh_workspace_invites(owner_user_id,member_id,status)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS sh_access_members (
       id TEXT PRIMARY KEY,
       owner_user_id TEXT NOT NULL,
@@ -149,6 +195,91 @@ export async function ensureAccessTables(db){
   ]);
 }
 
+function workspaceNameForUser(user){
+  const meta=user?.user_metadata||{};
+  return clean(meta.company_name)||clean(meta.restaurant_name)||clean(meta.full_name)||[clean(meta.first_name),clean(meta.last_name)].filter(Boolean).join(' ')||clean(user?.email)||'Smart Horeca';
+}
+export async function ensureOwnerWorkspace(db,ownerUserId,user=null){
+  await ensureAccessTables(db);
+  const owner=clean(ownerUserId);if(!owner)return null;
+  let row=await db.prepare(`SELECT * FROM sh_workspaces WHERE owner_user_id=?1 LIMIT 1`).bind(owner).first();
+  if(row)return row;
+  const now=NOW(),id=uid(),name=workspaceNameForUser(user);
+  await db.prepare(`INSERT INTO sh_workspaces(id,owner_user_id,server_owner_user_id,name,status,created_at,updated_at) VALUES(?1,?2,?2,?3,'ACTIVE',?4,?4)`)
+    .bind(id,owner,name,now).run();
+  return db.prepare(`SELECT * FROM sh_workspaces WHERE id=?1`).bind(id).first();
+}
+function workspacePublic(row){
+  if(!row)return null;
+  return{id:row.id,name:row.name||'Smart Horeca',ownerUserId:row.owner_user_id,storageUserId:row.server_owner_user_id||row.owner_user_id,status:row.status||'ACTIVE'};
+}
+async function membershipsForUser(db,userId){
+  const rows=await db.prepare(`SELECT * FROM sh_access_members WHERE user_id=?1 ORDER BY updated_at DESC`).bind(userId).all();
+  return rows.results||[];
+}
+async function workspaceForMembership(db,row,user=null){
+  return ensureOwnerWorkspace(db,row.owner_user_id,row.owner_user_id===clean(user?.id)?user:null);
+}
+async function claimInviteByToken(db,user,email,token){
+  const hash=await tokenHash(token);
+  const invite=await db.prepare(`SELECT * FROM sh_workspace_invites WHERE token_hash=?1 AND status='PENDING' LIMIT 1`).bind(hash).first();
+  if(!invite)return{ok:false,reason:'INVITE_NOT_FOUND'};
+  if(new Date(invite.expires_at).getTime()<Date.now())return{ok:false,reason:'INVITE_EXPIRED'};
+  if(emailKey(invite.email)!==emailKey(email))return{ok:false,reason:'INVITE_EMAIL_MISMATCH'};
+  const member=await db.prepare(`SELECT * FROM sh_access_members WHERE id=?1 AND owner_user_id=?2 LIMIT 1`).bind(invite.member_id,invite.owner_user_id).first();
+  if(!member)return{ok:false,reason:'INVITE_MEMBER_NOT_FOUND'};
+  if(clean(member.user_id)&&clean(member.user_id)!==clean(user.id))return{ok:false,reason:'INVITE_ALREADY_USED'};
+  const now=NOW();
+  await db.batch([
+    db.prepare(`UPDATE sh_access_members SET user_id=?2,status='ACTIVE',updated_at=?3 WHERE id=?1`).bind(member.id,user.id,now),
+    db.prepare(`UPDATE sh_workspace_invites SET status='ACCEPTED',accepted_at=?2 WHERE id=?1`).bind(invite.id,now)
+  ]);
+  const workspace=await ensureOwnerWorkspace(db,invite.owner_user_id,null);
+  return{ok:true,member:await db.prepare(`SELECT * FROM sh_access_members WHERE id=?1`).bind(member.id).first(),workspace};
+}
+async function claimLegacyEmailInvite(db,user,email){
+  const rows=await db.prepare(`SELECT * FROM sh_access_members WHERE email=?1 AND (user_id IS NULL OR TRIM(user_id)='') AND status IN ('PENDING','ACTIVE') ORDER BY updated_at DESC`).bind(emailKey(email)).all();
+  const matches=rows.results||[];
+  if(matches.length!==1)return null;
+  const row=matches[0],now=NOW();
+  await db.prepare(`UPDATE sh_access_members SET user_id=?2,status='ACTIVE',updated_at=?3 WHERE id=?1`).bind(row.id,user.id,now).run();
+  return db.prepare(`SELECT * FROM sh_access_members WHERE id=?1`).bind(row.id).first();
+}
+export async function listUserWorkspaces(db,user){
+  await ensureAccessTables(db);
+  const userId=clean(user?.id),email=emailKey(user?.email);
+  if(!userId)return[];
+  await ensureOwnerMembership(db,user);
+  const memberships=await membershipsForUser(db,userId);
+  const out=[];
+  for(const member of memberships){
+    const workspace=await workspaceForMembership(db,member,user);
+    if(!workspace)continue;
+    out.push({...workspacePublic(workspace),memberId:member.id,memberStatus:member.status,isOwner:member.owner_user_id===userId,displayName:member.display_name||'',email:member.email||email});
+  }
+  return out;
+}
+export async function selectWorkspaceForUser(db,user,workspaceId){
+  const list=await listUserWorkspaces(db,user);
+  const selected=list.find(x=>clean(x.id)===clean(workspaceId)&&String(x.memberStatus).toUpperCase()==='ACTIVE');
+  if(!selected)throw Object.assign(new Error('Рабочее пространство недоступно.'),{status:403,code:'WORKSPACE_FORBIDDEN'});
+  return selected;
+}
+export async function createMemberInvite(db,ownerUserId,memberId){
+  await ensureAccessTables(db);
+  const workspace=await ensureOwnerWorkspace(db,ownerUserId,null);
+  const member=await db.prepare(`SELECT * FROM sh_access_members WHERE owner_user_id=?1 AND id=?2 LIMIT 1`).bind(ownerUserId,memberId).first();
+  if(!member)throw Object.assign(new Error('Пользователь не найден.'),{status:404});
+  if(clean(member.user_id))return{memberId:member.id,inviteToken:'',workspace:workspacePublic(workspace),alreadyRegistered:true};
+  const token=inviteToken(),hash=await tokenHash(token),now=NOW(),expires=new Date(Date.now()+7*24*3600*1000).toISOString(),id=uid();
+  await db.batch([
+    db.prepare(`UPDATE sh_workspace_invites SET status='REVOKED' WHERE owner_user_id=?1 AND member_id=?2 AND status='PENDING'`).bind(ownerUserId,memberId),
+    db.prepare(`INSERT INTO sh_workspace_invites(id,workspace_id,owner_user_id,member_id,email,token_hash,status,expires_at,created_at) VALUES(?1,?2,?3,?4,?5,?6,'PENDING',?7,?8)`)
+      .bind(id,workspace.id,ownerUserId,memberId,emailKey(member.email),hash,expires,now)
+  ]);
+  return{memberId:member.id,inviteToken:token,expiresAt:expires,workspace:workspacePublic(workspace),alreadyRegistered:false};
+}
+
 async function hasLegacyOwnerData(db,userId){
   try{
     const row=await db.prepare(`SELECT user_id FROM iiko_connections WHERE user_id=?1 LIMIT 1`).bind(userId).first();
@@ -173,12 +304,13 @@ async function ensureOwnerMembership(db,user){
   if(!userId)return null;
   const now=NOW();
   let row=await db.prepare(`SELECT * FROM sh_access_members WHERE owner_user_id=?1 AND user_id=?1 LIMIT 1`).bind(userId).first();
-  if(row)return row;
+  if(row){await ensureOwnerWorkspace(db,userId,user);return row;}
   if(!await hasLegacyOwnerData(db,userId))return null;
   const id=uid(),name=clean(user?.user_metadata?.full_name)||[clean(user?.user_metadata?.first_name),clean(user?.user_metadata?.last_name)].filter(Boolean).join(' ')||email;
   await db.prepare(`INSERT INTO sh_access_members(id,owner_user_id,user_id,email,display_name,status,scope_mode,created_at,updated_at) VALUES(?1,?2,?2,?3,?4,'ACTIVE','ALL',?5,?5)`)
     .bind(id,userId,email,name,now).run();
   await seedRoles(db,userId);
+  await ensureOwnerWorkspace(db,userId,user);
   return db.prepare(`SELECT * FROM sh_access_members WHERE id=?1`).bind(id).first();
 }
 
@@ -204,23 +336,46 @@ async function permissionsForMember(db,row){
   return[...set];
 }
 
-export async function resolveAccessForUser(db,user,{claimInvite=true}={}){
+export async function resolveAccessForUser(db,user,{claimInvite=true,request=null,inviteToken:rawInviteToken='',workspaceId:rawWorkspaceId=''}={}){
   await ensureAccessTables(db);
   const userId=clean(user?.id),email=emailKey(user?.email);
   if(!userId)return{allowed:false,reason:'NO_USER'};
-  let row=await db.prepare(`SELECT * FROM sh_access_members WHERE user_id=?1 ORDER BY CASE status WHEN 'ACTIVE' THEN 0 ELSE 1 END,updated_at DESC LIMIT 1`).bind(userId).first();
 
-  if(!row&&claimInvite&&email){
-    const invite=await db.prepare(`SELECT * FROM sh_access_members WHERE email=?1 AND (user_id IS NULL OR TRIM(user_id)='') AND status IN ('PENDING','ACTIVE') ORDER BY updated_at DESC LIMIT 1`).bind(email).first();
-    if(invite){
-      await db.prepare(`UPDATE sh_access_members SET user_id=?2,status='ACTIVE',updated_at=?3 WHERE id=?1`).bind(invite.id,userId,NOW()).run();
-      row=await db.prepare(`SELECT * FROM sh_access_members WHERE id=?1`).bind(invite.id).first();
-    }
+  await ensureOwnerMembership(db,user);
+
+  let preferredWorkspaceId=clean(rawWorkspaceId)||cookieValue(request,WORKSPACE_COOKIE);
+  const token=clean(rawInviteToken);
+  if(claimInvite&&token&&email){
+    const claimed=await claimInviteByToken(db,user,email,token);
+    if(!claimed.ok)return{allowed:false,reason:claimed.reason,userId,email};
+    preferredWorkspaceId=claimed.workspace?.id||preferredWorkspaceId;
   }
 
-  if(!row)row=await ensureOwnerMembership(db,user);
-  if(!row)return{allowed:false,reason:'NO_MEMBERSHIP',userId,email};
-  if(String(row.status).toUpperCase()!=='ACTIVE')return{allowed:false,reason:'MEMBERSHIP_'+String(row.status).toUpperCase(),userId,email,ownerUserId:row.owner_user_id,memberId:row.id};
+  let memberships=await membershipsForUser(db,userId);
+  if(!memberships.length&&claimInvite&&email){
+    const claimedLegacy=await claimLegacyEmailInvite(db,user,email);
+    if(claimedLegacy)memberships=[claimedLegacy];
+  }
+  if(!memberships.length)return{allowed:false,reason:'NO_MEMBERSHIP',userId,email};
+
+  const options=[];
+  for(const member of memberships){
+    const workspace=await workspaceForMembership(db,member,user);
+    if(!workspace)continue;
+    options.push({member,workspace});
+  }
+  const publicWorkspaces=options.map(x=>({...workspacePublic(x.workspace),memberId:x.member.id,memberStatus:x.member.status,isOwner:x.member.owner_user_id===userId}));
+
+  let selected=null;
+  if(preferredWorkspaceId)selected=options.find(x=>clean(x.workspace.id)===preferredWorkspaceId)||null;
+  if(!selected&&options.length===1)selected=options[0];
+  if(!selected&&options.length>1){
+    return{allowed:false,reason:'WORKSPACE_SELECTION_REQUIRED',userId,email,workspaces:publicWorkspaces};
+  }
+  if(!selected)return{allowed:false,reason:'WORKSPACE_NOT_FOUND',userId,email,workspaces:publicWorkspaces};
+
+  const row=selected.member,workspace=selected.workspace;
+  if(String(row.status).toUpperCase()!=='ACTIVE')return{allowed:false,reason:'MEMBERSHIP_'+String(row.status).toUpperCase(),userId,email,ownerUserId:row.owner_user_id,memberId:row.id,workspace:workspacePublic(workspace),workspaces:publicWorkspaces};
 
   await seedRoles(db,row.owner_user_id);
   const permissions=await permissionsForMember(db,row);
@@ -228,6 +383,9 @@ export async function resolveAccessForUser(db,user,{claimInvite=true}={}){
     allowed:true,
     userId,
     ownerUserId:row.owner_user_id,
+    storageUserId:workspace.server_owner_user_id||row.owner_user_id,
+    workspace:workspacePublic(workspace),
+    workspaces:publicWorkspaces,
     memberId:row.id,
     employeeId:row.iiko_employee_id||'',
     displayName:row.display_name||'',
@@ -237,7 +395,6 @@ export async function resolveAccessForUser(db,user,{claimInvite=true}={}){
     scope:memberScope(row)
   };
 }
-
 export function hasPermission(access,permission){
   if(!access?.allowed)return false;
   const set=new Set(access.permissions||[]);
@@ -251,6 +408,7 @@ export function requirePermission(access,permission){
 
 export async function listAccessAdmin(db,ownerUserId){
   await ensureAccessTables(db);await seedRoles(db,ownerUserId);
+  const workspace=await ensureOwnerWorkspace(db,ownerUserId,null);
   const [members,roles,rolePerms,memberRoles,overrides]=await Promise.all([
     db.prepare(`SELECT * FROM sh_access_members WHERE owner_user_id=?1 ORDER BY CASE WHEN owner_user_id=user_id THEN 0 ELSE 1 END,display_name COLLATE NOCASE,email COLLATE NOCASE`).bind(ownerUserId).all(),
     db.prepare(`SELECT * FROM sh_access_roles WHERE owner_user_id=?1 ORDER BY is_system DESC,name COLLATE NOCASE`).bind(ownerUserId).all(),
@@ -265,6 +423,7 @@ export async function listAccessAdmin(db,ownerUserId){
   const ov=new Map();
   for(const x of overrides.results||[]){if(!ov.has(x.member_id))ov.set(x.member_id,[]);ov.get(x.member_id).push({permission:x.permission,effect:x.effect})}
   return{
+    workspace:workspacePublic(workspace),
     permissions:PERMISSIONS,
     roles:(roles.results||[]).map(x=>({id:x.id,code:x.code,name:x.name,description:x.description,isSystem:Boolean(x.is_system),permissions:rp.get(x.id)||[]})),
     members:(members.results||[]).map(x=>({
@@ -291,10 +450,14 @@ export async function saveRole(db,ownerUserId,input){
 }
 
 export async function upsertMember(db,ownerUserId,input){
-  await ensureAccessTables(db);
+  await ensureAccessTables(db);await ensureOwnerWorkspace(db,ownerUserId,null);
   const email=emailKey(input?.email),id=clean(input?.id)||uid(),now=NOW();
   if(!email||!email.includes('@'))throw new Error('Укажите email сотрудника.');
-  const displayName=clean(input?.displayName),employeeId=clean(input?.employeeId),status=['ACTIVE','PENDING','DISABLED'].includes(String(input?.status||'').toUpperCase())?String(input.status).toUpperCase():'PENDING';
+  const displayName=clean(input?.displayName),employeeId=clean(input?.employeeId);
+  const existing=await db.prepare(`SELECT id,user_id FROM sh_access_members WHERE owner_user_id=?1 AND email=?2 LIMIT 1`).bind(ownerUserId,email).first();
+  const linkedUserId=clean(existing?.user_id);
+  let status=['ACTIVE','PENDING','DISABLED'].includes(String(input?.status||'').toUpperCase())?String(input.status).toUpperCase():'PENDING';
+  if(!linkedUserId&&status==='ACTIVE')status='PENDING';
   const scope=input?.scope||{},scopeMode=String(scope.mode||'ALL').toUpperCase()==='SELECTED'?'SELECTED':'ALL';
   await db.prepare(`INSERT INTO sh_access_members(id,owner_user_id,email,iiko_employee_id,display_name,status,scope_mode,department_ids_json,department_codes_json,warehouse_ids_json,created_at,updated_at)
     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11)
@@ -310,9 +473,9 @@ export async function upsertMember(db,ownerUserId,input){
     const stmts=roleIds.filter(x=>allowed.has(x)).map(roleId=>db.prepare(`INSERT INTO sh_access_member_roles(owner_user_id,member_id,role_id) VALUES(?1,?2,?3)`).bind(ownerUserId,member.id,roleId));
     if(stmts.length)await db.batch(stmts);
   }
-  return member.id;
+  const invite=await createMemberInvite(db,ownerUserId,member.id);
+  return{memberId:member.id,...invite};
 }
-
 export async function setMemberStatus(db,ownerUserId,memberId,status){
   const next=String(status||'').toUpperCase();
   if(!['ACTIVE','PENDING','DISABLED'].includes(next))throw new Error('Некорректный статус.');
