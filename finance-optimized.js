@@ -72,10 +72,15 @@ function modalStatus(text,kind=''){
   el.textContent=text;
   el.className='fin-modal-status '+kind;
 }
+async function getAuthToken(){
+  const client=await window.SHAuth?.createClient?.();if(!client)return'';
+  const{data}=await client.auth.getSession();return data?.session?.access_token||'';
+}
 async function post(url,body,timeout=90000){
+  const token=await getAuthToken();
   const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)(url,{
     method:'POST',
-    headers:{'Content-Type':'application/json','Accept':'application/json'},
+    headers:{'Content-Type':'application/json','Accept':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},
     body:JSON.stringify(body)
   },timeout);
   const raw=await r.text();
@@ -256,14 +261,15 @@ async function loadCurrentAccountPostings(){
     const departmentIds=Array.isArray(b?.departmentIds)?b.departmentIds.map(String).filter(Boolean):[];
     const allowedDepartmentIds=Array.isArray(b?.allDepartmentIds)?b.allDepartmentIds.map(String).filter(Boolean):departmentIds;
     const selectedSet=new Set(departmentIds);
-    const selectedDepartmentNames=(Array.isArray(b?.restaurants)?b.restaurants:[])
-      .filter(x=>selectedSet.has(String(x?.id||'')))
-      .map(x=>String(x?.name||'').trim())
-      .filter(Boolean);
+    const selectedRestaurants=(Array.isArray(b?.restaurants)?b.restaurants:[])
+      .filter(x=>selectedSet.has(String(x?.id||'')));
+    const selectedDepartmentNames=selectedRestaurants.map(x=>String(x?.name||'').trim()).filter(Boolean);
+    const selectedDepartmentCodes=selectedRestaurants.map(x=>String(x?.code||'').trim()).filter(Boolean);
     const chainScope={
       mode:String(b?.identity?.mode||c?.connectionType||'RMS').toUpperCase(),
       allowedDepartmentIds,
       selectedDepartmentIds:departmentIds,
+      selectedDepartmentCodes,
       selectedDepartmentNames
     };
     const data=await post(POSTINGS,{
@@ -277,7 +283,8 @@ async function loadCurrentAccountPostings(){
     $('fin-modal-result').textContent=(change<0?'− ':'')+money(Math.abs(change))+' ₼';
     $('fin-modal-count').textContent=String(data.count||0);
     renderPostings(data.postings||[]);
-    modalStatus('Проводки загружены из SH OLAP · '+(data.count||0)+' строк.','ok');
+    const local=Number(data.meta?.smartHorecaJournalEntries||0);
+    modalStatus((local?'Проводки: SH OLAP + Smart Horeca Payroll':'Проводки загружены из SH OLAP')+' · '+(data.count||0)+' строк'+(local?' · Payroll: '+local:''),'ok');
   }catch(error){
     modalStatus(error.message||'Не удалось загрузить проводки','error');
     $('fin-modal-body').innerHTML='<tr><td colspan="10" class="fin-empty fin-error-cell">'+esc(error.message||'Ошибка загрузки проводок')+'</td></tr>';
@@ -335,9 +342,19 @@ async function load(){
   const btn=$('fin-load');btn.disabled=true;
   try{
     status('Получаем план счетов и балансы SH Server…');
+    const allowedDepartmentIds=Array.isArray(binding?.allDepartmentIds)?binding.allDepartmentIds.map(String).filter(Boolean):departmentIds;
+    const selectedSet=new Set(departmentIds);
+    const selectedRestaurants=(Array.isArray(binding?.restaurants)?binding.restaurants:[]).filter(x=>selectedSet.has(String(x?.id||'')));
+    const chainScope={
+      mode:String(binding?.identity?.mode||c?.connectionType||'RMS').toUpperCase(),
+      allowedDepartmentIds,
+      selectedDepartmentIds:departmentIds,
+      selectedDepartmentCodes:selectedRestaurants.map(x=>String(x?.code||'').trim()).filter(Boolean),
+      selectedDepartmentNames:selectedRestaurants.map(x=>String(x?.name||'').trim()).filter(Boolean)
+    };
     const data=await post(ACCOUNTS,{
       ip:c.ip,port:c.port,login:c.login,password:c.password,
-      includeDeleted:false,timestamp:nowIikoTimestamp(),departmentIds
+      includeDeleted:false,timestamp:nowIikoTimestamp(),departmentIds,chainScope
     });
     accountItems=(data.accounts||[]).map(a=>({...a,id:String(a.id),accountParentId:a.accountParentId?String(a.accountParentId):null}));
     expanded.clear();
@@ -346,7 +363,8 @@ async function load(){
     });
     renderSummary();
     renderGroups();
-    status('Готово: '+accountItems.length+' счетов. Нажмите на счёт, чтобы открыть дебет, кредит и проводки за период.','ok');
+    const local=Number(data.meta?.smartHorecaJournalEntries||0);
+    status('Готово: '+accountItems.length+' счетов · источник SH Server'+(local?' + Smart Horeca Payroll ('+local+' проводок)':'')+'. Нажмите на счёт, чтобы открыть дебет, кредит и проводки за период.','ok');
   }catch(error){
     status(error.message||'Ошибка загрузки плана счетов','error');
   }finally{

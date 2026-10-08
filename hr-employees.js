@@ -52,8 +52,8 @@
     $('hrSummary').innerHTML=`
       <article class="hr-summary-card"><span>Всего в справочнике</span><strong>${Number(c.total||0)}</strong><small>Синхронизировано из SH</small></article>
       <article class="hr-summary-card"><span>Активные сотрудники</span><strong>${Number(c.active||0)}</strong><small>Без даты увольнения</small></article>
-      <article class="hr-summary-card"><span>Face ID связаны</span><strong>${Number(c.linkedToAttendance||0)}</strong><small>Будет заполняться после подключения устройства</small></article>
-      <article class="hr-summary-card"><span>Источник явок</span><strong class="hr-text-value">Не подключён</strong><small>Запланирован внешний attendance-adapter</small></article>`;
+      <article class="hr-summary-card"><span>Face ID связаны</span><strong>${Number(c.linkedToAttendance||0)}</strong><small>По связям с SenseFace</small></article>
+      <article class="hr-summary-card"><span>Источник явок</span><strong class="hr-text-value">Не подключён</strong><small>Смотрите «Учёт времени / Face ID»</small></article>`;
   }
   function renderRoles(){
     const select=$('hrRoleFilter');if(!select)return;
@@ -66,7 +66,7 @@
     tbody.innerHTML=rows.map(x=>{
       const fired=isFired(x),linked=Boolean(x.attendanceExternalId);
       return`<tr>
-        <td class="text-left"><div class="hr-name">${esc(fullName(x))}</div><div class="hr-sub">ID: ${esc(x.id)}</div></td>
+        <td class="text-left"><div class="hr-name"><a href="/hr-employee.html?id=${encodeURIComponent(x.id)}" style="color:inherit;text-decoration:none">${esc(fullName(x))}</a></div><div class="hr-sub">ID: ${esc(x.id)}</div></td>
         <td>${esc(x.code||'—')}</td>
         <td class="text-left"><b>${esc(x.roleName||x.roleCode||'—')}</b><div class="hr-sub">${esc(x.roleCode||'')}</div></td>
         <td>${esc(x.departmentCode||'—')}</td>
@@ -74,9 +74,10 @@
         <td>${esc(x.fireDate||'—')}</td>
         <td>${linked?`<span class="hr-badge linked">${esc(x.attendanceProvider||'DEVICE')} · ${esc(x.attendanceExternalId)}</span>`:'<span class="hr-badge pending">Не связан</span>'}</td>
         <td><span class="hr-badge ${fired?'fired':'active'}">${fired?'Уволен':'Активен'}</span></td>
+        <td><a class="hr-link-button" style="display:inline-flex;text-decoration:none" href="/hr-employee.html?id=${encodeURIComponent(x.id)}">Открыть</a></td>
         ${accessCell(x)}
       </tr>`;
-    }).join('')||`<tr><td colspan="${manage?9:8}" class="hr-empty">Сотрудники не найдены</td></tr>`;
+    }).join('')||`<tr><td colspan="${manage?10:9}" class="hr-empty">Сотрудники не найдены</td></tr>`;
     $('hrRowCount').textContent=`${rows.length} сотрудников`;
   }
   function render(){renderSummary();renderRoles();renderRows()}

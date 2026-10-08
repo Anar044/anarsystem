@@ -1,18 +1,330 @@
 (()=>{'use strict';
-const $=id=>document.getElementById(id);const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const money=v=>`${(Number(v)||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})} ₼`;const hours=v=>`${((Number(v)||0)/60).toLocaleString('ru-RU',{minimumFractionDigits:1,maximumFractionDigits:1})} ч`;const r=v=>Math.round((Number(v)||0)*100)/100;const pct=v=>(Number(v)||0)/100;
-function monthNow(){const d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0');return y===2026?`${y}-${m}`:'2026-09'}
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=v=>`${(Number(v)||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})} ₼`;
+const hours=v=>{if(v===null||v===undefined)return'—';const m=Math.max(0,Number(v)||0),h=Math.floor(m/60),r=Math.round(m%60);return r?`${h} ч ${String(r).padStart(2,'0')} мин`:`${h} ч`};
+const r=v=>Math.round((Number(v)||0)*100)/100,pct=v=>(Number(v)||0)/100;
+let mode='OVERALL',state={payroll:null,adjustments:null,tax:null,settlements:null,models:[]},busy=false,paymentBusy=false,paymentEmployeeId='';
+
+function monthNow(){const d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0');return y===2026?`${y}-${m}`:'2026-10'}
 async function token(){const c=await window.SHAuth?.createClient?.();if(!c)throw new Error('Supabase Auth не готов');const{data,error}=await c.auth.getSession();const t=data?.session?.access_token;if(error||!t)throw new Error('Сессия пользователя не найдена');return t}
 async function fetchJson(url,t){const res=await (window.SH_IikoContext?.fetchWithTimeout||fetch)(url,{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}},90000),j=await res.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!res.ok||!j.success)throw new Error(j.message||`HTTP ${res.status}`);return j}
-async function api(){const t=await token(),month=$('hrpMonth').value||monthNow();const[p,a,tax]=await Promise.all([fetchJson(`/api/hr/payroll?month=${encodeURIComponent(month)}`,t),fetchJson(`/api/hr/payroll-adjustments?month=${encodeURIComponent(month)}`,t),fetchJson(`/api/hr/payroll-tax-settings?month=${encodeURIComponent(month)}`,t)]);return{payroll:p,adjustments:a,tax}}
-function status(text,kind=''){const e=$('hrpStatus');e.textContent=text;e.className=`hr-status ${kind}`.trim()}function error(text=''){const e=$('hrpError');e.hidden=!text;e.textContent=text}
-function source(row){if(row.sourceType==='EMPLOYEE')return'<span class="hrp-source employee">Индивидуально</span>';if(row.sourceType==='ROLE')return'<span class="hrp-source role">По должности</span>';return'<span class="hr-badge pending">Не настроено</span>'}
-function delta(v){const n=Number(v)||0,cls=n>0?'pos':n<0?'neg':'',sign=n>0?'+':'';return`<span class="hrp-delta ${cls}">${sign}${hours(n)}</span>`}
+async function api(){
+  const t=await token(),month=$('hrpMonth').value||monthNow();
+  const p=await fetchJson(`/api/hr/payroll?month=${encodeURIComponent(month)}`,t);
+  const[a,tax,settlements]=await Promise.all([
+    fetchJson(`/api/hr/payroll-adjustments?month=${encodeURIComponent(month)}`,t),
+    fetchJson(`/api/hr/payroll-tax-settings?month=${encodeURIComponent(month)}`,t),
+    fetchJson(`/api/hr/overtime-settlements?month=${encodeURIComponent(month)}`,t)
+  ]);
+  return{payroll:p,adjustments:a,tax,settlements};
+}
+async function settlementPost(body){
+  const t=await token(),res=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/hr/overtime-settlements',{method:'POST',headers:{Authorization:`Bearer ${t}`,Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify(body)},60000);
+  const j=await res.json().catch(()=>({success:false,message:'Некорректный ответ API'}));if(!res.ok||!j.success)throw new Error(j.message||`HTTP ${res.status}`);return j;
+}
+function setStatus(text,kind=''){const e=$('hrpStatus');e.textContent=text;e.className=`hr-status ${kind}`.trim()}
+function showError(text=''){const e=$('hrpError');e.hidden=!text;e.textContent=text}
+
 function tier(g,t1,t2,a,b,c){if(g<=t1)return g*pct(a);if(g<=t2)return t1*pct(a)+(g-t1)*pct(b);return t1*pct(a)+(t2-t1)*pct(b)+(g-t2)*pct(c)}
-function calcGross(gross,s){const g=Math.max(0,Number(gross)||0),taxable=g<=s.incomeTaxThreshold1?Math.max(0,g-s.personalAllowance):g;let income=0;if(taxable<=s.incomeTaxThreshold1)income=taxable*pct(s.incomeTaxLowPercent);else if(taxable<=s.incomeTaxThreshold2)income=s.incomeTaxThreshold1*pct(s.incomeTaxLowPercent)+(taxable-s.incomeTaxThreshold1)*pct(s.incomeTaxMidPercent);else income=s.incomeTaxThreshold1*pct(s.incomeTaxLowPercent)+(s.incomeTaxThreshold2-s.incomeTaxThreshold1)*pct(s.incomeTaxMidPercent)+(taxable-s.incomeTaxThreshold2)*pct(s.incomeTaxHighPercent);const socialEmp=tier(g,s.socialThreshold1,s.socialThreshold2,s.employeeSocialLowPercent,s.employeeSocialMidPercent,s.employeeSocialHighPercent),socialEmployer=tier(g,s.socialThreshold1,s.socialThreshold2,s.employerSocialLowPercent,s.employerSocialMidPercent,s.employerSocialHighPercent),unEmp=g*pct(s.employeeUnemploymentPercent),unEmployer=g*pct(s.employerUnemploymentPercent),medEmp=Math.min(g,s.medicalThreshold)*pct(s.employeeMedicalLowPercent)+Math.max(0,g-s.medicalThreshold)*pct(s.employeeMedicalHighPercent),medEmployer=Math.min(g,s.medicalThreshold)*pct(s.employerMedicalLowPercent)+Math.max(0,g-s.medicalThreshold)*pct(s.employerMedicalHighPercent),employee={incomeTax:r(income),socialInsurance:r(socialEmp),unemploymentInsurance:r(unEmp),medicalInsurance:r(medEmp)};employee.total=r(employee.incomeTax+employee.socialInsurance+employee.unemploymentInsurance+employee.medicalInsurance);const employer={socialInsurance:r(socialEmployer),unemploymentInsurance:r(unEmployer),medicalInsurance:r(medEmployer)};employer.total=r(employer.socialInsurance+employer.unemploymentInsurance+employer.medicalInsurance);return{gross:r(g),employee,employer,net:r(g-employee.total),totalEmployerCost:r(g+employer.total)}}
-function model(row,adj,s){const term=row.term||null,baseGross=Number(term?.officialGross||0),additional=Number(term?.additionalAmount||0),treatment=String(term?.additionalTaxTreatment||'TAXABLE').toUpperCase(),tot=adj?.totals||{},taxableRewards=Number(tot.taxableRewards||0),exemptRewards=Number(tot.exemptRewards||0),rewards=Number(tot.rewards||0),advances=Number(tot.advances||0),deductions=Number(tot.deductions||0),taxBaseBeforeAdditional=baseGross+taxableRewards,taxableAdditional=treatment==='TAXABLE',taxBase=taxBaseBeforeAdditional+(taxableAdditional?additional:0),combined=calcGross(taxBase,s),before=r(combined.net+(taxableAdditional?0:additional)+exemptRewards),finalPayable=r(Math.max(0,before-advances-deductions)),employerCost=r(combined.totalEmployerCost+(taxableAdditional?0:additional)+exemptRewards),cap=r(before*.2),overCap=deductions>cap+.009;return{row,adj,baseGross,additional,rewards,advances,deductions,taxBase:r(taxBase),combined,before,finalPayable,employerCost,cap,overCap}}
-function models(p,a,tax){const map=new Map((a.employees||[]).map(x=>[String(x.id),x]));return(p.rows||[]).map(row=>model(row,map.get(String(row.employeeId)),tax.settings||{}))}
-function badge(m){const row=m.row,a=m.adj,meal=a?.meal||{},drafts=Number(a?.totals?.drafts||0),review=row.status!=='READY'||m.overCap||Number(meal.pendingDeduction||0)>0||drafts>0;if(row.status==='NO_TERMS')return'<span class="hrp-status missing">Нет условий</span>';return review?'<span class="hrp-status review">Проверить</span>':'<span class="hrp-status ready">Готово</span>'}
-function summary(p,a,tax,list){const total=fn=>r(list.reduce((s,m)=>s+fn(m),0)),employeeTaxes=total(m=>m.combined.employee.total),employerTaxes=total(m=>m.combined.employer.total),finalPayable=total(m=>m.finalPayable),cost=total(m=>m.employerCost);$('hrpSummary').innerHTML=`<article class="hr-summary-card"><span>Сотрудники</span><strong>${list.length}</strong><small>Настроено: ${list.filter(m=>m.row.term).length}</small></article><article class="hr-summary-card"><span>Налоги сотрудников</span><strong>${money(employeeTaxes)}</strong><small>Подоходный + соц. + безработица + мед.</small></article><article class="hr-summary-card"><span>Взносы работодателя</span><strong>${money(employerTaxes)}</strong><small>Соц. + безработица + мед.</small></article><article class="hr-summary-card"><span>К выплате сотрудникам</span><strong class="hr-text-value">${money(finalPayable)}</strong><small>Стоимость ресторану: ${money(cost)}</small></article>`;$('hrpTaxProfile').innerHTML=`Налоговый профиль: <strong>${tax.mode==='MANUAL'?'ручной':'системный'}</strong>${tax.active?.effectiveFrom?` · с ${tax.active.effectiveFrom}`:''}`}
-function rows(p,a,tax,list){$('hrpCount').textContent=`${list.length} сотрудников`;$('hrpPeriod').textContent=`${p.period?.from||''} — ${p.period?.to||''} · официальный календарь ${p.calendar?.year||''}`;$('hrpRows').innerHTML=list.map(m=>{const row=m.row,adj=m.adj||{},meal=adj.meal||{},flags=[...(row.flags||[])];if(Number(adj?.totals?.drafts||0)>0)flags.push(`Черновики корректировок: ${adj.totals.drafts}`);if(Number(meal.pendingDeduction||0)>0)flags.push(`Питание к подтверждению: ${money(meal.pendingDeduction)}`);if(m.overCap)flags.push(`Удержания выше контрольных 20%: ${money(m.cap)}`);const flagText=flags.join(' · ')||'—',schedule=row.schedule?.name?`<div class="hr-sub">${esc(row.schedule.name)}</div>`:'',mealText=meal.source?`<b>${money(meal.monthNetIncrease)}</b><div class="hr-sub">лимит ${money(meal.limit)} · сверх ${money(meal.overLimit)}</div>`:'—',c=m.combined;return`<tr><td class="text-left"><div class="hr-name">${esc(row.employeeName)}</div><div class="hr-sub">${esc(row.roleName||'Без должности')} · ${esc(row.employeeCode||'')}</div></td><td>${source(row)}</td><td>${hours(row.normMinutes)}</td><td>${hours(row.plannedMinutes)}${schedule}</td><td class="${row.actualMinutes?'':'hrp-zero'}">${hours(row.actualMinutes)}</td><td>${delta(row.varianceMinutes)}</td><td>${Number(row.attendanceIssues||0)}</td><td class="hrp-money">${row.term?money(m.baseGross):'—'}</td><td class="hrp-tax-base">${row.term?money(m.taxBase):'—'}</td><td class="hrp-tax">${row.term?money(c.employee.incomeTax):'—'}</td><td class="hrp-tax">${row.term?money(c.employee.socialInsurance):'—'}</td><td class="hrp-tax">${row.term?money(c.employee.unemploymentInsurance):'—'}</td><td class="hrp-tax">${row.term?money(c.employee.medicalInsurance):'—'}</td><td class="hrp-money">${row.term?money(m.before):'—'}</td><td>${row.term?money(m.additional):'—'}</td><td class="hrp-plus">${money(m.rewards)}</td><td class="hrp-minus">${money(m.advances)}</td><td class="hrp-minus">${money(m.deductions)}</td><td>${mealText}</td><td class="hrp-final">${row.term?money(m.finalPayable):'—'}</td><td class="hrp-employer">${row.term?money(c.employer.socialInsurance):'—'}</td><td class="hrp-employer">${row.term?money(c.employer.unemploymentInsurance):'—'}</td><td class="hrp-employer">${row.term?money(c.employer.medicalInsurance):'—'}</td><td class="hrp-employer">${row.term?money(c.employer.total):'—'}</td><td class="hrp-money">${row.term?money(m.employerCost):'—'}</td><td>${badge(m)}</td><td class="text-left hrp-flags">${esc(flagText)}</td></tr>`}).join('')||'<tr><td colspan="27" class="hr-empty">Сотрудники не найдены.</td></tr>'}
-async function load(){try{$('hrpRefresh').disabled=true;error();status('Загрузка…','loading');const d=await api(),list=models(d.payroll,d.adjustments,d.tax);summary(d.payroll,d.adjustments,d.tax,list);rows(d.payroll,d.adjustments,d.tax,list);status('Готово','ok')}catch(e){error(e.message);status('Ошибка','error')}finally{$('hrpRefresh').disabled=false}}
-function init(){$('hrpMonth').value=monthNow();$('hrpRefresh').onclick=load;$('hrpMonth').onchange=load;load()}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();})();
+function calcGross(gross,s){
+  const g=Math.max(0,Number(gross)||0),taxable=g<=s.incomeTaxThreshold1?Math.max(0,g-s.personalAllowance):g;
+  let income=0;
+  if(taxable<=s.incomeTaxThreshold1)income=taxable*pct(s.incomeTaxLowPercent);
+  else if(taxable<=s.incomeTaxThreshold2)income=s.incomeTaxThreshold1*pct(s.incomeTaxLowPercent)+(taxable-s.incomeTaxThreshold1)*pct(s.incomeTaxMidPercent);
+  else income=s.incomeTaxThreshold1*pct(s.incomeTaxLowPercent)+(s.incomeTaxThreshold2-s.incomeTaxThreshold1)*pct(s.incomeTaxMidPercent)+(taxable-s.incomeTaxThreshold2)*pct(s.incomeTaxHighPercent);
+  const employee={
+    incomeTax:r(income),
+    socialInsurance:r(tier(g,s.socialThreshold1,s.socialThreshold2,s.employeeSocialLowPercent,s.employeeSocialMidPercent,s.employeeSocialHighPercent)),
+    unemploymentInsurance:r(g*pct(s.employeeUnemploymentPercent)),
+    medicalInsurance:r(Math.min(g,s.medicalThreshold)*pct(s.employeeMedicalLowPercent)+Math.max(0,g-s.medicalThreshold)*pct(s.employeeMedicalHighPercent))
+  };
+  employee.total=r(employee.incomeTax+employee.socialInsurance+employee.unemploymentInsurance+employee.medicalInsurance);
+  const employer={
+    socialInsurance:r(tier(g,s.socialThreshold1,s.socialThreshold2,s.employerSocialLowPercent,s.employerSocialMidPercent,s.employerSocialHighPercent)),
+    unemploymentInsurance:r(g*pct(s.employerUnemploymentPercent)),
+    medicalInsurance:r(Math.min(g,s.medicalThreshold)*pct(s.employerMedicalLowPercent)+Math.max(0,g-s.medicalThreshold)*pct(s.employerMedicalHighPercent))
+  };
+  employer.total=r(employer.socialInsurance+employer.unemploymentInsurance+employer.medicalInsurance);
+  return{gross:r(g),taxableIncome:r(taxable),employee,employer,net:r(g-employee.total),totalEmployerCost:r(g+employer.total)}
+}
+function model(row,adj,tax){
+  const term=row.term||null,s=tax.settings||{},tot=adj?.totals||{},meal=adj?.meal||{},accrual=row.accrual||{},proration=row.proration||{},ot=row.overtime||{};
+  const monthlyOfficialGross=Number(term?.officialGross||0),monthlyFactualGross=Number(accrual.monthlyFactualGross??(Number(term?.officialGross||0)+Number(term?.additionalAmount||0)));
+  const officialGross=Number(accrual.officialAccruedGross??monthlyOfficialGross),factualBaseGross=Number(accrual.factualBaseGross??monthlyFactualGross);
+  const additionalGross=Number(accrual.additionalAccruedGross??Math.max(0,factualBaseGross-officialGross)),extraDayPay=Number(accrual.extraDayPay||0);
+  const treatment=String(term?.additionalTaxTreatment||'TAXABLE').toUpperCase(),additionalTaxable=treatment==='TAXABLE';
+  const taxableRewards=Number(tot.taxableRewards||0),exemptRewards=Number(tot.exemptRewards||0),rewards=Number(tot.rewards||0);
+  const advances=Number(tot.advances||0),deductions=Number(tot.deductions||0),drafts=Number(tot.drafts||0);
+  const official=calcGross(officialGross,s);
+  const additionalTaxBase=officialGross+(additionalTaxable?additionalGross:0);
+  const additionalCombined=calcGross(additionalTaxBase,s);
+  const combinedTaxGross=additionalTaxBase+taxableRewards;
+  const combined=calcGross(combinedTaxGross,s);
+  const additionalEmployeeTax=r(Math.max(0,additionalCombined.employee.total-official.employee.total));
+  const additionalNet=r(additionalGross-(additionalTaxable?Math.min(additionalGross,additionalEmployeeTax):0));
+  const regularBeforeDeductions=r(combined.net+(additionalTaxable?0:additionalGross)+exemptRewards);
+  const regularPayable=r(Math.max(0,regularBeforeDeductions-advances-deductions));
+  const finalPayable=r(regularPayable+extraDayPay);
+  const employerCost=r(combined.totalEmployerCost+(additionalTaxable?0:additionalGross)+exemptRewards+extraDayPay);
+  const fullAccrualGross=r(factualBaseGross+rewards+extraDayPay);
+  const cap=r(regularBeforeDeductions*.20),overCap=deductions>cap+.009;
+  const overtimeMinutes=Number(ot.payableMinutes??row.overtimeApprovedMinutes??0),approvedOvertimeMinutes=Number(ot.approvedMinutes||0),unpaidOvertimeMinutes=Number(ot.unpaidGapMinutes||0),extraDayEquivalent=Number(ot.extraDayEquivalent||0);
+  const reasons=[...(row.flags||[])];
+  if(drafts>0)reasons.push(`Черновики корректировок: ${drafts}`);
+  if(Number(meal.pendingDeduction||0)>0)reasons.push(`Питание к подтверждению: ${money(meal.pendingDeduction)}`);
+  if(overCap)reasons.push(`Удержания выше контрольных 20%: ${money(cap)}`);
+  let status=row.status||'READY';
+  if(!term)status='NO_TERMS';
+  else if(status==='REVIEW'||drafts>0||Number(meal.pendingDeduction||0)>0||overCap)status='REVIEW';
+  else status='READY';
+  return{
+    row,adj:adj||{},term,proration,accrual,ot,
+    monthlyOfficialGross,monthlyFactualGross,officialGross,additionalGross,additionalNet,extraDayPay,
+    rewards,taxableRewards,exemptRewards,advances,deductions,drafts,official,combined,
+    regularBeforeDeductions,regularPayable,finalPayable,employerCost,factualBaseGross,fullAccrualGross,
+    cap,overCap,overtimeMinutes,approvedOvertimeMinutes,unpaidOvertimeMinutes,extraDayEquivalent,meal,status,reasons
+  };
+}
+function buildModels(p,a,tax){const map=new Map((a.employees||[]).map(x=>[String(x.id),x]));return(p.rows||[]).map(row=>model(row,map.get(String(row.employeeId)),tax||{}))}
+
+function sourceBadge(m){if(m.row.sourceType==='EMPLOYEE')return'<span class="hrp-source employee">Индивидуально</span>';if(m.row.sourceType==='ROLE')return'<span class="hrp-source role">По должности</span>';return'<span class="hrp-status missing">Нет условий</span>'}
+function statusBadge(m){if(m.status==='NO_TERMS')return'<span class="hrp-status missing">Нет условий</span>';if(m.status==='REVIEW')return'<span class="hrp-status review">Проверить</span>';return'<span class="hrp-status ready">Готово</span>'}
+function employeeCell(m){return`<div class="hr-name">${esc(m.row.employeeName||'—')}</div><div class="hr-sub">${esc(m.row.roleName||'Без должности')} · ${esc(m.row.employeeCode||'')}</div>`}
+function reasonCell(m){return esc(m.reasons.join(' · ')||'—')}
+
+function selectedModels(){
+  const q=String($('hrpSearch')?.value||'').trim().toLowerCase(),role=$('hrpRole')?.value||'',st=$('hrpState')?.value||'';
+  return state.models.filter(m=>{
+    if(q&&!String(`${m.row.employeeName} ${m.row.employeeCode}`).toLowerCase().includes(q))return false;
+    if(role&&String(m.row.roleCode||'')!==role)return false;
+    if(st&&m.status!==st)return false;
+    return true;
+  });
+}
+function renderFilters(){
+  const el=$('hrpRole'),current=el.value;
+  const roles=[...new Map(state.models.filter(m=>m.row.roleCode).map(m=>[String(m.row.roleCode),m.row.roleName||m.row.roleCode])).entries()].sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'ru'));
+  el.innerHTML='<option value="">Все должности</option>'+roles.map(([v,n])=>`<option value="${esc(v)}">${esc(n)}</option>`).join('');
+  if(roles.some(([v])=>v===current))el.value=current;
+}
+function renderSummary(){
+  const list=selectedModels(),sum=fn=>r(list.reduce((a,m)=>a+Number(fn(m)||0),0));
+  const factualFund=sum(m=>m.factualBaseGross),officialGross=sum(m=>m.officialGross),extraPay=sum(m=>m.extraDayPay),payable=sum(m=>m.finalPayable),cost=sum(m=>m.employerCost);
+  $('hrpSummary').innerHTML=[
+    ['Сотрудников',list.length,`С условиями: ${list.filter(m=>m.term).length}`],
+    ['Фактический фонд',money(factualFund),'База после расчёта неполного месяца'],
+    ['Официальный Gross',money(officialGross),'Начислено за расчётные дни'],
+    ['Доп. часы отдельно',money(extraPay),'Отдельное начисление и выплата'],
+    ['К выплате',money(payable),'Основная + отдельная выплата доп. часов'],
+    ['Стоимость ресторану',money(cost),'Начисления + взносы работодателя'],
+    ['Долг по доп. часам',money(state.settlements?.summary?.closingDebt||0),`Сотрудников с долгом: ${Number(state.settlements?.summary?.withDebt||0)}`],
+    ['Бухгалтерские проводки',`${Number(state.payroll?.summary?.accountingPosted||0)} / ${Number(state.payroll?.summary?.accountingPosted||0)+Number(state.payroll?.summary?.accountingPending||0)}`,Number(state.payroll?.summary?.accountingPending||0)?'Есть начисления без настроенных счетов':state.payroll?.timesheetApproval?.approved?'Начисления синхронизированы с журналом':'Новые проводки ожидают утверждения табеля HR']
+  ].map(x=>`<article class="hr-summary-card"><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
+}
+function renderContext(){
+  const p=state.payroll,t=state.tax;
+  $('hrpPeriod').textContent=`${p.period?.from||''} — ${p.period?.to||''}`;
+  $('hrpTaxProfile').textContent=`${t.mode==='MANUAL'?'Ручной':'Системный'}${t.active?.effectiveFrom?' · с '+t.active.effectiveFrom:''}`;
+  $('hrpAttendance').textContent=p.attendance?.mode==='FACE_ID'?`Face ID · устройств: ${Number(p.attendance.activeDevices||0)}`:p.attendance?.mode==='MANUAL'?'Ручные фактические часы':'Face ID пока не подключён';
+  $('hrpAttendance').className=p.attendance?.mode==='FACE_ID'?'connected':'not-connected';
+  $('hrpOvertime').textContent=p.timesheetApproval?.approved?`${hours(p.summary?.overtimePayableMinutes||0)} · ${Number(p.summary?.overtimeExtraDays||0).toLocaleString('ru-RU',{maximumFractionDigits:2})} дн. · ${money(p.summary?.overtimeExtraPay||0)}`:(p.timesheetApproval?.stale?'Табель изменён · требуется повторное согласование HR':'Доп. часы заблокированы · табель месяца не утверждён HR');
+}
+function head(cols){return`<tr>${cols.map(c=>`<th class="${c.left?'text-left':''} ${c.cls||''}">${esc(c.label)}</th>`).join('')}</tr>`}
+function daysCell(m,kind='factual'){
+  const p=m.proration||{},norm=Number(p.normWorkDays||0),value=kind==='official'?Number(p.officialWorkDays||0):Number(p.factualWorkDays||0);
+  const partial=norm>0&&value<norm;
+  return `<span class="hrp-days ${partial?'partial':''}">${value} / ${norm}</span>`;
+}
+function overallRows(list){
+  $('hrpTableTitle').textContent='Общий расчёт';
+  $('hrpTableSub').textContent='Месячный оклад → расчётные дни → доп. день/часы → итоговая выплата';
+  $('hrpTable').className='hrp-table mode-overall';
+  $('hrpHead').innerHTML=head([
+    {label:'Сотрудник',left:true},{label:'Источник'},{label:'Статус'},{label:'Раб. дни'},{label:'Месячный факт. оклад'},{label:'Начислено факт.'},{label:'Официальный Gross'},
+    {label:'Доп. часть'},{label:'Доп. день'},{label:'Оплач. доп. часы'},{label:'Вознаграждения'},{label:'Аванс'},{label:'Удержания'},
+    {label:'Основная выплата'},{label:'Отдельно доп. часы'},{label:'Всего к выплате',cls:'accent-head'},{label:'Стоимость ресторану'},{label:'Проверить',left:true}
+  ]);
+  return list.map(m=>`<tr>
+    <td class="text-left">${employeeCell(m)}</td><td>${sourceBadge(m)}</td><td>${statusBadge(m)}</td><td>${m.term?daysCell(m):'—'}</td>
+    <td class="hrp-monthly">${m.term?money(m.monthlyFactualGross):'—'}</td><td class="hrp-money">${m.term?money(m.factualBaseGross):'—'}</td>
+    <td>${m.term?money(m.officialGross):'—'}</td><td>${m.term?money(m.additionalGross):'—'}</td>
+    <td class="${m.extraDayEquivalent?'hrp-overtime':''}">${m.extraDayEquivalent?m.extraDayEquivalent.toLocaleString('ru-RU',{maximumFractionDigits:2})+' дн.':'0'}</td>
+    <td class="${m.overtimeMinutes?'hrp-overtime':''}">${m.overtimeMinutes?hours(m.overtimeMinutes):'0 ч'}</td>
+    <td class="hrp-plus">${money(m.rewards)}</td><td class="hrp-minus">${money(m.advances)}</td><td class="hrp-minus">${money(m.deductions)}</td>
+    <td class="hrp-regular">${m.term?money(m.regularPayable):'—'}</td><td class="hrp-extra-pay">${m.term?money(m.extraDayPay):'—'}</td>
+    <td class="hrp-final">${m.term?money(m.finalPayable):'—'}</td><td class="hrp-money">${m.term?money(m.employerCost):'—'}</td>
+    <td class="text-left hrp-flags">${reasonCell(m)}</td>
+  </tr>`).join('');
+}
+function factualRows(list){
+  $('hrpTableTitle').textContent='Фактическая часть';
+  $('hrpTableSub').textContent='Неполный месяц и дополнительный день считаются по формулам из HR ТЗ';
+  $('hrpTable').className='hrp-table mode-factual';
+  $('hrpHead').innerHTML=head([
+    {label:'Сотрудник',left:true},{label:'Месячный факт. оклад'},{label:'Норма дней'},{label:'Расчётные дни'},{label:'Начислено за дни'},
+    {label:'Официальный Net'},{label:'Доп. часть Gross'},{label:'Доп. часть Net'},{label:'Вознаграждения'},
+    {label:'Оплач. доп. часы'},{label:'Неоплач. промежуток'},{label:'Доп. день'},{label:'Отдельная выплата'},
+    {label:'Основная выплата'},{label:'Всего к выплате',cls:'accent-head'},{label:'Статус'}
+  ]);
+  return list.map(m=>{
+    return`<tr>
+      <td class="text-left">${employeeCell(m)}</td><td class="hrp-monthly">${m.term?money(m.monthlyFactualGross):'—'}</td>
+      <td>${m.term?Number(m.proration?.normWorkDays||0):'—'}</td><td>${m.term?Number(m.proration?.factualWorkDays||0):'—'}</td><td class="hrp-money">${m.term?money(m.factualBaseGross):'—'}</td>
+      <td>${m.term?money(m.official.net):'—'}</td><td>${m.term?money(m.additionalGross):'—'}</td><td>${m.term?money(m.additionalNet):'—'}</td>
+      <td class="hrp-plus">${money(m.rewards)}</td><td class="${m.overtimeMinutes?'hrp-overtime':''}">${hours(m.overtimeMinutes)}</td>
+      <td class="${m.unpaidOvertimeMinutes?'hrp-unpaid-ot':''}">${hours(m.unpaidOvertimeMinutes)}</td>
+      <td class="${m.extraDayEquivalent?'hrp-overtime':''}">${m.extraDayEquivalent.toLocaleString('ru-RU',{maximumFractionDigits:2})}</td>
+      <td class="hrp-extra-pay">${m.term?money(m.extraDayPay):'—'}</td><td class="hrp-regular">${m.term?money(m.regularPayable):'—'}</td>
+      <td class="hrp-final">${m.term?money(m.finalPayable):'—'}</td><td>${statusBadge(m)}</td>
+    </tr>`;
+  }).join('');
+}
+function officialRows(list){
+  $('hrpTableTitle').textContent='Официальная часть';
+  $('hrpTableSub').textContent='Официальный Gross также пропорционален официальным датам приёма/увольнения';
+  $('hrpTable').className='hrp-table mode-official';
+  $('hrpHead').innerHTML=head([
+    {label:'Сотрудник',left:true},{label:'Месячный Gross'},{label:'Раб. дни'},{label:'Начислено Gross'},{label:'Налоговая база'},{label:'Подоходный',cls:'tax-head'},{label:'Соц. сотр.',cls:'tax-head'},
+    {label:'Безраб. сотр.',cls:'tax-head'},{label:'Мед. сотр.',cls:'tax-head'},{label:'Удержания сотрудника'},{label:'Официальный Net',cls:'accent-head'},
+    {label:'Соц. работ.',cls:'employer-head'},{label:'Безраб. работ.',cls:'employer-head'},{label:'Мед. работ.',cls:'employer-head'},
+    {label:'Взносы работодателя'},{label:'Официальная стоимость'}
+  ]);
+  return list.map(m=>{const o=m.official;return`<tr>
+    <td class="text-left">${employeeCell(m)}</td><td class="hrp-monthly">${m.term?money(m.monthlyOfficialGross):'—'}</td><td>${m.term?daysCell(m,'official'):'—'}</td>
+    <td class="hrp-money">${m.term?money(o.gross):'—'}</td><td>${m.term?money(o.taxableIncome):'—'}</td>
+    <td class="hrp-tax">${m.term?money(o.employee.incomeTax):'—'}</td><td class="hrp-tax">${m.term?money(o.employee.socialInsurance):'—'}</td>
+    <td class="hrp-tax">${m.term?money(o.employee.unemploymentInsurance):'—'}</td><td class="hrp-tax">${m.term?money(o.employee.medicalInsurance):'—'}</td>
+    <td class="hrp-minus">${m.term?money(o.employee.total):'—'}</td><td class="hrp-final">${m.term?money(o.net):'—'}</td>
+    <td class="hrp-employer">${m.term?money(o.employer.socialInsurance):'—'}</td><td class="hrp-employer">${m.term?money(o.employer.unemploymentInsurance):'—'}</td>
+    <td class="hrp-employer">${m.term?money(o.employer.medicalInsurance):'—'}</td><td class="hrp-employer">${m.term?money(o.employer.total):'—'}</td>
+    <td class="hrp-money">${m.term?money(o.totalEmployerCost):'—'}</td>
+  </tr>`}).join('');
+}
+function renderTable(){
+  if(mode==='SETTLEMENTS')return;
+  const list=selectedModels();$('hrpCount').textContent=`${list.length} сотрудников`;
+  let body='';if(mode==='FACTUAL')body=factualRows(list);else if(mode==='OFFICIAL')body=officialRows(list);else body=overallRows(list);
+  $('hrpRows').innerHTML=body||`<tr><td colspan="20" class="hr-empty">Сотрудники не найдены.</td></tr>`;
+}
+function settlementMethod(v){return({CASH:'Наличные',BANK:'Банк',OTHER:'Другое'})[v]||v||'—'}
+function settlementVisibleRows(){
+  const q=String($('hrpSearch')?.value||'').trim().toLowerCase(),role=$('hrpRole')?.value||'';
+  return (state.settlements?.rows||[]).filter(x=>{
+    const activity=Number(x.openingDebt||0)>0||Number(x.currentAccrued||0)>0||Number(x.currentPaid||0)>0||Number(x.closingDebt||0)>0;
+    if(!activity)return false;
+    if(q&&!String(`${x.name} ${x.code}`).toLowerCase().includes(q))return false;
+    if(role&&String(x.roleCode||'')!==role)return false;
+    return true;
+  });
+}
+function renderSettlements(){
+  const box=$('hrpSettlementSummary'),tbody=$('hrpSettlementRows');if(!box||!tbody)return;
+  const snap=state.settlements||{summary:{},rows:[],access:{}},sum=snap.summary||{},rows=settlementVisibleRows(),canSettle=Boolean(snap.access?.canSettlePayroll);
+  $('hrpSettlementCount').textContent=`${rows.length} сотрудников с движением`;
+  box.innerHTML=[
+    ['Долг на начало',money(sum.openingDebt||0),'Перенесено из прошлых месяцев'],
+    ['Начислено',money(sum.accrued||0),'Доплата текущего месяца'],
+    ['Выплачено',money(sum.paid||0),'Отдельные выплаты текущего месяца'],
+    ['Остаток долга',money(sum.closingDebt||0),`Сотрудников с долгом: ${Number(sum.withDebt||0)}`]
+  ].map(x=>`<article><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
+  tbody.innerHTML=rows.length?rows.map(x=>{
+    const payments=(x.payments||[]).map(p=>`<div class="hrp-payment-chip"><span>${esc(p.date)} · ${esc(money(p.amount))} · ${esc(settlementMethod(p.method))}${p.accountName?' · '+esc(p.accountName):''}</span>${p.reference?`<small>${esc(p.reference)}</small>`:''}${canSettle?`<button type="button" class="hrp-cancel-payment" data-payment-id="${esc(p.id)}" title="Отменить выплату">×</button>`:''}</div>`).join('');
+    return`<tr>
+      <td class="text-left"><div class="hr-name">${esc(x.name||'—')}</div><div class="hr-sub">${esc(x.roleName||'')} · ${esc(x.code||'')}</div></td>
+      <td>${money(x.openingDebt)}</td>
+      <td class="hrp-plus">${money(x.currentAccrued)}</td>
+      <td class="hrp-overtime">${hours(x.currentPayableMinutes||0)}</td>
+      <td>${Number(x.currentExtraDays||0).toLocaleString('ru-RU',{maximumFractionDigits:2})}</td>
+      <td class="hrp-payment-paid">${money(x.currentPaid)}</td>
+      <td class="${Number(x.closingDebt||0)>0?'hrp-debt':'hrp-debt-zero'}">${money(x.closingDebt)}</td>
+      <td class="text-left"><div class="hrp-payment-history">${payments||'<span class="hr-muted">Нет выплат</span>'}</div></td>
+      <td>${canSettle&&Number(x.closingDebt||0)>0?`<button type="button" class="hr-primary hrp-pay-debt" data-employee-id="${esc(x.id)}">Выплатить</button>`:''}</td>
+    </tr>`;
+  }).join(''):`<tr><td colspan="9" class="hr-empty"><div class="hrp-empty-settlement"><strong>Начислений, выплат и долга по дополнительным часам пока нет.</strong><span>Пока Face ID не подключён, цикл можно проверить вручную: Табель → открыть день → ввести фактические часы → Manager → HR → вернуться в Payroll.</span><a class="hr-link-button" href="/hr-timesheet">Открыть табель и создать тестовый факт</a></div></td></tr>`;
+}
+function defaultPaymentDate(month){
+  const today=new Date().toISOString().slice(0,10);
+  if(today.startsWith(month+'-'))return today;
+  const a=month.split('-').map(Number),last=new Date(Date.UTC(a[0],a[1],0)).getUTCDate();
+  return month+'-'+String(last).padStart(2,'0');
+}
+function paymentRow(){return (state.settlements?.rows||[]).find(x=>String(x.id)===String(paymentEmployeeId))||null}
+function updatePaymentAccountSelector(){
+  const row=paymentRow(),method=$('hrpPaymentMethod').value,field=$('hrpPaymentBankField'),select=$('hrpPaymentBankAccount');
+  field.hidden=method!=='BANK';
+  if(method!=='BANK')return;
+  const banks=row?.paymentAccounts?.banks||[],def=banks.find(x=>x.isDefault)||banks[0]||null;
+  select.innerHTML=banks.length?banks.map(x=>`<option value="${esc(x.id)}">${esc(x.name||x.id)}${x.isDefault?' — по умолчанию':''}</option>`).join(''):'<option value="">Банковские счета не настроены</option>';
+  if(def)select.value=String(def.id);
+}
+function openPayment(employeeId){
+  const row=(state.settlements?.rows||[]).find(x=>String(x.id)===String(employeeId));if(!row)return;
+  paymentEmployeeId=String(employeeId);
+  $('hrpPaymentEmployee').innerHTML=`<strong>${esc(row.name||'—')}</strong><span>${esc(row.roleName||'')} · ${esc(row.code||'')}</span>`;
+  $('hrpPaymentDebt').textContent=money(row.closingDebt||0);
+  $('hrpPaymentDate').value=defaultPaymentDate($('hrpMonth').value||monthNow());
+  $('hrpPaymentAmount').value=Number(row.closingDebt||0).toFixed(2);
+  $('hrpPaymentAmount').max=Number(row.closingDebt||0).toFixed(2);
+  $('hrpPaymentMethod').value='CASH';$('hrpPaymentReference').value='';$('hrpPaymentNote').value='';updatePaymentAccountSelector();
+  $('hrpPaymentModal').hidden=false;document.body.style.overflow='hidden';
+}
+function closePayment(){paymentEmployeeId='';$('hrpPaymentModal').hidden=true;document.body.style.overflow=''}
+async function savePayment(){
+  if(paymentBusy||!paymentEmployeeId)return;
+  const amount=Number($('hrpPaymentAmount').value||0),paymentDate=$('hrpPaymentDate').value;
+  if(!paymentDate||!Number.isFinite(amount)||amount<=0)return alert('Укажите дату и сумму выплаты.');
+  try{
+    paymentBusy=true;$('hrpPaymentSave').disabled=true;setStatus('Сохраняем выплату…','loading');
+    const method=$('hrpPaymentMethod').value,bankAccountId=method==='BANK'?$('hrpPaymentBankAccount').value:'';
+    if(method==='BANK'&&!bankAccountId)throw new Error('Выберите банковский счёт для выплаты.');
+    const out=await settlementPost({action:'RECORD_PAYMENT',month:$('hrpMonth').value||monthNow(),employeeId:paymentEmployeeId,paymentDate,amount,paymentMethod:method,bankAccountId,reference:$('hrpPaymentReference').value||'',note:$('hrpPaymentNote').value||''});
+    state.settlements=out;renderSummary();renderSettlements();closePayment();setStatus('Готово','ok');
+  }catch(e){console.error(e);alert(e?.message||'Не удалось зарегистрировать выплату');setStatus('Ошибка','error')}
+  finally{paymentBusy=false;$('hrpPaymentSave').disabled=false}
+}
+async function cancelPayment(paymentId){
+  if(paymentBusy||!paymentId)return;
+  const reason=prompt('Причина отмены выплаты (необязательно):')??null;if(reason===null)return;
+  try{
+    paymentBusy=true;setStatus('Отменяем выплату…','loading');
+    const out=await settlementPost({action:'CANCEL_PAYMENT',month:$('hrpMonth').value||monthNow(),paymentId,reason});
+    state.settlements=out;renderSummary();renderSettlements();setStatus('Готово','ok');
+  }catch(e){console.error(e);alert(e?.message||'Не удалось отменить выплату');setStatus('Ошибка','error')}
+  finally{paymentBusy=false}
+}
+
+function renderTabs(){
+  const settlements=mode==='SETTLEMENTS';
+  document.querySelectorAll('.hrp-tab').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));
+  if($('hrpMainCard'))$('hrpMainCard').hidden=settlements;
+  if($('hrpSettlementCard'))$('hrpSettlementCard').hidden=!settlements;
+  if($('hrpState'))$('hrpState').hidden=settlements;
+  const explain=document.querySelector('.hrp-explain');if(explain)explain.hidden=settlements;
+  document.querySelector('.hrp-filter-card')?.classList.toggle('settlement-mode',settlements);
+}
+function render(){renderFilters();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
+function onFilter(){renderSummary();renderTable();renderSettlements()}
+async function load(){
+  if(busy)return;
+  try{
+    busy=true;$('hrpRefresh').disabled=true;showError();setStatus('Загрузка…','loading');
+    const d=await api();state={...d,models:buildModels(d.payroll,d.adjustments,d.tax)};render();setStatus('Готово','ok');
+  }catch(e){console.error(e);showError(e?.message||String(e));setStatus('Ошибка','error')}
+  finally{busy=false;$('hrpRefresh').disabled=false}
+}
+function bind(){
+  $('hrpRefresh').onclick=load;$('hrpMonth').onchange=load;
+  $('hrpSearch').oninput=onFilter;$('hrpRole').onchange=onFilter;$('hrpState').onchange=onFilter;
+  document.querySelectorAll('.hrp-tab').forEach(b=>b.onclick=()=>{mode=b.dataset.mode||'OVERALL';renderTabs();renderTable();renderSettlements()});
+  $('hrpSettlementRows')?.addEventListener('click',e=>{
+    const pay=e.target.closest('.hrp-pay-debt');if(pay){openPayment(pay.dataset.employeeId);return}
+    const cancel=e.target.closest('.hrp-cancel-payment');if(cancel)cancelPayment(cancel.dataset.paymentId);
+  });
+  document.querySelectorAll('[data-payment-close]').forEach(x=>x.addEventListener('click',closePayment));
+  $('hrpPaymentMethod').onchange=updatePaymentAccountSelector;
+  $('hrpPaymentSave').onclick=savePayment;
+}
+function init(){$('hrpMonth').value=monthNow();bind();load()}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+})();

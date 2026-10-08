@@ -1,0 +1,97 @@
+.hrp-kicker{display:block;margin-bottom:6px;color:#42d392;font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.hrp-month{display:flex;flex-direction:column;gap:5px;color:#7f8e9f;font-size:9px;font-weight:800;text-transform:uppercase}
+.hrp-month input{height:36px;border:1px solid #2a3744;border-radius:9px;background:#101821;color:#edf3f8;padding:0 10px}
+.hrp-summary{grid-template-columns:repeat(auto-fit,minmax(175px,1fr))!important}
+.hrp-context{display:grid;grid-template-columns:repeat(4,minmax(160px,1fr));gap:8px;margin:12px 0;padding:12px;border:1px solid #22303c;border-radius:14px;background:#0f1720}
+.hrp-context>div{min-width:0;padding:9px 11px;border:1px solid #263440;border-radius:10px;background:#111b25}
+.hrp-context-label{display:block;color:#718194;font-size:8px;font-weight:900;letter-spacing:.06em;text-transform:uppercase}
+.hrp-context strong{display:block;margin-top:5px;color:#e7eef4;font-size:10px;white-space:normal}
+#hrpAttendance.not-connected{color:#f2c466}.connected{color:#82e7b3}
+.hrp-filter-card{margin:12px 0;border:1px solid #22303c;border-radius:16px;background:#101822;overflow:hidden}
+.hrp-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1px solid #22303c}
+.hrp-tab{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:13px 15px;border:0;border-right:1px solid #22303c;background:#0e161f;color:#9aa9b8;font:inherit;cursor:pointer;text-align:left}
+.hrp-tab:last-child{border-right:0}.hrp-tab:hover{background:#121d27}.hrp-tab.active{background:rgba(66,211,146,.075);box-shadow:inset 0 -2px 0 #42d392;color:#e8f5ef}
+.hrp-tab>span{color:#69798b;font-size:8px}.hrp-tab.active>span{color:#82ae9a}
+.hrp-filters{display:grid;grid-template-columns:minmax(260px,1fr) 220px 180px;gap:8px;padding:10px 12px}
+.hrp-filter-card.settlement-mode .hrp-filters{grid-template-columns:minmax(260px,1fr) 260px}
+.hrp-filter-card.settlement-mode #hrpState{display:none!important}
+.hrp-filters input,.hrp-filters select{height:37px;border:1px solid #293846;border-radius:9px;background:#0d151e;color:#e6edf3;padding:0 10px;font:inherit}
+.hrp-main-card{padding:0!important;overflow:hidden}.hrp-main-card .hr-card-title-row{padding:14px 16px;border-bottom:1px solid #22303c}
+.hrp-main-card[hidden],.hrp-settlement-card[hidden]{display:none!important}
+.hrp-table{width:100%;border-collapse:collapse!important}
+.hrp-table.mode-overall{min-width:2350px!important}.hrp-table.mode-factual{min-width:2050px!important}.hrp-table.mode-official{min-width:2050px!important}
+.hrp-table th,.hrp-table td{padding:9px 10px;border-bottom:1px solid #1d2a35;text-align:center;white-space:nowrap;font-size:9px;color:#cbd5de}
+.hrp-table thead th{position:sticky;top:0;z-index:2;background:#0c141d;color:#758698;font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.025em}
+.hrp-table thead th.tax-head{background:rgba(240,199,119,.055)}.hrp-table thead th.employer-head{background:rgba(77,169,255,.055)}
+.hrp-table thead th.accent-head{color:#82e7b3;background:rgba(66,211,146,.055)}
+.hrp-table tbody tr:hover td{background:rgba(255,255,255,.018)}
+.hrp-source{display:inline-flex;align-items:center;padding:5px 8px;border-radius:999px;font-size:8px;font-weight:900;border:1px solid}
+.hrp-source.role{color:#7bc4ff;border-color:rgba(79,167,235,.28);background:rgba(79,167,235,.08)}
+.hrp-source.employee{color:#f0c777;border-color:rgba(240,199,119,.28);background:rgba(240,199,119,.08)}
+.hrp-status{display:inline-flex;align-items:center;padding:5px 9px;border-radius:999px;font-size:8px;font-weight:900;border:1px solid}
+.hrp-status.ready{color:#78dfae;border-color:rgba(66,211,146,.28);background:rgba(66,211,146,.08)}
+.hrp-status.review{color:#f1c877;border-color:rgba(240,199,119,.28);background:rgba(240,199,119,.08)}
+.hrp-status.missing{color:#ff9b9b;border-color:rgba(255,108,108,.28);background:rgba(255,108,108,.07)}
+.hrp-money{font-weight:900;color:#eaf1f7!important}.hrp-final{font-weight:900;color:#8ce8bc!important}.hrp-plus{color:#7ce4b1!important}.hrp-minus{color:#f0b477!important}
+.hrp-monthly{color:#9fb0c0!important;font-weight:800}
+.hrp-regular{color:#c9d7e2!important;font-weight:900}
+.hrp-extra-pay{color:#d7b8ff!important;font-weight:900;background:rgba(171,120,255,.035)}
+.hrp-unpaid-ot{color:#f2c466!important;font-weight:900}
+.hrp-days{display:inline-flex;align-items:center;justify-content:center;min-width:48px;padding:3px 6px;border-radius:999px;border:1px solid #2b3a47;background:#111b25;color:#aab8c5;font-size:8px;font-weight:900}
+.hrp-days.partial{color:#f2c466;border-color:rgba(242,196,102,.28);background:rgba(242,196,102,.08)}
+.hrp-tax{color:#f2c879!important;font-weight:800}.hrp-employer{color:#9dc9ff!important;font-weight:800}.hrp-overtime{color:#d7b8ff!important;font-weight:900}
+.hrp-flags{max-width:330px;white-space:normal!important;color:#8291a0!important;font-size:8px!important;line-height:1.45;text-align:left!important}
+.hrp-explain{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:12px}
+.hrp-explain article{padding:12px 13px;border:1px solid #22303c;border-radius:12px;background:#101822}
+.hrp-explain strong{display:block;color:#e6edf3;font-size:10px}.hrp-explain span{display:block;margin-top:4px;color:#768697;font-size:9px;line-height:1.5}
+.hrp-tax-profile{font-size:9px;color:#8195a8}
+@media(max-width:1200px){.hrp-context{grid-template-columns:repeat(2,1fr)}.hrp-filters{grid-template-columns:1fr 1fr}.hrp-filters input{grid-column:1/-1}.hrp-explain{grid-template-columns:1fr}}
+@media(max-width:760px){
+  .hr-actions{align-items:stretch}.hrp-month{width:100%}.hrp-month input{width:100%}
+  .hrp-context,.hrp-tabs,.hrp-filters{grid-template-columns:1fr}.hrp-tab{border-right:0;border-bottom:1px solid #22303c}.hrp-tab:last-child{border-bottom:0}
+  .hrp-filters input{grid-column:auto}.hrp-context{gap:6px}
+}
+.hrp-settlement-card{margin-top:12px;padding:0!important;overflow:hidden}
+.hrp-settlement-head{padding:14px 16px;border-bottom:1px solid #22303c}
+.hrp-settlement-summary{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:8px;padding:12px 16px;border-bottom:1px solid #22303c;background:#0e161f}
+.hrp-settlement-summary article{padding:10px 11px;border:1px solid #263541;border-radius:10px;background:#101923}
+.hrp-settlement-summary span{display:block;color:#748496;font-size:8px;font-weight:900;text-transform:uppercase}
+.hrp-settlement-summary strong{display:block;margin-top:4px;color:#edf3f7;font-size:14px}
+.hrp-settlement-summary small{display:block;margin-top:3px;color:#667789;font-size:8px}
+.hrp-settlement-table{width:100%;min-width:1350px;border-collapse:collapse}
+.hrp-settlement-table th,.hrp-settlement-table td{padding:9px 10px;border-bottom:1px solid #1d2a35;text-align:center;white-space:nowrap;font-size:9px;color:#cbd5de}
+.hrp-settlement-table th{background:#0c141d;color:#758698;font-size:8px;font-weight:900;text-transform:uppercase}
+.hrp-settlement-table .text-left{text-align:left}
+.hrp-payment-paid{color:#82e7b3!important;font-weight:900}
+.hrp-debt{color:#ffb071!important;font-weight:900;background:rgba(255,149,73,.04)}
+.hrp-debt-zero{color:#6f8494!important;font-weight:800}
+.hrp-payment-history{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:230px}
+.hrp-payment-chip{display:flex;align-items:center;gap:6px;padding:4px 6px;border:1px solid #2a3a47;border-radius:8px;background:#101a24;color:#aebbc6;font-size:8px}
+.hrp-payment-chip small{color:#6f7f8f}
+.hrp-cancel-payment{width:18px;height:18px;padding:0;border:1px solid rgba(255,104,120,.28);border-radius:50%;background:rgba(255,104,120,.08);color:#ff9ba6;cursor:pointer;font-weight:900}
+.hrp-pay-debt{white-space:nowrap}
+.hrp-payment-modal[hidden]{display:none}
+.hrp-payment-modal{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;padding:20px}
+.hrp-payment-backdrop{position:absolute;inset:0;background:rgba(3,8,13,.72);backdrop-filter:blur(3px)}
+.hrp-payment-dialog{position:relative;width:min(720px,100%);padding:16px;border:1px solid #2b3b48;border-radius:16px;background:#101923;box-shadow:0 24px 80px rgba(0,0,0,.42)}
+.hrp-payment-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:1px solid #22303c}
+.hrp-payment-head strong{display:block;color:#edf3f7;font-size:13px}
+.hrp-payment-employee{display:flex;flex-direction:column;gap:3px;margin:12px 0;padding:10px 11px;border-radius:10px;background:#0d151e;border:1px solid #24333f}
+.hrp-payment-employee strong{color:#e7eef4}.hrp-payment-employee span{color:#738395;font-size:9px}
+.hrp-payment-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
+.hrp-payment-grid label,.hrp-payment-note{display:grid;gap:5px}
+.hrp-payment-grid label>span,.hrp-payment-note>span{color:#748496;font-size:8px;font-weight:900;text-transform:uppercase}
+.hrp-payment-grid input,.hrp-payment-grid select,.hrp-payment-note textarea{width:100%;box-sizing:border-box;border:1px solid #293846;border-radius:9px;background:#0d151e;color:#e8eef3;padding:8px 9px;font:inherit}
+.hrp-payment-grid input,.hrp-payment-grid select{height:38px}
+.hrp-payment-note{margin-top:9px}.hrp-payment-note textarea{min-height:76px;resize:vertical}
+.hrp-payment-total{display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding:10px 11px;border:1px solid rgba(171,120,255,.24);border-radius:10px;background:rgba(171,120,255,.06)}
+.hrp-payment-total span{color:#8393a3;font-size:9px}.hrp-payment-total strong{color:#d7b8ff;font-size:14px}
+.hrp-payment-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+@media(max-width:900px){.hrp-settlement-summary{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:620px){.hrp-settlement-summary,.hrp-payment-grid{grid-template-columns:1fr}.hrp-payment-modal{padding:10px}.hrp-payment-actions{flex-direction:column}}
+
+.hrp-empty-settlement{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:22px 12px}
+.hrp-empty-settlement strong{color:#dfe8ee;font-size:10px}
+.hrp-empty-settlement span{max-width:720px;color:#718294;font-size:9px;line-height:1.5;text-align:center}
+.hrp-empty-settlement .hr-link-button{margin-top:3px}
+.hrp-explain[hidden]{display:none!important}

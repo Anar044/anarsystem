@@ -243,6 +243,106 @@ jobs:
           fi
           echo 'AI assistant read-only/authenticated contract passed'
 
+      - name: Verify Payroll partial-month and overtime contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "MONTHLY_PAYROLL_V3_FREE_SHIFT" functions/api/hr/payroll.js
+          grep -q "FREE_SHIFT_ROLE_NORM" functions/api/hr/role-schedules.js
+          grep -q "TIMESHEET_V4_FREE_SHIFT_PLUS_OFFICIAL_CALENDAR" functions/api/hr/timesheet.js
+          grep -q "factualBaseGross" functions/api/hr/payroll.js
+          grep -q "officialAccruedGross" functions/api/hr/payroll.js
+          grep -q "extraDayEquivalent" functions/api/hr/payroll.js
+          grep -q "extraDayPay" functions/api/hr/payroll.js
+          grep -q "overtimePayableMinutes" functions/api/hr/payroll.js
+          grep -q "regularPayable" hr-payroll.js
+          grep -q "Отдельная выплата" hr-payroll.js
+          echo 'Payroll partial-month and overtime contract passed'
+
+      - name: Verify manual overtime workflow without Face ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "function faceIdConnected" hr-timesheet.js
+          grep -q "Ручной режим:" hr-timesheet.js
+          grep -q "overtimeReset" functions/api/hr/timesheet-adjustments.js
+          grep -q "FACTUAL_CORRECTION_CHANGED" functions/api/hr/timesheet-adjustments.js
+          grep -q "FACTUAL_CORRECTION_DELETED" functions/api/hr/timesheet-adjustments.js
+          grep -q "Открыть табель и создать тестовый факт" hr-payroll.js
+          echo 'Manual overtime workflow contract passed'
+
+      - name: Verify Payroll overtime settlement ledger contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "hr_overtime_payroll_accruals" functions/api/hr/payroll.js
+          grep -q "hr_overtime_payments" functions/api/hr/overtime-settlements.js
+          grep -q "RECORD_PAYMENT" functions/api/hr/overtime-settlements.js
+          grep -q "CANCEL_PAYMENT" functions/api/hr/overtime-settlements.js
+          grep -q "closingDebt" functions/api/hr/overtime-settlements.js
+          grep -q "renderSettlements" hr-payroll.js
+          grep -q "Реестр доплат за дополнительные часы" hr-payroll.html
+          grep -q 'data-mode="SETTLEMENTS"' hr-payroll.html
+          grep -q "hrpSettlementCard" hr-payroll.js
+          grep -q "settlement-mode" hr-payroll-v3.css
+          echo 'Payroll overtime settlement ledger contract passed'
+
+      - name: Verify Payroll accounting journal contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "hr_payroll_accounting_config" functions/api/hr/_lib/payroll-accounting.js
+          grep -q "hr_payroll_bank_accounts" functions/api/hr/_lib/payroll-accounting.js
+          grep -q "getPayrollBankAccounts" functions/api/hr/payroll-accounting-settings.js
+          grep -q "hr_overtime_payment_sources" functions/api/hr/overtime-settlements.js
+          grep -q "bankAccountId" functions/api/hr/overtime-settlements.js
+          grep -q "hrpPaymentBankAccount" hr-payroll.html
+          grep -q "hrpaBankList" hr-payroll-accounting.html
+          grep -q "bankAccounts:state.bankAccounts" hr-payroll-accounting.js
+          grep -q "sh_accounting_journal" functions/api/hr/_lib/payroll-accounting.js
+          grep -q "syncOvertimeAccrualPosting" functions/api/hr/payroll.js
+          grep -q "syncOvertimePaymentPosting" functions/api/hr/overtime-settlements.js
+          grep -q "listAccountingJournal" functions/api/iiko/pnl.js
+          grep -q "listAccountingJournal" functions/api/iiko/accounts.js
+          grep -q "listAccountingJournal" functions/api/iiko/account-postings.js
+          grep -q "Бухгалтерия Payroll" hr-payroll.html
+          grep -q "Счета бухгалтерии Payroll" hr-payroll-accounting.html
+          grep -q "hrpa-critical-styles" app-shell.js
+          echo 'Payroll accounting journal contract passed'
+
+      - name: Verify SenseFace 2A ADMS contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f functions/api/hr/_lib/zkteco-adms.js
+          test -f functions/iclock/cdata.js
+          test -f functions/iclock/cdata.aspx.js
+          test -f functions/iclock/getrequest.js
+          test -f functions/iclock/getrequest.aspx.js
+          test -f functions/iclock/registry.js
+          test -f functions/iclock/push.js
+          test -f functions/iclock/querydata.js
+          grep -q "hr_zkteco_adms_devices" functions/api/hr/_lib/zkteco-adms.js
+          grep -q "hr_zkteco_adms_raw" functions/api/hr/_lib/zkteco-adms.js
+          grep -q "ATTLOGStamp=0" functions/api/hr/_lib/zkteco-adms.js
+          grep -q "Realtime=1" functions/api/hr/_lib/zkteco-adms.js
+          grep -q "TransTables=User Transaction" functions/api/hr/_lib/zkteco-adms.js
+          grep -q "tablename=transaction" functions/api/hr/timeclock.js
+          grep -q "registerAdmsDevice" functions/api/hr/timeclock.js
+          grep -q "ADMS_PUSH" hr-timeclock.js
+          grep -q "RAW ADMS" hr-timeclock.html
+          echo 'SenseFace ADMS contract passed'
+
+      - name: Verify Payroll styles survive app shell cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "hr-payroll-v3.css" app-shell.js
+          test ! -f hr-light-theme.js
+          grep -q "hrp-critical-styles" app-shell.js
+          grep -q "hr-payroll-v3.css" hr-payroll.html
+          echo 'Payroll style preservation contract passed'
+
       - name: Verify iiko authentication is centralized
         shell: bash
         run: |
@@ -310,6 +410,12 @@ jobs:
             "/nakladnye.html"
             "/ai-documents.html"
             "/ai-assistant.html"
+            "/hr-payroll.html"
+            "/hr-payroll-accounting.html"
+            "/hr-payroll-v3.css"
+            "/hr-compensation.html"
+            "/hr-payroll-adjustments.html"
+            "/hr-timeclock.html"
             "/rashodnye-nakladnye.html"
             "/akty-spisaniya.html"
           )
@@ -362,6 +468,14 @@ jobs:
             "/api/assets"
             "/api/asset-meta"
             "/api/asset-files"
+            "/api/hr/payroll"
+            "/api/hr/payroll-adjustments"
+            "/api/hr/payroll-accounting-settings"
+            "/api/hr/overtime-settlements"
+            "/api/hr/payroll-tax-settings"
+            "/api/hr/compensation"
+            "/api/hr/timesheet"
+            "/api/hr/timeclock"
           )
           for path in "${routes[@]}"; do
             code=$(curl -sS -X OPTIONS -o /tmp/api.txt -w '%{http_code}' "$PREVIEW_BASE$path" || true)
@@ -372,6 +486,48 @@ jobs:
             esac
           done
 
+      - name: Smoke test ZKTeco ADMS routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in "/iclock/cdata?SN=CI-UNKNOWN" "/iclock/cdata.aspx?SN=CI-UNKNOWN"; do
+            code=$(curl -sS -o /tmp/adms.txt -w '%{http_code}' "$PREVIEW_BASE$path" || true)
+            echo "$path -> HTTP $code"
+            cat /tmp/adms.txt || true
+            test "$code" = "200"
+            grep -q "DEVICE NOT REGISTERED" /tmp/adms.txt
+          done
+          for path in "/iclock/getrequest?SN=CI-UNKNOWN" "/iclock/getrequest.aspx?SN=CI-UNKNOWN"; do
+            code=$(curl -sS -o /tmp/adms.txt -w '%{http_code}' "$PREVIEW_BASE$path" || true)
+            echo "$path -> HTTP $code"
+            test "$code" = "200"
+            grep -q "OK" /tmp/adms.txt
+          done
+          echo 'ZKTeco ADMS route smoke passed'
+
+      - name: Diagnose HR Pages runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          health_code=$(curl -sS -o /tmp/hr-health.json -w '%{http_code}' "$PREVIEW_BASE/api/hr/runtime-health" || true)
+          echo "/api/hr/runtime-health -> HTTP $health_code"
+          cat /tmp/hr-health.json || true
+          echo
+
+          options_code=$(curl -sS -X OPTIONS -o /tmp/hr-options.txt -w '%{http_code}' "$PREVIEW_BASE/api/hr/timesheet" || true)
+          echo "/api/hr/timesheet OPTIONS -> HTTP $options_code"
+          cat /tmp/hr-options.txt || true
+          echo
+
+          get_code=$(curl -sS -o /tmp/hr-timesheet.json -w '%{http_code}' "$PREVIEW_BASE/api/hr/timesheet?from=2026-10-01&to=2026-10-31" || true)
+          echo "/api/hr/timesheet unauthenticated -> HTTP $get_code"
+          cat /tmp/hr-timesheet.json || true
+          echo
+
+          test "$health_code" = "200"
+          test "$options_code" = "204"
+          test "$get_code" = "401"
+
       - name: Verify iiko state requires authentication
         shell: bash
         run: |
@@ -380,3 +536,9 @@ jobs:
           echo "/api/iiko/state unauthenticated -> HTTP $code"
           cat /tmp/state.json || true
           test "$code" = "401"
+
+      - name: Test HR manual Face ID punch corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/hr-punch-correction.test.mjs

@@ -6,7 +6,7 @@
   <title>Smart Horeca — Сотрудники</title>
   <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
   <link rel="stylesheet" href="app-shell.css">
-  <link rel="stylesheet" href="hr-pnl.css?v=20261008-access-1">
+  <link rel="stylesheet" href="hr-pnl.css?v=20261008-hr-access-merged">
 </head>
 <body data-protected="true" style="background:#0b1017">
   <div class="app-shell">
@@ -27,7 +27,7 @@
           <div class="hr-head">
             <div>
               <h1>Сотрудники</h1>
-              <p>Справочник сотрудников синхронизируется из SH Server. Журнал входов/выходов и расчёт зарплаты будут храниться и рассчитываться в Smart Horeca.</p>
+              <p>Справочник сотрудников синхронизируется из SH Server. Face ID, табель и расчёт зарплаты ведутся в Smart Horeca.</p>
             </div>
             <div class="hr-actions">
               <span id="hrStatus" class="hr-status">Готово</span>
@@ -38,7 +38,7 @@
 
           <section class="hr-source-grid">
             <article class="hr-source-card active"><span>Справочник сотрудников</span><strong>SH Server</strong><small>Имя · фамилия · должность · подразделение</small></article>
-            <article class="hr-source-card"><span>Журнал явок</span><strong>Face ID / ZKTeco</strong><small>Следующий этап · отдельный адаптер устройства</small></article>
+            <article class="hr-source-card"><span>Журнал явок</span><strong>Face ID / ZKTeco</strong><small>Прямой ADMS PUSH · офлайн-накопление</small></article>
             <article class="hr-source-card"><span>Расчёт зарплаты</span><strong>Smart Horeca</strong><small>Рабочее время · доплаты · налоги · Net</small></article>
           </section>
 
@@ -62,7 +62,7 @@
             <div class="hr-card-title-row">
               <div>
                 <div class="hr-card-title">Справочник сотрудников</div>
-                <div class="hr-card-sub">Источник персональных данных: SH Server. Ставки и начисления из SH не используются для payroll.</div>
+                <div class="hr-card-sub">Источник основных данных: SH Server. Нажмите «Карточка», чтобы открыть расширенный профиль Smart Horeca.</div>
               </div>
               <div id="hrRowCount" class="hr-muted">0 сотрудников</div>
             </div>
@@ -77,6 +77,7 @@
                   <th>Дата увольнения</th>
                   <th>Face ID</th>
                   <th>Статус</th>
+                  <th>Карточка</th>
                   <th id="hrAccessHead" hidden>Доступ Smart Horeca</th>
                 </tr></thead>
                 <tbody></tbody>
@@ -84,11 +85,7 @@
             </div>
           </section>
 
-          <section class="hr-card hr-next">
-            <div class="hr-card-title">Следующий этап</div>
-            <p>Подключение источника проходов через независимый attendance-adapter. Для каждого сотрудника Smart Horeca будет хранить связь <b>SH employee ID ↔ Face ID employee ID</b>, а затем формировать собственный табель.</p>
-            <div class="hr-flow"><span>SH сотрудник</span><b>→</b><span>Связь ID</span><b>→</b><span>ZKTeco / Face ID</span><b>→</b><span>Журнал событий</span><b>→</b><span>Табель</span><b>→</b><span>Payroll</span></div>
-          </section>
+          
         </section>
       </div>
     </main>
@@ -98,11 +95,10 @@
   <script src="auth-config.js"></script>
   <script src="auth.js"></script>
   <script src="iiko-context.js?v=20261003-chain-3"></script>
-  <script src="app-shell.js?v=20261003-perf-2"></script>
+  <script src="app-shell.js?v=20261008-hr-clean-2"></script>
   <script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
-  <script src="/hr-light-theme.js?v=20260917-1"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=12"></script>
-  <script src="hr-employees.js?v=20261008-access-1"></script>
+  <script src="hr-employees.js?v=20261008-access-card-merged"></script>
 </body>
 </html>
