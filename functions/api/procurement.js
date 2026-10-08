@@ -191,6 +191,26 @@ async function ensure(db){
       unit_price REAL NOT NULL DEFAULT 0
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_order_lines_order ON procurement_order_lines(order_id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS procurement_grns (
+      id TEXT PRIMARY KEY,
+      server_scope TEXT NOT NULL,
+      order_id TEXT NOT NULL,
+      number TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'RECEIVED',
+      document_date TEXT NOT NULL,
+      supplier_id TEXT NOT NULL DEFAULT '',
+      supplier_name TEXT NOT NULL DEFAULT '',
+      warehouse_id TEXT NOT NULL DEFAULT '',
+      warehouse_name TEXT NOT NULL DEFAULT '',
+      total_amount REAL NOT NULL DEFAULT 0,
+      lines_json TEXT NOT NULL DEFAULT '[]',
+      comment TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT '',
+      created_by_name TEXT NOT NULL DEFAULT ''
+    )`),
+    db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_proc_grn_scope_number ON procurement_grns(server_scope,number)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_grns_order ON procurement_grns(server_scope,order_id,created_at DESC)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS procurement_receipts (
       id TEXT PRIMARY KEY,
       server_scope TEXT NOT NULL,
@@ -272,6 +292,7 @@ async function ensure(db){
     }
   }
   await ensureColumn("procurement_quotes","rfq_id","TEXT NOT NULL DEFAULT ''");
+  await ensureColumn("procurement_receipts","grn_id","TEXT NOT NULL DEFAULT ''");
   await ensureColumn("procurement_requisition_lines","package_size","REAL NOT NULL DEFAULT 1");
   await ensureColumn("procurement_requisition_lines","package_count","REAL NOT NULL DEFAULT 0");
   await ensureColumn("procurement_requisition_lines","container_id","TEXT NOT NULL DEFAULT ''");
@@ -356,6 +377,8 @@ const PROCUREMENT_ACTION_PERMISSIONS={
   "send-order":"procurement.po.manage",
   "confirm-order":"procurement.po.manage",
   "cancel-order":"procurement.po.manage",
+  "create-grn":"procurement.receive",
+  "link-invoice":"procurement.receive",
   "sync-receipt":"procurement.receive",
   "receive-order":"procurement.receive"
 };
@@ -367,6 +390,7 @@ function redactProcurementCosts(data){
   const clone=structuredClone(data);
   clone.requisitions=(clone.requisitions||[]).map(r=>({...r,totalEstimate:null,quotes:[],lines:(r.lines||[]).map(l=>({...l,expectedPrice:null})),linkedOrders:(r.linkedOrders||[]).map(o=>({...o,totalAmount:null}))}));
   clone.orders=(clone.orders||[]).map(o=>({...o,totalAmount:null,lines:(o.lines||[]).map(l=>({...l,unitPrice:null})),receipts:(o.receipts||[]).map(r=>({...r,totalAmount:null,lines:(r.lines||[]).map(l=>({...l,unitPrice:null}))}))}));
+  clone.grns=(clone.grns||[]).map(r=>({...r,totalAmount:null,lines:(r.lines||[]).map(l=>({...l,unitPrice:null}))}));
   clone.receipts=(clone.receipts||[]).map(r=>({...r,totalAmount:null,lines:(r.lines||[]).map(l=>({...l,unitPrice:null}))}));
   clone.supplierPerformance=[];
   if(clone.analytics)clone.analytics={...clone.analytics,requisitionEstimate:null,orderedAmount:null,receivedAmount:null,estimatedSavings:null};
@@ -463,13 +487,14 @@ async function log(context,action,entityType,row,before,after,meta={}){
 }
 
 async function readData(db,serverScope,scope){
-  const [reqsR,reqLinesR,rfqsR,quotesR,ordersR,orderLinesR,receiptsR,normsR,supplierProfilesR,supplierContractsR]=await Promise.all([
+  const [reqsR,reqLinesR,rfqsR,quotesR,ordersR,orderLinesR,grnsR,receiptsR,normsR,supplierProfilesR,supplierContractsR]=await Promise.all([
     db.prepare("SELECT * FROM procurement_requisitions WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 500").bind(serverScope).all(),
     db.prepare(`SELECT l.* FROM procurement_requisition_lines l JOIN procurement_requisitions r ON r.id=l.requisition_id WHERE r.server_scope=?1 ORDER BY l.rowid`).bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_rfqs WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_quotes WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_orders WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 500").bind(serverScope).all(),
     db.prepare(`SELECT l.* FROM procurement_order_lines l JOIN procurement_orders o ON o.id=l.order_id WHERE o.server_scope=?1 ORDER BY l.rowid`).bind(serverScope).all(),
+    db.prepare("SELECT * FROM procurement_grns WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_receipts WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_stock_norms WHERE server_scope=?1 ORDER BY store_name,product_name").bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_supplier_profiles WHERE server_scope=?1 ORDER BY supplier_name").bind(serverScope).all(),
@@ -482,11 +507,25 @@ async function readData(db,serverScope,scope){
   const orderRows=(ordersR.results||[]).filter(x=>rowAllowed(x,scope));
   const orderIds=new Set(orderRows.map(x=>x.id));
   const receipts=(receiptsR.results||[]).filter(x=>orderIds.has(x.order_id)).map(r=>({
-    id:r.id,orderId:r.order_id,iikoDocumentNumber:r.iiko_document_number,iikoDocumentId:r.iiko_document_id,iikoStatus:r.iiko_status,
+    id:r.id,orderId:r.order_id,grnId:r.grn_id||"",iikoDocumentNumber:r.iiko_document_number,iikoDocumentId:r.iiko_document_id,iikoStatus:r.iiko_status,
     documentDate:r.document_date,totalAmount:n(r.total_amount),lines:parse(r.lines_json,[]),comment:r.comment,createdAt:r.created_at,createdBy:r.created_by_name||r.created_by
   }));
-  const receiptsByOrder=new Map();
+  const realGrns=(grnsR.results||[]).filter(x=>orderIds.has(x.order_id)).map(g=>({
+    id:g.id,orderId:g.order_id,number:g.number,status:g.status,documentDate:g.document_date,supplierId:g.supplier_id,supplierName:g.supplier_name,
+    warehouseId:g.warehouse_id,warehouseName:g.warehouse_name,totalAmount:n(g.total_amount),lines:parse(g.lines_json,[]),comment:g.comment,
+    createdAt:g.created_at,createdBy:g.created_by_name||g.created_by,legacy:false
+  }));
+  // Backward compatibility: invoices created before GRN support also represent the
+  // historical physical receipt, so they remain visible as read-only legacy GRNs.
+  const legacyGrns=receipts.filter(r=>!clean(r.grnId)).map(r=>({
+    id:"legacy-"+r.id,orderId:r.orderId,number:"GRN · "+(r.iikoDocumentNumber||"legacy"),status:"LEGACY",documentDate:r.documentDate,
+    supplierId:"",supplierName:"",warehouseId:"",warehouseName:"",totalAmount:r.totalAmount,lines:r.lines,comment:r.comment,
+    createdAt:r.createdAt,createdBy:r.createdBy,legacy:true,invoiceId:r.id
+  }));
+  const grns=[...realGrns,...legacyGrns];
+  const receiptsByOrder=new Map(),grnsByOrder=new Map();
   for(const receipt of receipts){if(!receiptsByOrder.has(receipt.orderId))receiptsByOrder.set(receipt.orderId,[]);receiptsByOrder.get(receipt.orderId).push(receipt)}
+  for(const grn of grns){if(!grnsByOrder.has(grn.orderId))grnsByOrder.set(grn.orderId,[]);grnsByOrder.get(grn.orderId).push(grn)}
   const reqLinesBy=new Map();for(const l of reqLinesR.results||[]){if(!reqIds.has(l.requisition_id))continue;if(!reqLinesBy.has(l.requisition_id))reqLinesBy.set(l.requisition_id,[]);reqLinesBy.get(l.requisition_id).push(l)}
   const orderLinesBy=new Map();for(const l of orderLinesR.results||[]){if(!orderIds.has(l.order_id))continue;if(!orderLinesBy.has(l.order_id))orderLinesBy.set(l.order_id,[]);orderLinesBy.get(l.order_id).push(l)}
 
