@@ -142,6 +142,22 @@
           <div id="proc-po-list" class="proc-card-list"></div>
         </section>
 
+        <section class="proc-panel" data-panel="suppliers" hidden>
+          <div class="proc-panel-head">
+            <div><h2>Поставщики</h2><p>Карточка поставщика: VÖEN, контакты, условия оплаты, график поставок и договоры.</p></div>
+          </div>
+          <div class="proc-toolbar">
+            <input id="proc-suppliers-search" placeholder="Поиск по поставщику, VÖEN, контакту…">
+            <span id="proc-suppliers-meta">—</span>
+          </div>
+          <div class="proc-table-wrap">
+            <table class="proc-table" id="proc-supplier-master-table">
+              <thead><tr><th>Поставщик</th><th>VÖEN</th><th>Контакт</th><th>Условия оплаты</th><th>Поставка</th><th>Мин. заказ</th><th>Договоры</th><th>Баланс</th><th></th></tr></thead>
+              <tbody><tr><td colspan="9" class="proc-empty">Загрузка поставщиков…</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+
         <section class="proc-panel" data-panel="analytics" hidden>
           <div class="proc-panel-head">
             <div><h2>Аналитика закупок</h2><p>Стоимость закупок, экономия и исполнение поставщиками.</p></div>
