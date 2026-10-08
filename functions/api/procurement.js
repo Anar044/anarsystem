@@ -207,6 +207,44 @@ async function ensure(db){
       created_by_name TEXT NOT NULL DEFAULT ''
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_receipts_order ON procurement_receipts(server_scope,order_id,created_at DESC)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS procurement_supplier_profiles (
+      server_scope TEXT NOT NULL,
+      supplier_id TEXT NOT NULL,
+      supplier_name TEXT NOT NULL DEFAULT '',
+      tax_id TEXT NOT NULL DEFAULT '',
+      contact_person TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      address TEXT NOT NULL DEFAULT '',
+      payment_terms TEXT NOT NULL DEFAULT '',
+      payment_days INTEGER NOT NULL DEFAULT 0,
+      min_order_amount REAL NOT NULL DEFAULT 0,
+      delivery_days_json TEXT NOT NULL DEFAULT '[]',
+      categories_json TEXT NOT NULL DEFAULT '[]',
+      note TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL,
+      updated_by TEXT NOT NULL DEFAULT '',
+      updated_by_name TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY(server_scope,supplier_id)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_supplier_profiles_scope ON procurement_supplier_profiles(server_scope,supplier_name)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS procurement_supplier_contracts (
+      id TEXT PRIMARY KEY,
+      server_scope TEXT NOT NULL,
+      supplier_id TEXT NOT NULL,
+      number TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT '',
+      start_date TEXT NOT NULL DEFAULT '',
+      end_date TEXT NOT NULL DEFAULT '',
+      payment_terms TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      comment TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT NOT NULL DEFAULT '',
+      updated_by_name TEXT NOT NULL DEFAULT ''
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_supplier_contracts ON procurement_supplier_contracts(server_scope,supplier_id,end_date)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS procurement_stock_norms (
       server_scope TEXT NOT NULL,
       store_id TEXT NOT NULL,
@@ -290,6 +328,7 @@ const PROCUREMENT_VIEW_PERMISSIONS={
   requests:["procurement.request.view_own","procurement.request.view_all"],
   approvals:["procurement.approve"],
   sourcing:["procurement.sourcing"],
+  suppliers:["procurement.sourcing"],
   orders:["procurement.po.manage"],
   receiving:["procurement.receive"],
   analytics:["procurement.analytics"],
@@ -309,6 +348,9 @@ const PROCUREMENT_ACTION_PERMISSIONS={
   "send-rfq":"procurement.sourcing",
   "close-rfq":"procurement.sourcing",
   "create-rfq-link":"procurement.sourcing",
+  "save-supplier-profile":"procurement.sourcing",
+  "save-supplier-contract":"procurement.sourcing",
+  "delete-supplier-contract":"procurement.sourcing",
   "add-quote":"procurement.sourcing",
   "create-order":"procurement.po.manage",
   "send-order":"procurement.po.manage",
@@ -421,7 +463,7 @@ async function log(context,action,entityType,row,before,after,meta={}){
 }
 
 async function readData(db,serverScope,scope){
-  const [reqsR,reqLinesR,rfqsR,quotesR,ordersR,orderLinesR,receiptsR,normsR]=await Promise.all([
+  const [reqsR,reqLinesR,rfqsR,quotesR,ordersR,orderLinesR,receiptsR,normsR,supplierProfilesR,supplierContractsR]=await Promise.all([
     db.prepare("SELECT * FROM procurement_requisitions WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 500").bind(serverScope).all(),
     db.prepare(`SELECT l.* FROM procurement_requisition_lines l JOIN procurement_requisitions r ON r.id=l.requisition_id WHERE r.server_scope=?1 ORDER BY l.rowid`).bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_rfqs WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
@@ -429,7 +471,9 @@ async function readData(db,serverScope,scope){
     db.prepare("SELECT * FROM procurement_orders WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 500").bind(serverScope).all(),
     db.prepare(`SELECT l.* FROM procurement_order_lines l JOIN procurement_orders o ON o.id=l.order_id WHERE o.server_scope=?1 ORDER BY l.rowid`).bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_receipts WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
-    db.prepare("SELECT * FROM procurement_stock_norms WHERE server_scope=?1 ORDER BY store_name,product_name").bind(serverScope).all()
+    db.prepare("SELECT * FROM procurement_stock_norms WHERE server_scope=?1 ORDER BY store_name,product_name").bind(serverScope).all(),
+    db.prepare("SELECT * FROM procurement_supplier_profiles WHERE server_scope=?1 ORDER BY supplier_name").bind(serverScope).all(),
+    db.prepare("SELECT * FROM procurement_supplier_contracts WHERE server_scope=?1 ORDER BY supplier_id,end_date DESC,created_at DESC").bind(serverScope).all()
   ]);
   const reqRows=(reqsR.results||[]).filter(x=>rowAllowed(x,scope));
   const reqIds=new Set(reqRows.map(x=>x.id));
@@ -523,8 +567,17 @@ async function readData(db,serverScope,scope){
     minStock:x.min_stock===null?null:n(x.min_stock),targetStock:x.target_stock===null?null:n(x.target_stock),
     leadDays:n(x.lead_days),enabled:Number(x.enabled)!==0,updatedAt:x.updated_at,updatedBy:x.updated_by_name||x.updated_by
   }));
+  const supplierProfiles=(supplierProfilesR.results||[]).map(x=>({
+    supplierId:x.supplier_id,supplierName:x.supplier_name,taxId:x.tax_id,contactPerson:x.contact_person,phone:x.phone,email:x.email,address:x.address,
+    paymentTerms:x.payment_terms,paymentDays:n(x.payment_days),minOrderAmount:n(x.min_order_amount),
+    deliveryDays:parse(x.delivery_days_json,[]),categories:parse(x.categories_json,[]),note:x.note,updatedAt:x.updated_at,updatedBy:x.updated_by_name||x.updated_by
+  }));
+  const supplierContracts=(supplierContractsR.results||[]).map(x=>({
+    id:x.id,supplierId:x.supplier_id,number:x.number,title:x.title,startDate:x.start_date,endDate:x.end_date,paymentTerms:x.payment_terms,status:x.status,comment:x.comment,
+    createdAt:x.created_at,updatedAt:x.updated_at,updatedBy:x.updated_by_name||x.updated_by
+  }));
   return{
-    requisitions:requisitionsWithProgress,orders,receipts,stockNorms,supplierPerformance,
+    requisitions:requisitionsWithProgress,orders,receipts,stockNorms,supplierPerformance,supplierProfiles,supplierContracts,
     analytics:{requisitionEstimate:money(estimate),orderedAmount:money(ordered),receivedAmount:money(receivedAmount),estimatedSavings:money(Math.max(0,estimate-ordered)),activeOrders:orders.filter(x=>!["COMPLETED","CANCELLED"].includes(x.effectiveStatus)).length,completedOrders:orders.filter(x=>x.effectiveStatus==="COMPLETED").length,pendingApprovals:requisitionsWithProgress.filter(x=>x.status==="PENDING_APPROVAL").length,completedRequisitions:requisitionsWithProgress.filter(x=>x.effectiveStatus==="COMPLETED").length}
   };
 }
@@ -544,7 +597,9 @@ export async function onRequestGet({request,env}){
     if(view==="approvals")data={...data,requisitions:(data.requisitions||[]).filter(r=>r.status==="PENDING_APPROVAL"),orders:[],receipts:[],supplierPerformance:[]};
     if(view==="catalog"||view==="norms")data={...data,requisitions:[],orders:[],receipts:[],supplierPerformance:[]};
     if(view==="sourcing")data={...data,orders:[],receipts:[]};
+    if(view==="suppliers")data={...data,requisitions:[],orders:[],receipts:[],stockNorms:[]};
     if(view==="orders"||view==="receiving")data={...data,requisitions:[],supplierPerformance:view==="orders"?data.supplierPerformance:[]};
+    if(!["suppliers","sourcing","analytics"].includes(view))data={...data,supplierProfiles:[],supplierContracts:[]};
     if(!hasPermission(c.access,"procurement.prices.view")&&!hasPermission(c.access,"sensitive.cost.view"))data=redactProcurementCosts(data);
 
     return json({success:true,settings:view==="settings"?await settings(env.DB,c.serverScope):undefined,access:{permissions:c.access.permissions,scope:c.access.scope},scope:{mode:c.scope.mode,isChain:c.scope.isChain,selectedDepartmentIds:c.scope.selectedDepartmentIds,selectedRestaurants:c.scope.selectedRestaurants,fullSelection:isFullScope(c.scope)},...data});
@@ -645,6 +700,45 @@ export async function onRequestPost({request,env}){
       await db.prepare(`UPDATE procurement_requisitions SET status=?2,updated_at=?3,updated_by=?4,approved_by=?5,approved_by_name=?6,approved_at=?7 WHERE id=?1`).bind(r.id,next,stamp,userId,extra.approved_by||r.approved_by,extra.approved_by_name||r.approved_by_name,extra.approved_at||r.approved_at).run();
       await log(c,action.replace("-requisition","").toUpperCase(),"PURCHASE_REQUISITION",r,before,{status:next,requiredApprovalLevel:r.required_approval_level,approvedBy:extra.approved_by_name||r.approved_by_name});
       return json({success:true,id:r.id,status:next});
+    }
+
+    if(action==="save-supplier-profile"){
+      const supplierId=clean(body?.supplierId),supplierName=clean(body?.supplierName);if(!supplierId)throw new Error("Выберите поставщика.");
+      const deliveryDays=unique((Array.isArray(body?.deliveryDays)?body.deliveryDays:[]).map(x=>String(Math.round(n(x)))).filter(x=>["1","2","3","4","5","6","7"].includes(x))).map(Number).sort((a,b)=>a-b);
+      const categories=unique(Array.isArray(body?.categories)?body.categories:clean(body?.categories).split(",")).slice(0,50);
+      const paymentDays=Math.max(0,Math.round(n(body?.paymentDays))),minOrder=Math.max(0,money(body?.minOrderAmount));
+      await db.prepare(`INSERT INTO procurement_supplier_profiles(server_scope,supplier_id,supplier_name,tax_id,contact_person,phone,email,address,payment_terms,payment_days,min_order_amount,delivery_days_json,categories_json,note,updated_at,updated_by,updated_by_name)
+        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
+        ON CONFLICT(server_scope,supplier_id) DO UPDATE SET supplier_name=excluded.supplier_name,tax_id=excluded.tax_id,contact_person=excluded.contact_person,phone=excluded.phone,email=excluded.email,address=excluded.address,payment_terms=excluded.payment_terms,payment_days=excluded.payment_days,min_order_amount=excluded.min_order_amount,delivery_days_json=excluded.delivery_days_json,categories_json=excluded.categories_json,note=excluded.note,updated_at=excluded.updated_at,updated_by=excluded.updated_by,updated_by_name=excluded.updated_by_name`)
+        .bind(c.serverScope,supplierId,supplierName,clean(body?.taxId),clean(body?.contactPerson),clean(body?.phone),clean(body?.email),clean(body?.address),clean(body?.paymentTerms),paymentDays,minOrder,JSON.stringify(deliveryDays),JSON.stringify(categories),clean(body?.note),stamp,userId,userName).run();
+      await log(c,"UPDATE","SUPPLIER_PROFILE",{id:supplierId,number:supplierName,restaurant_ids_json:"[]",restaurant_names_json:"[]"},null,{supplierId,supplierName,taxId:clean(body?.taxId),paymentDays,minOrderAmount:minOrder,deliveryDays,categories});
+      return json({success:true,supplierId});
+    }
+
+    if(action==="save-supplier-contract"){
+      const supplierId=clean(body?.supplierId),id=clean(body?.id)||uid();if(!supplierId)throw new Error("Выберите поставщика.");
+      const status=["ACTIVE","EXPIRED","DRAFT","CANCELLED"].includes(String(body?.status||"").toUpperCase())?String(body.status).toUpperCase():"ACTIVE";
+      const existing=await db.prepare("SELECT * FROM procurement_supplier_contracts WHERE id=?1 AND server_scope=?2 LIMIT 1").bind(id,c.serverScope).first();
+      if(existing&&clean(existing.supplier_id)!==supplierId){const e=new Error("Договор относится к другому поставщику.");e.status=409;throw e}
+      if(existing){
+        await db.prepare(`UPDATE procurement_supplier_contracts SET number=?2,title=?3,start_date=?4,end_date=?5,payment_terms=?6,status=?7,comment=?8,updated_at=?9,updated_by=?10,updated_by_name=?11 WHERE id=?1`)
+          .bind(id,clean(body?.number),clean(body?.title),clean(body?.startDate),clean(body?.endDate),clean(body?.paymentTerms),status,clean(body?.comment),stamp,userId,userName).run();
+      }else{
+        await db.prepare(`INSERT INTO procurement_supplier_contracts(id,server_scope,supplier_id,number,title,start_date,end_date,payment_terms,status,comment,created_at,updated_at,updated_by,updated_by_name)
+          VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11,?12,?13)`)
+          .bind(id,c.serverScope,supplierId,clean(body?.number),clean(body?.title),clean(body?.startDate),clean(body?.endDate),clean(body?.paymentTerms),status,clean(body?.comment),stamp,userId,userName).run();
+      }
+      await log(c,existing?"UPDATE":"CREATE","SUPPLIER_CONTRACT",{id,number:clean(body?.number),restaurant_ids_json:"[]",restaurant_names_json:"[]"},existing?{status:existing.status,endDate:existing.end_date}:null,{supplierId,status,endDate:clean(body?.endDate)});
+      return json({success:true,id});
+    }
+
+    if(action==="delete-supplier-contract"){
+      const id=clean(body?.id);if(!id)throw new Error("Не указан договор.");
+      const existing=await db.prepare("SELECT * FROM procurement_supplier_contracts WHERE id=?1 AND server_scope=?2 LIMIT 1").bind(id,c.serverScope).first();
+      if(!existing){const e=new Error("Договор не найден.");e.status=404;throw e}
+      await db.prepare("DELETE FROM procurement_supplier_contracts WHERE id=?1 AND server_scope=?2").bind(id,c.serverScope).run();
+      await log(c,"DELETE","SUPPLIER_CONTRACT",{id,number:existing.number,restaurant_ids_json:"[]",restaurant_names_json:"[]"},existing,null);
+      return json({success:true,id});
     }
 
     if(action==="create-rfq"){
