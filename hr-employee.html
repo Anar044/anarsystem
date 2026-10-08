@@ -49,7 +49,7 @@
             <button class="hep-tab active" type="button" data-tab="basic">Основное</button>
             <button class="hep-tab" type="button" data-tab="work">Работа</button>
             <button class="hep-tab" type="button" data-tab="pay">Оплата</button>
-            <button class="hep-tab" type="button" data-tab="schedule">График</button>
+            <button class="hep-tab" type="button" data-tab="schedule">Учёт времени</button>
             <button class="hep-tab" type="button" data-tab="leave">Отпуска</button>
             <button class="hep-tab" type="button" data-tab="benefits">Льготы и расходы</button>
             <button class="hep-tab" type="button" data-tab="documents">Документы и имущество</button>
@@ -244,19 +244,14 @@
             <div class="hep-grid">
               <article class="hep-card full">
                 <div class="hep-card-head">
-                  <div><div class="hep-card-title">Текущий график сотрудника</div><div class="hep-card-sub">По умолчанию сотрудник наследует основной график своей должности. Индивидуальное назначение имеет приоритет только на свой период.</div></div>
-                  <span id="hepScheduleSource" class="hep-source smart">Smart Horeca</span>
-                </div>
-                <div id="hepScheduleContent"></div>
-                <div class="hep-links"><a class="hr-link-button hep-link" href="/hr-role-schedules.html">Открыть графики и должности</a><a class="hr-link-button hep-link" href="/hr-timesheet.html">Открыть табель</a></div>
-              </article>
-              <article class="hep-card full">
-                <div class="hep-card-head">
-                  <div><div class="hep-card-title">Фактический учёт Face ID</div><div class="hep-card-sub">Свободный график: опоздания и ранние уходы не рассчитываются. Норма часов берётся из должности, а тип смены можно переопределить для конкретного сотрудника.</div></div>
+                  <div>
+                    <div class="hep-card-title">Фактический учёт Face ID</div>
+                    <div class="hep-card-sub">Свободный график: опоздания и ранние уходы не рассчитываются. Норма часов берётся из должности, а для сотрудника можно переопределить только тип смены.</div>
+                  </div>
                   <span id="hepAttendanceRuleSource" class="hep-source smart">По должности</span>
                 </div>
                 <div class="hep-fields">
-                  <label class="hep-field"><span>Норма рабочего дня</span><div id="hepAttendanceNorm" class="hep-readonly">—</div><small>Настраивается на должности.</small></label>
+                  <label class="hep-field"><span>Норма рабочего дня</span><div id="hepAttendanceNorm" class="hep-readonly">—</div><small>Источник — должность сотрудника.</small></label>
                   <label class="hep-field"><span>Тип смены</span>
                     <select id="hepAttendanceShiftOverride">
                       <option value="">По должности</option>
@@ -264,30 +259,14 @@
                       <option value="NIGHT">Ночная</option>
                     </select>
                   </label>
-                  <label class="hep-field"><span>Рабочее окно</span><div id="hepAttendanceWindow" class="hep-readonly">—</div><small>Первая и последняя отметка считаются внутри этого окна.</small></label>
+                  <label class="hep-field"><span>Рабочее окно</span><div id="hepAttendanceWindow" class="hep-readonly">—</div><small>Первая и последняя пробивка считаются внутри этого окна.</small></label>
                   <div class="hep-field"><span>Сохранение</span><button id="hepAttendanceRuleSave" type="button" class="hr-primary">Сохранить тип смены</button></div>
                 </div>
-              </article>
-
-              <article class="hep-card full">
-                <div class="hep-card-head">
-                  <div><div class="hep-card-title">Индивидуальное исключение</div><div class="hep-card-sub">Используйте только если конкретный сотрудник должен работать не по основному графику должности. Сам шаблон сначала создаётся в «Графики и должности».</div></div>
-                  <span class="hep-source">Исключение</span>
+                <div class="hep-links">
+                  <a class="hr-link-button hep-link" href="/hr-role-schedules.html">Должности и нормы</a>
+                  <a class="hr-link-button hep-link" href="/hr-timeclock.html">Face ID</a>
+                  <a class="hr-link-button hep-link" href="/hr-timesheet.html">Табель</a>
                 </div>
-                <div class="hep-schedule-override-form">
-                  <label class="hep-field span2"><span>Шаблон графика</span><select id="hepScheduleOverrideSelect"></select><small>Показываются активные шаблоны текущей должности сотрудника.</small></label>
-                  <label class="hep-field"><span>Действует с</span><input id="hepScheduleOverrideFrom" type="date"></label>
-                  <label class="hep-field span2"><span>Комментарий</span><input id="hepScheduleOverrideNote" maxlength="1200" placeholder="Причина индивидуального графика"></label>
-                  <div class="hep-schedule-override-actions"><span id="hepScheduleOverrideStatus" class="hr-status">Готово</span><button id="hepScheduleOverrideSave" type="button" class="hr-primary">Назначить индивидуально</button></div>
-                </div>
-              </article>
-
-              <article class="hep-card full">
-                <div class="hep-card-head">
-                  <div><div class="hep-card-title">История индивидуальных назначений</div><div class="hep-card-sub">Когда период исключения заканчивается или назначение удаляется, сотрудник снова использует основной график должности.</div></div>
-                  <button id="hepScheduleOverrideRefresh" type="button" class="hr-link-button">↻ Обновить</button>
-                </div>
-                <div id="hepScheduleOverrideHistory" class="hep-schedule-history"><div class="hr-muted">История ещё не загружена.</div></div>
               </article>
             </div>
           </section>
@@ -400,6 +379,6 @@
   <script src="/hr-light-theme.js?v=20260917-1"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=21"></script>
-  <script src="/hr-employee.js?v=20261006-schedule-v2"></script><script src="/hr-employee-schedule.js?v=20261008-free-shift-1"></script>
+  <script src="/hr-employee.js?v=20261008-clean-hr-1"></script><script src="/hr-employee-schedule.js?v=20261008-clean-hr-1"></script>
 </body>
 </html>
