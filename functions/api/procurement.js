@@ -1047,13 +1047,14 @@ export async function onRequestPost({request,env}){
       const grn=await db.prepare("SELECT * FROM procurement_grns WHERE id=?1 AND server_scope=?2 AND order_id=?3 LIMIT 1").bind(grnId,c.serverScope,o.id).first();
       if(!grn){const e=new Error("GRN не найден или относится к другому PO.");e.status=404;throw e}
       const documentNumber=clean(body?.iikoDocumentNumber);if(!documentNumber)throw new Error("Не указан номер накладной.");
-      const existingForGrn=await db.prepare("SELECT id,iiko_document_number FROM procurement_receipts WHERE server_scope=?1 AND grn_id=?2 LIMIT 1").bind(c.serverScope,grnId).first();
-      if(existingForGrn){const e=new Error("К этому GRN уже привязана накладная №"+(existingForGrn.iiko_document_number||"без номера")+".");e.status=409;throw e}
       const duplicate=await db.prepare("SELECT id,order_id,grn_id,total_amount FROM procurement_receipts WHERE server_scope=?1 AND iiko_document_number=?2 LIMIT 1").bind(c.serverScope,documentNumber).first();
       if(duplicate){
         if(clean(duplicate.order_id)!==clean(o.id)){const e=new Error("Эта накладная уже связана с другим PO.");e.status=409;throw e}
+        if(clean(duplicate.grn_id)&&clean(duplicate.grn_id)!==grnId){const e=new Error("Эта накладная уже связана с другим GRN.");e.status=409;throw e}
         return json({success:true,id:o.id,receiptId:duplicate.id,grnId:duplicate.grn_id||grnId,totalAmount:n(duplicate.total_amount),duplicate:true});
       }
+      const existingForGrn=await db.prepare("SELECT id,iiko_document_number FROM procurement_receipts WHERE server_scope=?1 AND grn_id=?2 LIMIT 1").bind(c.serverScope,grnId).first();
+      if(existingForGrn){const e=new Error("К этому GRN уже привязана накладная №"+(existingForGrn.iiko_document_number||"без номера")+".");e.status=409;throw e}
       const lines=normalizeLines(body?.lines,{allowZeroPrice:true}).map(x=>({
         productId:x.productId,productName:x.productName,unit:x.unit,quantity:x.quantity,packageSize:x.packageSize,packageCount:x.packageCount,
         containerId:x.containerId,packageName:x.packageName,vatPercent:x.vatPercent,unitPrice:x.unitPrice,total:money(x.packageCount*x.unitPrice)
