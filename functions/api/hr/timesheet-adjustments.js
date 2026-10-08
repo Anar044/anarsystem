@@ -1,6 +1,7 @@
 import { loadRequestIikoState, privateConnection } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope } from './_lib/restaurant-scope.js';
 import { logAuditEvent } from '../_lib/audit-log.js';
+import { calculateManualPunchCorrection } from './_lib/punch-correction.js';
 import {
   ensureTimesheetAdjustmentTables,hrAccessForUser,requireCapability,
   correctionDto,overtimeDto,DEFAULT_OVERTIME_THRESHOLD_MINUTES
@@ -36,6 +37,7 @@ export async function onRequestGet({request,env}){
     const url=new URL(request.url),from=ymd(url.searchParams.get('from')),to=ymd(url.searchParams.get('to'));
     if(!from||!to||from>to)return json({success:false,message:'Некорректный период'},400);
     const userId=state.user.id,access=hrAccessForUser(state.user);
+    await ensureTimesheetAdjustmentTables(env.DB);
     try{
       const [c,r,o]=await Promise.all([
         env.DB.prepare(`SELECT * FROM hr_timesheet_day_corrections WHERE user_id=?1 AND work_date>=?2 AND work_date<=?3 ORDER BY work_date,iiko_employee_id`).bind(userId,from,to).all(),
@@ -65,18 +67,31 @@ export async function onRequestPost({request,env}){
     if(action==='SAVE_CORRECTION'){
       requireCapability(state.user,'canCorrect');
       if(!employeeId||!workDate)return json({success:false,message:'Не указан сотрудник или дата'},400);
-      const allowed=new Set(['','WORK','WORK_HOLIDAY','WORK_REST','LEAVE','LEAVE_WITH_WORK','ABSENT','REST','REVIEW','NO_SCHEDULE','WORK_NO_SCHEDULE']);
+      const allowed=new Set(['','WORK','WORK_HOLIDAY','WORK_REST','LEAVE','LEAVE_WITH_WORK','ABSENT','REST','REVIEW','NO_SCHEDULE','WORK_NO_SCHEDULE','INCOMPLETE']);
       let statusOverride=clean(body.statusOverride,40).toUpperCase();
       if(!allowed.has(statusOverride))return json({success:false,message:'Недопустимый статус корректировки'},400);
-      const worked=mins(body.workedMinutesOverride,{allowNull:true,max:1440}),planned=mins(body.plannedMinutesOverride,{allowNull:true,max:1440}),reason=clean(body.reason,1600);
+      let worked=mins(body.workedMinutesOverride,{allowNull:true,max:1440});
+      const planned=mins(body.plannedMinutesOverride,{allowNull:true,max:1440}),reason=clean(body.reason,1600);
+      let firstInOverride='',lastOutOverride='';
+      if(kind==='FACTUAL'){
+        const punch=await calculateManualPunchCorrection(env.DB,{userId,employeeId,workDate,scope,firstText:body.firstInOverride,lastText:body.lastOutOverride});
+        firstInOverride=punch.firstInOverride;lastOutOverride=punch.lastOutOverride;
+        if(firstInOverride||lastOutOverride){
+          if(worked!==-1)return json({success:false,message:'При исправлении прихода/ухода факт рассчитывается автоматически. Очистите поле ручных часов.'},400);
+          if(statusOverride==='INCOMPLETE')return json({success:false,message:'Для исправленной пары приход/уход нельзя оставить статус «Неполная явка».'},400);
+          worked=punch.workedMinutesOverride;
+        }
+      }else if(body.firstInOverride||body.lastOutOverride){
+        return json({success:false,message:'Пробивки Face ID изменяются только в фактическом табеле.'},400);
+      }
       if(kind==='FACTUAL'&&worked!==null&&worked>0&&!statusOverride)statusOverride='WORK';
       if(worked===null||planned===null)return json({success:false,message:'Часы корректировки указаны неверно'},400);
       if(!reason)return json({success:false,message:'Укажите причину ручной корректировки'},400);
       const old=correctionDto(await correctionRow(env.DB,userId,employeeId,workDate,kind)),id=old?.id||crypto.randomUUID();
-      await env.DB.prepare(`INSERT INTO hr_timesheet_day_corrections(user_id,correction_id,iiko_employee_id,work_date,contour,status_override,worked_minutes_override,planned_minutes_override,reason,actor_id,actor_label,created_at,updated_at)
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12)
-        ON CONFLICT(user_id,iiko_employee_id,work_date,contour) DO UPDATE SET status_override=excluded.status_override,worked_minutes_override=excluded.worked_minutes_override,planned_minutes_override=excluded.planned_minutes_override,reason=excluded.reason,actor_id=excluded.actor_id,actor_label=excluded.actor_label,updated_at=excluded.updated_at`)
-        .bind(userId,id,employeeId,workDate,kind,statusOverride,worked,planned,reason,actorId,actor,t).run();
+      await env.DB.prepare(`INSERT INTO hr_timesheet_day_corrections(user_id,correction_id,iiko_employee_id,work_date,contour,status_override,worked_minutes_override,planned_minutes_override,first_in_override,last_out_override,reason,actor_id,actor_label,created_at,updated_at)
+        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?14)
+        ON CONFLICT(user_id,iiko_employee_id,work_date,contour) DO UPDATE SET status_override=excluded.status_override,worked_minutes_override=excluded.worked_minutes_override,planned_minutes_override=excluded.planned_minutes_override,first_in_override=excluded.first_in_override,last_out_override=excluded.last_out_override,reason=excluded.reason,actor_id=excluded.actor_id,actor_label=excluded.actor_label,updated_at=excluded.updated_at`)
+        .bind(userId,id,employeeId,workDate,kind,statusOverride,worked,planned,firstInOverride,lastOutOverride,reason,actorId,actor,t).run();
       const after=correctionDto(await correctionRow(env.DB,userId,employeeId,workDate,kind));
       let resetOvertime=null;
       if(kind==='FACTUAL'){
