@@ -225,15 +225,15 @@ function buildPriceHistory(){
 }
 
 function procurementLineFromInvoiceItem(x){
-  const rawAmount=num(x.amount,0),actualAmount=num(x.actualAmount??x.amount,0),pack=packagingByContainer(x.productId,x.containerId);
-  let packageSize=num(pack?.count,0);
-  if(!(packageSize>0))packageSize=num(x.actualUnitWeight,0);
+  const packageCount=num(x.amount,0);
+  const actualAmount=num(x.actualAmount??x.amount,0);
+  const pack=packagingByContainer(x.productId,x.containerId);
+  let packageSize=num(x.actualUnitWeight,0);
+  if(!(packageSize>0))packageSize=num(pack?.count,0);
+  if(!(packageSize>0))packageSize=packageCount>0?actualAmount/packageCount:1;
   if(!(packageSize>0))packageSize=1;
-  const quantity=actualAmount>0?actualAmount:rawAmount;
-  const count=pack&&packageSize>0
-    ? quantity/packageSize
-    : (num(x.actualUnitWeight,0)>0&&rawAmount>0?rawAmount:(quantity/packageSize));
-  return{productId:key(x.productId),productName:x.productName||productName(x.productId),unit:x.amountUnit||unitFor(x.productId),quantity,packageSize,packageCount:count,containerId:key(x.containerId),packageName:pack?.name||pack?.num||'',vatPercent:num(x.vatPercent,0),unitPrice:num(x.price)};
+  const count=packageCount>0?packageCount:(actualAmount>0?actualAmount/packageSize:0);
+  return{productId:key(x.productId),productName:x.productName||productName(x.productId),unit:x.amountUnit||unitFor(x.productId),quantity:actualAmount||packageSize*count,packageSize,packageCount:count,containerId:key(x.containerId),packageName:pack?.name||pack?.num||'',vatPercent:num(x.vatPercent,0),unitPrice:num(x.price)};
 }
 function receiptSignature(lines){
   return (lines||[]).map(x=>[key(x.productId),Number(x.quantity??x.actualAmount??x.amount??0).toFixed(3),Number(x.packageSize??x.actualUnitWeight??1).toFixed(3),Number(x.packageCount??x.amount??0).toFixed(3),Number(x.vatPercent??0).toFixed(2),Number(x.unitPrice??x.price??0).toFixed(4)].join(':')).sort().join('|');
@@ -969,11 +969,17 @@ function openReceiptModal(o){
           const sum=x.packageCount*x.unitPrice,vatSum=x.vatPercent>0?sum*x.vatPercent/(100+x.vatPercent):0;
           return{
             num:i+1,productId:x.productId,
-            // iiko incomingInvoice expects amount in the product's base unit.
-            // With containerId it derives the number of packages from the container conversion.
-            amount:x.quantity,actualAmount:x.quantity,
+            // Keep the same semantics as the working incoming-invoice editor:
+            // amount = packages, actualAmount = quantity in the product base unit.
+            amount:x.packageCount,
+            actualAmount:x.quantity,
+            actualUnitWeight:x.packageSize,
+            packageCount:x.packageCount,
             packageSize:x.packageSize,
-            amountUnit:x.unit,containerId:x.containerId||undefined,
+            // For a real iiko container do not also send the base amountUnit ("kg", "шт", ...).
+            // Sending both makes iiko interpret amount as a base-unit amount instead of a tare count.
+            amountUnit:x.containerId?undefined:x.unit,
+            containerId:x.containerId||undefined,
             vatPercent:x.vatPercent,vatSum:Number(vatSum.toFixed(2)),
             priceWithoutVat:Number((x.vatPercent>0?x.unitPrice/(1+x.vatPercent/100):x.unitPrice).toFixed(4)),
             price:x.unitPrice,sum,store:o.warehouseId
