@@ -414,14 +414,23 @@ export async function resolveAccessForUser(db,user,{claimInvite=true,request=nul
   const publicWorkspaces=options.map(x=>({...workspacePublic(x.workspace),memberId:x.member.id,memberStatus:x.member.status,isOwner:x.member.owner_user_id===userId}));
 
   const ownerOption=options.find(x=>x.member.owner_user_id===userId&&x.member.user_id===userId)||null;
+  const activeOptions=options.filter(x=>String(x.member.status||'').toUpperCase()==='ACTIVE');
   let selected=null;
   if(preferredWorkspaceId)selected=options.find(x=>clean(x.workspace.id)===preferredWorkspaceId)||null;
 
   // A stale workspace cookie can point to a membership that was later disabled.
-  // If the signed-in user owns a workspace, fall back to that owner workspace instead
-  // of locking the owner out of Smart Horeca.
-  if(selected&&String(selected.member.status||'').toUpperCase()!=='ACTIVE'&&ownerOption)selected=ownerOption;
+  // Owners always fall back to their own workspace. Employees fall back when there is
+  // exactly one active workspace; with several active workspaces we ask them to choose.
+  if(selected&&String(selected.member.status||'').toUpperCase()!=='ACTIVE'){
+    if(ownerOption)selected=ownerOption;
+    else if(activeOptions.length===1)selected=activeOptions[0];
+    else if(activeOptions.length>1)return{allowed:false,reason:'WORKSPACE_SELECTION_REQUIRED',userId,email,workspaces:publicWorkspaces};
+  }
   if(!selected&&ownerOption)selected=ownerOption;
+  if(!selected&&activeOptions.length===1)selected=activeOptions[0];
+  if(!selected&&activeOptions.length>1){
+    return{allowed:false,reason:'WORKSPACE_SELECTION_REQUIRED',userId,email,workspaces:publicWorkspaces};
+  }
   if(!selected&&options.length===1)selected=options[0];
   if(!selected&&options.length>1){
     return{allowed:false,reason:'WORKSPACE_SELECTION_REQUIRED',userId,email,workspaces:publicWorkspaces};
