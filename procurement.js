@@ -622,8 +622,8 @@ function renderRequisitions(){
     return;
   }
   if(view==='sourcing'){
-    if(head)head.querySelector('h2').textContent='Работа с поставщиками';
-    if(head)head.querySelector('p').textContent='Согласованные PR, предложения поставщиков и создание PO.';
+    if(head)head.querySelector('h2').textContent='RFQ и сравнение цен';
+    if(head)head.querySelector('p').textContent='Каждая заявка показана отдельным документом: потребность → RFQ → предложения → PO.';
     const rows=all.filter(r=>['APPROVED','PARTIALLY_ORDERED','ORDERED','PARTIALLY_FULFILLED'].includes(r.effectiveStatus||r.status));
     const active=rows.filter(r=>['APPROVED','PARTIALLY_ORDERED'].includes(r.effectiveStatus||r.status));
     const ordered=rows.filter(r=>['ORDERED','PARTIALLY_FULFILLED'].includes(r.effectiveStatus||r.status));
