@@ -1,116 +1,42 @@
 import { iikoText } from '../iiko/_lib/iiko-client.js';
 import { getUser, loadRequestIikoState, privateConnection, hasPrivateConnection } from '../iiko/_lib/user-state.js';
-import { validateWeeklySchedule, validateCycleSchedule, AZ_LABOR_RULES } from './_lib/az-labor-rules.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope, isHrSubsetScope } from './_lib/restaurant-scope.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
 function clean(v){return String(v??'').trim()}
 function now(){return new Date().toISOString()}
-function uid(prefix='id'){return `${prefix}_${crypto.randomUUID()}`}
 function decodeXml(v){return String(v??'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&')}
 function tag(xml,name){const m=String(xml||'').match(new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${name}>`,'i'));return m?decodeXml(m[1]).trim():''}
 function blocks(xml,name){return [...String(xml||'').matchAll(new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${name}>`,'gi'))].map(m=>m[1])}
 function bool(v){return /^true$/i.test(clean(v))}
 function int(v,min,max,fallback=0){const n=Number.parseInt(String(v??''),10);return Number.isFinite(n)?Math.min(max,Math.max(min,n)):fallback}
-function dateOnly(v){const s=clean(v);return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:''}
-function previousDate(v){const d=new Date(`${v}T00:00:00Z`);d.setUTCDate(d.getUTCDate()-1);return d.toISOString().slice(0,10)}
-async function rebuildDefaultRanges(db,userId,roleCode){
-  const rows=await db.prepare(`SELECT schedule_id,valid_from,valid_to FROM hr_role_schedules WHERE user_id=?1 AND role_code=?2 AND is_active=1 AND is_default=1 ORDER BY valid_from ASC,created_at ASC`).bind(userId,roleCode).all();
-  const list=rows.results||[],t=now(),stm=[];
-  for(let i=0;i<list.length;i++){
-    const next=list[i+1];
-    if(next)stm.push(db.prepare(`UPDATE hr_role_schedules SET valid_to=?4,updated_at=?5 WHERE user_id=?1 AND role_code=?2 AND schedule_id=?3`).bind(userId,roleCode,list[i].schedule_id,previousDate(next.valid_from),t));
-  }
-  if(stm.length)await db.batch(stm);
-}
-
-function timeOnly(v){const s=clean(v);return /^([01]\d|2[0-3]):[0-5]\d$/.test(s)?s:''}
 function parseRoles(xml){return blocks(xml,'role').map(x=>({id:tag(x,'id'),code:tag(x,'code'),name:tag(x,'name'),deleted:bool(tag(x,'deleted'))})).filter(x=>x.code)}
-
-const legalBasis={
-  jurisdiction:'AZ',
-  profile:'AZ_LABOR_CODE',
-  rules:AZ_LABOR_RULES,
-  articles:{normalTime:'Əmək Məcəlləsi 89–90',summarized:'Əmək Məcəlləsi 96',night:'Əmək Məcəlləsi 97',holidayEve:'Əmək Məcəlləsi 108'},
-  calendar:'ƏƏSMN istehsalat təqvimi'
-};
 
 async function ensure(db){
   if(!db)throw new Error('D1 binding DB не настроен.');
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_roles (
-      user_id TEXT NOT NULL,
-      iiko_role_id TEXT NOT NULL DEFAULT '',
-      role_code TEXT NOT NULL,
-      role_name TEXT NOT NULL DEFAULT '',
-      is_deleted INTEGER NOT NULL DEFAULT 0,
-      synced_at TEXT NOT NULL DEFAULT '',
-      PRIMARY KEY(user_id,role_code)
+      user_id TEXT NOT NULL,iiko_role_id TEXT NOT NULL DEFAULT '',role_code TEXT NOT NULL,role_name TEXT NOT NULL DEFAULT '',
+      is_deleted INTEGER NOT NULL DEFAULT 0,synced_at TEXT NOT NULL DEFAULT '',PRIMARY KEY(user_id,role_code)
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_roles_user ON hr_roles(user_id,is_deleted,role_name)`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_schedules (
-      user_id TEXT NOT NULL,
-      schedule_id TEXT NOT NULL,
-      role_code TEXT NOT NULL,
-      schedule_name TEXT NOT NULL,
-      pattern_type TEXT NOT NULL DEFAULT 'WEEKLY',
-      weekdays TEXT NOT NULL DEFAULT '1,2,3,4,5',
-      work_days INTEGER NOT NULL DEFAULT 5,
-      off_days INTEGER NOT NULL DEFAULT 2,
-      anchor_date TEXT NOT NULL DEFAULT '',
-      shift_start TEXT NOT NULL,
-      shift_end TEXT NOT NULL,
-      break_minutes INTEGER NOT NULL DEFAULT 0,
-      valid_from TEXT NOT NULL,
-      valid_to TEXT NOT NULL DEFAULT '',
-      is_default INTEGER NOT NULL DEFAULT 0,
-      is_active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY(user_id,schedule_id)
-    )`),
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_role_schedules_role ON hr_role_schedules(user_id,role_code,is_active,valid_from)`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_schedule_days (
-      user_id TEXT NOT NULL,
-      schedule_id TEXT NOT NULL,
-      weekday INTEGER NOT NULL,
-      shift_start TEXT NOT NULL,
-      shift_end TEXT NOT NULL,
-      break_minutes INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY(user_id,schedule_id,weekday)
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_schedule_settings (
-      user_id TEXT NOT NULL,
-      schedule_id TEXT NOT NULL,
-      accounting_mode TEXT NOT NULL DEFAULT 'NORMAL_WEEKLY',
-      accounting_period_months INTEGER NOT NULL DEFAULT 1,
-      legal_profile TEXT NOT NULL DEFAULT 'AZ_LABOR_CODE',
-      validated_at TEXT NOT NULL DEFAULT '',
-      PRIMARY KEY(user_id,schedule_id)
-    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_attendance_rules (
-      user_id TEXT NOT NULL,
-      role_code TEXT NOT NULL,
-      daily_norm_minutes INTEGER NOT NULL DEFAULT 480,
-      shift_type TEXT NOT NULL DEFAULT 'DAY',
-      updated_at TEXT NOT NULL DEFAULT '',
-      PRIMARY KEY(user_id,role_code)
+      user_id TEXT NOT NULL,role_code TEXT NOT NULL,daily_norm_minutes INTEGER NOT NULL DEFAULT 480,
+      shift_type TEXT NOT NULL DEFAULT 'DAY',updated_at TEXT NOT NULL DEFAULT '',PRIMARY KEY(user_id,role_code)
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_role_attendance_rules_user ON hr_role_attendance_rules(user_id,role_code)`)
   ]);
 }
-
 async function seedRolesFromEmployees(db,userId){
   const rows=await db.prepare(`SELECT role_code,MAX(role_name) AS role_name FROM hr_employees WHERE user_id=?1 AND TRIM(role_code)<>'' GROUP BY role_code`).bind(userId).all().catch(()=>({results:[]}));
-  const t=now(),statements=[];
-  for(const r of rows.results||[]){statements.push(db.prepare(`INSERT OR IGNORE INTO hr_roles(user_id,iiko_role_id,role_code,role_name,is_deleted,synced_at) VALUES(?1,'',?2,?3,0,?4)`).bind(userId,clean(r.role_code),clean(r.role_name)||clean(r.role_code),t));}
-  if(statements.length)await db.batch(statements);
+  const t=now(),stm=[];
+  for(const r of rows.results||[])stm.push(db.prepare(`INSERT OR IGNORE INTO hr_roles(user_id,iiko_role_id,role_code,role_name,is_deleted,synced_at) VALUES(?1,'',?2,?3,0,?4)`).bind(userId,clean(r.role_code),clean(r.role_name)||clean(r.role_code),t));
+  if(stm.length)for(let i=0;i<stm.length;i+=50)await db.batch(stm.slice(i,i+50));
 }
-
 async function snapshot(db,userId,scope=null){
   await seedRolesFromEmployees(db,userId);
-  const [rolesResult,countsResult,attendanceRulesResult]=await Promise.all([
+  const [rolesResult,countsResult,rulesResult]=await Promise.all([
     db.prepare(`SELECT * FROM hr_roles WHERE user_id=?1 ORDER BY is_deleted ASC,role_name COLLATE NOCASE,role_code COLLATE NOCASE`).bind(userId).all(),
     db.prepare(`SELECT role_code,department_code,is_deleted,fire_date,employee_code FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>''`).bind(userId).all().catch(()=>({results:[]})),
     db.prepare(`SELECT role_code,daily_norm_minutes,shift_type,updated_at FROM hr_role_attendance_rules WHERE user_id=?1`).bind(userId).all()
@@ -120,112 +46,52 @@ async function snapshot(db,userId,scope=null){
     if(Number(x.is_deleted)||(x.fire_date&&String(x.fire_date).trim()))continue;
     const code=String(x.role_code||'');if(code)employeeCounts.set(code,(employeeCounts.get(code)||0)+1);
   }
-  const subset=isHrSubsetScope(scope),visibleRoleCodes=new Set(employeeCounts.keys());
-  const attendanceRuleMap=new Map((attendanceRulesResult.results||[]).map(r=>[String(r.role_code||''),r]));
+  const subset=isHrSubsetScope(scope),visibleRoleCodes=new Set(employeeCounts.keys()),ruleMap=new Map((rulesResult.results||[]).map(r=>[String(r.role_code||''),r]));
   const roles=(rolesResult.results||[]).filter(r=>!subset||visibleRoleCodes.has(String(r.role_code||''))).map(r=>{
-    const ar=attendanceRuleMap.get(String(r.role_code||''))||{};
-    return{id:r.iiko_role_id||'',code:r.role_code,name:r.role_name||r.role_code,deleted:Boolean(r.is_deleted),syncedAt:r.synced_at||'',employeeCount:employeeCounts.get(String(r.role_code))||0,dailyNormMinutes:Number(ar.daily_norm_minutes||480),shiftType:['DAY','NIGHT'].includes(String(ar.shift_type||'').toUpperCase())?String(ar.shift_type).toUpperCase():'DAY',attendanceRuleUpdatedAt:ar.updated_at||''};
+    const rule=ruleMap.get(String(r.role_code||''))||{},shift=String(rule.shift_type||'DAY').toUpperCase()==='NIGHT'?'NIGHT':'DAY';
+    return{id:r.iiko_role_id||'',code:r.role_code,name:r.role_name||r.role_code,deleted:Boolean(r.is_deleted),syncedAt:r.synced_at||'',employeeCount:employeeCounts.get(String(r.role_code))||0,dailyNormMinutes:Number(rule.daily_norm_minutes||480),shiftType:shift,attendanceRuleUpdatedAt:rule.updated_at||''};
   });
-  const activeRoles=roles.filter(r=>!r.deleted);
-  return{roles,schedules:[],legalBasis,schedulePolicyScope:'FREE_SHIFT_ROLE_NORM',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,counts:{roles:activeRoles.length,employees:activeRoles.reduce((a,r)=>a+r.employeeCount,0),dayRoles:activeRoles.filter(r=>r.shiftType!=='NIGHT').length,nightRoles:activeRoles.filter(r=>r.shiftType==='NIGHT').length}};
+  const active=roles.filter(r=>!r.deleted);
+  return{roles,schedules:[],schedulePolicyScope:'FREE_SHIFT_ROLE_NORM',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds||[],departmentCodes:scope.selectedDepartmentCodes||[]}:null,
+    counts:{roles:active.length,employees:active.reduce((a,r)=>a+Number(r.employeeCount||0),0),dayRoles:active.filter(r=>r.shiftType==='DAY').length,nightRoles:active.filter(r=>r.shiftType==='NIGHT').length}};
 }
-
-async function syncRoles(request,env,userId,scope=null){
-  const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);if(!state.found||!hasPrivateConnection(state.state))return json({success:false,message:'Сначала подключите SH Server в настройках.'},409);
-  const connection=privateConnection(state.state),result=await iikoText(connection,'/resto/api/employees/roles?revisionFrom=-1');
+async function syncRoles(request,env,userId,scope){
+  const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+  if(!state.found||!hasPrivateConnection(state.state))return json({success:false,message:'Сначала подключите SH Server в настройках.'},409);
+  const result=await iikoText(privateConnection(state.state),'/resto/api/employees/roles?revisionFrom=-1');
   if(!result.ok)throw new Error(`SH Roles HTTP ${result.status}: ${result.text.slice(0,500)}`);
   const roles=parseRoles(result.text),t=now();
   await env.DB.prepare(`UPDATE hr_roles SET is_deleted=1,synced_at=?2 WHERE user_id=?1`).bind(userId,t).run();
-  const stm=[];
-  for(const r of roles){stm.push(env.DB.prepare(`INSERT INTO hr_roles(user_id,iiko_role_id,role_code,role_name,is_deleted,synced_at) VALUES(?1,?2,?3,?4,?5,?6)
-    ON CONFLICT(user_id,role_code) DO UPDATE SET iiko_role_id=excluded.iiko_role_id,role_name=excluded.role_name,is_deleted=excluded.is_deleted,synced_at=excluded.synced_at`).bind(userId,r.id||'',r.code,r.name||r.code,r.deleted?1:0,t));}
+  const stm=roles.map(r=>env.DB.prepare(`INSERT INTO hr_roles(user_id,iiko_role_id,role_code,role_name,is_deleted,synced_at) VALUES(?1,?2,?3,?4,?5,?6)
+    ON CONFLICT(user_id,role_code) DO UPDATE SET iiko_role_id=excluded.iiko_role_id,role_name=excluded.role_name,is_deleted=excluded.is_deleted,synced_at=excluded.synced_at`).bind(userId,r.id||'',r.code,r.name||r.code,r.deleted?1:0,t));
   for(let i=0;i<stm.length;i+=50)await env.DB.batch(stm.slice(i,i+50));
   return json({success:true,syncedAt:t,...await snapshot(env.DB,userId,scope)});
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
-
 export async function onRequestGet({request,env}){
-  try{const a=await getUser(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);const scope=await resolveHrRestaurantScope(request,env,a.user.id);return json({success:true,source:'IIKO_ROLES_CACHE',...await snapshot(env.DB,a.user.id,scope)});}
-  catch(e){console.error('[HR-ROLE-SCHEDULES-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
+  try{
+    const a=await getUser(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);
+    await ensure(env.DB);const scope=await resolveHrRestaurantScope(request,env,a.user.id);
+    return json({success:true,source:'SMART_HORECA_ROLES',...await snapshot(env.DB,a.user.id,scope)});
+  }catch(e){console.error('[HR-ROLES-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
 }
-
 export async function onRequestPost({request,env}){
   try{
-    const a=await getUser(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);const userId=a.user.id;
-    const scope=await resolveHrRestaurantScope(request,env,userId);
+    const a=await getUser(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);
+    await ensure(env.DB);const userId=a.user.id,scope=await resolveHrRestaurantScope(request,env,userId);
     const body=await request.json().catch(()=>({})),action=clean(body.action);
-    if(action==='syncRoles')return await syncRoles(request,env,userId,scope);
-    if(action==='saveAttendanceRule'){
-      const roleCode=clean(body.roleCode),shiftType=clean(body.shiftType).toUpperCase();
-      const dailyNormMinutes=int(body.dailyNormMinutes,60,24*60,480);
-      if(!roleCode)return json({success:false,message:'Не указана должность'},400);
-      if(!['DAY','NIGHT'].includes(shiftType))return json({success:false,message:'Тип смены должен быть DAY или NIGHT'},400);
-      const role=await env.DB.prepare(`SELECT role_code FROM hr_roles WHERE user_id=?1 AND role_code=?2 AND is_deleted=0 LIMIT 1`).bind(userId,roleCode).first();
-      if(!role)return json({success:false,message:'Должность не найдена'},404);
-      const t=now();
-      await env.DB.prepare(`INSERT INTO hr_role_attendance_rules(user_id,role_code,daily_norm_minutes,shift_type,updated_at)
-        VALUES(?1,?2,?3,?4,?5)
-        ON CONFLICT(user_id,role_code) DO UPDATE SET daily_norm_minutes=excluded.daily_norm_minutes,shift_type=excluded.shift_type,updated_at=excluded.updated_at`)
-        .bind(userId,roleCode,dailyNormMinutes,shiftType,t).run();
-      return json({success:true,roleCode,dailyNormMinutes,shiftType,...await snapshot(env.DB,userId,scope)});
-    }
-    if(['saveSchedule','disableSchedule'].includes(action))return json({success:false,message:'Старые шаблоны графиков отключены. Используйте норму должности и тип смены Face ID.'},410);
-    if(action==='saveSchedule'){
-      const roleCode=clean(body.roleCode),name=clean(body.name),scheduleId=clean(body.id)||uid('hrs'),patternType=(clean(body.patternType)||'WEEKLY').toUpperCase();
-      const shiftStart=timeOnly(body.shiftStart),shiftEnd=timeOnly(body.shiftEnd),breakMinutes=int(body.breakMinutes,0,600,0),validFrom=dateOnly(body.validFrom),validTo=dateOnly(body.validTo);
-      const workDays=int(body.workDays,1,14,5),offDays=int(body.offDays,1,14,2),anchorDate=dateOnly(body.anchorDate),isDefault=Boolean(body.isDefault),accountingPeriodMonths=int(body.accountingPeriodMonths,1,12,1);
-      let weekdays=Array.isArray(body.weekdays)?body.weekdays.map(x=>int(x,1,7,0)).filter(Boolean):[1,2,3,4,5];weekdays=[...new Set(weekdays)].sort((x,y)=>x-y);
-      if(!roleCode||!name)return json({success:false,message:'Укажите должность и название графика'},400);
-      if(!['WEEKLY','CYCLE'].includes(patternType))return json({success:false,message:'Неизвестный тип графика'},400);
-      if(!shiftStart||!shiftEnd)return json({success:false,message:'Укажите корректное время начала и конца смены'},400);
-      if(!validFrom)return json({success:false,message:'Укажите дату начала действия графика'},400);
-      if(validTo&&validTo<validFrom)return json({success:false,message:'Дата окончания не может быть раньше даты начала'},400);
-      if(patternType==='WEEKLY'&&!weekdays.length)return json({success:false,message:'Выберите рабочие дни недели'},400);
-      if(patternType==='CYCLE'&&!anchorDate)return json({success:false,message:'Для сменного цикла укажите опорную дату первой рабочей смены'},400);
-      const role=await env.DB.prepare(`SELECT role_code FROM hr_roles WHERE user_id=?1 AND role_code=?2 AND is_deleted=0 LIMIT 1`).bind(userId,roleCode).first();if(!role)return json({success:false,message:'Должность не найдена. Сначала синхронизируйте должности из iiko.'},404);
-
-      let legalCheck,dayRules=[];
-      if(patternType==='WEEKLY'){
-        const provided=Array.isArray(body.dayRules)?body.dayRules:[];
-        dayRules=provided.length?provided.map(r=>({weekday:int(r.weekday,1,7,0),shiftStart:timeOnly(r.shiftStart),shiftEnd:timeOnly(r.shiftEnd),breakMinutes:int(r.breakMinutes,0,600,0)})).filter(r=>r.weekday):weekdays.map(day=>({weekday:day,shiftStart,shiftEnd,breakMinutes}));
-        legalCheck=validateWeeklySchedule(dayRules);
-        if(!legalCheck.ok)return json({success:false,message:legalCheck.message,legalBasis},400);
-        dayRules=legalCheck.dayRules;weekdays=dayRules.map(r=>r.weekday);
-      }else{
-        legalCheck=validateCycleSchedule({shiftStart,shiftEnd,breakMinutes,workDays,offDays,accountingPeriodMonths});
-        if(!legalCheck.ok)return json({success:false,message:legalCheck.message,legalBasis},400);
-      }
-
-      if(isDefault){
-        const conflict=await env.DB.prepare(`SELECT schedule_id FROM hr_role_schedules WHERE user_id=?1 AND role_code=?2 AND is_active=1 AND is_default=1 AND valid_from=?3 AND schedule_id<>?4 LIMIT 1`).bind(userId,roleCode,validFrom,scheduleId).first();
-        if(conflict)return json({success:false,message:'Для этой должности на указанную дату уже начинается другой основной график. Измените дату начала или существующий график.'},409);
-      }
-      const t=now();
-      await env.DB.prepare(`INSERT INTO hr_role_schedules(user_id,schedule_id,role_code,schedule_name,pattern_type,weekdays,work_days,off_days,anchor_date,shift_start,shift_end,break_minutes,valid_from,valid_to,is_default,is_active,created_at,updated_at)
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,1,?16,?16)
-        ON CONFLICT(user_id,schedule_id) DO UPDATE SET role_code=excluded.role_code,schedule_name=excluded.schedule_name,pattern_type=excluded.pattern_type,weekdays=excluded.weekdays,work_days=excluded.work_days,off_days=excluded.off_days,anchor_date=excluded.anchor_date,shift_start=excluded.shift_start,shift_end=excluded.shift_end,break_minutes=excluded.break_minutes,valid_from=excluded.valid_from,valid_to=excluded.valid_to,is_default=excluded.is_default,is_active=1,updated_at=excluded.updated_at`)
-        .bind(userId,scheduleId,roleCode,name,patternType,weekdays.join(','),workDays,offDays,patternType==='CYCLE'?anchorDate:'',shiftStart,shiftEnd,breakMinutes,validFrom,validTo,isDefault?1:0,t).run();
-
-      await env.DB.prepare(`DELETE FROM hr_role_schedule_days WHERE user_id=?1 AND schedule_id=?2`).bind(userId,scheduleId).run();
-      if(patternType==='WEEKLY'&&dayRules.length){
-        const dayStatements=dayRules.map(r=>env.DB.prepare(`INSERT INTO hr_role_schedule_days(user_id,schedule_id,weekday,shift_start,shift_end,break_minutes) VALUES(?1,?2,?3,?4,?5,?6)`).bind(userId,scheduleId,r.weekday,r.shiftStart,r.shiftEnd,r.breakMinutes));
-        await env.DB.batch(dayStatements);
-      }
-      await env.DB.prepare(`INSERT INTO hr_role_schedule_settings(user_id,schedule_id,accounting_mode,accounting_period_months,legal_profile,validated_at)
-        VALUES(?1,?2,?3,?4,'AZ_LABOR_CODE',?5)
-        ON CONFLICT(user_id,schedule_id) DO UPDATE SET accounting_mode=excluded.accounting_mode,accounting_period_months=excluded.accounting_period_months,legal_profile=excluded.legal_profile,validated_at=excluded.validated_at`)
-        .bind(userId,scheduleId,legalCheck.accountingMode||'NORMAL_WEEKLY',legalCheck.accountingPeriodMonths||accountingPeriodMonths,t).run();
-      await rebuildDefaultRanges(env.DB,userId,roleCode);
-      return json({success:true,scheduleId,legalCheck,...await snapshot(env.DB,userId,scope)});
-    }
-    if(action==='disableSchedule'){
-      const id=clean(body.id);if(!id)return json({success:false,message:'Не указан график'},400);
-      const oldSchedule=await env.DB.prepare(`SELECT role_code FROM hr_role_schedules WHERE user_id=?1 AND schedule_id=?2 LIMIT 1`).bind(userId,id).first();
-      await env.DB.prepare(`UPDATE hr_role_schedules SET is_active=0,is_default=0,updated_at=?3 WHERE user_id=?1 AND schedule_id=?2`).bind(userId,id,now()).run();
-      if(oldSchedule?.role_code)await rebuildDefaultRanges(env.DB,userId,oldSchedule.role_code);
-      return json({success:true,...await snapshot(env.DB,userId,scope)});
-    }
-    return json({success:false,message:'Неизвестное действие'},400);
-  }catch(e){console.error('[HR-ROLE-SCHEDULES-POST]',e);return json({success:false,message:e?.message||String(e)},500)}
+    if(action==='syncRoles')return syncRoles(request,env,userId,scope);
+    if(action!=='saveAttendanceRule')return json({success:false,message:'Старые шаблоны графиков отключены. Используйте норму должности и тип смены Face ID.'},410);
+    const roleCode=clean(body.roleCode),shiftType=clean(body.shiftType).toUpperCase(),dailyNormMinutes=int(body.dailyNormMinutes,60,1440,480);
+    if(!roleCode)return json({success:false,message:'Не указана должность'},400);
+    if(!['DAY','NIGHT'].includes(shiftType))return json({success:false,message:'Тип смены должен быть DAY или NIGHT'},400);
+    const role=await env.DB.prepare(`SELECT role_code FROM hr_roles WHERE user_id=?1 AND role_code=?2 AND is_deleted=0 LIMIT 1`).bind(userId,roleCode).first();
+    if(!role)return json({success:false,message:'Должность не найдена'},404);
+    await env.DB.prepare(`INSERT INTO hr_role_attendance_rules(user_id,role_code,daily_norm_minutes,shift_type,updated_at)
+      VALUES(?1,?2,?3,?4,?5)
+      ON CONFLICT(user_id,role_code) DO UPDATE SET daily_norm_minutes=excluded.daily_norm_minutes,shift_type=excluded.shift_type,updated_at=excluded.updated_at`)
+      .bind(userId,roleCode,dailyNormMinutes,shiftType,now()).run();
+    return json({success:true,roleCode,dailyNormMinutes,shiftType,...await snapshot(env.DB,userId,scope)});
+  }catch(e){console.error('[HR-ROLES-POST]',e);return json({success:false,message:e?.message||String(e)},500)}
 }
