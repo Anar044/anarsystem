@@ -969,16 +969,18 @@ function openReceiptModal(o){
           const sum=x.packageCount*x.unitPrice,vatSum=x.vatPercent>0?sum*x.vatPercent/(100+x.vatPercent):0;
           return{
             num:i+1,productId:x.productId,
-            // Keep the same semantics as the working incoming-invoice editor:
-            // amount = packages, actualAmount = quantity in the product base unit.
-            amount:x.packageCount,
+            // iiko calculates container count from product quantity / actualUnitWeight.
+            // Example: 27.5 kg / 5.5 kg = 5 packages. Price remains the price per package.
+            amount:x.quantity,
             actualAmount:x.quantity,
             actualUnitWeight:x.packageSize,
+            // packageCount/packageSize are Smart Horeca validation hints only;
+            // document-action does not serialize them into the iiko XML.
             packageCount:x.packageCount,
             packageSize:x.packageSize,
-            // For a real iiko container do not also send the base amountUnit ("kg", "шт", ...).
-            // Sending both makes iiko interpret amount as a base-unit amount instead of a tare count.
-            amountUnit:x.containerId?undefined:x.unit,
+            // amountUnit in iiko is an ID, not our display text ("kg", "шт").
+            // The real containerId is sufficient here, so do not send a display unit as amountUnit.
+            amountUnit:undefined,
             containerId:x.containerId||undefined,
             vatPercent:x.vatPercent,vatSum:Number(vatSum.toFixed(2)),
             priceWithoutVat:Number((x.vatPercent>0?x.unitPrice/(1+x.vatPercent/100):x.unitPrice).toFixed(4)),
