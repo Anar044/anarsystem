@@ -153,16 +153,17 @@ function validateIncoming(d) {
       return;
     }
 
-    const packageSize = Number(item.packageSize);
-    const containerAware = clean(item.containerId) && Number.isFinite(packageSize) && packageSize > 0;
-    const pricedAmount = containerAware ? (amount / packageSize) : amount;
+    const explicitPackageCount = Number(item.packageCount);
+    const pricedAmount = Number.isFinite(explicitPackageCount) && explicitPackageCount > 0
+      ? explicitPackageCount
+      : amount;
     const expectedCents = Math.round(pricedAmount * price * 100);
     expectedDocumentCents += expectedCents;
     rowSumCents += sourceSumCents;
 
     if (sourceSumCents !== expectedCents) {
       errors.push(
-        label + ": " + (containerAware ? "количество / фасовка × цена упаковки" : "количество × цена") +
+        label + ": " + (Number.isFinite(explicitPackageCount) && explicitPackageCount > 0 ? "упаковки × цена упаковки" : "количество × цена") +
         " = " + moneyText(expectedCents / 100) +
         ", но сумма строки = " + moneyText(sourceSumCents / 100) + ". Исправьте расхождение."
       );
