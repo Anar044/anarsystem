@@ -51,8 +51,6 @@
             <button class="hep-tab" type="button" data-tab="pay">Оплата</button>
             <button class="hep-tab" type="button" data-tab="schedule">Учёт времени</button>
             <button class="hep-tab" type="button" data-tab="leave">Отпуска</button>
-            <button class="hep-tab" type="button" data-tab="benefits">Льготы и расходы</button>
-            <button class="hep-tab" type="button" data-tab="documents">Документы и имущество</button>
             <button class="hep-tab" type="button" data-tab="history">История</button>
           </nav>
 
@@ -148,7 +146,7 @@
 
                 <article class="hep-card full">
                   <div class="hep-card-head">
-                    <div><div class="hep-card-title">Официальное оформление</div><div class="hep-card-sub">Отдельно от фактического ресторана. Позже FIN будет ключом для связи с официальным Payroll по VÖEN.</div></div>
+                    <div><div class="hep-card-title">Официальное оформление</div><div class="hep-card-sub">Официальные кадровые данные для белой части Payroll и расчёта по юридическому лицу.</div></div>
                     <span class="hep-source smart">Smart Horeca</span>
                   </div>
                   <div class="hep-fields">
@@ -240,7 +238,7 @@
 
               <article class="hep-card full">
                 <div class="hep-card-head">
-                  <div><div class="hep-card-title">Официальные отпуска</div><div class="hep-card-sub">Отдельный остаток для официального табеля и белого расчёта зарплаты.</div></div>
+                  <div><div class="hep-card-title">Официальные отпуска</div><div class="hep-card-sub">Отдельный остаток для белого расчёта зарплаты.</div></div>
                   <span class="hep-source sh">Официальный</span>
                 </div>
                 <div id="hepLeaveOfficial" class="hep-leave-ledger"></div>
@@ -248,7 +246,7 @@
 
               <article class="hep-card full">
                 <div class="hep-card-head">
-                  <div><div class="hep-card-title">Добавить использованный отпуск</div><div class="hep-card-sub">После сохранения дни автоматически попадут в использовано и уменьшат соответствующий остаток. Интеграцию с табелями подключим следующим этапом.</div></div>
+                  <div><div class="hep-card-title">Добавить использованный отпуск</div><div class="hep-card-sub">После сохранения дни автоматически попадут в использовано, уменьшат соответствующий остаток и будут учтены в расчётах HR.</div></div>
                   <span class="hep-source smart">HR запись</span>
                 </div>
                 <div class="hep-leave-entry-form">
@@ -284,23 +282,9 @@
             </div>
           </section>
 
-          <section class="hep-panel" data-panel="benefits" hidden>
-            <article class="hep-card">
-              <div class="hep-placeholder">
-                <div><strong>Льготы и расходы</strong><p>Здесь будут питание, транспорт, жильё, два настраиваемых расхода, задолженность по накладным и другие персональные условия.</p>
-                <div class="hep-plan-list"><div class="hep-plan-item"><strong>Питание</strong><span>Лимит · потрачено · сверх лимита</span></div><div class="hep-plan-item"><strong>Транспорт / жильё</strong><span>Ежемесячные суммы и история действия</span></div><div class="hep-plan-item"><strong>Обязательства</strong><span>Qaimə / долг · удержания · подтверждения</span></div></div></div>
-              </div>
-            </article>
-          </section>
+          
 
-          <section class="hep-panel" data-panel="documents" hidden>
-            <article class="hep-card">
-              <div class="hep-placeholder">
-                <div><strong>Документы, имущество и обучение</strong><p>Этот раздел подготовлен под медсправки, обучение, выданную форму/инвентарь и кадровые документы с датами окончания.</p>
-                <div class="hep-plan-list"><div class="hep-plan-item"><strong>Документы</strong><span>Тип · номер · дата · срок действия</span></div><div class="hep-plan-item"><strong>Имущество</strong><span>Что выдано · количество · дата · возврат</span></div><div class="hep-plan-item"><strong>Обучение / медосмотр</strong><span>История и контроль срока следующего прохождения</span></div></div></div>
-              </div>
-            </article>
-          </section>
+          
 
           <section class="hep-panel" data-panel="history" hidden>
             <article class="hep-card">
@@ -317,7 +301,7 @@
   <script src="auth-config.js"></script>
   <script src="auth.js"></script>
   <script src="iiko-context.js?v=20261003-chain-3"></script>
-  <script src="app-shell.js?v=20261008-hr-clean-1"></script>
+  <script src="app-shell.js?v=20261008-hr-clean-2"></script>
   <script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=21"></script>
