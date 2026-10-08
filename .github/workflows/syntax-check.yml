@@ -536,3 +536,9 @@ jobs:
           echo "/api/iiko/state unauthenticated -> HTTP $code"
           cat /tmp/state.json || true
           test "$code" = "401"
+
+      - name: Test HR manual Face ID punch corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/hr-punch-correction.test.mjs
