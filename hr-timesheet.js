@@ -80,9 +80,21 @@
     const payable=Math.max(threshold,Number(base?.payableFromMinutes||threshold));
     return{thresholdMinutes:threshold,payableFromMinutes:payable,source:specific?'EMPLOYEE':global?'GLOBAL':'DEFAULT',note:base?.note||''};
   }
+  function datetimeLocalBaku(value){
+    if(!value)return'';
+    const d=new Date(value);if(Number.isNaN(d.getTime()))return'';
+    const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d);
+    const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));
+    return p.year+'-'+p.month+'-'+p.day+'T'+p.hour+':'+p.minute;
+  }
   function applyCorrection(day,c){
     if(!c)return{...day,corrected:false,correction:null,rawStatus:day.status,rawWorkedMinutes:Number(day.workedMinutes||0),rawPlannedMinutes:Number(day.plannedMinutes||0)};
-    const out={...day,corrected:true,correction:c,rawStatus:day.status,rawWorkedMinutes:Number(day.workedMinutes||0),rawPlannedMinutes:Number(day.plannedMinutes||0)};
+    const out={...day,corrected:true,correction:c,rawStatus:day.status,rawWorkedMinutes:Number(day.workedMinutes||0),rawPlannedMinutes:Number(day.plannedMinutes||0),rawFirstIn:day.firstIn||'',rawLastOut:day.lastOut||'',rawIssueCount:Number(day.issueCount||0)};
+    if(c.firstInOverride||c.lastOutOverride){
+      out.firstIn=c.firstInOverride||day.firstIn||'';
+      out.lastOut=c.lastOutOverride||day.lastOut||'';
+      if(out.firstIn&&out.lastOut)out.issueCount=0;
+    }
     if(c.statusOverride)out.status=c.statusOverride;
     if(Number(c.workedMinutesOverride)>=0)out.workedMinutes=Number(c.workedMinutesOverride);
     if(Number(c.plannedMinutesOverride)>=0)out.plannedMinutes=Number(c.plannedMinutesOverride);
@@ -121,7 +133,7 @@
     });
     base.officialDays=(base.officialDays||[]).map(day=>applyCorrection(day,corrections.get(`${day.employeeId}|${day.workDate}|OFFICIAL`)));
     const overlayVersion=JSON.stringify({
-      corrections:(overlay.corrections||[]).map(x=>[x.id,x.employeeId,x.workDate,x.contour,x.statusOverride,x.workedMinutesOverride,x.plannedMinutesOverride,x.updatedAt]),
+      corrections:(overlay.corrections||[]).map(x=>[x.id,x.employeeId,x.workDate,x.contour,x.statusOverride,x.workedMinutesOverride,x.plannedMinutesOverride,x.firstInOverride,x.lastOutOverride,x.updatedAt]),
       overtime:(overlay.overtime||[]).map(x=>[x.id,x.employeeId,x.workDate,x.status,x.requestedMinutes,x.approvedMinutes,x.updatedAt]),
       rules:rules.map(x=>[x.employeeId,x.thresholdMinutes,x.payableFromMinutes,x.updatedAt])
     });
