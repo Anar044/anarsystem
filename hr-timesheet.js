@@ -468,7 +468,7 @@
   function renderMode(){
     const factual=mode==='FACTUAL';
     $('tsFactualTab').classList.toggle('active',factual);
-    $('tsOfficialTab').classList.toggle('active',!factual);
+    $('tsOfficialTab')?.classList.toggle('active',!factual);
     renderSummary();renderMatrix();renderIntervals();renderIssues();renderOvertime();
   }
   function render(){renderFilters();renderMode();renderApproval()}
@@ -483,7 +483,7 @@
   }
   function correctionStatusOptions(current){
     const list=mode==='FACTUAL'
-      ?[['','Автоматически'],['WORK','Работа'],['WORK_REST','Работа в выходной'],['ABSENT','Y / Нет'],['REST','İ / Выходной'],['LEAVE','ƏM / Отпуск'],['LEAVE_WITH_WORK','Отпуск + работа'],['REVIEW','Проверить'],['NO_SCHEDULE','График не задан'],['WORK_NO_SCHEDULE','Работа без графика']]
+      ?[['','Автоматически'],['WORK','Работа'],['INCOMPLETE','Неполная явка'],['LEAVE','ƏM / Отпуск'],['LEAVE_WITH_WORK','Отпуск + работа'],['REVIEW','Проверить']]
       :[['','Автоматически'],['WORK','Работа'],['WORK_HOLIDAY','Работа в праздник'],['REST','Выходной'],['LEAVE','Отпуск'],['REVIEW','Проверить']];
     return list.map(([v,l])=>`<option value="${esc(v)}" ${String(current||'')===v?'selected':''}>${esc(l)}</option>`).join('');
   }
@@ -713,7 +713,7 @@
     $('tsSearch').oninput=onFilter;
     $('tsProblemsOnly').onchange=onFilter;
     $('tsFactualTab').onclick=()=>setMode('FACTUAL');
-    $('tsOfficialTab').onclick=()=>setMode('OFFICIAL');
+    if($('tsOfficialTab'))$('tsOfficialTab').onclick=()=>setMode('OFFICIAL');
     $('tsMatrixBody').addEventListener('click',e=>{
       const cell=e.target.closest('.ts-day-cell');if(cell)openDrawer(cell.dataset.employeeId,cell.dataset.date);
     });
