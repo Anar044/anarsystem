@@ -48,9 +48,9 @@ function clean(v){return String(v??"").trim()}
 async function accessContext(request,env){
   const auth=await getUser(request,env);
   if(!auth)return{error:json({success:false,message:"Необходима авторизация."},401)};
-  const access=await resolveAccessForUser(env.DB,auth.user,{claimInvite:true});
+  const access=await resolveAccessForUser(env.DB,auth.user,{claimInvite:true,request});
   if(!access.allowed)return{error:json({success:false,message:"Доступ к Smart Horeca не назначен.",reason:access.reason},403)};
-  return{auth,access,storageUserId:access.ownerUserId||auth.user.id};
+  return{auth,access,storageUserId:access.storageUserId||access.ownerUserId||auth.user.id};
 }
 function stateForAccess(state,access){
   const out=publicState(state);
