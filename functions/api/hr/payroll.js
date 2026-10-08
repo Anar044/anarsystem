@@ -118,8 +118,8 @@ export async function onRequestGet({request,env}){
       env.DB.prepare(`SELECT * FROM hr_role_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY role_code,effective_from DESC`).bind(userId).all(),
       env.DB.prepare(`SELECT device_id,name,timezone,is_active,last_sync_at FROM hr_devices WHERE user_id=?1 AND is_active=1 ORDER BY name`).bind(userId).all(),
       env.DB.prepare(`SELECT iiko_employee_id,factual_hire_date,factual_fire_date,official_hire_date,official_fire_date,work_capacity_percent FROM hr_employee_profiles WHERE user_id=?1`).bind(userId).all(),
-      env.DB.prepare(`SELECT role_code,daily_norm_minutes,shift_type FROM hr_role_attendance_rules WHERE user_id=?1`).bind(userId).all(),
-      env.DB.prepare(`SELECT iiko_employee_id,shift_type_override FROM hr_employee_attendance_rules WHERE user_id=?1`).bind(userId).all()
+      env.DB.prepare(`SELECT role_code,daily_norm_minutes,shift_type,updated_at FROM hr_role_attendance_rules WHERE user_id=?1`).bind(userId).all(),
+      env.DB.prepare(`SELECT iiko_employee_id,shift_type_override,updated_at FROM hr_employee_attendance_rules WHERE user_id=?1`).bind(userId).all()
     ]);
     const employeeTerms=employeeTermsR.results||[],roleTerms=roleTermsR.results||[],activeDevices=devicesR.results||[];
     const profiles=new Map((profilesR.results||[]).map(x=>[String(x.iiko_employee_id),x]));
@@ -161,12 +161,18 @@ export async function onRequestGet({request,env}){
       if(!timesheetApprovalStale)for(const map of correctionsByEmployee.values()){
         if([...map.values()].some(x=>x.updated_at&&x.updated_at>approvedAt)){timesheetApprovalStale=true;break}
       }
+      const scopeRoleCodes=new Set(scopedEmployees.map(e=>String(e.role_code||'')));
+      if([...roleAttendance.values()].some(x=>scopeRoleCodes.has(String(x.role_code||''))&&x.updated_at&&x.updated_at>approvedAt))timesheetApprovalStale=true;
+      if([...employeeAttendance.values()].some(x=>scopedIds.includes(String(x.iiko_employee_id))&&x.updated_at&&x.updated_at>approvedAt))timesheetApprovalStale=true;
       if(timesheetApprovalStale)payrollTimesheetApproved=false;
     }
     if(scopedIds.length){
       try{
-        const rulesR=await env.DB.prepare(`SELECT iiko_employee_id,threshold_minutes,payable_from_minutes,note FROM hr_overtime_rules WHERE user_id=?1`).bind(userId).all();
+        const rulesR=await env.DB.prepare(`SELECT iiko_employee_id,threshold_minutes,payable_from_minutes,note,updated_at FROM hr_overtime_rules WHERE user_id=?1`).bind(userId).all();
         overtimeRules=rulesR.results||[];
+        if(payrollTimesheetApproved&&overtimeRules.some(x=>
+          (String(x.iiko_employee_id)==='*'||scopedIds.includes(String(x.iiko_employee_id)))&&x.updated_at&&x.updated_at>String(approvedTimesheet?.updated_at||'')
+        )){timesheetApprovalStale=true;payrollTimesheetApproved=false}
         if(payrollTimesheetApproved)for(const ids of chunkList(scopedIds,50)){
           const qs=ids.map(()=>'?').join(',');
           const part=await env.DB.prepare(`SELECT iiko_employee_id,work_date,candidate_minutes,requested_minutes,approved_minutes,status FROM hr_overtime_requests WHERE user_id=? AND iiko_employee_id IN (${qs}) AND work_date>=? AND work_date<=? AND status IN ('HR_APPROVED','HR_CHANGED')`).bind(userId,...ids,b.from,b.to).all();
