@@ -634,7 +634,7 @@ function requestListItem(r){
       '<div class="proc-record-main"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+esc(r.createdBy||'—')+'</span></div>'+
       '<div class="proc-record-metric"><strong>'+lines+'</strong><span>позиций</span></div>'+
       '<div class="proc-record-metric amount"><strong>'+esc(total)+'</strong><span>оценка</span></div>'+
-      '<span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span>'+
+      '<span class="proc-status-badge '+(receiving?threeWayTone(o.matchStatus):statusTone(effective))+'">'+esc(receiving?matchLabel(o.matchStatus):statusLabel(effective))+'</span>'+
       '<span class="proc-record-open">Открыть <i>›</i></span>'+
     '</summary>'+
     '<div class="proc-record-body">'+requestCard(r)+'</div>'+
@@ -763,7 +763,7 @@ function renderOrders(){
   const head=document.querySelector('[data-panel="orders"] .proc-panel-head');
   if(view==='receiving'){
     if(head)head.querySelector('h2').textContent='Приёмка поставок';
-    if(head)head.querySelector('p').textContent='Список поставок по дате и времени. Откройте нужный документ, чтобы принять товар или привязать накладную.';
+    if(head)head.querySelector('p').textContent='Физическая приёмка GRN и 3-way match: PO → GRN → приходная накладная.';
     const active=newestFirst(all.filter(o=>o.effectiveStatus!=='CANCELLED'&&o.matchStatus!=='MATCHED'));
     const done=newestFirst(all.filter(o=>o.matchStatus==='MATCHED')).slice(0,30);
     box.innerHTML=
@@ -1205,7 +1205,7 @@ async function loadAll(){
     const tasks=[];
     if(['catalog','sourcing','suppliers','receiving','norms'].includes(view))tasks.push(['Справочники',loadReferences]);
     if(['catalog','norms'].includes(view))tasks.push(['Остатки',loadStocks]);
-    if(canCost&&['catalog','sourcing'].includes(view))tasks.push(['История цен',loadHistory]);
+    if(canCost&&['catalog','sourcing','orders','receiving'].includes(view))tasks.push(['Накладные / история цен',loadHistory]);
     if(canCost&&['sourcing','suppliers','analytics'].includes(view))tasks.push(['Баланс поставщиков',loadSupplierBalances]);
     setStatus(tasks.length?'Загружаем данные раздела…':'Данные закупок загружены.');
     const results=await Promise.allSettled(tasks.map(x=>x[1]()));
