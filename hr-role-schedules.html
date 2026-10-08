@@ -46,6 +46,12 @@
           <section id="rsSummary" class="hr-summary-grid"></section>
           <div id="rsError" class="hr-error" hidden></div>
 
+          <section class="hr-card">
+            <div class="hr-card-title-row"><div><div class="hr-card-title">Правила фактического учёта по должности</div><div class="hr-card-sub">Для свободного графика. Норма рабочего дня используется в табеле и расчёте доп. часов; тип смены определяет рабочее окно Face ID.</div></div><div id="rsAttendanceRuleCount" class="hr-muted">0 должностей</div></div>
+            <div class="hr-attendance-rule-note"><strong>Дневная смена:</strong> 05:00 → 04:59 следующего дня · <strong>Ночная смена:</strong> 12:00 → 11:59 следующего дня. Опоздания и ранние уходы не рассчитываются.</div>
+            <div class="hr-table-scroll"><table class="hr-attendance-rules-table"><thead><tr><th class="text-left">Должность</th><th>Сотрудников</th><th>Норма рабочего дня</th><th>Тип смены</th><th>Окно Face ID</th><th></th></tr></thead><tbody id="rsAttendanceRuleRows"></tbody></table></div>
+          </section>
+
           <section class="hr-card hr-schedule-builder">
             <div class="hr-card-title-row"><div><div class="hr-card-title">Шаблон графика</div><div class="hr-card-sub">Выберите должность, режим и время смены. Сервер не даст сохранить график, нарушающий базовые ограничения рабочего времени.</div></div><button id="rsReset" type="button" class="hr-link-button">+ Новый шаблон</button></div>
             <form id="rsForm" class="hr-schedule-form"><input id="rsId" type="hidden">
@@ -59,11 +65,7 @@
           </section>
 
           <section class="hr-card"><div class="hr-card-title-row"><div><div class="hr-card-title">Должности из iiko</div><div class="hr-card-sub">Количество сотрудников берётся из синхронизированного HR-справочника.</div></div><div id="rsRoleCount" class="hr-muted">0 должностей</div></div><div class="hr-table-scroll"><table><thead><tr><th class="text-left">Должность</th><th>Код iiko</th><th>Сотрудников</th><th>Графиков</th><th>Основной график</th><th>Статус</th><th></th></tr></thead><tbody id="rsRoleRows"></tbody></table></div></section>
-          <section class="hr-card">
-            <div class="hr-card-title-row"><div><div class="hr-card-title">Правила фактического учёта по должности</div><div class="hr-card-sub">Для свободного графика. Норма рабочего дня используется в табеле и расчёте доп. часов; тип смены определяет рабочее окно Face ID.</div></div><div id="rsAttendanceRuleCount" class="hr-muted">0 должностей</div></div>
-            <div class="hr-attendance-rule-note"><strong>Дневная смена:</strong> 05:00 → 04:59 следующего дня · <strong>Ночная смена:</strong> 12:00 → 11:59 следующего дня. Опоздания и ранние уходы не рассчитываются.</div>
-            <div class="hr-table-scroll"><table class="hr-attendance-rules-table"><thead><tr><th class="text-left">Должность</th><th>Сотрудников</th><th>Норма рабочего дня</th><th>Тип смены</th><th>Окно Face ID</th><th></th></tr></thead><tbody id="rsAttendanceRuleRows"></tbody></table></div>
-          </section>
+
 
           <section class="hr-card"><div class="hr-card-title-row"><div><div class="hr-card-title">Шаблоны графиков</div><div class="hr-card-sub">Основной шаблон массово применяется к сотрудникам должности. Дополнительный шаблон можно назначить конкретному сотруднику как индивидуальное исключение.</div></div><div id="rsScheduleCount" class="hr-muted">0 графиков</div></div><div class="hr-table-scroll"><table><thead><tr><th class="text-left">Должность / шаблон</th><th>Режим</th><th>Смена / норма</th><th>Учёт</th><th>Период действия</th><th>Основной</th><th>Применяется</th><th></th></tr></thead><tbody id="rsScheduleRows"></tbody></table></div></section>
           <section class="hr-card hr-next"><div class="hr-card-title">Как будет применяться график</div><p>Производственный календарь конкретного года будет накладываться на шаблон автоматически: сокращённые предпраздничные дни, официальная норма периода и дальнейший расчёт ночных, праздников и сверхурочных не будут зашиваться вручную в график должности.</p><div class="hr-flow"><span>iiko должность</span><b>→</b><span>Законный шаблон</span><b>+</b><span>Календарь AZ</span><b>→</b><span>План</span><b>↔</b><span>Face ID факт</span><b>→</b><span>Payroll</span></div></section>
