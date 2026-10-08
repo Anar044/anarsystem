@@ -1,5 +1,5 @@
 import { getUser } from '../iiko/_lib/user-state.js';
-import { resolveAccessForUser, hasPermission, listAccessAdmin, saveRole, upsertMember, setMemberStatus } from './_lib/access-control.js';
+import { resolveAccessForUser, hasPermission, listAccessAdmin, saveRole, upsertMember, setMemberStatus, createMemberInvite } from './_lib/access-control.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -41,6 +41,12 @@ export async function onRequestPost({request,env}){
     if(action==='set-member-status'){
       await setMemberStatus(env.DB,c.access.ownerUserId,clean(body.memberId),body.status);
       return json({success:true});
+    }
+    if(action==='create-invite'){
+      const result=await createMemberInvite(env.DB,c.access.ownerUserId,clean(body.memberId));
+      const origin=new URL(request.url).origin;
+      const inviteLink=result.inviteToken?origin+'/register.html?invite='+encodeURIComponent(result.inviteToken):'';
+      return json({success:true,...result,inviteLink});
     }
     return json({success:false,message:'Неизвестное действие.'},400);
   }catch(error){console.error('[ACCESS-ADMIN:POST]',error);return json({success:false,message:error?.message||String(error)},error?.status||500)}
