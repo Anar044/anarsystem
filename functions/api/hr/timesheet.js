@@ -91,7 +91,7 @@ function freeWorkDate(eventTime,timeZone,shiftType){
   const p=localParts(eventTime,timeZone),meta=freeShiftMeta(shiftType),m=clockMinutes(p.time);
   return m>=meta.startMinute?p.date:isoDayShift(p.date,-1);
 }
-function aggregateFreeAttendance(events,employee,timeZone,from,to,roleRule,employeeRule,nowMs=Date.now()){
+export function aggregateFreeAttendance(events,employee,timeZone,from,to,roleRule,employeeRule,nowMs=Date.now()){
   const roleShift=['DAY','NIGHT'].includes(String(roleRule?.shift_type||'').toUpperCase())?String(roleRule.shift_type).toUpperCase():'DAY';
   const overrideShift=['DAY','NIGHT'].includes(String(employeeRule?.shift_type_override||'').toUpperCase())?String(employeeRule.shift_type_override).toUpperCase():'';
   const shiftType=overrideShift||roleShift,meta=freeShiftMeta(shiftType),normMinutes=Math.max(60,Number(roleRule?.daily_norm_minutes||480));
