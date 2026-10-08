@@ -359,6 +359,9 @@ jobs:
     needs: javascript
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Resolve Cloudflare Pages preview URL
         shell: bash
         run: |
@@ -375,8 +378,11 @@ jobs:
           for attempt in $(seq 1 24); do
             home_code=$(curl -sS -L -o /tmp/preview-home.html -w '%{http_code}' "$PREVIEW_BASE/" || true)
             state_code=$(curl -sS -o /tmp/preview-state.json -w '%{http_code}' "$PREVIEW_BASE/api/iiko/state" || true)
-            echo "Preview probe: home=$home_code state=$state_code attempt=$attempt"
-            if [ "$home_code" = "200" ] && [ "$state_code" = "401" ]; then
+            hr_code=$(curl -sS -L -o /tmp/preview-hr.html -w '%{http_code}' "$PREVIEW_BASE/hr-timesheet.html?ci=$GITHUB_SHA" || true)
+            marker_ok=0
+            if grep -q '20261008-live-shift-v1' /tmp/preview-hr.html; then marker_ok=1; fi
+            echo "Preview probe: home=$home_code state=$state_code hr=$hr_code marker=$marker_ok attempt=$attempt"
+            if [ "$home_code" = "200" ] && [ "$state_code" = "401" ] && [ "$hr_code" = "200" ] && [ "$marker_ok" = "1" ]; then
               echo "Current preview ready: $PREVIEW_BASE"
               exit 0
             fi
@@ -542,3 +548,4 @@ jobs:
         run: |
           set -euo pipefail
           node --test tests/hr-punch-correction.test.mjs
+          node --test tests/hr-live-shift.test.mjs

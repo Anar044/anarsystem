@@ -297,6 +297,7 @@
         LEAVE_WITH_WORK:['ƏM+Р',hours(x.workedMinutes),'review','Отпуск + работа'],
         ABSENT:faceIdConnected()?['Y','', 'absent','Нет']:['—','', 'manual-empty','Факт не введён'],
         INCOMPLETE:['!','', 'absent','Неполная явка'],
+        SHIFT_IN_PROGRESS:['◷','', 'in-progress','Смена продолжается'],
         FREE_NO_MARKS:['·','', 'manual-empty','Нет пробивок'],
         REST:['İ','', 'rest','Выходной'],
         NO_SCHEDULE:['—','', 'no-schedule','График не задан'],
@@ -348,7 +349,7 @@
   function renderSummary(){
     const employees=filteredEmployees(),ids=new Set(employees.map(x=>x.id)),rows=dayList().filter(x=>ids.has(x.employeeId));
     if(mode==='FACTUAL'){
-      const t=buildEmployeeTotals(rows),incomplete=rows.filter(x=>x.status==='INCOMPLETE').length,connected=faceIdConnected();
+      const t=buildEmployeeTotals(rows),incomplete=rows.filter(x=>x.status==='INCOMPLETE').length,inProgress=rows.filter(x=>x.status==='SHIFT_IN_PROGRESS').length,connected=faceIdConnected();
       $('tsSummary').innerHTML=[
         ['Сотрудников',employees.length,'по текущему фильтру'],
         ['Факт',hoursLong(t.fact),connected?'Face ID + ручные корректировки':'ручной ввод до подключения Face ID'],
@@ -358,9 +359,10 @@
         ['Неоплач. доп.',hoursLong(t.overtimeUnpaid),'между нормой и порогом оплаты'],
         ['Рабочих дней',t.work,'с фактическим временем'],
         ['Отпуск',t.leave,'дней'],
-        connected?['Неполная явка',incomplete,'есть только одна отметка']:['Режим учёта','Ручной','Face ID пока не подключён'],
+        connected?['Неполная явка',incomplete,'смена завершена, но нет пары']:['Режим учёта','Ручной','Face ID пока не подключён'],
+        connected?['Смена продолжается',inProgress,'одна пробивка, окно смены ещё открыто']:null,
         ['График','Свободный','без опозданий и ранних уходов']
-      ].map(x=>`<article class="ts-summary-item"><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
+      ].filter(Boolean).map(x=>`<article class="ts-summary-item"><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
     }else{
       const t=buildEmployeeTotals(rows);
       $('tsSummary').innerHTML=[
@@ -648,6 +650,7 @@
           ${detailBox('Источник смены',x.scheduleSource==='EMPLOYEE'?'Индивидуально':x.scheduleSource==='ROLE'?'Должность':'—')}
           ${faceIdConnected()?detailBox('Ошибок Face ID',String(x.issueCount||0)):detailBox('Режим','Ручной учёт')}
         </div>
+        ${x.status==='SHIFT_IN_PROGRESS'?'<div class="ts-detail-note ts-live-shift-note"><strong>Смена продолжается.</strong> Пока есть только одна отметка. До окончания окна смены это не считается неполной явкой. При обновлении табеля появится последняя пробивка или статус «Неполная явка» после окончания окна.</div>':''}
         ${x.leaveName?`<div class="ts-detail-note"><strong>Отпуск:</strong> ${esc(x.leaveName)}${x.leaveNote?'<br>'+esc(x.leaveNote):''}</div>`:''}
         ${x.scheduleOverrideNote?`<div class="ts-detail-note"><strong>Комментарий к индивидуальному графику:</strong><br>${esc(x.scheduleOverrideNote)}</div>`:''}
         ${issueItems.length?`<div class="ts-detail-note"><strong>Проблемы Face ID:</strong><br>${issueItems.map(i=>esc(issueLabel(i.code))).join('<br>')}</div>`:''}

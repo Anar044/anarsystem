@@ -3,6 +3,7 @@ import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaur
 import { calculateCompensation, AZ_PAYROLL_RULE_PROFILE } from './_lib/az-payroll-rules.js';
 import { syncOvertimeAccrualPosting } from './_lib/payroll-accounting.js';
 import { ensureTimesheetAdjustmentTables } from './_lib/timesheet-adjustments.js';
+import { isShiftWindowOpen } from './_lib/live-shift-status.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -15,7 +16,7 @@ function monthBounds(month){const [y,m]=month.split('-').map(Number);const last=
 function localParts(value,timeZone='Asia/Baku'){const d=new Date(value);if(Number.isNaN(d.getTime()))return{date:'',time:''};const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d);const m=Object.fromEntries(parts.map(x=>[x.type,x.value]));return{date:`${m.year}-${m.month}-${m.day}`,time:`${m.hour}:${m.minute}`}}
 function clockMinutes(v){const m=/^(\d{2}):(\d{2})$/.exec(String(v||''));return m?Number(m[1])*60+Number(m[2]):0}
 function freeWorkDate(eventTime,timeZone,shiftType){const p=localParts(eventTime,timeZone),start=String(shiftType||'DAY').toUpperCase()==='NIGHT'?720:300;return clockMinutes(p.time)>=start?p.date:isoDayShift(p.date,-1)}
-function aggregateFreeAttendance(events,from,to,timeZone,shiftType,corrections=new Map()){
+function aggregateFreeAttendance(events,from,to,timeZone,shiftType,corrections=new Map(),nowMs=Date.now()){
   const groups=new Map();
   for(const e of [...(events||[])].sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time)))){
     const d=freeWorkDate(e.event_time,timeZone,shiftType);
@@ -40,7 +41,7 @@ function aggregateFreeAttendance(events,from,to,timeZone,shiftType,corrections=n
       if((c.first_in_override||c.last_out_override)&&worked>0)incomplete=false;
       if(String(c.status_override)==='INCOMPLETE')incomplete=true;
     }
-    if(incomplete)issues++;
+    if(incomplete&&(String(c?.status_override||'').toUpperCase()==='INCOMPLETE'||!isShiftWindowOpen(day,shiftType,nowMs)))issues++;
     if(worked>0){actualMinutes+=worked;workedDays++}
   }
   return{actualMinutes,issues,workedDays};

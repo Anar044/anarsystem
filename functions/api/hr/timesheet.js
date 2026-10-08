@@ -1,5 +1,6 @@
 import { getUser } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
+import { singlePunchStatus } from './_lib/live-shift-status.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -90,7 +91,7 @@ function freeWorkDate(eventTime,timeZone,shiftType){
   const p=localParts(eventTime,timeZone),meta=freeShiftMeta(shiftType),m=clockMinutes(p.time);
   return m>=meta.startMinute?p.date:isoDayShift(p.date,-1);
 }
-function aggregateFreeAttendance(events,employee,timeZone,from,to,roleRule,employeeRule){
+export function aggregateFreeAttendance(events,employee,timeZone,from,to,roleRule,employeeRule,nowMs=Date.now()){
   const roleShift=['DAY','NIGHT'].includes(String(roleRule?.shift_type||'').toUpperCase())?String(roleRule.shift_type).toUpperCase():'DAY';
   const overrideShift=['DAY','NIGHT'].includes(String(employeeRule?.shift_type_override||'').toUpperCase())?String(employeeRule.shift_type_override).toUpperCase():'';
   const shiftType=overrideShift||roleShift,meta=freeShiftMeta(shiftType),normMinutes=Math.max(60,Number(roleRule?.daily_norm_minutes||480));
@@ -116,10 +117,10 @@ function aggregateFreeAttendance(events,employee,timeZone,from,to,roleRule,emplo
     if(!unique.length)continue;
     const first=unique[0],last=unique[unique.length-1],complete=unique.length>=2;
     const workedMinutes=complete?minutes(new Date(last.event_time)-new Date(first.event_time)):0;
-    const status=complete?'OK':'INCOMPLETE';
-    if(!complete)issues.push({code:'MISSING_PAIR',eventId:first.event_id||'',eventTime:first.event_time||'',deviceId:first.device_id||'',employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,workDate});
+    const status=complete?'OK':singlePunchStatus(workDate,shiftType,nowMs);
+    if(status==='INCOMPLETE')issues.push({code:'MISSING_PAIR',eventId:first.event_id||'',eventTime:first.event_time||'',deviceId:first.device_id||'',employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,workDate});
     if(complete)intervals.push({employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,roleName:employee.roleName,workDate,startTime:first.event_time,endTime:last.event_time,startLocal:localParts(first.event_time,timeZone).time,endLocal:localParts(last.event_time,timeZone).time,durationMinutes:workedMinutes,status:'OK',startEventId:first.event_id,endEventId:last.event_id,startDeviceId:first.device_id,endDeviceId:last.device_id,markCount:unique.length,aggregation:'FIRST_LAST'});
-    days.set(workDate,{employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,roleName:employee.roleName,workDate,firstIn:first.event_time,lastOut:complete?last.event_time:'',workedMinutes,intervalCount:complete?1:0,issueCount:complete?0:1,status,markCount:unique.length,shiftType,shiftLabel:meta.label,shiftStart:meta.start,shiftEnd:meta.end,normMinutes,attendanceSource:overrideShift?'EMPLOYEE':'ROLE'});
+    days.set(workDate,{employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,roleName:employee.roleName,workDate,firstIn:first.event_time,lastOut:complete?last.event_time:'',workedMinutes,intervalCount:complete?1:0,issueCount:status==='INCOMPLETE'?1:0,status,markCount:unique.length,shiftType,shiftLabel:meta.label,shiftStart:meta.start,shiftEnd:meta.end,normMinutes,attendanceSource:overrideShift?'EMPLOYEE':'ROLE'});
   }
   return{days,issues,intervals,shiftType,shiftMeta:meta,normMinutes,source:overrideShift?'EMPLOYEE':'ROLE'};
 }
@@ -214,11 +215,11 @@ export async function onRequestGet({request,env}){
     const employeeAttendanceMap=new Map((employeeAttendanceResults||[]).map(x=>[String(x.iiko_employee_id||''),x]));
 
     const events=eventRows.results||[],byEmployee=new Map();for(const e of events){const id=String(e.iiko_employee_id||'');if(!byEmployee.has(id))byEmployee.set(id,[]);byEmployee.get(id).push(e)}
-    const intervals=[],issues=[],rawDayMap=new Map(),attendanceConfigByEmployee=new Map();
+    const intervals=[],issues=[],rawDayMap=new Map(),attendanceConfigByEmployee=new Map(),nowMs=Date.now();
     for(const employee of employees){
       const list=byEmployee.get(employee.id)||[],firstDevice=deviceMap.get(String(list[0]?.device_id||'')),zone=timeZoneOf(firstDevice?.timezone||'Asia/Baku');
       const roleRule=roleAttendanceMap.get(String(employee.roleCode||''))||null,employeeRule=employeeAttendanceMap.get(employee.id)||null;
-      const r=aggregateFreeAttendance(list,employee,zone,from,to,roleRule,employeeRule);
+      const r=aggregateFreeAttendance(list,employee,zone,from,to,roleRule,employeeRule,nowMs);
       attendanceConfigByEmployee.set(employee.id,{shiftType:r.shiftType,shiftMeta:r.shiftMeta,normMinutes:r.normMinutes,source:r.source});
       intervals.push(...r.intervals);issues.push(...r.issues);
       for(const [workDate,day] of r.days)rawDayMap.set(`${employee.id}|${workDate}`,day);
@@ -238,6 +239,7 @@ export async function onRequestGet({request,env}){
           let status;
           if(date>todayBaku())status='FUTURE';
           else if(raw?.status==='INCOMPLETE')status='INCOMPLETE';
+          else if(raw?.status==='SHIFT_IN_PROGRESS')status='SHIFT_IN_PROGRESS';
           else if(leave)status=hasMark?'LEAVE_WITH_WORK':'LEAVE';
           else if(worked)status='WORK';
           else status='FREE_NO_MARKS';
@@ -266,6 +268,7 @@ export async function onRequestGet({request,env}){
 
     const factualSummary={
       rows:factualDays.length,workedDays:factualDays.filter(x=>['WORK','LEAVE_WITH_WORK'].includes(x.status)&&x.workedMinutes>0).length,
+      inProgressDays:factualDays.filter(x=>x.status==='SHIFT_IN_PROGRESS').length,
       leaveDays:factualDays.filter(x=>x.status==='LEAVE').length,absentDays:0,
       restDays:0,workedRestDays:0,
       noScheduleDays:0,workedNoScheduleDays:0,incompleteDays:factualDays.filter(x=>x.status==='INCOMPLETE').length,
@@ -281,7 +284,7 @@ export async function onRequestGet({request,env}){
     return json({
       success:true,period:{from,to},engine:'TIMESHEET_V4_FREE_SHIFT_PLUS_OFFICIAL_CALENDAR',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
       snapshotHashes:{FACTUAL:factualSnapshotHash,OFFICIAL:officialSnapshotHash},
-      rules:{duplicateWindowSeconds:10,factualMode:'FREE_SCHEDULE_FIRST_LAST',dayShift:'05:00-04:59',nightShift:'12:00-11:59',lateness:false,earlyDeparture:false,incompleteStatus:'INCOMPLETE',noMarksStatus:'FREE_NO_MARKS',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
+      rules:{duplicateWindowSeconds:10,factualMode:'FREE_SCHEDULE_FIRST_LAST',dayShift:'05:00-04:59',nightShift:'12:00-11:59',lateness:false,earlyDeparture:false,incompleteStatus:'INCOMPLETE',inProgressStatus:'SHIFT_IN_PROGRESS',noMarksStatus:'FREE_NO_MARKS',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
       summary:{factual:factualSummary,official:officialSummary,raw:{intervals:intervals.length,issues:issues.length}},
       employees,devices:devices.map(x=>({id:x.device_id,name:x.name,timezone:x.timezone||'Asia/Baku'})),
       factualDays,officialDays,intervals,issues
