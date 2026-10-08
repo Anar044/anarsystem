@@ -502,7 +502,8 @@
   }
   function correctionEditor(x){
     const access=data.access||{},c=x.correction||null;
-    const workedValue=c&&Number(c.workedMinutesOverride)>=0?hoursInput(c.workedMinutesOverride):'';
+    const punchEdited=Boolean(c?.firstInOverride||c?.lastOutOverride);
+    const workedValue=c&&!punchEdited&&Number(c.workedMinutesOverride)>=0?hoursInput(c.workedMinutesOverride):'';
     const plannedValue=c&&Number(c.plannedMinutesOverride)>=0?hoursInput(c.plannedMinutesOverride):'';
     return `
       <section class="ts-edit-card">
@@ -514,6 +515,12 @@
           <label><span>Факт, часов</span><input id="tsCorrectionWorked" type="number" min="0" max="24" step="0.25" value="${esc(workedValue)}" placeholder="Авто: ${esc(hoursInput(x.rawWorkedMinutes??x.workedMinutes))}" ${mode==='FACTUAL'&&access.canCorrect?'':'disabled'}></label>
           <label><span>План, часов</span><input id="tsCorrectionPlanned" type="number" min="0" max="24" step="0.25" value="${esc(plannedValue)}" placeholder="Авто: ${esc(hoursInput(x.rawPlannedMinutes??x.plannedMinutes))}" ${access.canCorrect?'':'disabled'}></label>
         </div>
+        ${mode==='FACTUAL'?`
+        <div class="ts-detail-note">Исправленные приход/уход автоматически рассчитывают часы. Оставьте поле «Факт, часов» пустым. Исходные отметки SenseFace сохраняются.</div>
+        <div class="ts-edit-grid two">
+          <label><span>Приход (время Баку)</span><input id="tsCorrectionFirst" type="datetime-local" step="60" value="${esc(datetimeLocalBaku(c?.firstInOverride))}" ${access.canCorrect?'':'disabled'}><small>Аппарат: ${esc(localDateTime(x.rawFirstIn||x.firstIn))}</small></label>
+          <label><span>Уход (время Баку)</span><input id="tsCorrectionLast" type="datetime-local" step="60" value="${esc(datetimeLocalBaku(c?.lastOutOverride))}" ${access.canCorrect?'':'disabled'}><small>Аппарат: ${esc(localDateTime(x.rawLastOut||x.lastOut))}</small></label>
+        </div>`:''}
         <label class="ts-edit-full"><span>Причина изменения *</span><textarea id="tsCorrectionReason" maxlength="1600" placeholder="${mode==='FACTUAL'&&!faceIdConnected()?'Например: фактические часы по смене / ручной табель':'Например: сотрудник забыл отметиться на выходе'}" ${access.canCorrect?'':'disabled'}>${esc(c?.reason||'')}</textarea></label>
         <div class="ts-edit-actions">
           <button id="tsSaveCorrection" type="button" class="hr-primary" ${access.canCorrect?'':'disabled'}>Сохранить корректировку</button>
@@ -593,7 +600,9 @@
       const worked=inputMinutes($('tsCorrectionWorked')?.value),planned=inputMinutes($('tsCorrectionPlanned')?.value);
       if($('tsCorrectionWorked')?.value&&worked===null)return alert('Проверьте фактические часы');
       if($('tsCorrectionPlanned')?.value&&planned===null)return alert('Проверьте плановые часы');
-      runAdjustment({action:'SAVE_CORRECTION',employeeId,workDate,contour:kind,statusOverride:$('tsCorrectionStatus')?.value||'',workedMinutesOverride:worked,plannedMinutesOverride:planned,reason:$('tsCorrectionReason')?.value||''},'Корректировка сохранена');
+      const firstInOverride=$('tsCorrectionFirst')?.value||'',lastOutOverride=$('tsCorrectionLast')?.value||'';
+      if((firstInOverride||lastOutOverride)&&worked!==null)return alert('Очистите поле «Факт, часов»: время будет рассчитано по приходу и уходу.');
+      runAdjustment({action:'SAVE_CORRECTION',employeeId,workDate,contour:kind,statusOverride:$('tsCorrectionStatus')?.value||'',workedMinutesOverride:worked,plannedMinutesOverride:planned,firstInOverride,lastOutOverride,reason:$('tsCorrectionReason')?.value||''},'Корректировка сохранена');
     };
     if($('tsDeleteCorrection'))$('tsDeleteCorrection').onclick=()=>runAdjustment({action:'DELETE_CORRECTION',employeeId,workDate,contour:kind},'Автоматический расчёт восстановлен');
     if($('tsSaveOvertimeRule'))$('tsSaveOvertimeRule').onclick=()=>{
@@ -642,7 +651,7 @@
         ${x.leaveName?`<div class="ts-detail-note"><strong>Отпуск:</strong> ${esc(x.leaveName)}${x.leaveNote?'<br>'+esc(x.leaveNote):''}</div>`:''}
         ${x.scheduleOverrideNote?`<div class="ts-detail-note"><strong>Комментарий к индивидуальному графику:</strong><br>${esc(x.scheduleOverrideNote)}</div>`:''}
         ${issueItems.length?`<div class="ts-detail-note"><strong>Проблемы Face ID:</strong><br>${issueItems.map(i=>esc(issueLabel(i.code))).join('<br>')}</div>`:''}
-        ${x.corrected?`<div class="ts-detail-note"><strong>Автоматические данные до корректировки:</strong><br>Статус: ${esc(x.rawStatus||'—')} · Факт: ${esc(hoursLong(x.rawWorkedMinutes))} · План: ${esc(hoursLong(x.rawPlannedMinutes))}</div>`:''}
+        ${x.corrected?`<div class="ts-detail-note"><strong>Автоматические данные до корректировки:</strong><br>Статус: ${esc(x.rawStatus||'—')} · Факт: ${esc(hoursLong(x.rawWorkedMinutes))} · План: ${esc(hoursLong(x.rawPlannedMinutes))}<br>Приход Face ID: ${esc(localDateTime(x.rawFirstIn))} · Уход Face ID: ${esc(localDateTime(x.rawLastOut))}</div>`:''}
         ${correctionEditor(x)}
         ${overtimeEditor(x)}
       `;
