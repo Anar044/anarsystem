@@ -218,7 +218,7 @@ export async function onRequestGet({request,env}){
 
     // Snapshot only overtime accruals that changed. This gives the payment ledger
     // a stable monthly history without turning every Payroll GET into hundreds of writes.
-    try{
+    if(payrollTimesheetApproved)try{
       const existingR=await env.DB.prepare(`SELECT iiko_employee_id,amount,payable_minutes,extra_day_equivalent FROM hr_overtime_payroll_accruals WHERE user_id=?1 AND month=?2`).bind(userId,month).all();
       const existing=new Map((existingR.results||[]).map(x=>[String(x.iiko_employee_id),x]));
       const visibleIds=new Set(rows.map(x=>String(x.employeeId)));
@@ -239,7 +239,7 @@ export async function onRequestGet({request,env}){
     }
 
     let accountingPosted=0,accountingPending=0,accountingErrors=0;
-    for(const row of rows){
+    if(payrollTimesheetApproved)for(const row of rows){
       try{
         const result=await syncOvertimeAccrualPosting(env.DB,{
           userId,month,employeeId:String(row.employeeId),employeeName:row.employeeName||row.employeeCode||String(row.employeeId),
@@ -265,7 +265,7 @@ export async function onRequestGet({request,env}){
       success:true,engine:'MONTHLY_PAYROLL_V3_FREE_SHIFT',month,period:{from:b.from,to:b.to},currency:'AZN',timesheetApproval:{status:approvedTimesheet?.status||'DRAFT',approved:payrollTimesheetApproved,stale:timesheetApprovalStale},
       restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
       ruleProfile:AZ_PAYROLL_RULE_PROFILE,calendar:{year:2026,workDays:norm.days,normHours:norm.hours,source:'ƏƏSMN 2026 istehsalat təqvimi'},
-      attendance:{mode:faceIdConnected?'FACE_ID':'NOT_CONNECTED',activeDevices:activeDevices.length,label:faceIdConnected?'Face ID подключён':'Face ID пока не подключён'},
+      attendance:{mode:faceIdConnected?'FACE_ID':(correctionsByEmployee.size?'MANUAL':'NOT_CONNECTED'),activeDevices:activeDevices.length,label:faceIdConnected?'Face ID подключён':(correctionsByEmployee.size?'Факт введён вручную':'Face ID пока не подключён')},
       summary:{
         employees:rows.length,configured:configured.length,ready:rows.filter(r=>r.status==='READY').length,review:rows.filter(r=>r.status==='REVIEW').length,withoutTerms:rows.filter(r=>r.status==='NO_TERMS').length,
         partialMonth:rows.filter(r=>r.term&&Number(r.proration?.factualWorkDays||0)<norm.days).length,normMinutes:rows.length*norm.hours*60,
