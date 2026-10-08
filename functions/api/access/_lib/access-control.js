@@ -515,6 +515,10 @@ export async function upsertMember(db,ownerUserId,input){
   if(!email||!email.includes('@'))throw new Error('Укажите email сотрудника.');
   const displayName=clean(input?.displayName),employeeId=clean(input?.employeeId);
   const existing=await db.prepare(`SELECT id,user_id FROM sh_access_members WHERE owner_user_id=?1 AND email=?2 LIMIT 1`).bind(ownerUserId,email).first();
+  // Never mutate the owner's own membership through the ordinary employee editor.
+  // Previously this guard ran after the UPSERT, so a failed edit could already leave
+  // the owner PENDING/DISABLED. That is exactly the kind of accidental lockout we must avoid.
+  if(existing?.user_id===ownerUserId)throw Object.assign(new Error('Права владельца изменяются отдельно. Учётная запись владельца не была изменена.'),{status:409,code:'OWNER_PROTECTED'});
   const linkedUserId=clean(existing?.user_id);
   let status=['ACTIVE','PENDING','DISABLED'].includes(String(input?.status||'').toUpperCase())?String(input.status).toUpperCase():'PENDING';
   if(!linkedUserId&&status==='ACTIVE')status='PENDING';
@@ -524,7 +528,6 @@ export async function upsertMember(db,ownerUserId,input){
     ON CONFLICT(owner_user_id,email) DO UPDATE SET iiko_employee_id=excluded.iiko_employee_id,display_name=excluded.display_name,status=excluded.status,scope_mode=excluded.scope_mode,department_ids_json=excluded.department_ids_json,department_codes_json=excluded.department_codes_json,warehouse_ids_json=excluded.warehouse_ids_json,updated_at=excluded.updated_at`)
     .bind(id,ownerUserId,email,employeeId,displayName,status,scopeMode,JSON.stringify(scope.departmentIds||[]),JSON.stringify(scope.departmentCodes||[]),JSON.stringify(scope.warehouseIds||[]),now).run();
   const member=await db.prepare(`SELECT id,user_id FROM sh_access_members WHERE owner_user_id=?1 AND email=?2`).bind(ownerUserId,email).first();
-  if(member?.user_id===ownerUserId)throw Object.assign(new Error('Права владельца изменяются отдельно.'),{status:409});
   await db.prepare(`DELETE FROM sh_access_member_roles WHERE owner_user_id=?1 AND member_id=?2`).bind(ownerUserId,member.id).run();
   const roleIds=[...new Set((input?.roleIds||[]).map(clean).filter(Boolean))];
   if(roleIds.length){
