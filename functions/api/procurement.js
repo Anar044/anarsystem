@@ -545,29 +545,89 @@ async function readData(db,serverScope,scope){
   }));
 
   const orders=orderRows.map(o=>{
-    const rs=receiptsByOrder.get(o.id)||[],received=new Map(),receiptPrices=new Map();
-    for(const receipt of rs)for(const line of receipt.lines||[]){
-      const pid=clean(line.productId),qty=n(line.quantity??line.receivedQty),price=money(line.unitPrice);
+    const invoices=receiptsByOrder.get(o.id)||[],orderGrns=grnsByOrder.get(o.id)||[];
+    const received=new Map(),invoiceQty=new Map(),invoicePrices=new Map();
+
+    for(const grn of orderGrns)for(const line of grn.lines||[]){
+      const pid=clean(line.productId),qty=n(line.quantity??line.receivedQty);
       received.set(pid,n(received.get(pid))+qty);
-      if(!receiptPrices.has(pid))receiptPrices.set(pid,[]);receiptPrices.get(pid).push(price);
     }
+    for(const invoice of invoices)for(const line of invoice.lines||[]){
+      const pid=clean(line.productId),qty=n(line.quantity??line.receivedQty),price=money(line.unitPrice);
+      invoiceQty.set(pid,n(invoiceQty.get(pid))+qty);
+      if(!invoicePrices.has(pid))invoicePrices.set(pid,[]);
+      invoicePrices.get(pid).push(price);
+    }
+
     const lines=(orderLinesBy.get(o.id)||[]).map(l=>{
-      const rec=q(received.get(l.product_id)||0),ord=q(l.ordered_qty),rem=q(Math.max(0,ord-rec));
-      return{id:l.id,productId:l.product_id,productName:l.product_name,unit:l.unit,orderedQty:ord,confirmedQty:q(l.confirmed_qty||l.ordered_qty),packageSize:n(l.package_size,1)||1,packageCount:n(l.package_count)||ord,containerId:l.container_id||"",packageName:l.package_name||"",vatPercent:n(l.vat_percent),unitPrice:n(l.unit_price),receivedQty:rec,remainingQty:rem};
+      const rec=q(received.get(l.product_id)||0),inv=q(invoiceQty.get(l.product_id)||0),ord=q(l.ordered_qty),rem=q(Math.max(0,ord-rec));
+      const prices=invoicePrices.get(l.product_id)||[],poPrice=n(l.unit_price);
+      const priceMismatch=prices.some(p=>Math.abs(p-poPrice)>0.009);
+      const invoicePrice=prices.length?money(prices.reduce((s,x)=>s+x,0)/prices.length):null;
+      const lineStatus=
+        rec>ord+0.0005?"QUANTITY_MISMATCH":
+        invoices.length&&Math.abs(inv-rec)>0.0005?"INVOICE_QTY_MISMATCH":
+        priceMismatch?"PRICE_MISMATCH":
+        !orderGrns.length?"WAITING_GRN":
+        !invoices.length?"WAITING_INVOICE":
+        rec<ord-0.0005?"PARTIAL_GRN":"MATCHED";
+      return{
+        id:l.id,productId:l.product_id,productName:l.product_name,unit:l.unit,orderedQty:ord,confirmedQty:q(l.confirmed_qty||l.ordered_qty),
+        packageSize:n(l.package_size,1)||1,packageCount:n(l.package_count)||ord,containerId:l.container_id||"",packageName:l.package_name||"",
+        vatPercent:n(l.vat_percent),unitPrice:poPrice,receivedQty:rec,grnQty:rec,invoicedQty:inv,invoiceUnitPrice:invoicePrice,remainingQty:rem,
+        quantityDelta:q(rec-ord),invoiceQuantityDelta:q(inv-rec),priceDelta:invoicePrice===null?null:money(invoicePrice-poPrice),threeWayStatus:lineStatus
+      };
     });
+
     const orderedQty=lines.reduce((s,x)=>s+x.orderedQty,0),receivedQty=lines.reduce((s,x)=>s+Math.min(x.orderedQty,x.receivedQty),0);
     const completed=lines.length>0&&lines.every(x=>x.remainingQty<=0.0005);
     const over=lines.some(x=>x.receivedQty>x.orderedQty+0.0005);
-    const priceMismatch=lines.some(x=>(receiptPrices.get(x.productId)||[]).some(p=>Math.abs(p-x.unitPrice)>0.009));
+    const invoiceQtyMismatch=invoices.length&&lines.some(x=>Math.abs(x.invoicedQty-x.receivedQty)>0.0005);
+    const priceMismatch=invoices.length&&lines.some(x=>x.priceDelta!==null&&Math.abs(x.priceDelta)>0.009);
     const effectiveStatus=o.status==="CANCELLED"?"CANCELLED":completed?"COMPLETED":receivedQty>0?"PARTIALLY_RECEIVED":o.status;
-    const matchStatus=over?"QUANTITY_MISMATCH":priceMismatch?"PRICE_MISMATCH":completed?"MATCHED":receivedQty>0?"PARTIAL":"OPEN";
+
+    let matchStatus="WAITING_GRN";
+    if(orderGrns.length){
+      if(over)matchStatus="QUANTITY_MISMATCH";
+      else if(invoiceQtyMismatch)matchStatus="INVOICE_QTY_MISMATCH";
+      else if(priceMismatch)matchStatus="PRICE_MISMATCH";
+      else if(!completed)matchStatus="PARTIAL_GRN";
+      else if(!invoices.length)matchStatus="WAITING_INVOICE";
+      else matchStatus="MATCHED";
+    }
+
+    const enrichedGrns=orderGrns.map(g=>({
+      ...g,
+      invoices:g.legacy
+        ? invoices.filter(x=>x.id===g.invoiceId)
+        : invoices.filter(x=>clean(x.grnId)===clean(g.id))
+    }));
+    const grnTotal=money(orderGrns.reduce((s,g)=>s+n(g.totalAmount),0));
+    const invoiceTotal=money(invoices.reduce((s,r)=>s+n(r.totalAmount),0));
+    const threeWay={
+      status:matchStatus,
+      poTotal:n(o.total_amount),
+      grnTotal,
+      invoiceTotal,
+      grnCount:orderGrns.length,
+      invoiceCount:invoices.length,
+      quantityMatched:!over&&!invoiceQtyMismatch,
+      priceMatched:!priceMismatch,
+      lines:lines.map(x=>({
+        productId:x.productId,productName:x.productName,unit:x.unit,
+        poQty:x.orderedQty,grnQty:x.receivedQty,invoiceQty:x.invoicedQty,
+        poPrice:x.unitPrice,invoicePrice:x.invoiceUnitPrice,
+        quantityDelta:x.quantityDelta,invoiceQuantityDelta:x.invoiceQuantityDelta,priceDelta:x.priceDelta,status:x.threeWayStatus
+      }))
+    };
+
     return{
       id:o.id,number:o.number,requisitionId:o.requisition_id,quoteId:o.quote_id,supplierId:o.supplier_id,supplierName:o.supplier_name,
       warehouseId:o.warehouse_id,warehouseName:o.warehouse_name,status:o.status,effectiveStatus,createdAt:o.created_at,updatedAt:o.updated_at,
       createdById:o.created_by,createdBy:o.created_by_name||o.created_by,sentAt:o.sent_at,confirmedAt:o.confirmed_at,comment:o.comment,totalAmount:n(o.total_amount),
       restaurantIds:parse(o.restaurant_ids_json,[]),restaurantNames:parse(o.restaurant_names_json,[]),
       orderedQty:q(orderedQty),receivedQty:q(receivedQty),completionPercent:orderedQty>0?Math.round(receivedQty/orderedQty*1000)/10:0,matchStatus,
-      lines,receipts:rs
+      lines,grns:enrichedGrns,receipts:invoices,threeWay
     };
   });
 
@@ -597,10 +657,10 @@ async function readData(db,serverScope,scope){
   for(const o of orders.filter(x=>x.effectiveStatus!=="CANCELLED")){
     const key=o.supplierId||o.supplierName;if(!supplierMap.has(key))supplierMap.set(key,{supplierId:o.supplierId,supplierName:o.supplierName,orders:0,totalAmount:0,receivedAmount:0,completedOrders:0,avgCompletion:0,_completion:0});
     const s=supplierMap.get(key);s.orders++;s.totalAmount+=o.totalAmount;s._completion+=o.completionPercent;if(o.effectiveStatus==="COMPLETED")s.completedOrders++;
-    s.receivedAmount+=(o.receipts||[]).reduce((a,r)=>a+n(r.totalAmount),0);
+    s.receivedAmount+=(o.grns||[]).reduce((a,r)=>a+n(r.totalAmount),0);
   }
   const supplierPerformance=[...supplierMap.values()].map(s=>({...s,totalAmount:money(s.totalAmount),receivedAmount:money(s.receivedAmount),avgCompletion:s.orders?Math.round(s._completion/s.orders*10)/10:0,_completion:undefined})).sort((a,b)=>b.totalAmount-a.totalAmount);
-  const estimate=requisitionsWithProgress.reduce((s,r)=>s+n(r.totalEstimate),0),ordered=orders.filter(x=>x.effectiveStatus!=="CANCELLED").reduce((s,o)=>s+n(o.totalAmount),0),receivedAmount=receipts.reduce((s,r)=>s+n(r.totalAmount),0);
+  const estimate=requisitionsWithProgress.reduce((s,r)=>s+n(r.totalEstimate),0),ordered=orders.filter(x=>x.effectiveStatus!=="CANCELLED").reduce((s,o)=>s+n(o.totalAmount),0),receivedAmount=grns.reduce((s,r)=>s+n(r.totalAmount),0);
   const stockNorms=(normsR.results||[]).filter(x=>rowAllowed(x,scope)).map(x=>({
     storeId:x.store_id,storeName:x.store_name,productId:x.product_id,productName:x.product_name,unit:x.unit,
     minStock:x.min_stock===null?null:n(x.min_stock),targetStock:x.target_stock===null?null:n(x.target_stock),
@@ -616,7 +676,7 @@ async function readData(db,serverScope,scope){
     createdAt:x.created_at,updatedAt:x.updated_at,updatedBy:x.updated_by_name||x.updated_by
   }));
   return{
-    requisitions:requisitionsWithProgress,orders,receipts,stockNorms,supplierPerformance,supplierProfiles,supplierContracts,
+    requisitions:requisitionsWithProgress,orders,grns,receipts,stockNorms,supplierPerformance,supplierProfiles,supplierContracts,
     analytics:{requisitionEstimate:money(estimate),orderedAmount:money(ordered),receivedAmount:money(receivedAmount),estimatedSavings:money(Math.max(0,estimate-ordered)),activeOrders:orders.filter(x=>!["COMPLETED","CANCELLED"].includes(x.effectiveStatus)).length,completedOrders:orders.filter(x=>x.effectiveStatus==="COMPLETED").length,pendingApprovals:requisitionsWithProgress.filter(x=>x.status==="PENDING_APPROVAL").length,completedRequisitions:requisitionsWithProgress.filter(x=>x.effectiveStatus==="COMPLETED").length}
   };
 }
@@ -631,12 +691,12 @@ export async function onRequestGet({request,env}){
     let data=await readData(env.DB,c.serverScope,c.scope);
 
     if(view==="requests"&&!hasPermission(c.access,"procurement.request.view_all")){
-      data={...data,requisitions:(data.requisitions||[]).filter(r=>clean(r.createdById)===clean(c.auth.user.id)),orders:[],receipts:[],supplierPerformance:[]};
+      data={...data,requisitions:(data.requisitions||[]).filter(r=>clean(r.createdById)===clean(c.auth.user.id)),orders:[],grns:[],receipts:[],supplierPerformance:[]};
     }
-    if(view==="approvals")data={...data,requisitions:(data.requisitions||[]).filter(r=>r.status==="PENDING_APPROVAL"),orders:[],receipts:[],supplierPerformance:[]};
-    if(view==="catalog"||view==="norms")data={...data,requisitions:[],orders:[],receipts:[],supplierPerformance:[]};
-    if(view==="sourcing")data={...data,orders:[],receipts:[]};
-    if(view==="suppliers")data={...data,requisitions:[],orders:[],receipts:[],stockNorms:[]};
+    if(view==="approvals")data={...data,requisitions:(data.requisitions||[]).filter(r=>r.status==="PENDING_APPROVAL"),orders:[],grns:[],receipts:[],supplierPerformance:[]};
+    if(view==="catalog"||view==="norms")data={...data,requisitions:[],orders:[],grns:[],receipts:[],supplierPerformance:[]};
+    if(view==="sourcing")data={...data,orders:[],grns:[],receipts:[]};
+    if(view==="suppliers")data={...data,requisitions:[],orders:[],grns:[],receipts:[],stockNorms:[]};
     if(view==="orders"||view==="receiving")data={...data,requisitions:[],supplierPerformance:view==="orders"?data.supplierPerformance:[]};
     if(!["suppliers","sourcing","analytics"].includes(view))data={...data,supplierProfiles:[],supplierContracts:[]};
     if(!hasPermission(c.access,"procurement.prices.view")&&!hasPermission(c.access,"sensitive.cost.view"))data=redactProcurementCosts(data);
