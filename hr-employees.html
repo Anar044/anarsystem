@@ -27,7 +27,7 @@
           <div class="hr-head">
             <div>
               <h1>Сотрудники</h1>
-              <p>Справочник сотрудников синхронизируется из SH Server. Журнал входов/выходов и расчёт зарплаты будут храниться и рассчитываться в Smart Horeca.</p>
+              <p>Справочник сотрудников синхронизируется из SH Server. Face ID, табель и расчёт зарплаты ведутся в Smart Horeca.</p>
             </div>
             <div class="hr-actions">
               <span id="hrStatus" class="hr-status">Готово</span>
@@ -37,7 +37,7 @@
 
           <section class="hr-source-grid">
             <article class="hr-source-card active"><span>Справочник сотрудников</span><strong>SH Server</strong><small>Имя · фамилия · должность · подразделение</small></article>
-            <article class="hr-source-card"><span>Журнал явок</span><strong>Face ID / ZKTeco</strong><small>Следующий этап · отдельный адаптер устройства</small></article>
+            <article class="hr-source-card"><span>Журнал явок</span><strong>Face ID / ZKTeco</strong><small>Прямой ADMS PUSH · офлайн-накопление</small></article>
             <article class="hr-source-card"><span>Расчёт зарплаты</span><strong>Smart Horeca</strong><small>Рабочее время · доплаты · налоги · Net</small></article>
           </section>
 
@@ -83,11 +83,7 @@
             </div>
           </section>
 
-          <section class="hr-card hr-next">
-            <div class="hr-card-title">Следующий этап</div>
-            <p>Подключение источника проходов через независимый attendance-adapter. Для каждого сотрудника Smart Horeca будет хранить связь <b>SH employee ID ↔ Face ID employee ID</b>, а затем формировать собственный табель.</p>
-            <div class="hr-flow"><span>SH сотрудник</span><b>→</b><span>Связь ID</span><b>→</b><span>ZKTeco / Face ID</span><b>→</b><span>Журнал событий</span><b>→</b><span>Табель</span><b>→</b><span>Payroll</span></div>
-          </section>
+          
         </section>
       </div>
     </main>
