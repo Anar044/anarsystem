@@ -14,6 +14,8 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const num=(v,f=0)=>{const n=Number(v);return Number.isFinite(n)?n:f};
 const qty=v=>num(v).toLocaleString('ru-RU',{maximumFractionDigits:3});
 const money=v=>num(v).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₼';
+const dateTimeLabel=v=>{const d=new Date(v);return Number.isNaN(d.getTime())?'—':d.toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})};
+const newestFirst=rows=>[...(rows||[])].sort((a,b)=>new Date(b.createdAt||0).getTime()-new Date(a.createdAt||0).getTime());
 const today=()=>new Date().toISOString().slice(0,10);
 const addDays=(date,days)=>{const d=new Date(date+'T12:00:00');d.setDate(d.getDate()+Number(days||0));return d.toISOString().slice(0,10)};
 const daysAgo=n=>{const d=new Date();d.setDate(d.getDate()-n);return d.toISOString().slice(0,10)};
@@ -520,7 +522,7 @@ function prProgressHtml(r){
 }
 function requestCard(r){
   const effective=r.effectiveStatus||r.status,done=['COMPLETED','CLOSED','CANCELLED'].includes(effective);
-  return '<article class="proc-doc-card '+(done?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+new Date(r.createdAt).toLocaleDateString('ru-RU')+' · '+esc(r.createdBy||'')+'</span></div><span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span></div>'+
+  return '<article class="proc-doc-card '+(done?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+dateTimeLabel(r.createdAt)+' · '+esc(r.createdBy||'')+'</span></div><span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span></div>'+
     prProgressHtml(r)+prLinesHtml(r,true)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
     '<div class="proc-doc-footer"><strong>'+(r.totalEstimate?money(r.totalEstimate):'Сумма уточняется')+'</strong><div class="proc-actions">'+requesterActions(r)+'</div></div></article>';
 }
@@ -613,6 +615,38 @@ function sourcingCard(r,index=0){
     '<div class="proc-document-footer"><div><span>Оценка PR</span><strong>'+(r.totalEstimate?money(r.totalEstimate):'—')+'</strong></div><div><span>Заказы PO</span><strong>'+((r.linkedOrders||[]).length?r.linkedOrders.length:'ещё нет')+'</strong></div><em>Конец '+esc(r.number)+'</em></div>'+
   '</article>';
 }
+function requestListItem(r){
+  const effective=r.effectiveStatus||r.status,done=['COMPLETED','CLOSED','CANCELLED'].includes(effective);
+  const lines=(r.lines||[]).length,total=r.totalEstimate?money(r.totalEstimate):'Сумма уточняется';
+  return '<details class="proc-record '+(done?'done':'')+'" name="proc-pr-documents">'+
+    '<summary class="proc-record-summary">'+
+      '<div class="proc-record-date"><strong>'+esc(dateTimeLabel(r.createdAt))+'</strong><span>дата и время</span></div>'+
+      '<div class="proc-record-main"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+esc(r.createdBy||'—')+'</span></div>'+
+      '<div class="proc-record-metric"><strong>'+lines+'</strong><span>позиций</span></div>'+
+      '<div class="proc-record-metric amount"><strong>'+esc(total)+'</strong><span>оценка</span></div>'+
+      '<span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span>'+
+      '<span class="proc-record-open">Открыть <i>›</i></span>'+
+    '</summary>'+
+    '<div class="proc-record-body">'+requestCard(r)+'</div>'+
+  '</details>';
+}
+function orderListItem(o,{receiving=false}={}){
+  const effective=o.effectiveStatus||o.status,done=['COMPLETED','CANCELLED'].includes(effective);
+  const lines=(o.lines||[]).length,remaining=num(o.remainingQty||Math.max(0,num(o.orderedQty)-num(o.receivedQty)));
+  return '<details class="proc-record '+(done?'done':'')+'" name="'+(receiving?'proc-receiving-documents':'proc-po-documents')+'">'+
+    '<summary class="proc-record-summary">'+
+      '<div class="proc-record-date"><strong>'+esc(dateTimeLabel(o.createdAt))+'</strong><span>дата и время</span></div>'+
+      '<div class="proc-record-main"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId||'Поставщик')+' · '+esc(o.warehouseName||'Склад')+'</span></div>'+
+      '<div class="proc-record-metric"><strong>'+lines+'</strong><span>позиций</span></div>'+
+      (receiving
+        ?'<div class="proc-record-metric amount"><strong>'+qty(remaining)+' '+esc((o.lines||[])[0]?.unit||'')+'</strong><span>к приёмке</span></div>'
+        :'<div class="proc-record-metric amount"><strong>'+money(o.totalAmount)+'</strong><span>сумма PO</span></div>')+
+      '<span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span>'+
+      '<span class="proc-record-open">Открыть <i>›</i></span>'+
+    '</summary>'+
+    '<div class="proc-record-body">'+orderCard(o,{receiving})+'</div>'+
+  '</details>';
+}
 function renderRequisitions(){
   const box=$('proc-pr-list'),all=state.data?.requisitions||[],view=state.view||currentProcurementView();
   const head=document.querySelector('[data-panel="requisitions"] .proc-panel-head');
@@ -636,12 +670,12 @@ function renderRequisitions(){
     return;
   }
   if(head)head.querySelector('h2').textContent='Заявки на закупку (PR)';
-  if(head)head.querySelector('p').textContent='Пользователь видит свою потребность и статус процесса без коммерческих предложений поставщиков.';
-  const active=all.filter(r=>!['COMPLETED','CLOSED','CANCELLED'].includes(r.effectiveStatus||r.status));
-  const done=all.filter(r=>['COMPLETED','CLOSED','CANCELLED'].includes(r.effectiveStatus||r.status));
+  if(head)head.querySelector('p').textContent='Компактный список документов. Нажмите на нужную заявку, чтобы открыть её карточку и действия.';
+  const active=newestFirst(all.filter(r=>!['COMPLETED','CLOSED','CANCELLED'].includes(r.effectiveStatus||r.status)));
+  const done=newestFirst(all.filter(r=>['COMPLETED','CLOSED','CANCELLED'].includes(r.effectiveStatus||r.status)));
   box.innerHTML=
-    '<div class="proc-list-section"><div class="proc-list-section-title"><strong>Активные</strong><span>'+active.length+'</span></div>'+ (active.map(requestCard).join('')||'<div class="proc-empty">Активных заявок нет.</div>')+'</div>'+
-    '<details class="proc-history-block" '+(!active.length&&done.length?'open':'')+'><summary>Завершённые и закрытые · '+done.length+'</summary><div class="proc-card-list inner">'+(done.map(requestCard).join('')||'<div class="proc-empty">Истории пока нет.</div>')+'</div></details>';
+    '<div class="proc-list-section"><div class="proc-list-section-title"><strong>Активные заявки</strong><span>'+active.length+'</span></div><div class="proc-document-list">'+(active.map(requestListItem).join('')||'<div class="proc-empty">Активных заявок нет.</div>')+'</div></div>'+
+    '<details class="proc-history-block" '+(!active.length&&done.length?'open':'')+'><summary>Завершённые и закрытые · '+done.length+'</summary><div class="proc-document-list history">'+(done.map(requestListItem).join('')||'<div class="proc-empty">Истории пока нет.</div>')+'</div></details>';
 }
 function buyerOrderActions(o){
   const a=[];if(['CANCELLED','COMPLETED'].includes(o.effectiveStatus))return '';
@@ -657,7 +691,7 @@ function receivingActions(o){
 }
 function orderCard(o,{receiving=false}={}){
   const lines=(o.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.orderedQty)+' '+esc(l.unit)+(receiving?'':' × '+money(l.unitPrice))+'</strong><span>принято '+qty(l.receivedQty)+' · осталось '+qty(l.remainingQty)+'</span></div>').join('');
-  return '<article class="proc-doc-card '+(o.effectiveStatus==='COMPLETED'?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId)+' · '+esc(o.warehouseName||'Склад')+' · '+new Date(o.createdAt).toLocaleDateString('ru-RU')+'</span></div><span class="proc-status-badge '+statusTone(o.effectiveStatus)+'">'+esc(statusLabel(o.effectiveStatus))+'</span></div>'+
+  return '<article class="proc-doc-card '+(o.effectiveStatus==='COMPLETED'?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId)+' · '+esc(o.warehouseName||'Склад')+' · '+dateTimeLabel(o.createdAt)+'</span></div><span class="proc-status-badge '+statusTone(o.effectiveStatus)+'">'+esc(statusLabel(o.effectiveStatus))+'</span></div>'+
     '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(o.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>Принято '+qty(o.receivedQty)+' из '+qty(o.orderedQty)+'</span><span>'+num(o.completionPercent).toFixed(1)+'%</span></div></div>'+
     '<div class="proc-line-list">'+lines+'</div>'+
     '<div class="proc-card-row" style="margin-top:10px"><span class="proc-match '+String(o.matchStatus||'OPEN').toLowerCase()+'">'+esc(matchLabel(o.matchStatus))+'</span><span class="proc-history-note">'+((o.receipts||[]).length?'Накладные: '+(o.receipts||[]).map(r=>esc(r.iikoDocumentNumber||'без №')).join(', '):'Приёмок пока нет')+'</span></div>'+
@@ -668,19 +702,21 @@ function renderOrders(){
   const head=document.querySelector('[data-panel="orders"] .proc-panel-head');
   if(view==='receiving'){
     if(head)head.querySelector('h2').textContent='Приёмка поставок';
-    if(head)head.querySelector('p').textContent='Склад видит количество, поставщика и факт приёмки без коммерческих предложений.';
-    const active=all.filter(o=>!['COMPLETED','CANCELLED'].includes(o.effectiveStatus));
-    const done=all.filter(o=>o.effectiveStatus==='COMPLETED').slice(0,30);
-    box.innerHTML=active.map(o=>orderCard(o,{receiving:true})).join('')||'<div class="proc-empty">Нет поставок, ожидающих приёмки.</div>';
-    if(done.length)box.insertAdjacentHTML('beforeend','<details class="proc-history-block"><summary>Недавно принятые · '+done.length+'</summary><div class="proc-card-list inner">'+done.map(o=>orderCard(o,{receiving:true})).join('')+'</div></details>');
+    if(head)head.querySelector('p').textContent='Список поставок по дате и времени. Откройте нужный документ, чтобы принять товар или привязать накладную.';
+    const active=newestFirst(all.filter(o=>!['COMPLETED','CANCELLED'].includes(o.effectiveStatus)));
+    const done=newestFirst(all.filter(o=>o.effectiveStatus==='COMPLETED')).slice(0,30);
+    box.innerHTML=
+      '<div class="proc-list-section"><div class="proc-list-section-title"><strong>Ожидают приёмки</strong><span>'+active.length+'</span></div><div class="proc-document-list">'+(active.map(o=>orderListItem(o,{receiving:true})).join('')||'<div class="proc-empty">Нет поставок, ожидающих приёмки.</div>')+'</div></div>'+
+      (done.length?'<details class="proc-history-block"><summary>Недавно принятые · '+done.length+'</summary><div class="proc-document-list history">'+done.map(o=>orderListItem(o,{receiving:true})).join('')+'</div></details>':'');
     return;
   }
   if(head)head.querySelector('h2').textContent='Заказы поставщикам (PO)';
-  if(head)head.querySelector('p').textContent='Отправка заказа, подтверждение поставщика и контроль исполнения.';
-  const active=all.filter(o=>!['COMPLETED','CANCELLED'].includes(o.effectiveStatus));
-  const done=all.filter(o=>['COMPLETED','CANCELLED'].includes(o.effectiveStatus));
-  box.innerHTML=active.map(o=>orderCard(o)).join('')||'<div class="proc-empty">Активных PO нет.</div>';
-  if(done.length)box.insertAdjacentHTML('beforeend','<details class="proc-history-block"><summary>Завершённые PO · '+done.length+'</summary><div class="proc-card-list inner">'+done.map(o=>orderCard(o)).join('')+'</div></details>');
+  if(head)head.querySelector('p').textContent='Компактный список PO. Откройте нужный заказ, чтобы отправить, подтвердить или посмотреть исполнение.';
+  const active=newestFirst(all.filter(o=>!['COMPLETED','CANCELLED'].includes(o.effectiveStatus)));
+  const done=newestFirst(all.filter(o=>['COMPLETED','CANCELLED'].includes(o.effectiveStatus)));
+  box.innerHTML=
+    '<div class="proc-list-section"><div class="proc-list-section-title"><strong>Активные PO</strong><span>'+active.length+'</span></div><div class="proc-document-list">'+(active.map(o=>orderListItem(o)).join('')||'<div class="proc-empty">Активных PO нет.</div>')+'</div></div>'+
+    (done.length?'<details class="proc-history-block"><summary>Завершённые PO · '+done.length+'</summary><div class="proc-document-list history">'+done.map(o=>orderListItem(o)).join('')+'</div></details>':'');
 }
 const WEEKDAY_LABELS={1:'Пн',2:'Вт',3:'Ср',4:'Чт',5:'Пт',6:'Сб',7:'Вс'};
 function supplierProfileFor(id){return (state.data?.supplierProfiles||[]).find(x=>key(x.supplierId)===key(id))||null}
