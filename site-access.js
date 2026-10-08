@@ -152,6 +152,20 @@
     box.querySelector('button').onclick=()=>window.SHAuth?.signOut?.();
   }
 
+  function installWorkspaceSwitcher(){
+    if(!context?.allowed||(context.workspaces||[]).length<2)return;
+    const host=document.querySelector('.topbar-right')||document.querySelector('.topbar');
+    if(!host||document.getElementById('sh-workspace-switcher'))return;
+    const btn=document.createElement('button');
+    btn.id='sh-workspace-switcher';
+    btn.type='button';
+    btn.textContent='🏢 '+(context.workspace?.name||'Организация');
+    btn.title='Сменить организацию';
+    btn.style.cssText='margin-left:auto;height:36px;border:1px solid #2a3d4d;border-radius:9px;background:#12202a;color:#dfe8ee;padding:0 11px;cursor:pointer;font:600 11px Inter,system-ui,sans-serif;white-space:nowrap';
+    btn.onclick=()=>workspacePicker(context.workspaces||[]);
+    host.appendChild(btn);
+  }
+
   function guardCurrentPage(){
     const rules=rulesForLocation();
     if(!rules.length)return true;
@@ -191,7 +205,7 @@
           try{localStorage.removeItem('sh_pending_invite')}catch{}
           const url=new URL(location.href);url.searchParams.delete('invite');history.replaceState({},'',url.pathname+url.search+url.hash);
         }
-        guardCurrentPage();applyVisibility(document);
+        guardCurrentPage();applyVisibility(document);installWorkspaceSwitcher();
         return context;
       }catch(error){
         console.error('Smart Horeca access error',error);
