@@ -289,14 +289,14 @@ export async function onRequestGet({request,env}){
           });
         }
         if(employmentActive(date,officialHire,officialFire)){
-          const schedule=scheduleForDate(employee.id,employee.roleCode,date,schedules,overrides),plan=schedulePlan(date,schedule,dayRules),calendar=calendarInfo(date),leave=leaveForDate(employee.id,date,'OFFICIAL',leaves);
+          const plan=schedulePlan(date,null,dayRules),calendar=calendarInfo(date),leave=leaveForDate(employee.id,date,'OFFICIAL',leaves);
           let planned=Math.round(plan.plannedMinutes*capacity);
           let status=leave?'LEAVE':plan.scheduled?(calendar.type==='HOLIDAY'||calendar.type==='MOURNING'?'WORK_HOLIDAY':'WORK'):'REST';
-          if(plan.source==='CALENDAR'&&(calendar.type==='HOLIDAY'||calendar.type==='TRANSFERRED_REST'||calendar.type==='WEEKEND'||calendar.type==='MOURNING')){status=leave?'LEAVE':'REST';planned=0}
-          if(plan.source==='CALENDAR'&&calendar.type==='SHORT_WORKDAY')planned=Math.round(7*60*capacity);
+          if(calendar.type==='HOLIDAY'||calendar.type==='TRANSFERRED_REST'||calendar.type==='WEEKEND'||calendar.type==='MOURNING'){status=leave?'LEAVE':'REST';planned=0}
+          if(calendar.type==='SHORT_WORKDAY')planned=Math.round(7*60*capacity);
           officialDays.push({
             employeeId:employee.id,employeeCode:employee.code,employeeName:employee.name,roleName:employee.roleName,departmentCode:employee.departmentCode,workDate:date,
-            status,plannedMinutes:planned,shiftStart:plan.shiftStart,shiftEnd:plan.shiftEnd,breakMinutes:plan.breakMinutes,scheduleName:plan.scheduleName,scheduleSource:plan.source,scheduleOverrideId:plan.overrideId||'',scheduleOverrideNote:plan.overrideNote||'',
+            status,plannedMinutes:planned,shiftStart:plan.shiftStart,shiftEnd:plan.shiftEnd,breakMinutes:0,scheduleName:'Производственный календарь',scheduleSource:'CALENDAR',scheduleOverrideId:'',scheduleOverrideNote:'',
             calendarType:calendar.type,calendarName:calendar.name,leaveId:leave?.leave_id||'',leaveType:leave?.leave_type||'',leaveName:leave?.leaveName||'',leaveNote:leave?.note||''
           });
         }
@@ -318,7 +318,7 @@ export async function onRequestGet({request,env}){
     const [factualSnapshotHash,officialSnapshotHash]=await Promise.all([snapshotHash(factualDays,'FACTUAL'),snapshotHash(officialDays,'OFFICIAL')]);
 
     return json({
-      success:true,period:{from,to},engine:'TIMESHEET_V3_FREE_SHIFT_FIRST_LAST',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
+      success:true,period:{from,to},engine:'TIMESHEET_V4_FREE_SHIFT_PLUS_OFFICIAL_CALENDAR',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
       snapshotHashes:{FACTUAL:factualSnapshotHash,OFFICIAL:officialSnapshotHash},
       rules:{duplicateWindowSeconds:10,factualMode:'FREE_SCHEDULE_FIRST_LAST',dayShift:'05:00-04:59',nightShift:'12:00-11:59',lateness:false,earlyDeparture:false,incompleteStatus:'INCOMPLETE',noMarksStatus:'FREE_NO_MARKS',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
       summary:{factual:factualSummary,official:officialSummary,raw:{intervals:intervals.length,issues:issues.length}},
