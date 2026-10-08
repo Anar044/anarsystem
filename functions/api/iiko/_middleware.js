@@ -218,7 +218,7 @@ export async function onRequest(context) {
   if(env.DB){
     auth=await getUser(request,env);
     if(!auth)return accessDenied("Требуется авторизация.",401,"UNAUTHENTICATED");
-    access=await resolveAccessForUser(env.DB,auth.user,{claimInvite:true});
+    access=await resolveAccessForUser(env.DB,auth.user,{claimInvite:true,request});
     if(!access.allowed)return accessDenied("Доступ к Smart Horeca не назначен.",403,access.reason||"ACCESS_DENIED");
   }
 
@@ -243,7 +243,7 @@ export async function onRequest(context) {
   let storedConnection = null;
 
   if (env.DB && auth && access) {
-    const stored = await loadPrivateIikoState(env.DB, access.ownerUserId || auth.user.id, env);
+    const stored = await loadPrivateIikoState(env.DB, access.storageUserId || access.ownerUserId || auth.user.id, env);
     if (stored.found) {
       storedState = restrictStateToAccess(stored.state,access);
       if (hasPrivateConnection(stored.state)) storedConnection = privateConnection(stored.state);
