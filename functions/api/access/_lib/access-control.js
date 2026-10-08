@@ -202,12 +202,18 @@ function workspaceNameForUser(user){
 export async function ensureOwnerWorkspace(db,ownerUserId,user=null){
   await ensureAccessTables(db);
   const owner=clean(ownerUserId);if(!owner)return null;
-  let row=await db.prepare(`SELECT * FROM sh_workspaces WHERE owner_user_id=?1 LIMIT 1`).bind(owner).first();
-  if(row)return row;
+
+  // Several page APIs can initialize access in parallel (access/me, access/admin,
+  // HR, iiko state). The workspace creation therefore must be idempotent.
   const now=NOW(),id=uid(),name=workspaceNameForUser(user);
-  await db.prepare(`INSERT INTO sh_workspaces(id,owner_user_id,server_owner_user_id,name,status,created_at,updated_at) VALUES(?1,?2,?2,?3,'ACTIVE',?4,?4)`)
+  await db.prepare(`INSERT INTO sh_workspaces(id,owner_user_id,server_owner_user_id,name,status,created_at,updated_at)
+    VALUES(?1,?2,?2,?3,'ACTIVE',?4,?4)
+    ON CONFLICT(owner_user_id) DO NOTHING`)
     .bind(id,owner,name,now).run();
-  return db.prepare(`SELECT * FROM sh_workspaces WHERE id=?1`).bind(id).first();
+
+  const row=await db.prepare(`SELECT * FROM sh_workspaces WHERE owner_user_id=?1 LIMIT 1`).bind(owner).first();
+  if(!row)throw new Error('Не удалось создать или загрузить рабочее пространство Smart Horeca.');
+  return row;
 }
 function workspacePublic(row){
   if(!row)return null;
