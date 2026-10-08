@@ -558,11 +558,27 @@ function quoteComparisonHtml(r){
   return '<div class="proc-quote-compare-wrap"><table class="proc-quote-compare">'+head+'<tbody>'+bodyRows+totals+'</tbody></table></div>'+
     '<div class="proc-quote-legend"><span><i class="best-dot"></i> зелёным отмечена минимальная цена по конкретному товару</span><span>Итог поставщика считается по всем его строкам</span></div>';
 }
+function rfqStatusLabel(s){
+  return({DRAFT:'Черновик',SENT:'Отправлен',CLOSED:'Закрыт'}[String(s||'').toUpperCase()]||s||'—');
+}
+function rfqStatusTone(s){
+  return String(s||'').toUpperCase()==='SENT'?'warn':String(s||'').toUpperCase()==='CLOSED'?'success':'neutral';
+}
+function rfqListHtml(r){
+  const rfqs=r.rfqs||[];
+  if(!rfqs.length)return '<div class="proc-rfq-empty">RFQ ещё не создан. Можно выбрать поставщиков и сформировать запрос цен.</div>';
+  return rfqs.map(x=>{
+    const deadline=x.deadline?new Date(x.deadline+'T00:00:00').toLocaleDateString('ru-RU'):'не указан';
+    return '<div class="proc-rfq-row"><div class="proc-rfq-main"><div><strong>'+esc(x.number)+'</strong><span class="proc-status-badge '+rfqStatusTone(x.status)+'">'+esc(rfqStatusLabel(x.status))+'</span></div><small>Поставщики: '+esc((x.supplierNames||[]).join(', ')||'—')+'</small><small>Ответов: '+num(x.responseCount)+' из '+(x.supplierIds||[]).length+' · срок: '+esc(deadline)+'</small></div><div class="proc-actions"><button class="proc-btn small ghost" data-rfq-copy="'+x.id+'">Копировать</button>'+(x.status==='DRAFT'?'<button class="proc-btn small primary" data-rfq-send="'+x.id+'">Отметить отправленным</button>':'')+(x.status!=='CLOSED'?'<button class="proc-btn small danger" data-rfq-close="'+x.id+'">Закрыть</button>':'')+'</div></div>';
+  }).join('');
+}
 function sourcingCard(r){
   const effective=r.effectiveStatus||r.status;
+  const activeRfq=(r.rfqs||[]).find(x=>x.status!=='CLOSED')||null;
   return '<article class="proc-doc-card sourcing-card"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+new Date(r.createdAt).toLocaleDateString('ru-RU')+'</span></div><span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span></div>'+
     '<div class="proc-sourcing-request"><div class="proc-quotes-head"><strong>Что нужно купить</strong><span class="proc-history-note">'+(r.lines||[]).length+' позиций</span></div>'+prLinesHtml(r,false)+'</div>'+
-    '<div class="proc-quotes"><div class="proc-quotes-head"><strong>Сравнение предложений · '+(r.quotes||[]).length+'</strong><button class="proc-btn small ghost" data-pr-quote="'+r.id+'">+ Предложение</button></div>'+quoteComparisonHtml(r)+'</div>'+
+    '<div class="proc-rfq-block"><div class="proc-quotes-head"><strong>RFQ · запрос цен</strong><button class="proc-btn small secondary" data-rfq-create="'+r.id+'">+ Создать RFQ</button></div>'+rfqListHtml(r)+'</div>'+
+    '<div class="proc-quotes"><div class="proc-quotes-head"><strong>Сравнение предложений · '+(r.quotes||[]).length+'</strong><button class="proc-btn small ghost" data-pr-quote="'+r.id+'" '+(activeRfq?'data-rfq="'+activeRfq.id+'"':'')+'>+ Внести предложение</button></div>'+quoteComparisonHtml(r)+'</div>'+
     '<div class="proc-doc-footer"><strong>Оценка PR: '+(r.totalEstimate?money(r.totalEstimate):'—')+'</strong><span class="proc-history-note">'+((r.linkedOrders||[]).length?'Создано PO: '+r.linkedOrders.length:'PO ещё не создан')+'</span></div></article>';
 }
 function renderRequisitions(){
@@ -704,11 +720,33 @@ function quoteLineHtml(l,supplierId){
   return '<div class="proc-edit-row proc-quote-pack-row" data-quote-line data-product-id="'+esc(l.productId)+'"><div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div><div class="proc-field"><span>Фасовка</span><input data-f="packageSize" value="'+packageSize+'" disabled><small>'+esc(l.packageName||'iiko')+'</small></div><div class="proc-field"><span>Упаковок</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+packageCount+'"></div><div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div><div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0.01" step="0.01" value="'+price+'"></div><strong class="line-total">'+money(packageCount*price)+'</strong><span></span><input data-f="containerId" type="hidden" value="'+esc(l.containerId||'')+'"><input data-f="packageName" type="hidden" value="'+esc(l.packageName||'')+'"><input data-f="unit" type="hidden" value="'+esc(l.unit||'')+'"></div>';
 }
 function recalcQuote(){let total=0;document.querySelectorAll('[data-quote-line]').forEach(row=>{const x=num(row.querySelector('[data-f="packageCount"]').value)*num(row.querySelector('[data-f="price"]').value);total+=x;row.querySelector('.line-total').textContent=money(x)});if($('proc-quote-total'))$('proc-quote-total').textContent=money(total)}
-function openQuoteModal(r){
-  openModal('Предложение поставщика · '+r.number,'СРАВНЕНИЕ ПОСТАВЩИКОВ','<form id="proc-quote-form"><div class="proc-form-grid"><label class="proc-field"><span>Поставщик</span><select id="proc-quote-supplier">'+supplierOptions()+'</select></label><label class="proc-field"><span>Срок доставки, дней</span><input id="proc-quote-days" type="number" min="0" step="1" value="1"></label><label class="proc-field"><span>Предложение действует до</span><input id="proc-quote-valid" type="date" value="'+addDays(today(),7)+'"></label><label class="proc-field wide"><span>Условия оплаты</span><input id="proc-quote-payment" placeholder="Например: 7 дней / предоплата / по факту"></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-quote-comment"></textarea></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Цены предложения</strong><span class="proc-history-note">Если есть история накладных этого поставщика, подставим последнюю цену.</span></div><div id="proc-quote-lines">'+(r.lines||[]).map(l=>quoteLineHtml(l,'')).join('')+'</div></div><div class="proc-modal-summary"><span>Итого предложение</span><strong id="proc-quote-total">0,00 ₼</strong></div><div class="proc-modal-actions"><button type="button" id="proc-quote-cancel" class="proc-btn ghost">Отмена</button><button class="proc-btn primary">Сохранить предложение</button></div></form>');
+function openRfqModal(r){
+  const suppliers=state.refs.suppliers||[];
+  if(!suppliers.length){toast('Список поставщиков не загружен. Нажмите «Обновить» и повторите.','error');return}
+  openModal('Новый RFQ · '+r.number,'REQUEST FOR QUOTATION',
+    '<div class="proc-form-grid"><label class="proc-field"><span>Срок ответа</span><input id="proc-rfq-deadline" type="date" value="'+addDays(today(),3)+'"></label><label class="proc-field wide"><span>Сообщение поставщикам</span><textarea id="proc-rfq-message">Просим предоставить цены и условия поставки по указанным позициям.</textarea></label></div>'+
+    '<div class="proc-edit-lines"><div class="proc-edit-head"><strong>Кому отправить запрос</strong><span class="proc-history-note">Можно выбрать несколько поставщиков</span></div><div class="proc-rfq-supplier-grid">'+suppliers.map(s=>'<label class="proc-rfq-supplier"><input type="checkbox" data-rfq-supplier="'+esc(key(s.id))+'"><span><strong>'+esc(s.name||s.id)+'</strong><small>'+esc(s.code||'')+'</small></span></label>').join('')+'</div></div>'+
+    '<div class="proc-modal-actions"><button id="proc-rfq-cancel" type="button" class="proc-btn ghost">Отмена</button><button id="proc-rfq-save" type="button" class="proc-btn primary">Создать RFQ</button></div>');
+  $('proc-rfq-cancel').onclick=closeModal;
+  $('proc-rfq-save').onclick=async()=>{
+    const selected=[...document.querySelectorAll('[data-rfq-supplier]:checked')].map(x=>{const id=key(x.dataset.rfqSupplier),s=state.refs.suppliers.find(v=>key(v.id)===id);return{id,name:s?.name||id}});
+    if(!selected.length){toast('Выберите хотя бы одного поставщика.','error');return}
+    try{setBusy(true);await procPost('create-rfq',{requisitionId:r.id,deadline:$('proc-rfq-deadline').value,message:$('proc-rfq-message').value,suppliers:selected});closeModal();await reloadProc();toast('RFQ создан. Теперь его можно отправить поставщикам.')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}
+  };
+}
+async function copyRfq(r,rfq){
+  const lines=(r.lines||[]).map((l,i)=>(i+1)+'. '+(l.productName||l.productId)+' — '+qty(l.packageCount||l.quantity)+' уп. × '+qty(l.packageSize||1)+' '+(l.unit||'')+' = '+qty(l.quantity)+' '+(l.unit||'')).join('\n');
+  const text=['Smart Horeca · Request for Quotation',rfq.number,'PR: '+r.number,'Срок ответа: '+(rfq.deadline||'—'),'Поставщики: '+(rfq.supplierNames||[]).join(', '),'',rfq.message||'Просим предоставить ценовое предложение.','',lines].join('\n');
+  try{await navigator.clipboard.writeText(text);toast('RFQ скопирован. Можно отправить поставщику по email/WhatsApp.')}catch(e){toast('Не удалось скопировать RFQ: '+(e.message||e),'error')}
+}
+function openQuoteModal(r,rfqId=''){
+  const rfq=(r.rfqs||[]).find(x=>key(x.id)===key(rfqId))||null;
+  const allowed=rfq?new Set((rfq.supplierIds||[]).map(key)):null;
+  const supplierHtml='<option value="">Выберите поставщика</option>'+state.refs.suppliers.filter(x=>!allowed||allowed.has(key(x.id))).map(x=>'<option value="'+esc(key(x.id))+'">'+esc(x.name)+'</option>').join('');
+  openModal('Предложение поставщика · '+r.number,'СРАВНЕНИЕ ПОСТАВЩИКОВ','<form id="proc-quote-form"><div class="proc-form-grid"><label class="proc-field"><span>Поставщик</span><select id="proc-quote-supplier">'+supplierHtml+'</select></label><label class="proc-field"><span>Срок доставки, дней</span><input id="proc-quote-days" type="number" min="0" step="1" value="1"></label><label class="proc-field"><span>Предложение действует до</span><input id="proc-quote-valid" type="date" value="'+addDays(today(),7)+'"></label><label class="proc-field wide"><span>Условия оплаты</span><input id="proc-quote-payment" placeholder="Например: 7 дней / предоплата / по факту"></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-quote-comment"></textarea></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Цены предложения</strong><span class="proc-history-note">Если есть история накладных этого поставщика, подставим последнюю цену.</span></div><div id="proc-quote-lines">'+(r.lines||[]).map(l=>quoteLineHtml(l,'')).join('')+'</div></div><div class="proc-modal-summary"><span>Итого предложение</span><strong id="proc-quote-total">0,00 ₼</strong></div><div class="proc-modal-actions"><button type="button" id="proc-quote-cancel" class="proc-btn ghost">Отмена</button><button class="proc-btn primary">Сохранить предложение</button></div></form>');
   const bind=()=>document.querySelectorAll('[data-quote-line] input,[data-quote-line] select').forEach(x=>{x.oninput=recalcQuote;x.onchange=recalcQuote});bind();recalcQuote();$('proc-quote-cancel').onclick=closeModal;
   $('proc-quote-supplier').onchange=e=>{const sid=e.target.value;document.querySelectorAll('[data-quote-line]').forEach((row,i)=>{const l=r.lines[i],h=historyPrice(l.productId,sid);if(h)row.querySelector('[data-f="price"]').value=h.price});recalcQuote()};
-  $('proc-quote-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const sid=key($('proc-quote-supplier').value),sup=state.refs.suppliers.find(x=>key(x.id)===sid);if(!sid)throw Error('Выберите поставщика.');const lines=[...document.querySelectorAll('[data-quote-line]')].map(row=>{const pid=row.dataset.productId;const packageSize=num(row.querySelector('[data-f="packageSize"]').value,1),packageCount=num(row.querySelector('[data-f="packageCount"]').value);return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId:key(row.querySelector('[data-f="containerId"]').value),packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),unitPrice:num(row.querySelector('[data-f="price"]').value)}});await procPost('add-quote',{requisitionId:r.id,supplierId:sid,supplierName:sup?.name||'',deliveryDays:num($('proc-quote-days').value),paymentTerms:$('proc-quote-payment').value,validUntil:$('proc-quote-valid').value,comment:$('proc-quote-comment').value,lines});closeModal();await reloadProc();toast('Предложение поставщика сохранено.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
+  $('proc-quote-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const sid=key($('proc-quote-supplier').value),sup=state.refs.suppliers.find(x=>key(x.id)===sid);if(!sid)throw Error('Выберите поставщика.');const lines=[...document.querySelectorAll('[data-quote-line]')].map(row=>{const pid=row.dataset.productId;const packageSize=num(row.querySelector('[data-f="packageSize"]').value,1),packageCount=num(row.querySelector('[data-f="packageCount"]').value);return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId:key(row.querySelector('[data-f="containerId"]').value),packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),unitPrice:num(row.querySelector('[data-f="price"]').value)}});await procPost('add-quote',{requisitionId:r.id,rfqId:rfq?.id||'',supplierId:sid,supplierName:sup?.name||'',deliveryDays:num($('proc-quote-days').value),paymentTerms:$('proc-quote-payment').value,validUntil:$('proc-quote-valid').value,comment:$('proc-quote-comment').value,lines});closeModal();await reloadProc();toast('Предложение поставщика сохранено.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
 }
 async function simpleAction(action,id,message){try{setBusy(true);await procPost(action,{id});await reloadProc();toast(message)}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
 async function createPoFromQuote(reqId,quoteId){try{setBusy(true);await procPost('create-order',{requisitionId:reqId,quoteId});await reloadProc();toast('Заказ PO создан.');goProcurementView('orders')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
@@ -848,10 +886,17 @@ function bind(){
     const row=state.purchaseRows.find(x=>x.id===b.dataset.createNeed);if(row)openPrModal([row]);
   });
   $('proc-pr-list').addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prClose||b.dataset.prQuote||b.dataset.poCreate;if(!id)return;
-    const r=(state.data?.requisitions||[]).find(x=>x.id===id);
+    const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prClose||b.dataset.prQuote||b.dataset.poCreate||b.dataset.rfqCreate||b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose;if(!id)return;
+    const r=(state.data?.requisitions||[]).find(x=>x.id===id)||(state.data?.requisitions||[]).find(x=>(x.rfqs||[]).some(q=>q.id===id));
     if(b.dataset.prEdit&&r)return openPrModal([],r);
-    if(b.dataset.prQuote&&r)return openQuoteModal(r);
+    if(b.dataset.rfqCreate&&r)return openRfqModal(r);
+    if((b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose)&&r){
+      const rfq=(r.rfqs||[]).find(x=>x.id===id);if(!rfq)return;
+      if(b.dataset.rfqCopy)return copyRfq(r,rfq);
+      if(b.dataset.rfqSend)return simpleAction('send-rfq',rfq.id,'RFQ отмечен как отправленный поставщикам.');
+      if(b.dataset.rfqClose&&confirm('Закрыть '+rfq.number+'?'))return simpleAction('close-rfq',rfq.id,'RFQ закрыт.');
+    }
+    if(b.dataset.prQuote&&r)return openQuoteModal(r,b.dataset.rfq||'');
     if(b.dataset.prClose&&r){const reason=prompt('Причина ручного закрытия '+r.number+':');if(reason?.trim())return procPost('close-requisition',{id:r.id,reason:reason.trim()}).then(()=>reloadProc()).then(()=>toast('Заявка закрыта.')).catch(e=>toast(e.message||String(e),'error'));return}
     if(b.dataset.poCreate)return createPoFromQuote(b.dataset.poCreate,b.dataset.quote);
     if(b.dataset.prSubmit)return simpleAction('submit-requisition',id,'Заявка отправлена на согласование.');
