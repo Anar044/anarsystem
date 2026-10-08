@@ -12,12 +12,13 @@ test('HR profile and schedule read/write permissions',()=>{
 });
 test('Manager and HR approvals have distinct permission checks',()=>{
   check('timesheet-approval','GET','', 'hr.timesheet.view');
-  check('timesheet-approval','POST','MANAGER_APPROVE','hr.timesheet.manage');
-  check('timesheet-approval','POST','HR_APPROVE','hr.payroll.approve');
+  check('timesheet-approval','POST','MANAGER_APPROVE','hr.timesheet.manager_approve');
+  check('timesheet-approval','POST','HR_APPROVE','hr.timesheet.hr_approve');
   check('timesheet-adjustments','POST','SAVE_CORRECTION','hr.timesheet.manage');
-  check('timesheet-adjustments','POST','SUBMIT_OVERTIME','hr.timesheet.manage');
-  check('timesheet-adjustments','POST','HR_APPROVE_OVERTIME','hr.payroll.approve');
-  check('timesheet-adjustments','POST','HR_REJECT_OVERTIME','hr.payroll.approve');
+  check('timesheet-adjustments','POST','SUBMIT_OVERTIME','hr.timesheet.manager_approve');
+  check('timesheet-adjustments','POST','HR_APPROVE_OVERTIME','hr.timesheet.hr_approve');
+  check('timesheet-adjustments','POST','HR_REJECT_OVERTIME','hr.timesheet.hr_approve');
+  check('timesheet-adjustments','POST','SAVE_OVERTIME_RULE','hr.timesheet.hr_approve');
 });
 test('Payroll accounting and payments cannot be mutated with viewer rights',()=>{
   check('overtime-settlements','GET','', 'hr.payroll.view');
