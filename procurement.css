@@ -226,3 +226,6 @@
   .proc-record-body .proc-doc-top,.proc-record-body .proc-doc-footer{align-items:flex-start;flex-direction:column}
   .proc-record-body .proc-actions{justify-content:flex-start}
 }
+
+.proc-record-body>.proc-sourcing-document{margin:0!important;box-shadow:none!important;border-color:#2b414f!important}
+.proc-record-body>.proc-sourcing-document .proc-document-banner{border-radius:0}
