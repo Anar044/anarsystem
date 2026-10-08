@@ -1,5 +1,5 @@
 import { loadRequestIikoState, privateConnection } from '../iiko/_lib/user-state.js';
-import { resolveHrRestaurantScope } from './_lib/restaurant-scope.js';
+import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
 import { logAuditEvent } from '../_lib/audit-log.js';
 import { calculateManualPunchCorrection } from './_lib/punch-correction.js';
 import {
@@ -19,6 +19,15 @@ function mins(v,{allowNull=false,max=1440}={}){
   const n=Math.round(Number(v));
   if(!Number.isFinite(n)||n<0||n>max)return null;
   return n;
+}
+async function visibleEmployeeIds(db,userId,scope){
+  const result=await db.prepare('SELECT iiko_employee_id,department_code FROM hr_employees WHERE user_id=?1').bind(userId).all();
+  return new Set(filterEmployeesByScope(result.results||[],scope).map(x=>String(x.iiko_employee_id)));
+}
+async function ensureEmployeeVisible(db,userId,employeeId,scope){
+  if(!employeeId||employeeId==='*')return;
+  const ids=await visibleEmployeeIds(db,userId,scope);
+  if(!ids.has(String(employeeId))){const e=new Error('Сотрудник не найден в выбранном ресторане.');e.status=403;throw e}
 }
 async function invalidateFactualApprovals(db,userId,workDate){
   if(!workDate)return;
@@ -44,13 +53,14 @@ export async function onRequestGet({request,env}){
     if(!from||!to||from>to)return json({success:false,message:'Некорректный период'},400);
     const userId=state.user.id,access=hrAccessForUser(state.user);
     await ensureTimesheetAdjustmentTables(env.DB);
+    const scope=await resolveHrRestaurantScope(request,env,userId),visible=await visibleEmployeeIds(env.DB,userId,scope);
     try{
       const [c,r,o]=await Promise.all([
         env.DB.prepare(`SELECT * FROM hr_timesheet_day_corrections WHERE user_id=?1 AND work_date>=?2 AND work_date<=?3 ORDER BY work_date,iiko_employee_id`).bind(userId,from,to).all(),
         env.DB.prepare(`SELECT * FROM hr_overtime_rules WHERE user_id=?1 ORDER BY iiko_employee_id`).bind(userId).all(),
         env.DB.prepare(`SELECT * FROM hr_overtime_requests WHERE user_id=?1 AND work_date>=?2 AND work_date<=?3 ORDER BY work_date,iiko_employee_id`).bind(userId,from,to).all()
       ]);
-      return json({success:true,access,corrections:(c.results||[]).map(correctionDto),rules:r.results||[],overtime:(o.results||[]).map(overtimeDto),defaults:{overtimeThresholdMinutes:DEFAULT_OVERTIME_THRESHOLD_MINUTES}});
+      return json({success:true,access,corrections:(c.results||[]).filter(x=>visible.has(String(x.iiko_employee_id))).map(correctionDto),rules:(r.results||[]).filter(x=>x.iiko_employee_id==='*'||visible.has(String(x.iiko_employee_id))),overtime:(o.results||[]).filter(x=>visible.has(String(x.iiko_employee_id))).map(overtimeDto),defaults:{overtimeThresholdMinutes:DEFAULT_OVERTIME_THRESHOLD_MINUTES}});
     }catch(inner){
       const message=String(inner?.message||inner||'');
       if(/no such table|does not exist/i.test(message)){
@@ -68,6 +78,7 @@ export async function onRequestPost({request,env}){
     const body=await request.json().catch(()=>({})),action=clean(body.action,60).toUpperCase(),userId=state.user.id,actorId=clean(state.user.id,180),actor=actorLabel(state.user),t=now();
     const access=hrAccessForUser(state.user),scope=await resolveHrRestaurantScope(request,env,userId),connection=privateConnection(state.state);
     const employeeId=clean(body.employeeId,180),workDate=ymd(body.workDate),kind=contour(body.contour)||'FACTUAL';
+    if(employeeId)await ensureEmployeeVisible(env.DB,userId,employeeId,scope);
     const audit=async({auditAction,entityType,entityId,entityLabel,before,after,metadata={}})=>logAuditEvent({request,env,connection,action:auditAction,entityType,entityId,entityLabel,before,after,restaurantIds:scope?.selectedDepartmentIds||[],metadata});
 
     if(action==='SAVE_CORRECTION'){
