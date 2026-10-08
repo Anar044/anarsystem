@@ -259,6 +259,12 @@ export async function listUserWorkspaces(db,user){
   }
   return out;
 }
+export async function updateWorkspaceName(db,workspaceId,name){
+  await ensureAccessTables(db);
+  const next=clean(name);if(!next)return;
+  await db.prepare(`UPDATE sh_workspaces SET name=?2,updated_at=?3 WHERE id=?1`).bind(clean(workspaceId),next,NOW()).run();
+}
+
 export async function selectWorkspaceForUser(db,user,workspaceId){
   const list=await listUserWorkspaces(db,user);
   const selected=list.find(x=>clean(x.id)===clean(workspaceId)&&String(x.memberStatus).toUpperCase()==='ACTIVE');
