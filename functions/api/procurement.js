@@ -389,7 +389,12 @@ function requireAnyPermission(access,list){
 function redactProcurementCosts(data){
   const clone=structuredClone(data);
   clone.requisitions=(clone.requisitions||[]).map(r=>({...r,totalEstimate:null,quotes:[],lines:(r.lines||[]).map(l=>({...l,expectedPrice:null})),linkedOrders:(r.linkedOrders||[]).map(o=>({...o,totalAmount:null}))}));
-  clone.orders=(clone.orders||[]).map(o=>({...o,totalAmount:null,lines:(o.lines||[]).map(l=>({...l,unitPrice:null})),receipts:(o.receipts||[]).map(r=>({...r,totalAmount:null,lines:(r.lines||[]).map(l=>({...l,unitPrice:null}))}))}));
+  clone.orders=(clone.orders||[]).map(o=>({...o,totalAmount:null,
+    lines:(o.lines||[]).map(l=>({...l,unitPrice:null,invoiceUnitPrice:null,priceDelta:null})),
+    grns:(o.grns||[]).map(g=>({...g,totalAmount:null,lines:(g.lines||[]).map(l=>({...l,unitPrice:null,total:null}))})),
+    receipts:(o.receipts||[]).map(r=>({...r,totalAmount:null,lines:(r.lines||[]).map(l=>({...l,unitPrice:null,total:null}))})),
+    threeWay:o.threeWay?{...o.threeWay,poTotal:null,grnTotal:null,invoiceTotal:null,lines:(o.threeWay.lines||[]).map(l=>({...l,poPrice:null,invoicePrice:null,priceDelta:null}))}:o.threeWay
+  }));
   clone.grns=(clone.grns||[]).map(r=>({...r,totalAmount:null,lines:(r.lines||[]).map(l=>({...l,unitPrice:null}))}));
   clone.receipts=(clone.receipts||[]).map(r=>({...r,totalAmount:null,lines:(r.lines||[]).map(l=>({...l,unitPrice:null}))}));
   clone.supplierPerformance=[];
