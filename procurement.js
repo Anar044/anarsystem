@@ -905,27 +905,130 @@ async function flushPending(){
   try{await registerReceipt(p);await loadProcurement();toast('Восстановлена связь ранее созданной накладной с PO.')}catch(e){console.warn('Pending procurement receipt not registered',e)}
 }
 function openReceiptModal(o){
-  const lines=(o.lines||[]).filter(x=>num(x.remainingQty)>0.0005);if(!lines.length){toast('Заказ уже полностью принят.','error');return}
+  const lines=(o.lines||[]).filter(x=>num(x.remainingQty)>0.0005);
+  if(!lines.length){toast('Заказ уже полностью принят.','error');return}
   const draftNo='RC-'+Date.now().toString().slice(-9);
-  openModal('Приёмка · '+o.number,'ФАКТИЧЕСКОЕ ИСПОЛНЕНИЕ PO','<div class="proc-form-grid"><label class="proc-field"><span>Поставщик</span><input value="'+esc(o.supplierName||o.supplierId)+'" disabled></label><label class="proc-field"><span>Склад</span><input value="'+esc(o.warehouseName||o.warehouseId)+'" disabled></label><label class="proc-field"><span>Дата</span><input id="proc-receipt-date" type="date" value="'+today()+'"></label><label class="proc-field"><span>Номер накладной</span><input id="proc-receipt-number" value="'+draftNo+'"></label><label class="proc-field"><span>PO / входящий номер</span><input value="'+esc(o.number)+'" disabled></label><label class="proc-field"><span>Статус</span><input value="Приёмка товара" disabled></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Фактически получено</strong><span class="proc-history-note">Можно принять заказ частично.</span></div><div id="proc-receipt-lines">'+lines.map(receiptLineHtml).join('')+'</div></div><div class="proc-modal-summary"><span>Итого фактической поставки</span><strong id="proc-receipt-total">0,00 ₼</strong></div><div class="proc-history-note">После сохранения Smart Horeca создаст приходную накладную на связанном Server. Проведение сразу обновит склад.</div><div class="proc-receipt-choice"><button id="proc-receipt-cancel" class="proc-btn ghost" type="button">Отмена</button><button id="proc-receipt-save" class="proc-btn secondary" type="button">Сохранить без проведения</button><button id="proc-receipt-post" class="proc-btn primary" type="button">Сохранить и провести</button></div>');
+  openModal('Приёмка · '+o.number,'ФАКТИЧЕСКОЕ ИСПОЛНЕНИЕ PO',
+    '<div class="proc-form-grid">'+
+      '<label class="proc-field"><span>Поставщик</span><input value="'+esc(o.supplierName||o.supplierId)+'" disabled></label>'+
+      '<label class="proc-field"><span>Склад</span><input value="'+esc(o.warehouseName||o.warehouseId)+'" disabled></label>'+
+      '<label class="proc-field"><span>Дата</span><input id="proc-receipt-date" type="date" value="'+today()+'"></label>'+
+      '<label class="proc-field"><span>Номер накладной</span><input id="proc-receipt-number" value="'+draftNo+'"></label>'+
+      '<label class="proc-field"><span>PO / входящий номер</span><input value="'+esc(o.number)+'" disabled></label>'+
+      '<label class="proc-field"><span>Статус</span><input value="Приёмка товара" disabled></label>'+
+    '</div>'+
+    '<div class="proc-edit-lines"><div class="proc-edit-head"><strong>Фактически получено</strong><span class="proc-history-note">Можно принять заказ частично.</span></div><div id="proc-receipt-lines">'+lines.map(receiptLineHtml).join('')+'</div></div>'+
+    '<div class="proc-modal-summary"><span>Итого фактической поставки</span><strong id="proc-receipt-total">0,00 ₼</strong></div>'+
+    '<div class="proc-history-note">После успешного сохранения Smart Horeca создаст приходную накладную на связанном Server. При проведении склад обновится сразу.</div>'+
+    '<div id="proc-receipt-status" class="proc-receipt-status" hidden></div>'+
+    '<div class="proc-receipt-choice"><button id="proc-receipt-cancel" class="proc-btn ghost" type="button">Отмена</button><button id="proc-receipt-save" class="proc-btn secondary" type="button">Сохранить без проведения</button><button id="proc-receipt-post" class="proc-btn primary" type="button">Сохранить и провести</button></div>'
+  );
   bindReceiptPackaging();recalcReceipt();$('proc-receipt-cancel').onclick=closeModal;
-  async function save(process){
-    let documentNumber=$('proc-receipt-number').value.trim()||draftNo;
-    const rlines=[...document.querySelectorAll('[data-receipt-line]')].map(row=>{const pid=key(row.dataset.productId),packageSize=num(row.querySelector('[data-f="packageSize"]').value),packageCount=num(row.querySelector('[data-f="packageCount"]').value),vatPercent=num(row.querySelector('[data-f="vatPercent"]').value),unitPrice=num(row.querySelector('[data-f="price"]').value),containerId=key(row.querySelector('[data-f="containerId"]').value);if(productPackagings(pid).length&&!containerId)throw Error(productName(pid)+': выберите фасовку из iiko.');if(!(packageSize>0))throw Error(productName(pid)+': фасовка не определена в iiko.');return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId,packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent,unitPrice}}).filter(x=>x.quantity>0&&x.packageCount>0);
-    if(!rlines.length){toast('Укажите фактически принятое количество.','error');return}
-    try{
-      setBusy(true);setStatus('Создаём приходную накладную на Smart Horeca Server…');
-      const document={documentNumber,dateIncoming:$('proc-receipt-date').value+'T00:00:00',supplierId:o.supplierId,defaultStore:o.warehouseId,incomingDocumentNumber:o.number,comment:'Smart Horeca Procurement · '+o.number,items:rlines.map((x,i)=>{const sum=x.packageCount*x.unitPrice,vatSum=x.vatPercent>0?sum*x.vatPercent/(100+x.vatPercent):0;return{num:i+1,productId:x.productId,amount:x.packageCount,actualAmount:x.quantity,actualUnitWeight:x.packageSize,amountUnit:x.unit,containerId:x.containerId||undefined,vatPercent:x.vatPercent,vatSum:Number(vatSum.toFixed(2)),priceWithoutVat:Number((x.vatPercent>0?x.unitPrice/(1+x.vatPercent/100):x.unitPrice).toFixed(4)),price:x.unitPrice,sum,store:o.warehouseId}}),documentTotal:rlines.reduce((s,x)=>s+x.packageCount*x.unitPrice,0)};
-      const rr=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/document-action',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({connection:state.binding.connection,type:'incoming',action:process?'save-and-process':'save',document,departmentIds:state.binding.departmentIds||[],chainScope:chainScope()})},90000);
-      const x=await rr.json().catch(()=>({}));if(!rr.ok||x.success===false)throw Error(x.message||('Server HTTP '+rr.status));
-      documentNumber=x.validation?.documentNumber||x.validation?.otherSuggestedNumber||documentNumber;
-      const payload={id:o.id,iikoDocumentNumber:documentNumber,iikoStatus:process?'PROCESSED':'DRAFT',documentDate:$('proc-receipt-date').value,comment:'Smart Horeca Procurement · '+o.number,lines:rlines};
-      rememberPending(payload);
-      try{await registerReceipt(payload)}catch(linkError){try{await registerReceipt(payload)}catch(second){throw Error('Накладная '+documentNumber+' создана, но связь с PO временно не сохранилась: '+second.message)}}
-      closeModal();await reloadProc();toast(process?'Поставка принята и накладная проведена.':'Поставка сохранена черновиком и привязана к PO.');
-    }catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}
+
+  function modalStatus(message,kind=''){
+    const el=$('proc-receipt-status');if(!el)return;
+    el.hidden=!message;el.textContent=message||'';el.className='proc-receipt-status'+(kind?' '+kind:'');
   }
-  $('proc-receipt-save').onclick=()=>save(false);$('proc-receipt-post').onclick=()=>save(true);
+  function actionError(data,response){
+    const detail=data?.validation&&(data.validation.errorMessage||data.validation.additionalInfo);
+    const raw=String(data?.rawResponse||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+    return detail||(raw?raw.slice(0,700):'')||data?.message||('HTTP '+response.status);
+  }
+  async function save(process){
+    let documentNumber=draftNo;
+    try{
+      modalStatus('');
+      documentNumber=$('proc-receipt-number').value.trim()||draftNo;
+      const rlines=[...document.querySelectorAll('[data-receipt-line]')].map(row=>{
+        const pid=key(row.dataset.productId),
+          packageSize=num(row.querySelector('[data-f="packageSize"]').value),
+          packageCount=num(row.querySelector('[data-f="packageCount"]').value),
+          vatPercent=num(row.querySelector('[data-f="vatPercent"]').value),
+          unitPrice=num(row.querySelector('[data-f="price"]').value),
+          containerId=key(row.querySelector('[data-f="containerId"]').value);
+        if(productPackagings(pid).length&&!containerId)throw Error(productName(pid)+': выберите фасовку из iiko.');
+        if(!(packageSize>0))throw Error(productName(pid)+': фасовка не определена в iiko.');
+        if(!(packageCount>0))throw Error(productName(pid)+': количество упаковок должно быть больше нуля.');
+        if(unitPrice<0)throw Error(productName(pid)+': цена не может быть отрицательной.');
+        return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId,packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent,unitPrice};
+      }).filter(x=>x.quantity>0&&x.packageCount>0);
+      if(!rlines.length)throw Error('Укажите фактически принятое количество.');
+
+      setBusy(true);
+      modalStatus(process?'Сохраняем и проводим накладную в Smart Horeca Server…':'Сохраняем накладную в Smart Horeca Server…','loading');
+      const document={
+        documentNumber,
+        dateIncoming:$('proc-receipt-date').value+'T00:00:00',
+        supplierId:o.supplierId,
+        defaultStore:o.warehouseId,
+        incomingDocumentNumber:o.number,
+        comment:'Smart Horeca Procurement · '+o.number,
+        items:rlines.map((x,i)=>{
+          const sum=x.packageCount*x.unitPrice,vatSum=x.vatPercent>0?sum*x.vatPercent/(100+x.vatPercent):0;
+          return{
+            num:i+1,productId:x.productId,amount:x.packageCount,actualAmount:x.quantity,
+            actualUnitWeight:x.packageSize,amountUnit:x.unit,containerId:x.containerId||undefined,
+            vatPercent:x.vatPercent,vatSum:Number(vatSum.toFixed(2)),
+            priceWithoutVat:Number((x.vatPercent>0?x.unitPrice/(1+x.vatPercent/100):x.unitPrice).toFixed(4)),
+            price:x.unitPrice,sum,store:o.warehouseId
+          };
+        }),
+        documentTotal:rlines.reduce((s,x)=>s+x.packageCount*x.unitPrice,0)
+      };
+
+      // Important: do not send the browser's masked password marker. The authenticated
+      // /api/iiko middleware injects the real encrypted Server credentials for this workspace.
+      const rr=await authFetch('/api/iiko/document-action',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Accept':'application/json'},
+        body:JSON.stringify({
+          type:'incoming',
+          action:process?'save-and-process':'save',
+          document,
+          departmentIds:state.binding.departmentIds||[],
+          chainScope:chainScope()
+        }),
+        cache:'no-store',
+        timeoutMs:90000
+      });
+      const x=await rr.json().catch(()=>({}));
+      if(!rr.ok||x.success===false)throw Error(actionError(x,rr));
+
+      documentNumber=x.validation?.documentNumber||x.validation?.otherSuggestedNumber||documentNumber;
+      modalStatus('Накладная №'+documentNumber+(process?' проведена':' сохранена')+'. Привязываем её к PO…','success');
+
+      const payload={
+        id:o.id,
+        iikoDocumentNumber:documentNumber,
+        iikoDocumentId:x.validation?.documentId||'',
+        iikoStatus:process?'PROCESSED':'DRAFT',
+        documentDate:$('proc-receipt-date').value,
+        comment:'Smart Horeca Procurement · '+o.number,
+        lines:rlines
+      };
+      rememberPending(payload);
+      try{
+        await registerReceipt(payload);
+      }catch(linkError){
+        try{await registerReceipt(payload)}
+        catch(second){throw Error('Накладная №'+documentNumber+' создана в Smart Horeca Server, но связь с PO временно не сохранилась: '+second.message)}
+      }
+
+      modalStatus(process?'Готово. Накладная проведена и поставка принята.':'Готово. Черновик накладной сохранён и привязан к PO.','success');
+      await new Promise(resolve=>setTimeout(resolve,300));
+      closeModal();
+      await reloadProc();
+      toast(process?'Поставка принята и накладная проведена.':'Поставка сохранена черновиком и привязана к PO.');
+    }catch(e){
+      console.error('Procurement receipt save failed',e);
+      modalStatus(e.message||String(e),'error');
+      setStatus('');
+    }finally{
+      setBusy(false);
+    }
+  }
+  $('proc-receipt-save').onclick=()=>save(false);
+  $('proc-receipt-post').onclick=()=>save(true);
 }
 async function copyPo(o){
   const lines=(o.lines||[]).map((l,i)=>(i+1)+'. '+(l.productName||l.productId)+' — '+qty(l.packageCount||l.orderedQty)+' уп. × '+qty(l.packageSize||1)+' '+(l.unit||'')+' = '+qty(l.orderedQty)+' '+(l.unit||'')+' · '+money(l.unitPrice)+'/уп. · НДС '+num(l.vatPercent)+'%').join('\n');
