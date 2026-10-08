@@ -14,6 +14,12 @@ function timeZoneOf(v){const z=clean(v)||'Asia/Baku';if(validatedTimeZones.has(z
 function todayBaku(){try{return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())}catch{return new Date().toISOString().slice(0,10)}}
 function localParts(value,timeZone){
   const d=new Date(value);if(Number.isNaN(d.getTime()))return{date:'',time:''};
+  // Azerbaijan abolished DST in 2016: recent Face ID marks use fixed UTC+04:00.
+  // Avoid Intl.formatToParts for every single attendance event on the normal Baku path.
+  if(timeZone==='Asia/Baku'&&d.getUTCFullYear()>=2016){
+    const iso=new Date(d.getTime()+14400000).toISOString();
+    return{date:iso.slice(0,10),time:iso.slice(11,16)};
+  }
   let fmt=localTimeFormatters.get(timeZone);
   if(!fmt){fmt=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});localTimeFormatters.set(timeZone,fmt)}
   const parts=fmt.formatToParts(d);let year='',month='',day='',hour='',minute='';
