@@ -125,6 +125,13 @@ export async function onRequestGet({request,env}){
     const rows=[];
     const scopedEmployees=filterEmployeesByScope(employeesR.results||[],scope);
     const scopedIds=[...new Set(scopedEmployees.filter(e=>!Number(e.is_deleted)).map(e=>String(e.iiko_employee_id||'')).filter(Boolean))];
+    const scopedEmployeeById=new Map(scopedEmployees.map(e=>[String(e.iiko_employee_id||''),e]));
+    const attendanceConfigFor=id=>{
+      const e=scopedEmployeeById.get(String(id))||{},role=roleAttendance.get(String(e.role_code||''))||{},emp=employeeAttendance.get(String(id))||{};
+      const roleShift=['DAY','NIGHT'].includes(String(role.shift_type||'').toUpperCase())?String(role.shift_type).toUpperCase():'DAY';
+      const override=['DAY','NIGHT'].includes(String(emp.shift_type_override||'').toUpperCase())?String(emp.shift_type_override).toUpperCase():'';
+      return{dailyNormMinutes:Math.max(60,Number(role.daily_norm_minutes||480)),shiftType:override||roleShift,source:override?'EMPLOYEE':'ROLE'};
+    };
     const faceIdConnected=activeDevices.length>0;
     const eventsByEmployee=new Map(),overtimeByEmployee=new Map();
     let overtimeRules=[];
@@ -143,7 +150,7 @@ export async function onRequestGet({request,env}){
           const qs=ids.map(()=>'?').join(',');
           const part=await env.DB.prepare(`SELECT iiko_employee_id,work_date,candidate_minutes,requested_minutes,approved_minutes,status FROM hr_overtime_requests WHERE user_id=? AND iiko_employee_id IN (${qs}) AND work_date>=? AND work_date<=? AND status IN ('HR_APPROVED','HR_CHANGED')`).bind(userId,...ids,b.from,b.to).all();
           for(const x of part.results||[]){
-            const id=String(x.iiko_employee_id||''),rule=overtimeRuleFor(id,overtimeRules),candidate=Math.max(0,Number(x.candidate_minutes||0)),approved=Math.max(0,Number(x.approved_minutes||0));
+            const id=String(x.iiko_employee_id||''),cfg=attendanceConfigFor(id),rule=overtimeRuleFor(id,overtimeRules,cfg.dailyNormMinutes),candidate=Math.max(0,Number(x.candidate_minutes||0)),approved=Math.max(0,Number(x.approved_minutes||0));
             const unpaidGap=Math.max(0,rule.payableFromMinutes-rule.thresholdMinutes),payableCandidate=Math.max(0,candidate-unpaidGap),payableApproved=Math.min(approved,payableCandidate);
             const cur=overtimeByEmployee.get(id)||{approvedMinutes:0,payableMinutes:0,unpaidGapMinutes:0,candidateMinutes:0,extraDayEquivalent:0,days:0};
             cur.approvedMinutes+=approved;cur.payableMinutes+=payableApproved;cur.unpaidGapMinutes+=Math.min(candidate,unpaidGap);cur.candidateMinutes+=candidate;cur.extraDayEquivalent+=rule.thresholdMinutes>0?payableApproved/rule.thresholdMinutes:0;cur.days++;
@@ -158,9 +165,9 @@ export async function onRequestGet({request,env}){
       const id=String(e.iiko_employee_id),roleCode=String(e.role_code||''),full=[e.last_name,e.first_name,e.middle_name].filter(Boolean).join(' ')||e.display_name||e.employee_code||id;
       const individualRaw=activeTerm(employeeTerms,'iiko_employee_id',id,b.to),roleRaw=activeTerm(roleTerms,'role_code',roleCode,b.to),termRaw=individualRaw||roleRaw,sourceType=individualRaw?'EMPLOYEE':(roleRaw?'ROLE':'');
       const term=individualRaw?termDto(individualRaw,'employeeId'):(roleRaw?termDto(roleRaw,'roleCode'):null),calculation=term?calculateCompensation({officialGross:term.officialGross,additionalAmount:term.additionalAmount,additionalTaxTreatment:term.additionalTaxTreatment,calculationDate:b.to}):null;
-      const schedule=scheduleByRole.get(roleCode)||null,dayRules=schedule?dayRulesBySchedule.get(String(schedule.schedule_id))||[]:[],plannedMinutes=plannedMinutesForSchedule(schedule,dayRules,b.from,b.to);
-      const attendance=faceIdConnected?normalizeEmployee(eventsByEmployee.get(id)||[],b.from,b.to):{intervals:[],issues:0};
-      const actualMinutes=faceIdConnected?attendance.intervals.reduce((a,x)=>a+x.durationMinutes,0):null,normMinutes=norm.hours*60,varianceMinutes=faceIdConnected?actualMinutes-(plannedMinutes||normMinutes):null;
+      const attendanceCfg=attendanceConfigFor(id),plannedMinutes=norm.hours*60;
+      const attendance=faceIdConnected?aggregateFreeAttendance(eventsByEmployee.get(id)||[],b.from,b.to,'Asia/Baku',attendanceCfg.shiftType):{actualMinutes:null,issues:0,workedDays:0};
+      const actualMinutes=faceIdConnected?attendance.actualMinutes:null,normMinutes=norm.hours*60,varianceMinutes=null;
       const profile=profiles.get(id)||{},factualHire=profile.factual_hire_date||e.hire_date||'',factualFire=profile.factual_fire_date||e.fire_date||'',officialHire=profile.official_hire_date||e.hire_date||'',officialFire=profile.official_fire_date||e.fire_date||'';
       const factualPeriod=activePeriod(b.from,b.to,factualHire,factualFire),officialPeriod=activePeriod(b.from,b.to,officialHire,officialFire);
       const factualPayDays=factualPeriod.from?workDaysBetween(factualPeriod.from,factualPeriod.to):0,officialPayDays=officialPeriod.from?workDaysBetween(officialPeriod.from,officialPeriod.to):0;
@@ -168,17 +175,18 @@ export async function onRequestGet({request,env}){
       const monthlyFactualGross=term?round2(Number(term.officialGross||0)+Number(term.additionalAmount||0)):0;
       const factualBaseGross=round2(monthlyFactualGross*factualFactor),officialAccruedGross=round2(Number(term?.officialGross||0)*officialFactor),additionalAccruedGross=round2(Math.max(0,factualBaseGross-officialAccruedGross));
       const ot=overtimeByEmployee.get(id)||{approvedMinutes:0,payableMinutes:0,unpaidGapMinutes:0,candidateMinutes:0,extraDayEquivalent:0,days:0};
-      const otRule=overtimeRuleFor(id,overtimeRules),extraDayPay=term&&norm.days>0?round2(monthlyFactualGross/norm.days*Number(ot.extraDayEquivalent||0)):0;
+      const otRule=overtimeRuleFor(id,overtimeRules,attendanceCfg.dailyNormMinutes),extraDayPay=term&&norm.days>0?round2(monthlyFactualGross/norm.days*Number(ot.extraDayEquivalent||0)):0;
       const termChanges=overlapTermCount(employeeTerms,'iiko_employee_id',id,b.from,b.to)+(individualRaw?0:overlapTermCount(roleTerms,'role_code',roleCode,b.from,b.to));
-      let status='READY';const flags=[];if(!term){status='NO_TERMS';flags.push('Нет условий оплаты')}if(faceIdConnected&&attendance.issues){status='REVIEW';flags.push(`Ошибки табеля: ${attendance.issues}`)}if(termChanges>1){status='REVIEW';flags.push('Изменение условий внутри месяца')}if(faceIdConnected&&Math.abs(varianceMinutes)>=60){status='REVIEW';flags.push('Есть отклонение факта от плана')}
+      let status='READY';const flags=[];if(!term){status='NO_TERMS';flags.push('Нет условий оплаты')}if(faceIdConnected&&attendance.issues){status='REVIEW';flags.push(`Ошибки табеля: ${attendance.issues}`)}if(termChanges>1){status='REVIEW';flags.push('Изменение условий внутри месяца')}
       if(term&&factualPayDays<norm.days)flags.push(`Неполный месяц: ${factualPayDays} из ${norm.days} раб. дней`);
       if(Number(ot.payableMinutes||0)>0)flags.push(`Доп. часы к отдельной оплате: ${Math.round(ot.payableMinutes)} мин`);
       if(Number(ot.unpaidGapMinutes||0)>0)flags.push(`Неоплачиваемый промежуток доп. часов: ${Math.round(ot.unpaidGapMinutes)} мин`);
       rows.push({
         employeeId:id,employeeCode:e.employee_code||'',employeeName:full,departmentCode:e.department_code||'',roleCode,roleName:e.role_name||roleCode,sourceType,term,
-        schedule:schedule?{id:schedule.schedule_id,name:schedule.schedule_name,patternType:schedule.pattern_type}:null,
-        normMinutes,plannedMinutes:plannedMinutes||normMinutes,actualMinutes,varianceMinutes,attendanceIssues:attendance.issues,attendanceMode:faceIdConnected?'FACE_ID':'NOT_CONNECTED',
-        proration:{normWorkDays:norm.days,factualWorkDays:factualPayDays,officialWorkDays:officialPayDays,factualFactor:round2(factualFactor),officialFactor:round2(officialFactor),factualHireDate:factualHire,factualFireDate:factualFire,officialHireDate:officialHire,officialFireDate:officialFire,source:faceIdConnected?'EMPLOYMENT_PLUS_ATTENDANCE':'EMPLOYMENT_CALENDAR'},
+        schedule:null,
+        dailyNormMinutes:attendanceCfg.dailyNormMinutes,shiftType:attendanceCfg.shiftType,shiftRuleSource:attendanceCfg.source,
+        normMinutes,plannedMinutes,actualMinutes,varianceMinutes,attendanceIssues:attendance.issues,attendanceMode:faceIdConnected?'FACE_ID_FREE_SHIFT':'NOT_CONNECTED',
+        proration:{normWorkDays:norm.days,factualWorkDays:factualPayDays,officialWorkDays:officialPayDays,factualFactor:round2(factualFactor),officialFactor:round2(officialFactor),factualHireDate:factualHire,factualFireDate:factualFire,officialHireDate:officialHire,officialFireDate:officialFire,source:'EMPLOYMENT_PLUS_PRODUCTION_CALENDAR'},
         accrual:{monthlyFactualGross,factualBaseGross,officialAccruedGross,additionalAccruedGross,extraDayPay,totalFactualGross:round2(factualBaseGross+extraDayPay)},
         overtime:{approvedMinutes:round2(ot.approvedMinutes),payableMinutes:round2(ot.payableMinutes),unpaidGapMinutes:round2(ot.unpaidGapMinutes),candidateMinutes:round2(ot.candidateMinutes),extraDayEquivalent:round2(ot.extraDayEquivalent),thresholdMinutes:otRule.thresholdMinutes,payableFromMinutes:otRule.payableFromMinutes,ruleSource:otRule.source,ruleNote:otRule.note||'',approvalDays:ot.days},
         overtimeApprovedMinutes:round2(ot.payableMinutes),status,flags,calculation
@@ -232,7 +240,7 @@ export async function onRequestGet({request,env}){
       totalFactualGross:round2(configured.reduce((a,r)=>a+Number(r.accrual?.totalFactualGross||0),0))
     };
     return json({
-      success:true,engine:'MONTHLY_PAYROLL_V2_PARTIAL_OVERTIME',month,period:{from:b.from,to:b.to},currency:'AZN',
+      success:true,engine:'MONTHLY_PAYROLL_V3_FREE_SHIFT',month,period:{from:b.from,to:b.to},currency:'AZN',
       restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
       ruleProfile:AZ_PAYROLL_RULE_PROFILE,calendar:{year:2026,workDays:norm.days,normHours:norm.hours,source:'ƏƏSMN 2026 istehsalat təqvimi'},
       attendance:{mode:faceIdConnected?'FACE_ID':'NOT_CONNECTED',activeDevices:activeDevices.length,label:faceIdConnected?'Face ID подключён':'Face ID пока не подключён'},
