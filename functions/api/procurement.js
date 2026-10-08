@@ -229,7 +229,7 @@ function scopedByAccess(state,request,access){
 async function contextFor(request,env){
   const auth=await getUser(request,env);
   if(!auth){const e=new Error("Необходима авторизация.");e.status=401;throw e}
-  const access=await resolveAccessForUser(env.DB,auth.user,{claimInvite:true});
+  const access=await resolveAccessForUser(env.DB,auth.user,{claimInvite:true,request});
   if(!access.allowed){const e=new Error("Доступ к Smart Horeca не назначен.");e.status=403;e.code=access.reason||"ACCESS_DENIED";throw e}
   const stored=await loadPrivateIikoState(env.DB,access.ownerUserId,env);
   if(!stored?.found||!hasPrivateConnection(stored.state)){const e=new Error("Сначала подключите Smart Horeca Server в настройках.");e.status=409;throw e}
