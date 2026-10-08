@@ -427,7 +427,7 @@ export async function listAccessAdmin(db,ownerUserId){
     permissions:PERMISSIONS,
     roles:(roles.results||[]).map(x=>({id:x.id,code:x.code,name:x.name,description:x.description,isSystem:Boolean(x.is_system),permissions:rp.get(x.id)||[]})),
     members:(members.results||[]).map(x=>({
-      id:x.id,userId:x.user_id||'',email:x.email,employeeId:x.iiko_employee_id||'',displayName:x.display_name||'',status:x.status,
+      id:x.id,userId:x.user_id||'',email:x.email,employeeId:x.iiko_employee_id||'',displayName:x.display_name||'',status:(!clean(x.user_id)&&String(x.status).toUpperCase()==='ACTIVE')?'PENDING':x.status,
       scope:memberScope(x),roleIds:mr.get(x.id)||[],overrides:ov.get(x.id)||[],isOwner:x.owner_user_id===x.user_id
     }))
   };
