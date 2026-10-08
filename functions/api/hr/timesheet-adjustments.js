@@ -20,6 +20,12 @@ function mins(v,{allowNull=false,max=1440}={}){
   if(!Number.isFinite(n)||n<0||n>max)return null;
   return n;
 }
+async function invalidateFactualApprovals(db,userId,workDate){
+  if(!workDate)return;
+  // A new correction or overtime decision requires Manager and HR to approve the new month snapshot.
+  try{await db.prepare("UPDATE hr_timesheet_approvals SET status='DRAFT',snapshot_hash='',manager_id='',manager_label='',manager_at='',hr_id='',hr_label='',hr_at='',updated_at=?3 WHERE user_id=?1 AND period_month=?2 AND contour='FACTUAL'").bind(userId,workDate.slice(0,7),now()).run();}
+  catch(error){if(!/no such table/i.test(String(error?.message||error)))throw error}
+}
 async function correctionRow(db,userId,employeeId,workDate,kind){
   return db.prepare(`SELECT * FROM hr_timesheet_day_corrections WHERE user_id=?1 AND iiko_employee_id=?2 AND work_date=?3 AND contour=?4 LIMIT 1`).bind(userId,employeeId,workDate,kind).first();
 }
@@ -100,6 +106,7 @@ export async function onRequestPost({request,env}){
       }
       await audit({auditAction:'UPDATE',entityType:'HR_TIMESHEET_CORRECTION',entityId:id,entityLabel:`Корректировка табеля · ${employeeId} · ${workDate}`,before:old,after,metadata:{employeeId,workDate,contour:kind,overtimeReset:Boolean(resetOvertime)}});
       if(resetOvertime)await audit({auditAction:'REOPEN',entityType:'HR_OVERTIME_REQUEST',entityId:resetOvertime.id||`${employeeId}:${workDate}`,entityLabel:`Сброс доп. часов после изменения факта · ${employeeId} · ${workDate}`,before:resetOvertime,after:null,metadata:{employeeId,workDate,reason:'FACTUAL_CORRECTION_CHANGED'}});
+      await invalidateFactualApprovals(env.DB,userId,workDate);
       return json({success:true,access,correction:after,overtimeReset:Boolean(resetOvertime)});
     }
 
@@ -115,6 +122,7 @@ export async function onRequestPost({request,env}){
       }
       await audit({auditAction:'DELETE',entityType:'HR_TIMESHEET_CORRECTION',entityId:old?.id||`${employeeId}:${workDate}:${kind}`,entityLabel:`Корректировка табеля · ${employeeId} · ${workDate}`,before:old,after:null,metadata:{employeeId,workDate,contour:kind,overtimeReset:Boolean(resetOvertime)}});
       if(resetOvertime)await audit({auditAction:'REOPEN',entityType:'HR_OVERTIME_REQUEST',entityId:resetOvertime.id||`${employeeId}:${workDate}`,entityLabel:`Сброс доп. часов после отмены факта · ${employeeId} · ${workDate}`,before:resetOvertime,after:null,metadata:{employeeId,workDate,reason:'FACTUAL_CORRECTION_DELETED'}});
+      await invalidateFactualApprovals(env.DB,userId,workDate);
       return json({success:true,access,deleted:Boolean(old),overtimeReset:Boolean(resetOvertime)});
     }
 
@@ -147,6 +155,7 @@ export async function onRequestPost({request,env}){
         .bind(userId,id,employeeId,workDate,candidate,requested,reason,actorId,actor,t,created).run();
       const after=overtimeDto(await overtimeRow(env.DB,userId,employeeId,workDate));
       await audit({auditAction:'SUBMIT',entityType:'HR_OVERTIME_REQUEST',entityId:id,entityLabel:`Доп. часы · ${employeeId} · ${workDate}`,before:old,after,metadata:{employeeId,workDate}});
+      await invalidateFactualApprovals(env.DB,userId,workDate);
       return json({success:true,access,overtime:after});
     }
 
@@ -162,6 +171,7 @@ export async function onRequestPost({request,env}){
         .bind(userId,employeeId,workDate,approved,comment,status,actorId,actor,t).run();
       const after=overtimeDto(await overtimeRow(env.DB,userId,employeeId,workDate));
       await audit({auditAction:'APPROVE',entityType:'HR_OVERTIME_REQUEST',entityId:after.id,entityLabel:`Доп. часы · ${employeeId} · ${workDate}`,before:old,after,metadata:{employeeId,workDate}});
+      await invalidateFactualApprovals(env.DB,userId,workDate);
       return json({success:true,access,overtime:after});
     }
 
@@ -174,6 +184,7 @@ export async function onRequestPost({request,env}){
         .bind(userId,employeeId,workDate,comment,actorId,actor,t).run();
       const after=overtimeDto(await overtimeRow(env.DB,userId,employeeId,workDate));
       await audit({auditAction:'REJECT',entityType:'HR_OVERTIME_REQUEST',entityId:after.id,entityLabel:`Доп. часы · ${employeeId} · ${workDate}`,before:old,after,metadata:{employeeId,workDate}});
+      await invalidateFactualApprovals(env.DB,userId,workDate);
       return json({success:true,access,overtime:after});
     }
 
@@ -183,6 +194,7 @@ export async function onRequestPost({request,env}){
       const old=overtimeDto(await overtimeRow(env.DB,userId,employeeId,workDate));
       if(old)await env.DB.prepare(`DELETE FROM hr_overtime_requests WHERE user_id=?1 AND iiko_employee_id=?2 AND work_date=?3`).bind(userId,employeeId,workDate).run();
       await audit({auditAction:'REOPEN',entityType:'HR_OVERTIME_REQUEST',entityId:old?.id||`${employeeId}:${workDate}`,entityLabel:`Доп. часы · ${employeeId} · ${workDate}`,before:old,after:null,metadata:{employeeId,workDate}});
+      await invalidateFactualApprovals(env.DB,userId,workDate);
       return json({success:true,access,deleted:Boolean(old)});
     }
 
