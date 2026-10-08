@@ -647,6 +647,23 @@ function orderListItem(o,{receiving=false}={}){
     '<div class="proc-record-body">'+orderCard(o,{receiving})+'</div>'+
   '</details>';
 }
+function sourcingListItem(r,index=0){
+  const effective=r.effectiveStatus||r.status;
+  const rfqs=r.rfqs||[],quotes=r.quotes||[];
+  const responseCount=rfqs.reduce((s,x)=>s+num(x.responseCount),0);
+  const supplierCount=rfqs.reduce((s,x)=>s+(x.supplierIds||[]).length,0);
+  return '<details class="proc-record" name="proc-sourcing-documents">'+
+    '<summary class="proc-record-summary">'+
+      '<div class="proc-record-date"><strong>'+esc(dateTimeLabel(r.createdAt))+'</strong><span>дата и время</span></div>'+
+      '<div class="proc-record-main"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+esc(r.createdBy||'—')+'</span></div>'+
+      '<div class="proc-record-metric"><strong>'+(r.lines||[]).length+'</strong><span>позиций</span></div>'+
+      '<div class="proc-record-metric amount"><strong>'+quotes.length+'</strong><span>предложений'+(supplierCount?' · ответов '+responseCount+'/'+supplierCount:'')+'</span></div>'+
+      '<span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span>'+
+      '<span class="proc-record-open">Открыть <i>›</i></span>'+
+    '</summary>'+
+    '<div class="proc-record-body">'+sourcingCard(r,index)+'</div>'+
+  '</details>';
+}
 function renderRequisitions(){
   const box=$('proc-pr-list'),all=state.data?.requisitions||[],view=state.view||currentProcurementView();
   const head=document.querySelector('[data-panel="requisitions"] .proc-panel-head');
@@ -659,14 +676,16 @@ function renderRequisitions(){
   }
   if(view==='sourcing'){
     if(head)head.querySelector('h2').textContent='RFQ и сравнение цен';
-    if(head)head.querySelector('p').textContent='Каждая заявка показана отдельным документом: потребность → RFQ → предложения → PO.';
-    const rows=all.filter(r=>['APPROVED','PARTIALLY_ORDERED','ORDERED','PARTIALLY_FULFILLED'].includes(r.effectiveStatus||r.status));
+    if(head)head.querySelector('p').textContent='Компактный список PR для закупщика. Откройте нужный документ, чтобы увидеть RFQ, ответы поставщиков и сравнение цен.';
+    const rows=newestFirst(all.filter(r=>['APPROVED','PARTIALLY_ORDERED','ORDERED','PARTIALLY_FULFILLED'].includes(r.effectiveStatus||r.status)));
     const active=rows.filter(r=>['APPROVED','PARTIALLY_ORDERED'].includes(r.effectiveStatus||r.status));
     const ordered=rows.filter(r=>['ORDERED','PARTIALLY_FULFILLED'].includes(r.effectiveStatus||r.status));
     let index=0;
     box.innerHTML=
-      '<div class="proc-sourcing-group"><div class="proc-sourcing-group-title"><strong>Требуют работы закупщика</strong><span>'+active.length+'</span></div>'+(active.map(r=>sourcingCard(r,index++)).join('')||'<div class="proc-empty">Нет заявок, требующих выбора поставщика.</div>')+'</div>'+
-      (ordered.length?'<details class="proc-sourcing-ordered"><summary>Уже заказано / ожидает исполнение · '+ordered.length+'</summary><div class="proc-card-list inner">'+ordered.map(r=>sourcingCard(r,index++)).join('')+'</div></details>':'');
+      '<div class="proc-list-section"><div class="proc-list-section-title"><strong>Требуют работы закупщика</strong><span>'+active.length+'</span></div><div class="proc-document-list">'+
+        (active.map(r=>sourcingListItem(r,index++)).join('')||'<div class="proc-empty">Нет заявок, требующих выбора поставщика.</div>')+
+      '</div></div>'+
+      (ordered.length?'<details class="proc-history-block"><summary>Уже заказано / ожидает исполнение · '+ordered.length+'</summary><div class="proc-document-list history">'+ordered.map(r=>sourcingListItem(r,index++)).join('')+'</div></details>':'');
     return;
   }
   if(head)head.querySelector('h2').textContent='Заявки на закупку (PR)';
