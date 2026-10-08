@@ -334,8 +334,25 @@ async function ensureOwnerMembership(db,user){
   if(!userId)return null;
   const now=NOW();
   let row=await db.prepare(`SELECT * FROM sh_access_members WHERE owner_user_id=?1 AND user_id=?1 LIMIT 1`).bind(userId).first();
-  if(row){await ensureOwnerWorkspace(db,userId,user);return row;}
-  if(!await hasLegacyOwnerData(db,userId))return null;
+
+  // The workspace owner is a special principal: an old/stale admin edit must never
+  // leave the owner's own membership PENDING/DISABLED or scoped to one restaurant.
+  if(row){
+    if(String(row.status||'').toUpperCase()!=='ACTIVE'||String(row.scope_mode||'').toUpperCase()!=='ALL'){
+      await db.prepare(`UPDATE sh_access_members SET status='ACTIVE',scope_mode='ALL',department_ids_json='[]',department_codes_json='[]',warehouse_ids_json='[]',updated_at=?2 WHERE id=?1`)
+        .bind(row.id,now).run();
+      row=await db.prepare(`SELECT * FROM sh_access_members WHERE id=?1`).bind(row.id).first();
+    }
+    await seedRoles(db,userId);
+    await ensureOwnerWorkspace(db,userId,user);
+    return row;
+  }
+
+  // Existing workspace ownership is enough to restore a missing owner membership.
+  // Legacy iiko data is retained as the migration signal for older accounts.
+  const existingWorkspace=await db.prepare(`SELECT id FROM sh_workspaces WHERE owner_user_id=?1 LIMIT 1`).bind(userId).first();
+  if(!existingWorkspace&&!await hasLegacyOwnerData(db,userId))return null;
+
   const id=uid(),name=clean(user?.user_metadata?.full_name)||[clean(user?.user_metadata?.first_name),clean(user?.user_metadata?.last_name)].filter(Boolean).join(' ')||email;
   await db.prepare(`INSERT INTO sh_access_members(id,owner_user_id,user_id,email,display_name,status,scope_mode,created_at,updated_at) VALUES(?1,?2,?2,?3,?4,'ACTIVE','ALL',?5,?5)`)
     .bind(id,userId,email,name,now).run();
@@ -396,15 +413,28 @@ export async function resolveAccessForUser(db,user,{claimInvite=true,request=nul
   }
   const publicWorkspaces=options.map(x=>({...workspacePublic(x.workspace),memberId:x.member.id,memberStatus:x.member.status,isOwner:x.member.owner_user_id===userId}));
 
+  const ownerOption=options.find(x=>x.member.owner_user_id===userId&&x.member.user_id===userId)||null;
   let selected=null;
   if(preferredWorkspaceId)selected=options.find(x=>clean(x.workspace.id)===preferredWorkspaceId)||null;
+
+  // A stale workspace cookie can point to a membership that was later disabled.
+  // If the signed-in user owns a workspace, fall back to that owner workspace instead
+  // of locking the owner out of Smart Horeca.
+  if(selected&&String(selected.member.status||'').toUpperCase()!=='ACTIVE'&&ownerOption)selected=ownerOption;
+  if(!selected&&ownerOption)selected=ownerOption;
   if(!selected&&options.length===1)selected=options[0];
   if(!selected&&options.length>1){
     return{allowed:false,reason:'WORKSPACE_SELECTION_REQUIRED',userId,email,workspaces:publicWorkspaces};
   }
   if(!selected)return{allowed:false,reason:'WORKSPACE_NOT_FOUND',userId,email,workspaces:publicWorkspaces};
 
-  const row=selected.member,workspace=selected.workspace;
+  let row=selected.member,workspace=selected.workspace;
+  const isOwner=row.owner_user_id===userId&&row.user_id===userId;
+  if(isOwner&&String(row.status||'').toUpperCase()!=='ACTIVE'){
+    await db.prepare(`UPDATE sh_access_members SET status='ACTIVE',scope_mode='ALL',department_ids_json='[]',department_codes_json='[]',warehouse_ids_json='[]',updated_at=?2 WHERE id=?1`)
+      .bind(row.id,NOW()).run();
+    row=await db.prepare(`SELECT * FROM sh_access_members WHERE id=?1`).bind(row.id).first();
+  }
   if(String(row.status).toUpperCase()!=='ACTIVE')return{allowed:false,reason:'MEMBERSHIP_'+String(row.status).toUpperCase(),userId,email,ownerUserId:row.owner_user_id,memberId:row.id,workspace:workspacePublic(workspace),workspaces:publicWorkspaces};
 
   await seedRoles(db,row.owner_user_id);
@@ -420,7 +450,7 @@ export async function resolveAccessForUser(db,user,{claimInvite=true,request=nul
     employeeId:row.iiko_employee_id||'',
     displayName:row.display_name||'',
     email:row.email||email,
-    isOwner:row.owner_user_id===userId,
+    isOwner:row.owner_user_id===userId&&row.user_id===userId,
     permissions,
     scope:memberScope(row)
   };
