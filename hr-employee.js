@@ -3,7 +3,7 @@
   const $=id=>document.getElementById(id);
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const employeeId=new URLSearchParams(location.search).get('id')||'';
-  let data=null,busy=false,dirty=false,historyLoaded=false,payTerms=null,payLoaded=false,payBusy=false,leaveData=null,leaveLoaded=false,leaveBusy=false;
+  let data=null,busy=false,dirty=false,historyLoaded=false,leaveData=null,leaveLoaded=false,leaveBusy=false;
 
   const profileFields={
     hepFin:'fin',hepSsn:'ssn',hepBirthDate:'birthDate',hepPhonePrimary:'phonePrimary',hepPhoneSecondary:'phoneSecondary',hepEmail:'emailPersonal',hepAddress:'address',
@@ -197,45 +197,6 @@
       </div>
     </div>`;
   }
-  async function loadPayTerms(force=false){
-    if(payLoaded&&!force)return;
-    if(payBusy)return;
-    try{
-      payBusy=true;
-      if($('hepPayStatus')){$('hepPayStatus').textContent='Загрузка…';$('hepPayStatus').className='hr-status loading'}
-      payTerms=await api(`/api/hr/employee-pay-terms?id=${encodeURIComponent(employeeId)}`);
-      payLoaded=true;renderPay();primePayForm();
-      if($('hepPayStatus')){$('hepPayStatus').textContent='Готово';$('hepPayStatus').className='hr-status ok'}
-    }catch(e){
-      console.error(e);
-      if($('hepPayContent'))$('hepPayContent').innerHTML=`<div class="hr-error">${esc(e?.message||String(e))}</div>`;
-      if($('hepPayStatus')){$('hepPayStatus').textContent='Ошибка';$('hepPayStatus').className='hr-status error'}
-    }finally{payBusy=false}
-  }
-
-  async function savePayTerm(){
-    if(payBusy||!employeeId)return;
-    const body={
-      action:'saveTerm',employeeId,
-      effectiveFrom:$('hepPayEffectiveFrom').value,
-      factualRateType:$('hepFactualRateType').value,
-      factualRate:Number($('hepFactualRate').value||0),
-      officialRateType:$('hepOfficialRateType').value,
-      officialRate:Number($('hepOfficialRate').value||0),
-      note:$('hepPayNote').value
-    };
-    if(!body.effectiveFrom){$('hepPayStatus').textContent='Укажите дату начала';$('hepPayStatus').className='hr-status error';return}
-    try{
-      payBusy=true;$('hepPaySave').disabled=true;$('hepPayStatus').textContent='Сохранение…';$('hepPayStatus').className='hr-status loading';
-      payTerms=await api('/api/hr/employee-pay-terms',{method:'POST',body:JSON.stringify(body)});
-      payLoaded=true;historyLoaded=false;renderPay();primePayForm();
-      $('hepPayStatus').textContent='Новые условия сохранены';$('hepPayStatus').className='hr-status ok';
-    }catch(e){
-      console.error(e);$('hepPayStatus').textContent=e?.message||'Ошибка';$('hepPayStatus').className='hr-status error';
-    }finally{payBusy=false;$('hepPaySave').disabled=false}
-  }
-
-
   function leaveTypeName(code){
     const x=(leaveData?.types||[]).find(t=>String(t.code)===String(code));
     return x?.name||code||'—';
