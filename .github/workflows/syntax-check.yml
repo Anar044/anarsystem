@@ -338,8 +338,8 @@ jobs:
         run: |
           set -euo pipefail
           grep -q "hr-payroll-v3.css" app-shell.js
+          test ! -f hr-light-theme.js
           grep -q "hrp-critical-styles" app-shell.js
-          grep -q "p.includes('hr-payroll')" hr-light-theme.js
           grep -q "hr-payroll-v3.css" hr-payroll.html
           echo 'Payroll style preservation contract passed'
 
