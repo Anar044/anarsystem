@@ -73,7 +73,7 @@ jobs:
           grep -q "filterEmployeesByScope" functions/api/hr/payroll.js
           grep -q "filterEmployeesByScope" functions/api/hr/timesheet.js
           grep -q "restaurant_id" functions/api/hr/timeclock.js
-          grep -q "filterEmployeesByScope" functions/api/hr/meal-transactions.js
+          test ! -f functions/api/hr/meal-transactions.js  # legacy meal endpoint removed in HR v2
           grep -q "filterEmployeesByScope" functions/api/hr/meal-transactions-v2.js
           grep -q "visibleAdjustments" functions/api/hr/payroll-adjustments.js
 
