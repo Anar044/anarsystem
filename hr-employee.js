@@ -171,18 +171,32 @@
   }
 
   function renderPay(){
-    if(!$('hepPayContent'))return;
-    $('hepPaySource').textContent=payLoaded?'Smart Horeca · v2':'Загрузка…';
-    if(!payLoaded){
-      $('hepPayContent').innerHTML='<div class="hep-pay-empty">Откройте вкладку «Оплата», чтобы загрузить фактическую и официальную ставку.</div>';
-      renderLegacyPay();
+    const host=$('hepPayContent');if(!host)return;
+    const c=data?.compensation||{},term=c.term||{},calc=c.calculation||{},official=calc.official||{};
+    if($('hepPaySource'))$('hepPaySource').textContent=c.configured?(c.sourceLabel||'Payroll'):'Не настроено';
+    if(!c.configured){
+      host.innerHTML='<div class="hep-pay-empty">Условия оплаты ещё не настроены. Откройте раздел «Условия оплаты» и задайте ставку сотруднику или его должности.</div>';
       return;
     }
-    $('hepPayContent').innerHTML=currentPayMarkup(payTerms?.current||null);
-    renderPayHistory();
-    renderLegacyPay();
+    const factualGross=Number(term.officialGross||0)+Number(term.additionalAmount||0);
+    const method=({CASH:'Наличные',BANK:'Банк',OTHER:'Другое'})[term.additionalPaymentMethod]||term.additionalPaymentMethod||'—';
+    host.innerHTML=`<div class="hep-pay-current">
+      <div class="hep-pay-current-card factual">
+        <div class="hep-pay-active-line"><span>ДЕЙСТВУЕТ СЕЙЧАС</span><b>${esc(c.sourceLabel||'Условия оплаты')}</b></div>
+        <h3>Фактическая зарплата</h3><p>Общая внутренняя зарплата сотрудника</p>
+        <div class="hep-pay-rate-value"><strong>${money(factualGross).replace(' ₼','')}</strong><span>₼ / месяц</span></div>
+        <div class="hep-pay-mini"><div><span>Официальная часть</span><strong>${money(term.officialGross)}</strong></div><div><span>Доп. часть</span><strong>${money(term.additionalAmount)}</strong></div><div><span>Выплата доп.</span><strong>${esc(method)}</strong></div></div>
+        <div class="hep-pay-period"><span>Период</span><b>${esc(term.effectiveFrom||'—')} → ${esc(term.effectiveTo||'без ограничения')}</b></div>
+      </div>
+      <div class="hep-pay-current-card official">
+        <div class="hep-pay-active-line"><span>ОФИЦИАЛЬНО</span><b>Gross</b></div>
+        <h3>Белая зарплата</h3><p>Официальный Gross и расчёт налогов</p>
+        <div class="hep-pay-rate-value"><strong>${money(term.officialGross).replace(' ₼','')}</strong><span>₼ / месяц</span></div>
+        <div class="hep-pay-mini"><div><span>Net</span><strong>${money(official.net||0)}</strong></div><div><span>Удержания</span><strong>${money(official.employee?.total||0)}</strong></div><div><span>Стоимость работодателя</span><strong>${money(official.totalEmployerCost||0)}</strong></div></div>
+        <div class="hep-pay-period"><span>Источник</span><b>${esc(c.sourceType==='ROLE'?'Условия должности':'Индивидуальные условия')}</b></div>
+      </div>
+    </div>`;
   }
-
   async function loadPayTerms(force=false){
     if(payLoaded&&!force)return;
     if(payBusy)return;
@@ -468,7 +482,7 @@
     document.querySelectorAll('.hep-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
     document.querySelectorAll('.hep-panel').forEach(p=>p.hidden=p.dataset.panel!==name);
     if(name==='history')loadHistory();
-    if(name==='pay')loadPayTerms();
+
     if(name==='leave')loadLeaves();
   }
 
@@ -479,8 +493,6 @@
     $('hepSave').addEventListener('click',save);
     $('hepRefresh').addEventListener('click',()=>{if(dirty&&!confirm('Есть несохранённые изменения. Обновить данные без сохранения?'))return;load()});
     $('hepHistoryRefresh').addEventListener('click',()=>loadHistory(true));
-    $('hepPaySave')?.addEventListener('click',savePayTerm);
-    $('hepPayRefresh')?.addEventListener('click',()=>loadPayTerms(true));
     $('hepLeaveRefresh')?.addEventListener('click',()=>{leaveLoaded=false;loadLeaves(true)});
     $('hepLeaveYear')?.addEventListener('change',()=>{leaveLoaded=false;loadLeaves(true)});
     $('hepLeaveFrom')?.addEventListener('change',syncLeaveDays);
