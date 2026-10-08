@@ -247,7 +247,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q "MONTHLY_PAYROLL_V2_PARTIAL_OVERTIME" functions/api/hr/payroll.js
+          grep -q "MONTHLY_PAYROLL_V3_FREE_SHIFT" functions/api/hr/payroll.js
+          grep -q "FREE_SHIFT_ROLE_NORM" functions/api/hr/role-schedules.js
+          grep -q "TIMESHEET_V4_FREE_SHIFT_PLUS_OFFICIAL_CALENDAR" functions/api/hr/timesheet.js
           grep -q "factualBaseGross" functions/api/hr/payroll.js
           grep -q "officialAccruedGross" functions/api/hr/payroll.js
           grep -q "extraDayEquivalent" functions/api/hr/payroll.js
