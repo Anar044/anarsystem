@@ -90,6 +90,24 @@ async function ensure(db){
       store_name TEXT NOT NULL DEFAULT ''
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_req_lines_req ON procurement_requisition_lines(requisition_id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS procurement_rfqs (
+      id TEXT PRIMARY KEY,
+      server_scope TEXT NOT NULL,
+      requisition_id TEXT NOT NULL,
+      number TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'DRAFT',
+      deadline TEXT NOT NULL DEFAULT '',
+      message TEXT NOT NULL DEFAULT '',
+      supplier_ids_json TEXT NOT NULL DEFAULT '[]',
+      supplier_names_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT '',
+      created_by_name TEXT NOT NULL DEFAULT '',
+      sent_at TEXT NOT NULL DEFAULT '',
+      closed_at TEXT NOT NULL DEFAULT ''
+    )`),
+    db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_proc_rfq_scope_number ON procurement_rfqs(server_scope,number)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_rfq_req ON procurement_rfqs(server_scope,requisition_id,created_at DESC)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS procurement_quotes (
       id TEXT PRIMARY KEY,
       server_scope TEXT NOT NULL,
@@ -191,6 +209,7 @@ async function ensure(db){
       await db.prepare("ALTER TABLE "+table+" ADD COLUMN "+column+" "+definition).run();
     }
   }
+  await ensureColumn("procurement_quotes","rfq_id","TEXT NOT NULL DEFAULT ''");
   await ensureColumn("procurement_requisition_lines","package_size","REAL NOT NULL DEFAULT 1");
   await ensureColumn("procurement_requisition_lines","package_count","REAL NOT NULL DEFAULT 0");
   await ensureColumn("procurement_requisition_lines","container_id","TEXT NOT NULL DEFAULT ''");
@@ -262,6 +281,9 @@ const PROCUREMENT_ACTION_PERMISSIONS={
   "submit-requisition":"procurement.request.create",
   "cancel-requisition":"procurement.request.create",
   "approve-requisition":"procurement.approve",
+  "create-rfq":"procurement.sourcing",
+  "send-rfq":"procurement.sourcing",
+  "close-rfq":"procurement.sourcing",
   "add-quote":"procurement.sourcing",
   "create-order":"procurement.po.manage",
   "send-order":"procurement.po.manage",
@@ -374,9 +396,10 @@ async function log(context,action,entityType,row,before,after,meta={}){
 }
 
 async function readData(db,serverScope,scope){
-  const [reqsR,reqLinesR,quotesR,ordersR,orderLinesR,receiptsR,normsR]=await Promise.all([
+  const [reqsR,reqLinesR,rfqsR,quotesR,ordersR,orderLinesR,receiptsR,normsR]=await Promise.all([
     db.prepare("SELECT * FROM procurement_requisitions WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 500").bind(serverScope).all(),
     db.prepare(`SELECT l.* FROM procurement_requisition_lines l JOIN procurement_requisitions r ON r.id=l.requisition_id WHERE r.server_scope=?1 ORDER BY l.rowid`).bind(serverScope).all(),
+    db.prepare("SELECT * FROM procurement_rfqs WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_quotes WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_orders WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 500").bind(serverScope).all(),
     db.prepare(`SELECT l.* FROM procurement_order_lines l JOIN procurement_orders o ON o.id=l.order_id WHERE o.server_scope=?1 ORDER BY l.rowid`).bind(serverScope).all(),
@@ -385,6 +408,7 @@ async function readData(db,serverScope,scope){
   ]);
   const reqRows=(reqsR.results||[]).filter(x=>rowAllowed(x,scope));
   const reqIds=new Set(reqRows.map(x=>x.id));
+  const rfqRows=(rfqsR.results||[]).filter(x=>reqIds.has(x.requisition_id));
   const quoteRows=(quotesR.results||[]).filter(x=>reqIds.has(x.requisition_id));
   const orderRows=(ordersR.results||[]).filter(x=>rowAllowed(x,scope));
   const orderIds=new Set(orderRows.map(x=>x.id));
@@ -403,7 +427,13 @@ async function readData(db,serverScope,scope){
     neededBy:r.needed_by,comment:r.comment,totalEstimate:n(r.total_estimate),requiredApprovalLevel:r.required_approval_level,
     approvedBy:r.approved_by_name||r.approved_by,approvedAt:r.approved_at,
     lines:(reqLinesBy.get(r.id)||[]).map(l=>({id:l.id,productId:l.product_id,productName:l.product_name,unit:l.unit,quantity:n(l.quantity),packageSize:n(l.package_size,1)||1,packageCount:n(l.package_count)||n(l.quantity),containerId:l.container_id||"",packageName:l.package_name||"",vatPercent:n(l.vat_percent),expectedPrice:n(l.expected_price),currentStock:n(l.current_stock),minStock:l.min_stock===null?null:n(l.min_stock),maxStock:l.max_stock===null?null:n(l.max_stock),storeId:l.store_id,storeName:l.store_name})),
-    quotes:quoteRows.filter(q=>q.requisition_id===r.id).map(q=>({id:q.id,supplierId:q.supplier_id,supplierName:q.supplier_name,status:q.status,currency:q.currency,deliveryDays:n(q.delivery_days),paymentTerms:q.payment_terms,validUntil:q.valid_until,comment:q.comment,totalAmount:n(q.total_amount),lines:parse(q.lines_json,[]),createdAt:q.created_at,createdBy:q.created_by_name||q.created_by}))
+    rfqs:rfqRows.filter(x=>x.requisition_id===r.id).map(x=>({
+      id:x.id,number:x.number,status:x.status,deadline:x.deadline,message:x.message,
+      supplierIds:parse(x.supplier_ids_json,[]),supplierNames:parse(x.supplier_names_json,[]),
+      createdAt:x.created_at,createdBy:x.created_by_name||x.created_by,sentAt:x.sent_at,closedAt:x.closed_at,
+      responseCount:quoteRows.filter(q=>q.requisition_id===r.id&&clean(q.rfq_id)===clean(x.id)).length
+    })),
+    quotes:quoteRows.filter(q=>q.requisition_id===r.id).map(q=>({id:q.id,rfqId:q.rfq_id||"",supplierId:q.supplier_id,supplierName:q.supplier_name,status:q.status,currency:q.currency,deliveryDays:n(q.delivery_days),paymentTerms:q.payment_terms,validUntil:q.valid_until,comment:q.comment,totalAmount:n(q.total_amount),lines:parse(q.lines_json,[]),createdAt:q.created_at,createdBy:q.created_by_name||q.created_by}))
   }));
 
   const orders=orderRows.map(o=>{
@@ -592,15 +622,59 @@ export async function onRequestPost({request,env}){
       return json({success:true,id:r.id,status:next});
     }
 
+    if(action==="create-rfq"){
+      const r=await reqRow(db,c.scope,clean(body?.requisitionId),c.serverScope);
+      if(r.status!=="APPROVED"){const e=new Error("RFQ можно создать только по согласованной заявке.");e.status=409;throw e}
+      const suppliers=Array.isArray(body?.suppliers)?body.suppliers:[],normalized=[],seen=new Set();
+      for(const raw of suppliers){
+        const id=clean(raw?.id),name=clean(raw?.name);
+        if(!id||seen.has(id))continue;
+        seen.add(id);normalized.push({id,name:name||id});
+      }
+      if(!normalized.length)throw new Error("Выберите хотя бы одного поставщика для RFQ.");
+      const id=uid(),number=docNo("RFQ"),deadline=clean(body?.deadline),message=clean(body?.message),row={id,number,restaurant_ids_json:r.restaurant_ids_json,restaurant_names_json:r.restaurant_names_json};
+      await db.prepare(`INSERT INTO procurement_rfqs(id,server_scope,requisition_id,number,status,deadline,message,supplier_ids_json,supplier_names_json,created_at,created_by,created_by_name)
+        VALUES(?1,?2,?3,?4,'DRAFT',?5,?6,?7,?8,?9,?10,?11)`)
+        .bind(id,c.serverScope,r.id,number,deadline,message,JSON.stringify(normalized.map(x=>x.id)),JSON.stringify(normalized.map(x=>x.name)),stamp,userId,userName).run();
+      await log(c,"CREATE","REQUEST_FOR_QUOTATION",row,null,{id,number,requisitionId:r.id,deadline,suppliers:normalized});
+      return json({success:true,id,number,status:"DRAFT"},201);
+    }
+
+    if(["send-rfq","close-rfq"].includes(action)){
+      const id=clean(body?.id);
+      const rfq=await db.prepare("SELECT q.*,r.restaurant_ids_json,r.restaurant_names_json FROM procurement_rfqs q JOIN procurement_requisitions r ON r.id=q.requisition_id WHERE q.id=?1 AND q.server_scope=?2 LIMIT 1").bind(id,c.serverScope).first();
+      if(!rfq){const e=new Error("RFQ не найден.");e.status=404;throw e}
+      assertAllowed(rfq,c.scope);
+      let next=rfq.status,sent=rfq.sent_at,closed=rfq.closed_at;
+      if(action==="send-rfq"){
+        if(!["DRAFT","SENT"].includes(rfq.status)){const e=new Error("Отправить можно только открытый RFQ.");e.status=409;throw e}
+        next="SENT";if(!sent)sent=stamp;
+      }else{
+        if(rfq.status==="CLOSED")return json({success:true,id,status:"CLOSED"});
+        next="CLOSED";closed=stamp;
+      }
+      await db.prepare("UPDATE procurement_rfqs SET status=?2,sent_at=?3,closed_at=?4 WHERE id=?1").bind(id,next,sent,closed).run();
+      await log(c,action==="send-rfq"?"SEND":"CLOSE","REQUEST_FOR_QUOTATION",rfq,{status:rfq.status},{status:next,sentAt:sent,closedAt:closed});
+      return json({success:true,id,status:next});
+    }
+
     if(action==="add-quote"){
       const r=await reqRow(db,c.scope,clean(body?.requisitionId),c.serverScope);
       if(!["APPROVED","PENDING_APPROVAL"].includes(r.status)){const e=new Error("Предложения поставщиков добавляются после отправки заявки на согласование.");e.status=409;throw e}
       const supplierId=clean(body?.supplierId),supplierName=clean(body?.supplierName);if(!supplierId)throw new Error("Выберите поставщика.");
+      const rfqId=clean(body?.rfqId);
+      if(rfqId){
+        const rfq=await db.prepare("SELECT * FROM procurement_rfqs WHERE id=?1 AND server_scope=?2 AND requisition_id=?3 LIMIT 1").bind(rfqId,c.serverScope,r.id).first();
+        if(!rfq){const e=new Error("RFQ не найден.");e.status=404;throw e}
+        if(rfq.status==="CLOSED"){const e=new Error("Этот RFQ уже закрыт.");e.status=409;throw e}
+        const allowed=new Set(parse(rfq.supplier_ids_json,[]).map(clean));
+        if(!allowed.has(supplierId)){const e=new Error("Этот поставщик не входит в выбранный RFQ.");e.status=409;throw e}
+      }
       const reqLines=(await db.prepare("SELECT * FROM procurement_requisition_lines WHERE requisition_id=?1").bind(r.id).all()).results||[],reqProducts=new Set(reqLines.map(x=>x.product_id));
       const lines=normalizeLines(body?.lines).map(x=>{if(!reqProducts.has(x.productId))throw new Error("В предложении есть позиция, которой нет в заявке.");return{productId:x.productId,productName:x.productName,unit:x.unit,quantity:x.quantity,packageSize:x.packageSize,packageCount:x.packageCount,containerId:x.containerId,packageName:x.packageName,vatPercent:x.vatPercent,unitPrice:x.unitPrice,total:money(x.packageCount*x.unitPrice)}});
       const total=money(lines.reduce((sum,x)=>sum+x.total,0)),id=uid();
-      await db.prepare(`INSERT INTO procurement_quotes(id,server_scope,requisition_id,supplier_id,supplier_name,status,currency,delivery_days,payment_terms,valid_until,comment,lines_json,total_amount,created_at,created_by,created_by_name) VALUES(?1,?2,?3,?4,?5,'OFFERED',?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`).bind(id,c.serverScope,r.id,supplierId,supplierName,clean(body?.currency||"AZN"),Math.max(0,Math.round(n(body?.deliveryDays))),clean(body?.paymentTerms),clean(body?.validUntil),clean(body?.comment),JSON.stringify(lines),total,stamp,userId,userName).run();
-      await log(c,"CREATE","SUPPLIER_QUOTE",r,null,{id,requisitionId:r.id,supplierId,supplierName,totalAmount:total,lines});
+      await db.prepare(`INSERT INTO procurement_quotes(id,server_scope,requisition_id,rfq_id,supplier_id,supplier_name,status,currency,delivery_days,payment_terms,valid_until,comment,lines_json,total_amount,created_at,created_by,created_by_name) VALUES(?1,?2,?3,?4,?5,?6,'OFFERED',?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)`).bind(id,c.serverScope,r.id,rfqId,supplierId,supplierName,clean(body?.currency||"AZN"),Math.max(0,Math.round(n(body?.deliveryDays))),clean(body?.paymentTerms),clean(body?.validUntil),clean(body?.comment),JSON.stringify(lines),total,stamp,userId,userName).run();
+      await log(c,"CREATE","SUPPLIER_QUOTE",r,null,{id,rfqId,requisitionId:r.id,supplierId,supplierName,totalAmount:total,lines});
       return json({success:true,id,totalAmount:total},201);
     }
 
