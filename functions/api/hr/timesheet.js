@@ -212,45 +212,38 @@ export async function onRequestGet({request,env}){
     const employeeIds=[...new Set(employees.map(x=>String(x.id||'')).filter(Boolean))];
     const employeeChunks=chunkList(employeeIds,50);
 
-    const [deviceRows,scheduleRows,dayRuleRows,typeRows,roleAttendanceRows]=await env.DB.batch([
+    const [deviceRows,typeRows,roleAttendanceRows]=await env.DB.batch([
       env.DB.prepare(`SELECT device_id,name,timezone FROM hr_devices WHERE user_id=?1`).bind(userId),
-      env.DB.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 AND is_active=1 AND valid_from<=?2 AND (valid_to='' OR valid_to>=?3) ORDER BY is_default DESC,valid_from DESC`).bind(userId,to,from),
-      env.DB.prepare(`SELECT schedule_id,weekday,shift_start,shift_end,break_minutes FROM hr_role_schedule_days WHERE user_id=?1`).bind(userId),
       env.DB.prepare(`SELECT leave_type,display_name FROM hr_leave_type_settings WHERE user_id=?1`).bind(userId),
       env.DB.prepare(`SELECT role_code,daily_norm_minutes,shift_type,updated_at FROM hr_role_attendance_rules WHERE user_id=?1`).bind(userId)
     ]);
 
-    const eventResults=[],profileResults=[],leaveResults=[],overrideResults=[],employeeAttendanceResults=[];
+    const eventResults=[],profileResults=[],leaveResults=[],employeeAttendanceResults=[];
     for(const ids of employeeChunks){
       const empIn=ids.map(()=>'?').join(',');
       const attendanceSql=`SELECT event_id,device_id,iiko_employee_id,event_time,event_type FROM hr_attendance_events WHERE user_id=? AND iiko_employee_id IN (${empIn}) AND event_time>=? AND event_time<=? ORDER BY iiko_employee_id,event_time`;
       const profileSql=`SELECT iiko_employee_id,factual_hire_date,factual_fire_date,official_hire_date,official_fire_date,work_capacity_percent FROM hr_employee_profiles WHERE user_id=? AND iiko_employee_id IN (${empIn})`;
       const leaveSql=`SELECT leave_id,iiko_employee_id,contour,leave_type,date_from,date_to,days,status,note FROM hr_employee_leave_entries WHERE user_id=? AND iiko_employee_id IN (${empIn}) AND status='APPROVED' AND date_from<=? AND date_to>=? ORDER BY date_from`;
-      const overrideSql=`SELECT override_id,iiko_employee_id,schedule_id,effective_from,effective_to,note,is_active FROM hr_employee_schedule_overrides WHERE user_id=? AND iiko_employee_id IN (${empIn}) AND is_active=1 AND effective_from<=? AND (effective_to='' OR effective_to>=?)`;
       const attendanceRuleSql=`SELECT iiko_employee_id,shift_type_override,updated_at FROM hr_employee_attendance_rules WHERE user_id=? AND iiko_employee_id IN (${empIn})`;
-      const [eventPart,profilePart,leavePart,overridePart,employeeAttendancePart]=await env.DB.batch([
+      const [eventPart,profilePart,leavePart,employeeAttendancePart]=await env.DB.batch([
         env.DB.prepare(attendanceSql).bind(userId,...ids,`${isoDayShift(from,-1)}T00:00:00.000Z`,`${isoDayShift(to,1)}T23:59:59.999Z`),
         env.DB.prepare(profileSql).bind(userId,...ids),
         env.DB.prepare(leaveSql).bind(userId,...ids,to,from),
-        env.DB.prepare(overrideSql).bind(userId,...ids,to,from),
         env.DB.prepare(attendanceRuleSql).bind(userId,...ids)
       ]);
       eventResults.push(...(eventPart.results||[]));
       profileResults.push(...(profilePart.results||[]));
       leaveResults.push(...(leavePart.results||[]));
-      overrideResults.push(...(overridePart.results||[]));
       employeeAttendanceResults.push(...(employeeAttendancePart.results||[]));
     }
 
-    const eventRows={results:eventResults},profileRows={results:profileResults},leaveRows={results:leaveResults},overrideRows={results:overrideResults};
+    const eventRows={results:eventResults},profileRows={results:profileResults},leaveRows={results:leaveResults};
     const devices=deviceRows.results||[],deviceMap=new Map(devices.map(x=>[String(x.device_id),x]));
     const profiles=new Map((profileRows.results||[]).map(x=>[String(x.iiko_employee_id),x]));
     const customTypes=new Map((typeRows.results||[]).map(x=>[x.leave_type,x.display_name]));
     const leaves=(leaveRows.results||[]).map(x=>({...x,leaveName:clean(customTypes.get(x.leave_type))||LEAVE_NAMES[x.leave_type]||x.leave_type}));
-    const schedules=scheduleRows.results||[],overrides=overrideRows.results||[],dayRules=new Map();
     const roleAttendanceMap=new Map((roleAttendanceRows.results||[]).map(x=>[String(x.role_code||''),x]));
     const employeeAttendanceMap=new Map((employeeAttendanceResults||[]).map(x=>[String(x.iiko_employee_id||''),x]));
-    for(const r of dayRuleRows.results||[]){const id=String(r.schedule_id);if(!dayRules.has(id))dayRules.set(id,[]);dayRules.get(id).push(r)}
 
     const events=eventRows.results||[],byEmployee=new Map();for(const e of events){const id=String(e.iiko_employee_id||'');if(!byEmployee.has(id))byEmployee.set(id,[]);byEmployee.get(id).push(e)}
     const intervals=[],issues=[],rawDayMap=new Map(),attendanceConfigByEmployee=new Map();
@@ -289,7 +282,7 @@ export async function onRequestGet({request,env}){
           });
         }
         if(employmentActive(date,officialHire,officialFire)){
-          const plan=schedulePlan(date,null,dayRules),calendar=calendarInfo(date),leave=leaveForDate(employee.id,date,'OFFICIAL',leaves);
+          const plan=schedulePlan(date,null,new Map()),calendar=calendarInfo(date),leave=leaveForDate(employee.id,date,'OFFICIAL',leaves);
           let planned=Math.round(plan.plannedMinutes*capacity);
           let status=leave?'LEAVE':plan.scheduled?(calendar.type==='HOLIDAY'||calendar.type==='MOURNING'?'WORK_HOLIDAY':'WORK'):'REST';
           if(calendar.type==='HOLIDAY'||calendar.type==='TRANSFERRED_REST'||calendar.type==='WEEKEND'||calendar.type==='MOURNING'){status=leave?'LEAVE':'REST';planned=0}
