@@ -46,18 +46,7 @@
     });
     $('rsAttendanceRuleRows').querySelectorAll('[data-attendance-save]').forEach(btn=>btn.onclick=()=>saveAttendanceRule(btn.closest('[data-attendance-role]')));
   }
-  function renderRoles(){
-    const list=activeRoles();$('rsRoleCount').textContent=`${list.length} должностей`;
-    $('rsRoleRows').innerHTML=list.length?list.map(r=>`<tr>
-      <td class="text-left"><div class="hr-name">${esc(r.name)}</div>${r.id?`<div class="hr-sub">ID ${esc(r.id)}</div>`:''}</td>
-      <td><span class="hr-badge">${esc(r.code)}</span></td>
-      <td>${Number(r.employeeCount||0)}</td>
-      <td>${esc((Number(r.dailyNormMinutes||480)/60).toFixed(2).replace(/\.00$/,''))} ч</td>
-      <td><span class="hr-badge ${String(r.shiftType||'DAY').toUpperCase()==='NIGHT'?'pending':'active'}">${String(r.shiftType||'DAY').toUpperCase()==='NIGHT'?'Ночная':'Дневная'}</span></td>
-      <td><span class="hr-badge active">Из Smart Horeca</span></td>
-    </tr>`).join(''):'<tr><td colspan="6" class="hr-empty">Должности ещё не синхронизированы.</td></tr>';
-  }
-  function render(){renderSummary();renderAttendanceRules();renderRoles()}
+  function render(){renderSummary();renderAttendanceRules()}
   async function load(){
     if(busy)return;try{busy=true;$('rsRefresh').disabled=true;$('rsError').hidden=true;setStatus('Загрузка…','loading');data=await api();render();setStatus('Готово','ok')}
     catch(e){$('rsError').hidden=false;$('rsError').textContent=e.message;setStatus('Ошибка','error')}
