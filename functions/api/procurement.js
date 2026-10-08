@@ -683,7 +683,9 @@ export async function onRequestPost({request,env}){
         await db.prepare("INSERT INTO procurement_rfq_suppliers(id,server_scope,rfq_id,supplier_id,supplier_name,status) VALUES(?1,?2,?3,?4,?5,'PENDING')").bind(sid,c.serverScope,rfqId,supplierId,name).run();
         supplier=await db.prepare("SELECT * FROM procurement_rfq_suppliers WHERE id=?1").bind(sid).first();
       }
-      const token=randomToken(),hash=await tokenHash(token),expires=new Date(Date.now()+7*24*3600*1000).toISOString();
+      const token=randomToken(),hash=await tokenHash(token);
+      const deadlineMs=rfq.deadline?new Date(rfq.deadline+"T23:59:59Z").getTime():0;
+      const expires=new Date(deadlineMs>Date.now()?deadlineMs:Date.now()+7*24*3600*1000).toISOString();
       await db.prepare("UPDATE procurement_rfq_suppliers SET token_hash=?2,token_created_at=?3,token_expires_at=?4 WHERE id=?1").bind(supplier.id,hash,stamp,expires).run();
       const origin=new URL(request.url).origin,link=origin+"/rfq-response.html?token="+encodeURIComponent(token);
       await log(c,"CREATE_LINK","REQUEST_FOR_QUOTATION",rfq,null,{rfqId,supplierId,supplierName:supplier.supplier_name,expiresAt:expires});
@@ -722,11 +724,20 @@ export async function onRequestPost({request,env}){
       }
       const reqLines=(await db.prepare("SELECT * FROM procurement_requisition_lines WHERE requisition_id=?1").bind(r.id).all()).results||[],reqProducts=new Set(reqLines.map(x=>x.product_id));
       const lines=normalizeLines(body?.lines).map(x=>{if(!reqProducts.has(x.productId))throw new Error("В предложении есть позиция, которой нет в заявке.");return{productId:x.productId,productName:x.productName,unit:x.unit,quantity:x.quantity,packageSize:x.packageSize,packageCount:x.packageCount,containerId:x.containerId,packageName:x.packageName,vatPercent:x.vatPercent,unitPrice:x.unitPrice,total:money(x.packageCount*x.unitPrice)}});
-      const total=money(lines.reduce((sum,x)=>sum+x.total,0)),id=uid();
-      await db.prepare(`INSERT INTO procurement_quotes(id,server_scope,requisition_id,rfq_id,supplier_id,supplier_name,status,currency,delivery_days,payment_terms,valid_until,comment,lines_json,total_amount,created_at,created_by,created_by_name) VALUES(?1,?2,?3,?4,?5,?6,'OFFERED',?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)`).bind(id,c.serverScope,r.id,rfqId,supplierId,supplierName,clean(body?.currency||"AZN"),Math.max(0,Math.round(n(body?.deliveryDays))),clean(body?.paymentTerms),clean(body?.validUntil),clean(body?.comment),JSON.stringify(lines),total,stamp,userId,userName).run();
+      const total=money(lines.reduce((sum,x)=>sum+x.total,0));
+      let existingQuote=rfqId?await db.prepare("SELECT * FROM procurement_quotes WHERE rfq_id=?1 AND supplier_id=?2 ORDER BY created_at DESC LIMIT 1").bind(rfqId,supplierId).first():null;
+      if(existingQuote?.status==="SELECTED"){const e=new Error("По этому предложению уже создан PO. Изменение заблокировано.");e.status=409;throw e}
+      const id=existingQuote?.id||uid(),currency=clean(body?.currency||"AZN"),deliveryDays=Math.max(0,Math.round(n(body?.deliveryDays))),paymentTerms=clean(body?.paymentTerms),validUntil=clean(body?.validUntil),comment=clean(body?.comment);
+      if(existingQuote){
+        await db.prepare(`UPDATE procurement_quotes SET supplier_name=?2,status='OFFERED',currency=?3,delivery_days=?4,payment_terms=?5,valid_until=?6,comment=?7,lines_json=?8,total_amount=?9,created_at=?10,created_by=?11,created_by_name=?12 WHERE id=?1`)
+          .bind(id,supplierName,currency,deliveryDays,paymentTerms,validUntil,comment,JSON.stringify(lines),total,stamp,userId,userName).run();
+      }else{
+        await db.prepare(`INSERT INTO procurement_quotes(id,server_scope,requisition_id,rfq_id,supplier_id,supplier_name,status,currency,delivery_days,payment_terms,valid_until,comment,lines_json,total_amount,created_at,created_by,created_by_name) VALUES(?1,?2,?3,?4,?5,?6,'OFFERED',?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)`)
+          .bind(id,c.serverScope,r.id,rfqId,supplierId,supplierName,currency,deliveryDays,paymentTerms,validUntil,comment,JSON.stringify(lines),total,stamp,userId,userName).run();
+      }
       if(rfqId)await db.prepare("UPDATE procurement_rfq_suppliers SET status='RESPONDED',responded_at=?3 WHERE rfq_id=?1 AND supplier_id=?2").bind(rfqId,supplierId,stamp).run();
-      await log(c,"CREATE","SUPPLIER_QUOTE",r,null,{id,rfqId,requisitionId:r.id,supplierId,supplierName,totalAmount:total,lines});
-      return json({success:true,id,totalAmount:total},201);
+      await log(c,existingQuote?"UPDATE":"CREATE","SUPPLIER_QUOTE",r,existingQuote?{id:existingQuote.id,totalAmount:n(existingQuote.total_amount)}:null,{id,rfqId,requisitionId:r.id,supplierId,supplierName,totalAmount:total,lines});
+      return json({success:true,id,totalAmount:total},existingQuote?200:201);
     }
 
     if(action==="create-order"){
