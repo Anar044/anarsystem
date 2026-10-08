@@ -190,7 +190,7 @@ export async function loadRequestIikoState(request, env) {
   const auth = await getUser(request, env);
   if (!auth) return null;
 
-  const access = await resolveAccessForUser(env.DB, auth.user, { claimInvite: true });
+  const access = await resolveAccessForUser(env.DB, auth.user, { claimInvite: true, request });
   if (!access.allowed) {
     return {
       ...auth,
@@ -206,7 +206,7 @@ export async function loadRequestIikoState(request, env) {
 
   // All restaurant data stays under the original owner_user_id. Employees use
   // their own Supabase session, but read the same encrypted Smart Horeca/iiko state.
-  const storageUserId = access.ownerUserId || auth.user.id;
+  const storageUserId = access.storageUserId || access.ownerUserId || auth.user.id;
   const stored = await loadPrivateIikoState(env.DB, storageUserId, env);
   return { ...auth, ...stored, access, storageUserId };
 }
