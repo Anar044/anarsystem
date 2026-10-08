@@ -146,3 +146,13 @@
 .proc-rfq-link-box textarea{width:100%;min-height:88px;box-sizing:border-box;border:1px solid #2a3b49;border-radius:9px;background:#091219;color:#cfe6dc;padding:10px;resize:none;outline:0;font:11px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}
 .proc-rfq-link-box small{color:#6f7f8e;font-size:9.5px}
 @media(max-width:760px){.proc-rfq-supplier-links{grid-template-columns:1fr}}
+
+.proc-day-grid{display:flex;gap:7px;flex-wrap:wrap;padding:8px 0}
+.proc-day-check{display:flex!important;align-items:center;gap:5px!important;flex-direction:row!important;padding:6px 9px;border:1px solid #293a48;border-radius:8px;background:#0a131a;color:#cdd7df!important;cursor:pointer}
+.proc-day-check input{width:auto!important;accent-color:#42d392}.proc-day-check span{font-size:9.5px!important;color:#cdd7df!important}
+.proc-contract-block{margin-top:18px;border:1px solid #22313e;border-radius:11px;overflow:hidden}
+.proc-contract-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 11px;border-top:1px solid #1c2935;background:#0c151d}
+.proc-contract-row:first-child{border-top:0}.proc-contract-row>div:first-child{min-width:0}.proc-contract-row strong{display:inline-block;margin-right:8px;font-size:11px}.proc-contract-row small{display:block;margin-top:4px;color:#788897;font-size:9px}.proc-contract-row .proc-status-badge{margin-top:6px}
+#proc-supplier-master-table td small{display:block;margin-top:3px;color:#70808f;font-size:9px}
+#proc-supplier-master-table td{vertical-align:middle}
+@media(max-width:760px){.proc-contract-row{align-items:flex-start;flex-direction:column}}
