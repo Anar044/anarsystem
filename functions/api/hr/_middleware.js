@@ -54,6 +54,8 @@ function patchAdjustments(data,tax){
 }
 
 export async function onRequest(context){
+  // CORS preflight has no Supabase session; route it to the endpoint's onRequestOptions.
+  if(context.request.method.toUpperCase()==='OPTIONS')return context.next();
   const path=new URL(context.request.url).pathname,rule=accessRule(path,context.request.method);
   let auth=null,access=null;
   if(rule){
