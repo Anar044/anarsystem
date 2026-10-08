@@ -247,7 +247,7 @@
         if (!script) {
             script = document.createElement("script");
             script.id = "sh-site-access-script";
-            script.src = "/site-access.js?v=20261008-access-1";
+            script.src = "/site-access.js?v=20261008-workspace-1";
             document.head.appendChild(script);
         }
         await new Promise((resolve, reject) => {
