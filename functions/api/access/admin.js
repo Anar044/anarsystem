@@ -8,7 +8,7 @@ function clean(v){return String(v??'').trim()}
 async function ctx(request,env){
   const auth=await getUser(request,env);
   if(!auth?.user)return{error:json({success:false,message:'Требуется авторизация'},401)};
-  const access=await resolveAccessForUser(env.DB,auth.user,{claimInvite:true});
+  const access=await resolveAccessForUser(env.DB,auth.user,{claimInvite:true,request});
   if(!access.allowed)return{error:json({success:false,message:'Доступ к организации не назначен.',reason:access.reason},403)};
   if(!hasPermission(access,'access.manage'))return{error:json({success:false,message:'Недостаточно прав для управления пользователями.'},403)};
   return{auth,access};
@@ -33,8 +33,10 @@ export async function onRequestPost({request,env}){
       return json({success:true,id});
     }
     if(action==='save-member'){
-      const id=await upsertMember(env.DB,c.access.ownerUserId,body.member||{});
-      return json({success:true,id});
+      const result=await upsertMember(env.DB,c.access.ownerUserId,body.member||{});
+      const origin=new URL(request.url).origin;
+      const inviteLink=result.inviteToken?origin+'/register.html?invite='+encodeURIComponent(result.inviteToken):'';
+      return json({success:true,...result,inviteLink});
     }
     if(action==='set-member-status'){
       await setMemberStatus(env.DB,c.access.ownerUserId,clean(body.memberId),body.status);
