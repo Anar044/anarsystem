@@ -1001,7 +1001,7 @@ function openReceiptModal(o){
         id:o.id,
         iikoDocumentNumber:documentNumber,
         iikoDocumentId:x.validation?.documentId||'',
-        iikoStatus:process?'PROCESSED':'DRAFT',
+        iikoStatus:process?'PROCESSED':'NEW',
         documentDate:$('proc-receipt-date').value,
         comment:'Smart Horeca Procurement · '+o.number,
         lines:rlines
