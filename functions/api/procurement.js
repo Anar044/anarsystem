@@ -476,6 +476,20 @@ async function orderRow(db,scope,id,serverScope){
   if(!row){const e=new Error("Заказ не найден.");e.status=404;throw e}
   assertAllowed(row,scope);return row;
 }
+async function physicalProgress(db,orderId){
+  const orderLines=(await db.prepare("SELECT * FROM procurement_order_lines WHERE order_id=?1").bind(orderId).all()).results||[];
+  const grnRows=(await db.prepare("SELECT lines_json FROM procurement_grns WHERE order_id=?1").bind(orderId).all()).results||[];
+  const legacyRows=(await db.prepare("SELECT lines_json FROM procurement_receipts WHERE order_id=?1 AND (grn_id IS NULL OR grn_id='')").bind(orderId).all()).results||[];
+  const received=new Map();
+  for(const row of [...grnRows,...legacyRows])for(const line of parse(row.lines_json,[])){
+    const pid=clean(line.productId),value=n(line.quantity??line.receivedQty);
+    received.set(pid,n(received.get(pid))+value);
+  }
+  const completed=orderLines.length>0&&orderLines.every(l=>n(received.get(l.product_id))>=n(l.confirmed_qty||l.ordered_qty)-0.0005);
+  const hasAny=[...received.values()].some(v=>v>0.0005);
+  return{orderLines,received,completed,hasAny};
+}
+
 async function log(context,action,entityType,row,before,after,meta={}){
   const ids=parse(row?.restaurant_ids_json,context.scope.selectedDepartmentIds||[]);
   const names=parse(row?.restaurant_names_json,(context.scope.selectedRestaurants||[]).map(x=>x?.name));
@@ -971,6 +985,58 @@ export async function onRequestPost({request,env}){
       return json({success:true,id:o.id,status:next});
     }
 
+    if(action==="create-grn"){
+      const o=await orderRow(db,c.scope,clean(body?.id),c.serverScope);
+      if(o.status==="CANCELLED"){const e=new Error("Отменённый PO нельзя принимать.");e.status=409;throw e}
+      const progress=await physicalProgress(db,o.id),by=new Map(progress.orderLines.map(x=>[x.product_id,x]));
+      const lines=normalizeLines(body?.lines,{allowZeroPrice:true}).map(x=>{
+        const ol=by.get(x.productId);
+        if(!ol)throw new Error("GRN содержит позицию вне PO.");
+        const remaining=q(n(ol.confirmed_qty||ol.ordered_qty)-n(progress.received.get(x.productId)));
+        if(!s.allowOverReceipt&&x.quantity>remaining+0.0005)throw new Error(`${ol.product_name}: принимаемое количество больше остатка PO (${remaining}).`);
+        const poPrice=n(ol.unit_price);
+        return{
+          productId:x.productId,productName:x.productName||ol.product_name,unit:x.unit||ol.unit,quantity:x.quantity,
+          packageSize:x.packageSize,packageCount:x.packageCount,containerId:x.containerId,packageName:x.packageName,
+          vatPercent:n(ol.vat_percent),unitPrice:poPrice,total:money(x.packageCount*poPrice)
+        };
+      });
+      const id=uid(),number=docNo("GRN"),total=money(lines.reduce((sum,x)=>sum+x.total,0)),documentDate=clean(body?.documentDate||stamp.slice(0,10));
+      await db.prepare(`INSERT INTO procurement_grns(id,server_scope,order_id,number,status,document_date,supplier_id,supplier_name,warehouse_id,warehouse_name,total_amount,lines_json,comment,created_at,created_by,created_by_name)
+        VALUES(?1,?2,?3,?4,'RECEIVED',?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`)
+        .bind(id,c.serverScope,o.id,number,documentDate,o.supplier_id,o.supplier_name,o.warehouse_id,o.warehouse_name,total,JSON.stringify(lines),clean(body?.comment),stamp,userId,userName).run();
+
+      for(const line of lines)progress.received.set(line.productId,n(progress.received.get(line.productId))+n(line.quantity));
+      const completed=progress.orderLines.length>0&&progress.orderLines.every(l=>n(progress.received.get(l.product_id))>=n(l.confirmed_qty||l.ordered_qty)-0.0005);
+      const next=completed?"COMPLETED":"PARTIALLY_RECEIVED";
+      await db.prepare("UPDATE procurement_orders SET status=?2,updated_at=?3 WHERE id=?1").bind(o.id,next,stamp).run();
+      await log(c,"RECEIVE","GOODS_RECEIPT_NOTE",o,{status:o.status},{status:next,grnId:id,grnNumber:number,totalAmount:total,lines});
+      return json({success:true,id:o.id,grnId:id,grnNumber:number,status:next,totalAmount:total},201);
+    }
+
+    if(action==="link-invoice"){
+      const o=await orderRow(db,c.scope,clean(body?.id),c.serverScope),grnId=clean(body?.grnId);
+      if(!grnId)throw new Error("Выберите GRN для связи с накладной.");
+      const grn=await db.prepare("SELECT * FROM procurement_grns WHERE id=?1 AND server_scope=?2 AND order_id=?3 LIMIT 1").bind(grnId,c.serverScope,o.id).first();
+      if(!grn){const e=new Error("GRN не найден или относится к другому PO.");e.status=404;throw e}
+      const documentNumber=clean(body?.iikoDocumentNumber);if(!documentNumber)throw new Error("Не указан номер накладной.");
+      const duplicate=await db.prepare("SELECT id,order_id,grn_id,total_amount FROM procurement_receipts WHERE server_scope=?1 AND iiko_document_number=?2 LIMIT 1").bind(c.serverScope,documentNumber).first();
+      if(duplicate){
+        if(clean(duplicate.order_id)!==clean(o.id)){const e=new Error("Эта накладная уже связана с другим PO.");e.status=409;throw e}
+        return json({success:true,id:o.id,receiptId:duplicate.id,grnId:duplicate.grn_id||grnId,totalAmount:n(duplicate.total_amount),duplicate:true});
+      }
+      const lines=normalizeLines(body?.lines,{allowZeroPrice:true}).map(x=>({
+        productId:x.productId,productName:x.productName,unit:x.unit,quantity:x.quantity,packageSize:x.packageSize,packageCount:x.packageCount,
+        containerId:x.containerId,packageName:x.packageName,vatPercent:x.vatPercent,unitPrice:x.unitPrice,total:money(x.packageCount*x.unitPrice)
+      }));
+      const id=uid(),total=money(lines.reduce((sum,x)=>sum+x.total,0));
+      await db.prepare(`INSERT INTO procurement_receipts(id,server_scope,order_id,grn_id,iiko_document_number,iiko_document_id,iiko_status,document_date,total_amount,lines_json,comment,created_at,created_by,created_by_name)
+        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)`)
+        .bind(id,c.serverScope,o.id,grnId,documentNumber,clean(body?.iikoDocumentId),clean(body?.iikoStatus||"PROCESSED"),clean(body?.documentDate||stamp.slice(0,10)),total,JSON.stringify(lines),clean(body?.comment),stamp,userId,userName).run();
+      await log(c,"LINK","PURCHASE_INVOICE",o,null,{receiptId:id,grnId,iikoDocumentNumber:documentNumber,totalAmount:total,lines});
+      return json({success:true,id:o.id,receiptId:id,grnId,totalAmount:total},201);
+    }
+
     if(action==="sync-receipt"){
       const documentNumber=clean(body?.iikoDocumentNumber);if(!documentNumber)throw new Error("Не указан номер накладной.");
       const receipt=await db.prepare("SELECT * FROM procurement_receipts WHERE server_scope=?1 AND iiko_document_number=?2 LIMIT 1").bind(c.serverScope,documentNumber).first();
@@ -979,14 +1045,14 @@ export async function onRequestPost({request,env}){
       const lines=normalizeLines(body?.lines,{allowZeroPrice:true}).map(x=>({productId:x.productId,productName:x.productName,unit:x.unit,quantity:x.quantity,packageSize:x.packageSize,packageCount:x.packageCount,containerId:x.containerId,packageName:x.packageName,vatPercent:x.vatPercent,unitPrice:x.unitPrice,total:money(x.packageCount*x.unitPrice)}));
       const total=money(lines.reduce((s,x)=>s+x.total,0));
       await db.prepare("UPDATE procurement_receipts SET iiko_status=?2,document_date=?3,total_amount=?4,lines_json=?5,comment=?6 WHERE id=?1").bind(receipt.id,clean(body?.iikoStatus||receipt.iiko_status),clean(body?.documentDate||receipt.document_date),total,JSON.stringify(lines),clean(body?.comment||receipt.comment)).run();
-      const orderLines=(await db.prepare("SELECT * FROM procurement_order_lines WHERE order_id=?1").bind(o.id).all()).results||[];
-      const receiptRows=(await db.prepare("SELECT lines_json FROM procurement_receipts WHERE order_id=?1").bind(o.id).all()).results||[],received=new Map();
-      for(const rr of receiptRows)for(const l of parse(rr.lines_json,[])){const pid=clean(l.productId);received.set(pid,n(received.get(pid))+n(l.quantity??l.receivedQty))}
-      const completed=orderLines.length>0&&orderLines.every(l=>n(received.get(l.product_id))>=n(l.confirmed_qty||l.ordered_qty)-0.0005);
-      const hasAny=[...received.values()].some(v=>v>0),next=completed?"COMPLETED":hasAny?"PARTIALLY_RECEIVED":(["CANCELLED"].includes(o.status)?o.status:"CONFIRMED");
-      await db.prepare("UPDATE procurement_orders SET status=?2,updated_at=?3 WHERE id=?1").bind(o.id,next,stamp).run();
-      await log(c,"SYNC","PURCHASE_RECEIPT",o,{status:o.status,receiptId:receipt.id},{status:next,receiptId:receipt.id,iikoDocumentNumber:documentNumber,iikoStatus:clean(body?.iikoStatus),totalAmount:total,lines});
-      return json({success:true,id:o.id,receiptId:receipt.id,status:next,totalAmount:total});
+      let next=o.status;
+      if(!clean(receipt.grn_id)){
+        const progress=await physicalProgress(db,o.id);
+        next=progress.completed?"COMPLETED":progress.hasAny?"PARTIALLY_RECEIVED":(["CANCELLED"].includes(o.status)?o.status:"CONFIRMED");
+        await db.prepare("UPDATE procurement_orders SET status=?2,updated_at=?3 WHERE id=?1").bind(o.id,next,stamp).run();
+      }
+      await log(c,"SYNC","PURCHASE_INVOICE",o,{status:o.status,receiptId:receipt.id},{status:next,receiptId:receipt.id,grnId:receipt.grn_id||"",iikoDocumentNumber:documentNumber,iikoStatus:clean(body?.iikoStatus),totalAmount:total,lines});
+      return json({success:true,id:o.id,receiptId:receipt.id,grnId:receipt.grn_id||"",status:next,totalAmount:total});
     }
 
     if(action==="receive-order"){
