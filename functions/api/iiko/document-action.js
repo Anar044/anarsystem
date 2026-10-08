@@ -153,13 +153,17 @@ function validateIncoming(d) {
       return;
     }
 
-    const expectedCents = Math.round(amount * price * 100);
+    const packageSize = Number(item.packageSize);
+    const containerAware = clean(item.containerId) && Number.isFinite(packageSize) && packageSize > 0;
+    const pricedAmount = containerAware ? (amount / packageSize) : amount;
+    const expectedCents = Math.round(pricedAmount * price * 100);
     expectedDocumentCents += expectedCents;
     rowSumCents += sourceSumCents;
 
     if (sourceSumCents !== expectedCents) {
       errors.push(
-        label + ": количество × цена = " + moneyText(expectedCents / 100) +
+        label + ": " + (containerAware ? "количество / фасовка × цена упаковки" : "количество × цена") +
+        " = " + moneyText(expectedCents / 100) +
         ", но сумма строки = " + moneyText(sourceSumCents / 100) + ". Исправьте расхождение."
       );
     }
