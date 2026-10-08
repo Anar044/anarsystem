@@ -265,6 +265,24 @@ export async function selectWorkspaceForUser(db,user,workspaceId){
   if(!selected)throw Object.assign(new Error('Рабочее пространство недоступно.'),{status:403,code:'WORKSPACE_FORBIDDEN'});
   return selected;
 }
+export async function getInvitePreview(db,token){
+  await ensureAccessTables(db);
+  const raw=clean(token);if(!raw)return null;
+  const hash=await tokenHash(raw);
+  const row=await db.prepare(`SELECT i.email,i.status,i.expires_at,w.id AS workspace_id,w.name AS workspace_name
+    FROM sh_workspace_invites i
+    JOIN sh_workspaces w ON w.id=i.workspace_id
+    WHERE i.token_hash=?1 LIMIT 1`).bind(hash).first();
+  if(!row)return null;
+  return{
+    email:row.email,
+    status:row.status,
+    expiresAt:row.expires_at,
+    expired:new Date(row.expires_at).getTime()<Date.now(),
+    workspace:{id:row.workspace_id,name:row.workspace_name||'Smart Horeca'}
+  };
+}
+
 export async function createMemberInvite(db,ownerUserId,memberId){
   await ensureAccessTables(db);
   const workspace=await ensureOwnerWorkspace(db,ownerUserId,null);
