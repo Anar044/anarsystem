@@ -231,14 +231,15 @@ async function contextFor(request,env){
   if(!auth){const e=new Error("Необходима авторизация.");e.status=401;throw e}
   const access=await resolveAccessForUser(env.DB,auth.user,{claimInvite:true,request});
   if(!access.allowed){const e=new Error("Доступ к Smart Horeca не назначен.");e.status=403;e.code=access.reason||"ACCESS_DENIED";throw e}
-  const stored=await loadPrivateIikoState(env.DB,access.ownerUserId,env);
+  const storageUserId=access.storageUserId||access.ownerUserId;
+  const stored=await loadPrivateIikoState(env.DB,storageUserId,env);
   if(!stored?.found||!hasPrivateConnection(stored.state)){const e=new Error("Сначала подключите Smart Horeca Server в настройках.");e.status=409;throw e}
   const connection=privateConnection(stored.state);
   const serverScope=await serverScopeFromConnection(connection);
   if(!serverScope)throw new Error("Не удалось определить контур подключенного сервера.");
   const scope=scopedByAccess(stored.state,request,access);
   await ensure(env.DB);
-  return{auth,access,stored,connection,serverScope,scope,storageUserId:access.ownerUserId};
+  return{auth,access,stored,connection,serverScope,scope,storageUserId};
 }
 
 const PROCUREMENT_VIEW_PERMISSIONS={
