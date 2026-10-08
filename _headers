@@ -132,3 +132,17 @@
 
 /api/hr/meal-transactions
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+/site-users
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/site-users.html
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/site-users.css
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/site-users.js
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/site-access.js
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
