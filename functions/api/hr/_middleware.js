@@ -71,7 +71,7 @@ export async function onRequest(context){
   if(!access)access=await resolveAccessForUser(context.env.DB,auth.user,{claimInvite:true,request:context.request});
   const response=await context.next();if(!response.ok)return response;
   const data=await response.clone().json().catch(()=>null);if(!data?.success)return response;
-  const asOf=String(data.asOf||body.asOf||data.period?.to||monthEnd(data.month)||new Date().toISOString().slice(0,10)),tax=await loadPayrollTaxContext(context.env.DB,access?.ownerUserId||auth.user.id,asOf);
+  const asOf=String(data.asOf||body.asOf||data.period?.to||monthEnd(data.month)||new Date().toISOString().slice(0,10)),tax=await loadPayrollTaxContext(context.env.DB,access?.storageUserId||access?.ownerUserId||auth.user.id,asOf);
   if(path.endsWith('/compensation'))patchCompensation(data,tax);else if(path.endsWith('/payroll-adjustments'))patchAdjustments(data,tax);else if(path.endsWith('/payroll'))patchPayroll(data,tax);
   const headers=new Headers(response.headers);headers.delete('content-length');headers.set('Content-Type','application/json; charset=utf-8');headers.set('Cache-Control','no-store');
   return new Response(JSON.stringify(data),{status:response.status,statusText:response.statusText,headers});
