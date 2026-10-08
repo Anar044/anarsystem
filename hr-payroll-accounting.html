@@ -29,10 +29,13 @@
 <article class="hrpa-card"><h3>Касса <span class="hrpa-required">*</span></h3><p>Кредитуется при отдельной выплате наличными.</p><div class="hrpa-field"><label>Реальный денежный счёт</label><select id="hrpaCash"></select></div><div id="hrpaCashMeta" class="hrpa-account-meta"></div></article>
 <article class="hrpa-card"><h3>Банковские счета Payroll</h3><p>Можно добавить несколько реальных банковских счетов SH Server. Один отметьте как счёт по умолчанию; при каждой выплате бухгалтер сможет выбрать любой из списка.</p><div class="hrpa-bank-add"><select id="hrpaBankCandidate"></select><button id="hrpaBankAdd" class="hr-link-button" type="button">Добавить банк</button></div><div id="hrpaBankList" class="hrpa-bank-list"></div><div id="hrpaBankCount" class="hrpa-bank-count">0 банковских счетов</div></article>
 <article class="hrpa-card"><h3>Другой способ выплаты</h3><p>Необязательно. Используется только если в Payroll выбран способ «Другое».</p><div class="hrpa-field"><label>Счёт списания</label><select id="hrpaOther"></select></div><div id="hrpaOtherMeta" class="hrpa-account-meta"></div></article>
-<article class="hrpa-card hrpa-future"><h3>Взносы работодателя</h3><p>Подготовлено для следующего этапа полного Payroll: отдельный расходный счёт и обязательство по налогам/взносам.</p><div class="hrpa-field"><label>Расходы работодателя</label><select id="hrpaEmployerExpense"></select><label>Налоги и взносы к уплате</label><select id="hrpaTaxPayable"></select></div></article>
+<div hidden>
+<select id="hrpaEmployerExpense"></select>
+<select id="hrpaTaxPayable"></select>
+</div>
 </section>
 <section class="hrpa-card"><h3>Проводки, которые будут создаваться</h3><p>Предпросмотр строится по выбранным реальным счетам.</p><div id="hrpaPreview" class="hrpa-preview"></div></section>
 <section class="hrpa-card hrpa-actions"><small>Для CHAIN: если выбран один ресторан, настройка сохраняется для его department code. Если выбраны все рестораны — сохраняется общий профиль «*», который используется как fallback.</small><button id="hrpaSave" class="hr-primary-button hrpa-save" type="button">Сохранить счета</button></section>
 </section></div></main></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="iiko-context.js?v=20261003-chain-3"></script><script src="app-shell.js?v=20261008-hr-clean-1"></script><script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script><script src="mobile-responsive.js?v=1"></script><script src="documents-nav.js?v=20"></script><script src="hr-payroll-accounting.js?v=20261007-multi-bank-2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="iiko-context.js?v=20261003-chain-3"></script><script src="app-shell.js?v=20261008-hr-clean-2"></script><script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script><script src="mobile-responsive.js?v=1"></script><script src="documents-nav.js?v=20"></script><script src="hr-payroll-accounting.js?v=20261007-multi-bank-2"></script>
 </body></html>
