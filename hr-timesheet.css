@@ -59,6 +59,7 @@
 .ts-legend .leave{color:#d2b7ff;border-color:rgba(174,121,255,.28);background:rgba(174,121,255,.08)}
 .ts-legend .absent{color:#ff9aa6;border-color:rgba(255,104,120,.28);background:rgba(255,104,120,.08)}
 .ts-legend .review{color:#f2c466;border-color:rgba(242,196,102,.3);background:rgba(242,196,102,.08)}
+.ts-legend .in-progress{color:#f2c466;border-color:rgba(242,196,102,.36);background:rgba(242,196,102,.12)}
 .ts-legend .no-schedule{color:#9aa8b6}
 
 .ts-matrix-card{overflow:hidden}
@@ -91,6 +92,7 @@
 .ts-day-cell.leave .ts-day-box{background:rgba(174,121,255,.09);color:#d0b4ff}
 .ts-day-cell.absent .ts-day-box{background:rgba(255,104,120,.08);color:#ff9ba6}
 .ts-day-cell.review .ts-day-box{background:rgba(242,196,102,.09);color:#f2c466}
+.ts-day-cell.in-progress .ts-day-box{background:rgba(242,196,102,.13);color:#f4cc79;box-shadow:inset 0 0 0 1px rgba(242,196,102,.27)}
 .ts-day-cell.no-schedule .ts-day-box{background:#121a22;color:#6f7e8c}
 .ts-day-cell.manual-empty .ts-day-box{background:rgba(89,139,255,.035);color:#6f8295;border:1px dashed rgba(89,139,255,.14)}
 .ts-day-cell.future .ts-day-box{background:transparent;color:#4f5d69}
@@ -188,6 +190,8 @@
 .ts-detail-status .lg.leave{color:#d2b7ff;border-color:rgba(174,121,255,.28);background:rgba(174,121,255,.08)}
 .ts-detail-status .lg.absent{color:#ff9aa6;border-color:rgba(255,104,120,.28);background:rgba(255,104,120,.08)}
 .ts-detail-status .lg.review{color:#f2c466;border-color:rgba(242,196,102,.3);background:rgba(242,196,102,.08)}
+.ts-detail-status .lg.in-progress{color:#f4cc79;border-color:rgba(242,196,102,.36);background:rgba(242,196,102,.12)}
+.ts-live-shift-note{border-color:rgba(242,196,102,.34)!important;color:#eac97f!important}
 .ts-detail-status .lg.holiday{color:#8fbcff;border-color:rgba(89,139,255,.28);background:rgba(89,139,255,.08)}
 .ts-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ts-detail-box{padding:11px;border:1px solid #23313d;border-radius:10px;background:#0d141c}
