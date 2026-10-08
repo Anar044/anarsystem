@@ -22,7 +22,7 @@ const statusTone=s=>['CANCELLED','CLOSED'].includes(s)?(s==='CANCELLED'?'danger'
 const matchLabel=s=>({OPEN:'Ожидает приёмки',PARTIAL:'Частичная приёмка',MATCHED:'PO = приёмка = накладная',PRICE_MISMATCH:'Расхождение цены',QUANTITY_MISMATCH:'Расхождение количества'}[s]||s||'—');
 const approvalName=s=>({MANAGER:'Менеджер',DIRECTOR:'Директор',OWNER:'Владелец'}[s]||s||'—');
 
-const PROCUREMENT_VIEWS=new Set(['catalog','requests','approvals','sourcing','orders','receiving','analytics','norms','settings']);
+const PROCUREMENT_VIEWS=new Set(['catalog','requests','approvals','sourcing','suppliers','orders','receiving','analytics','norms','settings']);
 function currentProcurementView(){
   const raw=new URLSearchParams(location.search).get('view')||'catalog';
   return PROCUREMENT_VIEWS.has(raw)?raw:'catalog';
@@ -31,6 +31,7 @@ function viewPanel(view){
   if(view==='catalog')return'needs';
   if(view==='norms')return'norms';
   if(['requests','approvals','sourcing'].includes(view))return'requisitions';
+  if(view==='suppliers')return'suppliers';
   if(['orders','receiving'].includes(view))return'orders';
   return view;
 }
@@ -66,7 +67,8 @@ function viewMeta(view){
     catalog:{title:'Заказать товары',subtitle:'Каталог, остатки и автоматическая потребность'},
     requests:{title:'Заявки на закупку',subtitle:'Создание PR и контроль статуса своих заявок'},
     approvals:{title:'Согласование заявок',subtitle:'Заявки, ожидающие решения'},
-    sourcing:{title:'Работа с поставщиками',subtitle:'Предложения, сравнение цен и создание PO'},
+    sourcing:{title:'RFQ и сравнение цен',subtitle:'Запросы цен, предложения поставщиков и создание PO'},
+    suppliers:{title:'Поставщики',subtitle:'Реквизиты, контакты, условия оплаты, поставки и договоры'},
     orders:{title:'Заказы поставщикам',subtitle:'Отправка PO и контроль подтверждения'},
     receiving:{title:'Приёмка поставок',subtitle:'Фактическое количество, накладные и расхождения'},
     analytics:{title:'Аналитика закупок',subtitle:'Исполнение, суммы и поставщики'},
@@ -89,6 +91,7 @@ function applyProcurementView(){
   document.querySelectorAll('[data-panel]').forEach(p=>p.hidden=p.dataset.panel!==panel);
   if(state.view==='requests'||state.view==='approvals'||state.view==='sourcing')renderRequisitions();
   if(state.view==='orders'||state.view==='receiving')renderOrders();
+  if(state.view==='suppliers')renderSuppliers();
   ensureProcurementSidebarOpen();
   setTimeout(ensureProcurementSidebarOpen,100);
 }
@@ -338,7 +341,7 @@ function scopeLabel(){
   const s=chainScope(),names=s.selectedDepartmentNames||[];
   $('proc-scope-label').textContent=s.mode==='CHAIN'?(names.length?names.join(', '):'CHAIN'):'Текущий ресторан';
 }
-function renderAll(){computeNeeds();scopeLabel();renderKpis();renderNeeds();renderNorms();renderRequisitions();renderOrders();renderAnalytics();renderSettings()}
+function renderAll(){computeNeeds();scopeLabel();renderKpis();renderNeeds();renderNorms();renderRequisitions();renderOrders();renderSuppliers();renderAnalytics();renderSettings()}
 function renderKpis(){
   const d=state.data||{},a=d.analytics||{};
   $('proc-kpi-needs').textContent=state.needs.length.toLocaleString('ru-RU');
@@ -650,6 +653,83 @@ function renderOrders(){
   box.innerHTML=active.map(o=>orderCard(o)).join('')||'<div class="proc-empty">Активных PO нет.</div>';
   if(done.length)box.insertAdjacentHTML('beforeend','<details class="proc-history-block"><summary>Завершённые PO · '+done.length+'</summary><div class="proc-card-list inner">'+done.map(o=>orderCard(o)).join('')+'</div></details>');
 }
+const WEEKDAY_LABELS={1:'Пн',2:'Вт',3:'Ср',4:'Чт',5:'Пт',6:'Сб',7:'Вс'};
+function supplierProfileFor(id){return (state.data?.supplierProfiles||[]).find(x=>key(x.supplierId)===key(id))||null}
+function supplierContractsFor(id){return (state.data?.supplierContracts||[]).filter(x=>key(x.supplierId)===key(id))}
+function supplierContractTone(c){
+  if(String(c.status).toUpperCase()==='CANCELLED')return'danger';
+  if(String(c.status).toUpperCase()==='DRAFT')return'neutral';
+  if(c.endDate&&c.endDate<today())return'danger';
+  if(c.endDate&&c.endDate<=addDays(today(),30))return'warn';
+  return'success';
+}
+function supplierContractLabel(c){
+  if(String(c.status).toUpperCase()==='CANCELLED')return'Отменён';
+  if(String(c.status).toUpperCase()==='DRAFT')return'Черновик';
+  if(c.endDate&&c.endDate<today())return'Истёк';
+  if(c.endDate&&c.endDate<=addDays(today(),30))return'Истекает';
+  return'Активен';
+}
+function renderSuppliers(){
+  const table=$('proc-supplier-master-table');if(!table)return;
+  const qv=String($('proc-suppliers-search')?.value||'').trim().toLowerCase(),profiles=state.data?.supplierProfiles||[];
+  const rows=(state.refs.suppliers||[]).map(s=>({supplier:s,profile:supplierProfileFor(s.id),contracts:supplierContractsFor(s.id)})).filter(x=>{
+    if(!qv)return true;const p=x.profile||{},hay=[x.supplier.name,p.taxId,p.contactPerson,p.phone,p.email,p.paymentTerms,(p.categories||[]).join(' ')].join(' ').toLowerCase();return hay.includes(qv);
+  }).sort((a,b)=>String(a.supplier.name||'').localeCompare(String(b.supplier.name||''),'ru'));
+  const tb=table.querySelector('tbody');
+  tb.innerHTML=rows.map(x=>{
+    const s=x.supplier,p=x.profile||{},days=(p.deliveryDays||[]).map(d=>WEEKDAY_LABELS[d]||d).join(', ')||'—',balance=state.supplierBalances.get(key(s.id))||{},active=x.contracts.filter(c=>supplierContractTone(c)==='success').length,expiring=x.contracts.filter(c=>supplierContractTone(c)==='warn').length;
+    return '<tr><td><strong>'+esc(s.name||s.id)+'</strong><small>'+esc(s.code||s.num||'')+'</small></td><td>'+esc(p.taxId||'—')+'</td><td>'+(p.contactPerson?'<strong>'+esc(p.contactPerson)+'</strong><small>'+esc([p.phone,p.email].filter(Boolean).join(' · '))+'</small>':'—')+'</td><td>'+esc(p.paymentTerms||'—')+(num(p.paymentDays)>0?'<small>'+num(p.paymentDays)+' дн.</small>':'')+'</td><td>'+esc(days)+'</td><td>'+money(p.minOrderAmount||0)+'</td><td><strong>'+x.contracts.length+'</strong><small>'+active+' акт.'+(expiring?' · '+expiring+' истекает':'')+'</small></td><td>'+money(balance.debt||0)+'<small>аванс '+money(balance.advance||0)+'</small></td><td><button class="proc-btn small secondary" data-supplier-edit="'+esc(key(s.id))+'">Карточка</button></td></tr>';
+  }).join('')||'<tr><td colspan="9" class="proc-empty">Поставщики не найдены.</td></tr>';
+  if($('proc-suppliers-meta'))$('proc-suppliers-meta').textContent=rows.length+' поставщиков · '+profiles.length+' карточек заполнено';
+}
+function supplierDaysChecks(selected=[]){
+  const set=new Set((selected||[]).map(Number));
+  return [1,2,3,4,5,6,7].map(d=>'<label class="proc-day-check"><input type="checkbox" data-supplier-day="'+d+'" '+(set.has(d)?'checked':'')+'><span>'+WEEKDAY_LABELS[d]+'</span></label>').join('');
+}
+function supplierContractsHtml(supplierId){
+  const rows=supplierContractsFor(supplierId);
+  if(!rows.length)return '<div class="proc-rfq-empty">Договоров пока нет.</div>';
+  return rows.map(c=>'<div class="proc-contract-row"><div><strong>'+esc(c.number||c.title||'Договор')+'</strong><small>'+esc(c.title||'')+(c.startDate||c.endDate?' · '+esc(c.startDate||'—')+' → '+esc(c.endDate||'—'):'')+'</small><span class="proc-status-badge '+supplierContractTone(c)+'">'+supplierContractLabel(c)+'</span></div><div class="proc-actions"><button type="button" class="proc-btn small ghost" data-contract-edit="'+c.id+'">Изменить</button><button type="button" class="proc-btn small danger" data-contract-delete="'+c.id+'">Удалить</button></div></div>').join('');
+}
+function openSupplierModal(supplier){
+  const p=supplierProfileFor(supplier.id)||{},contracts=supplierContractsFor(supplier.id);
+  openModal('Поставщик · '+(supplier.name||supplier.id),'КАРТОЧКА ПОСТАВЩИКА',
+    '<form id="proc-supplier-form"><div class="proc-form-grid">'+
+    '<label class="proc-field"><span>Поставщик</span><input value="'+esc(supplier.name||supplier.id)+'" disabled></label>'+
+    '<label class="proc-field"><span>VÖEN</span><input id="proc-sup-tax" value="'+esc(p.taxId||'')+'" placeholder="Налоговый номер"></label>'+
+    '<label class="proc-field"><span>Контактное лицо</span><input id="proc-sup-contact" value="'+esc(p.contactPerson||'')+'"></label>'+
+    '<label class="proc-field"><span>Телефон</span><input id="proc-sup-phone" value="'+esc(p.phone||'')+'"></label>'+
+    '<label class="proc-field"><span>Email</span><input id="proc-sup-email" type="email" value="'+esc(p.email||'')+'"></label>'+
+    '<label class="proc-field"><span>Отсрочка, дней</span><input id="proc-sup-payment-days" type="number" min="0" step="1" value="'+num(p.paymentDays)+'"></label>'+
+    '<label class="proc-field wide"><span>Адрес</span><input id="proc-sup-address" value="'+esc(p.address||'')+'"></label>'+
+    '<label class="proc-field wide"><span>Условия оплаты</span><input id="proc-sup-payment" value="'+esc(p.paymentTerms||'')+'" placeholder="По факту / 7 дней / предоплата…"></label>'+
+    '<label class="proc-field"><span>Минимальная сумма заказа</span><input id="proc-sup-min-order" type="number" min="0" step="0.01" value="'+num(p.minOrderAmount)+'"></label>'+
+    '<label class="proc-field wide"><span>Категории товаров</span><input id="proc-sup-categories" value="'+esc((p.categories||[]).join(', '))+'" placeholder="Овощи, мясо, напитки…"></label>'+
+    '<div class="proc-field wide"><span>Дни поставки</span><div class="proc-day-grid">'+supplierDaysChecks(p.deliveryDays||[])+'</div></div>'+
+    '<label class="proc-field wide"><span>Комментарий</span><textarea id="proc-sup-note">'+esc(p.note||'')+'</textarea></label>'+
+    '</div><div class="proc-modal-actions"><button type="button" id="proc-supplier-cancel" class="proc-btn ghost">Закрыть</button><button class="proc-btn primary">Сохранить карточку</button></div></form>'+
+    '<div class="proc-contract-block"><div class="proc-edit-head"><strong>Договоры · '+contracts.length+'</strong><button type="button" id="proc-contract-add" class="proc-btn small secondary">+ Договор</button></div><div id="proc-contract-list">'+supplierContractsHtml(supplier.id)+'</div></div>');
+  $('proc-supplier-cancel').onclick=closeModal;
+  $('proc-supplier-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);await procPost('save-supplier-profile',{supplierId:key(supplier.id),supplierName:supplier.name||'',taxId:$('proc-sup-tax').value,contactPerson:$('proc-sup-contact').value,phone:$('proc-sup-phone').value,email:$('proc-sup-email').value,address:$('proc-sup-address').value,paymentTerms:$('proc-sup-payment').value,paymentDays:num($('proc-sup-payment-days').value),minOrderAmount:num($('proc-sup-min-order').value),deliveryDays:[...document.querySelectorAll('[data-supplier-day]:checked')].map(x=>Number(x.dataset.supplierDay)),categories:$('proc-sup-categories').value.split(',').map(x=>x.trim()).filter(Boolean),note:$('proc-sup-note').value});await reloadProc();toast('Карточка поставщика сохранена.');openSupplierModal(supplier)}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
+  $('proc-contract-add').onclick=()=>openSupplierContractModal(supplier);
+  $('proc-contract-list').addEventListener('click',e=>{const edit=e.target.closest('[data-contract-edit]'),del=e.target.closest('[data-contract-delete]');if(edit){const c=supplierContractsFor(supplier.id).find(x=>x.id===edit.dataset.contractEdit);return openSupplierContractModal(supplier,c)}if(del&&confirm('Удалить договор?')){setBusy(true);procPost('delete-supplier-contract',{id:del.dataset.contractDelete}).then(()=>reloadProc()).then(()=>{toast('Договор удалён.');openSupplierModal(supplier)}).catch(err=>toast(err.message||String(err),'error')).finally(()=>setBusy(false))}});
+}
+function openSupplierContractModal(supplier,contract=null){
+  const c=contract||{};
+  openModal((contract?'Договор · ':'Новый договор · ')+(supplier.name||supplier.id),'ДОГОВОР ПОСТАВЩИКА',
+    '<form id="proc-contract-form"><div class="proc-form-grid">'+
+    '<label class="proc-field"><span>Номер договора</span><input id="proc-contract-number" value="'+esc(c.number||'')+'"></label>'+
+    '<label class="proc-field"><span>Статус</span><select id="proc-contract-status"><option value="ACTIVE" '+(c.status==='ACTIVE'?'selected':'')+'>Активен</option><option value="DRAFT" '+(c.status==='DRAFT'?'selected':'')+'>Черновик</option><option value="CANCELLED" '+(c.status==='CANCELLED'?'selected':'')+'>Отменён</option></select></label>'+
+    '<label class="proc-field"><span>Название</span><input id="proc-contract-title" value="'+esc(c.title||'')+'" placeholder="Основной договор поставки"></label>'+
+    '<label class="proc-field"><span>Дата начала</span><input id="proc-contract-start" type="date" value="'+esc(c.startDate||'')+'"></label>'+
+    '<label class="proc-field"><span>Дата окончания</span><input id="proc-contract-end" type="date" value="'+esc(c.endDate||'')+'"></label>'+
+    '<label class="proc-field wide"><span>Условия оплаты</span><input id="proc-contract-payment" value="'+esc(c.paymentTerms||'')+'"></label>'+
+    '<label class="proc-field wide"><span>Комментарий</span><textarea id="proc-contract-comment">'+esc(c.comment||'')+'</textarea></label>'+
+    '</div><div class="proc-modal-actions"><button id="proc-contract-back" type="button" class="proc-btn ghost">Назад</button><button class="proc-btn primary">Сохранить договор</button></div></form>');
+  $('proc-contract-back').onclick=()=>openSupplierModal(supplier);
+  $('proc-contract-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);await procPost('save-supplier-contract',{id:c.id||'',supplierId:key(supplier.id),number:$('proc-contract-number').value,title:$('proc-contract-title').value,startDate:$('proc-contract-start').value,endDate:$('proc-contract-end').value,paymentTerms:$('proc-contract-payment').value,status:$('proc-contract-status').value,comment:$('proc-contract-comment').value});await reloadProc();toast('Договор сохранён.');openSupplierModal(supplier)}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
+}
 function renderAnalytics(){
   const a=state.data?.analytics||{};$('proc-a-estimate').textContent=money(a.requisitionEstimate);$('proc-a-ordered').textContent=money(a.orderedAmount);$('proc-a-received').textContent=money(a.receivedAmount);$('proc-a-savings').textContent=money(a.estimatedSavings);
   const tb=$('proc-suppliers-table').querySelector('tbody'),rows=state.data?.supplierPerformance||[];
@@ -839,10 +919,10 @@ async function loadAll(){
 
     const view=state.view||currentProcurementView(),canCost=window.SHAccess?.can?.('procurement.prices.view')||window.SHAccess?.can?.('sensitive.cost.view')||false;
     const tasks=[];
-    if(['catalog','sourcing','receiving','norms'].includes(view))tasks.push(['Справочники',loadReferences]);
+    if(['catalog','sourcing','suppliers','receiving','norms'].includes(view))tasks.push(['Справочники',loadReferences]);
     if(['catalog','norms'].includes(view))tasks.push(['Остатки',loadStocks]);
     if(canCost&&['catalog','sourcing'].includes(view))tasks.push(['История цен',loadHistory]);
-    if(canCost&&['sourcing','analytics'].includes(view))tasks.push(['Баланс поставщиков',loadSupplierBalances]);
+    if(canCost&&['sourcing','suppliers','analytics'].includes(view))tasks.push(['Баланс поставщиков',loadSupplierBalances]);
     setStatus(tasks.length?'Загружаем данные раздела…':'Данные закупок загружены.');
     const results=await Promise.allSettled(tasks.map(x=>x[1]()));
     const warnings=[];
@@ -876,6 +956,8 @@ function bind(){
   $('proc-refresh').onclick=loadAll;$('proc-new-pr').onclick=()=>openPrModal();
   $('proc-needs-search').oninput=renderNeeds;$('proc-needs-store').onchange=()=>{state.selectedNeeds.clear();renderNeeds()};$('proc-needs-filter').onchange=renderNeeds;
   $('proc-norms-search').oninput=renderNorms;$('proc-norms-store').onchange=renderNorms;$('proc-norms-filter').onchange=renderNorms;$('proc-norms-save').onclick=saveNorms;
+  if($('proc-suppliers-search'))$('proc-suppliers-search').oninput=renderSuppliers;
+  if($('proc-supplier-master-table'))$('proc-supplier-master-table').addEventListener('click',e=>{const b=e.target.closest('[data-supplier-edit]');if(!b)return;const s=(state.refs.suppliers||[]).find(x=>key(x.id)===key(b.dataset.supplierEdit));if(s)openSupplierModal(s)});
   $('proc-norms-table').addEventListener('input',e=>{const row=e.target.closest('[data-norm-row]');if(!row)return;updateNormDraftFromRow(row);renderKpis()});
   $('proc-norms-table').addEventListener('change',e=>{const row=e.target.closest('[data-norm-row]');if(!row)return;updateNormDraftFromRow(row)});
   $('proc-select-all-needs').onclick=()=>{
