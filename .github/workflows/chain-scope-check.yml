@@ -192,5 +192,4 @@ jobs:
           node --check functions/api/hr/role-schedules.js
           node --check functions/api/hr/timeclock.js
           node --check functions/api/hr/timesheet.js
-          node --check functions/api/hr/meal-transactions.js
           node --check functions/api/hr/meal-transactions-v2.js
