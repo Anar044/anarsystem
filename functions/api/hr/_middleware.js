@@ -59,7 +59,7 @@ export async function onRequest(context){
   if(rule){
     auth=await getUser(context.request,context.env);
     if(!auth?.user)return denied('Требуется авторизация.',401);
-    access=await resolveAccessForUser(context.env.DB,auth.user,{claimInvite:true});
+    access=await resolveAccessForUser(context.env.DB,auth.user,{claimInvite:true,request:context.request});
     if(!access.allowed)return denied('Доступ к Smart Horeca не назначен.',403);
     if(!hasPermission(access,rule))return denied('Недостаточно прав: '+rule,403);
   }
@@ -68,7 +68,7 @@ export async function onRequest(context){
   let body={};if(context.request.method!=='GET'&&context.request.method!=='HEAD')body=await context.request.clone().json().catch(()=>({}));
   if(!auth)auth=await getUser(context.request,context.env);
   if(!auth)return context.next();
-  if(!access)access=await resolveAccessForUser(context.env.DB,auth.user,{claimInvite:true});
+  if(!access)access=await resolveAccessForUser(context.env.DB,auth.user,{claimInvite:true,request:context.request});
   const response=await context.next();if(!response.ok)return response;
   const data=await response.clone().json().catch(()=>null);if(!data?.success)return response;
   const asOf=String(data.asOf||body.asOf||data.period?.to||monthEnd(data.month)||new Date().toISOString().slice(0,10)),tax=await loadPayrollTaxContext(context.env.DB,access?.ownerUserId||auth.user.id,asOf);
