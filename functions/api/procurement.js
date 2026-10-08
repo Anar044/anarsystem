@@ -456,7 +456,7 @@ async function readData(db,serverScope,scope){
       id:x.id,number:x.number,status:x.status,deadline:x.deadline,message:x.message,
       supplierIds:parse(x.supplier_ids_json,[]),supplierNames:parse(x.supplier_names_json,[]),
       createdAt:x.created_at,createdBy:x.created_by_name||x.created_by,sentAt:x.sent_at,closedAt:x.closed_at,
-      responseCount:quoteRows.filter(q=>q.requisition_id===r.id&&clean(q.rfq_id)===clean(x.id)).length
+      responseCount:new Set(quoteRows.filter(q=>q.requisition_id===r.id&&clean(q.rfq_id)===clean(x.id)).map(q=>clean(q.supplier_id)).filter(Boolean)).size
     })),
     quotes:quoteRows.filter(q=>q.requisition_id===r.id).map(q=>({id:q.id,rfqId:q.rfq_id||"",supplierId:q.supplier_id,supplierName:q.supplier_name,status:q.status,currency:q.currency,deliveryDays:n(q.delivery_days),paymentTerms:q.payment_terms,validUntil:q.valid_until,comment:q.comment,totalAmount:n(q.total_amount),lines:parse(q.lines_json,[]),createdAt:q.created_at,createdBy:q.created_by_name||q.created_by}))
   }));
@@ -674,8 +674,15 @@ export async function onRequestPost({request,env}){
       if(!rfq){const e=new Error("RFQ не найден.");e.status=404;throw e}
       assertAllowed(rfq,c.scope);
       if(rfq.status==="CLOSED"){const e=new Error("RFQ уже закрыт.");e.status=409;throw e}
-      const supplier=await db.prepare("SELECT * FROM procurement_rfq_suppliers WHERE rfq_id=?1 AND supplier_id=?2 LIMIT 1").bind(rfqId,supplierId).first();
-      if(!supplier){const e=new Error("Поставщик не входит в этот RFQ.");e.status=404;throw e}
+      let supplier=await db.prepare("SELECT * FROM procurement_rfq_suppliers WHERE rfq_id=?1 AND supplier_id=?2 LIMIT 1").bind(rfqId,supplierId).first();
+      if(!supplier){
+        const ids=parse(rfq.supplier_ids_json,[]).map(clean),names=parse(rfq.supplier_names_json,[]);
+        const idx=ids.indexOf(supplierId);
+        if(idx<0){const e=new Error("Поставщик не входит в этот RFQ.");e.status=404;throw e}
+        const sid=uid(),name=clean(names[idx]||supplierId);
+        await db.prepare("INSERT INTO procurement_rfq_suppliers(id,server_scope,rfq_id,supplier_id,supplier_name,status) VALUES(?1,?2,?3,?4,?5,'PENDING')").bind(sid,c.serverScope,rfqId,supplierId,name).run();
+        supplier=await db.prepare("SELECT * FROM procurement_rfq_suppliers WHERE id=?1").bind(sid).first();
+      }
       const token=randomToken(),hash=await tokenHash(token),expires=new Date(Date.now()+7*24*3600*1000).toISOString();
       await db.prepare("UPDATE procurement_rfq_suppliers SET token_hash=?2,token_created_at=?3,token_expires_at=?4 WHERE id=?1").bind(supplier.id,hash,stamp,expires).run();
       const origin=new URL(request.url).origin,link=origin+"/rfq-response.html?token="+encodeURIComponent(token);
