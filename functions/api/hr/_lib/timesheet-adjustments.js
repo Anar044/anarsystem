@@ -79,6 +79,14 @@ export async function ensureTimesheetAdjustmentTables(db){
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_overtime_period ON hr_overtime_requests(user_id,work_date,status)`)
   ]);
+  // Existing installations already have the correction table; add columns in place.
+  const columns=await db.prepare("PRAGMA table_info(hr_timesheet_day_corrections)").all();
+  const existing=new Set((columns.results||[]).map(x=>String(x.name||'')));
+  for(const column of ['first_in_override','last_out_override']){
+    if(existing.has(column))continue;
+    try{await db.prepare(`ALTER TABLE hr_timesheet_day_corrections ADD COLUMN ${column} TEXT NOT NULL DEFAULT ''`).run();}
+    catch(error){if(!/duplicate column name/i.test(String(error?.message||error)))throw error}
+  }
 }
 export async function loadTimesheetAdjustments(db,userId,from,to){
   if(!db)throw new Error('D1 binding DB не настроен.');
@@ -114,6 +122,8 @@ export function correctionDto(row){
     contour:row.contour||'FACTUAL',
     statusOverride:row.status_override||'',
     workedMinutesOverride:Number(row.worked_minutes_override??-1),
+    firstInOverride:row.first_in_override||'',
+    lastOutOverride:row.last_out_override||'',
     plannedMinutesOverride:Number(row.planned_minutes_override??-1),
     reason:row.reason||'',
     actorId:row.actor_id||'',
