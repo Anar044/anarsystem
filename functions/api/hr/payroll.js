@@ -14,6 +14,14 @@ function monthBounds(month){const [y,m]=month.split('-').map(Number);const last=
 function weekday(date){const d=new Date(`${date}T00:00:00Z`).getUTCDay();return d===0?7:d}
 function shiftMinutes(start,end,breakMinutes=0){const [sh,sm]=String(start||'00:00').split(':').map(Number),[eh,em]=String(end||'00:00').split(':').map(Number);let a=sh*60+sm,b=eh*60+em;if(b<=a)b+=1440;return Math.max(0,b-a-Number(breakMinutes||0))}
 function localParts(value,timeZone='Asia/Baku'){const d=new Date(value);if(Number.isNaN(d.getTime()))return{date:'',time:''};const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d);const m=Object.fromEntries(parts.map(x=>[x.type,x.value]));return{date:`${m.year}-${m.month}-${m.day}`,time:`${m.hour}:${m.minute}`}}
+function clockMinutes(v){const m=/^(\d{2}):(\d{2})$/.exec(String(v||''));return m?Number(m[1])*60+Number(m[2]):0}
+function freeWorkDate(eventTime,timeZone,shiftType){const p=localParts(eventTime,timeZone),start=String(shiftType||'DAY').toUpperCase()==='NIGHT'?720:300;return clockMinutes(p.time)>=start?p.date:isoDayShift(p.date,-1)}
+function aggregateFreeAttendance(events,from,to,timeZone,shiftType){
+  const groups=new Map();for(const e of [...(events||[])].sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time)))){const d=freeWorkDate(e.event_time,timeZone,shiftType);if(d<from||d>to)continue;if(!groups.has(d))groups.set(d,[]);groups.get(d).push(e)}
+  let actualMinutes=0,issues=0,workedDays=0;
+  for(const rows of groups.values()){const unique=[];let lastMs=null;for(const e of rows){const ms=new Date(e.event_time).getTime();if(Number.isFinite(lastMs)&&Number.isFinite(ms)&&ms-lastMs<10000)continue;unique.push(e);lastMs=ms}if(unique.length===1){issues++;continue}if(unique.length>=2){actualMinutes+=minutes(new Date(unique[unique.length-1].event_time)-new Date(unique[0].event_time));workedDays++}}
+  return{actualMinutes,issues,workedDays};
+}
 function chunkList(values,size=50){const out=[];for(let i=0;i<(values||[]).length;i+=size)out.push(values.slice(i,i+size));return out}
 const NON_WORKING_2026=new Set([
   '2026-01-01','2026-01-02','2026-01-20','2026-03-08','2026-03-09','2026-03-20','2026-03-21','2026-03-22','2026-03-23','2026-03-24','2026-03-25','2026-03-26','2026-03-27','2026-03-30',
@@ -26,11 +34,13 @@ function activePeriod(from,to,hire,fire){
   const start=hire&&hire>from?hire:from,end=fire&&fire<to?fire:to;
   return start<=end?{from:start,to:end}:{from:'',to:''};
 }
-function overtimeRuleFor(employeeId,rules){
+function overtimeRuleFor(employeeId,rules,roleNormMinutes=600){
   const specific=(rules||[]).find(x=>String(x.iiko_employee_id)===String(employeeId));
-  const global=(rules||[]).find(x=>String(x.iiko_employee_id)==='*'),base=specific||global||null;
-  const threshold=Math.max(1,Number(base?.threshold_minutes||600)),payable=Math.max(threshold,Number(base?.payable_from_minutes||threshold));
-  return{thresholdMinutes:threshold,payableFromMinutes:payable,source:specific?'EMPLOYEE':global?'GLOBAL':'DEFAULT',note:base?.note||''};
+  const global=(rules||[]).find(x=>String(x.iiko_employee_id)==='*'),base=specific||global||null,roleNorm=Math.max(1,Number(roleNormMinutes||600));
+  const threshold=Math.max(1,Number(base?.threshold_minutes||roleNorm));
+  const gap=base?Math.max(0,Number(base?.payable_from_minutes||threshold)-Number(base?.threshold_minutes||threshold)):0;
+  const payable=Math.max(threshold,threshold+gap);
+  return{thresholdMinutes:threshold,payableFromMinutes:payable,source:specific?'EMPLOYEE':global?'GLOBAL':'ROLE',note:base?.note||''};
 }
 
 const MONTH_NORMS_2026={1:{days:19,hours:151},2:{days:20,hours:160},3:{days:14,hours:111},4:{days:22,hours:176},5:{days:17,hours:134},6:{days:20,hours:159},7:{days:23,hours:184},8:{days:21,hours:168},9:{days:22,hours:176},10:{days:22,hours:176},11:{days:19,hours:152},12:{days:22,hours:175}};
@@ -46,6 +56,8 @@ async function ensure(db){
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_attendance_events (user_id TEXT NOT NULL,event_id TEXT NOT NULL,device_id TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'ZKTECO',source_uid TEXT NOT NULL,external_employee_id TEXT NOT NULL DEFAULT '',iiko_employee_id TEXT NOT NULL DEFAULT '',event_time TEXT NOT NULL,event_type TEXT NOT NULL DEFAULT 'UNKNOWN',raw_payload TEXT NOT NULL DEFAULT '{}',imported_at TEXT NOT NULL,PRIMARY KEY(user_id,event_id),UNIQUE(user_id,device_id,source_uid))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_devices (user_id TEXT NOT NULL,device_id TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'ZKTECO',name TEXT NOT NULL,location TEXT NOT NULL DEFAULT '',connection_mode TEXT NOT NULL DEFAULT 'LOCAL_CONNECTOR',timezone TEXT NOT NULL DEFAULT 'Asia/Baku',is_active INTEGER NOT NULL DEFAULT 1,last_sync_at TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,device_id))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_profiles (user_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,fin TEXT NOT NULL DEFAULT '',ssn TEXT NOT NULL DEFAULT '',birth_date TEXT NOT NULL DEFAULT '',phone_primary TEXT NOT NULL DEFAULT '',phone_secondary TEXT NOT NULL DEFAULT '',email_personal TEXT NOT NULL DEFAULT '',address TEXT NOT NULL DEFAULT '',emergency_contact_name TEXT NOT NULL DEFAULT '',emergency_contact_relation TEXT NOT NULL DEFAULT '',emergency_contact_phone TEXT NOT NULL DEFAULT '',education_level TEXT NOT NULL DEFAULT '',education_institution TEXT NOT NULL DEFAULT '',specialty TEXT NOT NULL DEFAULT '',employment_type TEXT NOT NULL DEFAULT 'MAIN',factual_hire_date TEXT NOT NULL DEFAULT '',factual_fire_date TEXT NOT NULL DEFAULT '',official_hire_date TEXT NOT NULL DEFAULT '',official_fire_date TEXT NOT NULL DEFAULT '',official_employer_name TEXT NOT NULL DEFAULT '',official_employer_voen TEXT NOT NULL DEFAULT '',quota_category TEXT NOT NULL DEFAULT 'NONE',work_capacity_percent INTEGER NOT NULL DEFAULT 100,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,iiko_employee_id))`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_attendance_rules (user_id TEXT NOT NULL,role_code TEXT NOT NULL,daily_norm_minutes INTEGER NOT NULL DEFAULT 480,shift_type TEXT NOT NULL DEFAULT 'DAY',updated_at TEXT NOT NULL DEFAULT '',PRIMARY KEY(user_id,role_code))`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_attendance_rules (user_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,shift_type_override TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL DEFAULT '',PRIMARY KEY(user_id,iiko_employee_id))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_overtime_payroll_accruals (
       user_id TEXT NOT NULL,
       month TEXT NOT NULL,
@@ -97,19 +109,19 @@ export async function onRequestGet({request,env}){
     if(b.year!==2026)return json({success:false,message:'В HR Preview производственный календарь Payroll пока настроен на 2026 год.'},400);
     const userId=auth.user.id,norm=MONTH_NORMS_2026[b.month];
     const scope=await resolveHrRestaurantScope(request,env,userId);
-    const [employeesR,employeeTermsR,roleTermsR,schedulesR,daysR,devicesR,profilesR]=await Promise.all([
+    const [employeesR,employeeTermsR,roleTermsR,devicesR,profilesR,roleAttendanceR,employeeAttendanceR]=await Promise.all([
       env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,first_name,middle_name,last_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all(),
       env.DB.prepare(`SELECT * FROM hr_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY iiko_employee_id,effective_from DESC`).bind(userId).all(),
       env.DB.prepare(`SELECT * FROM hr_role_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY role_code,effective_from DESC`).bind(userId).all(),
-      env.DB.prepare(`SELECT * FROM hr_role_schedules WHERE user_id=?1 AND is_active=1 AND is_default=1 AND valid_from<=?3 AND (valid_to='' OR valid_to>=?2) ORDER BY role_code,valid_from DESC`).bind(userId,b.from,b.to).all(),
-      env.DB.prepare(`SELECT * FROM hr_role_schedule_days WHERE user_id=?1 ORDER BY schedule_id,weekday`).bind(userId).all(),
       env.DB.prepare(`SELECT device_id,name,timezone,is_active,last_sync_at FROM hr_devices WHERE user_id=?1 AND is_active=1 ORDER BY name`).bind(userId).all(),
-      env.DB.prepare(`SELECT iiko_employee_id,factual_hire_date,factual_fire_date,official_hire_date,official_fire_date,work_capacity_percent FROM hr_employee_profiles WHERE user_id=?1`).bind(userId).all()
+      env.DB.prepare(`SELECT iiko_employee_id,factual_hire_date,factual_fire_date,official_hire_date,official_fire_date,work_capacity_percent FROM hr_employee_profiles WHERE user_id=?1`).bind(userId).all(),
+      env.DB.prepare(`SELECT role_code,daily_norm_minutes,shift_type FROM hr_role_attendance_rules WHERE user_id=?1`).bind(userId).all(),
+      env.DB.prepare(`SELECT iiko_employee_id,shift_type_override FROM hr_employee_attendance_rules WHERE user_id=?1`).bind(userId).all()
     ]);
-    const employeeTerms=employeeTermsR.results||[],roleTerms=roleTermsR.results||[],schedules=schedulesR.results||[],scheduleDays=daysR.results||[],activeDevices=devicesR.results||[];
+    const employeeTerms=employeeTermsR.results||[],roleTerms=roleTermsR.results||[],activeDevices=devicesR.results||[];
     const profiles=new Map((profilesR.results||[]).map(x=>[String(x.iiko_employee_id),x]));
-    const scheduleByRole=new Map();for(const s of schedules){if(!scheduleByRole.has(String(s.role_code)))scheduleByRole.set(String(s.role_code),s)}
-    const dayRulesBySchedule=new Map();for(const d of scheduleDays){const id=String(d.schedule_id);if(!dayRulesBySchedule.has(id))dayRulesBySchedule.set(id,[]);dayRulesBySchedule.get(id).push(d)}
+    const roleAttendance=new Map((roleAttendanceR.results||[]).map(x=>[String(x.role_code||''),x]));
+    const employeeAttendance=new Map((employeeAttendanceR.results||[]).map(x=>[String(x.iiko_employee_id||''),x]));
     const rows=[];
     const scopedEmployees=filterEmployeesByScope(employeesR.results||[],scope);
     const scopedIds=[...new Set(scopedEmployees.filter(e=>!Number(e.is_deleted)).map(e=>String(e.iiko_employee_id||'')).filter(Boolean))];
