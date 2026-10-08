@@ -43,6 +43,7 @@
     requests:['procurement.request.view_own','procurement.request.view_all'],
     approvals:['procurement.approve'],
     sourcing:['procurement.sourcing'],
+    suppliers:['procurement.sourcing'],
     orders:['procurement.po.manage'],
     receiving:['procurement.receive'],
     analytics:['procurement.analytics'],
@@ -192,13 +193,21 @@
             workspacePicker(context.workspaces||[]);
             return context;
           }
-          const inviteReasons={
+          const denyReasons={
             INVITE_NOT_FOUND:'Ссылка приглашения недействительна или уже использована.',
             INVITE_EXPIRED:'Срок действия приглашения истёк. Попросите администратора создать новую ссылку.',
             INVITE_EMAIL_MISMATCH:'Приглашение создано для другого email. Войдите под адресом, указанным в приглашении.',
-            INVITE_ALREADY_USED:'Это приглашение уже связано с другой учётной записью.'
+            INVITE_ALREADY_USED:'Это приглашение уже связано с другой учётной записью.',
+            INVITE_MEMBER_NOT_FOUND:'Приглашение больше не связано с пользователем Smart Horeca.',
+            NO_USER:'Не удалось определить текущего пользователя. Войдите в Smart Horeca заново.',
+            NO_MEMBERSHIP:'Этой учётной записи ещё не предоставлен доступ к Smart Horeca. Обратитесь к владельцу или администратору.',
+            MEMBERSHIP_PENDING:'Доступ создан, но ещё ожидает активации входа сотрудника.',
+            MEMBERSHIP_DISABLED:'Доступ этой учётной записи отключён владельцем или администратором.',
+            WORKSPACE_NOT_FOUND:'Рабочее пространство Smart Horeca не найдено. Возможно, сохранилась устаревшая организация.',
+            WORKSPACE_FORBIDDEN:'У этой учётной записи больше нет доступа к выбранной организации.'
           };
-          denyScreen(inviteReasons[context.reason]||(context.reason==='NO_MEMBERSHIP'?'Этой учётной записи ещё не предоставлен доступ к Smart Horeca. Обратитесь к владельцу или администратору.':'Доступ к Smart Horeca отключён.'));
+          const reason=context.reason||'UNKNOWN';
+          denyScreen((denyReasons[reason]||'Не удалось подтвердить доступ к Smart Horeca.')+' Код: '+reason);
           return context;
         }
         if(invite){
