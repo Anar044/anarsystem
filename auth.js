@@ -44,6 +44,15 @@
         try { return localStorage.getItem("sh_pending_invite") || ""; } catch { return ""; }
     }
 
+    async function invitePreview(invite) {
+        if (!invite) return null;
+        try {
+            const response = await fetch('/api/access/invite?token=' + encodeURIComponent(invite), { cache: 'no-store' });
+            const data = await response.json().catch(() => ({}));
+            return response.ok && data.success ? data.invite : null;
+        } catch { return null; }
+    }
+
     function redirectTarget() {
         const params = new URLSearchParams(window.location.search);
         const next = params.get("next");
@@ -104,6 +113,12 @@
         if (user) { window.location.replace(redirectTarget()); return; }
         const form = byId("login-form");
         if (!form) return;
+        if (invite) {
+            const preview = await invitePreview(invite);
+            const emailInput = byId("login-email");
+            if (preview?.email && emailInput && !emailInput.value) emailInput.value = preview.email;
+            if (preview?.workspace?.name) showMessage("Приглашение в «" + preview.workspace.name + "». Войдите под указанным email.", "info");
+        }
         form.addEventListener("submit", async event => {
             event.preventDefault(); showMessage("");
             const email = byId("login-email")?.value.trim();
@@ -130,6 +145,15 @@
         if (existing) { window.location.replace("index.html"); return; }
         const form = byId("register-form");
         if (!form) return;
+        if (invite) {
+            const preview = await invitePreview(invite);
+            const emailInput = byId("register-email");
+            if (preview?.email && emailInput) {
+                emailInput.value = preview.email;
+                emailInput.readOnly = true;
+            }
+            if (preview?.workspace?.name) showMessage("Вас пригласили в «" + preview.workspace.name + "». Зарегистрируйтесь с указанным email.", "info");
+        }
         form.addEventListener("submit", async event => {
             event.preventDefault(); showMessage("");
             const firstName = byId("register-first-name")?.value.trim();
