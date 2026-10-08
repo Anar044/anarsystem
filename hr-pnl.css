@@ -10,3 +10,4 @@
 .hr-tech-details[open]>summary:after{transform:rotate(180deg)}
 .hr-tech-details-body{padding:0 14px 14px}
 .hr-tech-details-body>.hr-card{margin:10px 0 0}
+.hr-access-link{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}.hr-access-cell{text-align:left!important;min-width:170px}.hr-access-roles{max-width:190px;white-space:normal;line-height:1.3}.hr-access-action{display:inline-flex;margin-top:6px;color:#72e0ac;font-size:9px;font-weight:800;text-decoration:none;border-bottom:1px dashed rgba(114,224,172,.45)}.hr-access-action:hover{color:#a4f0ca}
