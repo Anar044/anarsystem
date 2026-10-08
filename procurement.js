@@ -632,14 +632,14 @@ function requestListItem(r){
 }
 function orderListItem(o,{receiving=false}={}){
   const effective=o.effectiveStatus||o.status,done=['COMPLETED','CANCELLED'].includes(effective);
-  const lines=(o.lines||[]).length,remaining=num(o.remainingQty||Math.max(0,num(o.orderedQty)-num(o.receivedQty)));
+  const lines=(o.lines||[]).length,remainingLines=(o.lines||[]).filter(x=>num(x.remainingQty)>0.0005).length;
   return '<details class="proc-record '+(done?'done':'')+'" name="'+(receiving?'proc-receiving-documents':'proc-po-documents')+'">'+
     '<summary class="proc-record-summary">'+
       '<div class="proc-record-date"><strong>'+esc(dateTimeLabel(o.createdAt))+'</strong><span>дата и время</span></div>'+
       '<div class="proc-record-main"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId||'Поставщик')+' · '+esc(o.warehouseName||'Склад')+'</span></div>'+
       '<div class="proc-record-metric"><strong>'+lines+'</strong><span>позиций</span></div>'+
       (receiving
-        ?'<div class="proc-record-metric amount"><strong>'+qty(remaining)+' '+esc((o.lines||[])[0]?.unit||'')+'</strong><span>к приёмке</span></div>'
+        ?'<div class="proc-record-metric amount"><strong>'+remainingLines+'</strong><span>поз. к приёмке · '+num(o.completionPercent).toFixed(0)+'%</span></div>'
         :'<div class="proc-record-metric amount"><strong>'+money(o.totalAmount)+'</strong><span>сумма PO</span></div>')+
       '<span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span>'+
       '<span class="proc-record-open">Открыть <i>›</i></span>'+
