@@ -27,14 +27,14 @@
           <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
           <div>
             <span class="topbar-title">Учёт времени / SenseFace</span>
-            <div class="topbar-sub">ZKTeco SenseFace 2A · ADMS PUSH · offline-first · журнал входов/выходов</div>
+            <div class="topbar-sub">ZKTeco SenseFace 2A · ADMS PUSH · offline-first · журнал пробивок</div>
           </div>
         </div>
       </header>
       <div class="app-content">
         <section class="hr-page">
           <div class="hr-head"><div><h1>Учёт рабочего времени</h1><p>SenseFace 2A хранит отметки локально. При наличии интернета аппарат отправляет их напрямую в Smart Horeca по ADMS; после восстановления связи накопленные отметки принимаются сервером и не дублируются.</p></div><div class="hr-actions"><span id="tcStatus" class="hr-status">Готово</span><button id="tcRefresh" class="hr-primary">↻ Обновить</button></div></div>
-          <section class="hr-source-grid"><article class="hr-source-card"><span>Сотрудники</span><strong>SH Server</strong><small>Кадровый справочник и должности</small></article><article class="hr-source-card active"><span>Явки</span><strong>Face ID / ZKTeco</strong><small>Сырые отметки входа и выхода</small></article><article class="hr-source-card"><span>Расчёт</span><strong>Smart Horeca</strong><small>Табель · часы · доплаты · payroll</small></article></section>
+          <section class="hr-source-grid"><article class="hr-source-card"><span>Сотрудники</span><strong>SH Server</strong><small>Кадровый справочник и должности</small></article><article class="hr-source-card active"><span>Явки</span><strong>Face ID / ZKTeco</strong><small>Исходные отметки распознавания</small></article><article class="hr-source-card"><span>Расчёт</span><strong>Smart Horeca</strong><small>Табель · часы · доплаты · payroll</small></article></section>
           <section id="tcSummary" class="hr-summary-grid"></section><div id="tcError" class="hr-error" hidden></div>
           <section class="hr-card"><div class="hr-card-title-row"><div><div class="hr-card-title">Устройства учёта времени</div><div class="hr-card-sub">Для SenseFace 2A используем прямой ADMS PUSH: Windows connector не требуется. Серийный номер заранее регистрируется в Smart Horeca.</div></div></div><form id="deviceForm" class="hr-form-grid"><label>Провайдер<select id="deviceProvider"><option value="ZKTECO">ZKTeco</option><option value="GENERIC">Другое устройство</option></select></label><label>Модель<select id="deviceModel"><option value="SenseFace 2A">SenseFace 2A</option></select></label><label>Серийный номер<input id="deviceSerial" required autocomplete="off" placeholder="SN с экрана Device Info"></label><label>Название<input id="deviceName" required placeholder="SenseFace — главный вход"></label><label>Расположение<input id="deviceLocation" placeholder="Ресторан / главный вход"></label><label>Часовой пояс<input id="deviceTimezone" value="Asia/Baku"></label><label>Подключение<select id="deviceConnectionMode"><option value="ADMS_PUSH">Прямой ADMS PUSH</option><option value="LOCAL_CONNECTOR">Локальный connector</option></select></label><div class="hr-form-action"><button class="hr-primary" type="submit">+ Добавить устройство</button></div></form><div id="deviceList" class="hr-device-list"></div><div id="deviceTokenPanel" class="hr-token-panel" hidden><div><span>Ключ локального connector</span><strong id="deviceTokenTitle">Новый device token</strong><small>Используется только для режима «Локальный connector». Для SenseFace 2A в режиме ADMS PUSH ключ не нужен.</small></div><code id="deviceTokenValue"></code><div class="hr-token-actions"><button id="copyDeviceToken" type="button" class="hr-primary">Копировать</button><button id="closeDeviceToken" type="button" class="hr-link-button">Скрыть</button></div></div></section>
           <details class="hr-card hr-tech-details">
@@ -53,11 +53,11 @@
 
             </div>
           </details>
-          <section class="hr-card"><div class="hr-card-title-row"><div><div class="hr-card-title">Последние отметки Face ID</div><div class="hr-card-sub">Последние принятые отметки сотрудников. Итоговые часы рассчитываются в Табеле по первой и последней пробивке смены.</div></div><div id="eventCount" class="hr-muted">0 событий</div></div><div class="hr-table-scroll"><table><thead><tr><th>Время</th><th class="text-left">Сотрудник</th><th>Тип</th><th>Устройство</th><th>Внешний ID</th><th>Статус связи</th></tr></thead><tbody id="eventRows"></tbody></table></div></section>
+          <section class="hr-card"><div class="hr-card-title-row"><div><div class="hr-card-title">Последние отметки Face ID</div><div class="hr-card-sub">Последние принятые отметки сотрудников. Итоговые часы рассчитываются в Табеле по первой и последней пробивке смены.</div></div><div id="eventCount" class="hr-muted">0 событий</div></div><div class="hr-table-scroll"><table><thead><tr><th>Время</th><th class="text-left">Сотрудник</th><th>Событие</th><th>Устройство</th><th>Внешний ID</th><th>Статус связи</th></tr></thead><tbody id="eventRows"></tbody></table></div></section>
 
         </section>
       </div>
     </main>
   </div>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="iiko-context.js?v=20261003-chain-3"></script><script src="app-shell.js?v=20261008-hr-clean-2"></script><script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script><script src="mobile-responsive.js?v=1"></script><script src="documents-nav.js?v=13"></script><script src="hr-timeclock.js?v=20261008-hr-clean-1"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="iiko-context.js?v=20261003-chain-3"></script><script src="app-shell.js?v=20261008-hr-clean-2"></script><script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script><script src="mobile-responsive.js?v=1"></script><script src="documents-nav.js?v=13"></script><script src="hr-timeclock.js?v=20261008-no-rebuild-2"></script>
 </body></html>
