@@ -106,6 +106,12 @@ export async function onRequestGet({request,env}){
     if(b.year!==2026)return json({success:false,message:'В HR Preview производственный календарь Payroll пока настроен на 2026 год.'},400);
     const userId=auth.user.id,norm=MONTH_NORMS_2026[b.month];
     const scope=await resolveHrRestaurantScope(request,env,userId);
+    const scopeIds=[...(scope?.selectedDepartmentIds||[])].map(String).filter(Boolean).sort();
+    const approvalScopeKey=scopeIds.length?scopeIds.join(','):'ACCOUNT';
+    let approvedTimesheet=null;
+    try{approvedTimesheet=await env.DB.prepare("SELECT status,updated_at FROM hr_timesheet_approvals WHERE user_id=?1 AND period_month=?2 AND contour='FACTUAL' AND scope_key=?3 LIMIT 1").bind(userId,month,approvalScopeKey).first();}
+    catch(error){if(!/no such table/i.test(String(error?.message||error)))throw error}
+    let timesheetApprovalStale=false,payrollTimesheetApproved=approvedTimesheet?.status==='HR_APPROVED';
     const [employeesR,employeeTermsR,roleTermsR,devicesR,profilesR,roleAttendanceR,employeeAttendanceR]=await Promise.all([
       env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,first_name,middle_name,last_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all(),
       env.DB.prepare(`SELECT * FROM hr_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY iiko_employee_id,effective_from DESC`).bind(userId).all(),
@@ -135,22 +141,33 @@ export async function onRequestGet({request,env}){
     if(faceIdConnected&&scopedIds.length){
       for(const ids of chunkList(scopedIds,50)){
         const qs=ids.map(()=>'?').join(',');
-        const part=await env.DB.prepare(`SELECT event_id,device_id,iiko_employee_id,event_time,event_type FROM hr_attendance_events WHERE user_id=? AND iiko_employee_id IN (${qs}) AND event_time>=? AND event_time<=? ORDER BY iiko_employee_id,event_time`).bind(userId,...ids,`${isoDayShift(b.from,-1)}T00:00:00.000Z`,`${isoDayShift(b.to,1)}T23:59:59.999Z`).all();
+        const part=await env.DB.prepare(`SELECT event_id,device_id,iiko_employee_id,event_time,event_type,imported_at FROM hr_attendance_events WHERE user_id=? AND iiko_employee_id IN (${qs}) AND event_time>=? AND event_time<=? ORDER BY iiko_employee_id,event_time`).bind(userId,...ids,`${isoDayShift(b.from,-1)}T00:00:00.000Z`,`${isoDayShift(b.to,1)}T23:59:59.999Z`).all();
         for(const e of part.results||[]){const id=String(e.iiko_employee_id||'');if(!eventsByEmployee.has(id))eventsByEmployee.set(id,[]);eventsByEmployee.get(id).push(e)}
       }
     }
     if(scopedIds.length){
       for(const ids of chunkList(scopedIds,50)){
         const qs=ids.map(()=>'?').join(',');
-        const result=await env.DB.prepare('SELECT iiko_employee_id,work_date,status_override,worked_minutes_override,first_in_override,last_out_override FROM hr_timesheet_day_corrections WHERE user_id=? AND contour=\'FACTUAL\' AND iiko_employee_id IN ('+qs+') AND work_date>=? AND work_date<=?').bind(userId,...ids,b.from,b.to).all();
+        const result=await env.DB.prepare('SELECT iiko_employee_id,work_date,status_override,worked_minutes_override,first_in_override,last_out_override,updated_at FROM hr_timesheet_day_corrections WHERE user_id=? AND contour=\'FACTUAL\' AND iiko_employee_id IN ('+qs+') AND work_date>=? AND work_date<=?').bind(userId,...ids,b.from,b.to).all();
         for(const c of result.results||[]){const id=String(c.iiko_employee_id);if(!correctionsByEmployee.has(id))correctionsByEmployee.set(id,new Map());correctionsByEmployee.get(id).set(c.work_date,c)}
       }
+    }
+    // Protect monthly payroll from edits to source time records after HR sign-off.
+    if(payrollTimesheetApproved){
+      const approvedAt=String(approvedTimesheet?.updated_at||'');
+      for(const entries of eventsByEmployee.values()){
+        if(entries.some(x=>x.imported_at&&x.imported_at>approvedAt)){timesheetApprovalStale=true;break}
+      }
+      if(!timesheetApprovalStale)for(const map of correctionsByEmployee.values()){
+        if([...map.values()].some(x=>x.updated_at&&x.updated_at>approvedAt)){timesheetApprovalStale=true;break}
+      }
+      if(timesheetApprovalStale)payrollTimesheetApproved=false;
     }
     if(scopedIds.length){
       try{
         const rulesR=await env.DB.prepare(`SELECT iiko_employee_id,threshold_minutes,payable_from_minutes,note FROM hr_overtime_rules WHERE user_id=?1`).bind(userId).all();
         overtimeRules=rulesR.results||[];
-        for(const ids of chunkList(scopedIds,50)){
+        if(payrollTimesheetApproved)for(const ids of chunkList(scopedIds,50)){
           const qs=ids.map(()=>'?').join(',');
           const part=await env.DB.prepare(`SELECT iiko_employee_id,work_date,candidate_minutes,requested_minutes,approved_minutes,status FROM hr_overtime_requests WHERE user_id=? AND iiko_employee_id IN (${qs}) AND work_date>=? AND work_date<=? AND status IN ('HR_APPROVED','HR_CHANGED')`).bind(userId,...ids,b.from,b.to).all();
           for(const x of part.results||[]){
@@ -182,7 +199,7 @@ export async function onRequestGet({request,env}){
       const ot=overtimeByEmployee.get(id)||{approvedMinutes:0,payableMinutes:0,unpaidGapMinutes:0,candidateMinutes:0,extraDayEquivalent:0,days:0};
       const otRule=overtimeRuleFor(id,overtimeRules,attendanceCfg.dailyNormMinutes),extraDayPay=term&&norm.days>0?round2(monthlyFactualGross/norm.days*Number(ot.extraDayEquivalent||0)):0;
       const termChanges=overlapTermCount(employeeTerms,'iiko_employee_id',id,b.from,b.to)+(individualRaw?0:overlapTermCount(roleTerms,'role_code',roleCode,b.from,b.to));
-      let status='READY';const flags=[];if(!term){status='NO_TERMS';flags.push('Нет условий оплаты')}if(attendanceTracked&&attendance.issues){status='REVIEW';flags.push(`Ошибки табеля: ${attendance.issues}`)}if(termChanges>1){status='REVIEW';flags.push('Изменение условий внутри месяца')}
+      let status='READY';const flags=[];if(!term){status='NO_TERMS';flags.push('Нет условий оплаты')}if(!payrollTimesheetApproved){status='REVIEW';flags.push(timesheetApprovalStale?'После утверждения HR табель изменился — требуется повторное подтверждение':'Фактический табель месяца не утверждён HR — доп. часы не начисляются')}if(attendanceTracked&&attendance.issues){status='REVIEW';flags.push(`Ошибки табеля: ${attendance.issues}`)}if(termChanges>1){status='REVIEW';flags.push('Изменение условий внутри месяца')}
       if(term&&factualPayDays<norm.days)flags.push(`Неполный месяц: ${factualPayDays} из ${norm.days} раб. дней`);
       if(Number(ot.payableMinutes||0)>0)flags.push(`Доп. часы к отдельной оплате: ${Math.round(ot.payableMinutes)} мин`);
       if(Number(ot.unpaidGapMinutes||0)>0)flags.push(`Неоплачиваемый промежуток доп. часов: ${Math.round(ot.unpaidGapMinutes)} мин`);
@@ -245,14 +262,14 @@ export async function onRequestGet({request,env}){
       totalFactualGross:round2(configured.reduce((a,r)=>a+Number(r.accrual?.totalFactualGross||0),0))
     };
     return json({
-      success:true,engine:'MONTHLY_PAYROLL_V3_FREE_SHIFT',month,period:{from:b.from,to:b.to},currency:'AZN',
+      success:true,engine:'MONTHLY_PAYROLL_V3_FREE_SHIFT',month,period:{from:b.from,to:b.to},currency:'AZN',timesheetApproval:{status:approvedTimesheet?.status||'DRAFT',approved:payrollTimesheetApproved,stale:timesheetApprovalStale},
       restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
       ruleProfile:AZ_PAYROLL_RULE_PROFILE,calendar:{year:2026,workDays:norm.days,normHours:norm.hours,source:'ƏƏSMN 2026 istehsalat təqvimi'},
       attendance:{mode:faceIdConnected?'FACE_ID':'NOT_CONNECTED',activeDevices:activeDevices.length,label:faceIdConnected?'Face ID подключён':'Face ID пока не подключён'},
       summary:{
         employees:rows.length,configured:configured.length,ready:rows.filter(r=>r.status==='READY').length,review:rows.filter(r=>r.status==='REVIEW').length,withoutTerms:rows.filter(r=>r.status==='NO_TERMS').length,
         partialMonth:rows.filter(r=>r.term&&Number(r.proration?.factualWorkDays||0)<norm.days).length,normMinutes:rows.length*norm.hours*60,
-        actualMinutes:faceIdConnected?rows.reduce((a,r)=>a+Number(r.actualMinutes||0),0):null,
+        actualMinutes:rows.some(r=>r.actualMinutes!==null)?rows.reduce((a,r)=>a+Number(r.actualMinutes||0),0):null,
         overtimeApprovedMinutes:round2(rows.reduce((a,r)=>a+Number(r.overtime?.approvedMinutes||0),0)),
         overtimePayableMinutes:round2(rows.reduce((a,r)=>a+Number(r.overtime?.payableMinutes||0),0)),
         overtimeUnpaidGapMinutes:round2(rows.reduce((a,r)=>a+Number(r.overtime?.unpaidGapMinutes||0),0)),
