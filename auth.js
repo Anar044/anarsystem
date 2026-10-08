@@ -34,6 +34,25 @@
         }
     }
 
+    function captureInvite() {
+        const params = new URLSearchParams(window.location.search);
+        const invite = params.get("invite") || "";
+        if (invite) {
+            try { localStorage.setItem("sh_pending_invite", invite); } catch {}
+            return invite;
+        }
+        try { return localStorage.getItem("sh_pending_invite") || ""; } catch { return ""; }
+    }
+
+    async function invitePreview(invite) {
+        if (!invite) return null;
+        try {
+            const response = await fetch('/api/access/invite?token=' + encodeURIComponent(invite), { cache: 'no-store' });
+            const data = await response.json().catch(() => ({}));
+            return response.ok && data.success ? data.invite : null;
+        } catch { return null; }
+    }
+
     function redirectTarget() {
         const params = new URLSearchParams(window.location.search);
         const next = params.get("next");
@@ -87,12 +106,19 @@
     }
 
     async function initLogin() {
+        const invite = captureInvite();
         if (!requireConfigured()) return;
         const sb = await createClient();
         const user = await getUser();
         if (user) { window.location.replace(redirectTarget()); return; }
         const form = byId("login-form");
         if (!form) return;
+        if (invite) {
+            const preview = await invitePreview(invite);
+            const emailInput = byId("login-email");
+            if (preview?.email && emailInput && !emailInput.value) emailInput.value = preview.email;
+            if (preview?.workspace?.name) showMessage("Приглашение в «" + preview.workspace.name + "». Войдите под указанным email.", "info");
+        }
         form.addEventListener("submit", async event => {
             event.preventDefault(); showMessage("");
             const email = byId("login-email")?.value.trim();
@@ -112,12 +138,22 @@
     }
 
     async function initRegister() {
+        const invite = captureInvite();
         if (!requireConfigured()) return;
         const sb = await createClient();
         const existing = await getUser();
         if (existing) { window.location.replace("index.html"); return; }
         const form = byId("register-form");
         if (!form) return;
+        if (invite) {
+            const preview = await invitePreview(invite);
+            const emailInput = byId("register-email");
+            if (preview?.email && emailInput) {
+                emailInput.value = preview.email;
+                emailInput.readOnly = true;
+            }
+            if (preview?.workspace?.name) showMessage("Вас пригласили в «" + preview.workspace.name + "». Зарегистрируйтесь с указанным email.", "info");
+        }
         form.addEventListener("submit", async event => {
             event.preventDefault(); showMessage("");
             const firstName = byId("register-first-name")?.value.trim();
@@ -133,13 +169,13 @@
             if (password.length < 8) { showMessage("Пароль должен содержать минимум 8 символов.", "error"); return; }
             if (password !== password2) { showMessage("Пароли не совпадают.", "error"); return; }
             setBusy(button, true, "Создаём аккаунт...");
-            const redirectTo = `${window.location.origin}/auth-callback.html`;
+            const redirectTo = `${window.location.origin}/auth-callback.html${invite ? '?invite=' + encodeURIComponent(invite) : ''}`;
             const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo, data: { first_name: firstName, last_name: lastName, phone } } });
             setBusy(button, false);
             if (error) { showMessage(error.message || "Не удалось зарегистрировать аккаунт.", "error"); return; }
             if (data.session) { window.location.replace("index.html"); return; }
             form.reset();
-            showMessage(`Регистрация создана. Мы отправили письмо на ${email}. Подтвердите email, затем войдите в SH_Reports.`, "success");
+            showMessage(`Регистрация создана. Мы отправили письмо на ${email}. Подтвердите email, затем войдите в Smart Horeca.`, "success");
         });
     }
 
@@ -179,12 +215,13 @@
             const { error } = await sb.auth.updateUser({ password });
             setBusy(button, false);
             if (error) { showMessage(error.message || "Не удалось изменить пароль.", "error"); return; }
-            showMessage("Пароль изменён. Теперь можно войти в SH_Reports.", "success");
+            showMessage("Пароль изменён. Теперь можно войти в Smart Horeca.", "success");
             setTimeout(() => window.location.replace("index.html"), 1200);
         });
     }
 
     async function initCallback() {
+        const invite = captureInvite();
         if (!requireConfigured()) return;
         const sb = await createClient();
         showMessage("Подтверждаем email...", "info");
@@ -197,11 +234,28 @@
         }
         const { data } = await sb.auth.getSession();
         if (data.session) {
-            showMessage("Email подтверждён. Входим в SH_Reports...", "success");
+            showMessage("Email подтверждён. Входим в Smart Horeca...", "success");
             setTimeout(() => window.location.replace("index.html"), 500); return;
         }
-        showMessage("Email подтверждён. Теперь войдите в SH_Reports.", "success");
+        showMessage("Email подтверждён. Теперь войдите в Smart Horeca.", "success");
         setTimeout(() => window.location.replace("login.html"), 900);
+    }
+
+    async function initSiteAccess() {
+        if (window.SHAccess?.load) return window.SHAccess.load();
+        let script = document.getElementById("sh-site-access-script");
+        if (!script) {
+            script = document.createElement("script");
+            script.id = "sh-site-access-script";
+            script.src = "/site-access.js?v=20261008-workspace-1";
+            document.head.appendChild(script);
+        }
+        await new Promise((resolve, reject) => {
+            if (window.SHAccess?.load) { resolve(); return; }
+            script.addEventListener("load", resolve, { once: true });
+            script.addEventListener("error", () => reject(new Error("Не удалось загрузить права доступа.")), { once: true });
+        });
+        return window.SHAccess?.load?.();
     }
 
     async function initUserUI() {
@@ -221,6 +275,7 @@
 
     async function initProtected() {
         await protectPage();
+        await initSiteAccess();
         await initUserUI();
         setTimeout(() => {
             if (document.getElementById("pnl-nav-loader-script")) return;

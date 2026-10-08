@@ -25,6 +25,70 @@ function rows(map) {
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 }
 
+function productIdKey(v) {
+  return String(v ?? "").trim().replace(/^\{+|\}+$/g, "").toLowerCase();
+}
+function numeric(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+function productArray(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+  for (const key of ["products","items","result","data"]) {
+    if (Array.isArray(payload[key])) return payload[key];
+  }
+  return [];
+}
+function normalizeContainers(raw) {
+  const list = Array.isArray(raw) ? raw : [];
+  const out = [];
+  const seen = new Set();
+  for (const x of list) {
+    if (!x || typeof x !== "object") continue;
+    const id = productIdKey(x.id ?? x.uuid ?? x.containerId);
+    const deleted = x.deleted === true || x.isDeleted === true;
+    const count = numeric(x.count ?? x.quantity ?? x.actualUnitWeight, 0);
+    if (deleted || !(count > 0)) continue;
+    const identity = id || [
+      String(x.num ?? x.lineNumber ?? ""),
+      String(x.name ?? ""),
+      String(count)
+    ].join("|");
+    if (!identity || seen.has(identity)) continue;
+    seen.add(identity);
+    out.push({
+      id,
+      num: String(x.num ?? x.lineNumber ?? "").trim(),
+      name: String(x.name ?? x.title ?? "").trim(),
+      count,
+      minContainerWeight: numeric(x.minContainerWeight, 0),
+      maxContainerWeight: numeric(x.maxContainerWeight, 0),
+      containerWeight: numeric(x.containerWeight, 0),
+      fullContainerWeight: numeric(x.fullContainerWeight, 0),
+      useInFront: x.useInFront === true
+    });
+  }
+  return out.sort((a,b) => a.count - b.count || a.name.localeCompare(b.name, "ru"));
+}
+function normalizeProductDetails(payload) {
+  const map = new Map();
+  for (const p of productArray(payload)) {
+    if (!p || typeof p !== "object") continue;
+    const id = productIdKey(p.id ?? p.uuid ?? p.entityId ?? p.productId);
+    if (!id) continue;
+    map.set(id, {
+      id,
+      name: String(p.name ?? p.title ?? "").trim(),
+      num: String(p.num ?? p.code ?? "").trim(),
+      mainUnit: productIdKey(p.mainUnit ?? p.mainUnitId ?? p.unit),
+      unitWeight: numeric(p.unitWeight ?? p.weight, 0),
+      containers: normalizeContainers(p.containers ?? p.containerDtos ?? p.packagings)
+    });
+  }
+  return map;
+}
+
 function warehouseKey(v) {
   return String(v ?? "").trim().replace(/^\{+|\}+$/g, "").toLowerCase();
 }
@@ -167,6 +231,20 @@ export async function onRequestPost({ request, env }) {
     });
     if (!refs) refs = await syncAiReferences(env, auth.serverUrl, auth.token);
     const maps = refs.maps || {};
+    let productDetailsResult = { ok: false, status: 0, payload: null, text: "" };
+    let productDetails = new Map();
+    try {
+      productDetailsResult = await iikoJson(
+        connection,
+        "/resto/api/v2/entities/products/list?includeDeleted=false",
+        { timeoutMs: 60000 }
+      );
+      if (productDetailsResult.ok && productDetailsResult.payload) {
+        productDetails = normalizeProductDetails(productDetailsResult.payload);
+      }
+    } catch (error) {
+      productDetailsResult = { ok: false, status: 0, payload: null, text: "", error: String(error?.message || error) };
+    }
     let supplierResult = null;
     let suppliers = rows(maps.suppliers);
     if (!suppliers.length) {
@@ -230,14 +308,39 @@ export async function onRequestPost({ request, env }) {
       success: true,
       suppliers,
       warehouses: rows(warehouseMap),
-      products: rows(maps.products),
+      products: rows(maps.products).map(p => {
+        const detail = productDetails.get(productIdKey(p.id));
+        return detail ? {
+          ...p,
+          num: detail.num,
+          mainUnit: detail.mainUnit,
+          unitWeight: detail.unitWeight,
+          packagings: detail.containers
+        } : {
+          ...p,
+          num: "",
+          mainUnit: "",
+          unitWeight: 0,
+          packagings: []
+        };
+      }),
       counts: {
         suppliers: suppliers.length,
         warehouses: warehouseMap.size,
-        products: maps.products?.size || 0
+        products: maps.products?.size || 0,
+        productsWithPackagings: [...productDetails.values()].filter(x => x.containers.length).length,
+        packagings: [...productDetails.values()].reduce((s,x) => s + x.containers.length, 0)
       },
       diagnostics: {
         references: refs.diagnostics || null,
+        productPackagings: {
+          endpoint: "/resto/api/v2/entities/products/list?includeDeleted=false",
+          status: productDetailsResult.status || 0,
+          ok: productDetailsResult.ok === true,
+          productsFound: productDetails.size,
+          productsWithPackagings: [...productDetails.values()].filter(x => x.containers.length).length,
+          packagingsFound: [...productDetails.values()].reduce((s,x) => s + x.containers.length, 0)
+        },
         referenceCacheHit: refs.cacheHit === true,
         referenceCacheStale: refs.stale === true,
         referenceCacheAgeMs: refs.ageMs ?? null,

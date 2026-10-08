@@ -1,3 +1,4 @@
+import { resolveAccessForUser } from '../../access/_lib/access-control.js';
 const DEFAULT_SUPABASE_URL = "https://izytdfkdpbhmyuizuuut.supabase.co";
 const DEFAULT_SUPABASE_KEY = "sb_publishable_OODMzFTaHq6DIoorXb85nQ_2FfwBXAS";
 
@@ -188,8 +189,26 @@ export async function loadPrivateIikoState(db, userId, env = {}) {
 export async function loadRequestIikoState(request, env) {
   const auth = await getUser(request, env);
   if (!auth) return null;
-  const stored = await loadPrivateIikoState(env.DB, auth.user.id, env);
-  return { ...auth, ...stored };
+
+  const access = await resolveAccessForUser(env.DB, auth.user, { claimInvite: true, request });
+  if (!access.allowed) {
+    return {
+      ...auth,
+      access,
+      accessDenied: true,
+      storageUserId: null,
+      found: false,
+      state: null,
+      updatedAt: null,
+      encrypted: false
+    };
+  }
+
+  // All restaurant data stays under the original owner_user_id. Employees use
+  // their own Supabase session, but read the same encrypted Smart Horeca/iiko state.
+  const storageUserId = access.storageUserId || access.ownerUserId || auth.user.id;
+  const stored = await loadPrivateIikoState(env.DB, storageUserId, env);
+  return { ...auth, ...stored, access, storageUserId };
 }
 
 export function privateConnection(state) {
