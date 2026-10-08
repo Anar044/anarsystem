@@ -21,7 +21,17 @@ const addDays=(date,days)=>{const d=new Date(date+'T12:00:00');d.setDate(d.getDa
 const daysAgo=n=>{const d=new Date();d.setDate(d.getDate()-n);return d.toISOString().slice(0,10)};
 const statusLabel=s=>({DRAFT:'Черновик',PENDING_APPROVAL:'На согласовании',APPROVED:'Согласовано',PARTIALLY_ORDERED:'Частично заказано',ORDERED:'Заказано',PARTIALLY_FULFILLED:'Частично выполнено',SENT:'Отправлен',CONFIRMED:'Подтверждён',PARTIALLY_RECEIVED:'Частично принят',COMPLETED:'Выполнен',CLOSED:'Закрыт вручную',CANCELLED:'Отменён'}[s]||s||'—');
 const statusTone=s=>['CANCELLED','CLOSED'].includes(s)?(s==='CANCELLED'?'danger':'neutral'):['COMPLETED','APPROVED','ORDERED'].includes(s)?'success':['PENDING_APPROVAL','SENT','CONFIRMED','PARTIALLY_RECEIVED','PARTIALLY_ORDERED','PARTIALLY_FULFILLED'].includes(s)?'warn':'neutral';
-const matchLabel=s=>({OPEN:'Ожидает приёмки',PARTIAL:'Частичная приёмка',MATCHED:'PO = приёмка = накладная',PRICE_MISMATCH:'Расхождение цены',QUANTITY_MISMATCH:'Расхождение количества'}[s]||s||'—');
+const matchLabel=s=>({
+  OPEN:'Ожидает приёмки',
+  WAITING_GRN:'Ожидает GRN',
+  PARTIAL:'Частичная приёмка',
+  PARTIAL_GRN:'GRN принят частично',
+  WAITING_INVOICE:'GRN есть · ожидает накладную',
+  MATCHED:'PO = GRN = накладная',
+  PRICE_MISMATCH:'Расхождение цены',
+  QUANTITY_MISMATCH:'GRN ≠ PO',
+  INVOICE_QTY_MISMATCH:'Накладная ≠ GRN'
+}[s]||s||'—');
 const approvalName=s=>({MANAGER:'Менеджер',DIRECTOR:'Директор',OWNER:'Владелец'}[s]||s||'—');
 
 const PROCUREMENT_VIEWS=new Set(['catalog','requests','approvals','sourcing','suppliers','orders','receiving','analytics','norms','settings']);
@@ -639,7 +649,7 @@ function orderListItem(o,{receiving=false}={}){
       '<div class="proc-record-main"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId||'Поставщик')+' · '+esc(o.warehouseName||'Склад')+'</span></div>'+
       '<div class="proc-record-metric"><strong>'+lines+'</strong><span>позиций</span></div>'+
       (receiving
-        ?'<div class="proc-record-metric amount"><strong>'+remainingLines+'</strong><span>поз. к приёмке · '+num(o.completionPercent).toFixed(0)+'%</span></div>'
+        ?'<div class="proc-record-metric amount"><strong>'+remainingLines+'</strong><span>поз. к приёмке · '+esc(matchLabel(o.matchStatus))+'</span></div>'
         :'<div class="proc-record-metric amount"><strong>'+money(o.totalAmount)+'</strong><span>сумма PO</span></div>')+
       '<span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span>'+
       '<span class="proc-record-open">Открыть <i>›</i></span>'+
@@ -705,28 +715,60 @@ function buyerOrderActions(o){
   return a.join('');
 }
 function receivingActions(o){
-  if(['CANCELLED','COMPLETED'].includes(o.effectiveStatus))return '';
-  return '<button class="proc-btn small primary" data-po-receive="'+o.id+'">Принять поставку</button><button class="proc-btn small ghost" data-po-link="'+o.id+'">Привязать накладную</button>';
+  if(o.effectiveStatus==='CANCELLED')return '';
+  const actions=[],remaining=(o.lines||[]).some(x=>num(x.remainingQty)>0.0005);
+  const linkable=(o.grns||[]).some(g=>!g.legacy&&!(g.invoices||[]).length);
+  if(remaining)actions.push('<button class="proc-btn small primary" data-po-receive="'+o.id+'">Создать GRN</button>');
+  if(linkable)actions.push('<button class="proc-btn small secondary" data-po-link="'+o.id+'">Привязать накладную</button>');
+  return actions.join('');
+}
+function threeWayTone(status){
+  if(status==='MATCHED')return'success';
+  if(['PRICE_MISMATCH','QUANTITY_MISMATCH','INVOICE_QTY_MISMATCH'].includes(status))return'danger';
+  if(['WAITING_INVOICE','PARTIAL_GRN'].includes(status))return'warn';
+  return'neutral';
+}
+function grnHistoryHtml(o){
+  const rows=o.grns||[];
+  if(!rows.length)return '<div class="proc-threeway-empty">GRN ещё не создан.</div>';
+  return '<div class="proc-grn-list">'+rows.map(g=>{
+    const invoices=g.invoices||[],label=g.legacy?'Историческая приёмка':g.number;
+    return '<div class="proc-grn-row"><div><strong>'+esc(label)+'</strong><span>'+esc(g.documentDate||'—')+' · '+money(g.totalAmount)+'</span></div><div><span class="proc-status-badge '+(g.legacy?'neutral':'success')+'">'+(g.legacy?'legacy':'GRN')+'</span><small>'+(invoices.length?'Накладная: '+invoices.map(x=>esc(x.iikoDocumentNumber||'без №')).join(', '):'Накладная не привязана')+'</small></div></div>';
+  }).join('')+'</div>';
+}
+function threeWayPanelHtml(o){
+  const t=o.threeWay||{},lines=t.lines||[];
+  const step=(name,value,meta,cls)=>'<div class="proc-threeway-step '+cls+'"><span>'+name+'</span><strong>'+value+'</strong><small>'+meta+'</small></div>';
+  const lineRows=lines.map(x=>'<tr><td><strong>'+esc(x.productName||x.productId)+'</strong></td><td>'+qty(x.poQty)+' '+esc(x.unit||'')+'</td><td>'+qty(x.grnQty)+' '+esc(x.unit||'')+'</td><td>'+qty(x.invoiceQty)+' '+esc(x.unit||'')+'</td><td>'+money(x.poPrice)+'</td><td>'+(x.invoicePrice===null||x.invoicePrice===undefined?'—':money(x.invoicePrice))+'</td><td><span class="proc-status-badge '+threeWayTone(x.status)+'">'+esc(matchLabel(x.status))+'</span></td></tr>').join('');
+  return '<div class="proc-threeway"><div class="proc-threeway-head"><div><strong>3-way match</strong><span>PO → GRN → Накладная</span></div><span class="proc-match '+String(t.status||o.matchStatus||'').toLowerCase()+'">'+esc(matchLabel(t.status||o.matchStatus))+'</span></div>'+
+    '<div class="proc-threeway-steps">'+
+      step('PO',money(t.poTotal||o.totalAmount),(o.lines||[]).length+' поз.','po')+
+      step('GRN',money(t.grnTotal||0),num(t.grnCount)+' документ(а)','grn')+
+      step('Накладная',money(t.invoiceTotal||0),num(t.invoiceCount)+' документ(а)','invoice')+
+    '</div>'+
+    (lineRows?'<div class="proc-threeway-table-wrap"><table class="proc-threeway-table"><thead><tr><th>Товар</th><th>PO кол-во</th><th>GRN</th><th>Накладная</th><th>Цена PO</th><th>Цена накл.</th><th>Сверка</th></tr></thead><tbody>'+lineRows+'</tbody></table></div>':'')+
+    '<div class="proc-threeway-grns"><strong>GRN / фактическая приёмка</strong>'+grnHistoryHtml(o)+'</div></div>';
 }
 function orderCard(o,{receiving=false}={}){
-  const lines=(o.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.orderedQty)+' '+esc(l.unit)+(receiving?'':' × '+money(l.unitPrice))+'</strong><span>принято '+qty(l.receivedQty)+' · осталось '+qty(l.remainingQty)+'</span></div>').join('');
+  const lines=(o.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.orderedQty)+' '+esc(l.unit)+(receiving?'':' × '+money(l.unitPrice))+'</strong><span>по GRN '+qty(l.receivedQty)+' · осталось '+qty(l.remainingQty)+'</span></div>').join('');
   return '<article class="proc-doc-card '+(o.effectiveStatus==='COMPLETED'?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId)+' · '+esc(o.warehouseName||'Склад')+' · '+dateTimeLabel(o.createdAt)+'</span></div><span class="proc-status-badge '+statusTone(o.effectiveStatus)+'">'+esc(statusLabel(o.effectiveStatus))+'</span></div>'+
-    '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(o.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>Принято '+qty(o.receivedQty)+' из '+qty(o.orderedQty)+'</span><span>'+num(o.completionPercent).toFixed(1)+'%</span></div></div>'+
+    '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(o.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>По GRN принято '+qty(o.receivedQty)+' из '+qty(o.orderedQty)+'</span><span>'+num(o.completionPercent).toFixed(1)+'%</span></div></div>'+
     '<div class="proc-line-list">'+lines+'</div>'+
-    '<div class="proc-card-row" style="margin-top:10px"><span class="proc-match '+String(o.matchStatus||'OPEN').toLowerCase()+'">'+esc(matchLabel(o.matchStatus))+'</span><span class="proc-history-note">'+((o.receipts||[]).length?'Накладные: '+(o.receipts||[]).map(r=>esc(r.iikoDocumentNumber||'без №')).join(', '):'Приёмок пока нет')+'</span></div>'+
-    '<div class="proc-doc-footer">'+(receiving?'<strong>'+qty(o.remainingQty||Math.max(0,o.orderedQty-o.receivedQty))+' к приёмке</strong>':'<strong>'+money(o.totalAmount)+'</strong>')+'<div class="proc-actions">'+(receiving?receivingActions(o):buyerOrderActions(o))+(o.effectiveStatus==='COMPLETED'?'<a class="proc-btn small ghost" href="/nakladnye.html">Открыть накладные ↗</a>':'')+'</div></div></article>';
+    threeWayPanelHtml(o)+
+    '<div class="proc-doc-footer">'+(receiving?'<strong>'+((o.lines||[]).filter(x=>num(x.remainingQty)>0.0005).length)+' поз. к приёмке</strong>':'<strong>'+money(o.totalAmount)+'</strong>')+'<div class="proc-actions">'+(receiving?receivingActions(o):buyerOrderActions(o))+((o.receipts||[]).length?'<a class="proc-btn small ghost" href="/nakladnye.html">Открыть накладные ↗</a>':'')+'</div></div></article>';
 }
+
 function renderOrders(){
   const box=$('proc-po-list'),all=state.data?.orders||[],view=state.view||currentProcurementView();
   const head=document.querySelector('[data-panel="orders"] .proc-panel-head');
   if(view==='receiving'){
     if(head)head.querySelector('h2').textContent='Приёмка поставок';
     if(head)head.querySelector('p').textContent='Список поставок по дате и времени. Откройте нужный документ, чтобы принять товар или привязать накладную.';
-    const active=newestFirst(all.filter(o=>!['COMPLETED','CANCELLED'].includes(o.effectiveStatus)));
-    const done=newestFirst(all.filter(o=>o.effectiveStatus==='COMPLETED')).slice(0,30);
+    const active=newestFirst(all.filter(o=>o.effectiveStatus!=='CANCELLED'&&o.matchStatus!=='MATCHED'));
+    const done=newestFirst(all.filter(o=>o.matchStatus==='MATCHED')).slice(0,30);
     box.innerHTML=
-      '<div class="proc-list-section"><div class="proc-list-section-title"><strong>Ожидают приёмки</strong><span>'+active.length+'</span></div><div class="proc-document-list">'+(active.map(o=>orderListItem(o,{receiving:true})).join('')||'<div class="proc-empty">Нет поставок, ожидающих приёмки.</div>')+'</div></div>'+
-      (done.length?'<details class="proc-history-block"><summary>Недавно принятые · '+done.length+'</summary><div class="proc-document-list history">'+done.map(o=>orderListItem(o,{receiving:true})).join('')+'</div></details>':'');
+      '<div class="proc-list-section"><div class="proc-list-section-title"><strong>Требуют действия / сверки</strong><span>'+active.length+'</span></div><div class="proc-document-list">'+(active.map(o=>orderListItem(o,{receiving:true})).join('')||'<div class="proc-empty">Все поставки сверены.</div>')+'</div></div>'+
+      (done.length?'<details class="proc-history-block"><summary>Полностью сверено PO = GRN = накладная · '+done.length+'</summary><div class="proc-document-list history">'+done.map(o=>orderListItem(o,{receiving:true})).join('')+'</div></details>':'');
     return;
   }
   if(head)head.querySelector('h2').textContent='Заказы поставщикам (PO)';
