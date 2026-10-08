@@ -14,6 +14,7 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const num=(v,f=0)=>{const n=Number(v);return Number.isFinite(n)?n:f};
 const qty=v=>num(v).toLocaleString('ru-RU',{maximumFractionDigits:3});
 const money=v=>num(v).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₼';
+const moneyMaybe=v=>v===null||v===undefined?'—':money(v);
 const dateTimeLabel=v=>{const d=new Date(v);return Number.isNaN(d.getTime())?'—':d.toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})};
 const newestFirst=rows=>[...(rows||[])].sort((a,b)=>new Date(b.createdAt||0).getTime()-new Date(a.createdAt||0).getTime());
 const today=()=>new Date().toISOString().slice(0,10);
@@ -717,9 +718,10 @@ function buyerOrderActions(o){
 function receivingActions(o){
   if(o.effectiveStatus==='CANCELLED')return '';
   const actions=[],remaining=(o.lines||[]).some(x=>num(x.remainingQty)>0.0005);
+  const canCost=window.SHAccess?.can?.('procurement.prices.view')||window.SHAccess?.can?.('sensitive.cost.view')||false;
   const linkable=(o.grns||[]).some(g=>!g.legacy&&!(g.invoices||[]).length);
   if(remaining)actions.push('<button class="proc-btn small primary" data-po-receive="'+o.id+'">Создать GRN</button>');
-  if(linkable)actions.push('<button class="proc-btn small secondary" data-po-link="'+o.id+'">Привязать накладную</button>');
+  if(linkable&&canCost)actions.push('<button class="proc-btn small secondary" data-po-link="'+o.id+'">Привязать накладную</button>');
   return actions.join('');
 }
 function threeWayTone(status){
@@ -733,18 +735,18 @@ function grnHistoryHtml(o){
   if(!rows.length)return '<div class="proc-threeway-empty">GRN ещё не создан.</div>';
   return '<div class="proc-grn-list">'+rows.map(g=>{
     const invoices=g.invoices||[],label=g.legacy?'Историческая приёмка':g.number;
-    return '<div class="proc-grn-row"><div><strong>'+esc(label)+'</strong><span>'+esc(g.documentDate||'—')+' · '+money(g.totalAmount)+'</span></div><div><span class="proc-status-badge '+(g.legacy?'neutral':'success')+'">'+(g.legacy?'legacy':'GRN')+'</span><small>'+(invoices.length?'Накладная: '+invoices.map(x=>esc(x.iikoDocumentNumber||'без №')).join(', '):'Накладная не привязана')+'</small></div></div>';
+    return '<div class="proc-grn-row"><div><strong>'+esc(label)+'</strong><span>'+esc(g.documentDate||'—')+' · '+moneyMaybe(g.totalAmount)+'</span></div><div><span class="proc-status-badge '+(g.legacy?'neutral':'success')+'">'+(g.legacy?'legacy':'GRN')+'</span><small>'+(invoices.length?'Накладная: '+invoices.map(x=>esc(x.iikoDocumentNumber||'без №')).join(', '):'Накладная не привязана')+'</small></div></div>';
   }).join('')+'</div>';
 }
 function threeWayPanelHtml(o){
   const t=o.threeWay||{},lines=t.lines||[];
   const step=(name,value,meta,cls)=>'<div class="proc-threeway-step '+cls+'"><span>'+name+'</span><strong>'+value+'</strong><small>'+meta+'</small></div>';
-  const lineRows=lines.map(x=>'<tr><td><strong>'+esc(x.productName||x.productId)+'</strong></td><td>'+qty(x.poQty)+' '+esc(x.unit||'')+'</td><td>'+qty(x.grnQty)+' '+esc(x.unit||'')+'</td><td>'+qty(x.invoiceQty)+' '+esc(x.unit||'')+'</td><td>'+money(x.poPrice)+'</td><td>'+(x.invoicePrice===null||x.invoicePrice===undefined?'—':money(x.invoicePrice))+'</td><td><span class="proc-status-badge '+threeWayTone(x.status)+'">'+esc(matchLabel(x.status))+'</span></td></tr>').join('');
+  const lineRows=lines.map(x=>'<tr><td><strong>'+esc(x.productName||x.productId)+'</strong></td><td>'+qty(x.poQty)+' '+esc(x.unit||'')+'</td><td>'+qty(x.grnQty)+' '+esc(x.unit||'')+'</td><td>'+qty(x.invoiceQty)+' '+esc(x.unit||'')+'</td><td>'+moneyMaybe(x.poPrice)+'</td><td>'+moneyMaybe(x.invoicePrice)+'</td><td><span class="proc-status-badge '+threeWayTone(x.status)+'">'+esc(matchLabel(x.status))+'</span></td></tr>').join('');
   return '<div class="proc-threeway"><div class="proc-threeway-head"><div><strong>3-way match</strong><span>PO → GRN → Накладная</span></div><span class="proc-match '+String(t.status||o.matchStatus||'').toLowerCase()+'">'+esc(matchLabel(t.status||o.matchStatus))+'</span></div>'+
     '<div class="proc-threeway-steps">'+
-      step('PO',money(t.poTotal||o.totalAmount),(o.lines||[]).length+' поз.','po')+
-      step('GRN',money(t.grnTotal||0),num(t.grnCount)+' документ(а)','grn')+
-      step('Накладная',money(t.invoiceTotal||0),num(t.invoiceCount)+' документ(а)','invoice')+
+      step('PO',moneyMaybe(t.poTotal!==undefined?t.poTotal:o.totalAmount),(o.lines||[]).length+' поз.','po')+
+      step('GRN',moneyMaybe(t.grnTotal),num(t.grnCount)+' документ(а)','grn')+
+      step('Накладная',moneyMaybe(t.invoiceTotal),num(t.invoiceCount)+' документ(а)','invoice')+
     '</div>'+
     (lineRows?'<div class="proc-threeway-table-wrap"><table class="proc-threeway-table"><thead><tr><th>Товар</th><th>PO кол-во</th><th>GRN</th><th>Накладная</th><th>Цена PO</th><th>Цена накл.</th><th>Сверка</th></tr></thead><tbody>'+lineRows+'</tbody></table></div>':'')+
     '<div class="proc-threeway-grns"><strong>GRN / фактическая приёмка</strong>'+grnHistoryHtml(o)+'</div></div>';
@@ -1041,10 +1043,11 @@ async function registerReceipt(payload){const out=await procPost(payload?.grnId?
 async function flushPending(){
   let p=null;try{p=JSON.parse(localStorage.getItem(pendingKey())||'null')}catch(_){}
   if(!p?.id)return;
-  try{await registerReceipt(p);await loadProcurement();toast('Восстановлена связь ранее созданной накладной с PO.')}catch(e){console.warn('Pending procurement receipt not registered',e)}
+  try{await registerReceipt(p);await loadProcurement();toast('Восстановлена связь ранее созданной накладной с GRN / PO.')}catch(e){console.warn('Pending procurement receipt not registered',e)}
 }
 function openReceiptModal(o){
   const lines=(o.lines||[]).filter(x=>num(x.remainingQty)>0.0005);
+  const canCost=window.SHAccess?.can?.('procurement.prices.view')||window.SHAccess?.can?.('sensitive.cost.view')||false;
   if(!lines.length){toast('По PO всё количество уже принято по GRN.','error');return}
 
   const draftNo='RC-'+Date.now().toString().slice(-9);
@@ -1064,7 +1067,7 @@ function openReceiptModal(o){
     '<div class="proc-modal-summary"><span>Оценка GRN по цене PO</span><strong id="proc-receipt-total">0,00 ₼</strong></div>'+
     '<div class="proc-history-note">Поле «Цена / упак.» используется для накладной. GRN фиксирует фактическое количество, а Smart Horeca затем отдельно сверяет цену накладной с PO.</div>'+
     '<div id="proc-receipt-status" class="proc-receipt-status" hidden></div>'+
-    '<div class="proc-receipt-choice"><button id="proc-receipt-cancel" class="proc-btn ghost" type="button">Отмена</button><button id="proc-grn-only" class="proc-btn secondary" type="button">Сохранить только GRN</button><button id="proc-grn-draft" class="proc-btn secondary" type="button">GRN + накладная</button><button id="proc-grn-post" class="proc-btn primary" type="button">GRN + провести</button></div>'
+    '<div class="proc-receipt-choice"><button id="proc-receipt-cancel" class="proc-btn ghost" type="button">Отмена</button><button id="proc-grn-only" class="proc-btn secondary" type="button">Сохранить только GRN</button>'+(canCost?'<button id="proc-grn-draft" class="proc-btn secondary" type="button">GRN + накладная</button><button id="proc-grn-post" class="proc-btn primary" type="button">GRN + провести</button>':'')+'</div>'
   );
 
   bindReceiptPackaging();recalcReceipt();$('proc-receipt-cancel').onclick=closeModal;
@@ -1180,8 +1183,8 @@ function openReceiptModal(o){
     }finally{setBusy(false)}
   }
   $('proc-grn-only').onclick=()=>save('grn');
-  $('proc-grn-draft').onclick=()=>save('draft');
-  $('proc-grn-post').onclick=()=>save('process');
+  if($('proc-grn-draft'))$('proc-grn-draft').onclick=()=>save('draft');
+  if($('proc-grn-post'))$('proc-grn-post').onclick=()=>save('process');
 }
 
 async function copyPo(o){
