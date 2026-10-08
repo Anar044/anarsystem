@@ -11,8 +11,6 @@ function minutes(ms){return Math.max(0,Math.round(ms/60000))}
 function round2(v){return Math.round((Number(v)||0)*100)/100}
 function isoDayShift(day,delta){const d=new Date(`${day}T00:00:00.000Z`);d.setUTCDate(d.getUTCDate()+delta);return d.toISOString().slice(0,10)}
 function monthBounds(month){const [y,m]=month.split('-').map(Number);const last=new Date(Date.UTC(y,m,0)).getUTCDate();return{from:`${month}-01`,to:`${month}-${String(last).padStart(2,'0')}`,year:y,month:m,days:last}}
-function weekday(date){const d=new Date(`${date}T00:00:00Z`).getUTCDay();return d===0?7:d}
-function shiftMinutes(start,end,breakMinutes=0){const [sh,sm]=String(start||'00:00').split(':').map(Number),[eh,em]=String(end||'00:00').split(':').map(Number);let a=sh*60+sm,b=eh*60+em;if(b<=a)b+=1440;return Math.max(0,b-a-Number(breakMinutes||0))}
 function localParts(value,timeZone='Asia/Baku'){const d=new Date(value);if(Number.isNaN(d.getTime()))return{date:'',time:''};const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d);const m=Object.fromEntries(parts.map(x=>[x.type,x.value]));return{date:`${m.year}-${m.month}-${m.day}`,time:`${m.hour}:${m.minute}`}}
 function clockMinutes(v){const m=/^(\d{2}):(\d{2})$/.exec(String(v||''));return m?Number(m[1])*60+Number(m[2]):0}
 function freeWorkDate(eventTime,timeZone,shiftType){const p=localParts(eventTime,timeZone),start=String(shiftType||'DAY').toUpperCase()==='NIGHT'?720:300;return clockMinutes(p.time)>=start?p.date:isoDayShift(p.date,-1)}
@@ -51,8 +49,6 @@ async function ensure(db){
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_employees (user_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,employee_code TEXT NOT NULL DEFAULT '',first_name TEXT NOT NULL DEFAULT '',middle_name TEXT NOT NULL DEFAULT '',last_name TEXT NOT NULL DEFAULT '',display_name TEXT NOT NULL DEFAULT '',role_code TEXT NOT NULL DEFAULT '',role_name TEXT NOT NULL DEFAULT '',department_code TEXT NOT NULL DEFAULT '',hire_date TEXT NOT NULL DEFAULT '',fire_date TEXT NOT NULL DEFAULT '',is_deleted INTEGER NOT NULL DEFAULT 0,synced_at TEXT NOT NULL,PRIMARY KEY(user_id,iiko_employee_id))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_compensation_terms (user_id TEXT NOT NULL,term_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,effective_from TEXT NOT NULL,effective_to TEXT NOT NULL DEFAULT '',official_gross REAL NOT NULL DEFAULT 0,additional_amount REAL NOT NULL DEFAULT 0,additional_payment_method TEXT NOT NULL DEFAULT 'CASH',additional_tax_treatment TEXT NOT NULL DEFAULT 'TAXABLE',additional_legal_basis TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT '',is_active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,term_id))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_compensation_terms (user_id TEXT NOT NULL,term_id TEXT NOT NULL,role_code TEXT NOT NULL,effective_from TEXT NOT NULL,effective_to TEXT NOT NULL DEFAULT '',official_gross REAL NOT NULL DEFAULT 0,additional_amount REAL NOT NULL DEFAULT 0,additional_payment_method TEXT NOT NULL DEFAULT 'CASH',additional_tax_treatment TEXT NOT NULL DEFAULT 'TAXABLE',additional_legal_basis TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT '',is_active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,term_id))`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_schedules (user_id TEXT NOT NULL,schedule_id TEXT NOT NULL,role_code TEXT NOT NULL,schedule_name TEXT NOT NULL,pattern_type TEXT NOT NULL DEFAULT 'WEEKLY',weekdays TEXT NOT NULL DEFAULT '1,2,3,4,5',work_days INTEGER NOT NULL DEFAULT 5,off_days INTEGER NOT NULL DEFAULT 2,anchor_date TEXT NOT NULL DEFAULT '',shift_start TEXT NOT NULL,shift_end TEXT NOT NULL,break_minutes INTEGER NOT NULL DEFAULT 0,valid_from TEXT NOT NULL,valid_to TEXT NOT NULL DEFAULT '',is_default INTEGER NOT NULL DEFAULT 0,is_active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,schedule_id))`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_schedule_days (user_id TEXT NOT NULL,schedule_id TEXT NOT NULL,weekday INTEGER NOT NULL,shift_start TEXT NOT NULL,shift_end TEXT NOT NULL,break_minutes INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,schedule_id,weekday))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_attendance_events (user_id TEXT NOT NULL,event_id TEXT NOT NULL,device_id TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'ZKTECO',source_uid TEXT NOT NULL,external_employee_id TEXT NOT NULL DEFAULT '',iiko_employee_id TEXT NOT NULL DEFAULT '',event_time TEXT NOT NULL,event_type TEXT NOT NULL DEFAULT 'UNKNOWN',raw_payload TEXT NOT NULL DEFAULT '{}',imported_at TEXT NOT NULL,PRIMARY KEY(user_id,event_id),UNIQUE(user_id,device_id,source_uid))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_devices (user_id TEXT NOT NULL,device_id TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'ZKTECO',name TEXT NOT NULL,location TEXT NOT NULL DEFAULT '',connection_mode TEXT NOT NULL DEFAULT 'LOCAL_CONNECTOR',timezone TEXT NOT NULL DEFAULT 'Asia/Baku',is_active INTEGER NOT NULL DEFAULT 1,last_sync_at TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,device_id))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_profiles (user_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,fin TEXT NOT NULL DEFAULT '',ssn TEXT NOT NULL DEFAULT '',birth_date TEXT NOT NULL DEFAULT '',phone_primary TEXT NOT NULL DEFAULT '',phone_secondary TEXT NOT NULL DEFAULT '',email_personal TEXT NOT NULL DEFAULT '',address TEXT NOT NULL DEFAULT '',emergency_contact_name TEXT NOT NULL DEFAULT '',emergency_contact_relation TEXT NOT NULL DEFAULT '',emergency_contact_phone TEXT NOT NULL DEFAULT '',education_level TEXT NOT NULL DEFAULT '',education_institution TEXT NOT NULL DEFAULT '',specialty TEXT NOT NULL DEFAULT '',employment_type TEXT NOT NULL DEFAULT 'MAIN',factual_hire_date TEXT NOT NULL DEFAULT '',factual_fire_date TEXT NOT NULL DEFAULT '',official_hire_date TEXT NOT NULL DEFAULT '',official_fire_date TEXT NOT NULL DEFAULT '',official_employer_name TEXT NOT NULL DEFAULT '',official_employer_voen TEXT NOT NULL DEFAULT '',quota_category TEXT NOT NULL DEFAULT 'NONE',work_capacity_percent INTEGER NOT NULL DEFAULT 100,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,iiko_employee_id))`),
@@ -76,30 +72,6 @@ async function ensure(db){
 function termDto(r,key){return r?{id:r.term_id,[key]:r[key==='employeeId'?'iiko_employee_id':'role_code'],effectiveFrom:r.effective_from,effectiveTo:r.effective_to||'',officialGross:round2(r.official_gross),additionalAmount:round2(r.additional_amount),additionalPaymentMethod:r.additional_payment_method||'CASH',additionalTaxTreatment:r.additional_tax_treatment||'TAXABLE',additionalLegalBasis:r.additional_legal_basis||'',note:r.note||''}:null}
 function activeTerm(rows,key,value,asOf){return rows.find(r=>String(r[key])===String(value)&&r.effective_from<=asOf&&(!r.effective_to||r.effective_to>=asOf))||null}
 function overlapTermCount(rows,key,value,from,to){return rows.filter(r=>String(r[key])===String(value)&&r.effective_from<=to&&(!r.effective_to||r.effective_to>=from)).length}
-
-function normalizeEmployee(events,from,to){
-  const sorted=[...events].sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time))),intervals=[];let open=null,issues=0,last=null;
-  for(const e of sorted){const type=String(e.event_type||'UNKNOWN').toUpperCase();
-    if(type==='UNKNOWN'){issues++;last=e;continue}
-    if(type==='IN'){if(!open){open=e;last=e;continue}const gap=minutes(new Date(e.event_time)-new Date(open.event_time));if(gap<=10){issues++;last=e;continue}issues++;open=e;last=e;continue}
-    if(type==='OUT'){if(!open){issues++;last=e;continue}const start=new Date(open.event_time),end=new Date(e.event_time),duration=minutes(end-start);if(end<=start){issues++;open=null;last=e;continue}const lp=localParts(open.event_time);if(duration>1440)issues++;if(lp.date>=from&&lp.date<=to)intervals.push({workDate:lp.date,durationMinutes:duration});open=null;last=e}
-  }
-  if(open)issues++;
-  return{intervals,issues};
-}
-
-function plannedMinutesForSchedule(schedule,dayRules,from,to){
-  if(!schedule)return 0;let total=0;const rules=new Map(dayRules.map(r=>[Number(r.weekday),r]));
-  for(let date=from;date<=to;date=isoDayShift(date,1)){
-    if(date<schedule.valid_from||(schedule.valid_to&&date>schedule.valid_to))continue;
-    if(schedule.pattern_type==='CYCLE'){
-      if(!schedule.anchor_date)continue;const diff=Math.floor((new Date(`${date}T00:00:00Z`)-new Date(`${schedule.anchor_date}T00:00:00Z`))/86400000);if(diff<0)continue;const cycle=Number(schedule.work_days||0)+Number(schedule.off_days||0);if(!cycle)continue;const pos=((diff%cycle)+cycle)%cycle;if(pos<Number(schedule.work_days||0))total+=shiftMinutes(schedule.shift_start,schedule.shift_end,schedule.break_minutes);
-    }else{
-      const r=rules.get(weekday(date));if(r)total+=shiftMinutes(r.shift_start,r.shift_end,r.break_minutes);else{const list=String(schedule.weekdays||'').split(',').map(Number);if(list.includes(weekday(date)))total+=shiftMinutes(schedule.shift_start,schedule.shift_end,schedule.break_minutes)}
-    }
-  }
-  return total;
-}
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
 export async function onRequestGet({request,env}){
