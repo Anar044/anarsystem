@@ -237,8 +237,8 @@ export async function onRequestGet({request,env}){
           const complete=Boolean(raw&&raw.lastOut),hasMark=Boolean(raw?.firstIn),worked=complete&&Number(raw?.workedMinutes||0)>0;
           let status;
           if(date>todayBaku())status='FUTURE';
-          else if(leave)status=hasMark?'LEAVE_WITH_WORK':'LEAVE';
           else if(raw?.status==='INCOMPLETE')status='INCOMPLETE';
+          else if(leave)status=hasMark?'LEAVE_WITH_WORK':'LEAVE';
           else if(worked)status='WORK';
           else status='FREE_NO_MARKS';
           factualDays.push({
