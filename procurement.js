@@ -569,7 +569,12 @@ function rfqListHtml(r){
   if(!rfqs.length)return '<div class="proc-rfq-empty">RFQ ещё не создан. Можно выбрать поставщиков и сформировать запрос цен.</div>';
   return rfqs.map(x=>{
     const deadline=x.deadline?new Date(x.deadline+'T00:00:00').toLocaleDateString('ru-RU'):'не указан';
-    return '<div class="proc-rfq-row"><div class="proc-rfq-main"><div><strong>'+esc(x.number)+'</strong><span class="proc-status-badge '+rfqStatusTone(x.status)+'">'+esc(rfqStatusLabel(x.status))+'</span></div><small>Поставщики: '+esc((x.supplierNames||[]).join(', ')||'—')+'</small><small>Ответов: '+num(x.responseCount)+' из '+(x.supplierIds||[]).length+' · срок: '+esc(deadline)+'</small></div><div class="proc-actions"><button class="proc-btn small ghost" data-rfq-copy="'+x.id+'">Копировать</button>'+(x.status==='DRAFT'?'<button class="proc-btn small primary" data-rfq-send="'+x.id+'">Отметить отправленным</button>':'')+(x.status!=='CLOSED'?'<button class="proc-btn small danger" data-rfq-close="'+x.id+'">Закрыть</button>':'')+'</div></div>';
+    const supplierRows=(x.supplierIds||[]).map((sid,i)=>{
+      const quote=(r.quotes||[]).find(q=>key(q.rfqId)===key(x.id)&&key(q.supplierId)===key(sid));
+      const name=(x.supplierNames||[])[i]||sid;
+      return '<div class="proc-rfq-supplier-row"><div><strong>'+esc(name)+'</strong><small>'+(quote?'Ответ получен · '+money(quote.totalAmount):'Ожидаем предложение')+'</small></div>'+(x.status!=='CLOSED'?'<button class="proc-btn small '+(quote?'ghost':'secondary')+'" data-rfq-link="'+x.id+'" data-supplier="'+esc(sid)+'">Ссылка</button>':'')+'</div>';
+    }).join('');
+    return '<div class="proc-rfq-row"><div class="proc-rfq-main"><div><strong>'+esc(x.number)+'</strong><span class="proc-status-badge '+rfqStatusTone(x.status)+'">'+esc(rfqStatusLabel(x.status))+'</span></div><small>Ответов: '+num(x.responseCount)+' из '+(x.supplierIds||[]).length+' · срок: '+esc(deadline)+'</small></div><div class="proc-actions"><button class="proc-btn small ghost" data-rfq-copy="'+x.id+'">Копировать RFQ</button>'+(x.status==='DRAFT'?'<button class="proc-btn small primary" data-rfq-send="'+x.id+'">Отметить отправленным</button>':'')+(x.status!=='CLOSED'?'<button class="proc-btn small danger" data-rfq-close="'+x.id+'">Закрыть</button>':'')+'</div><div class="proc-rfq-supplier-links">'+supplierRows+'</div></div>';
   }).join('');
 }
 function sourcingCard(r){
@@ -739,6 +744,13 @@ async function copyRfq(r,rfq){
   const text=['Smart Horeca · Request for Quotation',rfq.number,'PR: '+r.number,'Срок ответа: '+(rfq.deadline||'—'),'Поставщики: '+(rfq.supplierNames||[]).join(', '),'',rfq.message||'Просим предоставить ценовое предложение.','',lines].join('\n');
   try{await navigator.clipboard.writeText(text);toast('RFQ скопирован. Можно отправить поставщику по email/WhatsApp.')}catch(e){toast('Не удалось скопировать RFQ: '+(e.message||e),'error')}
 }
+function showRfqSupplierLink(r,rfq,supplierId,result){
+  const idx=(rfq.supplierIds||[]).findIndex(x=>key(x)===key(supplierId)),supplier=(rfq.supplierNames||[])[idx]||supplierId,link=result?.link||'';
+  openModal('Ссылка для поставщика','RFQ · '+rfq.number,
+    '<div class="proc-rfq-link-box"><strong>'+esc(supplier)+'</strong><p>Поставщик откроет ссылку без регистрации, укажет цены и условия. Ответ автоматически появится в сравнении RFQ.</p><textarea id="proc-rfq-link-value" readonly>'+esc(link)+'</textarea><small>Ссылка действует до '+esc(result?.expiresAt?new Date(result.expiresAt).toLocaleString('ru-RU'):'—')+'. Создание новой ссылки заменит предыдущую.</small></div><div class="proc-modal-actions"><button id="proc-rfq-link-close" type="button" class="proc-btn ghost">Закрыть</button><button id="proc-rfq-link-copy" type="button" class="proc-btn primary">Копировать ссылку</button></div>');
+  $('proc-rfq-link-close').onclick=closeModal;
+  $('proc-rfq-link-copy').onclick=async()=>{try{await navigator.clipboard.writeText(link);$('proc-rfq-link-copy').textContent='Скопировано ✓'}catch(e){const el=$('proc-rfq-link-value');el.focus();el.select();document.execCommand('copy');$('proc-rfq-link-copy').textContent='Скопировано ✓'}};
+}
 function openQuoteModal(r,rfqId=''){
   const rfq=(r.rfqs||[]).find(x=>key(x.id)===key(rfqId))||null;
   const allowed=rfq?new Set((rfq.supplierIds||[]).map(key)):null;
@@ -886,13 +898,14 @@ function bind(){
     const row=state.purchaseRows.find(x=>x.id===b.dataset.createNeed);if(row)openPrModal([row]);
   });
   $('proc-pr-list').addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prClose||b.dataset.prQuote||b.dataset.poCreate||b.dataset.rfqCreate||b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose;if(!id)return;
+    const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prClose||b.dataset.prQuote||b.dataset.poCreate||b.dataset.rfqCreate||b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose||b.dataset.rfqLink;if(!id)return;
     const r=(state.data?.requisitions||[]).find(x=>x.id===id)||(state.data?.requisitions||[]).find(x=>(x.rfqs||[]).some(q=>q.id===id));
     if(b.dataset.prEdit&&r)return openPrModal([],r);
     if(b.dataset.rfqCreate&&r)return openRfqModal(r);
-    if((b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose)&&r){
+    if((b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose||b.dataset.rfqLink)&&r){
       const rfq=(r.rfqs||[]).find(x=>x.id===id);if(!rfq)return;
       if(b.dataset.rfqCopy)return copyRfq(r,rfq);
+      if(b.dataset.rfqLink)return procPost('create-rfq-link',{id:rfq.id,supplierId:b.dataset.supplier}).then(result=>showRfqSupplierLink(r,rfq,b.dataset.supplier,result)).catch(e=>toast(e.message||String(e),'error'));
       if(b.dataset.rfqSend)return simpleAction('send-rfq',rfq.id,'RFQ отмечен как отправленный поставщикам.');
       if(b.dataset.rfqClose&&confirm('Закрыть '+rfq.number+'?'))return simpleAction('close-rfq',rfq.id,'RFQ закрыт.');
     }
