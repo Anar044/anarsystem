@@ -6,7 +6,7 @@ function r(v){return Math.round((Number(v)||0)*100)/100}
 function money(v){return Math.max(0,r(v))}
 function monthEnd(month){if(!/^\d{4}-\d{2}$/.test(String(month||'')))return'';const[y,m]=month.split('-').map(Number),d=new Date(Date.UTC(y,m,0)).getUTCDate();return`${month}-${String(d).padStart(2,'0')}`}
 function target(path){return path.endsWith('/api/hr/compensation')||path.endsWith('/api/hr/payroll')||path.endsWith('/api/hr/payroll-adjustments')}
-function accessRule(path,method,action=''){
+export function hrAccessRule(path,method,action=''){
   const write=!['GET','HEAD','OPTIONS'].includes(String(method||'GET').toUpperCase());
   const operation=String(action||'').trim().toUpperCase();
   if(path.endsWith('/api/hr/device-ingest'))return null;
@@ -76,11 +76,12 @@ function patchAdjustments(data,tax){
 
 export async function onRequest(context){
   const path=new URL(context.request.url).pathname;
+  if(context.request.method.toUpperCase()==='OPTIONS')return context.next();
   const isWrite=!['GET','HEAD','OPTIONS'].includes(context.request.method.toUpperCase());
   let body=null;
   if(isWrite&&(target(path)||path.endsWith('/api/hr/timesheet-adjustments')||path.endsWith('/api/hr/timesheet-approval')))
     body=await context.request.clone().json().catch(()=>({}));
-  const rule=accessRule(path,context.request.method,body?.action);
+  const rule=hrAccessRule(path,context.request.method,body?.action);
   let auth=null,access=null;
   if(rule){
     auth=await getUser(context.request,context.env);
