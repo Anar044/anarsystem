@@ -42,7 +42,7 @@ function calendarInfo(date){const sp=SPECIAL_2026.get(date);if(sp)return{type:sp
 
 async function ensure(db){
   if(!db)throw new Error('D1 binding DB не настроен.');
-  const required=['hr_employees','hr_devices','hr_attendance_events','hr_employee_leave_entries','hr_leave_type_settings','hr_employee_profiles','hr_role_schedules','hr_role_schedule_days','hr_employee_schedule_overrides','hr_role_attendance_rules','hr_employee_attendance_rules'];
+  const required=['hr_employees','hr_devices','hr_attendance_events','hr_employee_leave_entries','hr_leave_type_settings','hr_employee_profiles','hr_role_attendance_rules','hr_employee_attendance_rules'];
   try{
     const placeholders=required.map((_,i)=>`?${i+1}`).join(',');
     const check=await db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN (${placeholders})`).bind(...required).all();
@@ -71,16 +71,6 @@ async function ensure(db){
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_profiles (
       user_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,fin TEXT NOT NULL DEFAULT '',ssn TEXT NOT NULL DEFAULT '',birth_date TEXT NOT NULL DEFAULT '',phone_primary TEXT NOT NULL DEFAULT '',phone_secondary TEXT NOT NULL DEFAULT '',email_personal TEXT NOT NULL DEFAULT '',address TEXT NOT NULL DEFAULT '',emergency_contact_name TEXT NOT NULL DEFAULT '',emergency_contact_relation TEXT NOT NULL DEFAULT '',emergency_contact_phone TEXT NOT NULL DEFAULT '',education_level TEXT NOT NULL DEFAULT '',education_institution TEXT NOT NULL DEFAULT '',specialty TEXT NOT NULL DEFAULT '',employment_type TEXT NOT NULL DEFAULT 'MAIN',factual_hire_date TEXT NOT NULL DEFAULT '',factual_fire_date TEXT NOT NULL DEFAULT '',official_hire_date TEXT NOT NULL DEFAULT '',official_fire_date TEXT NOT NULL DEFAULT '',official_employer_name TEXT NOT NULL DEFAULT '',official_employer_voen TEXT NOT NULL DEFAULT '',quota_category TEXT NOT NULL DEFAULT 'NONE',work_capacity_percent INTEGER NOT NULL DEFAULT 100,notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,iiko_employee_id)
     )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_schedules (
-      user_id TEXT NOT NULL,schedule_id TEXT NOT NULL,role_code TEXT NOT NULL,schedule_name TEXT NOT NULL,pattern_type TEXT NOT NULL DEFAULT 'WEEKLY',weekdays TEXT NOT NULL DEFAULT '1,2,3,4,5',work_days INTEGER NOT NULL DEFAULT 5,off_days INTEGER NOT NULL DEFAULT 2,anchor_date TEXT NOT NULL DEFAULT '',shift_start TEXT NOT NULL,shift_end TEXT NOT NULL,break_minutes INTEGER NOT NULL DEFAULT 0,valid_from TEXT NOT NULL,valid_to TEXT NOT NULL DEFAULT '',is_default INTEGER NOT NULL DEFAULT 0,is_active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,schedule_id)
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_schedule_days (
-      user_id TEXT NOT NULL,schedule_id TEXT NOT NULL,weekday INTEGER NOT NULL,shift_start TEXT NOT NULL,shift_end TEXT NOT NULL,break_minutes INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,schedule_id,weekday)
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_schedule_overrides (
-      user_id TEXT NOT NULL,override_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,schedule_id TEXT NOT NULL,effective_from TEXT NOT NULL,effective_to TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT '',is_active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,override_id)
-    )`),
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_employee_schedule_current ON hr_employee_schedule_overrides(user_id,iiko_employee_id,is_active,effective_from DESC)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_role_attendance_rules (
       user_id TEXT NOT NULL,role_code TEXT NOT NULL,daily_norm_minutes INTEGER NOT NULL DEFAULT 480,shift_type TEXT NOT NULL DEFAULT 'DAY',updated_at TEXT NOT NULL DEFAULT '',PRIMARY KEY(user_id,role_code)
     )`),
@@ -161,31 +151,9 @@ function normalizeEmployee(events,employee,timeZone,from,to){
   return{intervals,issues};
 }
 
-function scheduleForDate(employeeId,roleCode,date,schedules,overrides){
-  const override=(overrides||[]).filter(o=>String(o.iiko_employee_id)===String(employeeId)&&Number(o.is_active)===1&&o.effective_from<=date&&(!o.effective_to||o.effective_to>=date)).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)))[0];
-  if(override){
-    const selected=(schedules||[]).find(s=>String(s.schedule_id)===String(override.schedule_id)&&Number(s.is_active)===1);
-    if(selected)return{...selected,_selectionSource:'EMPLOYEE',_overrideId:override.override_id,_overrideNote:override.note||''};
-  }
-  const candidates=(schedules||[]).filter(s=>s.role_code===roleCode&&s.valid_from<=date&&(!s.valid_to||s.valid_to>=date)&&Number(s.is_active)===1&&Number(s.is_default)===1).sort((a,b)=>String(b.valid_from).localeCompare(String(a.valid_from)));
-  return candidates[0]?{...candidates[0],_selectionSource:'ROLE'}:null;
-}
-function schedulePlan(date,schedule,dayRules){
-  if(!schedule){
-    const c=calendarInfo(date);
-    return{scheduled:c.workHours>0,plannedMinutes:c.workHours*60,shiftStart:c.workHours>0?'09:00':'',shiftEnd:c.workHours>0?(c.workHours===7?'16:00':'17:00'):'',breakMinutes:0,scheduleName:'Производственный календарь',source:'CALENDAR'};
-  }
-  const type=String(schedule.pattern_type||'WEEKLY').toUpperCase();
-  if(type==='CYCLE'){
-    const work=cycleWorkDay(date,schedule);
-    return{scheduled:work,plannedMinutes:work?shiftMinutes(schedule.shift_start,schedule.shift_end,schedule.break_minutes):0,shiftStart:work?schedule.shift_start:'',shiftEnd:work?schedule.shift_end:'',breakMinutes:work?Number(schedule.break_minutes||0):0,scheduleName:schedule.schedule_name||'',source:schedule._selectionSource||'ROLE',overrideId:schedule._overrideId||'',overrideNote:schedule._overrideNote||''};
-  }
-  const wd=weekday1(date),rules=dayRules.get(String(schedule.schedule_id))||[];
-  const rule=rules.find(x=>Number(x.weekday)===wd);
-  const weekdays=String(schedule.weekdays||'').split(',').map(Number);
-  const work=Boolean(rule||weekdays.includes(wd));
-  const start=rule?.shift_start||schedule.shift_start,end=rule?.shift_end||schedule.shift_end,br=Number(rule?.break_minutes??schedule.break_minutes??0);
-  return{scheduled:work,plannedMinutes:work?shiftMinutes(start,end,br):0,shiftStart:work?start:'',shiftEnd:work?end:'',breakMinutes:work?br:0,scheduleName:schedule.schedule_name||'',source:schedule._selectionSource||'ROLE',overrideId:schedule._overrideId||'',overrideNote:schedule._overrideNote||''};
+function schedulePlan(date){
+  const c=calendarInfo(date);
+  return{scheduled:c.workHours>0,plannedMinutes:c.workHours*60,shiftStart:c.workHours>0?'09:00':'',shiftEnd:c.workHours>0?(c.workHours===7?'16:00':'17:00'):'',breakMinutes:0,scheduleName:'Производственный календарь',source:'CALENDAR'};
 }
 function leaveForDate(employeeId,date,contour,leaves){
   return (leaves||[]).find(x=>String(x.iiko_employee_id)===String(employeeId)&&String(x.contour)===contour&&x.status==='APPROVED'&&x.date_from<=date&&x.date_to>=date)||null;
@@ -282,7 +250,7 @@ export async function onRequestGet({request,env}){
           });
         }
         if(employmentActive(date,officialHire,officialFire)){
-          const plan=schedulePlan(date,null,new Map()),calendar=calendarInfo(date),leave=leaveForDate(employee.id,date,'OFFICIAL',leaves);
+          const plan=schedulePlan(date),calendar=calendarInfo(date),leave=leaveForDate(employee.id,date,'OFFICIAL',leaves);
           let planned=Math.round(plan.plannedMinutes*capacity);
           let status=leave?'LEAVE':plan.scheduled?(calendar.type==='HOLIDAY'||calendar.type==='MOURNING'?'WORK_HOLIDAY':'WORK'):'REST';
           if(calendar.type==='HOLIDAY'||calendar.type==='TRANSFERRED_REST'||calendar.type==='WEEKEND'||calendar.type==='MOURNING'){status=leave?'LEAVE':'REST';planned=0}
