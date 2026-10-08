@@ -35,7 +35,10 @@ async function load(){
     if(!r.ok||!j.success)throw Error(j.message||("HTTP "+r.status));
     rfq=j.rfq;
     $("rfq-number").textContent=rfq.number||"RFQ";$("rfq-message").textContent=rfq.message||"Просим предоставить ценовое предложение.";
-    $("rfq-deadline").textContent=dateLabel(rfq.deadline);$("rfq-supplier").textContent=rfq.supplierName||"—";$("rfq-pr").textContent=rfq.prNumber||"—";$("rfq-warehouse").textContent=rfq.warehouseName||"—";
+    $("rfq-deadline").textContent=dateLabel(rfq.deadline);
+    $("rfq-restaurant").textContent=(rfq.restaurantNames||[]).join(" · ")||"Smart Horeca";
+    $("rfq-requested-by").textContent=rfq.requestedBy||"Smart Horeca";
+    $("rfq-supplier").textContent=rfq.supplierName||"—";$("rfq-pr").textContent=rfq.prNumber||"—";$("rfq-warehouse").textContent=rfq.warehouseName||"—";
     if(rfq.existing){$("rfq-delivery-days").value=num(rfq.existing.deliveryDays);$("rfq-payment").value=rfq.existing.paymentTerms||"";$("rfq-valid-until").value=rfq.existing.validUntil||"";$("rfq-comment").value=rfq.existing.comment||""}
     else if(rfq.deadline)$("rfq-valid-until").value=rfq.deadline;
     renderLines();show("rfq-form");
