@@ -193,12 +193,11 @@ async function snapshot(request,env,state,employeeId){
   if(!row)return{error:json({success:false,message:'Сотрудник не найден. Сначала синхронизируйте справочник сотрудников.'},404)};
   if(filterEmployeesByScope([row],scope).length===0)return{error:json({success:false,message:'Сотрудник не относится к выбранному ресторану.'},403)};
   const asOf=todayBaku();
-  const [profile,compensation,schedule]=await Promise.all([
+  const [profile,compensation]=await Promise.all([
     loadProfile(env.DB,userId,employeeId),
-    compensationSnapshot(env.DB,userId,row,asOf),
-    scheduleSnapshot(env.DB,userId,row,asOf)
+    compensationSnapshot(env.DB,userId,row,asOf)
   ]);
-  return{data:{success:true,asOf,employee:employeeDto(row),profile,compensation,schedule,restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds||[],departmentCodes:scope.selectedDepartmentCodes||[]}:null}};
+  return{data:{success:true,asOf,employee:employeeDto(row),profile,compensation,restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds||[],departmentCodes:scope.selectedDepartmentCodes||[]}:null}};
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
