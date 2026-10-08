@@ -969,6 +969,9 @@ function openQuoteModal(r,rfqId=''){
 async function simpleAction(action,id,message){try{setBusy(true);await procPost(action,{id});await reloadProc();toast(message)}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
 async function createPoFromQuote(reqId,quoteId){try{setBusy(true);await procPost('create-order',{requisitionId:reqId,quoteId});await reloadProc();toast('Заказ PO создан.');goProcurementView('orders')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
 function openLinkInvoiceModal(o){
+  const grns=(o.grns||[]).filter(g=>!g.legacy&&!(g.invoices||[]).length);
+  if(!grns.length){toast('Сначала создайте GRN. Накладная связывается с фактической приёмкой, а не напрямую с PO.','error');return}
+
   const linked=new Set((o.receipts||[]).map(r=>String(r.iikoDocumentNumber||'').trim().toLowerCase()));
   const candidates=(state.historyDocs||[]).filter(d=>{
     const sameSupplier=!o.supplierId||key(d.supplierId)===key(o.supplierId);
@@ -977,13 +980,50 @@ function openLinkInvoiceModal(o){
     return sameSupplier&&sameStore&&unlinked;
   }).slice(0,80);
   if(!candidates.length){toast('За последние 90 дней подходящих накладных этого поставщика и склада не найдено.','error');return}
-  const opts=candidates.map((d,i)=>'<option value="'+i+'">'+esc((d.documentNumber||'без №')+' · '+String(d.dateIncoming||d.incomingDate||'').slice(0,10)+' · '+money(d.sum||d.documentSum||0))+'</option>').join('');
-  openModal('Привязать накладную к '+o.number,'PO ↔ ПРИЁМКА ↔ НАКЛАДНАЯ','<div class="proc-form-grid"><label class="proc-field wide"><span>Существующая приходная накладная</span><select id="proc-link-invoice">'+opts+'</select></label></div><div id="proc-link-preview" class="proc-edit-lines"></div><div class="proc-history-note">Подходит для накладных, созданных вручную или через AI Документы. Smart Horeca не создаёт дубликат — только связывает существующий документ с PO и проверяет количество/цены.</div><div class="proc-modal-actions"><button id="proc-link-cancel" type="button" class="proc-btn ghost">Отмена</button><button id="proc-link-save" type="button" class="proc-btn primary">Связать с PO</button></div>');
-  function selected(){return candidates[Number($('proc-link-invoice').value||0)]}
-  function preview(){const d=selected();$('proc-link-preview').innerHTML='<div class="proc-edit-head"><strong>'+esc(d?.documentNumber||'Накладная')+'</strong><span class="proc-history-note">'+esc(d?.supplierName||'')+'</span></div>'+(d?.items||[]).map(x=>{const l=procurementLineFromInvoiceItem(x);return '<div class="proc-line"><span>'+esc(x.productName||x.productId||'Товар')+'</span><strong>'+qty(l.packageCount)+' уп. × '+qty(l.packageSize)+' '+esc(l.unit)+'</strong><span>'+money(x.price)+'/уп. · НДС '+num(x.vatPercent)+'% · '+money(x.sum||l.packageCount*num(x.price))+'</span></div>'}).join('')}
-  $('proc-link-invoice').onchange=preview;preview();$('proc-link-cancel').onclick=closeModal;
-  $('proc-link-save').onclick=async()=>{const d=selected();if(!d)return;const lines=(d.items||[]).map(procurementLineFromInvoiceItem).filter(x=>x.productId&&x.quantity>0);try{setBusy(true);await procPost('receive-order',{id:o.id,iikoDocumentNumber:d.documentNumber||d.incomingDocumentNumber||'',iikoDocumentId:d.id||'',iikoStatus:d.status||'PROCESSED',documentDate:String(d.dateIncoming||d.incomingDate||today()).slice(0,10),comment:d.comment||('Связано с '+o.number),lines});closeModal();await reloadProc();toast('Накладная привязана к PO. Выполнена сверка количества и цен.')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}};
+
+  const grnOpts=grns.map((g,i)=>'<option value="'+i+'">'+esc(g.number+' · '+g.documentDate+' · '+money(g.totalAmount))+'</option>').join('');
+  const invoiceOpts=candidates.map((d,i)=>'<option value="'+i+'">'+esc((d.documentNumber||'без №')+' · '+String(d.dateIncoming||d.incomingDate||'').slice(0,10)+' · '+money(d.sum||d.documentSum||0))+'</option>').join('');
+
+  openModal('Привязать накладную к GRN','3-WAY MATCH · PO → GRN → НАКЛАДНАЯ',
+    '<div class="proc-form-grid">'+
+      '<label class="proc-field wide"><span>Фактическая приёмка GRN</span><select id="proc-link-grn">'+grnOpts+'</select></label>'+
+      '<label class="proc-field wide"><span>Существующая приходная накладная</span><select id="proc-link-invoice">'+invoiceOpts+'</select></label>'+
+    '</div>'+
+    '<div id="proc-link-preview" class="proc-edit-lines"></div>'+
+    '<div class="proc-history-note">Smart Horeca не создаёт дубликат. Вы связываете существующую накладную с конкретным GRN, после чего система сравнит PO ↔ GRN ↔ накладную по количеству и цене.</div>'+
+    '<div class="proc-modal-actions"><button id="proc-link-cancel" type="button" class="proc-btn ghost">Отмена</button><button id="proc-link-save" type="button" class="proc-btn primary">Связать и сверить</button></div>'
+  );
+
+  function selectedGrn(){return grns[Number($('proc-link-grn').value||0)]}
+  function selectedInvoice(){return candidates[Number($('proc-link-invoice').value||0)]}
+  function preview(){
+    const g=selectedGrn(),d=selectedInvoice();
+    const invoiceLines=(d?.items||[]).map(procurementLineFromInvoiceItem);
+    const byInvoice=new Map(invoiceLines.map(x=>[key(x.productId),x]));
+    $('proc-link-preview').innerHTML=
+      '<div class="proc-edit-head"><strong>'+esc(g?.number||'GRN')+' ↔ '+esc(d?.documentNumber||'Накладная')+'</strong><span class="proc-history-note">'+esc(d?.supplierName||'')+'</span></div>'+
+      (g?.lines||[]).map(gl=>{
+        const il=byInvoice.get(key(gl.productId)),qtyMismatch=!il||Math.abs(num(gl.quantity)-num(il.quantity))>0.0005,priceMismatch=il&&Math.abs(num(gl.unitPrice)-num(il.unitPrice))>0.009;
+        return '<div class="proc-link-match-row '+(qtyMismatch||priceMismatch?'mismatch':'match')+'"><div><strong>'+esc(gl.productName||gl.productId)+'</strong><span>GRN: '+qty(gl.quantity)+' '+esc(gl.unit||'')+' · '+money(gl.unitPrice)+'/уп.</span></div><div><strong>'+(il?qty(il.quantity)+' '+esc(il.unit||gl.unit||''):'нет в накладной')+'</strong><span>'+(il?money(il.unitPrice)+'/уп.':'')+'</span></div><b>'+(qtyMismatch||priceMismatch?'Расхождение':'OK')+'</b></div>';
+      }).join('');
+  }
+  $('proc-link-grn').onchange=preview;$('proc-link-invoice').onchange=preview;preview();
+  $('proc-link-cancel').onclick=closeModal;
+  $('proc-link-save').onclick=async()=>{
+    const g=selectedGrn(),d=selectedInvoice();if(!g||!d)return;
+    const lines=(d.items||[]).map(procurementLineFromInvoiceItem).filter(x=>x.productId&&x.quantity>0);
+    try{
+      setBusy(true);
+      await procPost('link-invoice',{
+        id:o.id,grnId:g.id,iikoDocumentNumber:d.documentNumber||d.incomingDocumentNumber||'',iikoDocumentId:d.id||'',
+        iikoStatus:d.status||'PROCESSED',documentDate:String(d.dateIncoming||d.incomingDate||today()).slice(0,10),
+        comment:d.comment||('Связано с '+g.number+' / '+o.number),lines
+      });
+      closeModal();await reloadProc();toast('Накладная привязана к '+g.number+'. 3-way match пересчитан.');
+    }catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}
+  };
 }
+
 function receiptLineHtml(l){
   const packageSize=num(l.packageSize,1)||1,packageCount=Math.max(0,num(l.remainingQty)/packageSize),vat=num(l.vatPercent,0);
   return '<div class="proc-edit-row proc-pack-row" data-receipt-line data-product-id="'+esc(l.productId)+'"><div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div><div class="proc-field proc-package-field"><span>Фасовка</span><select data-f="packageChoice">'+packagingChoiceHtml(l.productId,{containerId:l.containerId,packageSize,packageName:l.packageName})+'</select><input data-f="packageSize" type="number" min="0.001" step="0.001" value="'+packageSize+'"></div><div class="proc-field"><span>Упаковок</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+packageCount+'"></div><div class="proc-field"><span>Итого '+esc(l.unit||'ед.')+'</span><input data-f="quantity" type="number" readonly value="'+num(l.remainingQty)+'"></div><div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div><div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0.01" step="0.01" value="'+num(l.unitPrice)+'"></div><strong class="line-total">'+money(packageCount*num(l.unitPrice))+'</strong><span></span><input data-f="containerId" type="hidden" value="'+esc(l.containerId||'')+'"><input data-f="packageName" type="hidden" value="'+esc(l.packageName||'')+'"><input data-f="unit" type="hidden" value="'+esc(l.unit||'')+'"></div>';
