@@ -2,6 +2,7 @@ import { getUser } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
 import { calculateCompensation, AZ_PAYROLL_RULE_PROFILE } from './_lib/az-payroll-rules.js';
 import { syncOvertimeAccrualPosting } from './_lib/payroll-accounting.js';
+import { ensureTimesheetAdjustmentTables } from './_lib/timesheet-adjustments.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -14,10 +15,34 @@ function monthBounds(month){const [y,m]=month.split('-').map(Number);const last=
 function localParts(value,timeZone='Asia/Baku'){const d=new Date(value);if(Number.isNaN(d.getTime()))return{date:'',time:''};const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d);const m=Object.fromEntries(parts.map(x=>[x.type,x.value]));return{date:`${m.year}-${m.month}-${m.day}`,time:`${m.hour}:${m.minute}`}}
 function clockMinutes(v){const m=/^(\d{2}):(\d{2})$/.exec(String(v||''));return m?Number(m[1])*60+Number(m[2]):0}
 function freeWorkDate(eventTime,timeZone,shiftType){const p=localParts(eventTime,timeZone),start=String(shiftType||'DAY').toUpperCase()==='NIGHT'?720:300;return clockMinutes(p.time)>=start?p.date:isoDayShift(p.date,-1)}
-function aggregateFreeAttendance(events,from,to,timeZone,shiftType){
-  const groups=new Map();for(const e of [...(events||[])].sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time)))){const d=freeWorkDate(e.event_time,timeZone,shiftType);if(d<from||d>to)continue;if(!groups.has(d))groups.set(d,[]);groups.get(d).push(e)}
+function aggregateFreeAttendance(events,from,to,timeZone,shiftType,corrections=new Map()){
+  const groups=new Map();
+  for(const e of [...(events||[])].sort((a,b)=>String(a.event_time).localeCompare(String(b.event_time)))){
+    const d=freeWorkDate(e.event_time,timeZone,shiftType);
+    if(d<from||d>to)continue;
+    if(!groups.has(d))groups.set(d,[]);groups.get(d).push(e);
+  }
   let actualMinutes=0,issues=0,workedDays=0;
-  for(const rows of groups.values()){const unique=[];let lastMs=null;for(const e of rows){const ms=new Date(e.event_time).getTime();if(Number.isFinite(lastMs)&&Number.isFinite(ms)&&ms-lastMs<10000)continue;unique.push(e);lastMs=ms}if(unique.length===1){issues++;continue}if(unique.length>=2){actualMinutes+=minutes(new Date(unique[unique.length-1].event_time)-new Date(unique[0].event_time));workedDays++}}
+  const dates=new Set([...groups.keys(),...corrections.keys()]);
+  for(const day of dates){
+    if(day<from||day>to)continue;
+    const rows=groups.get(day)||[],unique=[];let last=null;
+    for(const e of rows){
+      const ms=new Date(e.event_time).getTime();
+      if(!Number.isFinite(ms)||(last!==null&&ms-last<10000))continue;
+      unique.push(e);last=ms;
+    }
+    let worked=unique.length>=2?minutes(new Date(unique[unique.length-1].event_time)-new Date(unique[0].event_time)):0;
+    let incomplete=unique.length===1;
+    const c=corrections.get(day);
+    if(c){
+      if(Number(c.worked_minutes_override)>=0)worked=Math.max(0,Number(c.worked_minutes_override));
+      if((c.first_in_override||c.last_out_override)&&worked>0)incomplete=false;
+      if(String(c.status_override)==='INCOMPLETE')incomplete=true;
+    }
+    if(incomplete)issues++;
+    if(worked>0){actualMinutes+=worked;workedDays++}
+  }
   return{actualMinutes,issues,workedDays};
 }
 function chunkList(values,size=50){const out=[];for(let i=0;i<(values||[]).length;i+=size)out.push(values.slice(i,i+size));return out}
@@ -76,7 +101,7 @@ function overlapTermCount(rows,key,value,from,to){return rows.filter(r=>String(r
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
 export async function onRequestGet({request,env}){
   try{
-    const auth=await getUser(request,env);if(!auth)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);
+    const auth=await getUser(request,env);if(!auth)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);await ensureTimesheetAdjustmentTables(env.DB);
     const url=new URL(request.url),fallback=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit'}).format(new Date()),month=monthOnly(url.searchParams.get('month'))||fallback,b=monthBounds(month);
     if(b.year!==2026)return json({success:false,message:'В HR Preview производственный календарь Payroll пока настроен на 2026 год.'},400);
     const userId=auth.user.id,norm=MONTH_NORMS_2026[b.month];
@@ -105,13 +130,20 @@ export async function onRequestGet({request,env}){
       return{dailyNormMinutes:Math.max(60,Number(role.daily_norm_minutes||480)),shiftType:override||roleShift,source:override?'EMPLOYEE':'ROLE'};
     };
     const faceIdConnected=activeDevices.length>0;
-    const eventsByEmployee=new Map(),overtimeByEmployee=new Map();
+    const eventsByEmployee=new Map(),correctionsByEmployee=new Map(),overtimeByEmployee=new Map();
     let overtimeRules=[];
     if(faceIdConnected&&scopedIds.length){
       for(const ids of chunkList(scopedIds,50)){
         const qs=ids.map(()=>'?').join(',');
         const part=await env.DB.prepare(`SELECT event_id,device_id,iiko_employee_id,event_time,event_type FROM hr_attendance_events WHERE user_id=? AND iiko_employee_id IN (${qs}) AND event_time>=? AND event_time<=? ORDER BY iiko_employee_id,event_time`).bind(userId,...ids,`${isoDayShift(b.from,-1)}T00:00:00.000Z`,`${isoDayShift(b.to,1)}T23:59:59.999Z`).all();
         for(const e of part.results||[]){const id=String(e.iiko_employee_id||'');if(!eventsByEmployee.has(id))eventsByEmployee.set(id,[]);eventsByEmployee.get(id).push(e)}
+      }
+    }
+    if(scopedIds.length){
+      for(const ids of chunkList(scopedIds,50)){
+        const qs=ids.map(()=>'?').join(',');
+        const result=await env.DB.prepare('SELECT iiko_employee_id,work_date,status_override,worked_minutes_override,first_in_override,last_out_override FROM hr_timesheet_day_corrections WHERE user_id=? AND contour=\'FACTUAL\' AND iiko_employee_id IN ('+qs+') AND work_date>=? AND work_date<=?').bind(userId,...ids,b.from,b.to).all();
+        for(const c of result.results||[]){const id=String(c.iiko_employee_id);if(!correctionsByEmployee.has(id))correctionsByEmployee.set(id,new Map());correctionsByEmployee.get(id).set(c.work_date,c)}
       }
     }
     if(scopedIds.length){
@@ -138,8 +170,9 @@ export async function onRequestGet({request,env}){
       const individualRaw=activeTerm(employeeTerms,'iiko_employee_id',id,b.to),roleRaw=activeTerm(roleTerms,'role_code',roleCode,b.to),termRaw=individualRaw||roleRaw,sourceType=individualRaw?'EMPLOYEE':(roleRaw?'ROLE':'');
       const term=individualRaw?termDto(individualRaw,'employeeId'):(roleRaw?termDto(roleRaw,'roleCode'):null),calculation=term?calculateCompensation({officialGross:term.officialGross,additionalAmount:term.additionalAmount,additionalTaxTreatment:term.additionalTaxTreatment,calculationDate:b.to}):null;
       const attendanceCfg=attendanceConfigFor(id),plannedMinutes=norm.hours*60;
-      const attendance=faceIdConnected?aggregateFreeAttendance(eventsByEmployee.get(id)||[],b.from,b.to,'Asia/Baku',attendanceCfg.shiftType):{actualMinutes:null,issues:0,workedDays:0};
-      const actualMinutes=faceIdConnected?attendance.actualMinutes:null,normMinutes=norm.hours*60,varianceMinutes=null;
+      const employeeCorrections=correctionsByEmployee.get(id)||new Map(),attendanceTracked=faceIdConnected||employeeCorrections.size>0;
+      const attendance=attendanceTracked?aggregateFreeAttendance(eventsByEmployee.get(id)||[],b.from,b.to,'Asia/Baku',attendanceCfg.shiftType,employeeCorrections):{actualMinutes:null,issues:0,workedDays:0};
+      const actualMinutes=attendanceTracked?attendance.actualMinutes:null,normMinutes=norm.hours*60,varianceMinutes=null;
       const profile=profiles.get(id)||{},factualHire=profile.factual_hire_date||e.hire_date||'',factualFire=profile.factual_fire_date||e.fire_date||'',officialHire=profile.official_hire_date||e.hire_date||'',officialFire=profile.official_fire_date||e.fire_date||'';
       const factualPeriod=activePeriod(b.from,b.to,factualHire,factualFire),officialPeriod=activePeriod(b.from,b.to,officialHire,officialFire);
       const factualPayDays=factualPeriod.from?workDaysBetween(factualPeriod.from,factualPeriod.to):0,officialPayDays=officialPeriod.from?workDaysBetween(officialPeriod.from,officialPeriod.to):0;
@@ -149,7 +182,7 @@ export async function onRequestGet({request,env}){
       const ot=overtimeByEmployee.get(id)||{approvedMinutes:0,payableMinutes:0,unpaidGapMinutes:0,candidateMinutes:0,extraDayEquivalent:0,days:0};
       const otRule=overtimeRuleFor(id,overtimeRules,attendanceCfg.dailyNormMinutes),extraDayPay=term&&norm.days>0?round2(monthlyFactualGross/norm.days*Number(ot.extraDayEquivalent||0)):0;
       const termChanges=overlapTermCount(employeeTerms,'iiko_employee_id',id,b.from,b.to)+(individualRaw?0:overlapTermCount(roleTerms,'role_code',roleCode,b.from,b.to));
-      let status='READY';const flags=[];if(!term){status='NO_TERMS';flags.push('Нет условий оплаты')}if(faceIdConnected&&attendance.issues){status='REVIEW';flags.push(`Ошибки табеля: ${attendance.issues}`)}if(termChanges>1){status='REVIEW';flags.push('Изменение условий внутри месяца')}
+      let status='READY';const flags=[];if(!term){status='NO_TERMS';flags.push('Нет условий оплаты')}if(attendanceTracked&&attendance.issues){status='REVIEW';flags.push(`Ошибки табеля: ${attendance.issues}`)}if(termChanges>1){status='REVIEW';flags.push('Изменение условий внутри месяца')}
       if(term&&factualPayDays<norm.days)flags.push(`Неполный месяц: ${factualPayDays} из ${norm.days} раб. дней`);
       if(Number(ot.payableMinutes||0)>0)flags.push(`Доп. часы к отдельной оплате: ${Math.round(ot.payableMinutes)} мин`);
       if(Number(ot.unpaidGapMinutes||0)>0)flags.push(`Неоплачиваемый промежуток доп. часов: ${Math.round(ot.unpaidGapMinutes)} мин`);
@@ -157,7 +190,7 @@ export async function onRequestGet({request,env}){
         employeeId:id,employeeCode:e.employee_code||'',employeeName:full,departmentCode:e.department_code||'',roleCode,roleName:e.role_name||roleCode,sourceType,term,
         schedule:null,
         dailyNormMinutes:attendanceCfg.dailyNormMinutes,shiftType:attendanceCfg.shiftType,shiftRuleSource:attendanceCfg.source,
-        normMinutes,plannedMinutes,actualMinutes,varianceMinutes,attendanceIssues:attendance.issues,attendanceMode:faceIdConnected?'FACE_ID_FREE_SHIFT':'NOT_CONNECTED',
+        normMinutes,plannedMinutes,actualMinutes,varianceMinutes,attendanceIssues:attendance.issues,attendanceMode:faceIdConnected?'FACE_ID_FREE_SHIFT':(attendanceTracked?'MANUAL':'NOT_CONNECTED'),
         proration:{normWorkDays:norm.days,factualWorkDays:factualPayDays,officialWorkDays:officialPayDays,factualFactor:round2(factualFactor),officialFactor:round2(officialFactor),factualHireDate:factualHire,factualFireDate:factualFire,officialHireDate:officialHire,officialFireDate:officialFire,source:'EMPLOYMENT_PLUS_PRODUCTION_CALENDAR'},
         accrual:{monthlyFactualGross,factualBaseGross,officialAccruedGross,additionalAccruedGross,extraDayPay,totalFactualGross:round2(factualBaseGross+extraDayPay)},
         overtime:{approvedMinutes:round2(ot.approvedMinutes),payableMinutes:round2(ot.payableMinutes),unpaidGapMinutes:round2(ot.unpaidGapMinutes),candidateMinutes:round2(ot.candidateMinutes),extraDayEquivalent:round2(ot.extraDayEquivalent),thresholdMinutes:otRule.thresholdMinutes,payableFromMinutes:otRule.payableFromMinutes,ruleSource:otRule.source,ruleNote:otRule.note||'',approvalDays:ot.days},
