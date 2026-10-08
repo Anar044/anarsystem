@@ -18,7 +18,7 @@
           <button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
           <div>
             <span class="topbar-title">Табель</span>
-            <div class="topbar-sub">Месячная матрица · ручной факт / Face ID · официальный график · отпуска</div>
+            <div class="topbar-sub">Месячная матрица · Face ID · первая и последняя пробивка · корректировки</div>
           </div>
         </div>
       </header>
@@ -133,11 +133,11 @@
           </section>
 
           <details class="hr-card ts-diagnostics">
-            <summary><strong>Детализация событий Face ID</strong><span>Сырые интервалы и ошибки журнала</span></summary>
+            <summary><strong>Детализация событий Face ID</strong><span>Расчётные интервалы и ошибки журнала</span></summary>
             <div class="ts-diagnostic-grid">
               <section>
-                <div class="hr-card-title-row"><div><div class="hr-card-title">Рабочие интервалы</div><div class="hr-card-sub">Каждая корректная пара IN → OUT.</div></div><div id="tsIntervalCount" class="hr-muted">0 интервалов</div></div>
-                <div class="hr-table-scroll"><table><thead><tr><th>Дата</th><th class="text-left">Сотрудник</th><th>Вход</th><th>Выход</th><th>Длительность</th><th>Статус</th></tr></thead><tbody id="tsIntervalRows"></tbody></table></div>
+                <div class="hr-card-title-row"><div><div class="hr-card-title">Рабочие интервалы</div><div class="hr-card-sub">От первой до последней пробивки за смену.</div></div><div id="tsIntervalCount" class="hr-muted">0 интервалов</div></div>
+                <div class="hr-table-scroll"><table><thead><tr><th>Дата</th><th class="text-left">Сотрудник</th><th>Первая отметка</th><th>Последняя отметка</th><th>Длительность</th><th>Статус</th></tr></thead><tbody id="tsIntervalRows"></tbody></table></div>
               </section>
               <section>
                 <div class="hr-card-title-row"><div><div class="hr-card-title">Проблемы журнала</div><div class="hr-card-sub">Подозрительные или неполные отметки.</div></div><div id="tsIssueCount" class="hr-muted">0 ошибок</div></div>
