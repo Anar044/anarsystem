@@ -564,45 +564,72 @@ async function readData(db,serverScope,scope){
   }));
 
   const orders=orderRows.map(o=>{
-    const invoices=receiptsByOrder.get(o.id)||[],orderGrns=grnsByOrder.get(o.id)||[];
-    const received=new Map(),invoiceQty=new Map(),invoicePrices=new Map();
+    const invoices=receiptsByOrder.get(o.id)||[],orderGrns=grnsByOrder.get(o.id)||[],rawOrderLines=orderLinesBy.get(o.id)||[];
+    const received=new Map(),invoiceQty=new Map(),invoicePrices=new Map(),linkedGrnQty=new Map();
+    const orderProductIds=new Set(rawOrderLines.map(x=>clean(x.product_id)));
 
     for(const grn of orderGrns)for(const line of grn.lines||[]){
       const pid=clean(line.productId),qty=n(line.quantity??line.receivedQty);
       received.set(pid,n(received.get(pid))+qty);
     }
-    for(const invoice of invoices)for(const line of invoice.lines||[]){
-      const pid=clean(line.productId),qty=n(line.quantity??line.receivedQty),price=money(line.unitPrice);
-      invoiceQty.set(pid,n(invoiceQty.get(pid))+qty);
-      if(!invoicePrices.has(pid))invoicePrices.set(pid,[]);
-      invoicePrices.get(pid).push(price);
+
+    const linkedGrnIds=new Set();
+    for(const invoice of invoices){
+      let linkedGrn=null;
+      if(clean(invoice.grnId))linkedGrn=orderGrns.find(g=>clean(g.id)===clean(invoice.grnId))||null;
+      else linkedGrn=orderGrns.find(g=>g.legacy&&g.invoiceId===invoice.id)||null;
+      if(linkedGrn&&!linkedGrnIds.has(linkedGrn.id)){
+        linkedGrnIds.add(linkedGrn.id);
+        for(const line of linkedGrn.lines||[]){
+          const pid=clean(line.productId),qty=n(line.quantity??line.receivedQty);
+          linkedGrnQty.set(pid,n(linkedGrnQty.get(pid))+qty);
+        }
+      }
+      for(const line of invoice.lines||[]){
+        const pid=clean(line.productId),qty=n(line.quantity??line.receivedQty),price=money(line.unitPrice);
+        invoiceQty.set(pid,n(invoiceQty.get(pid))+qty);
+        if(!invoicePrices.has(pid))invoicePrices.set(pid,[]);
+        invoicePrices.get(pid).push(price);
+      }
     }
 
-    const lines=(orderLinesBy.get(o.id)||[]).map(l=>{
-      const rec=q(received.get(l.product_id)||0),inv=q(invoiceQty.get(l.product_id)||0),ord=q(l.ordered_qty),rem=q(Math.max(0,ord-rec));
-      const prices=invoicePrices.get(l.product_id)||[],poPrice=n(l.unit_price);
+    const lines=rawOrderLines.map(l=>{
+      const pid=clean(l.product_id),rec=q(received.get(pid)||0),linked=q(linkedGrnQty.get(pid)||0),inv=q(invoiceQty.get(pid)||0),ord=q(l.ordered_qty),rem=q(Math.max(0,ord-rec));
+      const prices=invoicePrices.get(pid)||[],poPrice=n(l.unit_price);
       const priceMismatch=prices.some(p=>Math.abs(p-poPrice)>0.009);
       const invoicePrice=prices.length?money(prices.reduce((s,x)=>s+x,0)/prices.length):null;
       const lineStatus=
         rec>ord+0.0005?"QUANTITY_MISMATCH":
-        invoices.length&&Math.abs(inv-rec)>0.0005?"INVOICE_QTY_MISMATCH":
+        Math.abs(inv-linked)>0.0005?"INVOICE_QTY_MISMATCH":
         priceMismatch?"PRICE_MISMATCH":
         !orderGrns.length?"WAITING_GRN":
-        !invoices.length?"WAITING_INVOICE":
-        rec<ord-0.0005?"PARTIAL_GRN":"MATCHED";
+        rec<ord-0.0005?"PARTIAL_GRN":
+        linked<rec-0.0005?"WAITING_INVOICE":"MATCHED";
       return{
-        id:l.id,productId:l.product_id,productName:l.product_name,unit:l.unit,orderedQty:ord,confirmedQty:q(l.confirmed_qty||l.ordered_qty),
+        id:l.id,productId:pid,productName:l.product_name,unit:l.unit,orderedQty:ord,confirmedQty:q(l.confirmed_qty||l.ordered_qty),
         packageSize:n(l.package_size,1)||1,packageCount:n(l.package_count)||ord,containerId:l.container_id||"",packageName:l.package_name||"",
-        vatPercent:n(l.vat_percent),unitPrice:poPrice,receivedQty:rec,grnQty:rec,invoicedQty:inv,invoiceUnitPrice:invoicePrice,remainingQty:rem,
-        quantityDelta:q(rec-ord),invoiceQuantityDelta:q(inv-rec),priceDelta:invoicePrice===null?null:money(invoicePrice-poPrice),threeWayStatus:lineStatus
+        vatPercent:n(l.vat_percent),unitPrice:poPrice,receivedQty:rec,grnQty:rec,linkedGrnQty:linked,invoicedQty:inv,invoiceUnitPrice:invoicePrice,remainingQty:rem,
+        quantityDelta:q(rec-ord),invoiceQuantityDelta:q(inv-linked),priceDelta:invoicePrice===null?null:money(invoicePrice-poPrice),threeWayStatus:lineStatus
       };
     });
+
+    const extraInvoiceLines=[];
+    for(const [pid,inv] of invoiceQty.entries()){
+      if(orderProductIds.has(pid))continue;
+      const sample=invoices.flatMap(x=>x.lines||[]).find(x=>clean(x.productId)===pid)||{};
+      const prices=invoicePrices.get(pid)||[],invoicePrice=prices.length?money(prices.reduce((s,x)=>s+x,0)/prices.length):null;
+      extraInvoiceLines.push({
+        productId:pid,productName:clean(sample.productName)||pid,unit:clean(sample.unit),poQty:0,grnQty:n(received.get(pid)),invoiceQty:q(inv),
+        poPrice:null,invoicePrice,quantityDelta:n(received.get(pid)),invoiceQuantityDelta:q(inv-n(linkedGrnQty.get(pid))),priceDelta:null,status:"INVOICE_QTY_MISMATCH",extra:true
+      });
+    }
 
     const orderedQty=lines.reduce((s,x)=>s+x.orderedQty,0),receivedQty=lines.reduce((s,x)=>s+Math.min(x.orderedQty,x.receivedQty),0);
     const completed=lines.length>0&&lines.every(x=>x.remainingQty<=0.0005);
     const over=lines.some(x=>x.receivedQty>x.orderedQty+0.0005);
-    const invoiceQtyMismatch=invoices.length&&lines.some(x=>Math.abs(x.invoicedQty-x.receivedQty)>0.0005);
-    const priceMismatch=invoices.length&&lines.some(x=>x.priceDelta!==null&&Math.abs(x.priceDelta)>0.009);
+    const invoiceQtyMismatch=lines.some(x=>Math.abs(x.invoicedQty-x.linkedGrnQty)>0.0005)||extraInvoiceLines.length>0;
+    const priceMismatch=lines.some(x=>x.priceDelta!==null&&Math.abs(x.priceDelta)>0.009);
+    const unlinkedGrnCount=orderGrns.filter(g=>!g.legacy&&!linkedGrnIds.has(g.id)).length;
     const effectiveStatus=o.status==="CANCELLED"?"CANCELLED":completed?"COMPLETED":receivedQty>0?"PARTIALLY_RECEIVED":o.status;
 
     let matchStatus="WAITING_GRN";
@@ -611,7 +638,7 @@ async function readData(db,serverScope,scope){
       else if(invoiceQtyMismatch)matchStatus="INVOICE_QTY_MISMATCH";
       else if(priceMismatch)matchStatus="PRICE_MISMATCH";
       else if(!completed)matchStatus="PARTIAL_GRN";
-      else if(!invoices.length)matchStatus="WAITING_INVOICE";
+      else if(unlinkedGrnCount>0||!invoices.length)matchStatus="WAITING_INVOICE";
       else matchStatus="MATCHED";
     }
 
@@ -624,20 +651,15 @@ async function readData(db,serverScope,scope){
     const grnTotal=money(orderGrns.reduce((s,g)=>s+n(g.totalAmount),0));
     const invoiceTotal=money(invoices.reduce((s,r)=>s+n(r.totalAmount),0));
     const threeWay={
-      status:matchStatus,
-      poTotal:n(o.total_amount),
-      grnTotal,
-      invoiceTotal,
-      grnCount:orderGrns.length,
-      invoiceCount:invoices.length,
-      quantityMatched:!over&&!invoiceQtyMismatch,
-      priceMatched:!priceMismatch,
-      lines:lines.map(x=>({
-        productId:x.productId,productName:x.productName,unit:x.unit,
-        poQty:x.orderedQty,grnQty:x.receivedQty,invoiceQty:x.invoicedQty,
-        poPrice:x.unitPrice,invoicePrice:x.invoiceUnitPrice,
-        quantityDelta:x.quantityDelta,invoiceQuantityDelta:x.invoiceQuantityDelta,priceDelta:x.priceDelta,status:x.threeWayStatus
-      }))
+      status:matchStatus,poTotal:n(o.total_amount),grnTotal,invoiceTotal,grnCount:orderGrns.length,invoiceCount:invoices.length,
+      unlinkedGrnCount,quantityMatched:!over&&!invoiceQtyMismatch,priceMatched:!priceMismatch,
+      lines:[
+        ...lines.map(x=>({
+          productId:x.productId,productName:x.productName,unit:x.unit,poQty:x.orderedQty,grnQty:x.receivedQty,invoiceQty:x.invoicedQty,
+          poPrice:x.unitPrice,invoicePrice:x.invoiceUnitPrice,quantityDelta:x.quantityDelta,invoiceQuantityDelta:x.invoiceQuantityDelta,priceDelta:x.priceDelta,status:x.threeWayStatus
+        })),
+        ...extraInvoiceLines
+      ]
     };
 
     return{
@@ -1025,6 +1047,8 @@ export async function onRequestPost({request,env}){
       const grn=await db.prepare("SELECT * FROM procurement_grns WHERE id=?1 AND server_scope=?2 AND order_id=?3 LIMIT 1").bind(grnId,c.serverScope,o.id).first();
       if(!grn){const e=new Error("GRN не найден или относится к другому PO.");e.status=404;throw e}
       const documentNumber=clean(body?.iikoDocumentNumber);if(!documentNumber)throw new Error("Не указан номер накладной.");
+      const existingForGrn=await db.prepare("SELECT id,iiko_document_number FROM procurement_receipts WHERE server_scope=?1 AND grn_id=?2 LIMIT 1").bind(c.serverScope,grnId).first();
+      if(existingForGrn){const e=new Error("К этому GRN уже привязана накладная №"+(existingForGrn.iiko_document_number||"без номера")+".");e.status=409;throw e}
       const duplicate=await db.prepare("SELECT id,order_id,grn_id,total_amount FROM procurement_receipts WHERE server_scope=?1 AND iiko_document_number=?2 LIMIT 1").bind(c.serverScope,documentNumber).first();
       if(duplicate){
         if(clean(duplicate.order_id)!==clean(o.id)){const e=new Error("Эта накладная уже связана с другим PO.");e.status=409;throw e}
