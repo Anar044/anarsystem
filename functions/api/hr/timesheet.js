@@ -9,9 +9,23 @@ function ymd(v){return /^\d{4}-\d{2}-\d{2}$/.test(clean(v))?clean(v):''}
 function isoDayShift(day,delta){const d=new Date(`${day}T00:00:00.000Z`);d.setUTCDate(d.getUTCDate()+delta);return d.toISOString().slice(0,10)}
 function dateList(from,to){const out=[];for(let d=from;d<=to;d=isoDayShift(d,1))out.push(d);return out}
 function minutes(ms){return Math.max(0,Math.round(ms/60000))}
-function timeZoneOf(v){const z=clean(v)||'Asia/Baku';try{new Intl.DateTimeFormat('en-US',{timeZone:z}).format(new Date());return z}catch{return'Asia/Baku'}}
+const validatedTimeZones=new Map(),localTimeFormatters=new Map();
+function timeZoneOf(v){const z=clean(v)||'Asia/Baku';if(validatedTimeZones.has(z))return validatedTimeZones.get(z);let valid=z;try{new Intl.DateTimeFormat('en-US',{timeZone:z})}catch{valid='Asia/Baku'}validatedTimeZones.set(z,valid);return valid}
 function todayBaku(){try{return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())}catch{return new Date().toISOString().slice(0,10)}}
-function localParts(value,timeZone){const d=new Date(value);if(Number.isNaN(d.getTime()))return{date:'',time:''};const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d);const m=Object.fromEntries(parts.map(x=>[x.type,x.value]));return{date:`${m.year}-${m.month}-${m.day}`,time:`${m.hour}:${m.minute}`}}
+function localParts(value,timeZone){
+  const d=new Date(value);if(Number.isNaN(d.getTime()))return{date:'',time:''};
+  // Azerbaijan abolished DST in 2016: recent Face ID marks use fixed UTC+04:00.
+  // Avoid Intl.formatToParts for every single attendance event on the normal Baku path.
+  if(timeZone==='Asia/Baku'&&d.getUTCFullYear()>=2016){
+    const iso=new Date(d.getTime()+14400000).toISOString();
+    return{date:iso.slice(0,10),time:iso.slice(11,16)};
+  }
+  let fmt=localTimeFormatters.get(timeZone);
+  if(!fmt){fmt=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});localTimeFormatters.set(timeZone,fmt)}
+  const parts=fmt.formatToParts(d);let year='',month='',day='',hour='',minute='';
+  for(const p of parts){if(p.type==='year')year=p.value;else if(p.type==='month')month=p.value;else if(p.type==='day')day=p.value;else if(p.type==='hour')hour=p.value;else if(p.type==='minute')minute=p.value}
+  return{date:`${year}-${month}-${day}`,time:`${hour}:${minute}`};
+}
 function weekday1(date){const d=new Date(`${date}T00:00:00Z`).getUTCDay();return d===0?7:d}
 function shiftMinutes(start,end,breakMinutes=0){if(!/^\d{2}:\d{2}$/.test(start||'')||!/^\d{2}:\d{2}$/.test(end||''))return 0;const [sh,sm]=start.split(':').map(Number),[eh,em]=end.split(':').map(Number);let m=(eh*60+em)-(sh*60+sm);if(m<=0)m+=1440;return Math.max(0,m-Math.max(0,Number(breakMinutes||0)))}
 function cycleWorkDay(date,s){if(!s?.anchor_date||!Number(s.work_days||0))return false;const delta=Math.floor((new Date(`${date}T00:00:00Z`)-new Date(`${s.anchor_date}T00:00:00Z`))/86400000);if(delta<0)return false;const cycle=Math.max(1,Number(s.work_days||0)+Number(s.off_days||0));return ((delta%cycle)+cycle)%cycle<Number(s.work_days||0)}
@@ -152,12 +166,23 @@ function normalizeEmployee(events,employee,timeZone,from,to){
   return{intervals,issues};
 }
 
-function schedulePlan(date){
-  const c=calendarInfo(date);
+function schedulePlan(date,c=calendarInfo(date)){
   return{scheduled:c.workHours>0,plannedMinutes:c.workHours*60,shiftStart:c.workHours>0?'09:00':'',shiftEnd:c.workHours>0?(c.workHours===7?'16:00':'17:00'):'',breakMinutes:0,scheduleName:'Производственный календарь',source:'CALENDAR'};
 }
-function leaveForDate(employeeId,date,contour,leaves){
-  return (leaves||[]).find(x=>String(x.iiko_employee_id)===String(employeeId)&&String(x.contour)===contour&&x.status==='APPROVED'&&x.date_from<=date&&x.date_to>=date)||null;
+// Index approved leaves once per request instead of scanning every employee's leave list for every day.
+export function indexApprovedLeaves(leaves,from,to){
+  const byDay=new Map();
+  for(const item of leaves||[]){
+    if(item.status!=='APPROVED')continue;
+    const first=String(item.date_from||'')>from?String(item.date_from):from;
+    const last=String(item.date_to||'')<to?String(item.date_to):to;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(first)||!/^\d{4}-\d{2}-\d{2}$/.test(last)||first>last)continue;
+    const prefix=`${item.iiko_employee_id}|${item.contour}|`;
+    for(let date=first;date<=last;date=isoDayShift(date,1)){
+      const key=prefix+date;if(!byDay.has(key))byDay.set(key,item);
+    }
+  }
+  return byDay;
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
@@ -211,6 +236,7 @@ export async function onRequestGet({request,env}){
     const profiles=new Map((profileRows.results||[]).map(x=>[String(x.iiko_employee_id),x]));
     const customTypes=new Map((typeRows.results||[]).map(x=>[x.leave_type,x.display_name]));
     const leaves=(leaveRows.results||[]).map(x=>({...x,leaveName:clean(customTypes.get(x.leave_type))||LEAVE_NAMES[x.leave_type]||x.leave_type}));
+    const leaveByDay=indexApprovedLeaves(leaves,from,to);
     const roleAttendanceMap=new Map((roleAttendanceRows.results||[]).map(x=>[String(x.role_code||''),x]));
     const employeeAttendanceMap=new Map((employeeAttendanceResults||[]).map(x=>[String(x.iiko_employee_id||''),x]));
 
@@ -225,7 +251,10 @@ export async function onRequestGet({request,env}){
       for(const [workDate,day] of r.days)rawDayMap.set(`${employee.id}|${workDate}`,day);
     }
 
-    const dates=dateList(from,to),factualDays=[],officialDays=[];
+    // Shared date-level lookups: compute clock/calendar metadata once, never per employee.
+    const dates=dateList(from,to),todayLocal=todayBaku(),factualDays=[],officialDays=[];
+    const calendarByDate=new Map(dates.map(date=>[date,calendarInfo(date)]));
+    const planByDate=new Map(dates.map(date=>[date,schedulePlan(date,calendarByDate.get(date))]));
     for(const employee of employees){
       const p=profiles.get(employee.id)||{};
       const factualHire=p.factual_hire_date||employee.hireDate||'',factualFire=p.factual_fire_date||employee.fireDate||'';
@@ -234,10 +263,10 @@ export async function onRequestGet({request,env}){
       for(const date of dates){
         const raw=rawDayMap.get(`${employee.id}|${date}`)||null;
         if(employmentActive(date,factualHire,factualFire)){
-          const leave=leaveForDate(employee.id,date,'FACTUAL',leaves),cfg=attendanceConfigByEmployee.get(employee.id)||{shiftType:'DAY',shiftMeta:freeShiftMeta('DAY'),normMinutes:480,source:'ROLE'};
+          const leave=leaveByDay.get(`${employee.id}|FACTUAL|${date}`)||null,cfg=attendanceConfigByEmployee.get(employee.id)||{shiftType:'DAY',shiftMeta:freeShiftMeta('DAY'),normMinutes:480,source:'ROLE'};
           const complete=Boolean(raw&&raw.lastOut),hasMark=Boolean(raw?.firstIn),worked=complete&&Number(raw?.workedMinutes||0)>0;
           let status;
-          if(date>todayBaku())status='FUTURE';
+          if(date>todayLocal)status='FUTURE';
           else if(raw?.status==='INCOMPLETE')status='INCOMPLETE';
           else if(raw?.status==='SHIFT_IN_PROGRESS')status='SHIFT_IN_PROGRESS';
           else if(leave)status=hasMark?'LEAVE_WITH_WORK':'LEAVE';
@@ -252,7 +281,7 @@ export async function onRequestGet({request,env}){
           });
         }
         if(employmentActive(date,officialHire,officialFire)){
-          const plan=schedulePlan(date),calendar=calendarInfo(date),leave=leaveForDate(employee.id,date,'OFFICIAL',leaves);
+          const plan=planByDate.get(date),calendar=calendarByDate.get(date),leave=leaveByDay.get(`${employee.id}|OFFICIAL|${date}`)||null;
           let planned=Math.round(plan.plannedMinutes*capacity);
           let status=leave?'LEAVE':plan.scheduled?(calendar.type==='HOLIDAY'||calendar.type==='MOURNING'?'WORK_HOLIDAY':'WORK'):'REST';
           if(calendar.type==='HOLIDAY'||calendar.type==='TRANSFERRED_REST'||calendar.type==='WEEKEND'||calendar.type==='MOURNING'){status=leave?'LEAVE':'REST';planned=0}
