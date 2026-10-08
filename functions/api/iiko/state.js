@@ -8,7 +8,7 @@ import {
   publicState,
   isServerPasswordMarker
 } from "./_lib/user-state.js";
-import { resolveAccessForUser, hasPermission } from "../access/_lib/access-control.js";
+import { resolveAccessForUser, hasPermission, updateWorkspaceName } from "../access/_lib/access-control.js";
 
 const HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -143,6 +143,10 @@ export async function onRequestPost({ request, env }) {
 
     const state = { connection, identity, savedAt: new Date().toISOString() };
     const saved = await savePrivateIikoState(env.DB, c.storageUserId, state, env);
+    if(c.access?.isOwner&&c.access?.workspace?.id){
+      const workspaceName=identity.networkName||connection.networkName||identity.displayName||connection.displayName||identity.restaurantName||connection.restaurantName;
+      if(workspaceName)await updateWorkspaceName(env.DB,c.access.workspace.id,workspaceName);
+    }
 
     return json({
       success: true,
