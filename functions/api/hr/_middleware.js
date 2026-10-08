@@ -20,14 +20,15 @@ export function hrAccessRule(path,method,action=''){
   if(path.endsWith('/api/hr/employee-schedule'))return write?'hr.schedules.manage':'hr.schedules.view';
   if(path.endsWith('/api/hr/timesheet-approval')){
     if(!write)return'hr.timesheet.view';
-    if(operation==='HR_APPROVE')return'hr.payroll.approve';
+    if(operation==='HR_APPROVE')return'hr.timesheet.hr_approve';
     if(operation==='REOPEN')return'hr.timesheet.manage';
-    if(operation==='MANAGER_APPROVE')return'hr.timesheet.manage';
+    if(operation==='MANAGER_APPROVE')return'hr.timesheet.manager_approve';
     return'hr.timesheet.manage';
   }
   if(path.endsWith('/api/hr/timesheet-adjustments')){
     if(!write)return'hr.timesheet.view';
-    if(operation==='HR_APPROVE_OVERTIME'||operation==='HR_REJECT_OVERTIME')return'hr.payroll.approve';
+    if(operation==='HR_APPROVE_OVERTIME'||operation==='HR_REJECT_OVERTIME'||operation==='SAVE_OVERTIME_RULE')return'hr.timesheet.hr_approve';
+    if(operation==='SUBMIT_OVERTIME')return'hr.timesheet.manager_approve';
     return'hr.timesheet.manage';
   }
   if(path.endsWith('/api/hr/overtime-settlements'))return write?'hr.payroll.pay':'hr.payroll.view';
