@@ -143,7 +143,8 @@
       return await mergeAdjustmentOverlay(j,overlay);
     }catch(error){
       console.warn('HR adjustment overlay unavailable:',error);
-      j.access=j.access||{role:'OWNER',label:'Владелец',canManagerApprove:true,canHrApprove:true,canReopen:true,canCorrect:true,canSetOvertimeRule:true,canViewPayroll:true};
+      j.adjustmentOverlayUnavailable=true;
+      j.access={role:'VIEWER',label:'Права временно недоступны',canManagerApprove:false,canHrApprove:false,canReopen:false,canCorrect:false,canSetOvertimeRule:false,canViewPayroll:false};
       j.overtimeRules=[];
       j.factualDays=(j.factualDays||[]).map(x=>{const norm=Math.max(1,Number(x.roleNormMinutes||600)),worked=Math.max(0,Number(x.workedMinutes||0));return({...x,rawStatus:x.status,rawWorkedMinutes:worked,rawPlannedMinutes:Number(x.plannedMinutes||0),corrected:false,correction:null,normMinutes:norm,overtimeThresholdMinutes:norm,overtimePayableFromMinutes:norm,overtimeRuleSource:'ROLE',overtimeCandidateMinutes:Math.max(0,worked-norm),overtimePayableCandidateMinutes:Math.max(0,worked-norm),unpaidOvertimePotentialMinutes:0,overtimeStatus:'NONE',overtimeRequestedMinutes:0,approvedOvertimeMinutes:0,payrollOvertimeMinutes:0,overtimeManagerReason:'',overtimeHrComment:'',overtimeRequestId:'',overtimeDayEquivalent:0})});
       j.officialDays=(j.officialDays||[]).map(x=>({...x,rawStatus:x.status,rawWorkedMinutes:0,rawPlannedMinutes:Number(x.plannedMinutes||0),corrected:false,correction:null}));
@@ -214,7 +215,7 @@
   async function loadApproval(){
     try{
       approvalBusy=true;renderApproval();
-      const r=await approvalApi('GET');approval=r.approval||{status:'DRAFT'};if(r.access)data.access=r.access;
+      const r=await approvalApi('GET');approval=r.approval||{status:'DRAFT'};if(r.access&&!data.adjustmentOverlayUnavailable)data.access=r.access;
     }catch(e){
       console.error(e);approval={status:'DRAFT',comment:''};
     }finally{approvalBusy=false;renderApproval()}
@@ -692,7 +693,7 @@
     const err=$('tsError');
     try{
       busy=true;$('tsRefresh').disabled=true;err.hidden=true;setStatus('Загрузка месяца…','loading');
-      data=await api();approval=null;render();await loadApproval();setStatus('Готово','ok');
+      data=await api();approval=null;render();await loadApproval();if(data.adjustmentOverlayUnavailable){err.hidden=false;err.textContent='Корректировки и права доступа не загрузились. Табель открыт только для просмотра; повторите обновление перед подтверждением или начислением доп. часов.';setStatus('Только просмотр','error')}else setStatus('Готово','ok');
     }catch(e){
       console.error(e);err.hidden=false;err.textContent=e?.message||String(e);setStatus('Ошибка','error');
     }finally{busy=false;$('tsRefresh').disabled=false}
