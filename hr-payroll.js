@@ -119,16 +119,16 @@ function renderSummary(){
     ['К выплате',money(payable),'Основная + отдельная выплата доп. часов'],
     ['Стоимость ресторану',money(cost),'Начисления + взносы работодателя'],
     ['Долг по доп. часам',money(state.settlements?.summary?.closingDebt||0),`Сотрудников с долгом: ${Number(state.settlements?.summary?.withDebt||0)}`],
-    ['Бухгалтерские проводки',`${Number(state.payroll?.summary?.accountingPosted||0)} / ${Number(state.payroll?.summary?.accountingPosted||0)+Number(state.payroll?.summary?.accountingPending||0)}`,Number(state.payroll?.summary?.accountingPending||0)?'Есть начисления без настроенных счетов':'Начисления синхронизированы с журналом']
+    ['Бухгалтерские проводки',`${Number(state.payroll?.summary?.accountingPosted||0)} / ${Number(state.payroll?.summary?.accountingPosted||0)+Number(state.payroll?.summary?.accountingPending||0)}`,Number(state.payroll?.summary?.accountingPending||0)?'Есть начисления без настроенных счетов':state.payroll?.timesheetApproval?.approved?'Начисления синхронизированы с журналом':'Новые проводки ожидают утверждения табеля HR']
   ].map(x=>`<article class="hr-summary-card"><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
 }
 function renderContext(){
   const p=state.payroll,t=state.tax;
   $('hrpPeriod').textContent=`${p.period?.from||''} — ${p.period?.to||''}`;
   $('hrpTaxProfile').textContent=`${t.mode==='MANUAL'?'Ручной':'Системный'}${t.active?.effectiveFrom?' · с '+t.active.effectiveFrom:''}`;
-  $('hrpAttendance').textContent=p.attendance?.mode==='FACE_ID'?`Face ID · устройств: ${Number(p.attendance.activeDevices||0)}`:'Face ID пока не подключён';
+  $('hrpAttendance').textContent=p.attendance?.mode==='FACE_ID'?`Face ID · устройств: ${Number(p.attendance.activeDevices||0)}`:p.attendance?.mode==='MANUAL'?'Ручные фактические часы':'Face ID пока не подключён';
   $('hrpAttendance').className=p.attendance?.mode==='FACE_ID'?'connected':'not-connected';
-  $('hrpOvertime').textContent=`${hours(p.summary?.overtimePayableMinutes||0)} · ${Number(p.summary?.overtimeExtraDays||0).toLocaleString('ru-RU',{maximumFractionDigits:2})} дн. · ${money(p.summary?.overtimeExtraPay||0)}`;
+  $('hrpOvertime').textContent=p.timesheetApproval?.approved?`${hours(p.summary?.overtimePayableMinutes||0)} · ${Number(p.summary?.overtimeExtraDays||0).toLocaleString('ru-RU',{maximumFractionDigits:2})} дн. · ${money(p.summary?.overtimeExtraPay||0)}`:(p.timesheetApproval?.stale?'Табель изменён · требуется повторное согласование HR':'Доп. часы заблокированы · табель месяца не утверждён HR');
 }
 function head(cols){return`<tr>${cols.map(c=>`<th class="${c.left?'text-left':''} ${c.cls||''}">${esc(c.label)}</th>`).join('')}</tr>`}
 function daysCell(m,kind='factual'){
