@@ -121,3 +121,35 @@ test('Invite claim errors block dashboard redirect and keep recovery instruction
   assert.equal(replaced.length,0);
   assert.match(messages.at(-1)[0],/Email не совпадает/);
 });
+
+test('Legacy anarsystem auth callback forwards invite and Supabase tokens to Smart Horeca',()=>{
+  const canonical=readFileSync(new URL('../auth-canonical-origin.js',import.meta.url),'utf8');
+  const redirects=[],errors=[];
+  runInNewContext(canonical,{
+    URL,Set,
+    window:{location:{
+      href:'https://anarsystem.pages.dev/auth-callback.html?invite=abc%2B123&code=confirm-code#access_token=opaque',
+      replace:url=>redirects.push(url)
+    }},
+    console:{error:text=>errors.push(text)}
+  });
+  assert.equal(redirects.length,1);
+  const u=new URL(redirects[0]);
+  assert.equal(u.origin,'https://smarthoreca.pages.dev');
+  assert.equal(u.searchParams.get('invite'),'abc+123');
+  assert.equal(u.searchParams.get('code'),'confirm-code');
+  assert.equal(u.hash,'#access_token=opaque');
+  assert.equal(errors.length,0);
+});
+test('Canonical redirect does not affect normal pages or already-canonical auth',()=>{
+  const canonical=readFileSync(new URL('../auth-canonical-origin.js',import.meta.url),'utf8');
+  for(const href of ['https://anarsystem.pages.dev/dashboard','https://smarthoreca.pages.dev/auth-callback.html?invite=abc']){
+    const redirects=[];
+    runInNewContext(canonical,{
+      URL,Set,
+      window:{location:{href,replace:url=>redirects.push(url)}},
+      console:{error:()=>{}}
+    });
+    assert.equal(redirects.length,0);
+  }
+});
