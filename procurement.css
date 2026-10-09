@@ -251,3 +251,8 @@
 .proc-link-match-row{display:grid;grid-template-columns:1fr 1fr auto;align-items:center;gap:10px;padding:9px 10px;border-top:1px solid #1f303b}.proc-link-match-row:first-child{border-top:0}.proc-link-match-row>div{display:flex;flex-direction:column}.proc-link-match-row strong{font-size:10px}.proc-link-match-row span{margin-top:3px;color:#748593;font-size:8.5px}.proc-link-match-row>b{padding:4px 7px;border-radius:999px;font-size:8px;text-transform:uppercase}.proc-link-match-row.match>b{background:#153728;color:#70dfab}.proc-link-match-row.mismatch>b{background:#3b1c24;color:#ff9bab}
 .proc-match.waiting_grn,.proc-match.open{background:#17232c;color:#9cacb8}.proc-match.waiting_invoice,.proc-match.partial_grn{background:#392d16;color:#e7c16e}.proc-match.invoice_qty_mismatch,.proc-match.quantity_mismatch,.proc-match.price_mismatch{background:#3b1c24;color:#ff9bab}.proc-match.matched{background:#153728;color:#70dfab}
 @media(max-width:760px){.proc-threeway-steps{grid-template-columns:1fr}.proc-threeway-step:after{content:"↓";right:auto;left:50%;top:auto;bottom:-17px;transform:translateX(-50%)}.proc-grn-row{align-items:flex-start;flex-direction:column}.proc-grn-row>div:last-child{text-align:left}.proc-link-match-row{grid-template-columns:1fr}.proc-receipt-choice{flex-wrap:wrap}}
+
+.proc-invoice-grn-row{grid-template-columns:minmax(220px,1.7fr) 105px 90px 105px 86px 120px 125px}
+.proc-invoice-grn-row .line-total{align-self:center;text-align:right;white-space:nowrap}
+@media(max-width:1100px){.proc-invoice-grn-row{grid-template-columns:repeat(3,minmax(0,1fr))}.proc-invoice-grn-row .line-total{grid-column:1/-1;text-align:left}}
+@media(max-width:700px){.proc-invoice-grn-row{grid-template-columns:1fr}.proc-invoice-grn-row .line-total{grid-column:auto}}
