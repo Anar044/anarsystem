@@ -65,7 +65,7 @@ test('2023 CHAIN: empty JSON DTOs trigger XML discovery without revisionFrom',as
     const path=String(url);
     calls.push({path,accept:String(opts.headers?.Accept||'')});
     if(path.includes('/resto/api/auth?'))return makeResponse('auth-token');
-    if(path.includes('/resto/api/corporation/departments?'))
+    if(path.includes('/resto/api/corporation/departments?revisionFrom=-1'))
       return new Response('[{},{},{},{},{},{},{},{},{}]',{status:200,headers:{'Content-Type':'application/json'}});
     if(path.includes('/resto/api/corporation/departments&')||path.includes('/resto/api/corporation/departments?key='))
       return makeResponse('<?xml version="1.0"?><corporateItemDtoes>'+
