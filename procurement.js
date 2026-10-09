@@ -238,15 +238,25 @@ function buildPriceHistory(){
 }
 
 function procurementLineFromInvoiceItem(x){
-  const packageCount=num(x.amount,0);
-  const actualAmount=num(x.actualAmount??x.amount,0);
+  // iiko exports "amount" as quantity in the product's base unit, not
+  // as a package count. The package count must be derived from the
+  // actual quantity and the container's weight.
+  const amount=num(x.amount,0);
+  const actualAmount=num(x.actualAmount,0);
   const pack=packagingByContainer(x.productId,x.containerId);
   let packageSize=num(x.actualUnitWeight,0);
   if(!(packageSize>0))packageSize=num(pack?.count,0);
-  if(!(packageSize>0))packageSize=packageCount>0?actualAmount/packageCount:1;
   if(!(packageSize>0))packageSize=1;
-  const count=packageCount>0?packageCount:(actualAmount>0?actualAmount/packageSize:0);
-  return{productId:key(x.productId),productName:x.productName||productName(x.productId),unit:x.amountUnit||unitFor(x.productId),quantity:actualAmount||packageSize*count,packageSize,packageCount:count,containerId:key(x.containerId),packageName:pack?.name||pack?.num||'',vatPercent:num(x.vatPercent,0),unitPrice:num(x.price)};
+  let quantity=actualAmount>0?actualAmount:amount;
+  // Older invoices can omit actualAmount and express amount in packages.
+  // Only use that interpretation when the invoice total independently
+  // confirms it; never infer package count from a base-unit amount.
+  const calculatedPackages=num(x.price,0)>0?num(x.sum,0)/num(x.price,0):0;
+  if(!(actualAmount>0)&&packageSize>1&&amount>0&&calculatedPackages>0&&Math.abs(calculatedPackages-amount)<0.0005){
+    quantity=amount*packageSize;
+  }
+  const count=quantity>0?quantity/packageSize:0;
+  return{productId:key(x.productId),productName:x.productName||productName(x.productId),unit:x.amountUnit||unitFor(x.productId),quantity,packageSize,packageCount:count,containerId:key(x.containerId),packageName:pack?.name||pack?.num||'',vatPercent:num(x.vatPercent,0),unitPrice:num(x.price)};
 }
 function receiptSignature(lines){
   return (lines||[]).map(x=>[key(x.productId),Number(x.quantity??x.actualAmount??x.amount??0).toFixed(3),Number(x.packageSize??x.actualUnitWeight??1).toFixed(3),Number(x.packageCount??x.amount??0).toFixed(3),Number(x.vatPercent??0).toFixed(2),Number(x.unitPrice??x.price??0).toFixed(4)].join(':')).sort().join('|');
