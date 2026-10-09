@@ -315,11 +315,24 @@ async function checkProcurementVarianceBeforePosting(env,connection,document){
     const parsed=JSON.parse(receipt.grn_lines||"[]"),stored=JSON.parse(receipt.lines_json||"[]");
     const mismatch=procurementDiff(parsed,document.items||[]);
     if(!mismatch)return null;
-    if(String(receipt.variance_status||"").toUpperCase()!=="APPROVED")
-      return "Количество или цена накладной отличаются от GRN. Сначала согласуйте расхождение в разделе «Приёмка поставок».";
     if(!sameSupplierInvoiceLines(stored,document.items||[]))
       return "Накладная была изменена после согласования. Требуется повторная сверка и согласование.";
-    return null;
+    if(String(receipt.variance_status||"").toUpperCase()==="APPROVED")return null;
+    // A supplemental invoice is intentionally smaller than the full GRN.
+    // Verify that an explicitly approved shortage plan exists and that all
+    // linked invoices together do not exceed the physically received quantity.
+    const others=(await env.DB.prepare("SELECT lines_json,variance_status,resolution_status,resolution_method FROM procurement_receipts WHERE server_scope=?1 AND grn_id=?2").bind(scope,receipt.grn_id).all()).results||[];
+    const plan=others.some(x=>x.variance_status==="APPROVED"&&x.resolution_status==="IN_PROGRESS"&&x.resolution_method==="ADDITIONAL_INVOICE");
+    if(plan&&others.length>1){
+      const ceiling=new Map(parsed.map(x=>[clean(x.productId).toLowerCase(),Number(x.quantity)]));
+      const totals=new Map();
+      for(const row of others)for(const l of JSON.parse(row.lines_json||"[]")){
+        const id=clean(l.productId).toLowerCase();
+        totals.set(id,(totals.get(id)||0)+Number(l.quantity));
+      }
+      if([...totals].every(([id,amount])=>ceiling.has(id)&&amount<=ceiling.get(id)+0.0005))return null;
+    }
+    return "Количество или цена накладной отличаются от GRN. Сначала согласуйте расхождение в разделе «Приёмка поставок».";
   }
   if(isProcurementDoc){
     let grn=null;
