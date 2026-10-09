@@ -27,6 +27,7 @@ function setup(opts={}){
       return {encrypted:true,updatedAt:'2026-10-10T00:00:00Z'};
     },
     getDepartments:async()=>({departments:[{id:'d1',name:'Restaurant RMS 1',code:'RMS1'}],rawFormat:'json'}),
+    getDepartmentsSearch:async()=>({departments:[],rawFormat:'empty',diagnostic:{format:'empty',candidates:0,types:[]}}),
     getDepartmentsFromOlap:async()=>{throw Error('Unexpected OLAP fallback')},
     ...opts
   };

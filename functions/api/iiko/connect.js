@@ -1,4 +1,5 @@
 import { iikoText } from "./_lib/iiko-client.js";
+import {normalizeDepartmentsPayload,parseDepartmentsXml,safeDepartmentDiagnostic} from "./_lib/departments.js";
 
 function corsHeaders() {
     return {
@@ -18,89 +19,10 @@ function jsonResponse(data, status = 200) {
     });
 }
 
-function xmlDecode(value) {
-    return String(value || "")
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&apos;/g, "'")
-        .trim();
-}
-
-function xmlChild(block, name) {
-    const pattern = `<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`;
-    const match = block.match(new RegExp(pattern, "i"));
-    return match ? xmlDecode(match[1].replace(/<[^>]+>/g, "")) : "";
-}
-
-function parseDepartmentsXml(text) {
-    const result = [];
-    const seen = new Set();
-    const nodeRegex = new RegExp(
-        "<(department|corporateItemDto|corporateItem|item|entity)\\b[^>]*>([\\s\\S]*?)<\\/\\1>",
-        "gi"
-    );
-
-    let match;
-    while ((match = nodeRegex.exec(text))) {
-        const block = match[2] || "";
-        const type = xmlChild(block, "type");
-        if (type && type.toUpperCase() !== "DEPARTMENT") continue;
-
-        const id = xmlChild(block, "id");
-        if (!id || seen.has(id)) continue;
-
-        result.push({
-            id: String(id),
-            parentId: xmlChild(block, "parentId") || xmlChild(block, "parentID") || null,
-            code: xmlChild(block, "code"),
-            name: xmlChild(block, "name") || xmlChild(block, "code") || String(id),
-            type: "DEPARTMENT"
-        });
-        seen.add(id);
-    }
-
-    return result;
-}
-
-function normalizeDepartmentItem(item) {
-    if (!item || typeof item !== "object") return null;
-
-    const rawType = item.type ?? item.Type ?? item.itemType ?? item.entityType ?? "DEPARTMENT";
-    const type = String(rawType).toUpperCase();
-    const id = item.id ?? item.Id ?? item.ID ?? item.uuid ?? item.UUID;
-
-    if (id == null || String(id).trim() === "") return null;
-    if (type && type !== "DEPARTMENT") return null;
-
-    return {
-        id: String(id),
-        parentId: item.parentId ?? item.parentID ?? item.ParentId ?? null,
-        code: String(item.code ?? item.Code ?? ""),
-        name: String(item.name ?? item.Name ?? item.code ?? item.Code ?? id),
-        type: "DEPARTMENT"
-    };
-}
-
-function normalizeDepartmentsPayload(payload) {
-    let items = [];
-
-    if (Array.isArray(payload)) items = payload;
-    else if (Array.isArray(payload?.items)) items = payload.items;
-    else if (Array.isArray(payload?.departments)) items = payload.departments;
-    else if (Array.isArray(payload?.corporateItems)) items = payload.corporateItems;
-    else if (Array.isArray(payload?.corporateItemDtoes)) items = payload.corporateItemDtoes;
-    else if (Array.isArray(payload?.corporateItemDtos)) items = payload.corporateItemDtos;
-    else if (Array.isArray(payload?.data)) items = payload.data;
-
-    return items.map(normalizeDepartmentItem).filter(Boolean);
-}
-
-export async function getDepartments(connection) {
+export async function getDepartments(connection, path = "/resto/api/corporation/departments") {
     const result = await iikoText(
         connection,
-        "/resto/api/corporation/departments",
+        path,
         {
             method: "GET",
             headers: { "Accept": "application/json, application/xml, text/xml" }
@@ -119,6 +41,7 @@ export async function getDepartments(connection) {
             departments: [],
             rawFormat: "empty",
             rawPreview: "",
+            diagnostic:{format:"empty",candidates:0,types:[]},
             authCacheHit: result.auth?.cacheHit === true
         };
     }
@@ -129,6 +52,7 @@ export async function getDepartments(connection) {
             departments: normalizeDepartmentsPayload(payload),
             rawFormat: "json",
             rawPreview: JSON.stringify(payload).slice(0, 1200),
+            diagnostic: safeDepartmentDiagnostic(payload, "json"),
             authCacheHit: result.auth?.cacheHit === true
         };
     } catch {
@@ -136,9 +60,16 @@ export async function getDepartments(connection) {
             departments: parseDepartmentsXml(text),
             rawFormat: "xml",
             rawPreview: text.slice(0, 1200),
+            diagnostic: safeDepartmentDiagnostic(text, "xml"),
             authCacheHit: result.auth?.cacheHit === true
         };
     }
+}
+
+// CHAIN servers can expose a department search even if the general directory
+// is empty for this account. The code filter is a documented regex.
+export async function getDepartmentsSearch(connection) {
+    return getDepartments(connection, "/resto/api/corporation/departments/search?code=.*");
 }
 
 // iiko OLAP requires OpenDate.Typed as a DATE filter.
@@ -236,6 +167,7 @@ export async function getDepartmentsFromOlap(connection) {
         departments,
         rawFormat: "olap",
         rawPreview: JSON.stringify(payload).slice(0, 1600),
+        diagnostic:{format:"olap",candidates:rows.length,types:[]},
         authCacheHit: result.auth?.cacheHit === true
     };
 }
