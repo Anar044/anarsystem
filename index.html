@@ -5,7 +5,13 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="refresh" content="0; url=/dashboard.html">
   <title>HorecaControl</title>
-  <script>location.replace('/dashboard.html'+location.search+location.hash);</script>
+  <script>(function(){
+    const p=new URLSearchParams(location.search),h=location.hash;
+    const authSignal=p.has('invite')||p.has('code')||p.has('token_hash')||/\b(?:access_token|refresh_token|type|error_description)=/.test(h);
+    if(location.hostname==='anarsystem.pages.dev'&&authSignal){
+      location.replace('https://smarthoreca.pages.dev/auth-callback.html'+location.search+h);
+    }else location.replace('/dashboard.html'+location.search+h);
+  })();</script>
 </head>
 <body>
   <p><a href="/dashboard.html">Открыть Dashboard</a></p>
