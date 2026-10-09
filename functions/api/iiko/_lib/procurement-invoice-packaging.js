@@ -21,7 +21,8 @@ function applyLines(doc,linked) {
   const used = new Set();
   let enriched = 0;
   const items = doc.items.map(item=>{
-    const qty = number(item.actualAmount ?? item.amount);
+    const actualQty=number(item.actualAmount);
+    const qty = actualQty>0?actualQty:number(item.amount);
     const price = number(item.price);
     const sum = number(item.sum);
     const matchIndex = saved.findIndex((l,i)=>{
