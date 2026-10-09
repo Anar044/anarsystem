@@ -1,6 +1,7 @@
 import { clean, iikoText } from "./_lib/iiko-client.js";
 import { resolveStoreScope } from "./_lib/store-scope.js";
 import { logAuditEvent, serverScopeFromConnection } from "../_lib/audit-log.js";
+import { enrichProcurementInvoicePackaging } from "./_lib/procurement-invoice-packaging.js";
 
 function corsHeaders() {
   return {
@@ -399,6 +400,12 @@ export async function onRequestPost(context) {
     }
     if (type === "incoming") {
       document = normalizeIncomingDocument(document);
+      if(["save-and-process","process"].includes(action)){
+        // iiko exports "amount" in base units, even for per-package prices.
+        // Verify and recover package count from the original procurement
+        // invoice before validating  quantity × package price.
+        document=(await enrichProcurementInvoicePackaging(context.env,connection,[document]))[0];
+      }
       if(["save-and-process","process"].includes(action)){
         const rejection=await checkProcurementVarianceBeforePosting(context.env,connection,document);
         if(rejection)return jsonResponse({success:false,code:"PROCUREMENT_VARIANCE_APPROVAL_REQUIRED",message:rejection},409);
