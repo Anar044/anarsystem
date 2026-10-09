@@ -296,9 +296,10 @@
     item = item || {};
     var amount = Number(item.amount != null ? item.amount : 1);
     var actual = Number(item.actualAmount != null ? item.actualAmount : amount);
-    var packageSize = Number(item.actualUnitWeight != null ? item.actualUnitWeight : (amount > 0 ? actual / amount : 1));
+    var packageSize = Number(item.packageSize != null ? item.packageSize : item.actualUnitWeight != null ? item.actualUnitWeight : (amount > 0 ? actual / amount : 1));
     if (!(packageSize > 0)) packageSize = 1;
-    var packages = amount > 0 ? amount : (actual > 0 ? actual / packageSize : 1);
+    var originalPackages = item.packageCount != null ? Number(item.packageCount) : NaN;
+    var packages = Number.isFinite(originalPackages) && originalPackages > 0 ? originalPackages : amount > 0 ? amount : (actual > 0 ? actual / packageSize : 1);
     var price = Number(item.price != null ? item.price : 0);
     var vat = Number(item.vatPercent != null ? item.vatPercent : (item.ndsPercent != null ? item.ndsPercent : 0));
     if ([0,2,8,18].indexOf(vat) < 0) vat = 0;
