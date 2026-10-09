@@ -767,7 +767,15 @@ function grnHistoryHtml(o){
   if(!rows.length)return '<div class="proc-threeway-empty">GRN ещё не создан.</div>';
   return '<div class="proc-grn-list">'+rows.map(g=>{
     const invoices=g.invoices||[],label=g.legacy?'Историческая приёмка':g.number;
-    return '<div class="proc-grn-row"><div><strong>'+esc(label)+'</strong><span>'+esc(g.documentDate||'—')+' · '+moneyMaybe(g.totalAmount)+'</span></div><div><span class="proc-status-badge '+(g.legacy?'neutral':'success')+'">'+(g.legacy?'legacy':'GRN')+'</span><small>'+(invoices.length?'Накладная: '+invoices.map(x=>esc(x.iikoDocumentNumber||'без №')).join(', '):'Накладная не привязана')+'</small></div></div>';
+    return '<div class="proc-grn-row"><div><strong>'+esc(label)+'</strong><span>'+esc(g.documentDate||'—')+' · '+moneyMaybe(g.totalAmount)+'</span></div><div><span class="proc-status-badge '+(g.legacy?'neutral':'success')+'">'+(g.legacy?'legacy':'GRN')+'</span><small>'+(invoices.length?'Накладная: '+invoices.map(x=>esc(x.iikoDocumentNumber||'без №')).join(', '):'Накладная не привязана')+'</small>'+
+      invoices.map(inv=>{
+        const diff=inv.varianceStatus||'NONE';
+        if(diff==='NONE')return'';
+        const badge=diff==='APPROVED'?'Согласовано: '+(inv.varianceReviewedBy||'ответственный'):diff==='REJECTED'?'Расхождение отклонено':'Требует согласования';
+        const canReview=window.SHAccess?.can?.('procurement.approve')&&String(inv.iikoStatus||'').toUpperCase()!=='PROCESSED';
+        return '<div class="proc-history-note"><span class="proc-status-badge '+(diff==='APPROVED'?'success':diff==='REJECTED'?'danger':'warn')+'">'+esc(badge)+'</span>'+
+          (canReview?'<button class="proc-btn small secondary" data-variance-review="'+esc(inv.id)+'" data-po-review="'+esc(o.id)+'">Решение по расхождению</button>':'')+'</div>';
+      }).join('')+'</div></div>';
   }).join('')+'</div>';
 }
 function threeWayPanelHtml(o){
@@ -782,6 +790,18 @@ function threeWayPanelHtml(o){
     '</div>'+
     (lineRows?'<div class="proc-threeway-table-wrap"><table class="proc-threeway-table"><thead><tr><th>Товар</th><th>PO кол-во</th><th>GRN</th><th>Накладная</th><th>Цена PO</th><th>Цена накл.</th><th>Сверка</th></tr></thead><tbody>'+lineRows+'</tbody></table></div>':'')+
     '<div class="proc-threeway-grns"><strong>GRN / фактическая приёмка</strong>'+grnHistoryHtml(o)+'</div></div>';
+}
+async function reviewInvoiceVariance(o,receiptId){
+  const inv=(o.receipts||[]).find(r=>r.id===receiptId);if(!inv)return;
+  if(!window.SHAccess?.can?.('procurement.approve'))return toast('Недостаточно прав на согласование.','error');
+  const approved=confirm('Накладная '+(inv.iikoDocumentNumber||'')+' отличается от GRN. Нажмите OK — согласовать расхождение, Отмена — отклонить.');
+  const reason=prompt('Укажите причину '+(approved?'согласования':'отклонения')+' расхождения:');
+  if(!reason||reason.trim().length<5)return toast('Нужна причина решения — минимум 5 символов.','error');
+  try{
+    setBusy(true);
+    await procPost('review-invoice-variance',{receiptId,decision:approved?'APPROVED':'REJECTED',reason:reason.trim()});
+    await reloadProc();toast('Решение по расхождению сохранено. Проведение не выполнялось.');
+  }catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}
 }
 function orderCard(o,{receiving=false}={}){
   const lines=(o.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.orderedQty)+' '+esc(l.unit)+(receiving?'':' × '+money(l.unitPrice))+'</strong><span>по GRN '+qty(l.receivedQty)+' · осталось '+qty(l.remainingQty)+'</span></div>').join('');
@@ -1025,8 +1045,9 @@ function openInvoiceForGrnModal(o){
       '<label class="proc-field"><span>Дата накладной</span><input id="proc-inv-date" type="date" value="'+today()+'"></label>'+
       '<label class="proc-field"><span>Поставщик</span><input value="'+esc(o.supplierName||o.supplierId)+'" disabled></label>'+
     '</div>'+
-    '<div class="proc-grn-explain"><strong>GRN уже фиксирует фактическое количество.</strong><span>В накладной можно уточнить НДС и фактическую цену поставщика. Smart Horeca сравнит их с PO.</span></div>'+
+    '<div class="proc-grn-explain"><strong>GRN — неизменяемый факт физической приёмки.</strong><span>Количество, цена и НДС накладной поставщика вводятся отдельно. При несовпадении можно сохранить черновик, а проведение заблокировано до решения ответственного.</span></div>'+
     '<div id="proc-inv-lines" class="proc-edit-lines"></div>'+
+    '<div class="proc-receipt-status warning" id="proc-inv-variance" hidden></div>'+
     '<div class="proc-modal-summary"><span>Сумма накладной</span><strong id="proc-inv-total">0,00 ₼</strong></div>'+
     '<div id="proc-inv-status" class="proc-receipt-status" hidden></div>'+
     '<div class="proc-modal-actions"><button id="proc-inv-cancel" type="button" class="proc-btn ghost">Отмена</button><button id="proc-inv-save" type="button" class="proc-btn secondary">Сохранить без проведения</button><button id="proc-inv-post" type="button" class="proc-btn primary">Сохранить и провести</button></div>'
@@ -1043,14 +1064,14 @@ function openInvoiceForGrnModal(o){
   }
   function renderLines(){
     const g=selectedGrn();
-    $('proc-inv-lines').innerHTML='<div class="proc-edit-head"><strong>'+esc(g?.number||'GRN')+'</strong><span class="proc-history-note">Количество берётся из фактической приёмки и не меняется.</span></div>'+
+    $('proc-inv-lines').innerHTML='<div class="proc-edit-head"><strong>'+esc(g?.number||'GRN')+'</strong><span class="proc-history-note">Количество по накладной можно изменить; GRN не меняется.</span></div>'+
       (g?.lines||[]).map((l,i)=>{
         const pack=num(l.packageSize,1)||1,count=num(l.packageCount,num(l.quantity)/pack),price=num(l.unitPrice),vat=num(l.vatPercent,0);
         return '<div class="proc-edit-row proc-pack-row proc-invoice-grn-row" data-inv-grn-line data-index="'+i+'">'+
           '<div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div>'+
           '<div class="proc-field"><span>Фасовка</span><input value="'+qty(pack)+' '+esc(l.unit||'')+'" disabled></div>'+
-          '<div class="proc-field"><span>Упаковок</span><input value="'+qty(count)+'" disabled></div>'+
-          '<div class="proc-field"><span>Итого '+esc(l.unit||'ед.')+'</span><input value="'+qty(l.quantity)+'" disabled></div>'+
+          '<div class="proc-field"><span>Упаковок по накладной</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+count+'"></div>'+
+          '<div class="proc-field"><span>Итого '+esc(l.unit||'ед.')+'</span><input data-f="quantity" value="'+qty(l.quantity)+'" readonly></div>'+
           '<div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div>'+
           '<div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0" step="0.01" value="'+price+'"></div>'+
           '<strong class="line-total">'+money(count*price)+'</strong>'+
@@ -1058,6 +1079,7 @@ function openInvoiceForGrnModal(o){
       }).join('');
     document.querySelectorAll('[data-inv-grn-line]').forEach(row=>{
       row.querySelector('[data-f="price"]').oninput=recalc;
+      row.querySelector('[data-f="packageCount"]').oninput=recalc;
       row.querySelector('[data-f="vatPercent"]').onchange=recalc;
     });
     recalc();
@@ -1065,26 +1087,40 @@ function openInvoiceForGrnModal(o){
   function invoiceLines(){
     const g=selectedGrn();
     return [...document.querySelectorAll('[data-inv-grn-line]')].map(row=>{
-      const l=g.lines[Number(row.dataset.index)],packageSize=num(l.packageSize,1)||1,packageCount=num(l.packageCount,num(l.quantity)/packageSize);
+      const l=g.lines[Number(row.dataset.index)],packageSize=num(l.packageSize,1)||1,packageCount=num(row.querySelector('[data-f="packageCount"]').value);
       return{
-        productId:l.productId,productName:l.productName,unit:l.unit,quantity:num(l.quantity),packageSize,packageCount,
+        productId:l.productId,productName:l.productName,unit:l.unit,quantity:Number((packageCount*packageSize).toFixed(3)),packageSize,packageCount,
         containerId:l.containerId||'',packageName:l.packageName||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),unitPrice:num(row.querySelector('[data-f="price"]').value)
       };
     });
   }
   function recalc(){
-    let total=0;const g=selectedGrn();
+    let total=0;const g=selectedGrn(),issues=[];
     document.querySelectorAll('[data-inv-grn-line]').forEach(row=>{
-      const l=g.lines[Number(row.dataset.index)],packageSize=num(l.packageSize,1)||1,packageCount=num(l.packageCount,num(l.quantity)/packageSize),price=num(row.querySelector('[data-f="price"]').value);
+      const l=g.lines[Number(row.dataset.index)],packageSize=num(l.packageSize,1)||1,packageCount=num(row.querySelector('[data-f="packageCount"]').value),price=num(row.querySelector('[data-f="price"]').value);
+      const quantity=Number((packageCount*packageSize).toFixed(3)),difference=Number((quantity-num(l.quantity)).toFixed(3));
+      const label=l.productName||l.productId;
+      row.querySelector('[data-f="quantity"]').value=qty(quantity);
       const sum=packageCount*price;total+=sum;row.querySelector('.line-total').textContent=money(sum);
+      if(!(packageCount>0))issues.push(label+': количество должно быть больше нуля');
+      else if(Math.abs(difference)>0.0005)issues.push(label+': накладная '+qty(quantity)+' '+(l.unit||'')+' / GRN '+qty(l.quantity)+' '+(l.unit||'')+' (разница '+(difference>0?'+':'')+qty(difference)+')');
+      if(Math.abs(price-num(l.unitPrice))>0.009)issues.push(label+': цена '+money(price)+' вместо '+money(l.unitPrice));
     });
     $('proc-inv-total').textContent=money(total);
+    const el=$('proc-inv-variance');
+    el.hidden=!issues.length;
+    el.textContent=issues.length?'Расхождение. Можно сохранить черновик, но нельзя провести без отдельного решения: '+issues.join('; '):'';
+    $('proc-inv-post').disabled=issues.length>0;
+    $('proc-inv-post').title=issues.length?'Сначала сохраните черновик и согласуйте расхождение':'';
+    return issues;
   }
   async function save(process){
     const g=selectedGrn();if(!g)return;
     const lines=invoiceLines();
     if(!lines.length){modalStatus('В GRN нет позиций для накладной.','error');return}
-    if(lines.some(x=>x.unitPrice<0)){modalStatus('Цена не может быть отрицательной.','error');return}
+    if(lines.some(x=>x.unitPrice<0||!(x.packageCount>0))){modalStatus('Количество упаковок должно быть положительным, цена — неотрицательной.','error');return}
+    const differences=recalc();
+    if(process&&differences.length){modalStatus('Проведение запрещено: обнаружено расхождение. Сохраните накладную без проведения для согласования.','error');return}
     let documentNumber=$('proc-inv-number').value.trim()||draftNo;
     try{
       setBusy(true);modalStatus(process?'Проводим накладную в Smart Horeca Server…':'Сохраняем накладную в Smart Horeca Server…','loading');
@@ -1113,7 +1149,7 @@ function openInvoiceForGrnModal(o){
         documentDate:$('proc-inv-date').value,comment:'Smart Horeca Procurement · '+o.number+' · '+g.number,lines};
       rememberPending(payload);
       try{await registerReceipt(payload)}catch(first){try{await registerReceipt(payload)}catch(second){throw Error('Накладная №'+documentNumber+' создана, но связь с '+g.number+' не сохранилась: '+second.message)}}
-      modalStatus('Готово. '+g.number+' ↔ накладная №'+documentNumber+'.','success');
+      modalStatus('Готово. '+g.number+' ↔ накладная №'+documentNumber+'.'+(differences.length?' Расхождение ожидает согласования.':''),'success');
       await new Promise(resolve=>setTimeout(resolve,250));closeModal();await reloadProc();toast('Накладная создана и 3-way match пересчитан.');
     }catch(e){modalStatus(e.message||String(e),'error')}finally{setBusy(false)}
   }
@@ -1449,7 +1485,8 @@ function bind(){
     if(b.dataset.prCancel&&confirm('Отменить заявку '+(r?.number||'')+'?'))return simpleAction('cancel-requisition',id,'Заявка отменена.');
   });
   $('proc-po-list').addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poInvoice||b.dataset.poLink||b.dataset.poCopy||b.dataset.poCancel;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
+    const b=e.target.closest('button');if(!b)return;const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poInvoice||b.dataset.poLink||b.dataset.poCopy||b.dataset.poCancel||b.dataset.poReview;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
+    if(b.dataset.varianceReview&&o)return reviewInvoiceVariance(o,b.dataset.varianceReview);
     if(b.dataset.poReceive&&o)return openReceiptModal(o);
     if(b.dataset.poInvoice&&o)return openInvoiceForGrnModal(o);
     if(b.dataset.poLink&&o)return openLinkInvoiceModal(o);
