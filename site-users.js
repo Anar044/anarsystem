@@ -63,7 +63,7 @@ function memberModal(member=null){
   };
   $('saveMember').onclick=async()=>{
     try{
-      const emp=$('memberEmployee').selectedOptions[0],scopeMode=$('memberScope').value;
+      const scopeMode=$('memberScope').value;
       const ids=[...document.querySelectorAll('[data-department-id]:checked')].map(x=>x.dataset.departmentId);
       if(scopeMode==='SELECTED'&&!ids.length)throw Error('Выберите хотя бы одно подразделение CHAIN перед сохранением доступа.');
       const selected=choices.filter(x=>ids.includes(String(x.id)));
