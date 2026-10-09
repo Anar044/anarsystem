@@ -64,13 +64,13 @@ test('Server validates host, port and rejects private/internal address targets',
 });
 test('POST requires encrypted D1 storage, never writes plaintext without key',async()=>{
   const h=setup();
-  const request=new Request('https://smarthoreca.pages.dev/api/platform/server',{method:'POST',body:JSON.stringify({
+  const request=()=>new Request('https://smarthoreca.pages.dev/api/platform/server',{method:'POST',body:JSON.stringify({
     organizationId:'org-one',connection:{host:'s01.smarthoreca.az',port:'8080',login:'server',password:'plain-secret'}
   })});
-  const noSecret=await h.server.onRequestPost({request,env:{DB:h.db}});
+  const noSecret=await h.server.onRequestPost({request:request(),env:{DB:h.db}});
   assert.equal(noSecret.status,503);
   assert.equal(h.writes.length,0);
-  const ok=await h.server.onRequestPost({request,env:{DB:h.db,SMART_HORECA_STATE_ENCRYPTION_KEY:'test-key'}});
+  const ok=await h.server.onRequestPost({request:request(),env:{DB:h.db,SMART_HORECA_STATE_ENCRYPTION_KEY:'test-key'}});
   assert.equal(ok.status,200);
   const response=await ok.json();
   assert.equal(response.server.departmentCount,1);
