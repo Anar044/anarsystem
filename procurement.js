@@ -645,7 +645,7 @@ function requestListItem(r){
       '<div class="proc-record-main"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+esc(r.createdBy||'—')+'</span></div>'+
       '<div class="proc-record-metric"><strong>'+lines+'</strong><span>позиций</span></div>'+
       '<div class="proc-record-metric amount"><strong>'+esc(total)+'</strong><span>оценка</span></div>'+
-      '<span class="proc-status-badge '+(receiving?threeWayTone(o.matchStatus):statusTone(effective))+'">'+esc(receiving?matchLabel(o.matchStatus):statusLabel(effective))+'</span>'+
+      '<span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span>'+
       '<span class="proc-record-open">Открыть <i>›</i></span>'+
     '</summary>'+
     '<div class="proc-record-body">'+requestCard(r)+'</div>'+
