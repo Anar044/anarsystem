@@ -1,3 +1,4 @@
+import {resolveAccessForUser} from '../access/_lib/access-control.js';
 const HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -28,6 +29,18 @@ async function getUser(request, env) {
   if (!response.ok) return null;
   const user = await response.json();
   return user?.id ? user : null;
+}
+
+
+// Existing user-keyed data is preserved for legacy accounts. New platform
+// organizations use (workspace, user) keys to avoid cross-org QR/report leaks.
+async function accountStorageKey(request,env,user){
+  const access=await resolveAccessForUser(env.DB,user,{claimInvite:false,request});
+  if(!access.allowed)return null;
+  if(String(access.ownerUserId||'').startsWith('platform-org:')){
+    return 'org-user:'+access.workspace.id+':'+user.id;
+  }
+  return user.id;
 }
 
 async function ensureTable(db) {
@@ -74,8 +87,10 @@ export async function onRequestGet({ request, env }) {
     if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
     const user = await getUser(request, env);
     if (!user) return json({ success: false, message: "Необходима авторизация." }, 401);
+    const key=await accountStorageKey(request,env,user);
+    if(!key)return json({success:false,message:'Нет доступа к выбранной организации.'},403);
     await ensureTable(env.DB);
-    const row = await env.DB.prepare(`SELECT state_json, updated_at FROM sh_account_state WHERE user_id=?1 LIMIT 1`).bind(user.id).first();
+    const row = await env.DB.prepare(`SELECT state_json, updated_at FROM sh_account_state WHERE user_id=?1 LIMIT 1`).bind(key).first();
     if (!row) return json({ success: true, found: false, state: null });
     let state = {};
     try { state = JSON.parse(row.state_json || "{}"); } catch (_) {}
@@ -90,6 +105,8 @@ export async function onRequestPost({ request, env }) {
     if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
     const user = await getUser(request, env);
     if (!user) return json({ success: false, message: "Необходима авторизация." }, 401);
+    const key=await accountStorageKey(request,env,user);
+    if(!key)return json({success:false,message:'Нет доступа к выбранной организации.'},403);
     const body = await request.json();
     const state = sanitizeState(body?.state);
     const stateJson = JSON.stringify(state);
@@ -97,7 +114,7 @@ export async function onRequestPost({ request, env }) {
 
     await ensureTable(env.DB);
     const now = new Date().toISOString();
-    await env.DB.prepare(`INSERT INTO sh_account_state(user_id,state_json,updated_at) VALUES(?1,?2,?3) ON CONFLICT(user_id) DO UPDATE SET state_json=excluded.state_json, updated_at=excluded.updated_at`).bind(user.id, stateJson, now).run();
+    await env.DB.prepare(`INSERT INTO sh_account_state(user_id,state_json,updated_at) VALUES(?1,?2,?3) ON CONFLICT(user_id) DO UPDATE SET state_json=excluded.state_json, updated_at=excluded.updated_at`).bind(key, stateJson, now).run();
     return json({ success: true, updatedAt: now });
   } catch (error) {
     return json({ success: false, message: error?.message || "Ошибка сохранения данных аккаунта." }, 500);
