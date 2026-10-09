@@ -149,8 +149,26 @@ function seedNormDrafts(){
 }
 async function loadProcurement(){
   const view=state.view||currentProcurementView();
-  const r=await authFetch('/api/procurement?view='+encodeURIComponent(view),{method:'GET',cache:'no-store'});const j=await r.json().catch(()=>({}));
-  if(!r.ok||j.success===false)throw Error(j.message||('HTTP '+r.status));state.data=j;seedNormDrafts();return j;
+  // Retrying this read is safe. Never apply the same retry to mutating POSTs.
+  for(let attempt=0;attempt<3;attempt++){
+    try{
+      const r=await authFetch('/api/procurement?view='+encodeURIComponent(view),{method:'GET',cache:'no-store'});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok||j.success===false){
+        const e=new Error(j.message||('HTTP '+r.status));
+        e.httpStatus=r.status;
+        throw e;
+      }
+      state.data=j;
+      seedNormDrafts();
+      return j;
+    }catch(e){
+      const transient=[429,502,503,504].includes(e?.httpStatus)||(!e?.httpStatus&&/fetch|network|timeout|timed out/i.test(e?.message||''));
+      if(!transient||attempt===2)throw e;
+      console.warn('Procurement read temporarily unavailable; retrying',view,attempt+1,e?.message);
+      await new Promise(resolve=>setTimeout(resolve,500*(attempt+1)));
+    }
+  }
 }
 function chainScope(){
   const b=state.binding||{},selected=Array.isArray(b.departmentIds)?b.departmentIds.map(String):[],allowed=Array.isArray(b.allDepartmentIds)?b.allDepartmentIds.map(String):selected;
@@ -983,7 +1001,16 @@ function openQuoteModal(r,rfqId=''){
   $('proc-quote-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const sid=key($('proc-quote-supplier').value),sup=state.refs.suppliers.find(x=>key(x.id)===sid);if(!sid)throw Error('Выберите поставщика.');const lines=[...document.querySelectorAll('[data-quote-line]')].map(row=>{const pid=row.dataset.productId;const packageSize=num(row.querySelector('[data-f="packageSize"]').value,1),packageCount=num(row.querySelector('[data-f="packageCount"]').value);return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId:key(row.querySelector('[data-f="containerId"]').value),packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),unitPrice:num(row.querySelector('[data-f="price"]').value)}});await procPost('add-quote',{requisitionId:r.id,rfqId:rfq?.id||'',supplierId:sid,supplierName:sup?.name||'',deliveryDays:num($('proc-quote-days').value),paymentTerms:$('proc-quote-payment').value,validUntil:$('proc-quote-valid').value,comment:$('proc-quote-comment').value,lines});closeModal();await reloadProc();toast('Предложение поставщика сохранено.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
 }
 async function simpleAction(action,id,message){try{setBusy(true);await procPost(action,{id});await reloadProc();toast(message)}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
-async function createPoFromQuote(reqId,quoteId){try{setBusy(true);await procPost('create-order',{requisitionId:reqId,quoteId});await reloadProc();toast('Заказ PO создан.');goProcurementView('orders')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
+async function createPoFromQuote(reqId,quoteId){
+  try{
+    setBusy(true);
+    const created=await procPost('create-order',{requisitionId:reqId,quoteId});
+    try{sessionStorage.setItem('shProcurementCreatedPo',created.number||'')}catch(e){}
+    // The destination loads PO data itself. Avoid an extra sourcing read.
+    goProcurementView('orders');
+  }catch(e){toast(e.message||String(e),'error')}
+  finally{setBusy(false)}
+}
 function openInvoiceForGrnModal(o){
   const grns=(o.grns||[]).filter(g=>!g.legacy&&!(g.invoices||[]).length);
   if(!grns.length){toast('Нет GRN без накладной.','error');return}
@@ -1348,10 +1375,21 @@ async function loadAll(){
     if(allWarnings.length){
       setStatus('Модуль загружен. '+allWarnings.join(' · '),'warning');
     }else{
-      setStatus('Данные закупок обновлены.','ok');setTimeout(()=>setStatus(''),2500);
+      const createdPo=(()=>{try{const n=sessionStorage.getItem('shProcurementCreatedPo');if(n&&view==='orders')sessionStorage.removeItem('shProcurementCreatedPo');return view==='orders'?n:''}catch(e){return ''}})();
+      const notice=createdPo?'Заказ '+createdPo+' создан. Данные закупок загружены.':'Данные закупок обновлены.';
+      setStatus(notice,'ok');setTimeout(()=>{if($('proc-status')?.textContent===notice)setStatus('')},5000);
     }
   }catch(e){
-    console.error(e);setStatus(e.message||String(e),'error');document.documentElement.style.visibility='visible';
+    console.error(e);
+    const message=e.message||String(e);
+    setStatus(message,'error');
+    // An unavailable API response must not be presented as an empty document list.
+    if(!state.data){
+      const view=state.view||currentProcurementView();
+      const box=['orders','receiving'].includes(view)?$('proc-po-list'):['requests','approvals','sourcing'].includes(view)?$('proc-pr-list'):null;
+      if(box)box.innerHTML='<div class="proc-empty">Не удалось загрузить документы ('+esc(message)+'). Это не означает, что они удалены. Нажмите «Обновить».</div>';
+    }
+    document.documentElement.style.visibility='visible';
   }finally{setBusy(false);document.documentElement.style.visibility='visible'}
 }
 async function saveSettings(e){
