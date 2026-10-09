@@ -24,6 +24,7 @@ export async function onRequestPost({request,env}){
     const auth=await getUser(request,env);
     if(!auth?.user)return json({success:false,message:'Требуется авторизация.'},401);
     const body=await request.json().catch(()=>({}));
+    if(body?.action==='clear-selection')return json({success:true},200,{'Set-Cookie':workspaceCookie('',0)});
     const workspaceId=clean(body?.workspaceId);
     if(!workspaceId)return json({success:false,message:'Выберите рабочее пространство.'},400);
     const workspace=await selectWorkspaceForUser(env.DB,auth.user,workspaceId);
