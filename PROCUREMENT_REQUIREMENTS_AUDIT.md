@@ -55,3 +55,19 @@ Source: `Texniki teklif _ Procurment Operation.docx`, sections “Satınalma his
 ## Next manual test
 
 PO 27.5 kg, GRN 11 kg, invoice 5.5 kg, draft `NEW`, `INVOICE_QTY_MISMATCH`, review `PENDING`, prohibit posting, approve with reason (authorized role), verify audit trail, then post from invoice management and verify correct posting / reconciliation.
+
+## Resolution implementation (2026-10-09, feature/procurement-next-v1)
+
+Implemented in Preview:
+- Independent invoice quantity vs immutable GRN; quantity and price variance comparison.
+- Authorized approval/rejection and audit reason.
+- Resolution plan (supplier correction, supplemental invoice, or externally documented GRN correction), status IN_PROGRESS.
+- Supplemental invoice allowed only for previously approved shortage with a plan; no extra GRN quantity is created.
+- Supplemental invoices cannot exceed recorded GRN quantities.
+- Closure requires cumulative invoice quantities to equal the GRN and server-side re-read of all invoices in iiko by document number, checking PROCESSED status, item quantities and prices. Client-supplied status alone is not trusted.
+- Original GRN is not edited by the resolution workflow. For actual erroneous physical count, a separately authorized correction document/process remains necessary; the planning option does NOT silently change stock.
+- Draft-only behavior on mismatch; approved variance and source invoice processing do not by themselves mark the reconciliation as closed.
+
+Automated code/unit-scenario checks: 13/13 for variance and resolution conditions; three targeted checks for live-iiko XML parsing and changed-document rejection. Cloudflare preview status tracked separately.
+
+Remaining before production/main: authenticated browser acceptance of a resolution plan and a supplemental invoice on existing test PO; validate by-number XML responses against the user's actual iiko version; confirm posted flags and desired stock-accounting treatment (an external GRN adjustment is not implemented here). Existing main remains unchanged.
