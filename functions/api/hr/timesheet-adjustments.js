@@ -89,7 +89,15 @@ export async function onRequestPost({request,env}){
     const body=await request.json().catch(()=>({})),action=clean(body.action,60).toUpperCase(),userId=state.storageUserId||state.user.id,actorId=clean(state.user.id,180),actor=actorLabel(state.user),t=now();
     const access=hrAccessForUser(state.user,state.access),scope=await resolveHrRestaurantScope(request,env,userId,state.access),connection=privateConnection(state.state);
     const employeeId=clean(body.employeeId,180),workDate=ymd(body.workDate),kind=contour(body.contour)||'FACTUAL';
-    if(employeeId)await ensureEmployeeVisible(env.DB,userId,employeeId,scope);
+    if(employeeId&&employeeId!=='*'){
+      await ensureEmployeeVisible(env.DB,userId,employeeId,scope);
+      if(scope?.isChain){
+        const e=await env.DB.prepare('SELECT department_code FROM hr_employees WHERE user_id=?1 AND iiko_employee_id=?2 LIMIT 1').bind(userId,employeeId).first();
+        const dep=clean(e?.department_code,180);
+        if(!(scope.selectedRestaurants||[]).some(x=>String(x.code)===dep||String(x.id)===dep))
+          return json({success:false,message:'Ресторан сотрудника недоступен или не определён'},403);
+      }
+    }
     const audit=async({auditAction,entityType,entityId,entityLabel,before,after,metadata={}})=>logAuditEvent({request,env,connection,action:auditAction,entityType,entityId,entityLabel,before,after,restaurantIds:scope?.selectedDepartmentIds||[],metadata});
 
     if(action==='SAVE_CORRECTION'){
