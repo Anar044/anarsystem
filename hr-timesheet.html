@@ -74,6 +74,12 @@
               </div>
               <div class="ts-approval-badges"><span id="tsAccessBadge" class="ts-access-badge">Роль: —</span><span id="tsApprovalBadge" class="ts-approval-badge draft">Черновик</span></div>
             </div>
+            <div class="ts-approval-department" id="tsApprovalDepartmentWrap" hidden>
+              <label for="tsApprovalDepartment">Табель подразделения</label>
+              <select id="tsApprovalDepartment" aria-label="Подразделение для утверждения"></select>
+              <small id="tsApprovalDepartmentHint">Подтверждение и утверждение выполняются отдельно для каждого ресторана.</small>
+              <div id="tsDepartmentApprovals" class="ts-department-statuses" aria-live="polite"></div>
+            </div>
             <div class="ts-approval-flow">
               <div id="tsManagerStep" class="ts-approval-step"><span>1</span><div><strong>Менеджер</strong><small id="tsManagerMeta">Ожидает подтверждения</small></div></div>
               <b>→</b>
@@ -172,6 +178,6 @@
   <script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
   <script src="mobile-responsive.js?v=1"></script>
   <script src="documents-nav.js?v=14"></script>
-  <script src="/hr-timesheet.js?v=20261009-resilient-v1"></script>
+  <script src="/hr-timesheet.js?v=20261009-chain-approval-v1"></script>
 </body>
 </html>
