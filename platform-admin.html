@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Horeca — Platform Admin</title>
+<style>
+:root{color-scheme:dark;font:14px/1.45 Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box}body{margin:0;background:#0b1017;color:#eaf1f7}
+header{border-bottom:1px solid #263747;background:#101821;padding:18px clamp(16px,4vw,44px);display:flex;align-items:center;justify-content:space-between;gap:12px}
+header strong{font-size:20px}header small{display:block;color:#9baebb;font-size:12px}
+main{max-width:1180px;margin:auto;padding:26px 18px 60px}
+h1{margin:0 0 6px;font-size:24px}h2{font-size:17px;margin:0 0 16px}
+p.lead{color:#a5b7c5;margin:0 0 24px}
+section{border:1px solid #263747;border-radius:15px;background:#121d28;padding:20px;margin-bottom:18px}
+label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#adbcc7;min-width:0}
+input,select{width:100%;min-width:0;border:1px solid #3b4c5c;border-radius:10px;background:#0a141e;padding:10px 12px;color:#fff;font:inherit}
+button{border:1px solid #3c5249;border-radius:9px;background:#17392b;color:#84e5b6;padding:9px 14px;font:inherit;font-weight:650;cursor:pointer}
+button:hover{border-color:#66dfab}button:disabled{opacity:.45;cursor:wait}
+button.secondary{background:#1b2835;color:#d7e7f3;border-color:#374858}
+button.danger{background:#382329;color:#ffb3be;border-color:#6b3e47}
+a{color:#81dfb3}form{display:grid;grid-template-columns:2fr 1fr 2fr auto;align-items:end;gap:12px}
+table{border-collapse:collapse;width:100%;min-width:760px}
+td,th{text-align:left;padding:12px 9px;border-bottom:1px solid #2b3c4b}
+th{font-size:11px;text-transform:uppercase;color:#8ca0ae}
+td small{display:block;color:#9eb0bd}td .actions{display:flex;gap:6px;flex-wrap:wrap}
+.table-scroll{overflow-x:auto}
+.status{border-radius:7px;padding:4px 8px;font-size:11px;font-weight:750;background:#203227;color:#8ce5b5}
+.status.DRAFT{background:#353024;color:#e8cd8b}
+.status.SUSPENDED{background:#3e242b;color:#ffbac0}
+#message{white-space:pre-wrap;margin:0 0 14px;padding:12px;background:#1e2c38;border:1px solid #395061;border-radius:9px}
+#message[hidden],#inviteResult[hidden]{display:none!important}
+#inviteResult{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:12px 0;padding:12px;border:1px solid #315744;border-radius:10px;background:#122a21}
+#inviteResult input{flex:1 1 320px}
+.meta{font-size:12px;color:#92a6b7}
+@media(max-width:800px){form{grid-template-columns:1fr}header strong{font-size:16px}main{padding:18px 12px}section{padding:14px}}
+</style>
+</head>
+<body>
+<header>
+  <div><strong>Smart Horeca · Platform Admin</strong><small>Центральное управление организациями</small></div>
+  <a href="/dashboard">Обычный кабинет</a>
+</header>
+<main>
+  <h1>Организации</h1>
+  <p class="lead">Временная архитектура: одна Cloudflare D1, независимые организации и права пользователей. Отдельные базы добавим после перехода на PostgreSQL.</p>
+  <p id="message" role="status" aria-live="polite" hidden></p>
+  <section>
+    <h2>Создать организацию</h2>
+    <form id="orgForm">
+      <label>Название<input name="name" maxlength="120" placeholder="Например, TEST CHAIN 2" required></label>
+      <label>Режим сервера<select name="serverMode"><option value="RMS">RMS</option><option value="CHAIN">CHAIN</option></select></label>
+      <label>Контактный email<input name="contactEmail" type="email" placeholder="owner@example.com"></label>
+      <button type="submit">Создать</button>
+    </form>
+  </section>
+  <section>
+    <h2>Список организаций</h2>
+    <div id="inviteResult" hidden>
+      <label style="flex:1">Ссылка для приглашения (сохраните и передайте адресату)
+        <input id="inviteLink" type="text" readonly aria-label="Ссылка приглашения"></label>
+      <button id="copyInvite" type="button">Копировать</button>
+      <button id="closeInvite" type="button" class="secondary">Закрыть</button>
+    </div>
+    <div class="table-scroll"><table><thead><tr>
+      <th>Организация</th><th>Режим</th><th>Статус</th><th>Пользователи</th><th>Действия</th>
+    </tr></thead><tbody id="organizations"><tr><td colspan="5">Загрузка...</td></tr></tbody></table></div>
+    <p class="meta">Создание и приглашение не подключают сервер автоматически. Данные существующих организаций не изменяются.</p>
+  </section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth-config.js"></script>
+<script src="/auth.js"></script>
+<script src="/platform-admin.js?v=20261010-v1"></script>
+</body>
+</html>
