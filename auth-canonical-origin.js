@@ -10,7 +10,11 @@
     // Limit this legacy redirect to auth and password-reset routes. Other
     // anarsystem.pages.dev pages may still be used by their owners.
     const authPaths=new Set(['/auth-callback.html','/register.html','/login.html','/reset-password.html','/forgot-password.html']);
-    if(!authPaths.has(current.pathname.toLowerCase()))return;
+    // Supabase can fall back to the legacy Site URL root if redirect allowlists
+    // are stale. Forward only when an actual auth callback payload is present.
+    const authPayload=current.searchParams.has('code')||current.searchParams.has('token_hash')||
+      current.searchParams.has('invite')||/\b(?:access_token|refresh_token|type|error_description)=/.test(current.hash);
+    if(!authPaths.has(current.pathname.toLowerCase())&&!authPayload)return;
     current.hostname='smarthoreca.pages.dev';
     current.protocol='https:';
     current.port='';
