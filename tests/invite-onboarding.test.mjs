@@ -78,7 +78,7 @@ test('New invited user sees passwordless email flow without full registration fo
     byId:id=>id==='register-form'?form:null,
     setBusy:()=>{},showMessage:(...args)=>messages.push(args)
   };
-  runInNewContext(registerFunction+';globalThis.start=initRegister;',ctx);
+  runInNewContext(helpers+registerFunction+';globalThis.start=initRegister;',ctx);
   await ctx.start();
   assert.equal(form.style.display,'none');
   const btn=buttons.find(x=>x.type==='button'&&typeof x.onclick==='function');

@@ -113,6 +113,16 @@
     }catch(_){}
   }
 
-  function init(){ensureMasterStyles().then(()=>{installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();window.SHAccess?.applyVisibility?.(document.querySelector('.sidebar'));applySHBranding();markNetworkSharedPage();reveal();const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');if(menu&&side)menu.onclick=()=>side.classList.toggle('open')})}
+  function ensureMobileResponsive(){
+    if(isAuthPage()||!document.body?.dataset.protected||window.__SH_MOBILE_RESPONSIVE__)return;
+    // Most pages include the script themselves. Load it for protected pages
+    // without that include as well (notably QR Menu).
+    if(document.querySelector('script[src*="mobile-responsive.js"]'))return;
+    const script=document.createElement('script');
+    script.src='/mobile-responsive.js?v=20261009-role-aware-v2';
+    script.async=true;
+    document.body.appendChild(script);
+  }
+  function init(){ensureMasterStyles().then(()=>{installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();window.SHAccess?.applyVisibility?.(document.querySelector('.sidebar'));ensureMobileResponsive();applySHBranding();markNetworkSharedPage();reveal();const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');if(menu&&side)menu.onclick=()=>side.classList.toggle('open')})}
   init();
 })();
