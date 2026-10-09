@@ -1,4 +1,4 @@
-import { getUser } from '../iiko/_lib/user-state.js';
+import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope, hrScopeKeys, isHrSubsetScope } from './_lib/restaurant-scope.js';
 import { calculateCompensation, AZ_PAYROLL_RULE_PROFILE } from './_lib/az-payroll-rules.js';
 
@@ -64,7 +64,7 @@ function calculationFor(term,asOf){return term?calculateCompensation({officialGr
 
 async function loadRoles(db,userId,employees,scope=null){
   const map=new Map();
-  if(!isHrSubsetScope(scope)){
+  if(!isHrSubsetScope(scope)&&!scope?.membershipRestricted){
     const rows=await db.prepare(`SELECT role_code,role_name,is_deleted FROM hr_roles WHERE user_id=?1 ORDER BY is_deleted ASC,role_name COLLATE NOCASE`).bind(userId).all().catch(()=>({results:[]}));
     for(const r of rows.results||[]){if(!Number(r.is_deleted)&&clean(r.role_code))map.set(String(r.role_code),String(r.role_name||r.role_code))}
   }
@@ -80,15 +80,16 @@ async function snapshot(db,userId,asOf,scope=null){
   ]);
 
   const employeeRows=filterEmployeesByScope(employeesResult.results||[],scope).filter(e=>!Number(e.is_deleted)&&(!e.fire_date||e.fire_date>=asOf));
-  const employeeTerms=(employeeTermsResult.results||[]).map(employeeTermDto);
+  const visibleEmployeeIds=new Set(employeeRows.map(x=>String(x.iiko_employee_id)));
+  const employeeTerms=(employeeTermsResult.results||[]).map(employeeTermDto).filter(t=>visibleEmployeeIds.has(String(t.employeeId)));
   let roleTerms=(roleTermsResult.results||[]).map(roleTermDto);
   const employeeCurrent=activeTermMap(employeeTerms,'employeeId',asOf);
-  const roleCurrent=activeTermMap(roleTerms,'roleCode',asOf);
   const baseRoles=await loadRoles(db,userId,employeeRows,scope);
-  if(isHrSubsetScope(scope)){
+  if(isHrSubsetScope(scope)||scope?.membershipRestricted){
     const visibleRoles=new Set(baseRoles.map(x=>String(x.code)));
     roleTerms=roleTerms.filter(x=>visibleRoles.has(String(x.roleCode)));
   }
+  const roleCurrent=activeTermMap(roleTerms,'roleCode',asOf);
   const employeeCountByRole=new Map();
   for(const e of employeeRows){const code=String(e.role_code||'');if(code)employeeCountByRole.set(code,(employeeCountByRole.get(code)||0)+1)}
 
@@ -134,17 +135,21 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 
 export async function onRequestGet({request,env}){
   try{
-    const a=await getUser(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);
+    const a=await loadRequestIikoState(request,env);if(!a?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!a.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+    await ensure(env.DB);
     const url=new URL(request.url),asOf=dateOnly(url.searchParams.get('asOf'))||todayBaku();
-    const scope=await resolveHrRestaurantScope(request,env,a.user.id);
-    return json({success:true,source:'SMART_HORECA_COMPENSATION',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,...await snapshot(env.DB,a.user.id,asOf,scope)});
+    const scope=await resolveHrRestaurantScope(request,env,a.storageUserId||a.user.id,a.access);
+    return json({success:true,source:'SMART_HORECA_COMPENSATION',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,...await snapshot(env.DB,a.storageUserId||a.user.id,asOf,scope)});
   }catch(e){console.error('[HR-COMPENSATION-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
 }
 
 export async function onRequestPost({request,env}){
   try{
-    const a=await getUser(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);const userId=a.user.id;
-    const scope=await resolveHrRestaurantScope(request,env,userId);
+    const a=await loadRequestIikoState(request,env);if(!a?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!a.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+    await ensure(env.DB);const userId=a.storageUserId||a.user.id;
+    const scope=await resolveHrRestaurantScope(request,env,userId,a.access);
     const body=await request.json().catch(()=>({})),action=clean(body.action),asOf=dateOnly(body.asOf)||todayBaku();
     if(action==='preview'){
       const treatment=(clean(body.additionalTaxTreatment)||'TAXABLE').toUpperCase();
