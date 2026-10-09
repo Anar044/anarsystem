@@ -8,6 +8,8 @@ const access=readFileSync(new URL('../functions/api/access/_lib/access-control.j
 const site=readFileSync(new URL('../site-access.js',import.meta.url),'utf8');
 const auth=readFileSync(new URL('../auth.js',import.meta.url),'utf8');
 const controller=readFileSync(new URL('../functions/api/platform/organizations.js',import.meta.url),'utf8');
+const serverState=readFileSync(new URL('../functions/api/iiko/state.js',import.meta.url),'utf8');
+const accountState=readFileSync(new URL('../functions/api/account/state.js',import.meta.url),'utf8');
 function createHarness(overrides={}){
   let id=0;
   const ctx={
@@ -101,4 +103,14 @@ test('Workspace access checks status and prompts multi-org accounts',()=>{
   assert.match(site,/WORKSPACE_INACTIVE:'Доступ к организации/);
   assert.match(auth,/clearWorkspaceSelection/);
   assert.match(controller,/requirePlatformAdmin/);
+});
+
+test('Managed organization server credentials cannot be edited by organization sysadmins',()=>{
+  assert.match(serverState,/startsWith\('platform-org:'\)/);
+  assert.match(serverState,/Подключением Smart Horeca Server управляет администратор платформы/);
+});
+test('Personal account snapshots are scoped by workspace only for platform-managed organizations',()=>{
+  assert.match(accountState,/org-user:/);
+  assert.match(accountState,/resolveAccessForUser/);
+  assert.match(accountState,/return user.id/);
 });
