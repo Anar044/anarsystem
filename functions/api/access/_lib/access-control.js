@@ -413,23 +413,22 @@ export async function resolveAccessForUser(db,user,{claimInvite=true,request=nul
   }
   const publicWorkspaces=options.map(x=>({...workspacePublic(x.workspace),memberId:x.member.id,memberStatus:x.member.status,isOwner:x.member.owner_user_id===userId}));
 
-  const ownerOption=options.find(x=>x.member.owner_user_id===userId&&x.member.user_id===userId)||null;
-  const activeOptions=options.filter(x=>String(x.member.status||'').toUpperCase()==='ACTIVE');
+  // The same Supabase account may belong to unrelated organizations.
+  // Without an explicit selected workspace, ask even an organization owner to
+  // choose instead of silently preferring their own older workspace.
+  const activeOptions=options.filter(x=>String(x.member.status||'').toUpperCase()==='ACTIVE'&&
+    String(x.workspace.status||'ACTIVE').toUpperCase()==='ACTIVE');
   let selected=null;
-  if(preferredWorkspaceId)selected=options.find(x=>clean(x.workspace.id)===preferredWorkspaceId)||null;
-
-  // A stale workspace cookie can point to a membership that was later disabled.
-  // Owners always fall back to their own workspace. Employees fall back when there is
-  // exactly one active workspace; with several active workspaces we ask them to choose.
-  if(selected&&String(selected.member.status||'').toUpperCase()!=='ACTIVE'){
-    if(ownerOption)selected=ownerOption;
-    else if(activeOptions.length===1)selected=activeOptions[0];
-    else if(activeOptions.length>1)return{allowed:false,reason:'WORKSPACE_SELECTION_REQUIRED',userId,email,workspaces:publicWorkspaces};
-  }
-  if(!selected&&ownerOption)selected=ownerOption;
+  if(preferredWorkspaceId)selected=activeOptions.find(x=>clean(x.workspace.id)===preferredWorkspaceId)||null;
   if(!selected&&activeOptions.length===1)selected=activeOptions[0];
   if(!selected&&activeOptions.length>1){
     return{allowed:false,reason:'WORKSPACE_SELECTION_REQUIRED',userId,email,workspaces:publicWorkspaces};
+  }
+  // If all memberships are suspended, show a clear access denial rather than
+  // a picker containing inaccessible organizations.
+  if(!selected&&options.length){
+    const inactive=options.find(x=>String(x.member.status||'').toUpperCase()==='ACTIVE');
+    if(inactive)selected=inactive;
   }
   if(!selected&&options.length===1)selected=options[0];
   if(!selected&&options.length>1){
