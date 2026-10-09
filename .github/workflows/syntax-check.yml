@@ -34,6 +34,7 @@ jobs:
           node --test tests/access-navigation-visibility.test.mjs
           node --test tests/mobile-navigation-access.test.mjs
           node --test tests/platform-organizations-access.test.mjs
+          node --test tests/platform-server-provision.test.mjs
 
       - name: Check local AI Python syntax
         shell: bash

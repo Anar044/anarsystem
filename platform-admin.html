@@ -33,6 +33,14 @@ td small{display:block;color:#9eb0bd}td .actions{display:flex;gap:6px;flex-wrap:
 #inviteResult input{flex:1 1 320px}
 .meta{font-size:12px;color:#92a6b7}
 @media(max-width:800px){form{grid-template-columns:1fr}header strong{font-size:16px}main{padding:18px 12px}section{padding:14px}}
+#serverPanel[hidden]{display:none!important}
+#serverPanel{border-color:#2e634d;background:#11231c}
+#serverPanel form{grid-template-columns:1.4fr .6fr 1fr 1fr auto}
+#serverPanel .hint{color:#9cb4a8;font-size:12px;margin:8px 0 18px}
+#serverPanel .summary{font-size:12px;color:#b6d6c1;margin:12px 0}
+#serverPanel .form-actions{display:flex;align-items:flex-end;gap:8px}
+@media(max-width:850px){#serverPanel form{grid-template-columns:1fr 1fr}#serverPanel .form-actions{grid-column:1 / -1}}
+@media(max-width:500px){#serverPanel form{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -53,6 +61,22 @@ td small{display:block;color:#9eb0bd}td .actions{display:flex;gap:6px;flex-wrap:
       <button type="submit">Создать</button>
     </form>
   </section>
+  <section id="serverPanel" hidden aria-labelledby="serverTitle">
+    <h2 id="serverTitle">Подключение SH Server</h2>
+    <div class="hint">Доступ только Platform Admin. Укажите адрес, доступный из Cloudflare Pages, и данные авторизации SH Server. Локальные IP (192.168.x.x, 127.0.0.1) недоступны из Cloudflare.</div>
+    <form id="serverForm" autocomplete="off">
+      <input id="serverOrganizationId" type="hidden" name="organizationId">
+      <label>Адрес сервера (без http://)<input name="host" id="serverHost" placeholder="s01.smarthoreca.az" required autocomplete="off"></label>
+      <label>Порт<input name="port" id="serverPort" type="number" min="1" max="65535" placeholder="8080" required></label>
+      <label>Логин<input name="login" id="serverLogin" autocomplete="off" required></label>
+      <label>Пароль<input name="password" id="serverPassword" type="password" autocomplete="new-password" placeholder="Введите пароль" ></label>
+      <div class="form-actions">
+        <button type="submit">Проверить и сохранить</button>
+        <button type="button" id="serverCancel" class="secondary">Закрыть</button>
+      </div>
+    </form>
+    <p class="summary" id="serverSummary" role="status"></p>
+  </section>
   <section>
     <h2>Список организаций</h2>
     <div id="inviteResult" hidden>
@@ -62,14 +86,14 @@ td small{display:block;color:#9eb0bd}td .actions{display:flex;gap:6px;flex-wrap:
       <button id="closeInvite" type="button" class="secondary">Закрыть</button>
     </div>
     <div class="table-scroll"><table><thead><tr>
-      <th>Организация</th><th>Режим</th><th>Статус</th><th>Пользователи</th><th>Действия</th>
-    </tr></thead><tbody id="organizations"><tr><td colspan="5">Загрузка...</td></tr></tbody></table></div>
-    <p class="meta">Создание и приглашение не подключают сервер автоматически. Данные существующих организаций не изменяются.</p>
+      <th>Организация</th><th>Режим</th><th>Статус</th><th>Сервер</th><th>Пользователи</th><th>Действия</th>
+    </tr></thead><tbody id="organizations"><tr><td colspan="6">Загрузка...</td></tr></tbody></table></div>
+    <p class="meta">Порядок: создать организацию → подключить SH Server → активировать → пригласить SysAdmin.</p>
   </section>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/auth-config.js"></script>
 <script src="/auth.js"></script>
-<script src="/platform-admin.js?v=20261010-v1"></script>
+<script src="/platform-admin.js?v=20261010-server-v2"></script>
 </body>
 </html>

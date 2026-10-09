@@ -23,6 +23,36 @@ async function initSession(){
   apiToken=data.session.access_token;
   return true;
 }
+async function serverApi(method,orgId,body){
+  if(!apiToken)throw new Error('Нет сессии.');
+  const url='/api/platform/server'+(method==='GET'?'?organizationId='+encodeURIComponent(orgId):'');
+  const response=await fetch(url,{
+    method,
+    headers:{Authorization:'Bearer '+apiToken,'Content-Type':'application/json',Accept:'application/json'},
+    body:body?JSON.stringify(body):undefined,cache:'no-store'
+  });
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok||data.success===false)throw new Error(data.message||'Ошибка SH Server HTTP '+response.status);
+  return data;
+}
+async function showServerForm(org){
+  await perform(async()=>{
+    const response=await serverApi('GET',org.id);
+    const details=response.server||{};
+    $('serverOrganizationId').value=org.id;
+    $('serverTitle').textContent='SH Server — '+org.name+' ('+org.serverMode+')';
+    $('serverHost').value=details.host||'';
+    $('serverPort').value=details.port||'';
+    $('serverLogin').value=details.login||'';
+    $('serverPassword').value='';
+    $('serverPassword').placeholder=details.passwordStored?'Оставьте пустым, чтобы сохранить прежний пароль':'Введите пароль SH Server';
+    $('serverSummary').textContent=details.connected
+      ?'Сервер подключён. Подразделений: '+(details.departmentCount||0)+'. Обновлён: '+(details.updatedAt||'—')+'.'
+      :'Сервер ещё не настроен. Сначала проверьте соединение и сохраните.';
+    $('serverPanel').hidden=false;
+    $('serverPanel').scrollIntoView({behavior:'smooth',block:'center'});
+  });
+}
 async function call(method,body){
   if(!apiToken)throw new Error('Нет сессии.');
   const response=await fetch('/api/platform/organizations',{
@@ -64,7 +94,7 @@ function render(organizations){
   const tbody=$('organizations');tbody.replaceChildren();
   if(!organizations.length){
     const tr=document.createElement('tr'),td=text('td','Организаций пока нет.');
-    td.colSpan=5;tr.appendChild(td);tbody.appendChild(tr);return;
+    td.colSpan=6;tr.appendChild(td);tbody.appendChild(tr);return;
   }
   for(const org of organizations){
     const tr=document.createElement('tr');
@@ -75,8 +105,12 @@ function render(organizations){
     tr.appendChild(text('td',org.serverMode));
     const status=document.createElement('td');
     status.appendChild(text('span',org.status, 'status '+org.status));tr.appendChild(status);
+    const server=document.createElement('td');
+    server.appendChild(text('span',org.serverConnected?'Подключён':'Не подключён','status '+(org.serverConnected?'':'DRAFT')));
+    tr.appendChild(server);
     tr.appendChild(text('td',String(org.activeMembers)+' активных / '+String(org.pendingMembers)+' ожидают'));
     const td=document.createElement('td'),actions=document.createElement('div');actions.className='actions';
+    actions.appendChild(buildButton(org.serverConnected?'Настроить сервер':'Подключить сервер',()=>showServerForm(org)));
     if(org.status==='ACTIVE')actions.appendChild(buildButton('Пригласить SysAdmin',()=>{
       const email=askEmail(org.contactEmail);
       if(email===null)return;
@@ -113,7 +147,33 @@ async function init(){
           contactEmail:String(f.get('contactEmail')||'')
         });
         $('orgForm').reset();await load();
-        notify('Организация «'+result.organization.name+'» создана. Теперь активируйте организацию и пригласите SysAdmin.');
+        notify('Организация «'+result.organization.name+'» создана. Теперь подключите сервер, активируйте организацию и пригласите SysAdmin.');
+      });
+    });
+    $('serverCancel').onclick=()=>{
+      $('serverPanel').hidden=true;
+      $('serverPassword').value='';
+    };
+    $('serverForm').addEventListener('submit',event=>{
+      event.preventDefault();
+      const body=new FormData(event.currentTarget);
+      const orgId=String(body.get('organizationId')||'');
+      if(!orgId){notify('Организация не выбрана.',true);return}
+      perform(async()=>{
+        const result=await serverApi('POST',orgId,{
+          organizationId:orgId,
+          connection:{
+            host:String(body.get('host')||'').trim(),
+            port:String(body.get('port')||'').trim(),
+            login:String(body.get('login')||'').trim(),
+            password:String(body.get('password')||'')
+          }
+        });
+        $('serverPassword').value='';
+        $('serverSummary').textContent='Подключение проверено. Найдено подразделений: '+
+          result.server.departmentCount+'. Пароль зашифрован. Теперь можно активировать организацию.';
+        await load();
+        notify('SH Server организации подключён. Проверено подразделений: '+result.server.departmentCount+'.');
       });
     });
     $('copyInvite').onclick=async()=>{

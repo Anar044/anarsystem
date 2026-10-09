@@ -97,7 +97,7 @@ function normalizeDepartmentsPayload(payload) {
     return items.map(normalizeDepartmentItem).filter(Boolean);
 }
 
-async function getDepartments(connection) {
+export async function getDepartments(connection) {
     const result = await iikoText(
         connection,
         "/resto/api/corporation/departments",
@@ -152,7 +152,7 @@ function localIsoNow() {
     return new Date().toISOString().slice(0, 10);
 }
 
-async function getDepartmentsFromOlap(connection) {
+export async function getDepartmentsFromOlap(connection) {
     // Fallback ONLY for local iiko Server identity.
     // This does not change the main OLAP reports implementation.
     const baseBody = {

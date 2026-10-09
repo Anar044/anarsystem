@@ -57,11 +57,11 @@ export async function createDraft(db,input,actorId){
   return{id,workspaceId:workspace.id,...org,status:'DRAFT',createdAt:date};
 }
 export async function listOrganizations(db){
-  const rows=await db.prepare("SELECT p.*, (SELECT COUNT(*) FROM sh_access_members m WHERE m.owner_user_id=p.storage_owner_id AND m.user_id IS NOT NULL AND m.status='ACTIVE') AS active_members, (SELECT COUNT(*) FROM sh_access_members m WHERE m.owner_user_id=p.storage_owner_id AND m.status='PENDING') AS pending_members FROM sh_platform_organizations p ORDER BY p.created_at DESC LIMIT 500").all();
+  const rows=await db.prepare("SELECT p.*, (SELECT COUNT(*) FROM sh_access_members m WHERE m.owner_user_id=p.storage_owner_id AND m.user_id IS NOT NULL AND m.status='ACTIVE') AS active_members, (SELECT COUNT(*) FROM sh_access_members m WHERE m.owner_user_id=p.storage_owner_id AND m.status='PENDING') AS pending_members, (SELECT COUNT(*) FROM iiko_connections s WHERE s.user_id=p.storage_owner_id) AS server_connections FROM sh_platform_organizations p ORDER BY p.created_at DESC LIMIT 500").all();
   return(rows.results||[]).map(row=>({
     id:row.id,workspaceId:row.workspace_id,name:row.name,serverMode:row.server_mode,
     status:row.status,contactEmail:row.contact_email,activeMembers:Number(row.active_members)||0,
-    pendingMembers:Number(row.pending_members)||0,createdAt:row.created_at,updatedAt:row.updated_at
+    pendingMembers:Number(row.pending_members)||0,serverConnected:Number(row.server_connections)>0,createdAt:row.created_at,updatedAt:row.updated_at
   }));
 }
 async function getOrg(db,orgId){
@@ -97,6 +97,10 @@ export async function changeOrganizationStatus(db,orgId,nextStatus,actorId){
   const next=clean(nextStatus).toUpperCase();
   if(!['ACTIVE','SUSPENDED'].includes(next))throw new PlatformError('Допустимы только ACTIVE или SUSPENDED.',400,'INVALID_STATUS');
   const org=await getOrg(db,orgId),date=new Date().toISOString();
+  if(next==='ACTIVE'){
+    const connected=await db.prepare('SELECT 1 AS connected FROM iiko_connections WHERE user_id=?1 LIMIT 1').bind(org.storage_owner_id).first();
+    if(!connected)throw new PlatformError('Сначала подключите SH Server через Platform Admin.',409,'SERVER_REQUIRED');
+  }
   // Atomic: both user-facing Workspace and platform registry change together.
   await db.batch([
     db.prepare("UPDATE sh_platform_organizations SET status=?2,updated_at=?3 WHERE id=?1").bind(org.id,next,date),
