@@ -1,5 +1,6 @@
 import { clean, iikoText } from './_lib/iiko-client.js';
 import { resolveStoreScope } from './_lib/store-scope.js';
+import { enrichProcurementInvoicePackaging } from './_lib/procurement-invoice-packaging.js';
 
 function corsHeaders(){return {"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type, Authorization","Content-Type":"application/json; charset=utf-8"};}
 function jsonResponse(data,status=200){return new Response(JSON.stringify(data),{status,headers:{...corsHeaders(),"Cache-Control":"no-store"}});}
@@ -29,6 +30,7 @@ if(subsetRequested&&documents.length){
   }
   documents=documents.filter(d=>documentStoreIds(d).some(id=>allowedStores.has(id)));
 }
+if(type==='incoming'&&documents.length)documents=await enrichProcurementInvoicePackaging(context.env,connection,documents);
 return jsonResponse({
   success:r.ok,
   count:documents.length,
