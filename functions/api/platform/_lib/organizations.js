@@ -48,9 +48,11 @@ export async function createDraft(db,input,actorId){
   // storage key so org admins can change without migrating historic documents.
   const ownerKey='platform-org:'+id;
   const workspace=await ensureOwnerWorkspace(db,ownerKey,null);
-  await db.prepare("UPDATE sh_workspaces SET name=?2,status='DRAFT',updated_at=?3 WHERE id=?1").bind(workspace.id,org.name,date).run();
-  await db.prepare("INSERT INTO sh_platform_organizations(id,workspace_id,storage_owner_id,name,server_mode,status,contact_email,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,'DRAFT',?6,?7,?7)")
-    .bind(id,workspace.id,ownerKey,org.name,org.serverMode,org.contactEmail,date).run();
+  await db.batch([
+    db.prepare("UPDATE sh_workspaces SET name=?2,status='DRAFT',updated_at=?3 WHERE id=?1").bind(workspace.id,org.name,date),
+    db.prepare("INSERT INTO sh_platform_organizations(id,workspace_id,storage_owner_id,name,server_mode,status,contact_email,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,'DRAFT',?6,?7,?7)")
+      .bind(id,workspace.id,ownerKey,org.name,org.serverMode,org.contactEmail,date)
+  ]);
   await audit(db,actorId,id,'ORGANIZATION_CREATED');
   return{id,workspaceId:workspace.id,...org,status:'DRAFT',createdAt:date};
 }
