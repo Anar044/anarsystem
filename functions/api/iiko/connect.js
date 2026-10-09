@@ -19,10 +19,10 @@ function jsonResponse(data, status = 200) {
     });
 }
 
-export async function getDepartments(connection) {
+export async function getDepartments(connection, path = "/resto/api/corporation/departments") {
     const result = await iikoText(
         connection,
-        "/resto/api/corporation/departments",
+        path,
         {
             method: "GET",
             headers: { "Accept": "application/json, application/xml, text/xml" }
@@ -64,6 +64,12 @@ export async function getDepartments(connection) {
             authCacheHit: result.auth?.cacheHit === true
         };
     }
+}
+
+// CHAIN servers can expose a department search even if the general directory
+// is empty for this account. The code filter is a documented regex.
+export async function getDepartmentsSearch(connection) {
+    return getDepartments(connection, "/resto/api/corporation/departments/search?code=.*");
 }
 
 // iiko OLAP requires OpenDate.Typed as a DATE filter.
