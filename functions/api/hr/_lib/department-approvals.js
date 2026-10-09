@@ -26,8 +26,9 @@ export function approvalTarget(scope,requestedId=''){
 }
 export function approvalMonthClosed(month,now=new Date()){
   if(!/^\d{4}-\d{2}$/.test(String(month||'')))return false;
-  const current=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit'}).format(now);
-  return month<current;
+  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit'}).formatToParts(now);
+  const year=parts.find(x=>x.type==='year')?.value||'',m=parts.find(x=>x.type==='month')?.value||'';
+  return month<year+'-'+m;
 }
 export function approvalScopeKey(scope,departmentId=''){
   return approvalTarget(scope,departmentId).key;
