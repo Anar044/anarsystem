@@ -398,10 +398,13 @@
         const user = window.SH_CURRENT_USER || await getUser();
         if (!user) return;
         const meta = user.user_metadata || {};
-        const name = [meta.first_name, meta.last_name].filter(Boolean).join(" ") || user.email || "Пользователь";
+        // Site display name is owned by the Workspace invitation and can differ
+        // from HR employee details and Supabase registration metadata.
+        const displayName = String(window.SHAccess?.context?.displayName || "").trim();
+        const name = displayName || [meta.first_name, meta.last_name].filter(Boolean).join(" ") || user.email || "Пользователь";
         document.querySelectorAll("[data-auth-name]").forEach(el => el.textContent = name);
         document.querySelectorAll("[data-auth-email]").forEach(el => el.textContent = user.email || "");
-        document.querySelectorAll("[data-auth-avatar]").forEach(el => el.textContent = (meta.first_name || user.email || "S").charAt(0).toUpperCase());
+        document.querySelectorAll("[data-auth-avatar]").forEach(el => el.textContent = (displayName || meta.first_name || user.email || "S").charAt(0).toUpperCase());
         document.querySelectorAll("[data-auth-logout]").forEach(button => {
             button.addEventListener("click", async () => {
                 const sb = await createClient(); await sb.auth.signOut(); window.location.replace("login.html");
