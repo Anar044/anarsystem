@@ -77,7 +77,7 @@ function render(organizations){
     status.appendChild(text('span',org.status, 'status '+org.status));tr.appendChild(status);
     tr.appendChild(text('td',String(org.activeMembers)+' активных / '+String(org.pendingMembers)+' ожидают'));
     const td=document.createElement('td'),actions=document.createElement('div');actions.className='actions';
-    actions.appendChild(buildButton('Пригласить SysAdmin',()=>{
+    if(org.status==='ACTIVE')actions.appendChild(buildButton('Пригласить SysAdmin',()=>{
       const email=askEmail(org.contactEmail);
       if(email===null)return;
       perform(async()=>{
@@ -113,7 +113,7 @@ async function init(){
           contactEmail:String(f.get('contactEmail')||'')
         });
         $('orgForm').reset();await load();
-        notify('Организация «'+result.organization.name+'» создана. Теперь пригласите SysAdmin и активируйте организацию.');
+        notify('Организация «'+result.organization.name+'» создана. Теперь активируйте организацию и пригласите SysAdmin.');
       });
     });
     $('copyInvite').onclick=async()=>{
