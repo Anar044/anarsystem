@@ -144,12 +144,93 @@
     };
     return base;
   }
-  async function api(){
-    const range=monthRange($('tsMonth').value),t=await authToken(),q=new URLSearchParams({from:range.from,to:range.to});
-    const fetcher=window.SH_IikoContext?.fetchWithTimeout||fetch;
-    const r=await fetcher(`/api/hr/timesheet?${q}`,{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}},90000);
+  function timesheetParts(range,spanDays=4){
+    const result=[];
+    for(let d=1;d<=range.days;d+=spanDays){
+      const end=Math.min(range.days,d+spanDays-1);
+      result.push({from:`${range.year}-${pad(range.month)}-${pad(d)}`,to:`${range.year}-${pad(range.month)}-${pad(end)}`});
+    }
+    return result;
+  }
+
+  function hashRows(rows,kind){
+    return (rows||[]).map(x=>kind==='FACTUAL'
+      ?[x.employeeId,x.workDate,x.status,Number(x.workedMinutes||0),Number(x.plannedMinutes||0),Number(x.issueCount||0),x.leaveId||'',x.scheduleName||'',x.scheduleSource||'']
+      :[x.employeeId,x.workDate,x.status,Number(x.plannedMinutes||0),x.leaveId||'',x.scheduleName||'',x.scheduleSource||'',x.calendarType||'']);
+  }
+
+  async function requestTimesheetPart(from,to,t,fetcher,timeout=30000){
+    const q=new URLSearchParams({from,to}),url=`/api/hr/timesheet?${q}`;
+    const r=await fetcher(url,{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}},timeout);
+    const ray=r.headers?.get?.('cf-ray')||'';
     const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));
-    if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);
+    if(!r.ok||!j.success){
+      const error=new Error(`${j.message||`HTTP ${r.status}`} (${from} — ${to})${ray?' · Cloudflare Ray '+ray:''}`);
+      error.httpStatus=r.status;error.apiPath='/api/hr/timesheet';error.cfRay=ray;
+      throw error;
+    }
+    return j;
+  }
+
+  function aggregateTimesheetSegments(segments,range){
+    if(!segments.length)throw new Error('Нет частей табеля для объединения');
+    const first=segments[0],employeeOrder=(first.employees||[]).map(e=>String(e.id));
+    const collect=key=>{
+      const grouped=new Map(employeeOrder.map(id=>[id,[]]));
+      for(const segment of segments)for(const x of segment[key]||[]){
+        const id=String(x.employeeId);
+        if(!grouped.has(id))throw new Error('Список сотрудников изменился во время загрузки табеля. Обновите страницу.');
+        grouped.get(id).push(x);
+      }
+      const out=[];
+      for(const id of employeeOrder){
+        const group=grouped.get(id);
+        group.sort((a,b)=>String(a.workDate).localeCompare(String(b.workDate)));
+        out.push(...group);
+      }
+      return out;
+    };
+    for(const segment of segments){
+      const ids=(segment.employees||[]).map(e=>String(e.id));
+      if(ids.length!==employeeOrder.length||ids.some((id,i)=>id!==employeeOrder[i])){
+        throw new Error('Список сотрудников изменился во время загрузки табеля. Обновите страницу.');
+      }
+      if(JSON.stringify(segment.restaurantScope||null)!==JSON.stringify(first.restaurantScope||null)){
+        throw new Error('Выбор ресторанов изменился во время загрузки табеля. Обновите страницу.');
+      }
+    }
+    const result={...first,period:{from:range.from,to:range.to},factualDays:collect('factualDays'),officialDays:collect('officialDays'),
+      intervals:segments.flatMap(x=>x.intervals||[]),issues:segments.flatMap(x=>x.issues||[]),
+      loadStrategy:'SEGMENT_FALLBACK',loadSegments:segments.length};
+    const sumSection=section=>{
+      const keys=new Set(segments.flatMap(x=>Object.keys(x.summary?.[section]||{})));
+      return Object.fromEntries([...keys].map(key=>[key,segments.reduce((total,s)=>total+Number(s.summary?.[section]?.[key]||0),0)]));
+    };
+    result.summary={factual:sumSection('factual'),official:sumSection('official'),raw:sumSection('raw')};
+    return result;
+  }
+
+  async function fetchTimesheetResilient(range,t,fetcher){
+    try{return await requestTimesheetPart(range.from,range.to,t,fetcher,90000)}
+    catch(error){
+      if(![502,503,504].includes(Number(error.httpStatus)))throw error;
+      console.warn('HR whole-month load failed; retrying small date ranges:',error.message);
+      setStatus('Сервер перегружен. Загружаем табель частями…','loading');
+      const parts=timesheetParts(range),results=[];
+      for(const part of parts)results.push(await requestTimesheetPart(part.from,part.to,t,fetcher,45000));
+      const combined=aggregateTimesheetSegments(results,range);
+      combined.snapshotHashes={
+        FACTUAL:await digestText(JSON.stringify(hashRows(combined.factualDays,'FACTUAL'))),
+        OFFICIAL:await digestText(JSON.stringify(hashRows(combined.officialDays,'OFFICIAL')))
+      };
+      return combined;
+    }
+  }
+
+  async function api(){
+    const range=monthRange($('tsMonth').value),t=await authToken();
+    const fetcher=window.SH_IikoContext?.fetchWithTimeout||fetch;
+    const j=await fetchTimesheetResilient(range,t,fetcher);
     try{
       const overlay=await loadAdjustmentOverlay(range,t);
       return await mergeAdjustmentOverlay(j,overlay);
@@ -717,7 +798,7 @@
     const err=$('tsError');
     try{
       busy=true;$('tsRefresh').disabled=true;err.hidden=true;setStatus('Загрузка месяца…','loading');
-      data=await api();approval=null;render();await loadApproval();if(data.adjustmentOverlayUnavailable){err.hidden=false;err.textContent='Корректировки и права доступа не загрузились. Табель открыт только для просмотра; повторите обновление перед подтверждением или начислением доп. часов.';setStatus('Только просмотр','error')}else setStatus('Готово','ok');
+      data=await api();approval=null;render();await loadApproval();if(data.adjustmentOverlayUnavailable){err.hidden=false;err.textContent='Корректировки и права доступа не загрузились. Табель открыт только для просмотра; повторите обновление перед подтверждением или начислением доп. часов.';setStatus('Только просмотр','error')}else setStatus(data.loadStrategy==='SEGMENT_FALLBACK'?'Загружено частями · '+data.loadSegments+' запросов':'Готово','ok');
     }catch(e){
       console.error(e);err.hidden=false;err.textContent=e?.message||String(e);setStatus('Ошибка','error');
     }finally{busy=false;$('tsRefresh').disabled=false}
