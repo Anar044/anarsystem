@@ -159,6 +159,12 @@ export async function onRequestPost({request,env}){
     if(action==='SAVE_OVERTIME_RULE'){
       requireCapability(state.user,'canSetOvertimeRule',state.access);
       const target=employeeId||'*',threshold=mins(body.thresholdMinutes,{max:1440}),payable=mins(body.payableFromMinutes,{max:1440}),note=clean(body.note,1000);
+      if(target==='*'&&scope?.isChain){
+        const selected=new Set((scope.selectedDepartmentIds||[]).map(String));
+        const allowed=new Set((scope.allowedDepartmentIds||[]).map(String));
+        if(scope.membershipRestricted||!allowed.size||selected.size!==allowed.size||[...allowed].some(id=>!selected.has(id)))
+          return json({success:false,message:'Общее правило доп. часов доступно только HR с полномочиями на всю сеть'},403);
+      }
       if(threshold===null||payable===null||threshold<1||payable<threshold)return json({success:false,message:'Порог оплаты должен быть не меньше порога дополнительных часов'},400);
       const old=await ruleRow(env.DB,userId,target);
       const created=old?.created_at||t;
