@@ -31,11 +31,19 @@
 В Authentication -> URL Configuration укажите:
 
 Site URL:
-https://anarsystem.pages.dev
+https://smarthoreca.pages.dev
 
 Redirect URLs:
-https://anarsystem.pages.dev/auth-callback.html
-https://anarsystem.pages.dev/reset-password.html
+https://smarthoreca.pages.dev/auth-callback.html
+https://smarthoreca.pages.dev/**
+https://smarthoreca.pages.dev/reset-password.html
+
+IMPORTANT: Старый домен anarsystem.pages.dev больше НЕ должен быть основным
+Supabase Site URL для пользователей Smart Horeca. Иначе письмо подтверждения
+может открыть другой Pages проект, где нет приглашённого Workspace в D1.
+
+Проверьте: Supabase Dashboard → Authentication → URL Configuration.
+После сохранения отправьте НОВОЕ приглашение пользователя.
 
 При локальной разработке можно добавить соответствующие localhost URL.
 
