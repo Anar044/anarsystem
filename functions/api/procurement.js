@@ -57,6 +57,11 @@ async function ensure(db){
       (SELECT grn_id FROM procurement_receipts LIMIT 1),
       (SELECT variance_status FROM procurement_receipts LIMIT 1),
       (SELECT variance_reason FROM procurement_receipts LIMIT 1),
+      (SELECT resolution_method FROM procurement_receipts LIMIT 1),
+      (SELECT resolution_status FROM procurement_receipts LIMIT 1),
+      (SELECT resolution_note FROM procurement_receipts LIMIT 1),
+      (SELECT resolution_by FROM procurement_receipts LIMIT 1),
+      (SELECT resolution_at FROM procurement_receipts LIMIT 1),
       (SELECT variance_reviewed_by FROM procurement_receipts LIMIT 1),
       (SELECT variance_reviewed_at FROM procurement_receipts LIMIT 1),
       (SELECT package_size FROM procurement_requisition_lines LIMIT 1),
@@ -258,6 +263,11 @@ async function ensure(db){
       variance_reason TEXT NOT NULL DEFAULT '',
       variance_reviewed_by TEXT NOT NULL DEFAULT '',
       variance_reviewed_at TEXT NOT NULL DEFAULT '',
+      resolution_method TEXT NOT NULL DEFAULT '',
+      resolution_status TEXT NOT NULL DEFAULT 'NONE',
+      resolution_note TEXT NOT NULL DEFAULT '',
+      resolution_by TEXT NOT NULL DEFAULT '',
+      resolution_at TEXT NOT NULL DEFAULT '',
       document_date TEXT NOT NULL,
       total_amount REAL NOT NULL DEFAULT 0,
       lines_json TEXT NOT NULL DEFAULT '[]',
@@ -337,6 +347,11 @@ async function ensure(db){
   await ensureColumn("procurement_receipts","variance_reason","TEXT NOT NULL DEFAULT ''");
   await ensureColumn("procurement_receipts","variance_reviewed_by","TEXT NOT NULL DEFAULT ''");
   await ensureColumn("procurement_receipts","variance_reviewed_at","TEXT NOT NULL DEFAULT ''");
+  await ensureColumn("procurement_receipts","resolution_method","TEXT NOT NULL DEFAULT ''");
+  await ensureColumn("procurement_receipts","resolution_status","TEXT NOT NULL DEFAULT 'NONE'");
+  await ensureColumn("procurement_receipts","resolution_note","TEXT NOT NULL DEFAULT ''");
+  await ensureColumn("procurement_receipts","resolution_by","TEXT NOT NULL DEFAULT ''");
+  await ensureColumn("procurement_receipts","resolution_at","TEXT NOT NULL DEFAULT ''");
   await ensureColumn("procurement_requisition_lines","package_size","REAL NOT NULL DEFAULT 1");
   await ensureColumn("procurement_requisition_lines","package_count","REAL NOT NULL DEFAULT 0");
   await ensureColumn("procurement_requisition_lines","container_id","TEXT NOT NULL DEFAULT ''");
@@ -424,6 +439,8 @@ const PROCUREMENT_ACTION_PERMISSIONS={
   "create-grn":"procurement.receive",
   "link-invoice":"procurement.receive",
   "review-invoice-variance":"procurement.approve",
+  "plan-variance-resolution":"procurement.approve",
+  "verify-variance-resolution":"procurement.approve",
   "sync-receipt":"procurement.receive",
   "receive-order":"procurement.receive"
 };
@@ -590,6 +607,7 @@ async function readData(db,serverScope,scope,view=""){
   const receipts=(receiptsR.results||[]).filter(x=>orderIds.has(x.order_id)).map(r=>({
     id:r.id,orderId:r.order_id,grnId:r.grn_id||"",iikoDocumentNumber:r.iiko_document_number,iikoDocumentId:r.iiko_document_id,iikoStatus:r.iiko_status,
     varianceStatus:r.variance_status||"NONE",varianceReason:r.variance_reason||"",varianceReviewedBy:r.variance_reviewed_by||"",varianceReviewedAt:r.variance_reviewed_at||"",
+    resolutionMethod:r.resolution_method||"",resolutionStatus:r.resolution_status||"NONE",resolutionNote:r.resolution_note||"",resolutionBy:r.resolution_by||"",resolutionAt:r.resolution_at||"",
     documentDate:r.document_date,totalAmount:n(r.total_amount),lines:parse(r.lines_json,[]),comment:r.comment,createdAt:r.created_at,createdBy:r.created_by_name||r.created_by
   }));
   const realGrns=(grnsR.results||[]).filter(x=>orderIds.has(x.order_id)).map(g=>({
@@ -1136,15 +1154,27 @@ export async function onRequestPost({request,env}){
         await log(c,"LINK","PURCHASE_INVOICE",o,{receiptId:duplicate.id,grnId:""},{receiptId:duplicate.id,grnId,iikoDocumentNumber:documentNumber,legacyConversion:true,status:next});
         return json({success:true,id:o.id,receiptId:duplicate.id,grnId,totalAmount:n(duplicate.total_amount),duplicate:true,linked:true,status:next});
       }
-      const existingForGrn=await db.prepare("SELECT id,iiko_document_number FROM procurement_receipts WHERE server_scope=?1 AND grn_id=?2 LIMIT 1").bind(c.serverScope,grnId).first();
-      if(existingForGrn){const e=new Error("К этому GRN уже привязана накладная №"+(existingForGrn.iiko_document_number||"без номера")+".");e.status=409;throw e}
+      const grnInvoices=(await db.prepare("SELECT * FROM procurement_receipts WHERE server_scope=?1 AND grn_id=?2").bind(c.serverScope,grnId).all()).results||[];
       const lines=normalizeLines(body?.lines,{allowZeroPrice:true}).map(x=>({
         productId:x.productId,productName:x.productName,unit:x.unit,quantity:x.quantity,packageSize:x.packageSize,packageCount:x.packageCount,
         containerId:x.containerId,packageName:x.packageName,vatPercent:x.vatPercent,unitPrice:x.unitPrice,total:money(x.packageCount*x.unitPrice)
       }));
+      if(grnInvoices.length){
+        // A second invoice for one physical GRN is permitted only to document a
+        // previously approved shortage; it must not create surplus stock.
+        const plan=grnInvoices.find(x=>x.resolution_method==="ADDITIONAL_INVOICE"&&x.resolution_status==="IN_PROGRESS"&&x.variance_status==="APPROVED");
+        if(!plan){const e=new Error("Дополнительная накладная возможна только после согласованного плана урегулирования.");e.status=409;throw e}
+        const grnBy=new Map(parse(grn.lines_json,[]).map(x=>[clean(x.productId),n(x.quantity)]));
+        const billed=new Map();
+        for(const rec of grnInvoices)for(const x of parse(rec.lines_json,[]))billed.set(clean(x.productId),n(billed.get(clean(x.productId)))+n(x.quantity));
+        for(const line of lines){
+          const id=clean(line.productId),max=n(grnBy.get(id))-n(billed.get(id));
+          if(!(max>0.0005)||line.quantity>max+0.0005){const e=new Error("Дополнительная накладная превышает недостающее количество по GRN для "+line.productName+". Осталось "+q(Math.max(0,max))+".");e.status=409;throw e}
+        }
+      }
       const id=uid(),total=money(lines.reduce((sum,x)=>sum+x.total,0));
       const variance=invoiceVariance(parse(grn.lines_json,[]),lines);
-      const varianceStatus=variance.length?"PENDING":"NONE";
+      const varianceStatus=grnInvoices.length?"NONE":variance.length?"PENDING":"NONE";
       await db.prepare(`INSERT INTO procurement_receipts(id,server_scope,order_id,grn_id,iiko_document_number,iiko_document_id,iiko_status,document_date,total_amount,lines_json,comment,created_at,created_by,created_by_name,variance_status)
         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`)
         .bind(id,c.serverScope,o.id,grnId,documentNumber,clean(body?.iikoDocumentId),clean(body?.iikoStatus||"NEW"),clean(body?.documentDate||stamp.slice(0,10)),total,JSON.stringify(lines),clean(body?.comment),stamp,userId,userName,varianceStatus).run();
@@ -1169,6 +1199,54 @@ export async function onRequestPost({request,env}){
       await db.prepare("UPDATE procurement_receipts SET variance_status=?2,variance_reason=?3,variance_reviewed_by=?4,variance_reviewed_at=?5 WHERE id=?1 AND server_scope=?6").bind(receipt.id,decision,reason,userName,stamp,c.serverScope).run();
       await log(c,"REVIEW","PURCHASE_INVOICE_VARIANCE",o,before,{receiptId:receipt.id,invoiceNumber:receipt.iiko_document_number,decision,reason,variances,reviewedBy:userName,reviewedAt:stamp});
       return json({success:true,receiptId:receipt.id,status:decision,reviewedBy:userName,reviewedAt:stamp});
+    }
+
+    if(action==="plan-variance-resolution"){
+      const receiptId=clean(body?.receiptId),method=clean(body?.method).toUpperCase(),note=clean(body?.note);
+      if(!["CORRECT_INVOICE","ADDITIONAL_INVOICE","CORRECT_GRN"].includes(method)){const e=new Error("Выберите способ урегулирования.");e.status=400;throw e}
+      if(note.length<5){const e=new Error("Укажите основание урегулирования (не менее 5 символов).");e.status=400;throw e}
+      const rec=await db.prepare("SELECT * FROM procurement_receipts WHERE id=?1 AND server_scope=?2 LIMIT 1").bind(receiptId,c.serverScope).first();
+      if(!rec){const e=new Error("Накладная не найдена.");e.status=404;throw e}
+      const o=await orderRow(db,c.scope,rec.order_id,c.serverScope);
+      if(rec.variance_status!=="APPROVED"){const e=new Error("Сначала согласуйте расхождение.");e.status=409;throw e}
+      if(rec.resolution_status==="CLOSED"){const e=new Error("Расхождение уже закрыто.");e.status=409;throw e}
+      if(method==="ADDITIONAL_INVOICE"){
+        const grn=await db.prepare("SELECT lines_json FROM procurement_grns WHERE id=?1 AND order_id=?2 AND server_scope=?3 LIMIT 1").bind(rec.grn_id,o.id,c.serverScope).first();
+        if(!grn){const e=new Error("GRN не найден.");e.status=409;throw e}
+        const grnQ=new Map(parse(grn.lines_json,[]).map(x=>[clean(x.productId),n(x.quantity)]));
+        const totalQ=new Map();
+        const all=(await db.prepare("SELECT lines_json FROM procurement_receipts WHERE grn_id=?1 AND server_scope=?2").bind(rec.grn_id,c.serverScope).all()).results||[];
+        for(const x of all)for(const l of parse(x.lines_json,[]))totalQ.set(clean(l.productId),n(totalQ.get(clean(l.productId)))+n(l.quantity));
+        if(![...grnQ].some(([id,amount])=>amount>n(totalQ.get(id))+0.0005)||
+           [...totalQ].some(([id,amount])=>amount>n(grnQ.get(id))+0.0005)){
+          const e=new Error("Дополнительная накладная применима только к недостаче, а не к превышению.");e.status=409;throw e}
+      }
+      await db.prepare("UPDATE procurement_receipts SET resolution_method=?2,resolution_status='IN_PROGRESS',resolution_note=?3,resolution_by=?4,resolution_at=?5 WHERE id=?1 AND server_scope=?6").bind(rec.id,method,note,userName,stamp,c.serverScope).run();
+      await log(c,"PLAN","PURCHASE_INVOICE_RESOLUTION",o,{receiptId:rec.id,method:rec.resolution_method||"",status:rec.resolution_status||"NONE"},{receiptId:rec.id,method,status:"IN_PROGRESS",note,by:userName});
+      return json({success:true,receiptId:rec.id,method,status:"IN_PROGRESS"});
+    }
+
+    if(action==="verify-variance-resolution"){
+      const rec=await db.prepare("SELECT * FROM procurement_receipts WHERE id=?1 AND server_scope=?2 LIMIT 1").bind(clean(body?.receiptId),c.serverScope).first();
+      if(!rec){const e=new Error("Накладная не найдена.");e.status=404;throw e}
+      const o=await orderRow(db,c.scope,rec.order_id,c.serverScope);
+      if(rec.resolution_status==="CLOSED")return json({success:true,receiptId:rec.id,status:"CLOSED",duplicate:true});
+      if(rec.resolution_status!=="IN_PROGRESS"||!rec.resolution_method){const e=new Error("Сначала укажите способ урегулирования.");e.status=409;throw e}
+      const grn=await db.prepare("SELECT lines_json FROM procurement_grns WHERE id=?1 AND order_id=?2 AND server_scope=?3 LIMIT 1").bind(rec.grn_id,o.id,c.serverScope).first();
+      if(!grn){const e=new Error("GRN не найден.");e.status=409;throw e}
+      const all=(await db.prepare("SELECT lines_json,iiko_status FROM procurement_receipts WHERE grn_id=?1 AND server_scope=?2").bind(rec.grn_id,c.serverScope).all()).results||[];
+      const received=new Map(parse(grn.lines_json,[]).map(x=>[clean(x.productId),n(x.quantity)]));
+      const billed=new Map();
+      for(const inv of all){
+        if(!["PROCESSED","CLOSED"].includes(clean(inv.iiko_status).toUpperCase())){const e=new Error("Нельзя закрыть: не все накладные проведены в iiko. Сначала синхронизируйте статусы.");e.status=409;throw e}
+        for(const l of parse(inv.lines_json,[]))billed.set(clean(l.productId),n(billed.get(clean(l.productId)))+n(l.quantity));
+      }
+      const ids=new Set([...received.keys(),...billed.keys()]);
+      const mismatches=[...ids].filter(id=>Math.abs(n(received.get(id))-n(billed.get(id)))>0.0005);
+      if(mismatches.length){const e=new Error("Расхождение нельзя закрыть: количество GRN и проведённых накладных не совпадает ("+mismatches.length+" поз.).");e.status=409;throw e}
+      await db.prepare("UPDATE procurement_receipts SET resolution_status='CLOSED',resolution_at=?2,resolution_by=?3 WHERE id=?1 AND server_scope=?4 AND resolution_status='IN_PROGRESS'").bind(rec.id,stamp,userName,c.serverScope).run();
+      await log(c,"CLOSE","PURCHASE_INVOICE_RESOLUTION",o,{receiptId:rec.id,status:"IN_PROGRESS"},{receiptId:rec.id,status:"CLOSED",method:rec.resolution_method,by:userName});
+      return json({success:true,receiptId:rec.id,status:"CLOSED"});
     }
 
     if(action==="sync-receipt"){
