@@ -57,11 +57,14 @@ export async function onRequestGet({request,env}){
     const selected=approvalTarget(scope,url.searchParams.get('departmentId')||'');
     await ensure(env.DB);
     const accessible=selected.available;
+    let departmentHashes={};
+    const raw=url.searchParams.get('departmentHashes')||'';
+    if(raw.length<=10000){try{const parsed=JSON.parse(raw||'{}');if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))departmentHashes=parsed}catch{}}
     let approvals=[];
     if(scope?.isChain&&accessible.length){
       const all=await env.DB.prepare("SELECT * FROM hr_timesheet_approvals WHERE user_id=?1 AND period_month=?2 AND contour=?3").bind(userId,period,kind).all();
       const byKey=new Map((all.results||[]).map(x=>[String(x.scope_key),x]));
-      approvals=accessible.map(d=>({...d,approval:dto(byKey.get(d.id)||null,selected.key===d.id?currentHash:'')}));
+      approvals=accessible.map(d=>({...d,approval:dto(byKey.get(d.id)||null,(/^[a-f0-9]{64}$/i.test(String(departmentHashes[d.id]||''))?String(departmentHashes[d.id]):(selected.key===d.id?currentHash:'')))}));
     }
     const row=selected.key?await getRow(env.DB,userId,period,kind,selected.key):null;
     return json({success:true,month:period,contour:kind,scopeKey:selected.key,department:selected.department,
