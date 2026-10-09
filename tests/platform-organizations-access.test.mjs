@@ -114,3 +114,10 @@ test('Personal account snapshots are scoped by workspace only for platform-manag
   assert.match(accountState,/resolveAccessForUser/);
   assert.match(accountState,/return user.id/);
 });
+
+test('Clean installation never silently creates a legacy owner or claims email-only membership',()=>{
+  assert.doesNotMatch(access.slice(access.indexOf('export async function listUserWorkspaces'),access.indexOf('export async function updateWorkspaceName')),/await ensureOwnerMembership/);
+  const resolve=access.slice(access.indexOf('export async function resolveAccessForUser'),access.indexOf('export function hasPermission'));
+  assert.doesNotMatch(resolve,/await ensureOwnerMembership|claimLegacyEmailInvite/);
+  assert.match(resolve,/claimInviteByToken/);
+});
