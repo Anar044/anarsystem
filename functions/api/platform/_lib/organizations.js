@@ -75,6 +75,8 @@ export async function inviteSysAdmin(db,orgId,email,displayName,actorId,origin){
   }
   // A real organization sysadmin is an ordinary active membership with the
   // template ADMIN role (all org permissions). They are NEVER platform admins.
+  const existing=await db.prepare("SELECT user_id FROM sh_access_members WHERE owner_user_id=?1 AND email=?2 LIMIT 1").bind(org.storage_owner_id,address).first();
+  if(existing?.user_id)throw new PlatformError('Пользователь уже принял приглашение в эту организацию.',409,'MEMBER_ALREADY_LINKED');
   const data=await listAccessAdmin(db,org.storage_owner_id);
   const admin=data.roles.find(x=>x.code==='ADMIN');
   if(!admin)throw new PlatformError('Системная роль ADMIN не найдена.',500,'ADMIN_ROLE_MISSING');
