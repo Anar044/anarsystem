@@ -100,7 +100,7 @@
                 const stored=connection.passwordStored===true||connection.password===SERVER_PASSWORD_MARKER;
                 passwordInput.value="";
                 passwordInput.dataset.serverStored=stored?"1":"0";
-                passwordInput.placeholder=stored?"Сохранён на сервере — оставьте пустым":"Пароль";
+                passwordInput.placeholder=stored?"Для проверки подключения введите пароль сервера заново":"Пароль";
             }
             if($("remember-iiko")) $("remember-iiko").checked=true;
             const restaurantCount=organizations.length||departments.length;
@@ -152,9 +152,11 @@
         const ip=$("iiko-ip")?.value.trim(), port=$("iiko-port")?.value.trim(), login=$("iiko-login")?.value.trim();
         const passwordInput=$("iiko-password");
         const enteredPassword=passwordInput?.value||"";
-        const password=enteredPassword||(passwordInput?.dataset.serverStored==="1"?SERVER_PASSWORD_MARKER:"");
+        // Discovery endpoints authenticate directly against SH Server. A D1 password marker is not a real password.
+        // Always use credentials entered explicitly for a fresh connection, especially after changing the host/port.
+        const password=enteredPassword;
         const requestedChain=$("is-chain")?.checked===true;
-        if(!ip||!port||!login||!password){setStatus("🟠 Заполните IP, порт, логин и пароль");return;}
+        if(!ip||!port||!login||!password){setStatus("🟠 Введите адрес, порт, логин и настоящий пароль нового SH Server");return;}
         const button=$("connect-iiko"); if(button)button.disabled=true;
         setStatus("🟡 Проверяем SH Server и загружаем структуру в D1...");
         const card=$("iiko-identity"), list=$("iiko-identity-list");
@@ -167,6 +169,7 @@
             let primaryData=null;
             let serverMode="";
             let discoverySource="chain";
+            let chainFailure="";
 
             try{
                 const candidate=await callConnectionEndpoint("/api/iiko/chain",credentials);
@@ -175,18 +178,21 @@
                 departments=Array.isArray(candidate.departments)?candidate.departments.filter(x=>x?.id):[];
                 organizations=Array.isArray(candidate.restaurants)?candidate.restaurants.filter(x=>x?.id):[];
             }catch(error){
+                chainFailure=String(error?.message||error).slice(0,650);
                 console.warn("SH corporation structure lookup failed; trying connection fallback",error);
             }
 
             if(!departments.length){
                 discoverySource="connect-fallback";
-                primaryData=await callConnectionEndpoint("/api/iiko/connect",credentials);
+                try{primaryData=await callConnectionEndpoint("/api/iiko/connect",credentials)}catch(fallbackError){
+                    throw new Error(`CHAIN API: ${chainFailure||"Подразделения не найдены"}. Резервный API: ${String(fallbackError?.message||fallbackError).slice(0,650)}`);
+                }
                 departments=Array.isArray(primaryData.departments)?primaryData.departments.filter(x=>x?.id):[];
                 organizations=Array.isArray(primaryData.organizations)?primaryData.organizations.filter(x=>x?.id):[];
                 serverMode=String(primaryData.detectedMode||primaryData.mode||serverMode||"").toUpperCase();
             }
 
-            if(!departments.length)throw new Error("SH Server подключён, но Department ID не найден.");
+            if(!departments.length)throw new Error(`SH Server не вернул ни одного Department ID. ${chainFailure?`Ответ CHAIN: ${chainFailure}. `:""}Проверьте права пользователя и API структуры сети.`);
             if(serverMode!=="CHAIN"&&serverMode!=="RMS")serverMode=departments.length>1?"CHAIN":"RMS";
 
             const isChain=serverMode==="CHAIN"||requestedChain;
@@ -236,7 +242,7 @@
             if(passwordInput){
                 passwordInput.value="";
                 passwordInput.dataset.serverStored="1";
-                passwordInput.placeholder="Сохранён на сервере — оставьте пустым";
+                passwordInput.placeholder="Сохранён в D1; для новой проверки введите пароль";
             }
             const checkbox=$("is-chain"), hint=$("chain-hint");
             if(checkbox)checkbox.checked=isChain;
@@ -247,7 +253,7 @@
                 : `🟢 SH RMS сохранён в D1 • ресторан: ${displayName||"—"} • Department ID: ${organizationId||"—"}`);
             console.info("SH D1 SAVED:",{mode:identity.mode,departmentIds:identity.departmentIds,discoverySource});
         }catch(error){
-            setStatus("🔴 Ошибка соединения");
+            setStatus("🔴 Не удалось получить структуру SH Server — причина ниже");
             if(list)list.innerHTML=`<div class="iiko-identity-empty">${esc(brand(error?.message||error))}</div>`;
             console.warn("SH CONNECTION FAILED:",error);
         }finally{if(button)button.disabled=false;}
