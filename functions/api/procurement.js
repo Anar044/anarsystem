@@ -1268,6 +1268,7 @@ export async function onRequestPost({request,env}){
       const o=await orderRow(db,c.scope,rec.order_id,c.serverScope);
       if(rec.resolution_status==="CLOSED")return json({success:true,receiptId:rec.id,status:"CLOSED",duplicate:true});
       if(rec.resolution_status!=="IN_PROGRESS"||!rec.resolution_method){const e=new Error("Сначала укажите способ урегулирования.");e.status=409;throw e}
+      if(rec.variance_status!=="APPROVED"){const e=new Error("Согласование изменено или отозвано. Нельзя закрыть устаревшее урегулирование.");e.status=409;throw e}
       const grn=await db.prepare("SELECT lines_json FROM procurement_grns WHERE id=?1 AND order_id=?2 AND server_scope=?3 LIMIT 1").bind(rec.grn_id,o.id,c.serverScope).first();
       if(!grn){const e=new Error("GRN не найден.");e.status=409;throw e}
       const all=(await db.prepare("SELECT id,iiko_document_number,lines_json,iiko_status FROM procurement_receipts WHERE grn_id=?1 AND server_scope=?2").bind(rec.grn_id,c.serverScope).all()).results||[];
@@ -1282,7 +1283,11 @@ export async function onRequestPost({request,env}){
       // Confirm actual iiko status and unchanged invoice lines, never trust
       // a client-supplied status in procurement_receipts.
       for(const inv of all)await checkIikoPostedInvoice(c.connection,inv);
-      for(const inv of all)await db.prepare("UPDATE procurement_receipts SET iiko_status='PROCESSED' WHERE id=?1 AND server_scope=?2").bind(inv.id,c.serverScope).run();
+      for(const inv of all){
+        // A verified supplemental invoice is covered by the approved GRN-level
+        // resolution. It does not require an independent full-GRN approval.
+        await db.prepare("UPDATE procurement_receipts SET iiko_status='PROCESSED',variance_status=CASE WHEN id<>?3 AND variance_status='PENDING' AND ?4='ADDITIONAL_INVOICE' THEN 'NONE' ELSE variance_status END WHERE id=?1 AND server_scope=?2").bind(inv.id,c.serverScope,rec.id,rec.resolution_method).run();
+      }
       await db.prepare("UPDATE procurement_receipts SET resolution_status='CLOSED',resolution_at=?2,resolution_by=?3 WHERE id=?1 AND server_scope=?4 AND resolution_status='IN_PROGRESS'").bind(rec.id,stamp,userName,c.serverScope).run();
       await log(c,"CLOSE","PURCHASE_INVOICE_RESOLUTION",o,{receiptId:rec.id,status:"IN_PROGRESS"},{receiptId:rec.id,status:"CLOSED",method:rec.resolution_method,by:userName});
       return json({success:true,receiptId:rec.id,status:"CLOSED"});
@@ -1304,6 +1309,27 @@ export async function onRequestPost({request,env}){
           const unchanged=JSON.stringify(original.map(x=>[clean(x.productId),q(x.quantity),money(x.unitPrice)]).sort())===JSON.stringify(lines.map(x=>[clean(x.productId),q(x.quantity),money(x.unitPrice)]).sort());
           varianceStatus=unchanged&&clean(receipt.variance_status)==="APPROVED"?"APPROVED":"PENDING";
           if(varianceStatus==="APPROVED"){varianceReason=receipt.variance_reason||"";reviewer=receipt.variance_reviewed_by||"";reviewedAt=receipt.variance_reviewed_at||""}
+          // Supplemental invoices are only parts of the same physical GRN.
+          // Check their cumulative quantity under an already approved plan,
+          // without demanding a second full-GRN variance approval.
+          if(unchanged&&varianceStatus==="PENDING"&&grn){
+            const peers=(await db.prepare("SELECT id,lines_json,variance_status,resolution_status,resolution_method FROM procurement_receipts WHERE grn_id=?1 AND server_scope=?2").bind(receipt.grn_id,c.serverScope).all()).results||[];
+            const approvedPlan=peers.some(x=>x.id!==receipt.id&&x.variance_status==="APPROVED"&&x.resolution_method==="ADDITIONAL_INVOICE"&&["IN_PROGRESS","CLOSED"].includes(x.resolution_status));
+            if(approvedPlan){
+              const received=new Map(parse(grn.lines_json,[]).map(x=>[clean(x.productId),n(x.quantity)]));
+              const totals=new Map();
+              const allLines=peers.flatMap(x=>x.id===receipt.id?lines:parse(x.lines_json,[]));
+              let pricesMatch=true;
+              for(const l of allLines){
+                const pid=clean(l.productId),matching=parse(grn.lines_json,[]).find(x=>clean(x.productId)===pid);
+                if(!matching||Math.abs(n(l.unitPrice)-n(matching.unitPrice))>0.009)pricesMatch=false;
+                totals.set(pid,n(totals.get(pid))+n(l.quantity));
+              }
+              if(pricesMatch&&[...totals].every(([pid,amount])=>received.has(pid)&&amount<=n(received.get(pid))+0.0005)){
+                varianceStatus="NONE";
+              }
+            }
+          }
         }
       }
       await db.prepare("UPDATE procurement_receipts SET iiko_status=?2,document_date=?3,total_amount=?4,lines_json=?5,comment=?6,variance_status=?7,variance_reason=?8,variance_reviewed_by=?9,variance_reviewed_at=?10 WHERE id=?1").bind(receipt.id,clean(body?.iikoStatus||receipt.iiko_status),clean(body?.documentDate||receipt.document_date),total,JSON.stringify(lines),clean(body?.comment||receipt.comment),varianceStatus,varianceReason,reviewer,reviewedAt).run();
