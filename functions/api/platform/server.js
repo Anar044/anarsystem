@@ -67,7 +67,7 @@ async function discover(connection){
   if(!departments.length){
     const summary=classic.diagnostic||{format:classic.rawFormat,candidates:0,types:[]};
     const kinds=(summary.types||[]).slice(0,8).join(', ')||'нет';
-    // Safe diagnostic without raw XML/JSON, password, login, or access tokens.
+    // Diagnostics include only structural counts and type categories.
     const classicStatus='Справочник: '+clean(summary.format||'неизвестно')+
       ', элементов: '+Number(summary.candidates||0)+', типы: '+kinds+'. ';
     const searchStatus=searchError?'Поиск подразделений: ошибка. ':
