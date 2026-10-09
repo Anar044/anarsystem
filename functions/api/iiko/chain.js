@@ -73,8 +73,11 @@ export async function discoverChainStructure(connection){
     grp=await getJsonOrXml(connection,"/resto/api/corporation/groups?revisionFrom=-1");
   }catch(error){
     // Groups are optional when establishing the department identities.
-    groupWarning=/HTTP (401|403)\b/.test(String(error?.message||error))
-      ?"Недостаточно прав для получения групп":"Не удалось загрузить группы";
+    const msg=String(error?.message||error);
+    const status=msg.match(/\bHTTP\s+([1-5][0-9]{2})\b/i);
+    groupWarning=status
+      ?"HTTP "+status[1]+": не удалось загрузить группы"
+      :"Не удалось загрузить группы";
   }
   const hierarchy=departmentFetch.hierarchy;
   const departments=hierarchy.filter(x=>x.type==="DEPARTMENT").map(x=>({
