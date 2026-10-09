@@ -553,3 +553,4 @@ jobs:
           node --test tests/hr-timesheet-resilient-load.test.mjs
           node --test tests/hr-access-rules-v2.test.mjs
           node --test tests/hr-department-approvals.test.mjs
+          node --test tests/hr-department-snapshot.test.mjs
