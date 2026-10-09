@@ -5,7 +5,7 @@ export class PlatformError extends Error{
   constructor(message,status=400,code='PLATFORM_ERROR'){super(message);this.status=status;this.code=code}
 }
 export function isPlatformAdmin(env,user){
-  const ids=String(env?.PLATFORM_ADMIN_USER_IDS||'').split(/[\\s,;]+/).map(clean).filter(Boolean);
+  const ids=String(env?.PLATFORM_ADMIN_USER_IDS||'').split(/[\s,;]+/).map(clean).filter(Boolean);
   return !!user?.id&&ids.includes(String(user.id));
 }
 export function platformDatabase(env){
@@ -31,7 +31,7 @@ export function validateDraft(input){
   const name=clean(input?.name),serverMode=clean(input?.serverMode).toUpperCase(),contactEmail=clean(input?.contactEmail).toLowerCase();
   if(!name||name.length>120)throw new PlatformError('Название организации: от 1 до 120 символов.',400,'INVALID_NAME');
   if(!['RMS','CHAIN'].includes(serverMode))throw new PlatformError('Выберите RMS или CHAIN.',400,'INVALID_SERVER_MODE');
-  if(contactEmail&&(contactEmail.length>254||!(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/).test(contactEmail)))throw new PlatformError('Некорректный email.',400,'INVALID_CONTACT_EMAIL');
+  if(contactEmail&&(contactEmail.length>254||!(/^[^\s@]+@[^\s@]+\.[^\s@]+$/).test(contactEmail)))throw new PlatformError('Некорректный email.',400,'INVALID_CONTACT_EMAIL');
   return{name,serverMode,contactEmail};
 }
 export async function createDraft(db,input,actorId){
