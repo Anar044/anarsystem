@@ -53,6 +53,59 @@
         } catch { return null; }
     }
 
+    function inviteCallbackUrl(invite) {
+        const url = new URL("/auth-callback.html", window.location.origin);
+        if (invite) url.searchParams.set("invite", invite);
+        return url.toString();
+    }
+
+    function invitedUserMessage(reason) {
+        const messages = {
+            INVITE_NOT_FOUND: "Ссылка приглашения недействительна или уже использована. Попросите администратора выдать новую.",
+            INVITE_EXPIRED: "Приглашение истекло. Попросите администратора отправить новую ссылку.",
+            INVITE_EMAIL_MISMATCH: "Сейчас вы вошли под другим email. Откройте приглашение с адресом, на который его отправили.",
+            INVITE_ALREADY_USED: "Приглашение уже принято другим аккаунтом. Обратитесь к администратору.",
+            INVITE_MEMBER_NOT_FOUND: "Приглашение больше не связано с пользователем организации.",
+            NO_MEMBERSHIP: "Учётная запись подтверждена, но приглашение не было применено. Откройте исходную ссылку приглашения ещё раз.",
+            MEMBERSHIP_DISABLED: "Администратор отключил доступ к организации."
+        };
+        return messages[reason] || "Не удалось принять приглашение. Попросите администратора проверить email и ссылку.";
+    }
+
+    // Claim membership while the invite token is still in the callback URL.
+    // This prevents a separate WhatsApp / email browser from losing the invite
+    // before the protected page has a chance to load.
+    async function claimInvitedWorkspace(sb, invite) {
+        const { data: sessionData } = await sb.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+        if (!accessToken) return { ok: false, reason: "UNAUTHENTICATED" };
+        const endpoint = "/api/access/me" + (invite ? "?invite=" + encodeURIComponent(invite) : "");
+        const response = await fetch(endpoint, {
+            headers: { Authorization: "Bearer " + accessToken, Accept: "application/json" },
+            cache: "no-store"
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data?.access?.allowed) {
+            return { ok: false, reason: data?.access?.reason || data?.reason || "UNKNOWN" };
+        }
+        if (invite) {
+            try { localStorage.removeItem("sh_pending_invite"); } catch {}
+        }
+        return { ok: true, access: data.access };
+    }
+
+    function invitationSignOut(sb, invite) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "auth-submit";
+        btn.textContent = "Выйти и войти под приглашённым email";
+        btn.onclick = async () => {
+            await sb.auth.signOut();
+            window.location.replace("register.html?invite=" + encodeURIComponent(invite));
+        };
+        document.querySelector(".auth-card")?.appendChild(btn);
+    }
+
     function redirectTarget() {
         const params = new URLSearchParams(window.location.search);
         const next = params.get("next");
@@ -110,7 +163,18 @@
         if (!requireConfigured()) return;
         const sb = await createClient();
         const user = await getUser();
-        if (user) { window.location.replace(redirectTarget()); return; }
+        if (user) {
+            if (invite) {
+                const result = await claimInvitedWorkspace(sb, invite);
+                if (!result.ok) {
+                    showMessage(invitedUserMessage(result.reason), "error");
+                    invitationSignOut(sb, invite);
+                    return;
+                }
+            }
+            window.location.replace(redirectTarget());
+            return;
+        }
         const form = byId("login-form");
         if (!form) return;
         if (invite) {
@@ -142,6 +206,49 @@
         if (!requireConfigured()) return;
         const sb = await createClient();
         const existing = await getUser();
+        if (invite) {
+            const preview = await invitePreview(invite);
+            if (!preview) {
+                showMessage("Приглашение недействительно, истекло или уже использовано. Попросите администратора создать новую ссылку.", "error");
+                byId("register-form").style.display = "none";
+                return;
+            }
+            const form = byId("register-form");
+            form.style.display = "none";
+            const card = document.querySelector(".auth-card");
+            const info = document.createElement("p");
+            info.className = "lead";
+            info.textContent = "Приглашение в «" + (preview.workspace?.name || "Smart Horeca") + "» для " + preview.email + ". Отдельная регистрация и анкета сотрудника не нужны.";
+            card.insertBefore(info, form);
+            if (existing) {
+                const accepted = await claimInvitedWorkspace(sb, invite);
+                if (accepted.ok) { window.location.replace("index.html"); return; }
+                showMessage(invitedUserMessage(accepted.reason), "error");
+                invitationSignOut(sb, invite);
+                return;
+            }
+            const btn = document.createElement("button");
+            btn.className = "auth-submit";
+            btn.type = "button";
+            btn.textContent = "Подтвердить email и принять приглашение";
+            card.insertBefore(btn, form);
+            const note = document.createElement("p");
+            note.className = "lead";
+            note.textContent = "Отправим одно письмо для безопасного входа. После перехода по ссылке доступ к организации активируется автоматически. Если аккаунт уже существует, он будет использован.";
+            card.insertBefore(note, form);
+            btn.onclick = async () => {
+                if (!preview.email) { showMessage("В приглашении не указан email.", "error"); return; }
+                setBusy(btn, true, "Отправляем письмо...");
+                const { error } = await sb.auth.signInWithOtp({
+                    email: preview.email,
+                    options: { shouldCreateUser: true, emailRedirectTo: inviteCallbackUrl(invite) }
+                });
+                setBusy(btn, false);
+                if (error) { showMessage(error.message || "Не удалось отправить письмо для входа.", "error"); return; }
+                showMessage("Письмо отправлено на " + preview.email + ". Перейдите по ссылке, и Smart Horeca автоматически привяжет аккаунт к приглашённой организации.", "success");
+            };
+            return;
+        }
         if (existing) { window.location.replace("index.html"); return; }
         const form = byId("register-form");
         if (!form) return;
@@ -234,11 +341,24 @@
         }
         const { data } = await sb.auth.getSession();
         if (data.session) {
-            showMessage("Email подтверждён. Входим в Smart Horeca...", "success");
-            setTimeout(() => window.location.replace("index.html"), 500); return;
+            showMessage("Email подтверждён. Проверяем приглашение в Smart Horeca...", "info");
+            try {
+                const result = await claimInvitedWorkspace(sb, invite);
+                if (!result.ok) {
+                    showMessage(invitedUserMessage(result.reason) + " Код: " + result.reason, "error");
+                    return;
+                }
+            } catch (error) {
+                showMessage("Не удалось завершить подключение к организации. Проверьте соединение и откройте исходную ссылку приглашения снова.", "error");
+                return;
+            }
+            showMessage("Готово! Доступ к Smart Horeca подтверждён.", "success");
+            setTimeout(() => window.location.replace("index.html"), 500);
+            return;
         }
-        showMessage("Email подтверждён. Теперь войдите в Smart Horeca.", "success");
-        setTimeout(() => window.location.replace("login.html"), 900);
+        showMessage("Почта подтверждена, но сессия не была создана. Войдите под приглашённым email.", "info");
+        const next = "login.html" + (invite ? "?invite=" + encodeURIComponent(invite) : "");
+        setTimeout(() => window.location.replace(next), 1200);
     }
 
     async function initSiteAccess() {
