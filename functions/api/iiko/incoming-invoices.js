@@ -3,6 +3,7 @@ import { getIikoAuth, iikoText, iikoJson } from "./_lib/iiko-client.js";
 import { loadCachedReferenceMaps } from "./_lib/reference-cache.js";
 import { resolveStoreScope } from "./_lib/store-scope.js";
 import { getIikoSuppliers } from "./_lib/iiko-suppliers.js";
+import { enrichProcurementInvoicePackaging } from "./_lib/procurement-invoice-packaging.js";
 
 function corsHeaders(){return {"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type, Authorization","Content-Type":"application/json; charset=utf-8"};}
 function jsonResponse(data,status=200){return new Response(JSON.stringify(data),{status,headers:{...corsHeaders(),"Cache-Control":"no-store"}});}
@@ -118,7 +119,7 @@ if(subsetRequested){
     return ids.some(id=>wantedStores.has(id));
   });
 }
-result.docs=scopedDocs;
+result.docs=await enrichProcurementInvoicePackaging(context.env,connection,scopedDocs);
 const auth=await getIikoAuth(connection);
 const neededSupplierIds=[...new Set(result.docs.map(d=>key(d.supplierId)).filter(Boolean))];
 const refs=await getReferences(context.env,auth,neededSupplierIds);
