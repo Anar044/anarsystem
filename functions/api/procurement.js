@@ -48,6 +48,38 @@ function unique(values){return [...new Set((values||[]).map(clean).filter(Boolea
 
 async function ensure(db){
   if(!db)throw new Error("D1 binding DB не настроен.");
+  // Existing deployments already have the schema. Avoid running dozens of
+  // CREATE TABLE / CREATE INDEX / PRAGMA statements on every page read.
+  // This lightweight, read-only probe also verifies the migrated columns.
+  try{
+    await db.prepare(`SELECT
+      (SELECT rfq_id FROM procurement_quotes LIMIT 1),
+      (SELECT grn_id FROM procurement_receipts LIMIT 1),
+      (SELECT package_size FROM procurement_requisition_lines LIMIT 1),
+      (SELECT package_count FROM procurement_requisition_lines LIMIT 1),
+      (SELECT container_id FROM procurement_requisition_lines LIMIT 1),
+      (SELECT package_name FROM procurement_requisition_lines LIMIT 1),
+      (SELECT vat_percent FROM procurement_requisition_lines LIMIT 1),
+      (SELECT package_size FROM procurement_order_lines LIMIT 1),
+      (SELECT package_count FROM procurement_order_lines LIMIT 1),
+      (SELECT container_id FROM procurement_order_lines LIMIT 1),
+      (SELECT package_name FROM procurement_order_lines LIMIT 1),
+      (SELECT vat_percent FROM procurement_order_lines LIMIT 1),
+      (SELECT id FROM procurement_grns LIMIT 1),
+      (SELECT id FROM procurement_requisitions LIMIT 1),
+      (SELECT id FROM procurement_orders LIMIT 1),
+      (SELECT id FROM procurement_rfqs LIMIT 1),
+      (SELECT id FROM procurement_rfq_suppliers LIMIT 1),
+      (SELECT server_scope FROM procurement_settings LIMIT 1),
+      (SELECT server_scope FROM procurement_stock_norms LIMIT 1),
+      (SELECT server_scope FROM procurement_supplier_profiles LIMIT 1),
+      (SELECT id FROM procurement_supplier_contracts LIMIT 1)`).first();
+    return;
+  }catch(error){
+    // Only missing schema can trigger a migration; do not compound transient
+    // D1 failures with write-heavy CREATE/ALTER statements.
+    if(!/no such table|no such column/i.test(String(error?.message||error)))throw error;
+  }
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS procurement_settings (
       server_scope TEXT PRIMARY KEY,
@@ -505,19 +537,23 @@ async function log(context,action,entityType,row,before,after,meta={}){
   });
 }
 
-async function readData(db,serverScope,scope){
+async function readData(db,serverScope,scope,view=""){
+  // PO/receiving pages only need order + physical receipt + invoice records.
+  // Empty optional result sets preserve the existing response shape.
+  const lightweightOrders=view==="orders"||view==="receiving";
+  const empty=()=>Promise.resolve({results:[]});
   const [reqsR,reqLinesR,rfqsR,quotesR,ordersR,orderLinesR,grnsR,receiptsR,normsR,supplierProfilesR,supplierContractsR]=await Promise.all([
-    db.prepare("SELECT * FROM procurement_requisitions WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 500").bind(serverScope).all(),
-    db.prepare(`SELECT l.* FROM procurement_requisition_lines l JOIN procurement_requisitions r ON r.id=l.requisition_id WHERE r.server_scope=?1 ORDER BY l.rowid`).bind(serverScope).all(),
-    db.prepare("SELECT * FROM procurement_rfqs WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
-    db.prepare("SELECT * FROM procurement_quotes WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
+    lightweightOrders?empty():db.prepare("SELECT * FROM procurement_requisitions WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 500").bind(serverScope).all(),
+    lightweightOrders?empty():db.prepare(`SELECT l.* FROM procurement_requisition_lines l JOIN procurement_requisitions r ON r.id=l.requisition_id WHERE r.server_scope=?1 ORDER BY l.rowid`).bind(serverScope).all(),
+    lightweightOrders?empty():db.prepare("SELECT * FROM procurement_rfqs WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
+    lightweightOrders?empty():db.prepare("SELECT * FROM procurement_quotes WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_orders WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 500").bind(serverScope).all(),
     db.prepare(`SELECT l.* FROM procurement_order_lines l JOIN procurement_orders o ON o.id=l.order_id WHERE o.server_scope=?1 ORDER BY l.rowid`).bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_grns WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_receipts WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
-    db.prepare("SELECT * FROM procurement_stock_norms WHERE server_scope=?1 ORDER BY store_name,product_name").bind(serverScope).all(),
-    db.prepare("SELECT * FROM procurement_supplier_profiles WHERE server_scope=?1 ORDER BY supplier_name").bind(serverScope).all(),
-    db.prepare("SELECT * FROM procurement_supplier_contracts WHERE server_scope=?1 ORDER BY supplier_id,end_date DESC,created_at DESC").bind(serverScope).all()
+    lightweightOrders?empty():db.prepare("SELECT * FROM procurement_stock_norms WHERE server_scope=?1 ORDER BY store_name,product_name").bind(serverScope).all(),
+    lightweightOrders?empty():db.prepare("SELECT * FROM procurement_supplier_profiles WHERE server_scope=?1 ORDER BY supplier_name").bind(serverScope).all(),
+    lightweightOrders?empty():db.prepare("SELECT * FROM procurement_supplier_contracts WHERE server_scope=?1 ORDER BY supplier_id,end_date DESC,created_at DESC").bind(serverScope).all()
   ]);
   const reqRows=(reqsR.results||[]).filter(x=>rowAllowed(x,scope));
   const reqIds=new Set(reqRows.map(x=>x.id));
@@ -729,7 +765,7 @@ export async function onRequestGet({request,env}){
     const c=await contextFor(request,env);
     const url=new URL(request.url),view=clean(url.searchParams.get("view")||"catalog").toLowerCase();
     requireAnyPermission(c.access,PROCUREMENT_VIEW_PERMISSIONS[view]||PROCUREMENT_VIEW_PERMISSIONS.catalog);
-    let data=await readData(env.DB,c.serverScope,c.scope);
+    let data=await readData(env.DB,c.serverScope,c.scope,view);
 
     if(view==="requests"&&!hasPermission(c.access,"procurement.request.view_all")){
       data={...data,requisitions:(data.requisitions||[]).filter(r=>clean(r.createdById)===clean(c.auth.user.id)),orders:[],grns:[],receipts:[],supplierPerformance:[]};
