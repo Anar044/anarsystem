@@ -553,3 +553,4 @@ jobs:
           node --test tests/hr-timesheet-resilient-load.test.mjs
           node --test tests/chain-connect-diagnostics.test.mjs
           node --test tests/access-chain-departments.test.mjs
+          node --test tests/access-display-name.test.mjs

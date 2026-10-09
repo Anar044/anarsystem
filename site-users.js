@@ -37,6 +37,7 @@ function memberModal(member=null){
       '<label class="field"><span>Сотрудник</span><select id="memberEmployee"><option value="">Не связывать</option>'+
       employees.map(e=>'<option value="'+esc(e.id)+'" data-name="'+esc([e.lastName,e.firstName].filter(Boolean).join(' ')||e.name||e.code)+'" '+(String(m.employeeId||'')===String(e.id)?'selected':'')+'>'+esc([e.lastName,e.firstName].filter(Boolean).join(' ')||e.name||e.code)+'</option>').join('')+
       '</select></label>'+
+      '<label class="field"><span>Имя в Smart Horeca</span><input id="memberDisplayName" type="text" maxlength="120" placeholder="Например: Менеджер RMS 1" value="'+esc(m.displayName||'')+'" autocomplete="off"><small class="muted">Отображается на сайте. Можно указать без привязки к сотруднику.</small></label>'+
       '<label class="field"><span>Email для входа</span><input id="memberEmail" type="email" value="'+esc(m.email||'')+'" '+(member&&m.userId?'readonly':'')+'></label>'+
       '<label class="field"><span>Статус</span><select id="memberStatus"><option value="PENDING" '+(m.status==='PENDING'?'selected':'')+'>Ожидает входа</option><option value="ACTIVE" '+(m.status==='ACTIVE'?'selected':'')+'>Активен</option><option value="DISABLED" '+(m.status==='DISABLED'?'selected':'')+'>Отключён</option></select></label>'+
       '<label class="field"><span>Область данных</span><select id="memberScope"><option value="ALL" '+(m.scope?.mode!=='SELECTED'?'selected':'')+'>Все рестораны / подразделения</option><option value="SELECTED" '+(m.scope?.mode==='SELECTED'?'selected':'')+'>Только выбранные</option></select></label>'+
@@ -48,20 +49,29 @@ function memberModal(member=null){
     '<div class="modal-actions"><button class="btn" data-close-modal>Отмена</button><button id="saveMember" class="btn primary">Сохранить доступ</button></div>'
   );
   $('memberScope').onchange=()=>{$('memberDepartments').hidden=$('memberScope').value!=='SELECTED'};
+  // A linked SH employee only offers a default name. A name edited by the
+  // owner belongs to the website account and must never be overwritten.
+  let suggestedEmployeeName='';
   $('memberEmployee').onchange=()=>{
-    const o=$('memberEmployee').selectedOptions[0];
-    if(o?.dataset?.name&&!member)$('memberEmail').focus();
+    const selectedName=String($('memberEmployee').selectedOptions[0]?.dataset?.name||'').trim();
+    const nameField=$('memberDisplayName');
+    if(!nameField)return;
+    if(!nameField.value.trim()||nameField.value.trim()===suggestedEmployeeName){
+      nameField.value=selectedName;
+    }
+    suggestedEmployeeName=selectedName;
   };
   $('saveMember').onclick=async()=>{
     try{
-      const emp=$('memberEmployee').selectedOptions[0],scopeMode=$('memberScope').value;
+      const scopeMode=$('memberScope').value;
       const ids=[...document.querySelectorAll('[data-department-id]:checked')].map(x=>x.dataset.departmentId);
       if(scopeMode==='SELECTED'&&!ids.length)throw Error('Выберите хотя бы одно подразделение CHAIN перед сохранением доступа.');
       const selected=choices.filter(x=>ids.includes(String(x.id)));
-      const email=$('memberEmail').value;
+      const email=$('memberEmail').value,displayName=String($('memberDisplayName').value||'').trim();
+      if(!displayName)throw Error('Укажите имя пользователя в Smart Horeca.');
       const result=await api('POST',{action:'save-member',member:{
         id:m.id,email,employeeId:$('memberEmployee').value,
-        displayName:emp?.dataset?.name||m.displayName||'',
+        displayName,
         status:$('memberStatus').value,
         roleIds:[...document.querySelectorAll('[data-role]:checked')].map(x=>x.dataset.role),
         scope:{
