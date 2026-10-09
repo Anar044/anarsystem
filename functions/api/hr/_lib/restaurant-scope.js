@@ -20,7 +20,7 @@ export async function resolveHrRestaurantScope(request,env,userId,access=null){
   const directory=scope?.selectedRestaurants||[];
   const selected=directory.filter(x=>memberIds.has(clean(x.id))||memberCodes.has(clean(x.code)));
   const selectedIds=selected.map(x=>clean(x.id));
-  const selectedCodes=[...new Set([...selected.map(x=>clean(x.code)).filter(Boolean),...memberCodes])];
+  const selectedCodes=[...new Set(scope?.isChain?selected.map(x=>clean(x.code)).filter(Boolean):[...selected.map(x=>clean(x.code)).filter(Boolean),...memberCodes])];
   // Explicit CHAIN selection in the browser cannot override membership restrictions.
   if(scope?.isChain&&!selected.length){const error=new Error('Выбранный ресторан не разрешён пользователю');error.status=403;throw error}
   return{
