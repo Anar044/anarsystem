@@ -254,9 +254,9 @@
     if(j.access)data.access=j.access;
     return j;
   }
-  async function approvalSnapshot(){
-    if(!approvalDepartmentId)return'';
-    const department=approvalDepartments.find(x=>x.id===approvalDepartmentId);
+  async function approvalSnapshot(requestedDepartment=approvalDepartmentId){
+    if(!requestedDepartment)return'';
+    const department=approvalDepartments.find(x=>x.id===requestedDepartment);
     if(!department)return'';
     const ids=new Set((data.employees||[]).filter(e=>
       String(e.departmentCode||'')===String(department.code||'')||
@@ -281,6 +281,10 @@
     if(method==='GET'){
       const q=new URLSearchParams({month,contour:mode,snapshotHash});
       if(approvalDepartmentId)q.set('departmentId',approvalDepartmentId);
+      if(approvalDepartments.length){
+        const hashes={};for(const department of approvalDepartments)hashes[department.id]=await approvalSnapshot(department.id);
+        q.set('departmentHashes',JSON.stringify(hashes));
+      }
       url+=`?${q}`;
     }else{
       opt.body=JSON.stringify({...body,month,contour:mode,snapshotHash,departmentId:approvalDepartmentId});
