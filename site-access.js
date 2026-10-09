@@ -25,10 +25,12 @@
     'labor-cost.html':['reports.labor_cost'],
     'pnl.html':['reports.pnl'],
     'hr-employees.html':['hr.employees.view'],
+    'hr-employee.html':['hr.employees.view'],
     'hr-role-schedules.html':['hr.schedules.view'],
     'hr-compensation.html':['hr.compensation.view'],
     'hr-payroll-adjustments.html':['hr.payroll.view'],
     'hr-payroll.html':['hr.payroll.view'],
+    'hr-payroll-accounting.html':['hr.payroll.view'],
     'hr-timeclock.html':['hr.attendance.view'],
     'hr-timesheet.html':['hr.timesheet.view'],
     'hr-calendar.html':['hr.schedules.view'],
@@ -55,7 +57,7 @@
 
   function pageName(){
     const path=location.pathname.toLowerCase().replace(/\/+$/,'');
-    if(path.endsWith('/cash'))return'cash.html';
+    if(path.endsWith('/cash')||path.endsWith('/cash/index.html'))return'cash.html';
     const last=path.split('/').pop()||'index.html';
     return last.includes('.')?last:last+'.html';
   }
@@ -118,26 +120,60 @@
     box.querySelector('.sh-workspace-logout').onclick=()=>window.SHAuth?.signOut?.();
   }
 
+  // Resolve permission requirements from the same page/view rules that guard
+  // navigation. Legacy HR/report scripts also add links without data-permission.
   function permissionFromElement(el){
     const raw=el?.dataset?.permission||el?.dataset?.procurementPermission||'';
-    if(!raw)return[];
-    return raw.split(/[|,]/).map(x=>x.trim()).filter(Boolean);
+    if(raw)return raw.split(/[|,]/).map(x=>x.trim()).filter(Boolean);
+    if(!el?.matches?.('.sidebar .unified-main-nav a[href]'))return[];
+    try{
+      const url=new URL(el.getAttribute('href')||'',location.origin);
+      if(url.origin!==location.origin)return['__sh_nav_blocked__'];
+      const path=url.pathname.toLowerCase().replace(/\\/+$/,'');
+      let page=path.split('/').pop()||'index.html';
+      if(path.endsWith('/cash')||path.endsWith('/cash/index.html'))page='cash.html';
+      if(page==='procurement.html'){
+        const view=url.searchParams.get('view')||'catalog';
+        return PROCUREMENT_RULES[view]||PROCUREMENT_RULES.catalog;
+      }
+      if(!page.includes('.'))page+='.html';
+      return PAGE_RULES[page]||['__sh_nav_blocked__'];
+    }catch{return['__sh_nav_blocked__'];}
   }
 
   function applyVisibility(root=document){
-    if(!context?.allowed)return;
-    root.querySelectorAll?.('[data-permission],[data-procurement-permission]').forEach(el=>{
-      const list=permissionFromElement(el);
-      el.hidden=!canAny(list);
-      if(el.hidden)el.setAttribute('aria-hidden','true');else el.removeAttribute('aria-hidden');
-    });
-
-    root.querySelectorAll?.('.documents-nav-group,.reports-nav-group').forEach(group=>{
+    if(!context?.allowed||!root)return;
+    const selector='[data-permission],[data-procurement-permission],.sidebar .unified-main-nav a[href]';
+    const groupSelector='.sidebar .documents-nav-group,.sidebar .reports-nav-group';
+    const elements=[];
+    if(root.matches?.(selector))elements.push(root);
+    root.querySelectorAll?.(selector).forEach(el=>elements.push(el));
+    const groups=new Set();
+    if(root.matches?.(groupSelector))groups.add(root);
+    root.querySelectorAll?.(groupSelector).forEach(group=>groups.add(group));
+    for(const el of elements){
+      el.hidden=!canAny(permissionFromElement(el));
+      if(el.hidden)el.setAttribute('aria-hidden','true');
+      else el.removeAttribute('aria-hidden');
+      // Newly injected links stay invisible until they have been checked.
+      el.dataset.shAccessChecked='1';
+      const parent=el.closest?.(groupSelector);
+      if(parent)groups.add(parent);
+    }
+    for(const group of groups){
       const sub=group.querySelector('.documents-subnav');
-      if(!sub)return;
-      const visible=[...sub.querySelectorAll('a')].some(a=>!a.hidden);
-      if(!visible)group.hidden=true;
-    });
+      if(!sub)continue;
+      const links=[...sub.querySelectorAll('a[href]')];
+      group.hidden=!links.some(a=>a.dataset.shAccessChecked==='1'&&!a.hidden);
+      group.dataset.shAccessChecked='1';
+      if(group.hidden){
+        group.classList.remove('open');
+        const toggle=group.querySelector('.documents-nav-toggle');
+        toggle?.setAttribute('aria-expanded','false');
+        const nav=group.querySelector('.documents-subnav');
+        if(nav)nav.hidden=true;
+      }
+    }
   }
 
   function denyScreen(message){
