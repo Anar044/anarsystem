@@ -744,11 +744,28 @@ function buyerOrderActions(o){
   a.push('<button class="proc-btn small danger" data-po-cancel="'+o.id+'">Отменить</button>');
   return a.join('');
 }
+function canAddToGrn(g){
+  const inv=g?.invoices||[];
+  if(!inv.length)return true;
+  if(!inv.some(x=>x.resolutionMethod==="ADDITIONAL_INVOICE"&&x.resolutionStatus==="IN_PROGRESS"&&x.varianceStatus==="APPROVED"))return false;
+  return (g.lines||[]).some(l=>{
+    const billed=inv.reduce((sum,r)=>sum+(r.lines||[]).filter(x=>key(x.productId)===key(l.productId)).reduce((a,x)=>a+num(x.quantity),0),0);
+    return num(l.quantity)-billed>0.0005;
+  });
+}
+function grnInvoiceDraftLines(g){
+  if(!(g.invoices||[]).length)return g.lines||[];
+  return (g.lines||[]).map(l=>{
+    const billed=(g.invoices||[]).reduce((sum,r)=>sum+(r.lines||[]).filter(x=>key(x.productId)===key(l.productId)).reduce((a,x)=>a+num(x.quantity),0),0);
+    const size=num(l.packageSize,1)||1,remaining=Math.max(0,Number((num(l.quantity)-billed).toFixed(3)));
+    return {...l,quantity:remaining,packageCount:remaining/size};
+  }).filter(l=>num(l.quantity)>0.0005);
+}
 function receivingActions(o){
   if(o.effectiveStatus==='CANCELLED')return '';
   const actions=[],remaining=(o.lines||[]).some(x=>num(x.remainingQty)>0.0005);
   const canCost=window.SHAccess?.can?.('procurement.prices.view')||window.SHAccess?.can?.('sensitive.cost.view')||false;
-  const linkable=(o.grns||[]).some(g=>!g.legacy&&!(g.invoices||[]).length);
+  const linkable=(o.grns||[]).some(g=>!g.legacy&&canAddToGrn(g));
   if(remaining)actions.push('<button class="proc-btn small primary" data-po-receive="'+o.id+'">Создать GRN</button>');
   if(linkable&&canCost){
     actions.push('<button class="proc-btn small primary" data-po-invoice="'+o.id+'">Создать накладную</button>');
@@ -770,11 +787,16 @@ function grnHistoryHtml(o){
     return '<div class="proc-grn-row"><div><strong>'+esc(label)+'</strong><span>'+esc(g.documentDate||'—')+' · '+moneyMaybe(g.totalAmount)+'</span></div><div><span class="proc-status-badge '+(g.legacy?'neutral':'success')+'">'+(g.legacy?'legacy':'GRN')+'</span><small>'+(invoices.length?'Накладная: '+invoices.map(x=>esc(x.iikoDocumentNumber||'без №')).join(', '):'Накладная не привязана')+'</small>'+
       invoices.map(inv=>{
         const diff=inv.varianceStatus||'NONE';
-        if(diff==='NONE')return'';
+        if(diff==='NONE'&&!inv.resolutionMethod)return'';
         const badge=diff==='APPROVED'?'Согласовано: '+(inv.varianceReviewedBy||'ответственный'):diff==='REJECTED'?'Расхождение отклонено':'Требует согласования';
         const canReview=window.SHAccess?.can?.('procurement.approve')&&String(inv.iikoStatus||'').toUpperCase()!=='PROCESSED';
+        const methodText={CORRECT_INVOICE:'Исправленная накладная',ADDITIONAL_INVOICE:'Дополнительная накладная',CORRECT_GRN:'Исправление GRN'}[inv.resolutionMethod]||'';
+        const stage=inv.resolutionStatus==="CLOSED"?"Урегулировано":inv.resolutionStatus==="IN_PROGRESS"?"В работе":"";
         return '<div class="proc-history-note"><span class="proc-status-badge '+(diff==='APPROVED'?'success':diff==='REJECTED'?'danger':'warn')+'">'+esc(badge)+'</span>'+
-          (canReview?'<button class="proc-btn small secondary" data-variance-review="'+esc(inv.id)+'" data-po-review="'+esc(o.id)+'">Решение по расхождению</button>':'')+'</div>';
+          (methodText?'<span class="proc-status-badge neutral">'+esc(methodText+' · '+stage)+'</span>':'')+
+          (canReview&&diff!=='NONE'?'<button class="proc-btn small secondary" data-variance-review="'+esc(inv.id)+'" data-po-review="'+esc(o.id)+'">Решение по расхождению</button>':'')+
+          (canReview&&diff==='APPROVED'&&inv.resolutionStatus!=="CLOSED"?'<button class="proc-btn small secondary" data-variance-plan="'+esc(inv.id)+'" data-po-review="'+esc(o.id)+'">Урегулировать</button>':'')+
+          (canReview&&inv.resolutionStatus==='IN_PROGRESS'?'<button class="proc-btn small secondary" data-variance-verify="'+esc(inv.id)+'" data-po-review="'+esc(o.id)+'">Проверить закрытие</button>':'')+'</div>';
       }).join('')+'</div></div>';
   }).join('')+'</div>';
 }
@@ -805,6 +827,27 @@ async function reviewInvoiceVariance(o,receiptId){
     setBusy(true);
     await procPost('review-invoice-variance',{receiptId,decision:approved?'APPROVED':'REJECTED',reason:reason.trim()});
     await reloadProc();toast('Решение по расхождению сохранено. Проведение не выполнялось.');
+  }catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}
+}
+async function manageVarianceResolution(o,receiptId,verify=false){
+  const inv=(o.receipts||[]).find(x=>x.id===receiptId);if(!inv)return;
+  if(!window.SHAccess?.can?.('procurement.approve'))return toast('Недостаточно прав.','error');
+  try{
+    if(verify){
+      setBusy(true);
+      await procPost('verify-variance-resolution',{receiptId});
+      await reloadProc();return toast('Урегулирование закрыто: проведённые накладные соответствуют GRN.');
+    }
+    const methodInput=prompt('Способ урегулирования:\n1 — Исправленная накладная поставщика\n2 — Дополнительная накладная на недостающее количество\n3 — Ошибка физической приёмки (требует документальной корректировки GRN)',inv.resolutionMethod==='ADDITIONAL_INVOICE'?'2':inv.resolutionMethod==='CORRECT_GRN'?'3':'1');
+    if(methodInput===null)return;
+    const method={"1":"CORRECT_INVOICE","2":"ADDITIONAL_INVOICE","3":"CORRECT_GRN"}[methodInput.trim()];
+    if(!method)return toast('Выбери вариант 1, 2 или 3.','error');
+    const note=prompt('Укажи основание и номер документа/действие по урегулированию:');
+    if(!note||note.trim().length<5)return toast('Укажи основание не короче 5 символов.','error');
+    setBusy(true);
+    await procPost('plan-variance-resolution',{receiptId,method,note:note.trim()});
+    await reloadProc();
+    toast('Способ урегулирования записан. Расхождение не закрыто; требуется документальное подтверждение.');
   }catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}
 }
 function orderCard(o,{receiving=false}={}){
@@ -1036,7 +1079,7 @@ async function createPoFromQuote(reqId,quoteId){
   finally{setBusy(false)}
 }
 function openInvoiceForGrnModal(o){
-  const grns=(o.grns||[]).filter(g=>!g.legacy&&!(g.invoices||[]).length);
+  const grns=(o.grns||[]).filter(g=>!g.legacy&&canAddToGrn(g));
   if(!grns.length){toast('Нет GRN без накладной.','error');return}
 
   const draftNo='RC-'+Date.now().toString().slice(-9);
@@ -1049,7 +1092,7 @@ function openInvoiceForGrnModal(o){
       '<label class="proc-field"><span>Дата накладной</span><input id="proc-inv-date" type="date" value="'+today()+'"></label>'+
       '<label class="proc-field"><span>Поставщик</span><input value="'+esc(o.supplierName||o.supplierId)+'" disabled></label>'+
     '</div>'+
-    '<div class="proc-grn-explain"><strong>GRN — неизменяемый факт физической приёмки.</strong><span>Количество, цена и НДС накладной поставщика вводятся отдельно. При несовпадении можно сохранить черновик, а проведение заблокировано до решения ответственного.</span></div>'+
+    '<div class="proc-grn-explain"><strong>GRN — неизменяемый факт физической приёмки.</strong><span>Количество, цена и НДС накладной вводятся отдельно. При несовпадении сохраняйте черновик. Для дополнительных накладных по одобренной недостаче предварительно создайте план урегулирования.</span></div>'+
     '<div id="proc-inv-lines" class="proc-edit-lines"></div>'+
     '<div class="proc-receipt-status warning" id="proc-inv-variance" hidden></div>'+
     '<div class="proc-modal-summary"><span>Сумма накладной</span><strong id="proc-inv-total">0,00 ₼</strong></div>'+
@@ -1069,7 +1112,7 @@ function openInvoiceForGrnModal(o){
   function renderLines(){
     const g=selectedGrn();
     $('proc-inv-lines').innerHTML='<div class="proc-edit-head"><strong>'+esc(g?.number||'GRN')+'</strong><span class="proc-history-note">Количество по накладной можно изменить; GRN не меняется.</span></div>'+
-      (g?.lines||[]).map((l,i)=>{
+      grnInvoiceDraftLines(g).map((l,i)=>{
         const pack=num(l.packageSize,1)||1,count=num(l.packageCount,num(l.quantity)/pack),price=num(l.unitPrice),vat=num(l.vatPercent,0);
         return '<div class="proc-edit-row proc-pack-row proc-invoice-grn-row" data-inv-grn-line data-index="'+i+'">'+
           '<div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div>'+
@@ -1089,9 +1132,9 @@ function openInvoiceForGrnModal(o){
     recalc();
   }
   function invoiceLines(){
-    const g=selectedGrn();
+    const g=selectedGrn(),draft=grnInvoiceDraftLines(g);
     return [...document.querySelectorAll('[data-inv-grn-line]')].map(row=>{
-      const l=g.lines[Number(row.dataset.index)],packageSize=num(l.packageSize,1)||1,packageCount=num(row.querySelector('[data-f="packageCount"]').value);
+      const l=draft[Number(row.dataset.index)],packageSize=num(l.packageSize,1)||1,packageCount=num(row.querySelector('[data-f="packageCount"]').value);
       return{
         productId:l.productId,productName:l.productName,unit:l.unit,quantity:Number((packageCount*packageSize).toFixed(3)),packageSize,packageCount,
         containerId:l.containerId||'',packageName:l.packageName||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),unitPrice:num(row.querySelector('[data-f="price"]').value)
@@ -1099,9 +1142,9 @@ function openInvoiceForGrnModal(o){
     });
   }
   function recalc(){
-    let total=0;const g=selectedGrn(),issues=[];
+    let total=0;const g=selectedGrn(),draft=grnInvoiceDraftLines(g),issues=[];
     document.querySelectorAll('[data-inv-grn-line]').forEach(row=>{
-      const l=g.lines[Number(row.dataset.index)],packageSize=num(l.packageSize,1)||1,packageCount=num(row.querySelector('[data-f="packageCount"]').value),price=num(row.querySelector('[data-f="price"]').value);
+      const l=draft[Number(row.dataset.index)],packageSize=num(l.packageSize,1)||1,packageCount=num(row.querySelector('[data-f="packageCount"]').value),price=num(row.querySelector('[data-f="price"]').value);
       const quantity=Number((packageCount*packageSize).toFixed(3)),difference=Number((quantity-num(l.quantity)).toFixed(3));
       const label=l.productName||l.productId;
       row.querySelector('[data-f="quantity"]').value=qty(quantity);
@@ -1163,7 +1206,7 @@ function openInvoiceForGrnModal(o){
 }
 
 function openLinkInvoiceModal(o){
-  const grns=(o.grns||[]).filter(g=>!g.legacy&&!(g.invoices||[]).length);
+  const grns=(o.grns||[]).filter(g=>!g.legacy&&canAddToGrn(g));
   if(!grns.length){toast('Сначала создайте GRN. Накладная связывается с фактической приёмкой, а не напрямую с PO.','error');return}
 
   const linked=new Set((o.receipts||[]).map(r=>String(r.iikoDocumentNumber||'').trim().toLowerCase()));
@@ -1489,8 +1532,10 @@ function bind(){
     if(b.dataset.prCancel&&confirm('Отменить заявку '+(r?.number||'')+'?'))return simpleAction('cancel-requisition',id,'Заявка отменена.');
   });
   $('proc-po-list').addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poInvoice||b.dataset.poLink||b.dataset.poCopy||b.dataset.poCancel||b.dataset.poReview;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
+    const b=e.target.closest('button');if(!b)return;const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poInvoice||b.dataset.poLink||b.dataset.poCopy||b.dataset.poCancel||b.dataset.poReview||b.dataset.poReview||b.dataset.poReview||b.dataset.poPlan||b.dataset.poVerify;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
     if(b.dataset.varianceReview&&o)return reviewInvoiceVariance(o,b.dataset.varianceReview);
+    if(b.dataset.variancePlan&&o)return manageVarianceResolution(o,b.dataset.variancePlan,false);
+    if(b.dataset.varianceVerify&&o)return manageVarianceResolution(o,b.dataset.varianceVerify,true);
     if(b.dataset.poReceive&&o)return openReceiptModal(o);
     if(b.dataset.poInvoice&&o)return openInvoiceForGrnModal(o);
     if(b.dataset.poLink&&o)return openLinkInvoiceModal(o);
