@@ -69,6 +69,7 @@ async function getOrg(db,orgId){
 }
 export async function inviteSysAdmin(db,orgId,email,displayName,actorId,origin){
   const org=await getOrg(db,orgId);
+  if(org.status!=='ACTIVE')throw new PlatformError('Сначала активируйте организацию, затем отправьте приглашение.',409,'ORG_INACTIVE');
   const address=clean(email).toLowerCase();
   if(!address||address.length>254||!(/^[^\s@]+@[^\s@]+\.[^\s@]+$/).test(address)){
     throw new PlatformError('Укажите email системного администратора.',400,'INVALID_EMAIL');
