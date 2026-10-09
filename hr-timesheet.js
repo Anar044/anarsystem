@@ -7,6 +7,7 @@
   const dayNames=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
   let data={employees:[],factualDays:[],officialDays:[],intervals:[],issues:[],summary:{},access:{}};
   let busy=false,mode='FACTUAL',drawerDay=null,approval=null,approvalBusy=false,adjustmentBusy=false;
+  let approvalDepartmentId='',approvalDepartments=[],approvalDepartmentStatuses=[],approvalMonthClosed=false;
 
   async function authToken(){
     const client=await window.SHAuth?.createClient?.();
@@ -253,19 +254,53 @@
     if(j.access)data.access=j.access;
     return j;
   }
+  async function approvalSnapshot(){
+    if(!approvalDepartmentId)return'';
+    const department=approvalDepartments.find(x=>x.id===approvalDepartmentId);
+    if(!department)return'';
+    const ids=new Set((data.employees||[]).filter(e=>
+      String(e.departmentCode||'')===String(department.code||'')||
+      String(e.departmentCode||'')===String(department.id)
+    ).map(e=>String(e.id)));
+    const rows=(mode==='FACTUAL'?data.factualDays:data.officialDays)||[];
+    const snapshot=rows.filter(x=>ids.has(String(x.employeeId))).map(x=>[
+      x.employeeId,x.workDate,x.status,x.workedMinutes||0,x.plannedMinutes||0,
+      x.firstIn||'',x.lastOut||'',x.markCount||0,x.issueCount||0,x.leaveId||'',
+      x.scheduleName||'',x.scheduleSource||'',x.scheduleOverrideId||'',x.roleNormMinutes||0,
+      x.correction?.updatedAt||'',x.overtimeStatus||'',x.approvedOvertimeMinutes||0,
+      x.overtimeThresholdMinutes||0,x.overtimePayableFromMinutes||0
+    ]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))||String(a[1]).localeCompare(String(b[1])));
+    return digestText(JSON.stringify(['HR_DEPARTMENT_V1',$('tsMonth').value,mode,department.id,snapshot]));
+  }
   async function approvalApi(method='GET',body=null){
-    const t=await authToken(),fetcher=window.SH_IikoContext?.fetchWithTimeout||fetch,month=$('tsMonth').value,snapshotHash=data?.snapshotHashes?.[mode]||'';
+    const t=await authToken(),fetcher=window.SH_IikoContext?.fetchWithTimeout||fetch,month=$('tsMonth').value;
+    const selected=approvalDepartments.length>0||data.restaurantScope?.mode==='CHAIN';
+    const snapshotHash=selected?await approvalSnapshot():(data?.snapshotHashes?.[mode]||'');
     let url='/api/hr/timesheet-approval';
     const opt={method,headers:{Authorization:`Bearer ${t}`,Accept:'application/json','Content-Type':'application/json'}};
     if(method==='GET'){
-      const q=new URLSearchParams({month,contour:mode,snapshotHash});url+=`?${q}`;
+      const q=new URLSearchParams({month,contour:mode,snapshotHash});
+      if(approvalDepartmentId)q.set('departmentId',approvalDepartmentId);
+      url+=`?${q}`;
     }else{
-      opt.body=JSON.stringify({...body,month,contour:mode,snapshotHash});
+      opt.body=JSON.stringify({...body,month,contour:mode,snapshotHash,departmentId:approvalDepartmentId});
     }
     const r=await fetcher(url,opt,60000);
     const j=await r.json().catch(()=>({success:false,message:'Некорректный ответ API'}));
     if(!r.ok||!j.success)throw new Error(j.message||`HTTP ${r.status}`);
     return j;
+  }
+  function renderApprovalDepartments(){
+    const wrap=$('tsApprovalDepartmentWrap'),select=$('tsApprovalDepartment'),statuses=$('tsDepartmentApprovals');
+    if(!wrap||!select||!statuses)return;
+    wrap.hidden=!approvalDepartments.length;
+    if(wrap.hidden)return;
+    select.innerHTML='<option value="">— Выберите ресторан —</option>'+approvalDepartments.map(d=>`<option value="${esc(d.id)}">${esc(d.name||d.code||d.id)}</option>`).join('');
+    select.value=approvalDepartmentId;
+    if(!select.value)approvalDepartmentId='';
+    const labels={DRAFT:'Черновик',MANAGER_APPROVED:'Менеджер ✓',HR_APPROVED:'HR ✓',STALE:'Изменён'};
+    statuses.innerHTML=approvalDepartmentStatuses.map(x=>`<span class="ts-department-chip" title="${esc(x.name||x.code||x.id)}"><strong>${esc(x.name||x.code||x.id)}</strong>: ${esc(labels[x.approval?.status]||'Черновик')}</span>`).join('');
+    $('tsApprovalDepartmentHint').textContent=approvalMonthClosed?'Выберите ресторан. Подтверждение выполняется отдельно от других ресторанов.':'Месяц ещё не завершён: просмотр разрешён, подтверждение и утверждение заблокированы.';
   }
 
   function approvalDate(v){
@@ -274,6 +309,8 @@
   }
   function renderApproval(){
     const a=approval||{status:'DRAFT'},status=a.status||'DRAFT',badge=$('tsApprovalBadge'),title=$('tsApprovalTitle'),meta=$('tsApprovalMeta'),access=data.access||{};
+    renderApprovalDepartments();
+    const selected=approvalDepartments.length===0||Boolean(approvalDepartmentId);
     const managerDone=Boolean(a.manager),hrDone=Boolean(a.hr)&&status==='HR_APPROVED';
     if($('tsAccessBadge'))$('tsAccessBadge').textContent=`Роль: ${access.label||'Владелец'}`;
     $('tsManagerStep')?.classList.toggle('done',managerDone);
@@ -299,16 +336,25 @@
       badge.textContent='Черновик';badge.className='ts-approval-badge draft';
     }
 
-    $('tsManagerApprove').disabled=approvalBusy||!access.canManagerApprove||status==='MANAGER_APPROVED'||status==='HR_APPROVED';
-    $('tsHrApprove').disabled=approvalBusy||!access.canHrApprove||status!=='MANAGER_APPROVED';
-    $('tsReopen').disabled=approvalBusy||!access.canReopen||status==='DRAFT'||(status==='HR_APPROVED'&&!access.canHrApprove);
+    $('tsManagerApprove').disabled=approvalBusy||!selected||!approvalMonthClosed||!access.canManagerApprove||status==='MANAGER_APPROVED'||status==='HR_APPROVED';
+    $('tsHrApprove').disabled=approvalBusy||!selected||!approvalMonthClosed||!access.canHrApprove||status!=='MANAGER_APPROVED';
+    $('tsReopen').disabled=approvalBusy||!selected||!access.canReopen||status==='DRAFT'||(status==='HR_APPROVED'&&!access.canHrApprove);
     $('tsManagerApprove').title=access.canManagerApprove?'':'Доступно роли Manager / Owner';
     $('tsHrApprove').title=access.canHrApprove?'':'Доступно роли HR / Owner';
   }
   async function loadApproval(){
     try{
       approvalBusy=true;renderApproval();
-      const r=await approvalApi('GET');approval=r.approval||{status:'DRAFT'};if(r.access&&!data.adjustmentOverlayUnavailable)data.access=r.access;
+      let r=await approvalApi('GET');
+      approvalDepartments=r.departments||[];
+      approvalDepartmentStatuses=r.departmentApprovals||[];
+      approvalMonthClosed=Boolean(r.monthClosed);
+      if(approvalDepartments.length&&!approvalDepartments.some(d=>d.id===approvalDepartmentId)){
+        approvalDepartmentId=approvalDepartments.length===1?approvalDepartments[0].id:'';
+      }
+      if(approvalDepartmentId&&r.scopeKey!==approvalDepartmentId)r=await approvalApi('GET');
+      approval=r.approval||{status:'DRAFT'};
+      if(r.access&&!data.adjustmentOverlayUnavailable)data.access=r.access;
     }catch(e){
       console.error(e);approval={status:'DRAFT',comment:''};
     }finally{approvalBusy=false;renderApproval()}
@@ -318,7 +364,7 @@
     try{
       approvalBusy=true;renderApproval();setStatus('Сохраняем подтверждение…','loading');
       const r=await approvalApi('POST',{action,comment:$('tsApprovalComment')?.value||''});
-      approval=r.approval||approval;if(r.access)data.access=r.access;renderApproval();setStatus('Готово','ok');
+      approval=r.approval||approval;if(r.access)data.access=r.access;await loadApproval();renderApproval();setStatus('Готово','ok');
     }catch(e){
       console.error(e);setStatus(e?.message||'Ошибка подтверждения','error');alert(e?.message||'Ошибка подтверждения');
     }finally{approvalBusy=false;renderApproval()}
@@ -830,6 +876,7 @@
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('tsDayDrawer').hidden)closeDrawer()});
     $('tsExport').onclick=exportCsv;
     $('tsPrint').onclick=()=>window.print();
+    if($('tsApprovalDepartment'))$('tsApprovalDepartment').onchange=async()=>{approvalDepartmentId=$('tsApprovalDepartment').value;approval=null;await loadApproval()};
     $('tsManagerApprove').onclick=()=>approvalAction('MANAGER_APPROVE');
     $('tsHrApprove').onclick=()=>approvalAction('HR_APPROVE');
     $('tsReopen').onclick=()=>approvalAction('REOPEN');
