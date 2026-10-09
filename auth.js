@@ -383,7 +383,7 @@
         if (!script) {
             script = document.createElement("script");
             script.id = "sh-site-access-script";
-            script.src = "/site-access.js?v=20261008-owner-protect-1";
+            script.src = "/site-access.js?v=20261009-invite-recovery-v1";
             document.head.appendChild(script);
         }
         await new Promise((resolve, reject) => {
