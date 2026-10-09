@@ -1,5 +1,5 @@
 import {getUser,loadPrivateIikoState,savePrivateIikoState,SMART_HORECA_STATE_ENCRYPTION_ENV} from '../iiko/_lib/user-state.js';
-import {getDepartments,getDepartmentsFromOlap} from '../iiko/connect.js';
+import {getDepartments,getDepartmentsSearch,getDepartmentsFromOlap} from '../iiko/connect.js';
 import {requirePlatformAdmin,ensurePlatformTables,PlatformError} from './_lib/organizations.js';
 
 const cors={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, DELETE, OPTIONS','Access-Control-Allow-Headers':'Authorization, Content-Type'};
@@ -51,8 +51,14 @@ export function validateServer(input){
 }
 async function discover(connection){
   const classic=await getDepartments(connection);
-  let result=classic,olapError=null;
+  let result=classic,search=null,searchError=null,olapError=null;
   if(!classic.departments.length){
+    try{
+      search=await getDepartmentsSearch(connection);
+      if(search.departments.length)result=search;
+    }catch(error){searchError=error;}
+  }
+  if(!result.departments.length){
     try{result=await getDepartmentsFromOlap(connection)}
     catch(error){olapError=error;result={departments:[],rawFormat:'failed'};}
   }
@@ -64,12 +70,14 @@ async function discover(connection){
     // Safe diagnostic without raw XML/JSON, password, login, or access tokens.
     const classicStatus='Справочник: '+clean(summary.format||'неизвестно')+
       ', элементов: '+Number(summary.candidates||0)+', типы: '+kinds+'. ';
+    const searchStatus=searchError?'Поиск подразделений: ошибка. ':
+      search?'Поиск подразделений: '+Number(search.diagnostic?.candidates||0)+' элементов. ':'';
     const salesStatus=olapError
       ? 'OLAP: запрос завершился ошибкой. '
       : 'OLAP: '+Number(result.diagnostic?.candidates||0)+' строк за 90 дней, подразделений 0. ';
     const hint='Проверьте права пользователя на справочник подразделений и доступ к CHAIN. Если справочник заполнен, пришлите только этот текст ошибки.';
     throw new PlatformError('Сервер подтвердил авторизацию, но ID подразделений не найдены. '+
-      classicStatus+salesStatus+hint,502,olapError?'DEPARTMENTS_FALLBACK_FAILED':'DEPARTMENTS_EMPTY');
+      classicStatus+searchStatus+salesStatus+hint,502,olapError?'DEPARTMENTS_FALLBACK_FAILED':'DEPARTMENTS_EMPTY');
   }
   return{departments,source:result.rawFormat||'server'};
 }
