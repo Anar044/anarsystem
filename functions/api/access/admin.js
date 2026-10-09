@@ -1,4 +1,5 @@
-import { getUser } from '../iiko/_lib/user-state.js';
+import { getUser, loadPrivateIikoState } from '../iiko/_lib/user-state.js';
+import { accessDepartmentDirectory, normalizeWorkspaceMemberScope } from './_lib/member-departments.js';
 import { resolveAccessForUser, hasPermission, listAccessAdmin, saveRole, upsertMember, setMemberStatus, createMemberInvite } from './_lib/access-control.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
@@ -20,7 +21,9 @@ export async function onRequestGet({request,env}){
   try{
     const c=await ctx(request,env);if(c.error)return c.error;
     const data=await listAccessAdmin(env.DB,c.access.ownerUserId);
-    return json({success:true,...data,current:{memberId:c.access.memberId,isOwner:c.access.isOwner}});
+    const stored=await loadPrivateIikoState(env.DB,c.access.storageUserId||c.access.ownerUserId,env);
+    const availableDepartments=accessDepartmentDirectory(stored.state);
+    return json({success:true,...data,availableDepartments,connectionMode:stored.state?.identity?.mode||stored.state?.connection?.connectionType||'RMS',current:{memberId:c.access.memberId,isOwner:c.access.isOwner}});
   }catch(error){console.error('[ACCESS-ADMIN:GET]',error);return json({success:false,message:error?.message||String(error)},error?.status||500)}
 }
 
@@ -33,7 +36,10 @@ export async function onRequestPost({request,env}){
       return json({success:true,id});
     }
     if(action==='save-member'){
-      const result=await upsertMember(env.DB,c.access.ownerUserId,body.member||{});
+      const stored=await loadPrivateIikoState(env.DB,c.access.storageUserId||c.access.ownerUserId,env);
+      const member=body.member||{};
+      const scope=normalizeWorkspaceMemberScope(member.scope,accessDepartmentDirectory(stored.state));
+      const result=await upsertMember(env.DB,c.access.ownerUserId,{...member,scope});
       const origin=new URL(request.url).origin;
       const inviteLink=result.inviteToken?origin+'/register.html?invite='+encodeURIComponent(result.inviteToken):'';
       return json({success:true,...result,inviteLink});
