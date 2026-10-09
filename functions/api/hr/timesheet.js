@@ -1,4 +1,4 @@
-import { getUser } from '../iiko/_lib/user-state.js';
+import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
 import { singlePunchStatus } from './_lib/live-shift-status.js';
 
@@ -189,13 +189,14 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 
 export async function onRequestGet({request,env}){
   try{
-    const auth=await getUser(request,env);if(!auth)return json({success:false,message:'Требуется авторизация'},401);
+    const auth=await loadRequestIikoState(request,env);if(!auth?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!auth.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству Smart Horeca'},403);
     await ensure(env.DB);
     const url=new URL(request.url),today=new Date().toISOString().slice(0,10),defaultFrom=`${today.slice(0,8)}01`;
     const from=ymd(url.searchParams.get('from'))||defaultFrom,to=ymd(url.searchParams.get('to'))||today;
     if(from>to)return json({success:false,message:'Дата начала не может быть позже даты окончания'},400);
     const span=(new Date(`${to}T00:00:00Z`)-new Date(`${from}T00:00:00Z`))/86400000;if(span>92)return json({success:false,message:'Для табеля выберите период не более 93 дней'},400);
-    const userId=auth.user.id,scope=await resolveHrRestaurantScope(request,env,userId);
+    const userId=auth.storageUserId||auth.user.id,scope=await resolveHrRestaurantScope(request,env,userId,auth.access);
 
     const employeeRows=await env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all();
     const scopedEmployeeRows=filterEmployeesByScope(employeeRows.results||[],scope);

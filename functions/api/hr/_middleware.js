@@ -6,18 +6,36 @@ function r(v){return Math.round((Number(v)||0)*100)/100}
 function money(v){return Math.max(0,r(v))}
 function monthEnd(month){if(!/^\d{4}-\d{2}$/.test(String(month||'')))return'';const[y,m]=month.split('-').map(Number),d=new Date(Date.UTC(y,m,0)).getUTCDate();return`${month}-${String(d).padStart(2,'0')}`}
 function target(path){return path.endsWith('/api/hr/compensation')||path.endsWith('/api/hr/payroll')||path.endsWith('/api/hr/payroll-adjustments')}
-function accessRule(path,method){
+export function hrAccessRule(path,method,action=''){
   const write=!['GET','HEAD','OPTIONS'].includes(String(method||'GET').toUpperCase());
+  const operation=String(action||'').trim().toUpperCase();
   if(path.endsWith('/api/hr/device-ingest'))return null;
   if(path.endsWith('/api/hr/employees'))return write?'hr.employees.manage':'hr.employees.view';
   if(path.endsWith('/api/hr/role-schedules'))return write?'hr.schedules.manage':'hr.schedules.view';
   if(path.endsWith('/api/hr/work-calendar'))return write?'hr.schedules.manage':'hr.schedules.view';
   if(path.endsWith('/api/hr/timeclock'))return write?'hr.attendance.manage':'hr.attendance.view';
   if(path.endsWith('/api/hr/timesheet'))return write?'hr.timesheet.manage':'hr.timesheet.view';
+  if(path.endsWith('/api/hr/timesheet-adjustments')){
+    if(!write)return'hr.timesheet.view';
+    if(['HR_APPROVE_OVERTIME','HR_REJECT_OVERTIME','SAVE_OVERTIME_RULE'].includes(operation))return'hr.timesheet.hr_approve';
+    if(operation==='SUBMIT_OVERTIME')return'hr.timesheet.manager_approve';
+    return'hr.timesheet.manage';
+  }
+  if(path.endsWith('/api/hr/timesheet-approval')){
+    if(!write)return'hr.timesheet.view';
+    if(operation==='HR_APPROVE')return'hr.timesheet.hr_approve';
+    if(operation==='MANAGER_APPROVE')return'hr.timesheet.manager_approve';
+    return'hr.timesheet.manage';
+  }
+  if(path.endsWith('/api/hr/employee-profile'))return write?'hr.employees.manage':'hr.employees.view';
+  if(path.endsWith('/api/hr/employee-leaves'))return write?'hr.timesheet.manage':'hr.timesheet.view';
+  if(path.endsWith('/api/hr/employee-schedule'))return write?'hr.schedules.manage':'hr.schedules.view';
+  if(path.endsWith('/api/hr/overtime-settlements'))return write?'hr.payroll.pay':'hr.payroll.view';
+  if(path.endsWith('/api/hr/payroll-accounting-settings'))return write?'hr.payroll.calculate':'hr.payroll.view';
   if(path.endsWith('/api/hr/compensation'))return write?'hr.compensation.manage':'hr.compensation.view';
   if(path.endsWith('/api/hr/payroll-adjustments'))return write?'hr.payroll.calculate':'hr.payroll.view';
   if(path.endsWith('/api/hr/payroll'))return write?'hr.payroll.calculate':'hr.payroll.view';
-  if(path.endsWith('/api/hr/payroll-tax-settings'))return'hr.tax_settings.manage';
+  if(path.endsWith('/api/hr/payroll-tax-settings'))return write?'hr.tax_settings.manage':'hr.payroll.view';
   if(path.includes('/api/hr/meal-transactions'))return write?'hr.payroll.calculate':'hr.payroll.view';
   return null;
 }
@@ -56,7 +74,11 @@ function patchAdjustments(data,tax){
 export async function onRequest(context){
   // CORS preflight has no Supabase session; route it to the endpoint's onRequestOptions.
   if(context.request.method.toUpperCase()==='OPTIONS')return context.next();
-  const path=new URL(context.request.url).pathname,rule=accessRule(path,context.request.method);
+  const path=new URL(context.request.url).pathname;
+  const write=!['GET','HEAD','OPTIONS'].includes(String(context.request.method).toUpperCase());
+  const needsBody=write&&(target(path)||path.endsWith('/api/hr/timesheet-adjustments')||path.endsWith('/api/hr/timesheet-approval'));
+  const body=needsBody?await context.request.clone().json().catch(()=>({})):{};
+  const rule=hrAccessRule(path,context.request.method,body?.action);
   let auth=null,access=null;
   if(rule){
     auth=await getUser(context.request,context.env);
@@ -67,7 +89,7 @@ export async function onRequest(context){
   }
 
   if(!target(path))return context.next();
-  let body={};if(context.request.method!=='GET'&&context.request.method!=='HEAD')body=await context.request.clone().json().catch(()=>({}));
+
   if(!auth)auth=await getUser(context.request,context.env);
   if(!auth)return context.next();
   if(!access)access=await resolveAccessForUser(context.env.DB,auth.user,{claimInvite:true,request:context.request});

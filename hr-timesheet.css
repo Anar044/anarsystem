@@ -235,3 +235,12 @@
   .ts-matrix th,.ts-matrix td{border-color:#999!important;background:#fff!important;color:#000!important}
   .ts-day-box{background:#fff!important;color:#000!important}
 }
+/* CHAIN: each restaurant has an independent monthly approval. */
+.ts-approval-department{display:flex;flex-direction:column;gap:7px;padding:12px;border:1px solid rgba(112,152,181,.2);border-radius:10px;margin:10px 0;background:rgba(112,152,181,.045)}
+.ts-approval-department[hidden]{display:none}
+.ts-approval-department label{font-size:12px;font-weight:750;color:var(--text,#dce8f4)}
+.ts-approval-department select{color:inherit;background:#131f2b;border:1px solid #34485b;border-radius:7px;padding:10px;max-width:420px}
+.ts-approval-department small{font-size:11px;color:#a7b7c5}
+.ts-department-statuses{display:flex;flex-wrap:wrap;gap:6px}
+.ts-department-chip{padding:6px 9px;border:1px solid rgba(111,153,174,.3);background:rgba(111,153,174,.08);border-radius:7px;color:#bfd5e4;font-size:11px}
+.ts-department-chip strong{color:#f0f6fa}

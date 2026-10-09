@@ -1,4 +1,5 @@
-import { getUser } from '../iiko/_lib/user-state.js';
+import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
+import { resolveHrRestaurantScope } from './_lib/restaurant-scope.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -73,12 +74,22 @@ async function saveProfile(db,userId,effectiveFrom,mode,settings){
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
 export async function onRequestGet({request,env}){try{
-  const a=await getUser(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);
+  const a=await loadRequestIikoState(request,env);if(!a?.user)return json({success:false,message:'Требуется авторизация'},401);
+  if(!a.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+  await ensure(env.DB);
   const url=new URL(request.url),month=monthOnly(url.searchParams.get('month')),asOf=dateOnly(url.searchParams.get('asOf'))||(month?monthEnd(month):new Date().toISOString().slice(0,10));
-  return json(await snapshot(env.DB,a.user.id,asOf));
+  return json(await snapshot(env.DB,a.storageUserId||a.user.id,asOf));
 }catch(e){console.error('[HR-TAX-SETTINGS-GET]',e);return json({success:false,message:e?.message||String(e)},500)}}
 export async function onRequestPost({request,env}){try{
-  const a=await getUser(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);const userId=a.user.id;
+  const a=await loadRequestIikoState(request,env);if(!a?.user)return json({success:false,message:'Требуется авторизация'},401);
+  if(!a.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+  const userId=a.storageUserId||a.user.id,scope=await resolveHrRestaurantScope(request,env,userId,a.access);
+  if(scope?.isChain){
+    const selected=new Set(scope.selectedDepartmentIds||[]),allowed=new Set(scope.allowedDepartmentIds||[]);
+    if(scope.membershipRestricted||!allowed.size||selected.size!==allowed.size||[...allowed].some(id=>!selected.has(id)))
+      return json({success:false,message:'Общесетевые налоговые настройки изменяет только уполномоченный сотрудник всей сети'},403);
+  }
+  await ensure(env.DB);
   const b=await request.json().catch(()=>({})),action=clean(b.action),effectiveFrom=dateOnly(b.effectiveFrom);if(!effectiveFrom)return json({success:false,message:'Укажите дату начала действия'},400);
   if(action==='save')await saveProfile(env.DB,userId,effectiveFrom,'MANUAL',normalizeSettings(b.settings||{}));
   else if(action==='useDefault')await saveProfile(env.DB,userId,effectiveFrom,'DEFAULT',{...DEFAULT_PAYROLL_TAX_SETTINGS});

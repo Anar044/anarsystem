@@ -2,25 +2,25 @@ const clean=v=>String(v??'').trim();
 const num=(v,fallback=-1)=>{const n=Number(v);return Number.isFinite(n)?Math.round(n):fallback};
 export const DEFAULT_OVERTIME_THRESHOLD_MINUTES=600;
 
-export function hrAccessForUser(user){
-  const raw=clean(user?.app_metadata?.hr_role||user?.app_metadata?.app_role||user?.app_metadata?.role).toUpperCase();
-  const role=['OWNER','ADMIN','MANAGER','HR','PAYROLL','VIEWER'].includes(raw)?raw:'OWNER';
-  const owner=role==='OWNER'||role==='ADMIN';
+export function hrAccessForUser(user,workspaceAccess=null){
+  // Trust only the server-resolved workspace membership, never client JWT role metadata.
+  const perms=new Set(workspaceAccess?.allowed?workspaceAccess.permissions||[]:[]);
+  const can=permission=>perms.has('*')||perms.has(permission);
   return{
-    role,
-    label:({OWNER:'Владелец',ADMIN:'Администратор',MANAGER:'Менеджер',HR:'HR',PAYROLL:'Payroll',VIEWER:'Просмотр'})[role]||role,
-    canManagerApprove:owner||role==='MANAGER',
-    canHrApprove:owner||role==='HR',
-    canReopen:owner||role==='HR'||role==='MANAGER',
-    canCorrect:owner||role==='HR'||role==='MANAGER',
-    canSetOvertimeRule:owner||role==='HR',
-    canViewPayroll:owner||role==='HR'||role==='PAYROLL',
-    canSettlePayroll:owner||role==='HR'||role==='PAYROLL',
-    canConfigurePayrollAccounting:owner||role==='PAYROLL'
+    role:workspaceAccess?.isOwner?'OWNER':workspaceAccess?.allowed?'MEMBER':'VIEWER',
+    label:workspaceAccess?.isOwner?'Владелец':workspaceAccess?.allowed?(workspaceAccess.displayName||'Сотрудник'):'Нет доступа',
+    canManagerApprove:can('hr.timesheet.manager_approve'),
+    canHrApprove:can('hr.timesheet.hr_approve'),
+    canReopen:can('hr.timesheet.manage')||can('hr.timesheet.hr_approve'),
+    canCorrect:can('hr.timesheet.manage'),
+    canSetOvertimeRule:can('hr.timesheet.hr_approve'),
+    canViewPayroll:can('hr.payroll.view'),
+    canSettlePayroll:can('hr.payroll.pay'),
+    canConfigurePayrollAccounting:can('hr.payroll.calculate')
   };
 }
-export function requireCapability(user,capability){
-  const access=hrAccessForUser(user);
+export function requireCapability(user,capability,workspaceAccess=null){
+  const access=hrAccessForUser(user,workspaceAccess);
   if(!access[capability]){const e=new Error('Недостаточно прав для этого действия');e.status=403;e.access=access;throw e}
   return access;
 }
