@@ -46,11 +46,13 @@ function emptyCorporateDtoCount(response){
 }
 async function fetchCorporationDepartments(connection){
   const attempts=[],paths=["/resto/api/corporation/departments?revisionFrom=-1","/resto/api/corporation/departments"];
+  let best={response:null,hierarchy:[],attempts};
   for(const path of paths){
     try{
       const response=await getJsonOrXml(connection,path);
       const hierarchy=parsedCorporateResponse(response);
       attempts.push({endpoint:path,format:response.rawFormat,parsed:hierarchy.length,emptyJsonObjects:emptyCorporateDtoCount(response)});
+      if(hierarchy.length>best.hierarchy.length)best={response,hierarchy,attempts};
       if(hierarchy.some(x=>x.type==="DEPARTMENT"))return{response,hierarchy,attempts};
     }catch(error){
       attempts.push({endpoint:path,error:String(error?.message||error).slice(0,260)});
@@ -58,7 +60,7 @@ async function fetchCorporationDepartments(connection){
       if(/HTTP (401|403)\b/.test(String(error?.message||error)))throw error;
     }
   }
-  return{response:null,hierarchy:[],attempts};
+  return best;
 }
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
 export async function onRequestPost({request}){try{const b=await request.json(),connection={ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??"")};if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Заполните IP, порт, логин и пароль SH Server"},400);const departmentFetch=await fetchCorporationDepartments(connection),dep=departmentFetch.response;let grp=null,groupWarning="";try{grp=await getJsonOrXml(connection,"/resto/api/corporation/groups?revisionFrom=-1")}catch(error){groupWarning=String(error?.message||error).slice(0,300);console.warn("[CHAIN] Group discovery failed; retaining department hierarchy:",groupWarning)}const hierarchy=departmentFetch.hierarchy,depts=hierarchy.filter(x=>x.type==="DEPARTMENT"),corporation=hierarchy.find(x=>x.type==="CORPORATION")||null,groupData=grp?(grp.rawFormat==="xml"?parseGroupsXml(grp.xml):groupObjects(grp.payload)):{groups:[],pointsOfSale:[],restaurantSections:[]},departments=depts.map(x=>({id:x.id,parentId:x.parentId,code:x.code,name:x.name,type:x.type})),restaurants=departments.map(x=>({id:x.id,name:x.name,code:x.code,parentId:x.parentId}),),detectedMode=departments.length>1?"CHAIN":"RMS";if(!departments.length)return json({success:false,message:"CHAIN API доступен, но список ресторанов с типом DEPARTMENT пуст. Проверьте права пользователя CHAIN и структуру сервера.",source:"iiko-corporation-api",diagnostics:{format:dep?.rawFormat||"unknown",hierarchyCount:hierarchy.length,types:[...new Set(hierarchy.map(x=>x.type))],attempts:departmentFetch.attempts,groupWarning}},422);return json({success:true,mode:detectedMode,detectedMode,organization:corporation,departments,restaurants,hierarchy,groups:groupData.groups,pointsOfSale:groupData.pointsOfSale,restaurantSections:groupData.restaurantSections,source:"iiko-corporation-api",server:{ip:connection.ip,port:connection.port},loadedAt:new Date().toISOString(),meta:{departmentAuthCacheHit:Boolean(dep?.authCacheHit),groupAuthCacheHit:Boolean(grp?.authCacheHit),groupWarning,discoveryAttempts:departmentFetch.attempts}})}catch(error){return json({success:false,message:error?.message||"Не удалось определить тип SH Server"},502)}}
