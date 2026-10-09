@@ -9,15 +9,73 @@ function status(text,kind=''){const el=$('accessStatus');el.hidden=!text;el.text
 function roleName(id){return data.roles.find(x=>x.id===id)?.name||id}
 function memberStatus(x){return x.isOwner?'OWNER':x.status}
 function renderSummary(){const active=data.members.filter(x=>memberStatus(x)==='ACTIVE'||x.isOwner).length,pending=data.members.filter(x=>x.status==='PENDING'&&!x.isOwner).length,disabled=data.members.filter(x=>x.status==='DISABLED').length;$('accessSummary').innerHTML='<article class="summary-card"><span>Пользователи</span><strong>'+data.members.length+'</strong></article><article class="summary-card"><span>Активные</span><strong>'+active+'</strong></article><article class="summary-card"><span>Ожидают входа</span><strong>'+pending+'</strong></article><article class="summary-card"><span>Отключены</span><strong>'+disabled+'</strong></article>'}
-function scopeLabel(x){if(x.isOwner||x.scope?.mode==='ALL')return'Все рестораны';const d=x.scope?.departmentCodes||[];return d.length?d.join(', '):'Выбранные подразделения'}
+function scopeLabel(x){if(x.isOwner||x.scope?.mode==='ALL')return'Все рестораны';const ids=new Set((x.scope?.departmentIds||[]).map(String)),codes=new Set((x.scope?.departmentCodes||[]).map(String));const names=departmentOptions().filter(d=>ids.has(String(d.id))||codes.has(String(d.code))).map(d=>d.name);return names.length?names.join(', '):[...codes].join(', ')||'Выбранные подразделения'}
 function renderMembers(){const q=String($('accessSearch').value||'').toLowerCase();const rows=data.members.filter(x=>![x.displayName,x.email,x.employeeId].join(' ').toLowerCase().includes(q)?false:true);$('accessMembers').innerHTML=rows.map(x=>{const st=memberStatus(x),roles=x.isOwner?['Владелец']:x.roleIds.map(roleName);return'<tr><td><strong>'+esc(x.displayName||'Без имени')+'</strong><span class="muted">'+esc(x.employeeId?'SH employee: '+x.employeeId:'Не связан с сотрудником')+'</span></td><td>'+esc(x.email)+'</td><td>'+roles.map(r=>'<span class="badge">'+esc(r)+'</span>').join('')+'</td><td>'+esc(scopeLabel(x))+'</td><td><span class="badge '+(st==='ACTIVE'||st==='OWNER'?'ok':st==='PENDING'?'warn':'off')+'">'+esc(st==='OWNER'?'Владелец':st==='ACTIVE'?'Активен':st==='PENDING'?'Ожидает входа':'Отключён')+'</span></td><td>'+(x.isOwner?'':((st==='PENDING'?'<button class="btn small" data-invite-member="'+x.id+'">Ссылка</button> ':'')+'<button class="btn small" data-edit-member="'+x.id+'">Изменить</button>'))+'</td></tr>'}).join('')||'<tr><td colspan="6">Пользователи не найдены.</td></tr>'}
 function renderRoles(){$('accessRoles').innerHTML=data.roles.map(r=>{const full=(r.permissions||[]).includes('*'),countLabel=full?'Все права':r.permissions.length+' прав';return'<article class="role-card"><h3>'+esc(r.name)+'</h3><p>'+esc(r.description||'')+'</p><div class="role-meta"><span class="badge '+(r.isSystem?'ok':'')+'">'+(r.isSystem?'Шаблон':'Своя роль')+'</span><span class="muted">'+countLabel+'</span></div><div style="margin-top:10px"><button class="btn small" data-open-role="'+r.id+'">'+(r.isSystem?'Копировать':'Изменить')+'</button></div></article>'}).join('')}
 function render(){renderSummary();renderMembers();renderRoles()}
 function closeModal(){$('accessModal').hidden=true;$('accessModalContent').innerHTML=''}
 function openModal(html){$('accessModalContent').innerHTML=html;$('accessModal').hidden=false}
 function groupPermissions(selected=[]){const all=(selected||[]).includes('*'),set=new Set(all?data.permissions.map(p=>p.code):selected),groups={};for(const p of data.permissions){(groups[p.module]??=[]).push(p)}return Object.entries(groups).map(([module,items])=>'<section class="permission-group"><h4>'+esc(module)+'</h4><div class="check-grid">'+items.map(p=>'<label class="check-card"><input type="checkbox" data-perm="'+esc(p.code)+'" '+(set.has(p.code)?'checked':'')+'><span><strong>'+esc(p.name)+'</strong><span class="muted">'+esc(p.code)+'</span></span></label>').join('')+'</div></section>').join('')}
-function departmentCodes(){return[...new Set(employees.map(x=>String(x.departmentCode||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru'))}
-function memberModal(member=null){const m=member||{status:'PENDING',roleIds:[],scope:{mode:'ALL',departmentCodes:[]}},editing=Boolean(m.id),selectedRoles=new Set(m.roleIds||[]),selectedDeps=new Set(m.scope?.departmentCodes||[]);openModal('<h2>'+(editing?'Изменить доступ':'Предоставить доступ')+'</h2><div class="form-grid"><label class="field"><span>Сотрудник</span><select id="memberEmployee"><option value="">Не связывать</option>'+employees.map(e=>'<option value="'+esc(e.id)+'" data-name="'+esc([e.lastName,e.firstName].filter(Boolean).join(' ')||e.name||e.code)+'" '+(String(m.employeeId||'')===String(e.id)?'selected':'')+'>'+esc([e.lastName,e.firstName].filter(Boolean).join(' ')||e.name||e.code)+'</option>').join('')+'</select></label><label class="field"><span>Email для входа</span><input id="memberEmail" type="email" value="'+esc(m.email||'')+'" '+(member&&m.userId?'readonly':'')+'></label><label class="field"><span>Статус</span><select id="memberStatus"><option value="PENDING" '+(m.status==='PENDING'?'selected':'')+'>Ожидает входа</option><option value="ACTIVE" '+(m.status==='ACTIVE'?'selected':'')+'>Активен</option><option value="DISABLED" '+(m.status==='DISABLED'?'selected':'')+'>Отключён</option></select></label><label class="field"><span>Область данных</span><select id="memberScope"><option value="ALL" '+(m.scope?.mode!=='SELECTED'?'selected':'')+'>Все рестораны / подразделения</option><option value="SELECTED" '+(m.scope?.mode==='SELECTED'?'selected':'')+'>Только выбранные</option></select></label></div><section class="role-checks"><h3>Роли</h3><div class="check-grid">'+data.roles.map(r=>'<label class="check-card"><input type="checkbox" data-role="'+r.id+'" '+(selectedRoles.has(r.id)?'checked':'')+'><span><strong>'+esc(r.name)+'</strong><span class="muted">'+esc(r.description||'')+'</span></span></label>').join('')+'</div></section><section id="memberDepartments" class="role-checks" '+(m.scope?.mode==='SELECTED'?'':'hidden')+'><h3>Подразделения</h3><div class="check-grid">'+departmentCodes().map(d=>'<label class="check-card"><input type="checkbox" data-department="'+esc(d)+'" '+(selectedDeps.has(d)?'checked':'')+'><span>'+esc(d)+'</span></label>').join('')+'</div></section><div class="modal-actions"><button class="btn" data-close-modal>Отмена</button><button id="saveMember" class="btn primary">Сохранить доступ</button></div>');$('memberScope').onchange=()=>{$('memberDepartments').hidden=$('memberScope').value!=='SELECTED'};$('memberEmployee').onchange=()=>{const o=$('memberEmployee').selectedOptions[0];if(o?.dataset?.name&&!member)$('memberEmail').focus()};$('saveMember').onclick=async()=>{try{const emp=$('memberEmployee').selectedOptions[0],scopeMode=$('memberScope').value,departments=[...document.querySelectorAll('[data-department]:checked')].map(x=>x.dataset.department),email=$('memberEmail').value;const result=await api('POST',{action:'save-member',member:{id:m.id,email,employeeId:$('memberEmployee').value,displayName:emp?.dataset?.name||m.displayName||'',status:$('memberStatus').value,roleIds:[...document.querySelectorAll('[data-role]:checked')].map(x=>x.dataset.role),scope:{mode:scopeMode,departmentCodes:scopeMode==='SELECTED'?departments:[]}}});closeModal();await load();status(result.inviteLink?'Доступ сохранён. Ссылка приглашения создана.':'Доступ сохранён.','ok');if(result.inviteLink)invitationModal(result,email)}catch(e){alert(e.message)}};}
+function departmentOptions(){
+  return(data.availableDepartments||[]).filter(d=>String(d.id||'').trim());
+}
+function memberModal(member=null){
+  const m=member||{status:'PENDING',roleIds:[],scope:{mode:'ALL',departmentIds:[],departmentCodes:[]}};
+  const editing=Boolean(m.id),selectedRoles=new Set(m.roleIds||[]);
+  const selectedIds=new Set((m.scope?.departmentIds||[]).map(String));
+  const selectedCodes=new Set((m.scope?.departmentCodes||[]).map(String));
+  const choices=departmentOptions();
+  const departmentHtml=choices.length
+    ?choices.map(d=>{
+      const checked=selectedIds.has(String(d.id))||(!selectedIds.size&&d.code&&selectedCodes.has(String(d.code)));
+      return '<label class="check-card"><input type="checkbox" data-department-id="'+esc(d.id)+'" '+(checked?'checked':'')+'><span><strong>'+esc(d.name||d.code||d.id)+'</strong><span class="muted">'+esc(d.code?'Код: '+d.code:'Department ID: '+d.id)+'</span></span></label>';
+    }).join('')
+    :'<p class="muted">Нет подразделений в сохранённом подключении SH Server. Проверьте подключение в Настройках и обновите эту страницу.</p>';
+  openModal(
+    '<h2>'+(editing?'Изменить доступ':'Предоставить доступ')+'</h2>'+
+    '<div class="form-grid">'+
+      '<label class="field"><span>Сотрудник</span><select id="memberEmployee"><option value="">Не связывать</option>'+
+      employees.map(e=>'<option value="'+esc(e.id)+'" data-name="'+esc([e.lastName,e.firstName].filter(Boolean).join(' ')||e.name||e.code)+'" '+(String(m.employeeId||'')===String(e.id)?'selected':'')+'>'+esc([e.lastName,e.firstName].filter(Boolean).join(' ')||e.name||e.code)+'</option>').join('')+
+      '</select></label>'+
+      '<label class="field"><span>Email для входа</span><input id="memberEmail" type="email" value="'+esc(m.email||'')+'" '+(member&&m.userId?'readonly':'')+'></label>'+
+      '<label class="field"><span>Статус</span><select id="memberStatus"><option value="PENDING" '+(m.status==='PENDING'?'selected':'')+'>Ожидает входа</option><option value="ACTIVE" '+(m.status==='ACTIVE'?'selected':'')+'>Активен</option><option value="DISABLED" '+(m.status==='DISABLED'?'selected':'')+'>Отключён</option></select></label>'+
+      '<label class="field"><span>Область данных</span><select id="memberScope"><option value="ALL" '+(m.scope?.mode!=='SELECTED'?'selected':'')+'>Все рестораны / подразделения</option><option value="SELECTED" '+(m.scope?.mode==='SELECTED'?'selected':'')+'>Только выбранные</option></select></label>'+
+    '</div>'+
+    '<section class="role-checks"><h3>Роли</h3><div class="check-grid">'+
+      data.roles.map(r=>'<label class="check-card"><input type="checkbox" data-role="'+esc(r.id)+'" '+(selectedRoles.has(r.id)?'checked':'')+'><span><strong>'+esc(r.name)+'</strong><span class="muted">'+esc(r.description||'')+'</span></span></label>').join('')+
+    '</div></section>'+
+    '<section id="memberDepartments" class="role-checks" '+(m.scope?.mode==='SELECTED'?'':'hidden')+'><h3>Подразделения CHAIN</h3><p class="muted">Выберите доступные рестораны из сохранённой структуры SH Chain, независимо от наличия сотрудников или продаж.</p><div class="check-grid">'+departmentHtml+'</div></section>'+
+    '<div class="modal-actions"><button class="btn" data-close-modal>Отмена</button><button id="saveMember" class="btn primary">Сохранить доступ</button></div>'
+  );
+  $('memberScope').onchange=()=>{$('memberDepartments').hidden=$('memberScope').value!=='SELECTED'};
+  $('memberEmployee').onchange=()=>{
+    const o=$('memberEmployee').selectedOptions[0];
+    if(o?.dataset?.name&&!member)$('memberEmail').focus();
+  };
+  $('saveMember').onclick=async()=>{
+    try{
+      const emp=$('memberEmployee').selectedOptions[0],scopeMode=$('memberScope').value;
+      const ids=[...document.querySelectorAll('[data-department-id]:checked')].map(x=>x.dataset.departmentId);
+      if(scopeMode==='SELECTED'&&!ids.length)throw Error('Выберите хотя бы одно подразделение CHAIN перед сохранением доступа.');
+      const selected=choices.filter(x=>ids.includes(String(x.id)));
+      const email=$('memberEmail').value;
+      const result=await api('POST',{action:'save-member',member:{
+        id:m.id,email,employeeId:$('memberEmployee').value,
+        displayName:emp?.dataset?.name||m.displayName||'',
+        status:$('memberStatus').value,
+        roleIds:[...document.querySelectorAll('[data-role]:checked')].map(x=>x.dataset.role),
+        scope:{
+          mode:scopeMode,
+          departmentIds:scopeMode==='SELECTED'?selected.map(x=>x.id):[],
+          departmentCodes:scopeMode==='SELECTED'?selected.map(x=>x.code).filter(Boolean):[]
+        }
+      }});
+      closeModal();await load();
+      status(result.inviteLink?'Доступ сохранён. Ссылка приглашения создана.':'Доступ сохранён.','ok');
+      if(result.inviteLink)invitationModal(result,email);
+    }catch(e){alert(e.message)}
+  };
+}
 function invitationModal(result,email){
   const link=result?.inviteLink||'';
   if(!link)return;
