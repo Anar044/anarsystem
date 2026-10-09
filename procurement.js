@@ -1157,8 +1157,9 @@ function openInvoiceForGrnModal(o){
     const el=$('proc-inv-variance');
     el.hidden=!issues.length;
     el.textContent=issues.length?'Расхождение. Можно сохранить черновик, но нельзя провести без отдельного решения: '+issues.join('; '):'';
-    $('proc-inv-post').disabled=issues.length>0;
-    $('proc-inv-post').title=issues.length?'Сначала сохраните черновик и согласуйте расхождение':'';
+    const supplement=(g.invoices||[]).length>0;
+    $('proc-inv-post').disabled=issues.length>0||supplement;
+    $('proc-inv-post').title=supplement?'Дополнительную накладную сначала сохраните без проведения. Проведение возможно после регистрации и сверки.':issues.length?'Сначала сохраните черновик и согласуйте расхождение':'';
     return issues;
   }
   async function save(process){
@@ -1167,7 +1168,9 @@ function openInvoiceForGrnModal(o){
     if(!lines.length){modalStatus('В GRN нет позиций для накладной.','error');return}
     if(lines.some(x=>x.unitPrice<0||!(x.packageCount>0))){modalStatus('Количество упаковок должно быть положительным, цена — неотрицательной.','error');return}
     const differences=recalc();
-    if(process&&differences.length){modalStatus('Проведение запрещено: обнаружено расхождение. Сохраните накладную без проведения для согласования.','error');return}
+    if(process&&(differences.length||(g.invoices||[]).length)){
+      modalStatus('Проведение запрещено: сначала сохраните черновик и завершите согласование дополнительной накладной.','error');return
+    }
     let documentNumber=$('proc-inv-number').value.trim()||draftNo;
     try{
       setBusy(true);modalStatus(process?'Проводим накладную в Smart Horeca Server…':'Сохраняем накладную в Smart Horeca Server…','loading');
@@ -1532,7 +1535,7 @@ function bind(){
     if(b.dataset.prCancel&&confirm('Отменить заявку '+(r?.number||'')+'?'))return simpleAction('cancel-requisition',id,'Заявка отменена.');
   });
   $('proc-po-list').addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poInvoice||b.dataset.poLink||b.dataset.poCopy||b.dataset.poCancel||b.dataset.poReview||b.dataset.poReview||b.dataset.poReview||b.dataset.poPlan||b.dataset.poVerify;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
+    const b=e.target.closest('button');if(!b)return;const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poInvoice||b.dataset.poLink||b.dataset.poCopy||b.dataset.poCancel||b.dataset.poReview;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
     if(b.dataset.varianceReview&&o)return reviewInvoiceVariance(o,b.dataset.varianceReview);
     if(b.dataset.variancePlan&&o)return manageVarianceResolution(o,b.dataset.variancePlan,false);
     if(b.dataset.varianceVerify&&o)return manageVarianceResolution(o,b.dataset.varianceVerify,true);
