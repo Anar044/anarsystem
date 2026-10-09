@@ -255,7 +255,6 @@ export async function listUserWorkspaces(db,user){
   await ensureAccessTables(db);
   const userId=clean(user?.id),email=emailKey(user?.email);
   if(!userId)return[];
-  await ensureOwnerMembership(db,user);
   const memberships=await membershipsForUser(db,userId);
   const out=[];
   for(const member of memberships){
@@ -383,12 +382,12 @@ async function permissionsForMember(db,row){
   return[...set];
 }
 
+// Invite-only: never recreate organizations from legacy owner data or email-only claims.
 export async function resolveAccessForUser(db,user,{claimInvite=true,request=null,inviteToken:rawInviteToken='',workspaceId:rawWorkspaceId=''}={}){
   await ensureAccessTables(db);
   const userId=clean(user?.id),email=emailKey(user?.email);
   if(!userId)return{allowed:false,reason:'NO_USER'};
 
-  await ensureOwnerMembership(db,user);
 
   let preferredWorkspaceId=clean(rawWorkspaceId)||cookieValue(request,WORKSPACE_COOKIE);
   const token=clean(rawInviteToken);
@@ -399,10 +398,6 @@ export async function resolveAccessForUser(db,user,{claimInvite=true,request=nul
   }
 
   let memberships=await membershipsForUser(db,userId);
-  if(!memberships.length&&claimInvite&&email){
-    const claimedLegacy=await claimLegacyEmailInvite(db,user,email);
-    if(claimedLegacy)memberships=[claimedLegacy];
-  }
   if(!memberships.length)return{allowed:false,reason:'NO_MEMBERSHIP',userId,email};
 
   const options=[];
