@@ -2,6 +2,7 @@ import { loadRequestIikoState, privateConnection } from '../iiko/_lib/user-state
 import { resolveHrRestaurantScope } from './_lib/restaurant-scope.js';
 import { logAuditEvent } from '../_lib/audit-log.js';
 import { hrAccessForUser, requireCapability } from './_lib/timesheet-adjustments.js';
+import { approvalTarget,approvalMonthClosed } from './_lib/department-approvals.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -10,11 +11,7 @@ function month(v){const s=clean(v,7);return /^\d{4}-\d{2}$/.test(s)?s:''}
 function contour(v){const s=clean(v,20).toUpperCase();return['FACTUAL','OFFICIAL'].includes(s)?s:''}
 function now(){return new Date().toISOString()}
 function actorLabel(user){return clean(user?.user_metadata?.full_name||user?.user_metadata?.name||user?.email||user?.id||'Пользователь',180)}
-function scopeKey(scope){
-  const ids=[...(scope?.selectedDepartmentIds||[])].map(String).filter(Boolean).sort();
-  const codes=[...(scope?.selectedDepartmentCodes||[])].map(String).filter(Boolean).sort();
-  return ids.length?ids.join(','):codes.length?codes.join(','):'ACCOUNT';
-}
+
 async function ensure(db){
   if(!db)throw new Error('D1 binding DB не настроен.');
   await db.prepare(`CREATE TABLE IF NOT EXISTS hr_timesheet_approvals (
@@ -54,22 +51,37 @@ export async function onRequestGet({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
     if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
-    await ensure(env.DB);
     const url=new URL(request.url),period=month(url.searchParams.get('month')),kind=contour(url.searchParams.get('contour')),currentHash=clean(url.searchParams.get('snapshotHash'),128);
     if(!period||!kind)return json({success:false,message:'Не указан месяц или контур табеля'},400);
-    const userId=state.storageUserId||state.user.id,scope=await resolveHrRestaurantScope(request,env,userId,state.access),key=scopeKey(scope),row=await getRow(env.DB,userId,period,kind,key);
-    return json({success:true,month:period,contour:kind,scopeKey:key,access:hrAccessForUser(state.user,state.access),approval:dto(row,currentHash)});
-  }catch(e){console.error('[HR-TIMESHEET-APPROVAL-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
+    const userId=state.storageUserId||state.user.id,scope=await resolveHrRestaurantScope(request,env,userId,state.access);
+    const selected=approvalTarget(scope,url.searchParams.get('departmentId')||'');
+    await ensure(env.DB);
+    const accessible=selected.available;
+    let approvals=[];
+    if(scope?.isChain&&accessible.length){
+      const all=await env.DB.prepare("SELECT * FROM hr_timesheet_approvals WHERE user_id=?1 AND period_month=?2 AND contour=?3").bind(userId,period,kind).all();
+      const byKey=new Map((all.results||[]).map(x=>[String(x.scope_key),x]));
+      approvals=accessible.map(d=>({...d,approval:dto(byKey.get(d.id)||null,selected.key===d.id?currentHash:'')}));
+    }
+    const row=selected.key?await getRow(env.DB,userId,period,kind,selected.key):null;
+    return json({success:true,month:period,contour:kind,scopeKey:selected.key,department:selected.department,
+      departments:accessible,departmentApprovals:approvals,selectionRequired:scope?.isChain&&!selected.key,
+      monthClosed:approvalMonthClosed(period),access:hrAccessForUser(state.user,state.access),approval:dto(row,currentHash)});
+  }catch(e){console.error('[HR-TIMESHEET-APPROVAL-GET]',e);return json({success:false,message:e?.message||String(e)},e?.status||500)}
 }
 export async function onRequestPost({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
     if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
     await ensure(env.DB);
-    const body=await request.json().catch(()=>({})),action=clean(body.action,40),period=month(body.month),kind=contour(body.contour),hash=clean(body.snapshotHash,128),comment=clean(body.comment,1600);
+    const body=await request.json().catch(()=>({})),action=clean(body.action,40).toUpperCase(),period=month(body.month),kind=contour(body.contour),hash=clean(body.snapshotHash,128),comment=clean(body.comment,1600);
     if(!period||!kind)return json({success:false,message:'Не указан месяц или контур табеля'},400);
     if(!hash&&action!=='REOPEN')return json({success:false,message:'Нет контрольной версии табеля. Сначала пересчитайте страницу.'},409);
-    const userId=state.storageUserId||state.user.id,scope=await resolveHrRestaurantScope(request,env,userId,state.access),key=scopeKey(scope),old=await getRow(env.DB,userId,period,kind,key),oldDto=dto(old,hash),actor=actorLabel(state.user),t=now(),actorId=clean(state.user.id,180);
+    const userId=state.storageUserId||state.user.id,scope=await resolveHrRestaurantScope(request,env,userId,state.access);
+    const target=approvalTarget(scope,body.departmentId||''),key=target.key;
+    if(!key)return json({success:false,message:'Выберите один ресторан для подтверждения документа'},400);
+    if(action!=='REOPEN'&&!approvalMonthClosed(period))return json({success:false,message:'Месячный табель можно подтвердить только после окончания месяца'},409);
+    const old=await getRow(env.DB,userId,period,kind,key),oldDto=dto(old,hash),actor=actorLabel(state.user),t=now(),actorId=clean(state.user.id,180);
     let status=old?.status||'DRAFT',managerId=old?.manager_id||'',managerLabel=old?.manager_label||'',managerAt=old?.manager_at||'',hrId=old?.hr_id||'',hrLabel=old?.hr_label||'',hrAt=old?.hr_at||'',snapshot=old?.snapshot_hash||'';
 
     if(action==='MANAGER_APPROVE'){
@@ -92,7 +104,7 @@ export async function onRequestPost({request,env}){
       .bind(userId,period,kind,key,status,snapshot,managerId,managerLabel,managerAt,hrId,hrLabel,hrAt,comment,t).run();
 
     const row=await getRow(env.DB,userId,period,kind,key),afterDto=dto(row,hash),connection=privateConnection(state.state);
-    await logAuditEvent({request,env,connection,action,entityType:'HR_TIMESHEET_APPROVAL',entityId:`${period}:${kind}:${key}`,entityLabel:`Табель ${period} · ${kind==='FACTUAL'?'Фактический':'Официальный'}`,before:oldDto,after:afterDto,restaurantIds:scope?.selectedDepartmentIds||[],metadata:{month:period,contour:kind}});
-    return json({success:true,access:hrAccessForUser(state.user,state.access),approval:afterDto});
+    await logAuditEvent({request,env,connection,action,entityType:'HR_TIMESHEET_APPROVAL',entityId:`${period}:${kind}:${key}`,entityLabel:`Табель ${period} · ${kind==='FACTUAL'?'Фактический':'Официальный'}`,before:oldDto,after:afterDto,restaurantIds:target.department?[target.department.id]:(scope?.selectedDepartmentIds||[]),metadata:{month:period,contour:kind,departmentId:target.department?.id||'',departmentName:target.department?.name||''}});
+    return json({success:true,scopeKey:key,department:target.department,access:hrAccessForUser(state.user,state.access),approval:afterDto});
   }catch(e){console.error('[HR-TIMESHEET-APPROVAL-POST]',e);return json({success:false,message:e?.message||String(e),access:e?.access||undefined},e?.status||500)}
 }
