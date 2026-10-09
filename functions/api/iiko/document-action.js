@@ -1,6 +1,7 @@
 import { clean, iikoText } from "./_lib/iiko-client.js";
 import { resolveStoreScope } from "./_lib/store-scope.js";
-import { logAuditEvent } from "../_lib/audit-log.js";
+import { logAuditEvent, serverScopeFromConnection } from "../_lib/audit-log.js";
+import { enrichProcurementInvoicePackaging } from "./_lib/procurement-invoice-packaging.js";
 
 function corsHeaders() {
   return {
@@ -69,7 +70,8 @@ function normalizeIncomingDocument(input = {}) {
       ...item,
       num: item.num ?? index + 1,
       amount,
-      actualAmount: Number.isFinite(Number(item.actualAmount)) ? Number(item.actualAmount) : amount,
+      actualAmount: item.actualAmount !== null && item.actualAmount !== undefined && String(item.actualAmount).trim() !== "" && Number.isFinite(Number(item.actualAmount)) && Number(item.actualAmount)>0
+        ? Number(item.actualAmount) : amount,
       price,
       sum,
       store: clean(item.store || item.storeId) || documentStore
@@ -153,13 +155,18 @@ function validateIncoming(d) {
       return;
     }
 
-    const expectedCents = Math.round(amount * price * 100);
+    const explicitPackageCount = Number(item.packageCount);
+    const pricedAmount = Number.isFinite(explicitPackageCount) && explicitPackageCount > 0
+      ? explicitPackageCount
+      : amount;
+    const expectedCents = Math.round(pricedAmount * price * 100);
     expectedDocumentCents += expectedCents;
     rowSumCents += sourceSumCents;
 
     if (sourceSumCents !== expectedCents) {
       errors.push(
-        label + ": количество × цена = " + moneyText(expectedCents / 100) +
+        label + ": " + (Number.isFinite(explicitPackageCount) && explicitPackageCount > 0 ? "упаковки × цена упаковки" : "количество × цена") +
+        " = " + moneyText(expectedCents / 100) +
         ", но сумма строки = " + moneyText(sourceSumCents / 100) + ". Исправьте расхождение."
       );
     }
@@ -259,6 +266,88 @@ function isFalse(value) {
   return ["false", "0", "no"].includes(clean(value).toLowerCase());
 }
 
+// Procurement GRN and supplier invoice quantities are independent. An invoice
+// that differs from the physically received goods must not be auto-posted.
+const procurementProductId=v=>clean(v).replace(/^\{+|\}+$/g,"").toLowerCase();
+function procurementDiff(grnLines,invoiceLines){
+  const g=new Map((grnLines||[]).map(x=>[procurementProductId(x.productId),x]));
+  const i=new Map((invoiceLines||[]).map(x=>[procurementProductId(x.productId??x.product),x]));
+  const ids=new Set([...g.keys(),...i.keys()]);
+  for(const id of ids){
+    if(!id)continue;
+    const x=g.get(id),y=i.get(id);
+    const received=Number(x?.quantity??0),billed=Number(y?.actualAmount??y?.amount??y?.quantity??0);
+    const expectedPrice=Number(x?.unitPrice??0),invoicePrice=Number(y?.price??y?.unitPrice??0);
+    if(!Number.isFinite(billed)||Math.abs(received-billed)>0.0005||
+      !Number.isFinite(invoicePrice)||Math.abs(expectedPrice-invoicePrice)>0.009)return true;
+  }
+  return false;
+}
+function sameSupplierInvoiceLines(stored,requested){
+  const a=new Map((stored||[]).map(x=>[procurementProductId(x.productId),x]));
+  const b=new Map((requested||[]).map(x=>[procurementProductId(x.productId??x.product),x]));
+  if(a.size!==b.size)return false;
+  for(const [id,x] of a){
+    const y=b.get(id);if(!y)return false;
+    if(Math.abs(Number(x.quantity)-Number(y.actualAmount??y.amount??y.quantity))>0.0005||
+       Math.abs(Number(x.unitPrice)-Number(y.price??y.unitPrice))>0.009)return false;
+  }
+  return true;
+}
+async function checkProcurementVarianceBeforePosting(env,connection,document){
+  const grnNumber=String(document.comment||"").match(/GRN-\d{8}-[a-z0-9]+/i)?.[0]||"";
+  const isProcurementDoc=/Smart Horeca Procurement/i.test(String(document.comment||""))&&!!grnNumber;
+  const number=clean(document.documentNumber);
+  const linkedPO=/^PO-\d{8}-[a-z0-9]+/i.test(clean(document.incomingDocumentNumber));
+  // Ordinary invoices must not acquire another D1 lookup or depend on the
+  // procurement module's availability.
+  if(!isProcurementDoc&&!linkedPO)return null;
+  if(!env.DB){
+    return isProcurementDoc?"Не настроена база для проверки расхождений GRN. Проведение остановлено.":null;
+  }
+  const scope=await serverScopeFromConnection(connection);
+  let receipt=null;
+  try{
+    receipt=await env.DB.prepare("SELECT r.* ,g.lines_json AS grn_lines FROM procurement_receipts r LEFT JOIN procurement_grns g ON g.id=r.grn_id AND g.server_scope=r.server_scope WHERE r.server_scope=?1 AND r.iiko_document_number=?2 LIMIT 1").bind(scope,number).first();
+  }catch(e){
+    // Do not affect ordinary, unrelated invoices where procurement tables were never created.
+    if(!isProcurementDoc&&/no such table/i.test(String(e?.message||e)))return null;
+    throw e;
+  }
+  if(receipt?.grn_id&&receipt.grn_lines){
+    const parsed=JSON.parse(receipt.grn_lines||"[]"),stored=JSON.parse(receipt.lines_json||"[]");
+    const mismatch=procurementDiff(parsed,document.items||[]);
+    if(!mismatch)return null;
+    if(!sameSupplierInvoiceLines(stored,document.items||[]))
+      return "Накладная была изменена после согласования. Требуется повторная сверка и согласование.";
+    if(String(receipt.variance_status||"").toUpperCase()==="APPROVED")return null;
+    // A supplemental invoice is intentionally smaller than the full GRN.
+    // Verify that an explicitly approved shortage plan exists and that all
+    // linked invoices together do not exceed the physically received quantity.
+    const others=(await env.DB.prepare("SELECT lines_json,variance_status,resolution_status,resolution_method FROM procurement_receipts WHERE server_scope=?1 AND grn_id=?2").bind(scope,receipt.grn_id).all()).results||[];
+    const plan=others.some(x=>x.variance_status==="APPROVED"&&x.resolution_status==="IN_PROGRESS"&&x.resolution_method==="ADDITIONAL_INVOICE");
+    if(plan&&others.length>1){
+      const ceiling=new Map(parsed.map(x=>[procurementProductId(x.productId),Number(x.quantity)]));
+      const totals=new Map();
+      for(const row of others)for(const l of JSON.parse(row.lines_json||"[]")){
+        const id=procurementProductId(l.productId);
+        totals.set(id,(totals.get(id)||0)+Number(l.quantity));
+      }
+      if([...totals].every(([id,amount])=>ceiling.has(id)&&amount<=ceiling.get(id)+0.0005))return null;
+    }
+    return "Количество или цена накладной отличаются от GRN. Сначала согласуйте расхождение в разделе «Приёмка поставок».";
+  }
+  if(isProcurementDoc){
+    let grn=null;
+    try{
+      grn=await env.DB.prepare("SELECT lines_json FROM procurement_grns WHERE server_scope=?1 AND number=?2 LIMIT 1").bind(scope,grnNumber).first();
+    }catch(e){throw e}
+    if(!grn)return "Не найден GRN для проверки. Проведение накладной остановлено.";
+    const difference=procurementDiff(JSON.parse(grn.lines_json||"[]"),document.items||[]);
+    if(difference)return "Есть расхождение GRN и накладной. Сначала сохраните её без проведения, привяжите к GRN и получите согласование.";
+  }
+  return null;
+}
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: { ...corsHeaders() } });
 }
@@ -313,6 +402,16 @@ export async function onRequestPost(context) {
     }
     if (type === "incoming") {
       document = normalizeIncomingDocument(document);
+      if(["save-and-process","process"].includes(action)){
+        // iiko exports "amount" in base units, even for per-package prices.
+        // Verify and recover package count from the original procurement
+        // invoice before validating  quantity × package price.
+        document=(await enrichProcurementInvoicePackaging(context.env,connection,[document]))[0];
+      }
+      if(["save-and-process","process"].includes(action)){
+        const rejection=await checkProcurementVarianceBeforePosting(context.env,connection,document);
+        if(rejection)return jsonResponse({success:false,code:"PROCUREMENT_VARIANCE_APPROVAL_REQUIRED",message:rejection},409);
+      }
 
       if (["save", "save-and-process", "process"].includes(action)) {
         if (["save-and-process", "process"].includes(action)) document.status = "PROCESSED";

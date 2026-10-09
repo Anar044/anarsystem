@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RFQ · Smart Horeca</title>
+  <link rel="stylesheet" href="/rfq-response.css?v=20261008-rfq-2">
+</head>
+<body>
+  <main class="rfq-page">
+    <header class="rfq-brand">
+      <div class="rfq-logo">SH</div>
+      <div><strong>Smart Horeca</strong><span>Запрос цен поставщику</span></div>
+    </header>
+
+    <section id="rfq-loading" class="rfq-card rfq-state">
+      <div class="rfq-spinner"></div>
+      <h1>Загружаем RFQ…</h1>
+      <p>Проверяем ссылку и состав запроса.</p>
+    </section>
+
+    <section id="rfq-error" class="rfq-card rfq-state" hidden>
+      <div class="rfq-state-icon danger">!</div>
+      <h1>RFQ недоступен</h1>
+      <p id="rfq-error-text">Ссылка недействительна.</p>
+    </section>
+
+    <section id="rfq-success" class="rfq-card rfq-state" hidden>
+      <div class="rfq-state-icon success">✓</div>
+      <h1>Предложение отправлено</h1>
+      <p>Smart Horeca сохранила ваше ценовое предложение. Закупщик увидит его в сравнении поставщиков.</p>
+      <strong id="rfq-success-total"></strong>
+    </section>
+
+    <form id="rfq-form" class="rfq-card" hidden>
+      <div class="rfq-head">
+        <div>
+          <span class="rfq-eyebrow">REQUEST FOR QUOTATION</span>
+          <h1 id="rfq-number">RFQ</h1>
+          <p id="rfq-message"></p>
+        </div>
+        <div class="rfq-deadline"><span>Ответ до</span><strong id="rfq-deadline">—</strong></div>
+      </div>
+
+      <div class="rfq-customer">
+        <div>
+          <span>ЗАПРОС ОТ ЗАВЕДЕНИЯ</span>
+          <strong id="rfq-restaurant">Smart Horeca</strong>
+        </div>
+        <div>
+          <span>ОТПРАВИЛ ЗАПРОС</span>
+          <strong id="rfq-requested-by">—</strong>
+        </div>
+      </div>
+
+      <div class="rfq-meta">
+        <article><span>Поставщик</span><strong id="rfq-supplier">—</strong></article>
+        <article><span>Заявка PR</span><strong id="rfq-pr">—</strong></article>
+        <article><span>Склад поставки</span><strong id="rfq-warehouse">—</strong></article>
+      </div>
+
+      <div class="rfq-section-head">
+        <div><h2>Позиции запроса</h2><p>Отметьте товары, которые можете поставить, и укажите цену за упаковку с учётом НДС.</p></div>
+        <div class="rfq-total"><span>Итого</span><strong id="rfq-total">0,00 ₼</strong></div>
+      </div>
+
+      <div class="rfq-table-wrap">
+        <table class="rfq-table">
+          <thead><tr><th>Предлагаем</th><th>Товар</th><th>Количество</th><th>НДС</th><th>Цена / упак.</th><th>Сумма</th></tr></thead>
+          <tbody id="rfq-lines"></tbody>
+        </table>
+      </div>
+
+      <div class="rfq-terms">
+        <label><span>Срок доставки, дней</span><input id="rfq-delivery-days" type="number" min="0" step="1" value="1"></label>
+        <label><span>Предложение действительно до</span><input id="rfq-valid-until" type="date"></label>
+        <label class="wide"><span>Условия оплаты</span><input id="rfq-payment" placeholder="Например: 7 дней / по факту / предоплата"></label>
+        <label class="wide"><span>Комментарий</span><textarea id="rfq-comment" placeholder="Дополнительные условия, замены, особенности поставки…"></textarea></label>
+      </div>
+
+      <div id="rfq-form-status" class="rfq-form-status"></div>
+      <div class="rfq-actions">
+        <button id="rfq-submit" type="submit">Отправить предложение</button>
+      </div>
+      <p class="rfq-note">Ссылка относится только к этому RFQ и вашему поставщику. Регистрация в Smart Horeca не требуется.</p>
+    </form>
+  </main>
+  <script src="/rfq-response.js?v=20261008-rfq-2"></script>
+</body>
+</html>

@@ -152,3 +152,12 @@
 
 /api/access/*
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/rfq-response.html
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/rfq-response.js
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+
+/api/procurement-rfq
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate

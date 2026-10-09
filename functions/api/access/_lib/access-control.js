@@ -334,8 +334,25 @@ async function ensureOwnerMembership(db,user){
   if(!userId)return null;
   const now=NOW();
   let row=await db.prepare(`SELECT * FROM sh_access_members WHERE owner_user_id=?1 AND user_id=?1 LIMIT 1`).bind(userId).first();
-  if(row){await ensureOwnerWorkspace(db,userId,user);return row;}
-  if(!await hasLegacyOwnerData(db,userId))return null;
+
+  // The workspace owner is a special principal: an old/stale admin edit must never
+  // leave the owner's own membership PENDING/DISABLED or scoped to one restaurant.
+  if(row){
+    if(String(row.status||'').toUpperCase()!=='ACTIVE'||String(row.scope_mode||'').toUpperCase()!=='ALL'){
+      await db.prepare(`UPDATE sh_access_members SET status='ACTIVE',scope_mode='ALL',department_ids_json='[]',department_codes_json='[]',warehouse_ids_json='[]',updated_at=?2 WHERE id=?1`)
+        .bind(row.id,now).run();
+      row=await db.prepare(`SELECT * FROM sh_access_members WHERE id=?1`).bind(row.id).first();
+    }
+    await seedRoles(db,userId);
+    await ensureOwnerWorkspace(db,userId,user);
+    return row;
+  }
+
+  // Existing workspace ownership is enough to restore a missing owner membership.
+  // Legacy iiko data is retained as the migration signal for older accounts.
+  const existingWorkspace=await db.prepare(`SELECT id FROM sh_workspaces WHERE owner_user_id=?1 LIMIT 1`).bind(userId).first();
+  if(!existingWorkspace&&!await hasLegacyOwnerData(db,userId))return null;
+
   const id=uid(),name=clean(user?.user_metadata?.full_name)||[clean(user?.user_metadata?.first_name),clean(user?.user_metadata?.last_name)].filter(Boolean).join(' ')||email;
   await db.prepare(`INSERT INTO sh_access_members(id,owner_user_id,user_id,email,display_name,status,scope_mode,created_at,updated_at) VALUES(?1,?2,?2,?3,?4,'ACTIVE','ALL',?5,?5)`)
     .bind(id,userId,email,name,now).run();
@@ -396,15 +413,37 @@ export async function resolveAccessForUser(db,user,{claimInvite=true,request=nul
   }
   const publicWorkspaces=options.map(x=>({...workspacePublic(x.workspace),memberId:x.member.id,memberStatus:x.member.status,isOwner:x.member.owner_user_id===userId}));
 
+  const ownerOption=options.find(x=>x.member.owner_user_id===userId&&x.member.user_id===userId)||null;
+  const activeOptions=options.filter(x=>String(x.member.status||'').toUpperCase()==='ACTIVE');
   let selected=null;
   if(preferredWorkspaceId)selected=options.find(x=>clean(x.workspace.id)===preferredWorkspaceId)||null;
+
+  // A stale workspace cookie can point to a membership that was later disabled.
+  // Owners always fall back to their own workspace. Employees fall back when there is
+  // exactly one active workspace; with several active workspaces we ask them to choose.
+  if(selected&&String(selected.member.status||'').toUpperCase()!=='ACTIVE'){
+    if(ownerOption)selected=ownerOption;
+    else if(activeOptions.length===1)selected=activeOptions[0];
+    else if(activeOptions.length>1)return{allowed:false,reason:'WORKSPACE_SELECTION_REQUIRED',userId,email,workspaces:publicWorkspaces};
+  }
+  if(!selected&&ownerOption)selected=ownerOption;
+  if(!selected&&activeOptions.length===1)selected=activeOptions[0];
+  if(!selected&&activeOptions.length>1){
+    return{allowed:false,reason:'WORKSPACE_SELECTION_REQUIRED',userId,email,workspaces:publicWorkspaces};
+  }
   if(!selected&&options.length===1)selected=options[0];
   if(!selected&&options.length>1){
     return{allowed:false,reason:'WORKSPACE_SELECTION_REQUIRED',userId,email,workspaces:publicWorkspaces};
   }
   if(!selected)return{allowed:false,reason:'WORKSPACE_NOT_FOUND',userId,email,workspaces:publicWorkspaces};
 
-  const row=selected.member,workspace=selected.workspace;
+  let row=selected.member,workspace=selected.workspace;
+  const isOwner=row.owner_user_id===userId&&row.user_id===userId;
+  if(isOwner&&String(row.status||'').toUpperCase()!=='ACTIVE'){
+    await db.prepare(`UPDATE sh_access_members SET status='ACTIVE',scope_mode='ALL',department_ids_json='[]',department_codes_json='[]',warehouse_ids_json='[]',updated_at=?2 WHERE id=?1`)
+      .bind(row.id,NOW()).run();
+    row=await db.prepare(`SELECT * FROM sh_access_members WHERE id=?1`).bind(row.id).first();
+  }
   if(String(row.status).toUpperCase()!=='ACTIVE')return{allowed:false,reason:'MEMBERSHIP_'+String(row.status).toUpperCase(),userId,email,ownerUserId:row.owner_user_id,memberId:row.id,workspace:workspacePublic(workspace),workspaces:publicWorkspaces};
 
   await seedRoles(db,row.owner_user_id);
@@ -420,7 +459,7 @@ export async function resolveAccessForUser(db,user,{claimInvite=true,request=nul
     employeeId:row.iiko_employee_id||'',
     displayName:row.display_name||'',
     email:row.email||email,
-    isOwner:row.owner_user_id===userId,
+    isOwner:row.owner_user_id===userId&&row.user_id===userId,
     permissions,
     scope:memberScope(row)
   };
@@ -485,6 +524,10 @@ export async function upsertMember(db,ownerUserId,input){
   if(!email||!email.includes('@'))throw new Error('Укажите email сотрудника.');
   const displayName=clean(input?.displayName),employeeId=clean(input?.employeeId);
   const existing=await db.prepare(`SELECT id,user_id FROM sh_access_members WHERE owner_user_id=?1 AND email=?2 LIMIT 1`).bind(ownerUserId,email).first();
+  // Never mutate the owner's own membership through the ordinary employee editor.
+  // Previously this guard ran after the UPSERT, so a failed edit could already leave
+  // the owner PENDING/DISABLED. That is exactly the kind of accidental lockout we must avoid.
+  if(existing?.user_id===ownerUserId)throw Object.assign(new Error('Права владельца изменяются отдельно. Учётная запись владельца не была изменена.'),{status:409,code:'OWNER_PROTECTED'});
   const linkedUserId=clean(existing?.user_id);
   let status=['ACTIVE','PENDING','DISABLED'].includes(String(input?.status||'').toUpperCase())?String(input.status).toUpperCase():'PENDING';
   if(!linkedUserId&&status==='ACTIVE')status='PENDING';
@@ -494,7 +537,6 @@ export async function upsertMember(db,ownerUserId,input){
     ON CONFLICT(owner_user_id,email) DO UPDATE SET iiko_employee_id=excluded.iiko_employee_id,display_name=excluded.display_name,status=excluded.status,scope_mode=excluded.scope_mode,department_ids_json=excluded.department_ids_json,department_codes_json=excluded.department_codes_json,warehouse_ids_json=excluded.warehouse_ids_json,updated_at=excluded.updated_at`)
     .bind(id,ownerUserId,email,employeeId,displayName,status,scopeMode,JSON.stringify(scope.departmentIds||[]),JSON.stringify(scope.departmentCodes||[]),JSON.stringify(scope.warehouseIds||[]),now).run();
   const member=await db.prepare(`SELECT id,user_id FROM sh_access_members WHERE owner_user_id=?1 AND email=?2`).bind(ownerUserId,email).first();
-  if(member?.user_id===ownerUserId)throw Object.assign(new Error('Права владельца изменяются отдельно.'),{status:409});
   await db.prepare(`DELETE FROM sh_access_member_roles WHERE owner_user_id=?1 AND member_id=?2`).bind(ownerUserId,member.id).run();
   const roleIds=[...new Set((input?.roleIds||[]).map(clean).filter(Boolean))];
   if(roleIds.length){
