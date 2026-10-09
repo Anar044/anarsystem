@@ -129,7 +129,7 @@
     try{
       const url=new URL(el.getAttribute('href')||'',location.origin);
       if(url.origin!==location.origin)return['__sh_nav_blocked__'];
-      const path=url.pathname.toLowerCase().replace(/\\/+$/,'');
+      const path=url.pathname.toLowerCase().replace(/\/+$/,'');
       let page=path.split('/').pop()||'index.html';
       if(path.endsWith('/cash')||path.endsWith('/cash/index.html'))page='cash.html';
       if(page==='procurement.html'){
