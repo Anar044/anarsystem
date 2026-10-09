@@ -15,6 +15,7 @@
     const authPayload=current.searchParams.has('code')||current.searchParams.has('token_hash')||
       current.searchParams.has('invite')||/\b(?:access_token|refresh_token|type|error_description)=/.test(current.hash);
     if(!authPaths.has(current.pathname.toLowerCase())&&!authPayload)return;
+    if(!authPaths.has(current.pathname.toLowerCase())&&authPayload)current.pathname='/auth-callback.html';
     current.hostname='smarthoreca.pages.dev';
     current.protocol='https:';
     current.port='';
