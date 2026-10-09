@@ -54,3 +54,13 @@ test('platform connection failures disclose only safe diagnostic metadata',()=>{
   assert.match(server,/DEPARTMENTS_EMPTY/);
   assert.doesNotMatch(server.slice(server.indexOf('async function discover('),server.indexOf('export async function onRequestOptions')),/rawPreview|password|login|auth\.token/);
 });
+
+test('directory search is available before OLAP fallback for CHAIN',()=>{
+  const connect=readFileSync(new URL('../functions/api/iiko/connect.js',import.meta.url),'utf8');
+  const platform=readFileSync(new URL('../functions/api/platform/server.js',import.meta.url),'utf8');
+  assert.match(connect,/export async function getDepartmentsSearch/);
+  assert.match(connect,/departments\/search\?code=\.\*/);
+  const discover=platform.slice(platform.indexOf('async function discover('),platform.indexOf('export async function onRequestOptions'));
+  assert.ok(discover.indexOf('getDepartmentsSearch')<discover.indexOf('getDepartmentsFromOlap'));
+  assert.match(discover,/classicStatus\+searchStatus\+salesStatus\+hint/);
+});
