@@ -1056,7 +1056,22 @@ export async function onRequestPost({request,env}){
       if(duplicate){
         if(clean(duplicate.order_id)!==clean(o.id)){const e=new Error("Эта накладная уже связана с другим PO.");e.status=409;throw e}
         if(clean(duplicate.grn_id)&&clean(duplicate.grn_id)!==grnId){const e=new Error("Эта накладная уже связана с другим GRN.");e.status=409;throw e}
-        return json({success:true,id:o.id,receiptId:duplicate.id,grnId:duplicate.grn_id||grnId,totalAmount:n(duplicate.total_amount),duplicate:true});
+        if(clean(duplicate.grn_id)===grnId){
+          return json({success:true,id:o.id,receiptId:duplicate.id,grnId,totalAmount:n(duplicate.total_amount),duplicate:true});
+        }
+        // Legacy invoice already registered without GRN. Do not report a
+        // successful link without actually saving its grn_id.
+        const occupied=await db.prepare("SELECT id FROM procurement_receipts WHERE server_scope=?1 AND grn_id=?2 LIMIT 1").bind(c.serverScope,grnId).first();
+        if(occupied){const e=new Error("К этому GRN уже привязана другая накладная.");e.status=409;throw e}
+        const updated=await db.prepare("UPDATE procurement_receipts SET grn_id=?2 WHERE id=?1 AND server_scope=?3 AND (grn_id IS NULL OR grn_id='')").bind(duplicate.id,grnId,c.serverScope).run();
+        if(!n(updated?.meta?.changes)){const e=new Error("Привязка накладной изменена другим пользователем. Обновите список.");e.status=409;throw e}
+        // Converting an old receipt to a GRN-linked invoice changes the
+        // physical-progress source; keep the stored PO status in sync.
+        const progress=await physicalProgress(db,o.id);
+        const next=progress.completed?"COMPLETED":progress.hasAny?"PARTIALLY_RECEIVED":o.status;
+        await db.prepare("UPDATE procurement_orders SET status=?2,updated_at=?3 WHERE id=?1").bind(o.id,next,stamp).run();
+        await log(c,"LINK","PURCHASE_INVOICE",o,{receiptId:duplicate.id,grnId:""},{receiptId:duplicate.id,grnId,iikoDocumentNumber:documentNumber,legacyConversion:true,status:next});
+        return json({success:true,id:o.id,receiptId:duplicate.id,grnId,totalAmount:n(duplicate.total_amount),duplicate:true,linked:true,status:next});
       }
       const existingForGrn=await db.prepare("SELECT id,iiko_document_number FROM procurement_receipts WHERE server_scope=?1 AND grn_id=?2 LIMIT 1").bind(c.serverScope,grnId).first();
       if(existingForGrn){const e=new Error("К этому GRN уже привязана накладная №"+(existingForGrn.iiko_document_number||"без номера")+".");e.status=409;throw e}
