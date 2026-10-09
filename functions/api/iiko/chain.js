@@ -89,6 +89,8 @@ export async function discoverChainStructure(connection){
     groups:groupData.groups,pointsOfSale:groupData.pointsOfSale,
     restaurantSections:groupData.restaurantSections,
     detectedMode:departments.length>1?"CHAIN":"RMS",
+    departmentAuthCacheHit:Boolean(dep?.authCacheHit),
+    groupAuthCacheHit:Boolean(grp?.authCacheHit),
     diagnostics:{
       format:dep?.rawFormat||"unknown",hierarchyCount:hierarchy.length,
       types:[...new Set(hierarchy.map(x=>x.type))],
@@ -123,7 +125,9 @@ export async function onRequestPost({request}){
       pointsOfSale:result.pointsOfSale,restaurantSections:result.restaurantSections,
       source:"iiko-corporation-api",server:{ip:connection.ip,port:connection.port},
       loadedAt:new Date().toISOString(),
-      meta:{discoveryAttempts:result.diagnostics.attempts,
+      meta:{departmentAuthCacheHit:result.departmentAuthCacheHit,
+        groupAuthCacheHit:result.groupAuthCacheHit,
+        discoveryAttempts:result.diagnostics.attempts,
         groupWarning:result.diagnostics.groupWarning}});
   }catch(error){
     return json({success:false,message:error?.message||"Не удалось определить тип SH Server"},502);
