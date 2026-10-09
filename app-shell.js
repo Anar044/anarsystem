@@ -113,6 +113,6 @@
     }catch(_){}
   }
 
-  function init(){ensureMasterStyles().then(()=>{installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();applySHBranding();markNetworkSharedPage();reveal();const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');if(menu&&side)menu.onclick=()=>side.classList.toggle('open')})}
+  function init(){ensureMasterStyles().then(()=>{installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();window.SHAccess?.applyVisibility?.(document.querySelector('.sidebar'));applySHBranding();markNetworkSharedPage();reveal();const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');if(menu&&side)menu.onclick=()=>side.classList.toggle('open')})}
   init();
 })();

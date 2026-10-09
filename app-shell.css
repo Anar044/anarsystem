@@ -27,3 +27,9 @@
   html body .app-shell .shift-summary-grid{grid-template-columns:1fr!important}
   html body .app-shell .cash-overview-grid{grid-template-columns:1fr!important}
 }
+
+/* RBAC navigation: CSS must respect hidden even when links use display:flex!important.
+   Never show a new sidebar item before its permission has been evaluated. */
+.sidebar [hidden]{display:none!important}
+.sidebar .unified-main-nav a[href]:not([data-sh-access-checked="1"]),
+.sidebar .unified-main-nav .documents-nav-group:not([data-sh-access-checked="1"]){display:none!important}

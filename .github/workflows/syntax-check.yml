@@ -27,6 +27,12 @@ jobs:
             | sort)
           echo "Checked $count JavaScript files"
 
+      - name: Verify role-filtered navigation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/access-navigation-visibility.test.mjs
+
       - name: Check local AI Python syntax
         shell: bash
         run: |
