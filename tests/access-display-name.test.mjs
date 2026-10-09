@@ -14,7 +14,7 @@ const restaurants=[
 ];
 
 function makeHarness(member=null){
-  const saved=[],fields={},calls=[],modal=[];
+  const saved=[],fields={},calls=[],modal=[],alerts=[];
   function field(id){
     return fields[id]??=(id==='memberEmployee'
       ?{value:'',selectedOptions:[{dataset:{name:''}}]}
@@ -34,11 +34,12 @@ function makeHarness(member=null){
     closeModal:()=>{},
     load:async()=>{},
     status:()=>{},
-    invitationModal:()=>{}
+    invitationModal:()=>{},
+    alert:message=>alerts.push(String(message))
   };
   runInNewContext(formFunction+';globalThis.testMemberModal=memberModal;',context);
   context.testMemberModal(member);
-  return{fields:field,html:modal[0],calls,saved};
+  return{fields:field,html:modal[0],calls,saved,alerts};
 }
 test('Access modal shows an independent Smart Horeca name field without staff link',()=>{
   const t=makeHarness();
@@ -89,10 +90,7 @@ test('Manual name is mandatory for new unlinked user',async()=>{
   const t=makeHarness();
   t.fields('memberEmail').value='user@example.test';
   t.fields('memberScope').value='ALL';
-  const previous=globalThis.alert;
-  globalThis.alert=message=>{assert.match(message,/Укажите имя пользователя/)};
-  // Inject a spy into the VM function's lexical context rather than using UI alert.
-  // The browser handler intentionally catches validation errors.
-  try{await t.fields('saveMember').onclick()}finally{globalThis.alert=previous}
+  await t.fields('saveMember').onclick();
   assert.equal(t.calls.length,0);
+  assert.match(t.alerts[0],/Укажите имя пользователя/);
 });
