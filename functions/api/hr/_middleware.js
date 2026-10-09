@@ -76,7 +76,8 @@ export async function onRequest(context){
   if(context.request.method.toUpperCase()==='OPTIONS')return context.next();
   const path=new URL(context.request.url).pathname;
   const write=!['GET','HEAD','OPTIONS'].includes(String(context.request.method).toUpperCase());
-  const body=write?await context.request.clone().json().catch(()=>({})):{};
+  const needsBody=write&&(target(path)||path.endsWith('/api/hr/timesheet-adjustments')||path.endsWith('/api/hr/timesheet-approval'));
+  const body=needsBody?await context.request.clone().json().catch(()=>({})):{};
   const rule=hrAccessRule(path,context.request.method,body?.action);
   let auth=null,access=null;
   if(rule){
