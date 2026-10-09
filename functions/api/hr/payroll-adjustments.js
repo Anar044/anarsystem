@@ -98,7 +98,7 @@ async function snapshot(db,userId,month,scope=null){
     const type=String(p.scope_type||'').toUpperCase(),key=String(p.scope_key||'');
     if(type==='EMPLOYEE')return visibleEmployeeIds.has(key);
     if(type==='ROLE')return visibleRoleCodes.has(key);
-    return !isHrSubsetScope(scope);
+    return !isHrSubsetScope(scope)&&!scope?.membershipRestricted;
   });
   const sum=fn=>money(employees.reduce((s,e)=>s+fn(e),0));
   return{success:true,month,restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,employees,adjustments:visibleAdjustments,
@@ -124,10 +124,10 @@ function aggregateBalances(rows,employeeIds,debtAccountIds){
   return{out,matched};
 }
 async function syncIikoDebt(request,env,userId,month){
-  const state=await loadRequestIikoState(request,env);if(!state?.user||String(state.user.id)!==String(userId))throw new Error('Требуется авторизация');
+  const state=await loadRequestIikoState(request,env);if(!state?.user||!state.access?.allowed||String(state.storageUserId||state.user.id)!==String(userId))throw new Error('Требуется авторизация');
   if(!state.found||!hasPrivateConnection(state.state))throw new Error('Сначала подключите SH Server в настройках.');
   const connection=privateConnection(state.state),b=monthBounds(month);
-  const scope=await resolveHrRestaurantScope(request,env,userId);
+  const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
   const employeesR=await env.DB.prepare(`SELECT iiko_employee_id,department_code FROM hr_employees WHERE user_id=?1 AND is_deleted=0 AND TRIM(employee_code)<>''`).bind(userId).all();
   const scopedEmployees=filterEmployeesByScope(employeesR.results||[],scope);
   const ids=new Set(scopedEmployees.map(e=>String(e.iiko_employee_id).toLowerCase()));
@@ -150,16 +150,20 @@ async function requireDeductionBasis(db,userId,id){
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
 export async function onRequestGet({request,env}){try{
-  const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);
+  const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+  if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+  const userId=state.storageUserId||state.user.id;await ensure(env.DB);
   const url=new URL(request.url),month=monthOnly(url.searchParams.get('month'))||new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit'}).format(new Date());
-  const scope=await resolveHrRestaurantScope(request,env,state.user.id);
-  return json(await snapshot(env.DB,state.user.id,month,scope));
+  const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
+  return json(await snapshot(env.DB,userId,month,scope));
 }catch(e){console.error('[HR-PAYROLL-ADJ-GET]',e);return json({success:false,message:e?.message||String(e)},500)}}
 
 export async function onRequestPost({request,env}){try{
-  const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);
-  const userId=state.user.id,b=await request.json().catch(()=>({})),action=clean(b.action),month=monthOnly(b.month);if(!month)return json({success:false,message:'Укажите месяц YYYY-MM'},400);const t=now();
-  const scope=await resolveHrRestaurantScope(request,env,userId);
+  const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+  if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+  const userId=state.storageUserId||state.user.id;await ensure(env.DB);
+  const b=await request.json().catch(()=>({})),action=clean(b.action),month=monthOnly(b.month);if(!month)return json({success:false,message:'Укажите месяц YYYY-MM'},400);const t=now();
+  const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
   if(action==='saveAdjustment'){
     const employeeId=clean(b.employeeId),type=clean(b.type).toUpperCase(),amount=money(b.amount),reason=clean(b.reason),source=(clean(b.source)||'MANUAL').toUpperCase(),tax=(clean(b.taxTreatment)||'TAXABLE').toUpperCase(),basis=clean(b.legalBasis),status=(clean(b.status)||'DRAFT').toUpperCase();
     if(!employeeId||!['ADVANCE','DEDUCTION','REWARD'].includes(type)||amount<=0||!reason)return json({success:false,message:'Заполните сотрудника, тип, сумму и причину'},400);
@@ -167,8 +171,12 @@ export async function onRequestPost({request,env}){try{
     if(type==='DEDUCTION'&&status==='APPROVED'&&!basis)return json({success:false,message:'Для подтверждённого удержания укажите основание/письменное согласие или другой допустимый документ.'},400);
     if(type==='REWARD'&&tax==='EXEMPT_WITH_BASIS'&&!basis)return json({success:false,message:'Для необлагаемого вознаграждения укажите законное основание'},400);
     const emp=await env.DB.prepare(`SELECT department_code FROM hr_employees WHERE user_id=?1 AND iiko_employee_id=?2 AND is_deleted=0 LIMIT 1`).bind(userId,employeeId).first();if(!emp)return json({success:false,message:'Сотрудник не найден'},404);
-    if(isHrSubsetScope(scope)&&!new Set(hrScopeKeys(scope)).has(clean(emp.department_code)))return json({success:false,message:'Сотрудник не относится к выбранному подразделению.'},403);
+    if((isHrSubsetScope(scope)||scope?.membershipRestricted)&&!new Set(hrScopeKeys(scope)).has(clean(emp.department_code)))return json({success:false,message:'Сотрудник не относится к выбранному подразделению.'},403);
     const id=clean(b.id)||uid('hpa');
+    if(clean(b.id)){
+      const existing=await env.DB.prepare('SELECT iiko_employee_id FROM hr_payroll_adjustments WHERE user_id=?1 AND adjustment_id=?2 LIMIT 1').bind(userId,id).first();
+      if(existing&&String(existing.iiko_employee_id)!==employeeId)return json({success:false,message:'Нельзя перенести корректировку на другого сотрудника: отмените и создайте новый документ'},403);
+    }
     await env.DB.prepare(`INSERT INTO hr_payroll_adjustments(user_id,adjustment_id,iiko_employee_id,month,adjustment_type,amount,reason,source,tax_treatment,legal_basis,status,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12) ON CONFLICT(user_id,adjustment_id) DO UPDATE SET iiko_employee_id=excluded.iiko_employee_id,month=excluded.month,adjustment_type=excluded.adjustment_type,amount=excluded.amount,reason=excluded.reason,source=excluded.source,tax_treatment=excluded.tax_treatment,legal_basis=excluded.legal_basis,status=excluded.status,updated_at=excluded.updated_at`).bind(userId,id,employeeId,month,type,amount,reason,source,tax,basis,status,t).run();
     return json(await snapshot(env.DB,userId,month,scope));
   }
@@ -176,14 +184,15 @@ export async function onRequestPost({request,env}){try{
     const id=clean(b.id),status=clean(b.status).toUpperCase();if(!id||!['DRAFT','APPROVED','CANCELLED'].includes(status))return json({success:false,message:'Некорректный статус'},400);
     const row=await env.DB.prepare(`SELECT a.iiko_employee_id,e.department_code FROM hr_payroll_adjustments a LEFT JOIN hr_employees e ON e.user_id=a.user_id AND e.iiko_employee_id=a.iiko_employee_id WHERE a.user_id=?1 AND a.adjustment_id=?2 LIMIT 1`).bind(userId,id).first();
     if(!row)return json({success:false,message:'Операция не найдена'},404);
-    if(isHrSubsetScope(scope)&&!new Set(hrScopeKeys(scope)).has(clean(row.department_code)))return json({success:false,message:'Операция относится к сотруднику другого подразделения.'},403);
+    if((isHrSubsetScope(scope)||scope?.membershipRestricted)&&!new Set(hrScopeKeys(scope)).has(clean(row.department_code)))return json({success:false,message:'Операция относится к сотруднику другого подразделения.'},403);
     if(status==='APPROVED')await requireDeductionBasis(env.DB,userId,id);
     await env.DB.prepare(`UPDATE hr_payroll_adjustments SET status=?3,updated_at=?4 WHERE user_id=?1 AND adjustment_id=?2`).bind(userId,id,status,t).run();return json(await snapshot(env.DB,userId,month,scope));
   }
   if(action==='saveMealPolicy'){
     const scopeType=clean(b.scopeType).toUpperCase(),scopeKey=clean(b.scopeKey),limit=money(b.monthlyLimit),from=dateOnly(b.effectiveFrom)||`${month}-01`,to=dateOnly(b.effectiveTo);
+    if(scopeType==='ROLE'&&scope?.isChain&&(scope?.membershipRestricted||isHrSubsetScope(scope)))return json({success:false,message:'Общесетевую политику должности настраивает HR всей сети. Для своего ресторана используйте политику сотрудника.'},403);
     if(!['ROLE','EMPLOYEE'].includes(scopeType)||!scopeKey)return json({success:false,message:'Укажите уровень и должность/сотрудника'},400);if(to&&to<from)return json({success:false,message:'Дата окончания раньше даты начала'},400);
-    if(isHrSubsetScope(scope)){
+    if(isHrSubsetScope(scope)||scope?.membershipRestricted){
       const employeeRows=await env.DB.prepare(`SELECT iiko_employee_id,role_code,department_code,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>''`).bind(userId).all();
       const scopedEmployees=filterEmployeesByScope(employeeRows.results||[],scope).filter(x=>!Number(x.is_deleted));
       const valid=scopeType==='EMPLOYEE'?scopedEmployees.some(x=>String(x.iiko_employee_id)===scopeKey):scopedEmployees.some(x=>String(x.role_code)===scopeKey);
