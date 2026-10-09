@@ -197,6 +197,18 @@
                 showMessage(message, "error"); return;
             }
             if (!data.user) { showMessage("Не удалось создать сессию.", "error"); return; }
+            if (invite) {
+                try {
+                    const accepted = await claimInvitedWorkspace(sb, invite);
+                    if (!accepted.ok) {
+                        showMessage(invitedUserMessage(accepted.reason), "error");
+                        return;
+                    }
+                } catch {
+                    showMessage("Не удалось применить приглашение. Проверьте соединение и повторите вход.", "error");
+                    return;
+                }
+            }
             window.location.replace(redirectTarget());
         });
     }
@@ -216,6 +228,10 @@
             const form = byId("register-form");
             form.style.display = "none";
             const card = document.querySelector(".auth-card");
+            const heading = card?.querySelector("h1");
+            if (heading) heading.textContent = "Принять приглашение в Smart Horeca";
+            const introduction = card?.querySelector("p.lead");
+            if (introduction) introduction.textContent = "Для входа не нужно заново заполнять анкету или создавать пароль.";
             const info = document.createElement("p");
             info.className = "lead";
             info.textContent = "Приглашение в «" + (preview.workspace?.name || "Smart Horeca") + "» для " + preview.email + ". Отдельная регистрация и анкета сотрудника не нужны.";
