@@ -1005,7 +1005,12 @@ export async function onRequestPost({request,env}){
         }
       }
       if(action==="cancel-order"){
-        const cnt=await db.prepare("SELECT COUNT(*) c FROM procurement_receipts WHERE order_id=?1").bind(o.id).first();if(n(cnt?.c)>0){const e=new Error("Нельзя отменить PO после фактической приёмки.");e.status=409;throw e}next="CANCELLED"
+        const [invoiceCnt,grnCnt]=await Promise.all([
+          db.prepare("SELECT COUNT(*) c FROM procurement_receipts WHERE order_id=?1").bind(o.id).first(),
+          db.prepare("SELECT COUNT(*) c FROM procurement_grns WHERE order_id=?1").bind(o.id).first()
+        ]);
+        if(n(invoiceCnt?.c)>0||n(grnCnt?.c)>0){const e=new Error("Нельзя отменить PO после создания GRN или приходной накладной.");e.status=409;throw e}
+        next="CANCELLED"
       }
       await db.prepare("UPDATE procurement_orders SET status=?2,updated_at=?3,sent_at=?4,confirmed_at=?5 WHERE id=?1").bind(o.id,next,stamp,sent,confirmed).run();
       await log(c,action.replace("-order","").toUpperCase(),"PURCHASE_ORDER",o,before,{status:next,sentAt:sent,confirmedAt:confirmed});
