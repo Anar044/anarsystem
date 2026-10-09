@@ -27,6 +27,14 @@ function setup(opts={}){
       return {encrypted:true,updatedAt:'2026-10-10T00:00:00Z'};
     },
     getDepartments:async()=>({departments:[{id:'d1',name:'Restaurant RMS 1',code:'RMS1'}],rawFormat:'json'}),
+    discoverChainStructure:async()=>({
+      departments:[{id:'d1',name:'Restaurant RMS 1',code:'RMS1',type:'DEPARTMENT'}],
+      hierarchy:[{id:'chain-root',name:'Chain',type:'CORPORATION'},{id:'d1',name:'Restaurant RMS 1',type:'DEPARTMENT'}],
+      groups:[{id:'g1',name:'Main Cash',departmentId:'d1'}],
+      pointsOfSale:[{id:'pos1',name:'POS 1',groupId:'g1'}],
+      restaurantSections:[],corporation:{id:'chain-root',name:'Chain'},
+      diagnostics:{format:'xml',hierarchyCount:2,types:['CORPORATION','DEPARTMENT'],attempts:[]}
+    }),
     getDepartmentsSearch:async()=>({departments:[],rawFormat:'empty',diagnostic:{format:'empty',candidates:0,types:[]}}),
     getDepartmentsFromOlap:async()=>{throw Error('Unexpected OLAP fallback')},
     ...opts
@@ -80,6 +88,9 @@ test('POST requires encrypted D1 storage, never writes plaintext without key',as
   assert.equal(h.writes[0].key,ORG.storage_owner_id);
   assert.equal(h.writes[0].data.identity.mode,'CHAIN');
   assert.equal(h.writes[0].data.identity.departments[0].id,'d1');
+  assert.equal(h.writes[0].data.identity.groups[0].departmentId,'d1');
+  assert.equal(h.writes[0].data.identity.pointsOfSale[0].id,'pos1');
+  assert.equal(h.writes[0].data.identity.hierarchy.length,2);
   assert.equal(h.writes[0].hasSecret,true);
 });
 test('GET exposes server metadata but no stored login password',async()=>{
@@ -105,4 +116,62 @@ test('Organizational sysadmins cannot modify server through legacy API; activati
   assert.match(connectionSource,/export async function getDepartmentsFromOlap\(/);
   assert.match(viewSource,/id="serverForm"/);
   assert.match(adminSource,/serverApi\('POST'/);
+});
+
+test('CHAIN uses established directory discoverer without sales-dependent OLAP',async()=>{
+  let chainCalled=0,olapCalled=0,genericCalled=0;
+  const h=setup({
+    discoverChainStructure:async()=>{chainCalled++;return {
+      departments:[{id:'existing-rms',name:'RMS 2',code:'RMS2',type:'DEPARTMENT'}],
+      groups:[],pointsOfSale:[],restaurantSections:[],hierarchy:[],
+      corporation:{id:'company',name:'Company'},
+      diagnostics:{format:'xml',hierarchyCount:1,types:['DEPARTMENT'],attempts:[]}
+    }},
+    getDepartments:async()=>{genericCalled++;return {departments:[]}},
+    getDepartmentsFromOlap:async()=>{olapCalled++;return {departments:[]}}
+  });
+  const res=await h.server.onRequestPost({
+    request:new Request('https://smarthoreca.pages.dev/api/platform/server',{
+      method:'POST',
+      body:JSON.stringify({organizationId:'org-one',connection:{
+        host:'s01.smarthoreca.az',port:9132,login:'server',password:'test-secret'}})
+    }),
+    env:{DB:h.db,SMART_HORECA_STATE_ENCRYPTION_KEY:'test-key'}
+  });
+  assert.equal(res.status,200);
+  assert.equal(chainCalled,1);
+  assert.equal(genericCalled,0);
+  assert.equal(olapCalled,0);
+  assert.equal(h.writes[0].data.identity.departments[0].id,'existing-rms');
+});
+test('CHAIN with empty hierarchy refuses save and shows safe attempt summary',async()=>{
+  const h=setup({discoverChainStructure:async()=>({
+    departments:[],hierarchy:[],groups:[],pointsOfSale:[],restaurantSections:[],
+    diagnostics:{format:'json',hierarchyCount:0,types:[],
+      attempts:[{endpoint:'/resto/api/corporation/departments?revisionFrom=-1',
+        format:'json',parsed:0,emptyJsonObjects:3}]}
+  })});
+  const res=await h.server.onRequestPost({
+    request:new Request('https://smarthoreca.pages.dev/api/platform/server',{
+      method:'POST',body:JSON.stringify({organizationId:'org-one',connection:{
+        host:'s01.smarthoreca.az',port:9132,login:'server',password:'not-displayed'}})
+    }),
+    env:{DB:h.db,SMART_HORECA_STATE_ENCRYPTION_KEY:'test-key'}
+  });
+  assert.equal(res.status,502);
+  const payload=await res.json();
+  assert.equal(payload.code,'CHAIN_DEPARTMENTS_EMPTY');
+  assert.match(payload.message,/revisionFrom=-1/);
+  assert.equal(JSON.stringify(payload).includes('not-displayed'),false);
+  assert.equal(h.writes.length,0);
+});
+test('Legacy CHAIN API preserves revision and XML-first discovery for platform provisioning',()=>{
+  const source=readFileSync(new URL('../functions/api/iiko/chain.js',import.meta.url),'utf8');
+  const platform=readFileSync(new URL('../functions/api/platform/server.js',import.meta.url),'utf8');
+  assert.match(source,/export async function discoverChainStructure/);
+  assert.match(source,/departments\?revisionFrom=-1/);
+  assert.match(source,/groups\?revisionFrom=-1/);
+  assert.match(source,/application\/xml, text\/xml/);
+  assert.match(platform,/discoverChainStructure\(connection\)/);
+  assert.match(platform,/groups,pointsOfSale,restaurantSections,hierarchy/);
 });

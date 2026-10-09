@@ -62,5 +62,77 @@ async function fetchCorporationDepartments(connection){
   }
   return best;
 }
+// Shared CHAIN directory discovery. The old CHAIN connection flow is the
+// source of truth for RMS/CHAIN organization provisioning. Do not replace it
+// with the generic connect endpoint or an OLAP-only identity check.
+export async function discoverChainStructure(connection){
+  const departmentFetch=await fetchCorporationDepartments(connection);
+  const dep=departmentFetch.response;
+  let grp=null,groupWarning="";
+  try{
+    grp=await getJsonOrXml(connection,"/resto/api/corporation/groups?revisionFrom=-1");
+  }catch(error){
+    // Groups are optional when establishing the department identities.
+    const msg=String(error?.message||error);
+    const status=msg.match(/\bHTTP\s+([1-5][0-9]{2})\b/i);
+    groupWarning=status
+      ?"HTTP "+status[1]+": не удалось загрузить группы"
+      :"Не удалось загрузить группы";
+  }
+  const hierarchy=departmentFetch.hierarchy;
+  const departments=hierarchy.filter(x=>x.type==="DEPARTMENT").map(x=>({
+    id:x.id,parentId:x.parentId,code:x.code,name:x.name,type:x.type
+  }));
+  const corporation=hierarchy.find(x=>x.type==="CORPORATION")||null;
+  const groupData=grp?(grp.rawFormat==="xml"?parseGroupsXml(grp.xml):groupObjects(grp.payload))
+    :{groups:[],pointsOfSale:[],restaurantSections:[]};
+  return{
+    departments,corporation,hierarchy,
+    restaurants:departments.map(x=>({id:x.id,name:x.name,code:x.code,parentId:x.parentId})),
+    groups:groupData.groups,pointsOfSale:groupData.pointsOfSale,
+    restaurantSections:groupData.restaurantSections,
+    detectedMode:departments.length>1?"CHAIN":"RMS",
+    departmentAuthCacheHit:Boolean(dep?.authCacheHit),
+    groupAuthCacheHit:Boolean(grp?.authCacheHit),
+    diagnostics:{
+      format:dep?.rawFormat||"unknown",hierarchyCount:hierarchy.length,
+      types:[...new Set(hierarchy.map(x=>x.type))],
+      attempts:departmentFetch.attempts.map(x=>({
+        endpoint:x.endpoint,format:x.format||null,parsed:x.parsed||0,
+        emptyJsonObjects:x.emptyJsonObjects||0,failed:!!x.error
+      })),
+      groupWarning
+    }
+  };
+}
+
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
-export async function onRequestPost({request}){try{const b=await request.json(),connection={ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??"")};if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Заполните IP, порт, логин и пароль SH Server"},400);const departmentFetch=await fetchCorporationDepartments(connection),dep=departmentFetch.response;let grp=null,groupWarning="";try{grp=await getJsonOrXml(connection,"/resto/api/corporation/groups?revisionFrom=-1")}catch(error){groupWarning=String(error?.message||error).slice(0,300);console.warn("[CHAIN] Group discovery failed; retaining department hierarchy:",groupWarning)}const hierarchy=departmentFetch.hierarchy,depts=hierarchy.filter(x=>x.type==="DEPARTMENT"),corporation=hierarchy.find(x=>x.type==="CORPORATION")||null,groupData=grp?(grp.rawFormat==="xml"?parseGroupsXml(grp.xml):groupObjects(grp.payload)):{groups:[],pointsOfSale:[],restaurantSections:[]},departments=depts.map(x=>({id:x.id,parentId:x.parentId,code:x.code,name:x.name,type:x.type})),restaurants=departments.map(x=>({id:x.id,name:x.name,code:x.code,parentId:x.parentId}),),detectedMode=departments.length>1?"CHAIN":"RMS";if(!departments.length)return json({success:false,message:"CHAIN API доступен, но список ресторанов с типом DEPARTMENT пуст. Проверьте права пользователя CHAIN и структуру сервера.",source:"iiko-corporation-api",diagnostics:{format:dep?.rawFormat||"unknown",hierarchyCount:hierarchy.length,types:[...new Set(hierarchy.map(x=>x.type))],attempts:departmentFetch.attempts,groupWarning}},422);return json({success:true,mode:detectedMode,detectedMode,organization:corporation,departments,restaurants,hierarchy,groups:groupData.groups,pointsOfSale:groupData.pointsOfSale,restaurantSections:groupData.restaurantSections,source:"iiko-corporation-api",server:{ip:connection.ip,port:connection.port},loadedAt:new Date().toISOString(),meta:{departmentAuthCacheHit:Boolean(dep?.authCacheHit),groupAuthCacheHit:Boolean(grp?.authCacheHit),groupWarning,discoveryAttempts:departmentFetch.attempts}})}catch(error){return json({success:false,message:error?.message||"Не удалось определить тип SH Server"},502)}}
+export async function onRequestPost({request}){
+  try{
+    const b=await request.json();
+    const connection={ip:clean(b.ip),port:clean(b.port),
+      login:clean(b.login),password:String(b.password??"")};
+    if(!connection.ip||!connection.port||!connection.login||!connection.password){
+      return json({success:false,message:"Заполните IP, порт, логин и пароль SH Server"},400);
+    }
+    const result=await discoverChainStructure(connection);
+    if(!result.departments.length){
+      return json({success:false,
+        message:"CHAIN API доступен, но список ресторанов с типом DEPARTMENT пуст. Проверьте права пользователя CHAIN и структуру сервера.",
+        source:"iiko-corporation-api",diagnostics:result.diagnostics},422);
+    }
+    return json({success:true,mode:result.detectedMode,
+      detectedMode:result.detectedMode,organization:result.corporation,
+      departments:result.departments,restaurants:result.restaurants,
+      hierarchy:result.hierarchy,groups:result.groups,
+      pointsOfSale:result.pointsOfSale,restaurantSections:result.restaurantSections,
+      source:"iiko-corporation-api",server:{ip:connection.ip,port:connection.port},
+      loadedAt:new Date().toISOString(),
+      meta:{departmentAuthCacheHit:result.departmentAuthCacheHit,
+        groupAuthCacheHit:result.groupAuthCacheHit,
+        discoveryAttempts:result.diagnostics.attempts,
+        groupWarning:result.diagnostics.groupWarning}});
+  }catch(error){
+    return json({success:false,message:error?.message||"Не удалось определить тип SH Server"},502);
+  }
+}

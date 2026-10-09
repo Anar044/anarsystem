@@ -1,5 +1,6 @@
 import {getUser,loadPrivateIikoState,savePrivateIikoState,SMART_HORECA_STATE_ENCRYPTION_ENV} from '../iiko/_lib/user-state.js';
 import {getDepartments,getDepartmentsSearch,getDepartmentsFromOlap} from '../iiko/connect.js';
+import {discoverChainStructure} from '../iiko/chain.js';
 import {requirePlatformAdmin,ensurePlatformTables,PlatformError} from './_lib/organizations.js';
 
 const cors={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, DELETE, OPTIONS','Access-Control-Allow-Headers':'Authorization, Content-Type'};
@@ -49,7 +50,37 @@ export function validateServer(input){
   if(!password||password.length>512)throw new PlatformError('Укажите пароль SH Server.',400,'INVALID_PASSWORD');
   return{ip:host,port:String(port),login,password};
 }
-async function discover(connection){
+async function discover(connection,mode='RMS'){
+  if(mode==='CHAIN'){
+    // Reuse the established CHAIN endpoint, including revisionFrom=-1
+    // and XML-first corporation/group discovery. OLAP is not a prerequisite:
+    // new restaurants may have no sales in the last 90 days.
+    let chain;
+    try{chain=await discoverChainStructure(connection);}
+    catch(error){
+      console.warn('[PLATFORM-CHAIN] Corporation directory failed',String(error?.name||'Error'));
+      throw new PlatformError('Не удалось получить структуру CHAIN через корпоративный справочник. Проверьте доступ пользователя к структуре сети.',502,'CHAIN_DIRECTORY_FAILED');
+    }
+    if(!chain.departments.length){
+      const d=chain.diagnostics||{};
+      const attempts=(d.attempts||[]).map(x=>
+        (String(x.endpoint||'').includes('revisionFrom')?'revisionFrom=-1':'без revisionFrom')+
+        ': '+(x.failed?'ошибка':String(x.format||'unknown')+
+          ', элементов '+Number(x.parsed||0)+', пустых JSON объектов '+Number(x.emptyJsonObjects||0))
+      ).join('; ');
+      throw new PlatformError('CHAIN подтвердил подключение, но не вернул подразделения. '+
+        'Корпоративный справочник: '+Number(d.hierarchyCount||0)+
+        ' элементов, типы: '+(d.types||[]).slice(0,8).join(', ')+'. '+
+        'Проверки: '+attempts+'.',502,'CHAIN_DEPARTMENTS_EMPTY');
+    }
+    return{
+      departments:chain.departments,source:'iiko-corporation-api',
+      hierarchy:chain.hierarchy,groups:chain.groups,
+      pointsOfSale:chain.pointsOfSale,restaurantSections:chain.restaurantSections,
+      corporation:chain.corporation
+    };
+  }
+
   const classic=await getDepartments(connection);
   let result=classic,search=null,searchError=null,olapError=null;
   if(!classic.departments.length){
@@ -112,7 +143,7 @@ export async function onRequestPost({request,env}){
     const existing=await loadPrivateIikoState(db,org.storage_owner_id,env);
     const pass=String(incoming.password||'')||String(existing.state?.connection?.password||'');
     const conn=validateServer({...incoming,password:pass});
-    const {departments,source}=await discover(conn);
+    const {departments,source,hierarchy=[],groups=[],pointsOfSale=[],restaurantSections=[],corporation=null}=await discover(conn,org.server_mode);
     const stamp=new Date().toISOString();
     const storedConnection={
       ...conn,connectionType:org.server_mode,isChain:org.server_mode==='CHAIN',
@@ -124,7 +155,8 @@ export async function onRequestPost({request,env}){
       displayName:org.name,networkName:org.name,restaurantName:org.name,
       departmentIds:departments.map(d=>d.id),departments,
       organizations:departments.map(d=>({id:d.id,name:d.name,code:d.code,type:'DEPARTMENT'})),
-      groups:[],pointsOfSale:[],restaurantSections:[],hierarchy:[],
+      groups,pointsOfSale,restaurantSections,hierarchy,
+      corporation,
       server:{ip:conn.ip,port:conn.port},checkedAt:stamp,source
     };
     const result=await savePrivateIikoState(db,org.storage_owner_id,{connection:storedConnection,identity,savedAt:stamp},env);
