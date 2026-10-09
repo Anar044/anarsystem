@@ -55,6 +55,10 @@ async function ensure(db){
     await db.prepare(`SELECT
       (SELECT rfq_id FROM procurement_quotes LIMIT 1),
       (SELECT grn_id FROM procurement_receipts LIMIT 1),
+      (SELECT variance_status FROM procurement_receipts LIMIT 1),
+      (SELECT variance_reason FROM procurement_receipts LIMIT 1),
+      (SELECT variance_reviewed_by FROM procurement_receipts LIMIT 1),
+      (SELECT variance_reviewed_at FROM procurement_receipts LIMIT 1),
       (SELECT package_size FROM procurement_requisition_lines LIMIT 1),
       (SELECT package_count FROM procurement_requisition_lines LIMIT 1),
       (SELECT container_id FROM procurement_requisition_lines LIMIT 1),
@@ -250,6 +254,10 @@ async function ensure(db){
       iiko_document_number TEXT NOT NULL DEFAULT '',
       iiko_document_id TEXT NOT NULL DEFAULT '',
       iiko_status TEXT NOT NULL DEFAULT '',
+      variance_status TEXT NOT NULL DEFAULT 'NONE',
+      variance_reason TEXT NOT NULL DEFAULT '',
+      variance_reviewed_by TEXT NOT NULL DEFAULT '',
+      variance_reviewed_at TEXT NOT NULL DEFAULT '',
       document_date TEXT NOT NULL,
       total_amount REAL NOT NULL DEFAULT 0,
       lines_json TEXT NOT NULL DEFAULT '[]',
@@ -325,6 +333,10 @@ async function ensure(db){
   }
   await ensureColumn("procurement_quotes","rfq_id","TEXT NOT NULL DEFAULT ''");
   await ensureColumn("procurement_receipts","grn_id","TEXT NOT NULL DEFAULT ''");
+  await ensureColumn("procurement_receipts","variance_status","TEXT NOT NULL DEFAULT 'NONE'");
+  await ensureColumn("procurement_receipts","variance_reason","TEXT NOT NULL DEFAULT ''");
+  await ensureColumn("procurement_receipts","variance_reviewed_by","TEXT NOT NULL DEFAULT ''");
+  await ensureColumn("procurement_receipts","variance_reviewed_at","TEXT NOT NULL DEFAULT ''");
   await ensureColumn("procurement_requisition_lines","package_size","REAL NOT NULL DEFAULT 1");
   await ensureColumn("procurement_requisition_lines","package_count","REAL NOT NULL DEFAULT 0");
   await ensureColumn("procurement_requisition_lines","container_id","TEXT NOT NULL DEFAULT ''");
@@ -411,6 +423,7 @@ const PROCUREMENT_ACTION_PERMISSIONS={
   "cancel-order":"procurement.po.manage",
   "create-grn":"procurement.receive",
   "link-invoice":"procurement.receive",
+  "review-invoice-variance":"procurement.approve",
   "sync-receipt":"procurement.receive",
   "receive-order":"procurement.receive"
 };
@@ -503,6 +516,19 @@ function normalizeLines(lines,{allowZeroPrice=false}={}){
   }
   return out;
 }
+function invoiceVariance(grnLines,invoiceLines){
+  const a=new Map((grnLines||[]).map(x=>[clean(x.productId),x]));
+  const b=new Map((invoiceLines||[]).map(x=>[clean(x.productId),x]));
+  const items=[];
+  for(const id of new Set([...a.keys(),...b.keys()])){
+    if(!id)continue;
+    const g=a.get(id),i=b.get(id),grnQty=q(g?.quantity??g?.receivedQty??0),invoiceQty=q(i?.quantity??i?.receivedQty??0);
+    const poPrice=money(g?.unitPrice??0),invoicePrice=money(i?.unitPrice??0);
+    const quantityDiff=q(invoiceQty-grnQty),priceDiff=money(invoicePrice-poPrice);
+    if(Math.abs(quantityDiff)>0.0005||Math.abs(priceDiff)>0.009)items.push({productId:id,quantityDiff,priceDiff});
+  }
+  return items;
+}
 async function reqRow(db,scope,id,serverScope){
   const row=await db.prepare("SELECT * FROM procurement_requisitions WHERE id=?1 AND server_scope=?2 LIMIT 1").bind(id,serverScope).first();
   if(!row){const e=new Error("Заявка не найдена.");e.status=404;throw e}
@@ -563,6 +589,7 @@ async function readData(db,serverScope,scope,view=""){
   const orderIds=new Set(orderRows.map(x=>x.id));
   const receipts=(receiptsR.results||[]).filter(x=>orderIds.has(x.order_id)).map(r=>({
     id:r.id,orderId:r.order_id,grnId:r.grn_id||"",iikoDocumentNumber:r.iiko_document_number,iikoDocumentId:r.iiko_document_id,iikoStatus:r.iiko_status,
+    varianceStatus:r.variance_status||"NONE",varianceReason:r.variance_reason||"",varianceReviewedBy:r.variance_reviewed_by||"",varianceReviewedAt:r.variance_reviewed_at||"",
     documentDate:r.document_date,totalAmount:n(r.total_amount),lines:parse(r.lines_json,[]),comment:r.comment,createdAt:r.created_at,createdBy:r.created_by_name||r.created_by
   }));
   const realGrns=(grnsR.results||[]).filter(x=>orderIds.has(x.order_id)).map(g=>({
@@ -1116,11 +1143,32 @@ export async function onRequestPost({request,env}){
         containerId:x.containerId,packageName:x.packageName,vatPercent:x.vatPercent,unitPrice:x.unitPrice,total:money(x.packageCount*x.unitPrice)
       }));
       const id=uid(),total=money(lines.reduce((sum,x)=>sum+x.total,0));
-      await db.prepare(`INSERT INTO procurement_receipts(id,server_scope,order_id,grn_id,iiko_document_number,iiko_document_id,iiko_status,document_date,total_amount,lines_json,comment,created_at,created_by,created_by_name)
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)`)
-        .bind(id,c.serverScope,o.id,grnId,documentNumber,clean(body?.iikoDocumentId),clean(body?.iikoStatus||"PROCESSED"),clean(body?.documentDate||stamp.slice(0,10)),total,JSON.stringify(lines),clean(body?.comment),stamp,userId,userName).run();
+      const variance=invoiceVariance(parse(grn.lines_json,[]),lines);
+      const varianceStatus=variance.length?"PENDING":"NONE";
+      await db.prepare(`INSERT INTO procurement_receipts(id,server_scope,order_id,grn_id,iiko_document_number,iiko_document_id,iiko_status,document_date,total_amount,lines_json,comment,created_at,created_by,created_by_name,variance_status)
+        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`)
+        .bind(id,c.serverScope,o.id,grnId,documentNumber,clean(body?.iikoDocumentId),clean(body?.iikoStatus||"NEW"),clean(body?.documentDate||stamp.slice(0,10)),total,JSON.stringify(lines),clean(body?.comment),stamp,userId,userName,varianceStatus).run();
       await log(c,"LINK","PURCHASE_INVOICE",o,null,{receiptId:id,grnId,iikoDocumentNumber:documentNumber,totalAmount:total,lines});
-      return json({success:true,id:o.id,receiptId:id,grnId,totalAmount:total},201);
+      return json({success:true,id:o.id,receiptId:id,grnId,totalAmount:total,varianceStatus},201);
+    }
+
+    if(action==="review-invoice-variance"){
+      const receiptId=clean(body?.receiptId),decision=clean(body?.decision).toUpperCase(),reason=clean(body?.reason);
+      if(!["APPROVED","REJECTED"].includes(decision)){const e=new Error("Укажите решение по расхождению.");e.status=400;throw e}
+      if(reason.length<5){const e=new Error("Укажите причину решения (не менее 5 символов).");e.status=400;throw e}
+      const receipt=await db.prepare("SELECT * FROM procurement_receipts WHERE id=?1 AND server_scope=?2 LIMIT 1").bind(receiptId,c.serverScope).first();
+      if(!receipt){const e=new Error("Накладная не найдена.");e.status=404;throw e}
+      const o=await orderRow(db,c.scope,receipt.order_id,c.serverScope);
+      if(!clean(receipt.grn_id)){const e=new Error("Накладная не связана с GRN.");e.status=409;throw e}
+      if(["PROCESSED","CLOSED"].includes(clean(receipt.iiko_status).toUpperCase())){const e=new Error("Накладная уже проведена. Решение через этот экран невозможно.");e.status=409;throw e}
+      const grn=await db.prepare("SELECT lines_json FROM procurement_grns WHERE id=?1 AND server_scope=?2 AND order_id=?3 LIMIT 1").bind(receipt.grn_id,c.serverScope,o.id).first();
+      if(!grn){const e=new Error("GRN для проверки не найден.");e.status=409;throw e}
+      const variances=invoiceVariance(parse(grn.lines_json,[]),parse(receipt.lines_json,[]));
+      if(!variances.length){const e=new Error("Расхождения уже нет. Обновите документы.");e.status=409;throw e}
+      const before={status:receipt.variance_status,reason:receipt.variance_reason};
+      await db.prepare("UPDATE procurement_receipts SET variance_status=?2,variance_reason=?3,variance_reviewed_by=?4,variance_reviewed_at=?5 WHERE id=?1 AND server_scope=?6").bind(receipt.id,decision,reason,userName,stamp,c.serverScope).run();
+      await log(c,"REVIEW","PURCHASE_INVOICE_VARIANCE",o,before,{receiptId:receipt.id,invoiceNumber:receipt.iiko_document_number,decision,reason,variances,reviewedBy:userName,reviewedAt:stamp});
+      return json({success:true,receiptId:receipt.id,status:decision,reviewedBy:userName,reviewedAt:stamp});
     }
 
     if(action==="sync-receipt"){
@@ -1130,7 +1178,18 @@ export async function onRequestPost({request,env}){
       const o=await orderRow(db,c.scope,receipt.order_id,c.serverScope);
       const lines=normalizeLines(body?.lines,{allowZeroPrice:true}).map(x=>({productId:x.productId,productName:x.productName,unit:x.unit,quantity:x.quantity,packageSize:x.packageSize,packageCount:x.packageCount,containerId:x.containerId,packageName:x.packageName,vatPercent:x.vatPercent,unitPrice:x.unitPrice,total:money(x.packageCount*x.unitPrice)}));
       const total=money(lines.reduce((s,x)=>s+x.total,0));
-      await db.prepare("UPDATE procurement_receipts SET iiko_status=?2,document_date=?3,total_amount=?4,lines_json=?5,comment=?6 WHERE id=?1").bind(receipt.id,clean(body?.iikoStatus||receipt.iiko_status),clean(body?.documentDate||receipt.document_date),total,JSON.stringify(lines),clean(body?.comment||receipt.comment)).run();
+      let varianceStatus="NONE",varianceReason="",reviewer="",reviewedAt="";
+      if(clean(receipt.grn_id)){
+        const grn=await db.prepare("SELECT lines_json FROM procurement_grns WHERE id=?1 AND order_id=?2 AND server_scope=?3 LIMIT 1").bind(receipt.grn_id,o.id,c.serverScope).first();
+        const variance=invoiceVariance(parse(grn?.lines_json,[]),lines);
+        if(variance.length){
+          const original=parse(receipt.lines_json,[]);
+          const unchanged=JSON.stringify(original.map(x=>[clean(x.productId),q(x.quantity),money(x.unitPrice)]).sort())===JSON.stringify(lines.map(x=>[clean(x.productId),q(x.quantity),money(x.unitPrice)]).sort());
+          varianceStatus=unchanged&&clean(receipt.variance_status)==="APPROVED"?"APPROVED":"PENDING";
+          if(varianceStatus==="APPROVED"){varianceReason=receipt.variance_reason||"";reviewer=receipt.variance_reviewed_by||"";reviewedAt=receipt.variance_reviewed_at||""}
+        }
+      }
+      await db.prepare("UPDATE procurement_receipts SET iiko_status=?2,document_date=?3,total_amount=?4,lines_json=?5,comment=?6,variance_status=?7,variance_reason=?8,variance_reviewed_by=?9,variance_reviewed_at=?10 WHERE id=?1").bind(receipt.id,clean(body?.iikoStatus||receipt.iiko_status),clean(body?.documentDate||receipt.document_date),total,JSON.stringify(lines),clean(body?.comment||receipt.comment),varianceStatus,varianceReason,reviewer,reviewedAt).run();
       let next=o.status;
       if(!clean(receipt.grn_id)){
         const progress=await physicalProgress(db,o.id);
