@@ -780,6 +780,10 @@ function grnHistoryHtml(o){
 }
 function threeWayPanelHtml(o){
   const t=o.threeWay||{},lines=t.lines||[];
+  const receipts=o.receipts||[],posted=receipts.filter(r=>["PROCESSED","CLOSED"].includes(String(r.iikoStatus||"").toUpperCase())).length;
+  const postingNote='<div class="proc-history-note">Проведение накладных в iiko: '+posted+' из '+receipts.length+
+    (receipts.length&&posted<receipts.length?' · '+(receipts.length-posted)+' не проведено':'')+
+    '. Сверка PO / GRN / накладная и складское проведение — разные статусы.</div>';
   const step=(name,value,meta,cls)=>'<div class="proc-threeway-step '+cls+'"><span>'+name+'</span><strong>'+value+'</strong><small>'+meta+'</small></div>';
   const lineRows=lines.map(x=>'<tr><td><strong>'+esc(x.productName||x.productId)+'</strong></td><td>'+qty(x.poQty)+' '+esc(x.unit||'')+'</td><td>'+qty(x.grnQty)+' '+esc(x.unit||'')+'</td><td>'+qty(x.invoiceQty)+' '+esc(x.unit||'')+'</td><td>'+moneyMaybe(x.poPrice)+'</td><td>'+moneyMaybe(x.invoicePrice)+'</td><td><span class="proc-status-badge '+threeWayTone(x.status)+'">'+esc(matchLabel(x.status))+'</span></td></tr>').join('');
   return '<div class="proc-threeway"><div class="proc-threeway-head"><div><strong>3-way match</strong><span>PO → GRN → Накладная</span></div><span class="proc-match '+String(t.status||o.matchStatus||'').toLowerCase()+'">'+esc(matchLabel(t.status||o.matchStatus))+'</span></div>'+
@@ -787,7 +791,7 @@ function threeWayPanelHtml(o){
       step('PO',moneyMaybe(t.poTotal!==undefined?t.poTotal:o.totalAmount),(o.lines||[]).length+' поз.','po')+
       step('GRN',moneyMaybe(t.grnTotal),num(t.grnCount)+' документ(а)','grn')+
       step('Накладная',moneyMaybe(t.invoiceTotal),num(t.invoiceCount)+' документ(а)','invoice')+
-    '</div>'+
+    '</div>'+postingNote+
     (lineRows?'<div class="proc-threeway-table-wrap"><table class="proc-threeway-table"><thead><tr><th>Товар</th><th>PO кол-во</th><th>GRN</th><th>Накладная</th><th>Цена PO</th><th>Цена накл.</th><th>Сверка</th></tr></thead><tbody>'+lineRows+'</tbody></table></div>':'')+
     '<div class="proc-threeway-grns"><strong>GRN / фактическая приёмка</strong>'+grnHistoryHtml(o)+'</div></div>';
 }
@@ -805,7 +809,7 @@ async function reviewInvoiceVariance(o,receiptId){
 }
 function orderCard(o,{receiving=false}={}){
   const lines=(o.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.orderedQty)+' '+esc(l.unit)+(receiving?'':' × '+money(l.unitPrice))+'</strong><span>по GRN '+qty(l.receivedQty)+' · осталось '+qty(l.remainingQty)+'</span></div>').join('');
-  return '<article class="proc-doc-card '+(o.effectiveStatus==='COMPLETED'?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId)+' · '+esc(o.warehouseName||'Склад')+' · '+dateTimeLabel(o.createdAt)+'</span></div><span class="proc-status-badge '+statusTone(o.effectiveStatus)+'">'+esc(statusLabel(o.effectiveStatus))+'</span></div>'+
+  return '<article class="proc-doc-card '+(o.effectiveStatus==='COMPLETED'?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId)+' · '+esc(o.warehouseName||'Склад')+' · '+dateTimeLabel(o.createdAt)+'</span></div><span class="proc-status-badge '+statusTone(o.effectiveStatus)+'">'+esc(receiving&&o.effectiveStatus==='COMPLETED'?'Физически принято':statusLabel(o.effectiveStatus))+'</span></div>'+
     '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(o.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>По GRN принято '+qty(o.receivedQty)+' из '+qty(o.orderedQty)+'</span><span>'+num(o.completionPercent).toFixed(1)+'%</span></div></div>'+
     '<div class="proc-line-list">'+lines+'</div>'+
     threeWayPanelHtml(o)+
