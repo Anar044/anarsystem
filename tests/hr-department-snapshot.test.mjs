@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { runInNewContext } from 'node:vm';
 const src=readFileSync(new URL('../hr-timesheet.js',import.meta.url),'utf8');
-const start=src.indexOf('  async function approvalSnapshot(){');
+const start=src.indexOf('  async function approvalSnapshot(');
 const end=src.indexOf('  async function approvalApi(',start);
 assert.ok(start>0&&end>start);
 const code=src.slice(start,end);
