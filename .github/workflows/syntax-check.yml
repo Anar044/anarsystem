@@ -380,7 +380,7 @@ jobs:
             state_code=$(curl -sS -o /tmp/preview-state.json -w '%{http_code}' "$PREVIEW_BASE/api/iiko/state" || true)
             hr_code=$(curl -sS -L -o /tmp/preview-hr.html -w '%{http_code}' "$PREVIEW_BASE/hr-timesheet.html?ci=$GITHUB_SHA" || true)
             marker_ok=0
-            if grep -q 'sh-hr-timesheet-build.*timesheet-cpu-v1' /tmp/preview-hr.html; then marker_ok=1; fi
+            if grep -q 'sh-hr-timesheet-build.*timesheet-resilient-v1' /tmp/preview-hr.html; then marker_ok=1; fi
             echo "Preview probe: home=$home_code state=$state_code hr=$hr_code marker=$marker_ok attempt=$attempt"
             if [ "$home_code" = "200" ] && [ "$state_code" = "401" ] && [ "$hr_code" = "200" ] && [ "$marker_ok" = "1" ]; then
               echo "Current preview ready: $PREVIEW_BASE"
@@ -550,3 +550,4 @@ jobs:
           node --test tests/hr-punch-correction.test.mjs
           node --test tests/hr-live-shift.test.mjs
           node --test tests/hr-timesheet-performance.test.mjs
+          node --test tests/hr-timesheet-resilient-load.test.mjs
