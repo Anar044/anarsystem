@@ -50,16 +50,27 @@ export function validateServer(input){
   return{ip:host,port:String(port),login,password};
 }
 async function discover(connection){
-  let result=await getDepartments(connection);
-  if(!result.departments.length){
+  const classic=await getDepartments(connection);
+  let result=classic,olapError=null;
+  if(!classic.departments.length){
     try{result=await getDepartmentsFromOlap(connection)}
-    catch{
-      throw new PlatformError('Авторизация прошла, но не удалось получить подразделения. Проверьте права сервера и наличие подразделений.',502,'DEPARTMENTS_UNAVAILABLE');
-    }
+    catch(error){olapError=error;result={departments:[],rawFormat:'failed'};}
   }
   const departments=(result.departments||[]).filter(d=>clean(d.id))
     .slice(0,1500).map(d=>({id:clean(d.id),code:clean(d.code),name:clean(d.name)||clean(d.id),parentId:clean(d.parentId)||null,type:'DEPARTMENT'}));
-  if(!departments.length)throw new PlatformError('Подключение установлено, но сервер не вернул подразделения.',502,'DEPARTMENTS_EMPTY');
+  if(!departments.length){
+    const summary=classic.diagnostic||{format:classic.rawFormat,candidates:0,types:[]};
+    const kinds=(summary.types||[]).slice(0,8).join(', ')||'нет';
+    // Safe diagnostic without raw XML/JSON, password, login, or access tokens.
+    const classicStatus='Справочник: '+clean(summary.format||'неизвестно')+
+      ', элементов: '+Number(summary.candidates||0)+', типы: '+kinds+'. ';
+    const salesStatus=olapError
+      ? 'OLAP: запрос завершился ошибкой. '
+      : 'OLAP: '+Number(result.diagnostic?.candidates||0)+' строк за 90 дней, подразделений 0. ';
+    const hint='Проверьте права пользователя на справочник подразделений и доступ к CHAIN. Если справочник заполнен, пришлите только этот текст ошибки.';
+    throw new PlatformError('Сервер подтвердил авторизацию, но ID подразделений не найдены. '+
+      classicStatus+salesStatus+hint,502,olapError?'DEPARTMENTS_FALLBACK_FAILED':'DEPARTMENTS_EMPTY');
+  }
   return{departments,source:result.rawFormat||'server'};
 }
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors})}
