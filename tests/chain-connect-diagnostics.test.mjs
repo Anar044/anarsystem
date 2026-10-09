@@ -39,7 +39,7 @@ test('CHAIN finds restaurants even if optional groups API fails',async()=>{
 test('No Department items yields structured diagnostics',async()=>{
   const r=await run(async url=>{
     if(String(url).includes('/resto/api/auth?'))return makeResponse('auth-token');
-    if(String(url).includes('/resto/api/corporation/departments?'))
+    if(String(url).includes('/resto/api/corporation/departments'))
       return makeResponse('<corporateItemDtoes><corporateItemDto><id>corp1</id><name>Company</name><type>CORPORATION</type></corporateItemDto></corporateItemDtoes>');
     if(String(url).includes('/resto/api/corporation/groups?'))return makeResponse('<groupDtoes/>');
     throw Error('Unexpected endpoint');
@@ -57,4 +57,49 @@ test('Rejected credentials never become a fake empty-department success',async()
   assert.equal(r.status,502);
   assert.equal(r.payload.success,false);
   assert.match(r.payload.message,/авторизации|401/);
+});
+
+test('2023 CHAIN: empty JSON DTOs trigger XML discovery without revisionFrom',async()=>{
+  const calls=[];
+  const result=await run(async (url,opts={})=>{
+    const path=String(url);
+    calls.push({path,accept:String(opts.headers?.Accept||'')});
+    if(path.includes('/resto/api/auth?'))return makeResponse('auth-token');
+    if(path.includes('/resto/api/corporation/departments?'))
+      return new Response('[{},{},{},{},{},{},{},{},{}]',{status:200,headers:{'Content-Type':'application/json'}});
+    if(path.includes('/resto/api/corporation/departments&')||path.includes('/resto/api/corporation/departments?key='))
+      return makeResponse('<?xml version="1.0"?><corporateItemDtoes>'+
+        '<corporateItemDto><id>c</id><name>TEST CHAIN</name><type>CORPORATION</type></corporateItemDto>'+
+        '<corporateItemDto><id>r1</id><name>RMS 1</name><type>DEPARTMENT</type></corporateItemDto>'+
+        '<corporateItemDto><id>r2</id><name>RMS 2</name><type>DEPARTMENT</type></corporateItemDto>'+
+        '<corporateItemDto><id>r3</id><name>RMS 3</name><type>DEPARTMENT</type></corporateItemDto>'+
+        '<corporateItemDto><id>s1</id><name>CENTRAL ANBAR</name><type>CENTRALSTORE</type></corporateItemDto>'+
+        '</corporateItemDtoes>');
+    if(path.includes('/resto/api/corporation/groups?'))return makeResponse('<groupDtoes/>');
+    throw Error('Unexpected URL '+path);
+  },{...creds,login:'2023-json-empty-case'});
+  assert.equal(result.status,200);
+  assert.equal(result.payload.success,true);
+  assert.deepEqual(result.payload.departments.map(x=>x.name),['RMS 1','RMS 2','RMS 3']);
+  assert.equal(result.payload.organization.name,'TEST CHAIN');
+  assert.equal(result.payload.hierarchy.length,5);
+  const attempts=result.payload.meta.discoveryAttempts;
+  assert.equal(attempts.length,2);
+  assert.equal(attempts[0].emptyJsonObjects,9);
+  assert.equal(attempts[1].format,'xml');
+  assert.equal(calls.filter(x=>x.path.includes('/resto/api/corporation/departments')).length,2);
+  assert.ok(calls.filter(x=>x.path.includes('/resto/api/corporation/departments')).every(x=>x.accept.includes('application/xml')));
+});
+test('Empty JSON DTOs on both variants report why no Department ID was available',async()=>{
+  const result=await run(async url=>{
+    if(String(url).includes('/resto/api/auth?'))return makeResponse('auth-token');
+    if(String(url).includes('/resto/api/corporation/departments'))return new Response('[{},{},{}]',{status:200,headers:{'Content-Type':'application/json'}});
+    if(String(url).includes('/resto/api/corporation/groups?'))return makeResponse('<groupDtoes/>');
+    throw Error('Unexpected URL '+url);
+  },{...creds,login:'all-empty-json'});
+  assert.equal(result.status,422);
+  assert.equal(result.payload.success,false);
+  assert.equal(result.payload.diagnostics.attempts.length,2);
+  assert.equal(result.payload.diagnostics.attempts[0].emptyJsonObjects,3);
+  assert.equal(result.payload.diagnostics.attempts[1].emptyJsonObjects,3);
 });
