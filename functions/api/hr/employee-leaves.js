@@ -141,13 +141,15 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+    const userId=state.storageUserId||state.user.id;
     await ensure(env.DB);
     const url=new URL(request.url),employeeId=clean(url.searchParams.get('id'),120),year=int(url.searchParams.get('year'),2000,2100,new Date().getFullYear()),asOf=dateOnly(url.searchParams.get('asOf'))||todayBaku();
     if(!employeeId)return json({success:false,message:'Не указан сотрудник'},400);
-    const scope=await resolveHrRestaurantScope(request,env,state.user.id),employee=await employeeRow(env.DB,state.user.id,employeeId,scope);
+    const scope=await resolveHrRestaurantScope(request,env,userId,state.access),employee=await employeeRow(env.DB,userId,employeeId,scope);
     if(!employee)return json({success:false,message:'Сотрудник не найден или недоступен в выбранном ресторане'},404);
-    const [types,hires,entries]=await Promise.all([typeList(env.DB,state.user.id),hireDates(env.DB,state.user.id,employee),recentEntries(env.DB,state.user.id,employeeId)]);
-    const contours=await snapshot(env.DB,state.user.id,employeeId,year,asOf,types,hires);
+    const [types,hires,entries]=await Promise.all([typeList(env.DB,userId),hireDates(env.DB,userId,employee),recentEntries(env.DB,userId,employeeId)]);
+    const contours=await snapshot(env.DB,userId,employeeId,year,asOf,types,hires);
     return json({success:true,year,asOf,employee:{id:employeeId,name:employeeName(employee),code:employee.employee_code||'',roleName:employee.role_name||''},types,contours,entries});
   }catch(e){console.error('[HR-EMPLOYEE-LEAVES-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
 }
@@ -155,23 +157,25 @@ export async function onRequestGet({request,env}){
 export async function onRequestPost({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+    const userId=state.storageUserId||state.user.id;
     await ensure(env.DB);
     const body=await request.json().catch(()=>({})),action=clean(body.action,40),employeeId=clean(body.employeeId,120);
     if(!employeeId)return json({success:false,message:'Не указан сотрудник'},400);
-    const scope=await resolveHrRestaurantScope(request,env,state.user.id),employee=await employeeRow(env.DB,state.user.id,employeeId,scope);
+    const scope=await resolveHrRestaurantScope(request,env,userId,state.access),employee=await employeeRow(env.DB,userId,employeeId,scope);
     if(!employee)return json({success:false,message:'Сотрудник не найден или недоступен в выбранном ресторане'},404);
-    const connection=privateConnection(state.state),types=await typeList(env.DB,state.user.id),validTypes=new Set(types.map(x=>x.code));
+    const connection=privateConnection(state.state),types=await typeList(env.DB,userId),validTypes=new Set(types.map(x=>x.code));
 
     if(action==='saveBalance'){
       const year=int(body.year,2000,2100,0),contour=clean(body.contour,20).toUpperCase(),typeCode=clean(body.typeCode,30).toUpperCase();
       if(!year||!['FACTUAL','OFFICIAL'].includes(contour)||!validTypes.has(typeCode))return json({success:false,message:'Некорректные параметры отпуска'},400);
-      const beforeRow=await env.DB.prepare(`SELECT * FROM hr_employee_leave_balances WHERE user_id=?1 AND iiko_employee_id=?2 AND leave_year=?3 AND contour=?4 AND leave_type=?5 LIMIT 1`).bind(state.user.id,employeeId,year,contour,typeCode).first();
+      const beforeRow=await env.DB.prepare(`SELECT * FROM hr_employee_leave_balances WHERE user_id=?1 AND iiko_employee_id=?2 AND leave_year=?3 AND contour=?4 AND leave_type=?5 LIMIT 1`).bind(userId,employeeId,year,contour,typeCode).first();
       const after={year,contour,typeCode,entitledDays:Math.max(0,num(body.entitledDays)),adjustmentDays:num(body.adjustmentDays),manualActivated:Boolean(body.manualActivated),note:clean(body.note,1000)};
       const t=now();
       await env.DB.prepare(`INSERT INTO hr_employee_leave_balances(user_id,iiko_employee_id,leave_year,contour,leave_type,entitled_days,adjustment_days,manual_activate,note,created_at,updated_at)
         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)
         ON CONFLICT(user_id,iiko_employee_id,leave_year,contour,leave_type) DO UPDATE SET entitled_days=excluded.entitled_days,adjustment_days=excluded.adjustment_days,manual_activate=excluded.manual_activate,note=excluded.note,updated_at=excluded.updated_at`)
-        .bind(state.user.id,employeeId,year,contour,typeCode,after.entitledDays,after.adjustmentDays,after.manualActivated?1:0,after.note,t).run();
+        .bind(userId,employeeId,year,contour,typeCode,after.entitledDays,after.adjustmentDays,after.manualActivated?1:0,after.note,t).run();
       const before=beforeRow?{year:Number(beforeRow.leave_year),contour:beforeRow.contour,typeCode:beforeRow.leave_type,entitledDays:num(beforeRow.entitled_days),adjustmentDays:num(beforeRow.adjustment_days),manualActivated:Boolean(beforeRow.manual_activate),note:beforeRow.note||''}:null;
       await logAuditEvent({request,env,connection,action:before?'UPDATE':'CREATE',entityType:'HR_EMPLOYEE_LEAVE_BALANCE',entityId:employeeId,entityLabel:`Отпуска · ${employeeName(employee)}`,before,after,restaurantIds:scope?.selectedDepartmentIds||[],metadata:{year,contour,typeCode}});
       return json({success:true,message:'Остаток отпуска сохранён'});
@@ -181,14 +185,14 @@ export async function onRequestPost({request,env}){
       const contour=clean(body.contour,20).toUpperCase(),typeCode=clean(body.typeCode,30).toUpperCase(),dateFrom=dateOnly(body.dateFrom),dateTo=dateOnly(body.dateTo);
       if(!['FACTUAL','OFFICIAL'].includes(contour)||!validTypes.has(typeCode)||!dateFrom||!dateTo||dateTo<dateFrom)return json({success:false,message:'Проверьте вид отпуска и период'},400);
       if(dateFrom.slice(0,4)!==dateTo.slice(0,4))return json({success:false,message:'Отпуск, переходящий через Новый год, внесите двумя записями — отдельно для каждого года. Так годовые остатки будут рассчитаны точно.'},400);
-      const year=Number(dateFrom.slice(0,4)),balance=await env.DB.prepare(`SELECT * FROM hr_employee_leave_balances WHERE user_id=?1 AND iiko_employee_id=?2 AND leave_year=?3 AND contour=?4 AND leave_type=?5 LIMIT 1`).bind(state.user.id,employeeId,year,contour,typeCode).first();
-      const hires=await hireDates(env.DB,state.user.id,employee),eligibleDate=addMonths(hires[contour],6),manual=Boolean(balance?.manual_activate);
+      const year=Number(dateFrom.slice(0,4)),balance=await env.DB.prepare(`SELECT * FROM hr_employee_leave_balances WHERE user_id=?1 AND iiko_employee_id=?2 AND leave_year=?3 AND contour=?4 AND leave_type=?5 LIMIT 1`).bind(userId,employeeId,year,contour,typeCode).first();
+      const hires=await hireDates(env.DB,userId,employee),eligibleDate=addMonths(hires[contour],6),manual=Boolean(balance?.manual_activate);
       if(!(manual||(eligibleDate&&dateFrom>=eligibleDate)))return json({success:false,message:`Право на этот отпуск ещё не активно. Автоматическая активация: ${eligibleDate||'не определена'}. HR может включить ручную активацию в остатках.`},409);
       const suggested=daysInclusive(dateFrom,dateTo),days=num(body.days,suggested);
       if(days<=0)return json({success:false,message:'Количество дней должно быть больше нуля'},400);
       const leaveId=uid('hrleave'),t=now(),note=clean(body.note,1200),actor=actorLabel(state.user);
       await env.DB.prepare(`INSERT INTO hr_employee_leave_entries(user_id,leave_id,iiko_employee_id,contour,leave_type,date_from,date_to,days,status,note,actor_id,actor_label,created_at,updated_at)
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'APPROVED',?9,?10,?11,?12,?12)`).bind(state.user.id,leaveId,employeeId,contour,typeCode,dateFrom,dateTo,days,note,clean(state.user.id,160),actor,t).run();
+        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'APPROVED',?9,?10,?11,?12,?12)`).bind(userId,leaveId,employeeId,contour,typeCode,dateFrom,dateTo,days,note,clean(state.user.id,160),actor,t).run();
       const after={leaveId,contour,typeCode,dateFrom,dateTo,days,status:'APPROVED',note};
       await logAuditEvent({request,env,connection,action:'CREATE',entityType:'HR_EMPLOYEE_LEAVE',entityId:employeeId,entityLabel:`Отпуск · ${employeeName(employee)}`,before:null,after,restaurantIds:scope?.selectedDepartmentIds||[],metadata:{leaveId,year,contour,typeCode}});
       return json({success:true,message:'Отпуск добавлен',leaveId});
@@ -196,20 +200,21 @@ export async function onRequestPost({request,env}){
 
     if(action==='cancelLeave'){
       const leaveId=clean(body.leaveId,160);if(!leaveId)return json({success:false,message:'Не указан отпуск'},400);
-      const row=await env.DB.prepare(`SELECT * FROM hr_employee_leave_entries WHERE user_id=?1 AND leave_id=?2 AND iiko_employee_id=?3 LIMIT 1`).bind(state.user.id,leaveId,employeeId).first();
+      const row=await env.DB.prepare(`SELECT * FROM hr_employee_leave_entries WHERE user_id=?1 AND leave_id=?2 AND iiko_employee_id=?3 LIMIT 1`).bind(userId,leaveId,employeeId).first();
       if(!row)return json({success:false,message:'Запись отпуска не найдена'},404);
       if(row.status==='CANCELLED')return json({success:true,message:'Отпуск уже отменён'});
-      await env.DB.prepare(`UPDATE hr_employee_leave_entries SET status='CANCELLED',updated_at=?4 WHERE user_id=?1 AND leave_id=?2 AND iiko_employee_id=?3`).bind(state.user.id,leaveId,employeeId,now()).run();
+      await env.DB.prepare(`UPDATE hr_employee_leave_entries SET status='CANCELLED',updated_at=?4 WHERE user_id=?1 AND leave_id=?2 AND iiko_employee_id=?3`).bind(userId,leaveId,employeeId,now()).run();
       await logAuditEvent({request,env,connection,action:'UPDATE',entityType:'HR_EMPLOYEE_LEAVE',entityId:employeeId,entityLabel:`Отпуск · ${employeeName(employee)}`,before:{leaveId,status:row.status,contour:row.contour,typeCode:row.leave_type,dateFrom:row.date_from,dateTo:row.date_to,days:num(row.days)},after:{leaveId,status:'CANCELLED',contour:row.contour,typeCode:row.leave_type,dateFrom:row.date_from,dateTo:row.date_to,days:num(row.days)},restaurantIds:scope?.selectedDepartmentIds||[],metadata:{leaveId,contour:row.contour,typeCode:row.leave_type}});
       return json({success:true,message:'Отпуск отменён'});
     }
 
     if(action==='saveTypeName'){
+      if(scope?.isChain&&(scope.membershipRestricted||new Set(scope.selectedDepartmentIds||[]).size!==new Set(scope.allowedDepartmentIds||[]).size))return json({success:false,message:'Названия общих видов отпуска меняет только HR всей сети'},403);
       const typeCode=clean(body.typeCode,30).toUpperCase(),name=clean(body.name,120);
       if(!['EXTRA_1','EXTRA_2'].includes(typeCode)||!name)return json({success:false,message:'Можно переименовывать только два дополнительных вида отпуска'},400);
       const t=now();
       await env.DB.prepare(`INSERT INTO hr_leave_type_settings(user_id,leave_type,display_name,updated_at) VALUES(?1,?2,?3,?4)
-        ON CONFLICT(user_id,leave_type) DO UPDATE SET display_name=excluded.display_name,updated_at=excluded.updated_at`).bind(state.user.id,typeCode,name,t).run();
+        ON CONFLICT(user_id,leave_type) DO UPDATE SET display_name=excluded.display_name,updated_at=excluded.updated_at`).bind(userId,typeCode,name,t).run();
       await logAuditEvent({request,env,connection,action:'UPDATE',entityType:'HR_LEAVE_TYPE',entityId:typeCode,entityLabel:'Вид отпуска',before:null,after:{typeCode,name},restaurantIds:scope?.selectedDepartmentIds||[]});
       return json({success:true,message:'Название дополнительного отпуска сохранено'});
     }
