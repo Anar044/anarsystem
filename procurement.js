@@ -642,7 +642,8 @@ function requestListItem(r){
   '</details>';
 }
 function orderListItem(o,{receiving=false}={}){
-  const effective=o.effectiveStatus||o.status,done=['COMPLETED','CANCELLED'].includes(effective);
+  const effective=o.effectiveStatus||o.status,done=receiving?o.matchStatus==='MATCHED':['COMPLETED','CANCELLED'].includes(effective);
+  const displayStatus=receiving?(o.matchStatus||'WAITING_GRN'):effective;
   const lines=(o.lines||[]).length,remainingLines=(o.lines||[]).filter(x=>num(x.remainingQty)>0.0005).length;
   return '<details class="proc-record '+(done?'done':'')+'" name="'+(receiving?'proc-receiving-documents':'proc-po-documents')+'">'+
     '<summary class="proc-record-summary">'+
@@ -652,7 +653,7 @@ function orderListItem(o,{receiving=false}={}){
       (receiving
         ?'<div class="proc-record-metric amount"><strong>'+remainingLines+'</strong><span>поз. к приёмке · '+esc(matchLabel(o.matchStatus))+'</span></div>'
         :'<div class="proc-record-metric amount"><strong>'+money(o.totalAmount)+'</strong><span>сумма PO</span></div>')+
-      '<span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span>'+
+      '<span class="proc-status-badge '+(receiving?threeWayTone(displayStatus):statusTone(displayStatus))+'">'+esc(receiving?matchLabel(displayStatus):statusLabel(displayStatus))+'</span>'+
       '<span class="proc-record-open">Открыть <i>›</i></span>'+
     '</summary>'+
     '<div class="proc-record-body">'+orderCard(o,{receiving})+'</div>'+
