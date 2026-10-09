@@ -70,7 +70,8 @@ function normalizeIncomingDocument(input = {}) {
       ...item,
       num: item.num ?? index + 1,
       amount,
-      actualAmount: Number.isFinite(Number(item.actualAmount)) ? Number(item.actualAmount) : amount,
+      actualAmount: item.actualAmount !== null && item.actualAmount !== undefined && String(item.actualAmount).trim() !== "" && Number.isFinite(Number(item.actualAmount)) && Number(item.actualAmount)>0
+        ? Number(item.actualAmount) : amount,
       price,
       sum,
       store: clean(item.store || item.storeId) || documentStore
