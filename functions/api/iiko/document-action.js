@@ -268,9 +268,10 @@ function isFalse(value) {
 
 // Procurement GRN and supplier invoice quantities are independent. An invoice
 // that differs from the physically received goods must not be auto-posted.
+const procurementProductId=v=>clean(v).replace(/^\{+|\}+$/g,"").toLowerCase();
 function procurementDiff(grnLines,invoiceLines){
-  const g=new Map((grnLines||[]).map(x=>[clean(x.productId).toLowerCase(),x]));
-  const i=new Map((invoiceLines||[]).map(x=>[clean(x.productId??x.product).toLowerCase(),x]));
+  const g=new Map((grnLines||[]).map(x=>[procurementProductId(x.productId),x]));
+  const i=new Map((invoiceLines||[]).map(x=>[procurementProductId(x.productId??x.product),x]));
   const ids=new Set([...g.keys(),...i.keys()]);
   for(const id of ids){
     if(!id)continue;
@@ -283,8 +284,8 @@ function procurementDiff(grnLines,invoiceLines){
   return false;
 }
 function sameSupplierInvoiceLines(stored,requested){
-  const a=new Map((stored||[]).map(x=>[clean(x.productId).toLowerCase(),x]));
-  const b=new Map((requested||[]).map(x=>[clean(x.productId??x.product).toLowerCase(),x]));
+  const a=new Map((stored||[]).map(x=>[procurementProductId(x.productId),x]));
+  const b=new Map((requested||[]).map(x=>[procurementProductId(x.productId??x.product),x]));
   if(a.size!==b.size)return false;
   for(const [id,x] of a){
     const y=b.get(id);if(!y)return false;
@@ -326,10 +327,10 @@ async function checkProcurementVarianceBeforePosting(env,connection,document){
     const others=(await env.DB.prepare("SELECT lines_json,variance_status,resolution_status,resolution_method FROM procurement_receipts WHERE server_scope=?1 AND grn_id=?2").bind(scope,receipt.grn_id).all()).results||[];
     const plan=others.some(x=>x.variance_status==="APPROVED"&&x.resolution_status==="IN_PROGRESS"&&x.resolution_method==="ADDITIONAL_INVOICE");
     if(plan&&others.length>1){
-      const ceiling=new Map(parsed.map(x=>[clean(x.productId).toLowerCase(),Number(x.quantity)]));
+      const ceiling=new Map(parsed.map(x=>[procurementProductId(x.productId),Number(x.quantity)]));
       const totals=new Map();
       for(const row of others)for(const l of JSON.parse(row.lines_json||"[]")){
-        const id=clean(l.productId).toLowerCase();
+        const id=procurementProductId(l.productId);
         totals.set(id,(totals.get(id)||0)+Number(l.quantity));
       }
       if([...totals].every(([id,amount])=>ceiling.has(id)&&amount<=ceiling.get(id)+0.0005))return null;
