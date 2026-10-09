@@ -255,7 +255,6 @@ export async function listUserWorkspaces(db,user){
   await ensureAccessTables(db);
   const userId=clean(user?.id),email=emailKey(user?.email);
   if(!userId)return[];
-  await ensureOwnerMembership(db,user);
   const memberships=await membershipsForUser(db,userId);
   const out=[];
   for(const member of memberships){
@@ -273,7 +272,7 @@ export async function updateWorkspaceName(db,workspaceId,name){
 
 export async function selectWorkspaceForUser(db,user,workspaceId){
   const list=await listUserWorkspaces(db,user);
-  const selected=list.find(x=>clean(x.id)===clean(workspaceId)&&String(x.memberStatus).toUpperCase()==='ACTIVE');
+  const selected=list.find(x=>clean(x.id)===clean(workspaceId)&&String(x.memberStatus).toUpperCase()==='ACTIVE'&&String(x.status||'ACTIVE').toUpperCase()==='ACTIVE');
   if(!selected)throw Object.assign(new Error('Рабочее пространство недоступно.'),{status:403,code:'WORKSPACE_FORBIDDEN'});
   return selected;
 }
@@ -383,12 +382,12 @@ async function permissionsForMember(db,row){
   return[...set];
 }
 
+// Invite-only: never recreate organizations from legacy owner data or email-only claims.
 export async function resolveAccessForUser(db,user,{claimInvite=true,request=null,inviteToken:rawInviteToken='',workspaceId:rawWorkspaceId=''}={}){
   await ensureAccessTables(db);
   const userId=clean(user?.id),email=emailKey(user?.email);
   if(!userId)return{allowed:false,reason:'NO_USER'};
 
-  await ensureOwnerMembership(db,user);
 
   let preferredWorkspaceId=clean(rawWorkspaceId)||cookieValue(request,WORKSPACE_COOKIE);
   const token=clean(rawInviteToken);
@@ -399,10 +398,6 @@ export async function resolveAccessForUser(db,user,{claimInvite=true,request=nul
   }
 
   let memberships=await membershipsForUser(db,userId);
-  if(!memberships.length&&claimInvite&&email){
-    const claimedLegacy=await claimLegacyEmailInvite(db,user,email);
-    if(claimedLegacy)memberships=[claimedLegacy];
-  }
   if(!memberships.length)return{allowed:false,reason:'NO_MEMBERSHIP',userId,email};
 
   const options=[];
@@ -413,23 +408,22 @@ export async function resolveAccessForUser(db,user,{claimInvite=true,request=nul
   }
   const publicWorkspaces=options.map(x=>({...workspacePublic(x.workspace),memberId:x.member.id,memberStatus:x.member.status,isOwner:x.member.owner_user_id===userId}));
 
-  const ownerOption=options.find(x=>x.member.owner_user_id===userId&&x.member.user_id===userId)||null;
-  const activeOptions=options.filter(x=>String(x.member.status||'').toUpperCase()==='ACTIVE');
+  // The same Supabase account may belong to unrelated organizations.
+  // Without an explicit selected workspace, ask even an organization owner to
+  // choose instead of silently preferring their own older workspace.
+  const activeOptions=options.filter(x=>String(x.member.status||'').toUpperCase()==='ACTIVE'&&
+    String(x.workspace.status||'ACTIVE').toUpperCase()==='ACTIVE');
   let selected=null;
-  if(preferredWorkspaceId)selected=options.find(x=>clean(x.workspace.id)===preferredWorkspaceId)||null;
-
-  // A stale workspace cookie can point to a membership that was later disabled.
-  // Owners always fall back to their own workspace. Employees fall back when there is
-  // exactly one active workspace; with several active workspaces we ask them to choose.
-  if(selected&&String(selected.member.status||'').toUpperCase()!=='ACTIVE'){
-    if(ownerOption)selected=ownerOption;
-    else if(activeOptions.length===1)selected=activeOptions[0];
-    else if(activeOptions.length>1)return{allowed:false,reason:'WORKSPACE_SELECTION_REQUIRED',userId,email,workspaces:publicWorkspaces};
-  }
-  if(!selected&&ownerOption)selected=ownerOption;
+  if(preferredWorkspaceId)selected=activeOptions.find(x=>clean(x.workspace.id)===preferredWorkspaceId)||null;
   if(!selected&&activeOptions.length===1)selected=activeOptions[0];
   if(!selected&&activeOptions.length>1){
     return{allowed:false,reason:'WORKSPACE_SELECTION_REQUIRED',userId,email,workspaces:publicWorkspaces};
+  }
+  // If all memberships are suspended, show a clear access denial rather than
+  // a picker containing inaccessible organizations.
+  if(!selected&&options.length){
+    const inactive=options.find(x=>String(x.member.status||'').toUpperCase()==='ACTIVE');
+    if(inactive)selected=inactive;
   }
   if(!selected&&options.length===1)selected=options[0];
   if(!selected&&options.length>1){
@@ -445,6 +439,12 @@ export async function resolveAccessForUser(db,user,{claimInvite=true,request=nul
     row=await db.prepare(`SELECT * FROM sh_access_members WHERE id=?1`).bind(row.id).first();
   }
   if(String(row.status).toUpperCase()!=='ACTIVE')return{allowed:false,reason:'MEMBERSHIP_'+String(row.status).toUpperCase(),userId,email,ownerUserId:row.owner_user_id,memberId:row.id,workspace:workspacePublic(workspace),workspaces:publicWorkspaces};
+  // Workspace status is an independent platform-wide kill switch. Never let an
+  // owner or a previously accepted user bypass an inactive organization.
+  if(String(workspace.status||'ACTIVE').toUpperCase()!=='ACTIVE'){
+    return{allowed:false,reason:'WORKSPACE_INACTIVE',userId,email,ownerUserId:row.owner_user_id,
+      memberId:row.id,workspace:workspacePublic(workspace),workspaces:publicWorkspaces};
+  }
 
   await seedRoles(db,row.owner_user_id);
   const permissions=await permissionsForMember(db,row);

@@ -130,6 +130,13 @@ export async function onRequestPost({ request, env }) {
     if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
     const c=await accessContext(request,env);if(c.error)return c.error;
     if(!hasPermission(c.access,"settings.manage"))return json({success:false,message:"Недостаточно прав для изменения подключения."},403);
+    // Platform-managed organizations have a stable synthetic storage owner.
+    // Their connection settings can only be provisioned by Platform Admin
+    // (future dedicated API). Restaurant SYSADMIN cannot alter server binding.
+    if(String(c.access?.ownerUserId||'').startsWith('platform-org:')){
+      return json({success:false,message:"Подключением Smart Horeca Server управляет администратор платформы."},403);
+    }
+
 
     const body = await request.json();
     const existing = await loadPrivateIikoState(env.DB, c.storageUserId, env);
@@ -164,6 +171,13 @@ export async function onRequestDelete({ request, env }) {
     if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
     const c=await accessContext(request,env);if(c.error)return c.error;
     if(!hasPermission(c.access,"settings.manage"))return json({success:false,message:"Недостаточно прав для удаления подключения."},403);
+    // Platform-managed organizations have a stable synthetic storage owner.
+    // Their connection settings can only be provisioned by Platform Admin
+    // (future dedicated API). Restaurant SYSADMIN cannot alter server binding.
+    if(String(c.access?.ownerUserId||'').startsWith('platform-org:')){
+      return json({success:false,message:"Подключением Smart Horeca Server управляет администратор платформы."},403);
+    }
+
 
     await ensureIikoStateTable(env.DB);
     await env.DB.prepare(`DELETE FROM iiko_connections WHERE user_id=?1`).bind(c.storageUserId).run();

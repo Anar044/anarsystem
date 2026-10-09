@@ -111,7 +111,7 @@
     document.documentElement.style.visibility='visible';
     document.body.innerHTML='';
     const box=document.createElement('div');box.id='sh-workspace-picker';
-    const rows=(workspaces||[]).filter(x=>String(x.memberStatus||'ACTIVE').toUpperCase()==='ACTIVE');
+    const rows=(workspaces||[]).filter(x=>String(x.memberStatus||'ACTIVE').toUpperCase()==='ACTIVE'&&String(x.status||'ACTIVE').toUpperCase()==='ACTIVE');
     box.innerHTML='<div class="sh-workspace-card"><div class="sh-workspace-icon">🏢</div><h1>Выберите организацию</h1><p>У вашей учётной записи есть доступ к нескольким рабочим пространствам Smart Horeca.</p><div class="sh-workspace-list">'+rows.map(x=>'<button type="button" data-workspace-id="'+String(x.id).replace(/"/g,'&quot;')+'"><strong>'+String(x.name||'Smart Horeca').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</strong><span>'+(x.isOwner?'Владелец':'Сотрудник')+'</span></button>').join('')+'</div><button type="button" class="sh-workspace-logout">Выйти</button></div>';
     const style=document.createElement('style');
     style.textContent='#sh-workspace-picker{min-height:100vh;display:grid;place-items:center;background:#0b1017;color:#eaf0f5;font-family:Inter,system-ui,sans-serif;padding:24px}.sh-workspace-card{width:min(620px,100%);border:1px solid #263746;border-radius:16px;background:#101923;padding:28px;box-shadow:0 20px 60px #0008}.sh-workspace-icon{font-size:34px;text-align:center}.sh-workspace-card h1{text-align:center;margin:12px 0 8px}.sh-workspace-card>p{text-align:center;color:#8fa0b0;line-height:1.5}.sh-workspace-list{display:grid;gap:9px;margin-top:20px}.sh-workspace-list button{display:flex;justify-content:space-between;align-items:center;gap:16px;text-align:left;border:1px solid #2c4051;border-radius:11px;background:#121f29;color:#eaf0f5;padding:14px 15px;cursor:pointer}.sh-workspace-list button:hover{border-color:#42d392;background:#142820}.sh-workspace-list strong{font-size:14px}.sh-workspace-list span{font-size:10px;color:#8fa0b0}.sh-workspace-logout{display:block;margin:18px auto 0;border:0;background:transparent;color:#8fa0b0;cursor:pointer}';
@@ -240,7 +240,8 @@
             MEMBERSHIP_PENDING:'Доступ создан, но ещё ожидает активации входа сотрудника.',
             MEMBERSHIP_DISABLED:'Доступ этой учётной записи отключён владельцем или администратором.',
             WORKSPACE_NOT_FOUND:'Рабочее пространство Smart Horeca не найдено. Возможно, сохранилась устаревшая организация.',
-            WORKSPACE_FORBIDDEN:'У этой учётной записи больше нет доступа к выбранной организации.'
+            WORKSPACE_FORBIDDEN:'У этой учётной записи больше нет доступа к выбранной организации.',
+            WORKSPACE_INACTIVE:'Доступ к организации временно приостановлен администратором платформы. Обратитесь к администратору.'
           };
           const reason=context.reason||'UNKNOWN';
           denyScreen((denyReasons[reason]||'Не удалось подтвердить доступ к Smart Horeca.')+' Код: '+reason);

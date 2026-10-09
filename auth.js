@@ -94,12 +94,27 @@
         return { ok: true, access: data.access };
     }
 
+    async function clearWorkspaceSelection(sb) {
+        try {
+            const {data} = await sb.auth.getSession();
+            const jwt = data?.session?.access_token;
+            if (!jwt) return;
+            await fetch('/api/access/workspaces', {
+                method:'POST',
+                headers:{Authorization:'Bearer '+jwt,'Content-Type':'application/json'},
+                body:JSON.stringify({action:'clear-selection'}),
+                cache:'no-store'
+            });
+        } catch (_) { /* Logout must remain available even if API is offline. */ }
+    }
+
     function invitationSignOut(sb, invite) {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "auth-submit";
         btn.textContent = "Выйти и войти под приглашённым email";
         btn.onclick = async () => {
+            await clearWorkspaceSelection(sb);
             await sb.auth.signOut();
             window.location.replace("register.html?invite=" + encodeURIComponent(invite));
         };
@@ -407,7 +422,7 @@
         document.querySelectorAll("[data-auth-avatar]").forEach(el => el.textContent = (displayName || meta.first_name || user.email || "S").charAt(0).toUpperCase());
         document.querySelectorAll("[data-auth-logout]").forEach(button => {
             button.addEventListener("click", async () => {
-                const sb = await createClient(); await sb.auth.signOut(); window.location.replace("login.html");
+                await window.SHAuth.signOut();
             });
         });
     }
@@ -425,7 +440,7 @@
         }, 700);
     }
 
-    window.SHAuth = { createClient, getUser, protectPage, initUserUI, signOut: async function () { const sb = await createClient(); if (sb) await sb.auth.signOut(); window.location.replace("login.html"); } };
+    window.SHAuth = { createClient, getUser, protectPage, initUserUI, signOut: async function () { const sb = await createClient(); if (sb) { await clearWorkspaceSelection(sb); await sb.auth.signOut(); } window.location.replace("login.html"); } };
 
     document.addEventListener("DOMContentLoaded", async () => {
         const page = document.body.dataset.authPage || "";
