@@ -295,7 +295,10 @@ async function checkProcurementVarianceBeforePosting(env,connection,document){
   const grnNumber=String(document.comment||"").match(/GRN-\d{8}-[a-z0-9]+/i)?.[0]||"";
   const isProcurementDoc=/Smart Horeca Procurement/i.test(String(document.comment||""))&&!!grnNumber;
   const number=clean(document.documentNumber);
-  if(!isProcurementDoc&&!number)return null;
+  const linkedPO=/^PO-\d{8}-[a-z0-9]+/i.test(clean(document.incomingDocumentNumber));
+  // Ordinary invoices must not acquire another D1 lookup or depend on the
+  // procurement module's availability.
+  if(!isProcurementDoc&&!linkedPO)return null;
   if(!env.DB){
     return isProcurementDoc?"Не настроена база для проверки расхождений GRN. Проведение остановлено.":null;
   }
