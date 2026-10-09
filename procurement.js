@@ -789,14 +789,15 @@ function grnHistoryHtml(o){
         const diff=inv.varianceStatus||'NONE';
         if(diff==='NONE'&&!inv.resolutionMethod)return'';
         const badge=diff==='APPROVED'?'Согласовано: '+(inv.varianceReviewedBy||'ответственный'):diff==='REJECTED'?'Расхождение отклонено':'Требует согласования';
-        const canReview=window.SHAccess?.can?.('procurement.approve')&&String(inv.iikoStatus||'').toUpperCase()!=='PROCESSED';
+        const canApprove=!!window.SHAccess?.can?.('procurement.approve');
+        const canReview=canApprove&&!['PROCESSED','CLOSED'].includes(String(inv.iikoStatus||'').toUpperCase());
         const methodText={CORRECT_INVOICE:'Исправленная накладная',ADDITIONAL_INVOICE:'Дополнительная накладная',CORRECT_GRN:'Исправление GRN'}[inv.resolutionMethod]||'';
         const stage=inv.resolutionStatus==="CLOSED"?"Урегулировано":inv.resolutionStatus==="IN_PROGRESS"?"В работе":"";
         return '<div class="proc-history-note"><span class="proc-status-badge '+(diff==='APPROVED'?'success':diff==='REJECTED'?'danger':'warn')+'">'+esc(badge)+'</span>'+
           (methodText?'<span class="proc-status-badge neutral">'+esc(methodText+' · '+stage)+'</span>':'')+
           (canReview&&diff!=='NONE'?'<button class="proc-btn small secondary" data-variance-review="'+esc(inv.id)+'" data-po-review="'+esc(o.id)+'">Решение по расхождению</button>':'')+
           (canReview&&diff==='APPROVED'&&inv.resolutionStatus!=="CLOSED"?'<button class="proc-btn small secondary" data-variance-plan="'+esc(inv.id)+'" data-po-review="'+esc(o.id)+'">Урегулировать</button>':'')+
-          (canReview&&inv.resolutionStatus==='IN_PROGRESS'?'<button class="proc-btn small secondary" data-variance-verify="'+esc(inv.id)+'" data-po-review="'+esc(o.id)+'">Проверить закрытие</button>':'')+'</div>';
+          (canApprove&&inv.resolutionStatus==='IN_PROGRESS'?'<button class="proc-btn small secondary" data-variance-verify="'+esc(inv.id)+'" data-po-review="'+esc(o.id)+'">Проверить закрытие</button>':'')+'</div>';
       }).join('')+'</div></div>';
   }).join('')+'</div>';
 }
