@@ -2,6 +2,7 @@ import { getUser, loadPrivateIikoState, privateConnection, hasPrivateConnection 
 import { resolveRestaurantScope, cookieDepartmentIds } from "./iiko/_lib/restaurant-scope.js";
 import { resolveAccessForUser, hasPermission, requirePermission } from "./access/_lib/access-control.js";
 import { serverScopeFromConnection, logAuditEvent } from "./_lib/audit-log.js";
+import { iikoText } from "./iiko/_lib/iiko-client.js";
 
 const HEADERS={
   "Access-Control-Allow-Origin":"*",
@@ -532,6 +533,41 @@ function normalizeLines(lines,{allowZeroPrice=false}={}){
     });
   }
   return out;
+}
+function iikoInvoiceSnapshot(xml){
+  const src=String(xml||""),tag=(block,name)=>{
+    const m=block.match(new RegExp("<"+name+"(?:\\s[^>]*)?>([\\s\\S]*?)</"+name+">","i"));
+    return m?m[1].trim():"";
+  };
+  const itemBlocks=src.match(/<item(?:\s[^>]*)?>[\s\S]*?<\/item>/gi)||[];
+  return{
+    status:tag(src,"status").toUpperCase(),
+    number:tag(src,"documentNumber"),
+    lines:itemBlocks.map(block=>({
+      productId:tag(block,"product"),
+      quantity:n(tag(block,"actualAmount")||tag(block,"amount"),NaN),
+      unitPrice:n(tag(block,"price"),NaN)
+    }))
+  };
+}
+async function checkIikoPostedInvoice(connection,invoice){
+  const no=clean(invoice.iiko_document_number);
+  if(!no)throw new Error("Накладная без номера не может быть подтверждена в iiko.");
+  const path="/resto/api/documents/export/incomingInvoice/byNumber?number="+encodeURIComponent(no)+"&currentYear=true";
+  const result=await iikoText(connection,path,{headers:{Accept:"application/xml,text/xml,*/*"},timeoutMs:30000});
+  if(!result.ok)throw new Error("Не удалось подтвердить накладную "+no+" в iiko (HTTP "+result.status+"). Урегулирование остаётся открытым.");
+  const snapshot=iikoInvoiceSnapshot(result.text);
+  if(snapshot.number&&snapshot.number!==no)throw new Error("iiko вернул другую накладную вместо "+no+".");
+  if(snapshot.status!=="PROCESSED")throw new Error("Накладная "+no+" ещё не проведена в iiko. Урегулирование не закрыто.");
+  const stored=parse(invoice.lines_json,[]),by=new Map(snapshot.lines.map(x=>[clean(x.productId),x]));
+  if(snapshot.lines.length!==stored.length)throw new Error("Количество позиций накладной "+no+" изменено в iiko. Обновите сверку.");
+  for(const line of stored){
+    const source=by.get(clean(line.productId));
+    if(!source||!Number.isFinite(source.quantity)||Math.abs(n(line.quantity)-source.quantity)>0.0005||
+      !Number.isFinite(source.unitPrice)||Math.abs(n(line.unitPrice)-source.unitPrice)>0.009)
+      throw new Error("Накладная "+no+" изменена в iiko. Требуется повторная сверка до закрытия.");
+  }
+  return snapshot;
 }
 function invoiceVariance(grnLines,invoiceLines){
   const a=new Map((grnLines||[]).map(x=>[clean(x.productId),x]));
@@ -1234,16 +1270,19 @@ export async function onRequestPost({request,env}){
       if(rec.resolution_status!=="IN_PROGRESS"||!rec.resolution_method){const e=new Error("Сначала укажите способ урегулирования.");e.status=409;throw e}
       const grn=await db.prepare("SELECT lines_json FROM procurement_grns WHERE id=?1 AND order_id=?2 AND server_scope=?3 LIMIT 1").bind(rec.grn_id,o.id,c.serverScope).first();
       if(!grn){const e=new Error("GRN не найден.");e.status=409;throw e}
-      const all=(await db.prepare("SELECT lines_json,iiko_status FROM procurement_receipts WHERE grn_id=?1 AND server_scope=?2").bind(rec.grn_id,c.serverScope).all()).results||[];
+      const all=(await db.prepare("SELECT id,iiko_document_number,lines_json,iiko_status FROM procurement_receipts WHERE grn_id=?1 AND server_scope=?2").bind(rec.grn_id,c.serverScope).all()).results||[];
       const received=new Map(parse(grn.lines_json,[]).map(x=>[clean(x.productId),n(x.quantity)]));
       const billed=new Map();
       for(const inv of all){
-        if(!["PROCESSED","CLOSED"].includes(clean(inv.iiko_status).toUpperCase())){const e=new Error("Нельзя закрыть: не все накладные проведены в iiko. Сначала синхронизируйте статусы.");e.status=409;throw e}
         for(const l of parse(inv.lines_json,[]))billed.set(clean(l.productId),n(billed.get(clean(l.productId)))+n(l.quantity));
       }
       const ids=new Set([...received.keys(),...billed.keys()]);
       const mismatches=[...ids].filter(id=>Math.abs(n(received.get(id))-n(billed.get(id)))>0.0005);
-      if(mismatches.length){const e=new Error("Расхождение нельзя закрыть: количество GRN и проведённых накладных не совпадает ("+mismatches.length+" поз.).");e.status=409;throw e}
+      if(mismatches.length){const e=new Error("Расхождение нельзя закрыть: количество GRN и накладных не совпадает ("+mismatches.length+" поз.).");e.status=409;throw e}
+      // Confirm actual iiko status and unchanged invoice lines, never trust
+      // a client-supplied status in procurement_receipts.
+      for(const inv of all)await checkIikoPostedInvoice(c.connection,inv);
+      for(const inv of all)await db.prepare("UPDATE procurement_receipts SET iiko_status='PROCESSED' WHERE id=?1 AND server_scope=?2").bind(inv.id,c.serverScope).run();
       await db.prepare("UPDATE procurement_receipts SET resolution_status='CLOSED',resolution_at=?2,resolution_by=?3 WHERE id=?1 AND server_scope=?4 AND resolution_status='IN_PROGRESS'").bind(rec.id,stamp,userName,c.serverScope).run();
       await log(c,"CLOSE","PURCHASE_INVOICE_RESOLUTION",o,{receiptId:rec.id,status:"IN_PROGRESS"},{receiptId:rec.id,status:"CLOSED",method:rec.resolution_method,by:userName});
       return json({success:true,receiptId:rec.id,status:"CLOSED"});
