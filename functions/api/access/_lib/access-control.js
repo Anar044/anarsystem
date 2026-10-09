@@ -273,7 +273,7 @@ export async function updateWorkspaceName(db,workspaceId,name){
 
 export async function selectWorkspaceForUser(db,user,workspaceId){
   const list=await listUserWorkspaces(db,user);
-  const selected=list.find(x=>clean(x.id)===clean(workspaceId)&&String(x.memberStatus).toUpperCase()==='ACTIVE');
+  const selected=list.find(x=>clean(x.id)===clean(workspaceId)&&String(x.memberStatus).toUpperCase()==='ACTIVE'&&String(x.status||'ACTIVE').toUpperCase()==='ACTIVE');
   if(!selected)throw Object.assign(new Error('Рабочее пространство недоступно.'),{status:403,code:'WORKSPACE_FORBIDDEN'});
   return selected;
 }
@@ -445,6 +445,12 @@ export async function resolveAccessForUser(db,user,{claimInvite=true,request=nul
     row=await db.prepare(`SELECT * FROM sh_access_members WHERE id=?1`).bind(row.id).first();
   }
   if(String(row.status).toUpperCase()!=='ACTIVE')return{allowed:false,reason:'MEMBERSHIP_'+String(row.status).toUpperCase(),userId,email,ownerUserId:row.owner_user_id,memberId:row.id,workspace:workspacePublic(workspace),workspaces:publicWorkspaces};
+  // Workspace status is an independent platform-wide kill switch. Never let an
+  // owner or a previously accepted user bypass an inactive organization.
+  if(String(workspace.status||'ACTIVE').toUpperCase()!=='ACTIVE'){
+    return{allowed:false,reason:'WORKSPACE_INACTIVE',userId,email,ownerUserId:row.owner_user_id,
+      memberId:row.id,workspace:workspacePublic(workspace),workspaces:publicWorkspaces};
+  }
 
   await seedRoles(db,row.owner_user_id);
   const permissions=await permissionsForMember(db,row);
