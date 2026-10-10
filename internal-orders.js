@@ -12,7 +12,14 @@ async function api(path,options={}){
   const headers=new Headers(options.headers||{});headers.set("Authorization","Bearer "+state.token);if(options.body)headers.set("Content-Type","application/json");
   const r=await fetch(path,{...options,headers,cache:"no-store"});
   const j=await r.json().catch(()=>({}));
-  if(!r.ok||j.success===false)throw Error(j.message||"HTTP "+r.status);
+  if(!r.ok||j.success===false){
+    const diag=j.diagnostics,details=diag&&j.code==="INTERNAL_RMS_STORES_UNRESOLVED"
+      ?" (справочник складов: HTTP "+(diag.storeEndpointStatus??"—")+
+        ", структура RMS: HTTP "+(diag.departmentEndpointStatus??"—")+
+        ", складов в структуре: "+(diag.storesFromDepartmentHierarchy??0)+
+        ", всего обнаружено: "+(diag.totalStores??0)+")":"";
+    throw Error((j.message||"HTTP "+r.status)+details);
+  }
   return j;
 }
 const get=(action="list",id="")=>api("/api/internal-orders?action="+encodeURIComponent(action)+(id?"&departmentId="+encodeURIComponent(id):""));
