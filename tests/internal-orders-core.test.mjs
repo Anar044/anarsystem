@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {normalizeInternalLines,validateApproval,internalNextStatus} from "../functions/api/_lib/internal-order-core.js";
+import {normalizeInternalLines,validateApproval,internalNextStatus,assertCrossRmsRoute,canAccessInternalOrder} from "../functions/api/_lib/internal-order-core.js";
 
 const lines=[
   {productId:"item-a",productName:"Курица",unit:"кг",packageSize:5.5,packageCount:5,containerId:"pack-5.5"},
@@ -45,4 +45,20 @@ test("Invalid status transitions are blocked",()=>{
   assert.throws(()=>internalNextStatus("SUBMITTED","ready"),/Недопустимый/);
   assert.equal(internalNextStatus("SUBMITTED","reject"),"REJECTED");
   assert.equal(internalNextStatus("DRAFT","cancel"),"CANCELLED");
+});
+
+test("orders can be sent from central RMS or any other restaurant RMS",()=>{
+  assert.deepEqual(assertCrossRmsRoute("central-rms","restaurant-a"),{sourceDepartmentId:"central-rms",destinationDepartmentId:"restaurant-a"});
+  assert.deepEqual(assertCrossRmsRoute("restaurant-b","restaurant-a"),{sourceDepartmentId:"restaurant-b",destinationDepartmentId:"restaurant-a"});
+  assert.throws(()=>assertCrossRmsRoute("restaurant-a","restaurant-a"),/разными RMS/);
+  assert.throws(()=>assertCrossRmsRoute("","restaurant-b"),/Выберите RMS/);
+});
+test("restaurant requester only sees its own destination orders, not other restaurants",()=>{
+  const order={destination_department_id:"restaurant-a",central_department_id:"restaurant-b"};
+  assert.equal(canAccessInternalOrder(order,["restaurant-a"],{request:true}),true);
+  assert.equal(canAccessInternalOrder(order,["restaurant-b"],{request:true}),false);
+  assert.equal(canAccessInternalOrder(order,["restaurant-b"],{fulfill:true}),true);
+  assert.equal(canAccessInternalOrder(order,["restaurant-a"],{fulfill:true}),false);
+  assert.equal(canAccessInternalOrder(order,["restaurant-c"],{configure:true}),false);
+  assert.equal(canAccessInternalOrder(order,["restaurant-b"],{configure:true}),true);
 });
