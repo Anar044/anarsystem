@@ -105,7 +105,10 @@ export async function onRequestGet({request,env}){
       const departmentId=clean(url.searchParams.get("departmentId"));
       dept(c,departmentId,hasPermission(c.access,"procurement.internal.configure"));
       const s=await resolveStoreScope(c.connection,[departmentId]);
-      if(!s.resolved)throw fail("Не удалось определить склады этого RMS в iiko.",409);
+      if(!s.resolved){
+        const d=s.diagnostics||{};
+        return json({success:false,code:"INTERNAL_RMS_STORES_UNRESOLVED",message:"iikoChain не подтвердил склады выбранного RMS. Проверьте привязку складов к торговому предприятию в структуре корпорации.",diagnostics:{storeEndpointStatus:d.storeEndpointStatus,departmentEndpointStatus:d.departmentEndpointStatus,totalStores:d.totalStores,storesFromDepartmentHierarchy:d.storesFromDepartmentHierarchy,matchedStores:d.matchedStores,fallbackStoreCount:d.fallbackStoreCount}},409);
+      }
       return json({success:true,stores:(s.stores||[]).map(x=>({id:clean(x.id),name:clean(x.name||x.id)}))});
     }
     if(action!=="list")throw fail("Неизвестная операция.",400);
