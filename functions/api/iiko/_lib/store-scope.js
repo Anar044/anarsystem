@@ -83,7 +83,7 @@ function authoritativeXmlStores(text){
   return out;
 }
 async function loadEntities(connection,path){
-  const r=await iikoText(connection,path,{headers:{Accept:"application/json, application/xml, text/xml, */*"},timeoutMs:15000});
+  const r=await iikoText(connection,path,{headers:{Accept:"application/xml, text/xml;q=0.9, application/json;q=0.5"},timeoutMs:15000});
   if(!r.ok)return{ok:false,status:r.status,stores:[],nodes:[],preview:String(r.text||"").slice(0,500)};
   try{
     const parsed=JSON.parse(r.text||"{}");
@@ -138,6 +138,31 @@ function belongsToSelected(store,nodeMap,wanted){
   }
   return false;
 }
+// iikoChain /corporation/departments may also contain STORE nodes nested under
+// DEPARTMENT (RMS). The /corporation/stores endpoint is not always populated.
+// Merge both authoritative corporation responses, preserving parent links.
+export function matchStoresForDepartments(storesResult,departmentsResult,departmentIds=[]){
+  const wanted=new Set(uniq(departmentIds));
+  // Prefer department hierarchy for parents because it contains the full RMS tree.
+  const nodes=[...(storesResult?.nodes||[]),...(departmentsResult?.nodes||[])];
+  const nodeMap=new Map(nodes.map(n=>[key(n.id),{...n,id:key(n.id),parentId:key(n.parentId)}]));
+  const byId=new Map();
+  // Prefer the department hierarchy's STORE type when sources disagree.
+  for(const store of [...(storesResult?.stores||[]),...(departmentsResult?.stores||[])]){
+    const id=key(store?.id);if(!id)continue;
+    const node=nodeMap.get(id);
+    const previous=byId.get(id)||{};
+    byId.set(id,{
+      id,
+      name:clean(store?.name||previous.name||node?.name),
+      type:clean(store?.type||previous.type||node?.type||"STORE"),
+      parentId:key(store?.parentId||previous.parentId||node?.parentId)
+    });
+  }
+  const stores=[...byId.values()];
+  const matched=stores.filter(s=>wanted.has(s.id)||belongsToSelected(s,nodeMap,wanted));
+  return {stores,matched,hasRelationship:stores.some(s=>s.parentId),departmentStoreCount:(departmentsResult?.stores||[]).length};
+}
 export async function resolveStoreScope(connection,departmentIds=[]){
   const selected=uniq(departmentIds);
   if(!selected.length)return{selectedDepartmentIds:[],storeIds:[],resolved:true,stores:[],diagnostics:{reason:"no-department-filter"}};
@@ -149,12 +174,7 @@ export async function resolveStoreScope(connection,departmentIds=[]){
     loadEntities(connection,"/resto/api/corporation/stores?revisionFrom=-1"),
     loadEntities(connection,"/resto/api/corporation/departments?revisionFrom=-1")
   ]);
-  const stores=[...storesResult.stores];
-  const nodes=[...departmentsResult.nodes,...storesResult.nodes];
-  const nodeMap=new Map(nodes.map(x=>[x.id,x]));
-  const wanted=new Set(selected);
-  const matched=stores.filter(s=>belongsToSelected(s,nodeMap,wanted)||wanted.has(s.id));
-  const hasRelationship=stores.some(s=>s.parentId);
+  const {stores,matched,hasRelationship,departmentStoreCount}=matchStoresForDepartments(storesResult,departmentsResult,selected);
   const fallback=matched.length?{storeIds:[],ok:false,status:0,rowCount:0,timestamp:""}:await balanceStoreFallback(connection,selected);
   const fallbackIds=uniq(fallback.storeIds||[]);
   const knownById=new Map(stores.map(s=>[s.id,s]));
@@ -170,6 +190,7 @@ export async function resolveStoreScope(connection,departmentIds=[]){
       storeEndpointStatus:storesResult.status,
       departmentEndpointStatus:departmentsResult.status,
       totalStores:stores.length,
+      storesFromDepartmentHierarchy:departmentStoreCount,
       matchedStores:matched.length,
       fallbackStoreCount:fallbackIds.length,
       fallback,
