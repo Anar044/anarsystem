@@ -36,11 +36,13 @@ function viewPermission(access){
 }
 function canSee(row,c){
   const allowed=new Set(c.allowed.map(d=>d.id));
-  return allowed.has(row.destination_department_id)||(
-    hasPermission(c.access,"procurement.internal.fulfill")&&allowed.has(row.central_department_id)
-  )||hasPermission(c.access,"procurement.internal.configure");
+  return hasPermission(c.access,"procurement.internal.configure")
+    ||(hasPermission(c.access,"procurement.internal.request")&&allowed.has(row.destination_department_id))
+    ||(hasPermission(c.access,"procurement.internal.fulfill")&&allowed.has(row.central_department_id));
 }
-function centralStaff(c,order){
+// The legacy DB column "central_department_id" means the SHIPPING RMS. It is
+// preserved so existing draft orders remain readable when senders are restaurants.
+function sendingStaff(c,order){
   return hasPermission(c.access,"procurement.internal.fulfill")&&c.allowed.some(d=>d.id===order.central_department_id);
 }
 async function context(request,env){
@@ -81,7 +83,7 @@ async function orderFor(c,id){
   return order;
 }
 function publicOrder(x){
-  return {id:x.id,number:x.number,status:x.status,centralDepartmentId:x.central_department_id,centralDepartmentName:x.central_department_name,centralStoreId:x.central_store_id,centralStoreName:x.central_store_name,destinationDepartmentId:x.destination_department_id,destinationDepartmentName:x.destination_department_name,destinationStoreId:x.destination_store_id,destinationStoreName:x.destination_store_name,neededBy:x.needed_by,comment:x.comment,lines:parse(x.lines_json,[]),approvedLines:parse(x.approved_lines_json,[]),reviewComment:x.review_comment,createdBy:x.created_by,createdByName:x.created_by_name,createdAt:x.created_at,updatedAt:x.updated_at,submittedAt:x.submitted_at,reviewedAt:x.reviewed_at,reviewedBy:x.reviewed_by,revision:x.revision};
+  return {id:x.id,number:x.number,status:x.status,sourceDepartmentId:x.central_department_id,sourceDepartmentName:x.central_department_name,sourceStoreId:x.central_store_id,sourceStoreName:x.central_store_name,centralDepartmentId:x.central_department_id,centralDepartmentName:x.central_department_name,centralStoreId:x.central_store_id,centralStoreName:x.central_store_name,destinationDepartmentId:x.destination_department_id,destinationDepartmentName:x.destination_department_name,destinationStoreId:x.destination_store_id,destinationStoreName:x.destination_store_name,neededBy:x.needed_by,comment:x.comment,lines:parse(x.lines_json,[]),approvedLines:parse(x.approved_lines_json,[]),reviewComment:x.review_comment,createdBy:x.created_by,createdByName:x.created_by_name,createdAt:x.created_at,updatedAt:x.updated_at,submittedAt:x.submitted_at,reviewedAt:x.reviewed_at,reviewedBy:x.reviewed_by,revision:x.revision};
 }
 async function audit(c,action,row,before,after){
   await logAuditEvent({request:c.request,env:c.env,connection:c.connection,action,entityType:"INTERNAL_ORDER",entityId:row.id,entityLabel:row.number,documentNumber:row.number,before,after,restaurantIds:[row.destination_department_id],restaurantNames:[row.destination_department_name]});
@@ -103,7 +105,9 @@ export async function onRequestGet({request,env}){
     const settings=await getSettings(c);
     if(action==="stores"){
       const departmentId=clean(url.searchParams.get("departmentId"));
-      dept(c,departmentId,hasPermission(c.access,"procurement.internal.configure"));
+      dept(c,departmentId,true);
+      // The destination/requester may ask another RMS for goods. Expose only
+      // warehouse names and IDs; never stock levels or supplier costs.
       const s=await resolveStoreScope(c.connection,[departmentId]);
       if(!s.resolved){
         const d=s.diagnostics||{};
@@ -114,7 +118,7 @@ export async function onRequestGet({request,env}){
     if(action!=="list")throw fail("Неизвестная операция.",400);
     const data=(await env.DB.prepare("SELECT * FROM sh_internal_orders WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 300").bind(c.serverScope).all()).results||[];
     const scoped=data.filter(row=>canSee(row,c));
-    return json({success:true,orders:scoped.map(publicOrder),settings:settings?{centralDepartmentId:settings.central_department_id,centralDepartmentName:settings.central_department_name,centralStoreId:settings.central_store_id,centralStoreName:settings.central_store_name}:null,departments:c.allowed,configurableDepartments:hasPermission(c.access,"procurement.internal.configure")?c.directory:[],permissions:{request:hasPermission(c.access,"procurement.internal.request"),fulfill:hasPermission(c.access,"procurement.internal.fulfill"),configure:hasPermission(c.access,"procurement.internal.configure")}});
+    return json({success:true,orders:scoped.map(publicOrder),settings:settings?{centralDepartmentId:settings.central_department_id,centralDepartmentName:settings.central_department_name,centralStoreId:settings.central_store_id,centralStoreName:settings.central_store_name}:null,departments:c.allowed,sendingDepartments:c.directory,configurableDepartments:hasPermission(c.access,"procurement.internal.configure")?c.directory:[],permissions:{request:hasPermission(c.access,"procurement.internal.request"),fulfill:hasPermission(c.access,"procurement.internal.fulfill"),configure:hasPermission(c.access,"procurement.internal.configure")}});
   }catch(e){return json({success:false,message:e.message||String(e)},e.status||500)}
 }
 export async function onRequestPost({request,env}){
@@ -130,24 +134,31 @@ export async function onRequestPost({request,env}){
     }
     if(action==="create"){
       requirePermission(c.access,"procurement.internal.request");
-      if(!settings)throw fail("Администратор должен выбрать центральный RMS и его склад.",409);
       const destination=dept(c,body.destinationDepartmentId);
-      if(destination.id===settings.central_department_id)throw fail("Получателем должен быть ресторан, не центральный RMS.",400);
+      // Any RMS in the connected corporation may fulfil an internal request.
+      // The recipient must be in the requester's authorized restaurant scope.
+      const sourceId=clean(body.sourceDepartmentId||settings?.central_department_id);
+      if(!sourceId)throw fail("Выберите RMS-отправитель.",400);
+      const source=dept(c,sourceId,true);
+      if(source.id===destination.id)throw fail("Отправитель и получатель должны быть разными RMS. Для складов одного RMS используйте внутреннее перемещение.",400);
+      const sourceStoreId=clean(body.sourceStoreId||(settings?.central_department_id===sourceId?settings.central_store_id:""));
+      if(!sourceStoreId)throw fail("Выберите склад RMS-отправителя.",400);
+      const sourceStore=await warehouse(c,source.id,sourceStoreId);
       const store=await warehouse(c,destination.id,body.destinationStoreId),lines=normalizeInternalLines(body.lines),neededBy=clean(body.neededBy);
       if(!dateValid(neededBy))throw fail("Укажите дату поставки.",400);
       const id=crypto.randomUUID(),number="IO-"+tKey()+"-"+id.slice(0,6).toUpperCase(),t=stamp();
       const row={id,number,destination_department_id:destination.id,destination_department_name:destination.name};
       await db.prepare("INSERT INTO sh_internal_orders(id,server_scope,number,status,central_department_id,central_department_name,central_store_id,central_store_name,destination_department_id,destination_department_name,destination_store_id,destination_store_name,needed_by,comment,lines_json,created_by,created_by_name,created_at,updated_at) VALUES(?1,?2,?3,'DRAFT',?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?17)")
-        .bind(id,c.serverScope,number,settings.central_department_id,settings.central_department_name,settings.central_store_id,settings.central_store_name,destination.id,destination.name,store.id,store.name,neededBy,clean(body.comment).slice(0,2000),JSON.stringify(lines),userId,actor(c.auth.user),t).run();
-      await audit(c,"CREATE",row,null,{number,status:"DRAFT",lines});
+        .bind(id,c.serverScope,number,source.id,source.name,sourceStore.id,sourceStore.name,destination.id,destination.name,store.id,store.name,neededBy,clean(body.comment).slice(0,2000),JSON.stringify(lines),userId,actor(c.auth.user),t).run();
+      await audit(c,"CREATE",row,null,{number,status:"DRAFT",sourceDepartmentId:source.id,sourceStoreId:sourceStore.id,destinationDepartmentId:destination.id,destinationStoreId:store.id,lines});
       return json({success:true,id,number,status:"DRAFT"},201);
     }
     if(["submit","cancel","approve","reject","picking","ready"].includes(action)){
       const order=await orderFor(c,body.id);
       const requester=hasPermission(c.access,"procurement.internal.request")&&order.created_by===userId&&c.allowed.some(d=>d.id===order.destination_department_id);
-      const fulfiller=centralStaff(c,order);
+      const fulfiller=sendingStaff(c,order);
       if(["submit","cancel"].includes(action)&&!requester)throw fail("Только автор заявки может отправить или отменить её.",403);
-      if(["approve","reject","picking","ready"].includes(action)&&!fulfiller)throw fail("Действие разрешено только сотруднику центрального склада.",403);
+      if(["approve","reject","picking","ready"].includes(action)&&!fulfiller)throw fail("Действие разрешено только сотруднику RMS-отправителя.",403);
       const newStatus=internalNextStatus(order.status,action);
       const extra={};
       if(action==="approve")extra.approvedLines=validateApproval(parse(order.lines_json,[]),body.approvedLines);
