@@ -40,8 +40,8 @@ export function internalNextStatus(status,action){
 
 export function assertCrossRmsRoute(sourceId,destinationId){
   const from=String(sourceId||"").trim(),to=String(destinationId||"").trim();
-  if(!from||!to)throw new Error("Выберите RMS-отправителя и RMS-получателя.");
-  if(from.toLowerCase()===to.toLowerCase())throw new Error("Отправитель и получатель должны быть разными RMS.");
+  if(!from||!to)throw Object.assign(new Error("Выберите RMS-отправителя и RMS-получателя."),{status:400});
+  if(from.toLowerCase()===to.toLowerCase())throw Object.assign(new Error("Отправитель и получатель должны быть разными RMS."),{status:400});
   return {sourceDepartmentId:from,destinationDepartmentId:to};
 }
 export function canAccessInternalOrder(order,allowedIds,permissions){
