@@ -37,3 +37,16 @@ export function internalNextStatus(status,action){
   if(!next)throw Object.assign(new Error("Недопустимый переход статуса: "+status+" → "+action),{status:409});
   return next;
 }
+
+export function assertCrossRmsRoute(sourceId,destinationId){
+  const from=String(sourceId||"").trim(),to=String(destinationId||"").trim();
+  if(!from||!to)throw new Error("Выберите RMS-отправителя и RMS-получателя.");
+  if(from.toLowerCase()===to.toLowerCase())throw new Error("Отправитель и получатель должны быть разными RMS.");
+  return {sourceDepartmentId:from,destinationDepartmentId:to};
+}
+export function canAccessInternalOrder(order,allowedIds,permissions){
+  const allowed=new Set((allowedIds||[]).map(x=>String(x||"").trim().toLowerCase()));
+  const dest=allowed.has(String(order?.destination_department_id||"").toLowerCase());
+  const source=allowed.has(String(order?.central_department_id||"").toLowerCase());
+  return Boolean((permissions?.request&&dest)||(permissions?.fulfill&&source)||(permissions?.configure&&(dest||source)));
+}
