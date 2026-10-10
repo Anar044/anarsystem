@@ -99,6 +99,7 @@ test('Confirmation email callback claims workspace before opening dashboard',asy
     captureInvite:()=> 'signed-link',requireConfigured:()=>true,
     createClient:async()=>({auth:{getSession:async()=>({data:{session:{access_token:'jwt'}}})}}),
     claimInvitedWorkspace:async(sb,token)=>{claimCalls.push(token);return{ok:true}},
+    invitationPasswordPending:()=>false,
     showMessage:(...args)=>messages.push(args),
     setTimeout:fn=>fn()
   };
