@@ -135,7 +135,7 @@ export async function onRequestPost({request,env}){
       const id=crypto.randomUUID(),number="IO-"+tKey()+"-"+id.slice(0,6).toUpperCase(),t=stamp();
       const row={id,number,destination_department_id:destination.id,destination_department_name:destination.name};
       await db.prepare("INSERT INTO sh_internal_orders(id,server_scope,number,status,central_department_id,central_department_name,central_store_id,central_store_name,destination_department_id,destination_department_name,destination_store_id,destination_store_name,needed_by,comment,lines_json,created_by,created_by_name,created_at,updated_at) VALUES(?1,?2,?3,'DRAFT',?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?17)")
-        .bind(id,c.serverScope,number,settings.central_department_id,settings.central_department_name,settings.central_store_id,settings.central_store_name,destination.id,destination.name,store.id,store.name,neededBy,clean(body.comment).slice(0,2000),JSON.stringify(lines),userId,actor(userId,c),t).run();
+        .bind(id,c.serverScope,number,settings.central_department_id,settings.central_department_name,settings.central_store_id,settings.central_store_name,destination.id,destination.name,store.id,store.name,neededBy,clean(body.comment).slice(0,2000),JSON.stringify(lines),userId,actor(c.auth.user),t).run();
       await audit(c,"CREATE",row,null,{number,status:"DRAFT",lines});
       return json({success:true,id,number,status:"DRAFT"},201);
     }
@@ -158,4 +158,3 @@ export async function onRequestPost({request,env}){
   }catch(e){return json({success:false,message:e.message||String(e)},e.status||500)}
 }
 function tKey(){return new Date().toISOString().slice(0,10).replace(/-/g,"")}
-function actor(_,c){return clean(c.auth.user?.user_metadata?.full_name||c.auth.user?.email||c.auth.user?.id)}
