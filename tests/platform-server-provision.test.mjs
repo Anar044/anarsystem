@@ -111,7 +111,7 @@ test('GET exposes server metadata but no stored login password',async()=>{
 test('Organizational sysadmins cannot modify server through legacy API; activation is gated',()=>{
   assert.match(platformSource,/SERVER_REQUIRED/);
   assert.match(platformSource,/SELECT 1 AS connected FROM iiko_connections/);
-  assert.match(legacySource,/startsWith\('platform-org:'\)/);
+  assert.match(legacySource,/PLATFORM_MANAGED_CONNECTION/);
   assert.match(connectionSource,/export async function getDepartments\(/);
   assert.match(connectionSource,/export async function getDepartmentsFromOlap\(/);
   assert.match(viewSource,/id="serverForm"/);
