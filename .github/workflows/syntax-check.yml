@@ -37,6 +37,7 @@ jobs:
           node --test tests/platform-server-provision.test.mjs
           node --test tests/platform-only-server-settings.test.mjs
           node --test tests/internal-orders-core.test.mjs
+          node --test tests/internal-orders-store-scope.test.mjs
           node --test tests/chain-department-discovery.test.mjs
 
       - name: Check local AI Python syntax
