@@ -5,7 +5,7 @@ import {restaurantDirectory,cookieDepartmentIds} from "./iiko/_lib/restaurant-sc
 import {resolveAccessForUser,hasPermission,requirePermission} from "./access/_lib/access-control.js";
 import {resolveStoreScope} from "./iiko/_lib/store-scope.js";
 import {serverScopeFromConnection,logAuditEvent} from "./_lib/audit-log.js";
-import {normalizeInternalLines,validateApproval,internalNextStatus} from "./_lib/internal-order-core.js";
+import {normalizeInternalLines,validateApproval,internalNextStatus,assertCrossRmsRoute,canAccessInternalOrder} from "./_lib/internal-order-core.js";
 
 const H={"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"Content-Type,Authorization","Access-Control-Allow-Methods":"GET,POST,OPTIONS"};
 const clean=v=>String(v??"").trim();
@@ -35,11 +35,11 @@ function viewPermission(access){
   return ["procurement.internal.request","procurement.internal.fulfill","procurement.internal.configure"].some(p=>hasPermission(access,p));
 }
 function canSee(row,c){
-  const allowed=new Set(c.allowed.map(d=>d.id));
-  return (hasPermission(c.access,"procurement.internal.request")&&allowed.has(row.destination_department_id))
-    ||(hasPermission(c.access,"procurement.internal.fulfill")&&allowed.has(row.central_department_id))
-    ||(hasPermission(c.access,"procurement.internal.configure")&&
-       (allowed.has(row.destination_department_id)||allowed.has(row.central_department_id)));
+  return canAccessInternalOrder(row,c.allowed.map(d=>d.id),{
+    request:hasPermission(c.access,"procurement.internal.request"),
+    fulfill:hasPermission(c.access,"procurement.internal.fulfill"),
+    configure:hasPermission(c.access,"procurement.internal.configure")
+  });
 }
 // The legacy DB column "central_department_id" means the SHIPPING RMS. It is
 // preserved so existing draft orders remain readable when senders are restaurants.
@@ -141,7 +141,7 @@ export async function onRequestPost({request,env}){
       const sourceId=clean(body.sourceDepartmentId||settings?.central_department_id);
       if(!sourceId)throw fail("Выберите RMS-отправитель.",400);
       const source=dept(c,sourceId,true);
-      if(source.id===destination.id)throw fail("Отправитель и получатель должны быть разными RMS. Для складов одного RMS используйте внутреннее перемещение.",400);
+      assertCrossRmsRoute(source.id,destination.id);
       const sourceStoreId=clean(body.sourceStoreId||(settings?.central_department_id===sourceId?settings.central_store_id:""));
       if(!sourceStoreId)throw fail("Выберите склад RMS-отправителя.",400);
       const sourceStore=await warehouse(c,source.id,sourceStoreId);
