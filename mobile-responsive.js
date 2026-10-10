@@ -29,8 +29,7 @@ const QUICK_PRIORITY=[
   item=>item.section==='Закупки',
   item=>item.section==='Склад и справочники',
   item=>item.page==='finance.html',
-  item=>item.page==='qr-menu.html',
-  item=>item.page==='settings.html'
+  item=>item.page==='qr-menu.html'
 ];
 function pageFor(href){
   const url=new URL(href,location.origin);
@@ -52,6 +51,9 @@ function collectAllowedLinks(){
     try{url=new URL(link.getAttribute('href'),location.origin)}catch{return}
     if(url.origin!==location.origin)return;
     const href=url.pathname+url.search;
+    // Connection management is always owned by Platform Admin, including old
+    // sidebar links from a cached or dynamically injected page.
+    if(pageFor(href)==='settings.html'||pageFor(href)==='debug.html')return;
     if(seen.has(href))return;
     seen.add(href);
     const group=link.closest('.documents-nav-group,.reports-nav-group');
@@ -103,7 +105,6 @@ function iconFor(item){
   if(item.section==='Склад и справочники')return'▤';
   if(item.page==='finance.html')return'₼';
   if(item.page==='qr-menu.html')return'▦';
-  if(item.page==='settings.html')return'⚙';
   return'◈';
 }
 let signature='',observer=null,queued=false,returnFocus=null;
