@@ -12,6 +12,7 @@ function slice(first,last){
 const helpers=slice('function inviteCallbackUrl(', 'function redirectTarget(');
 const registerFunction=slice('async function initRegister(', 'async function initForgotPassword(');
 const callbackFunction=slice('async function initCallback(', 'async function initSiteAccess(');
+const passwordFunction=slice('async function initInvitePassword(', 'async function initCallback(');
 
 test('Invitation email callback contains claim token without relying on original browser storage',()=>{
   const ctx={URL,window:{location:{origin:'https://smarthoreca.pages.dev'}}};
@@ -86,6 +87,7 @@ test('New invited user sees passwordless email flow without full registration fo
   await btn.onclick();
   assert.equal(sb.otp.email,'rms.manager@example.test');
   assert.equal(sb.otp.options.shouldCreateUser,true);
+  assert.equal(sb.otp.options.data.sh_invite_password_pending,true);
   const callback=new URL(sb.otp.options.emailRedirectTo);
   assert.equal(callback.searchParams.get('invite'),'one-use-token');
   assert.ok(messages.some(x=>/Письмо отправлено/.test(x[0])));
@@ -152,4 +154,110 @@ test('Canonical redirect does not affect normal pages or already-canonical auth'
     });
     assert.equal(redirects.length,0);
   }
+});
+
+
+test('Newly invited OTP user is redirected to password setup, not the dashboard',async()=>{
+  const messages=[],redirects=[];
+  const ctx={
+    URLSearchParams,
+    window:{location:{search:'?invite=secure-token',replace:v=>redirects.push(v)}},
+    captureInvite:()=> 'secure-token',requireConfigured:()=>true,
+    createClient:async()=>({auth:{getSession:async()=>({data:{session:{
+      access_token:'signed-jwt',
+      user:{user_metadata:{sh_invite_password_pending:true}}
+    }}})}}),
+    claimInvitedWorkspace:async()=>({ok:true}),
+    invitationPasswordPending:user=>user?.user_metadata?.sh_invite_password_pending===true,
+    invitePasswordUrl:()=>'/invite-password.html',
+    showMessage:(...args)=>messages.push(args),
+    setTimeout:()=>{throw Error('New account must not reach dashboard yet')}
+  };
+  runInNewContext(callbackFunction+';globalThis.go=initCallback;',ctx);
+  await ctx.go();
+  assert.deepEqual(redirects,['/invite-password.html']);
+  assert.ok(messages.some(x=>/придумайте пароль/.test(x[0])));
+});
+test('Existing password user accepts an additional organization without changing password',async()=>{
+  const redirects=[],messages=[];
+  const ctx={
+    URLSearchParams,
+    window:{location:{search:'?invite=other-org',replace:v=>redirects.push(v)}},
+    captureInvite:()=> 'other-org',requireConfigured:()=>true,
+    createClient:async()=>({auth:{getSession:async()=>({data:{session:{
+      access_token:'jwt',
+      user:{user_metadata:{sh_invite_password_initialized:true}}
+    }}})}}),
+    claimInvitedWorkspace:async()=>({ok:true}),
+    invitationPasswordPending:()=>false,
+    invitePasswordUrl:()=>'/invite-password.html',
+    showMessage:(...args)=>messages.push(args),
+    setTimeout:fn=>fn()
+  };
+  runInNewContext(callbackFunction+';globalThis.go=initCallback;',ctx);
+  await ctx.go();
+  assert.deepEqual(redirects,['index.html']);
+});
+test('First-time password setup confirms both entries and persists credentials only in Supabase',async()=>{
+  const redirects=[],messages=[],updates=[];
+  let handler;
+  const inputs={
+    'invite-password':{value:'a-secure-secret'},
+    'invite-password-confirm':{value:'a-secure-secret'},
+    'invite-password-email':{textContent:''}
+  };
+  const button={disabled:false,dataset:{},textContent:'Сохранить пароль и продолжить'};
+  const form={addEventListener:(event,fn)=>{assert.equal(event,'submit');handler=fn},querySelector:()=>button};
+  const sb={auth:{
+    getSession:async()=>({data:{session:{access_token:'jwt'}}}),
+    getUser:async()=>({data:{user:{email:'new@example.test',user_metadata:{sh_invite_password_pending:true}}}}),
+    updateUser:async obj=>{updates.push(obj);return{error:null}}
+  }};
+  const ctx={
+    window:{location:{replace:v=>redirects.push(v)}},
+    createClient:async()=>sb,requireConfigured:()=>true,
+    byId:id=>id==='invite-password-form'?form:inputs[id],
+    invitationPasswordPending:user=>!!user?.user_metadata?.sh_invite_password_pending,
+    showMessage:(...args)=>messages.push(args),
+    setBusy:(el,on)=>{el.disabled=on}
+  };
+  runInNewContext(passwordFunction+';globalThis.go=initInvitePassword;',ctx);
+  await ctx.go();
+  assert.equal(inputs['invite-password-email'].textContent,'new@example.test');
+  await handler({preventDefault(){}});
+  assert.equal(updates.length,1);
+  assert.equal(updates[0].password,'a-secure-secret');
+  assert.equal(updates[0].data.sh_invite_password_pending,false);
+  assert.equal(updates[0].data.sh_invite_password_initialized,true);
+  assert.equal(inputs['invite-password'].value,'');
+  assert.equal(inputs['invite-password-confirm'].value,'');
+  assert.deepEqual(redirects,['index.html']);
+  assert.ok(messages.some(([text])=>/Пароль сохранён/.test(text)));
+});
+test('Password mismatch never changes account or redirects',async()=>{
+  const messages=[],redirects=[];
+  let submit,called=0;
+  const input={ 'invite-password':{value:'abcdefgh'},'invite-password-confirm':{value:'abcdefgh2'} };
+  const auth={getSession:async()=>({data:{session:{access_token:'jwt'}}}),
+    getUser:async()=>({data:{user:{user_metadata:{sh_invite_password_pending:true}}}}),
+    updateUser:async()=>{called++}};
+  const ctx={
+    window:{location:{replace:v=>redirects.push(v)}},
+    createClient:async()=>({auth}),requireConfigured:()=>true,
+    byId:id=>id==='invite-password-form'?{addEventListener:(x,cb)=>{submit=cb},querySelector:()=>({})}:input[id],
+    invitationPasswordPending:()=>true,showMessage:(...args)=>messages.push(args),setBusy:()=>{}
+  };
+  runInNewContext(passwordFunction+';globalThis.go=initInvitePassword;',ctx);
+  await ctx.go();
+  await submit({preventDefault(){}});
+  assert.equal(called,0);
+  assert.equal(redirects.length,0);
+  assert.ok(messages.some(([msg])=>/не совпадают/i.test(msg)));
+});
+test('Protected pages redirect password-pending users instead of opening dashboard',()=>{
+  assert.match(src,/if \(invitationPasswordPending\(user\)\) \{\s*window\.location\.replace\(invitePasswordUrl\(\)\)/);
+  const page=readFileSync(new URL('../invite-password.html',import.meta.url),'utf8');
+  assert.match(page,/data-auth-page="invite-password"/);
+  assert.match(page,/id="invite-password"/);
+  assert.match(page,/id="invite-password-confirm"/);
 });
