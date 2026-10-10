@@ -1,75 +1,21 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="light" style="background:#f4f8fc;visibility:hidden">
+<html lang="ru">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HorecaControl — Настройки</title>
-<script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
-<link rel="stylesheet" href="app-shell.css">
+<meta name="robots" content="noindex">
+<meta http-equiv="refresh" content="0;url=/index.html">
+<title>Smart Horeca — Управление сервером</title>
+<script>window.location.replace('/index.html');</script>
 <style>
-.connection-mode{margin:18px 0;padding:16px 18px;border:1px solid rgba(255,255,255,.09);border-radius:14px;background:rgba(255,255,255,.025)}
-.connection-mode-title{font-weight:700;margin-bottom:5px}.connection-mode-sub{font-size:13px;opacity:.65;margin-bottom:12px}
-.chain-toggle{display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600}.chain-toggle input{width:18px;height:18px;accent-color:#22c55e}
-.chain-hint{display:none;margin-top:10px;font-size:13px;line-height:1.45;color:#86efac}.chain-hint.visible{display:block}
-.remember-login{display:none!important}
+:root{color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;
+background:#0b1017;color:#eaf1f7;font:14px/1.55 system-ui,sans-serif}
+main{max-width:480px;text-align:center}a{color:#42d392}
 </style>
 </head>
-<body data-protected="true" style="background:#0b1017">
-<div class="app-shell">
-<aside class="sidebar">
- <div class="brand">HorecaControl<span>Restaurant Analytics</span></div>
- <div class="nav-section">Основное</div>
- <nav class="side-nav">
-  <a href="index.html"><span class="side-icon">⌂</span>Dashboard</a>
-  <a href="reports.html"><span class="side-icon">▥</span>OLAP Отчёты</a>
-  <a href="plugin-control.html"><span class="side-icon">▣</span>Кассы</a>
-  <a href="qr-menu.html"><span class="side-icon">▦</span>QR Menu</a>
-  <a class="active" href="settings.html"><span class="side-icon">⚙</span>Настройки</a>
- </nav>
- <div class="sidebar-spacer"></div>
- <button class="theme-btn" onclick="toggleSHTheme()" data-theme-label>🌙 Светлая тема</button>
-</aside>
-<main class="main">
-<header class="topbar"><div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><span class="topbar-title">Настройки</span><div class="topbar-sub">Подключение к SH Server</div></div><div class="top-actions"><span class="user-chip"><span class="user-avatar" data-auth-avatar>U</span><span data-auth-name>Пользователь</span></span><button class="icon-btn" data-auth-logout>Выйти</button><a class="period-chip" href="index.html">← Обзор</a></div></header>
-<section class="app-content settings-page">
- <div class="settings-card">
-  <h1>Подключение к SH Server</h1>
-  <p class="lead">Настройте подключение один раз — параметры SH и структура ресторана будут сохранены в D1 и доступны вашему аккаунту на всех страницах.</p>
-  <div class="settings-grid">
-   <div class="form-group"><label for="iiko-ip">IP адрес / домен</label><input id="iiko-ip" type="text" placeholder="s01.smarthoreca.az"></div>
-   <div class="form-group"><label for="iiko-port">Порт</label><input id="iiko-port" type="number" placeholder="Введите порт"></div>
-   <div class="form-group"><label for="iiko-login">Логин</label><input id="iiko-login" type="text" autocomplete="username" placeholder="Логин"></div>
-   <div class="form-group"><label for="iiko-password">Пароль</label><input id="iiko-password" type="password" autocomplete="current-password" placeholder="Пароль"></div>
-  </div>
-  <div class="connection-mode">
-   <div class="connection-mode-title">Тип подключения</div>
-   <div class="connection-mode-sub">Тип определяется автоматически по структуре SH. Для сети ресторанов система сохранит всю доступную иерархию.</div>
-   <label class="chain-toggle"><input type="checkbox" id="is-chain"><span>Это SH Chain — сеть ресторанов</span></label>
-   <div id="chain-hint" class="chain-hint">После подключения система получит структуру сети: корпорацию, рестораны/торговые предприятия, группы, точки продаж и подразделения. Все отчёты будут работать с этой структурой.</div>
-  </div>
-  <button id="connect-iiko">Подключиться</button>
-  <button type="button" id="clear-iiko-data">Удалить подключение из D1</button>
-  <div id="iiko-status" class="iiko-status">⚪ Не подключено</div>
-  <div class="settings-note">Данные подключения и структура SH сохраняются в D1 для текущего авторизованного аккаунта. Они не сохраняются в localStorage браузера.</div>
-  <div id="iiko-identity" class="iiko-identity" hidden>
-   <div class="iiko-identity-title">Идентификатор SH</div>
-   <div id="iiko-identity-list" class="iiko-identity-list"></div>
-  </div>
-  <a class="debug-link" href="debug.html">⌁ Открыть Debug SH — посмотреть обмен с сервером</a>
- </div>
-</section>
-</main></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="auth-config.js"></script>
-<script src="auth.js"></script>
-<script src="iiko-context.js?v=20261003-chain-4"></script>
-<script src="app-shell.js"></script>
-<script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
-<script src="/settings-light-theme.js?v=20260917-1"></script>
-<script src="mobile-responsive.js?v=20261009-role-aware-v2"></script>
-<script src="iiko-identity.js?v=20261009-chain-diagnostics-v1"></script>
-<script src="documents-nav.js?v=3"></script>
-<script>
-(function(){const c=document.getElementById('is-chain'),h=document.getElementById('chain-hint');if(!c)return;function sync(){h.classList.toggle('visible',c.checked)}c.addEventListener('change',sync);sync()})();
-</script>
-</body></html>
+<body><main>
+<h1>Smart Horeca</h1>
+<p>Подключение SH Server и техническая диагностика доступны только администратору платформы.</p>
+<p><a href="/index.html">Вернуться в рабочий кабинет</a></p>
+</main></body>
+</html>
