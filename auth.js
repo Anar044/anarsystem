@@ -121,6 +121,13 @@
         document.querySelector(".auth-card")?.appendChild(btn);
     }
 
+    function invitationPasswordPending(user) {
+        return user?.user_metadata?.sh_invite_password_pending === true
+            && user?.user_metadata?.sh_invite_password_initialized !== true;
+    }
+
+    function invitePasswordUrl() { return "/invite-password.html"; }
+
     function redirectTarget() {
         const params = new URLSearchParams(window.location.search);
         const next = params.get("next");
@@ -168,6 +175,12 @@
             window.location.replace(loginUrl(`/${current}`));
             return;
         }
+        // A newly invited OTP-only user must finish password setup before
+        // the ordinary dashboard is displayed. No redirect on auth pages.
+        if (invitationPasswordPending(user)) {
+            window.location.replace(invitePasswordUrl());
+            return;
+        }
         window.SH_CURRENT_USER = user;
         document.documentElement.classList.add("auth-user-ready");
         document.dispatchEvent(new CustomEvent("sh-auth-ready", { detail: user }));
@@ -187,7 +200,7 @@
                     return;
                 }
             }
-            window.location.replace(redirectTarget());
+            window.location.replace(invitationPasswordPending(user) ? invitePasswordUrl() : redirectTarget());
             return;
         }
         const form = byId("login-form");
@@ -224,7 +237,7 @@
                     return;
                 }
             }
-            window.location.replace(redirectTarget());
+            window.location.replace(invitationPasswordPending(data.user) ? invitePasswordUrl() : redirectTarget());
         });
     }
 
@@ -253,7 +266,10 @@
             card.insertBefore(info, form);
             if (existing) {
                 const accepted = await claimInvitedWorkspace(sb, invite);
-                if (accepted.ok) { window.location.replace("index.html"); return; }
+                if (accepted.ok) {
+                    window.location.replace(invitationPasswordPending(existing) ? invitePasswordUrl() : "index.html");
+                    return;
+                }
                 showMessage(invitedUserMessage(accepted.reason), "error");
                 invitationSignOut(sb, invite);
                 return;
@@ -272,7 +288,13 @@
                 setBusy(btn, true, "Отправляем письмо...");
                 const { error } = await sb.auth.signInWithOtp({
                     email: preview.email,
-                    options: { shouldCreateUser: true, emailRedirectTo: inviteCallbackUrl(invite) }
+                    options: {
+                        shouldCreateUser: true,
+                        emailRedirectTo: inviteCallbackUrl(invite),
+                        // Stored on newly created Supabase accounts. Existing users
+                        // keep their own password and are not forcibly reset.
+                        data: { sh_invite_password_pending: true }
+                    }
                 });
                 setBusy(btn, false);
                 if (error) { showMessage(error.message || "Не удалось отправить письмо для входа.", "error"); return; }
@@ -358,6 +380,69 @@
         });
     }
 
+
+    async function initInvitePassword() {
+        if (!requireConfigured()) return;
+        const sb = await createClient();
+        const { data: sessionData } = await sb.auth.getSession();
+        if (!sessionData?.session?.access_token) {
+            showMessage("Сессия подтверждения email закончилась. Откройте ссылку из письма ещё раз или запросите восстановление доступа.", "error");
+            return;
+        }
+        const { data: userData, error: userError } = await sb.auth.getUser();
+        if (userError || !userData?.user) {
+            showMessage("Не удалось подтвердить учётную запись. Повторите вход по ссылке.", "error");
+            return;
+        }
+        const user = userData.user;
+        if (!invitationPasswordPending(user)) {
+            window.location.replace("index.html");
+            return;
+        }
+        const email = byId("invite-password-email");
+        if (email) email.textContent = user.email || "";
+        const form = byId("invite-password-form");
+        if (!form) return;
+        form.addEventListener("submit", async event => {
+            event.preventDefault();
+            showMessage("");
+            const password = byId("invite-password")?.value || "";
+            const confirmation = byId("invite-password-confirm")?.value || "";
+            if (password.length < 8) {
+                showMessage("Пароль должен содержать минимум 8 символов.", "error");
+                return;
+            }
+            if (password !== confirmation) {
+                showMessage("Пароли не совпадают.", "error");
+                return;
+            }
+            const button = form.querySelector("button[type=submit]");
+            setBusy(button, true, "Сохраняем пароль...");
+            try {
+                const { error } = await sb.auth.updateUser({
+                    password,
+                    data: {
+                        sh_invite_password_pending: false,
+                        sh_invite_password_initialized: true
+                    }
+                });
+                if (error) {
+                    showMessage(error.message || "Не удалось сохранить пароль.", "error");
+                    return;
+                }
+                // Never store the password in browser storage.
+                if (byId("invite-password")) byId("invite-password").value = "";
+                if (byId("invite-password-confirm")) byId("invite-password-confirm").value = "";
+                showMessage("Пароль сохранён. В дальнейшем входите по email и этому паролю.", "success");
+                window.location.replace("index.html");
+            } catch (error) {
+                showMessage(error?.message || "Ошибка сохранения пароля.", "error");
+            } finally {
+                setBusy(button, false);
+            }
+        });
+    }
+
     async function initCallback() {
         const invite = captureInvite();
         if (!requireConfigured()) return;
@@ -381,6 +466,14 @@
                 }
             } catch (error) {
                 showMessage("Не удалось завершить подключение к организации. Проверьте соединение и откройте исходную ссылку приглашения снова.", "error");
+                return;
+            }
+            // The invitation has already been claimed and email verified.
+            // Ask new passwordless users to create permanent credentials before
+            // opening any protected page. Old accounts keep their password.
+            if (invitationPasswordPending(data.session.user)) {
+                showMessage("Email подтверждён. Теперь придумайте пароль для постоянного входа.", "success");
+                window.location.replace(invitePasswordUrl());
                 return;
             }
             showMessage("Готово! Доступ к Smart Horeca подтверждён.", "success");
@@ -449,6 +542,7 @@
             else if (page === "register") await initRegister();
             else if (page === "forgot") await initForgotPassword();
             else if (page === "reset") await initResetPassword();
+            else if (page === "invite-password") await initInvitePassword();
             else if (page === "callback") await initCallback();
             else if (document.body.dataset.protected === "true") await initProtected();
         } catch (error) {
