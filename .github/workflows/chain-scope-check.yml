@@ -124,7 +124,7 @@ jobs:
             hr-timesheet.html
             hr-calendar.html
             qr-menu.html
-            settings.html
+            # settings.html retired: SH Server connection is now Platform Admin only.
             events.html
             plugin-events.html
           )

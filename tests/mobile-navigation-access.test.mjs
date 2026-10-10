@@ -74,9 +74,9 @@ test('Owner can reach all allowed sections with overflow navigation',()=>{
   const {collectAllowedLinks,selectQuickLinks}=setup(links);
   const {quick,other}=selectQuickLinks(collectAllowedLinks());
   assert.equal(quick.length,4);
-  assert.equal(other.length,3);
+  assert.equal(other.length,2);
   assert.ok(other.some(x=>x.page==='qr-menu.html'));
-  assert.ok(other.some(x=>x.page==='settings.html'));
+  assert.equal([...quick,...other].some(x=>x.page==='settings.html'),false);
 });
 test('Mobile shortcuts highlight cash route aliases and procurement specific views',()=>{
   const cash=setup([], '/cash/index.html');
