@@ -36,9 +36,10 @@ function viewPermission(access){
 }
 function canSee(row,c){
   const allowed=new Set(c.allowed.map(d=>d.id));
-  return hasPermission(c.access,"procurement.internal.configure")
-    ||(hasPermission(c.access,"procurement.internal.request")&&allowed.has(row.destination_department_id))
-    ||(hasPermission(c.access,"procurement.internal.fulfill")&&allowed.has(row.central_department_id));
+  return (hasPermission(c.access,"procurement.internal.request")&&allowed.has(row.destination_department_id))
+    ||(hasPermission(c.access,"procurement.internal.fulfill")&&allowed.has(row.central_department_id))
+    ||(hasPermission(c.access,"procurement.internal.configure")&&
+       (allowed.has(row.destination_department_id)||allowed.has(row.central_department_id)));
 }
 // The legacy DB column "central_department_id" means the SHIPPING RMS. It is
 // preserved so existing draft orders remain readable when senders are restaurants.
