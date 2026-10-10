@@ -107,7 +107,7 @@ test('Workspace access checks status and prompts multi-org accounts',()=>{
 
 test('Managed organization server credentials cannot be edited by organization sysadmins',()=>{
   assert.match(serverState,/PLATFORM_MANAGED_CONNECTION/);
-  assert.match(serverState,/Подключением Smart Horeca Server управляет администратор платформы/);
+  assert.match(serverState,/Подключением SH Server управляет только администратор платформы/);
 });
 test('Personal account snapshots are scoped by workspace only for platform-managed organizations',()=>{
   assert.match(accountState,/org-user:/);
