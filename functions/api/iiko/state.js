@@ -2,13 +2,10 @@ import {
   SERVER_PASSWORD_MARKER,
   getUser,
   sessionCookie,
-  ensureIikoStateTable,
   loadPrivateIikoState,
-  savePrivateIikoState,
-  publicState,
-  isServerPasswordMarker
+  publicState
 } from "./_lib/user-state.js";
-import { resolveAccessForUser, hasPermission, updateWorkspaceName } from "../access/_lib/access-control.js";
+import { resolveAccessForUser } from "../access/_lib/access-control.js";
 
 const HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -20,28 +17,6 @@ const HEADERS = {
 
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), { status, headers: { ...HEADERS, ...extraHeaders } });
-}
-
-function sanitizeConnection(input, fallbackPassword = "") {
-  const x = input && typeof input === "object" ? input : {};
-  const incomingPassword = String(x.password || "");
-  const password = (!incomingPassword || isServerPasswordMarker(incomingPassword))
-    ? String(fallbackPassword || "")
-    : incomingPassword;
-  return {
-    ip: String(x.ip || "").trim(),
-    port: String(x.port || "").trim(),
-    login: String(x.login || "").trim(),
-    password,
-    connectionType: x.connectionType === "CHAIN" ? "CHAIN" : "RMS",
-    isChain: x.isChain === true,
-    detectedMode: String(x.detectedMode || x.connectionType || "RMS").toUpperCase(),
-    organizationId: String(x.organizationId || ""),
-    displayName: String(x.displayName || ""),
-    networkName: String(x.networkName || ""),
-    restaurantName: String(x.restaurantName || ""),
-    connectedAt: String(x.connectedAt || new Date().toISOString())
-  };
 }
 
 function clean(v){return String(v??"").trim()}
@@ -76,30 +51,6 @@ function stateForAccess(state,access){
   return out;
 }
 
-function sanitizeIdentity(input) {
-  const x = input && typeof input === "object" ? input : {};
-  return {
-    mode: x.mode === "CHAIN" ? "CHAIN" : "RMS",
-    detectedMode: String(x.detectedMode || x.mode || "RMS").toUpperCase(),
-    organizationId: String(x.organizationId || ""),
-    displayName: String(x.displayName || ""),
-    networkName: String(x.networkName || ""),
-    restaurantName: String(x.restaurantName || ""),
-    departmentIds: Array.isArray(x.departmentIds) ? x.departmentIds.map(String).filter(Boolean) : [],
-    departments: Array.isArray(x.departments) ? x.departments : [],
-    organizations: Array.isArray(x.organizations) ? x.organizations : [],
-    hierarchy: Array.isArray(x.hierarchy) ? x.hierarchy : [],
-    groups: Array.isArray(x.groups) ? x.groups : [],
-    pointsOfSale: Array.isArray(x.pointsOfSale) ? x.pointsOfSale : [],
-    restaurantSections: Array.isArray(x.restaurantSections) ? x.restaurantSections : [],
-    server: x.server && typeof x.server === "object" ? {
-      ip: String(x.server.ip || ""),
-      port: String(x.server.port || "")
-    } : null,
-    checkedAt: String(x.checkedAt || new Date().toISOString())
-  };
-}
-
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: HEADERS });
 }
@@ -125,65 +76,30 @@ export async function onRequestGet({ request, env }) {
   }
 }
 
-export async function onRequestPost({ request, env }) {
+// SH Server provisioning belongs exclusively to Platform Admin.
+// The existing GET remains available because analytics/HR modules need the
+// organization connection identity; no organization user may change it here.
+export async function onRequestPost({request,env}) {
   try {
-    if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
-    const c=await accessContext(request,env);if(c.error)return c.error;
-    if(!hasPermission(c.access,"settings.manage"))return json({success:false,message:"Недостаточно прав для изменения подключения."},403);
-    // Platform-managed organizations have a stable synthetic storage owner.
-    // Their connection settings can only be provisioned by Platform Admin
-    // (future dedicated API). Restaurant SYSADMIN cannot alter server binding.
-    if(String(c.access?.ownerUserId||'').startsWith('platform-org:')){
-      return json({success:false,message:"Подключением Smart Horeca Server управляет администратор платформы."},403);
-    }
-
-
-    const body = await request.json();
-    const existing = await loadPrivateIikoState(env.DB, c.storageUserId, env);
-    const existingPassword = existing?.state?.connection?.password || "";
-    const connection = sanitizeConnection(body?.connection, existingPassword);
-    const identity = sanitizeIdentity(body?.identity);
-
-    if (!connection.ip || !connection.port || !connection.login || !connection.password) {
-      return json({ success: false, message: "Для сохранения нужны IP, порт, логин и пароль iiko Server." }, 400);
-    }
-
-    const state = { connection, identity, savedAt: new Date().toISOString() };
-    const saved = await savePrivateIikoState(env.DB, c.storageUserId, state, env);
-    if(c.access?.isOwner&&c.access?.workspace?.id){
-      const workspaceName=identity.networkName||connection.networkName||identity.displayName||connection.displayName||identity.restaurantName||connection.restaurantName;
-      if(workspaceName)await updateWorkspaceName(env.DB,c.access.workspace.id,workspaceName);
-    }
-
-    return json({
-      success: true,
-      updatedAt: saved.updatedAt,
-      storageEncrypted: saved.encrypted === true,
-      state: publicState(state)
-    }, 200, { "Set-Cookie": sessionCookie(c.auth.token) });
+    if (!env.DB) return json({success:false,message:"D1 binding DB не настроен."},503);
+    const c=await accessContext(request,env);
+    if(c.error)return c.error;
+    return json({success:false,code:"PLATFORM_MANAGED_CONNECTION",
+      message:"Подключением SH Server управляет только администратор платформы."},403);
   } catch (error) {
-    return json({ success: false, message: error?.message || "Ошибка сохранения подключения iiko." }, 500);
+    return json({success:false,message:"Не удалось проверить разрешения."},500);
   }
 }
 
-export async function onRequestDelete({ request, env }) {
+export async function onRequestDelete({request,env}) {
   try {
-    if (!env.DB) return json({ success: false, message: "D1 binding DB не настроен." }, 503);
-    const c=await accessContext(request,env);if(c.error)return c.error;
-    if(!hasPermission(c.access,"settings.manage"))return json({success:false,message:"Недостаточно прав для удаления подключения."},403);
-    // Platform-managed organizations have a stable synthetic storage owner.
-    // Their connection settings can only be provisioned by Platform Admin
-    // (future dedicated API). Restaurant SYSADMIN cannot alter server binding.
-    if(String(c.access?.ownerUserId||'').startsWith('platform-org:')){
-      return json({success:false,message:"Подключением Smart Horeca Server управляет администратор платформы."},403);
-    }
-
-
-    await ensureIikoStateTable(env.DB);
-    await env.DB.prepare(`DELETE FROM iiko_connections WHERE user_id=?1`).bind(c.storageUserId).run();
-    return json({ success: true }, 200, { "Set-Cookie": sessionCookie("", 0) });
+    if (!env.DB) return json({success:false,message:"D1 binding DB не настроен."},503);
+    const c=await accessContext(request,env);
+    if(c.error)return c.error;
+    return json({success:false,code:"PLATFORM_MANAGED_CONNECTION",
+      message:"Подключением SH Server управляет только администратор платформы."},403);
   } catch (error) {
-    return json({ success: false, message: error?.message || "Ошибка удаления подключения iiko." }, 500);
+    return json({success:false,message:"Не удалось проверить разрешения."},500);
   }
 }
 
