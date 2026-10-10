@@ -46,6 +46,9 @@ export const PERMISSIONS=[
   ['procurement.analytics','Закупки','Аналитика закупок'],
   ['procurement.norms.manage','Закупки','Нормы запаса'],
   ['procurement.settings.manage','Закупки','Настройки закупок'],
+  ['procurement.internal.request','Закупки','Внутренние заказы: создание заявок ресторана'],
+  ['procurement.internal.fulfill','Закупки','Внутренние заказы: выполнение центральным складом'],
+  ['procurement.internal.configure','Закупки','Внутренние заказы: назначение центрального RMS'],
 
   ['inventory.nomenclature.view','Склад','Просмотр номенклатуры'],
   ['inventory.nomenclature.manage','Склад','Изменение номенклатуры и фасовок'],
@@ -106,15 +109,16 @@ export const PERMISSION_SET=new Set(PERMISSIONS.map(x=>x.code));
 
 export const ROLE_TEMPLATES=[
   {code:'ADMIN',name:'Администратор',description:'Полный доступ к Smart Horeca, кроме передачи владения.',permissions:['*']},
-  {code:'PURCHASE_REQUESTER',name:'Инициатор закупки',description:'Создаёт заявки и видит только свои PR.',permissions:['dashboard.view','procurement.request.create','procurement.request.view_own','inventory.stock.view']},
+  {code:'PURCHASE_REQUESTER',name:'Инициатор закупки',description:'Создаёт заявки и видит только свои PR.',permissions:['dashboard.view','procurement.request.create','procurement.request.view_own','procurement.internal.request','inventory.stock.view']},
   {code:'PURCHASE_APPROVER',name:'Согласующий закупок',description:'Просматривает и согласует заявки.',permissions:['dashboard.view','procurement.request.view_all','procurement.approve']},
   {code:'BUYER',name:'Закупщик',description:'Работает с поставщиками, ценами и PO.',permissions:['dashboard.view','procurement.request.view_all','procurement.sourcing','procurement.prices.view','procurement.po.manage','inventory.stock.view','sensitive.cost.view']},
+  {code:'CENTRAL_WAREHOUSE',name:'Центральный склад',description:'Подтверждает внутренние заказы RMS и комплектует товары без автоматического проведения.',permissions:['dashboard.view','procurement.internal.fulfill','inventory.stock.view','inventory.outgoing.view']},
   {code:'WAREHOUSE_RECEIVER',name:'Приёмщик склада',description:'Видит ожидаемые поставки и принимает товар.',permissions:['dashboard.view','procurement.receive','inventory.stock.view','inventory.incoming.view','inventory.incoming.manage']},
   {code:'HR_MANAGER',name:'HR менеджер',description:'Сотрудники, графики, явки и табель без зарплат.',permissions:['dashboard.view','hr.employees.view','hr.employees.manage','hr.schedules.view','hr.schedules.manage','hr.attendance.view','hr.attendance.manage','hr.timesheet.view','hr.timesheet.manage']},
   {code:'PAYROLL',name:'Расчётчик зарплаты',description:'Условия оплаты и payroll.',permissions:['dashboard.view','hr.employees.view','hr.timesheet.view','hr.compensation.view','hr.compensation.manage','hr.payroll.view','hr.payroll.calculate','hr.payroll.approve','sensitive.salary.view']},
   {code:'ACCOUNTANT',name:'Бухгалтер',description:'Финансы, документы, поставщики и выплаты.',permissions:['dashboard.view','finance.view','finance.manage','finance.payments','inventory.incoming.view','inventory.incoming.manage','inventory.outgoing.view','inventory.outgoing.manage','reports.supplier_balances','hr.payroll.view','hr.payroll.pay','sensitive.salary.view','sensitive.cost.view']},
   {code:'ANALYST',name:'Аналитик',description:'Отчёты без права изменения операционных данных.',permissions:['dashboard.view','reports.olap','reports.abc_xyz','reports.menu_engineering','reports.waiters','reports.supplier_balances','reports.food_cost','reports.labor_cost','reports.pnl']},
-  {code:'RESTAURANT_MANAGER',name:'Менеджер ресторана',description:'Операционный просмотр и согласования своего ресторана.',permissions:['dashboard.view','cash.view','cash_shifts.view','procurement.request.create','procurement.request.view_all','procurement.approve','inventory.stock.view','inventory.movements.view','reports.olap','reports.pnl','hr.employees.view','hr.schedules.view','hr.attendance.view','hr.timesheet.view']}
+  {code:'RESTAURANT_MANAGER',name:'Менеджер ресторана',description:'Операционный просмотр и согласования своего ресторана.',permissions:['dashboard.view','cash.view','cash_shifts.view','procurement.request.create','procurement.request.view_all','procurement.approve','procurement.internal.request','inventory.stock.view','inventory.movements.view','reports.olap','reports.pnl','hr.employees.view','hr.schedules.view','hr.attendance.view','hr.timesheet.view']}
 ];
 
 export async function ensureAccessTables(db){
