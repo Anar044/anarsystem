@@ -2,7 +2,7 @@
 "use strict";
 const $=id=>document.getElementById(id),esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const statusNames={DRAFT:"Черновик",SUBMITTED:"На согласовании",APPROVED:"Подтверждён",PICKING:"Комплектуется",READY:"Готов к отгрузке",REJECTED:"Отклонён",CANCELLED:"Отменён"};
-const state={token:"",data:null,refs:[],binding:null,storeCache:new Map(),selected:null,busy:false};
+const state={token:"",data:null,refs:[],binding:null,storeCache:new Map(),selected:null,busy:false,view:new URLSearchParams(location.search).get("view")||"my"};
 const date=v=>v?new Date(String(v).slice(0,10)+"T12:00:00").toLocaleDateString("ru-RU"):"—";
 const number=v=>Number(v||0).toLocaleString("ru-RU",{maximumFractionDigits:3});
 function note(msg,kind=""){const x=$("io-message");x.textContent=msg||"";x.className="io-message"+(kind?" "+kind:"")}
@@ -36,24 +36,63 @@ async function fillStores(deptId,selectId,value=""){
 }
 async function load(){
   state.data=await get();const d=state.data;
-  $("io-open-create").hidden=!d.permissions?.request||!d.settings;
-  $("io-config-panel").hidden=!d.permissions?.configure;
-  $("io-central-label").textContent=d.settings?("Отгрузка из "+d.settings.centralDepartmentName+" · "+d.settings.centralStoreName):"Центральный склад не настроен администратором";
+  $("io-open-create").hidden=!d.permissions?.request;
+  $("io-config-panel").hidden=!(d.permissions?.configure&&state.view==="settings");
+  $("io-config-panel").hidden=!(d.permissions?.configure&&state.view==="settings");
+  $("io-central-label").textContent=d.settings?("Склад по умолчанию: "+d.settings.centralDepartmentName+" · "+d.settings.centralStoreName):"Центральный RMS можно выбрать в настройках; заказы между ресторанами уже доступны";
   if(d.permissions?.configure){
     selection("io-central-dept",d.configurableDepartments||[],"Выберите центральный RMS",d.settings?.centralDepartmentId||"");
     await fillStores($("io-central-dept").value,"io-central-store",d.settings?.centralStoreId||"");
   }
-  selection("io-destination-dept",(d.departments||[]).filter(x=>x.id!==d.settings?.centralDepartmentId),"Выберите ресторан");
+  selection("io-destination-dept",d.departments||[],"Выберите получателя");
+  selection("io-source-dept",d.sendingDepartments||[],"Выберите RMS-отправителя",d.settings?.centralDepartmentId||"");
+  // If the central warehouse has a valid default, auto-select it for a new order.
+  const selectedSource=$("io-source-dept").value;
+  if(selectedSource)await fillStores(selectedSource,"io-source-store",d.settings?.centralStoreId||"");
+  updateView();
   $("io-kpi-submitted").textContent=d.orders.filter(x=>x.status==="SUBMITTED").length;
   $("io-kpi-active").textContent=d.orders.filter(x=>["APPROVED","PICKING","READY"].includes(x.status)).length;
   $("io-kpi-all").textContent=d.orders.length;
   render();
 }
+function updateView(){
+  if(!state.data)return;
+  const roles=state.data.permissions||{};
+  const available=["my","incoming","preparing","all","settings"];
+  if(!available.includes(state.view)||((state.view==="all"||state.view==="settings")&&!roles.configure)||(["incoming","preparing"].includes(state.view)&&!roles.fulfill&&!roles.configure))state.view="my";
+  document.querySelectorAll("[data-io-view]").forEach(btn=>{
+    const mode=btn.dataset.ioView;
+    btn.hidden=((mode==="settings"||mode==="all")&&!roles.configure)||((mode==="incoming"||mode==="preparing")&&!roles.fulfill&&!roles.configure);
+    btn.classList.toggle("active",mode===state.view);
+    btn.setAttribute("aria-pressed",String(mode===state.view));
+  });
+  $("io-config-panel").hidden=state.view!=="settings"||!roles.configure;
+  $("io-list-panel").hidden=state.view==="settings";
+  $("io-kpis").hidden=state.view==="settings";
+  $("io-open-create").hidden=state.view==="settings"||!roles.request;
+  const titles={my:"Мои заявки",incoming:"Входящие заказы",preparing:"Комплектация и готовые к отгрузке",all:"Все внутренние заказы",settings:"Настройки внутренних заказов"};
+  $("io-list-title").textContent=titles[state.view]||"Внутренние заказы";
+}
+function selectView(view){
+  state.view=view;
+  const url=new URL(location.href);url.searchParams.set("view",view);history.replaceState(null,"",url);
+  state.selected=null;$("io-detail").hidden=true;
+  updateView();render();
+}
 function render(){
   const d=state.data;if(!d)return;
   const query=$("io-query").value.trim().toLocaleLowerCase(),status=$("io-status-filter").value;
-  const shown=d.orders.filter(o=>(!status||o.status===status)&&(!query||[o.number,o.destinationDepartmentName,o.destinationStoreName,...o.lines.map(x=>x.productName)].join(" ").toLocaleLowerCase().includes(query)));
-  $("io-rows").innerHTML=shown.map(o=>'<tr><td><strong>'+esc(o.number)+'</strong><small>'+esc(date(o.createdAt))+'</small></td><td>'+esc(o.destinationDepartmentName)+'<small>'+esc(o.destinationStoreName)+'</small></td><td>'+esc(date(o.neededBy))+'</td><td>'+o.lines.length+'</td><td><span class="io-pill" data-status="'+esc(o.status)+'">'+esc(statusNames[o.status]||o.status)+'</span></td><td><button class="io-btn io-outline" data-open="'+esc(o.id)+'">Открыть</button></td></tr>').join("");
+  const allowed=new Set((d.departments||[]).map(x=>x.id)),admin=d.permissions?.configure;
+  const mode=state.view;
+  const shown=d.orders.filter(o=>{
+    const mine=admin||allowed.has(o.destinationDepartmentId);
+    const incoming=admin||(d.permissions?.fulfill&&allowed.has(o.sourceDepartmentId));
+    if(mode==="my"&&!mine)return false;
+    if(mode==="incoming"&&!incoming)return false;
+    if(mode==="preparing"&&(!incoming||!["APPROVED","PICKING","READY"].includes(o.status)))return false;
+    return (!status||o.status===status)&&(!query||[o.number,o.sourceDepartmentName,o.sourceStoreName,o.destinationDepartmentName,o.destinationStoreName,...o.lines.map(x=>x.productName)].join(" ").toLocaleLowerCase().includes(query));
+  });
+  $("io-rows").innerHTML=shown.map(o=>'<tr><td><strong>'+esc(o.number)+'</strong><small>'+esc(date(o.createdAt))+'</small></td><td><strong>'+esc(o.sourceDepartmentName||o.centralDepartmentName)+'</strong><small>'+esc(o.sourceStoreName||o.centralStoreName)+' → '+esc(o.destinationDepartmentName)+' / '+esc(o.destinationStoreName)+'</small></td><td>'+esc(date(o.neededBy))+'</td><td>'+o.lines.length+'</td><td><span class="io-pill" data-status="'+esc(o.status)+'">'+esc(statusNames[o.status]||o.status)+'</span></td><td><button class="io-btn io-outline" data-open="'+esc(o.id)+'">Открыть</button></td></tr>').join("");
   $("io-empty").hidden=shown.length>0;
   $("io-rows").querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openDetail(b.dataset.open));
   if(state.selected){
@@ -63,12 +102,12 @@ function render(){
 }
 function detail(o){
   state.selected=o;
-  const d=state.data,perms=d.permissions||{},centralAllowed=d.departments.some(x=>x.id===o.centralDepartmentId);
-  const canFulfill=perms.fulfill&&centralAllowed;
+  const d=state.data,perms=d.permissions||{},sourceAllowed=d.departments.some(x=>x.id===o.sourceDepartmentId);
+  const canFulfill=perms.fulfill&&sourceAllowed;
   const isCreator=o.createdBy===state.userId;
   const canRequest=perms.request&&isCreator&&d.departments.some(x=>x.id===o.destinationDepartmentId);
   const active=o.status==="SUBMITTED"&&canFulfill;
-  let body='<div class="io-detail-top"><div class="io-section-head"><h2>'+esc(o.number)+'</h2><p>'+esc(o.destinationDepartmentName)+' · '+esc(o.destinationStoreName)+' → '+esc(o.centralDepartmentName)+' · '+esc(o.centralStoreName)+'</p></div><button class="io-btn io-outline" id="io-hide-detail">Закрыть</button></div>';
+  let body='<div class="io-detail-top"><div class="io-section-head"><h2>'+esc(o.number)+'</h2><p>'+esc(o.sourceDepartmentName)+' · '+esc(o.sourceStoreName)+' → '+esc(o.destinationDepartmentName)+' · '+esc(o.destinationStoreName)+'</p></div><button class="io-btn io-outline" id="io-hide-detail">Закрыть</button></div>';
   body+='<p class="io-detail-comment">Дата поставки: '+esc(date(o.neededBy))+' · Автор: '+esc(o.createdByName)+' · Статус: '+esc(statusNames[o.status]||o.status)+'</p>';
   if(o.comment)body+='<p class="io-detail-comment">Комментарий: '+esc(o.comment)+'</p>';
   if(o.reviewComment)body+='<p class="io-detail-comment">Причина: '+esc(o.reviewComment)+'</p>';
@@ -146,6 +185,10 @@ function formLines(){
 async function openCreate(){
   $("io-modal").hidden=false;
   $("io-create-form").reset();
+  const settings=state.data?.settings;
+  if(settings?.centralDepartmentId){$("io-source-dept").value=settings.centralDepartmentId;await fillStores(settings.centralDepartmentId,"io-source-store",settings.centralStoreId||"");}
+  else selection("io-source-store",[],"Выберите RMS отправителя");
+  selection("io-destination-store",[],"Выберите RMS получателя");
   $("io-lines").innerHTML="";
   $("io-needed-by").value=new Date(Date.now()+86400000).toISOString().slice(0,10);
   $("io-open-create").disabled=true;
@@ -167,7 +210,7 @@ async function start(){
 }
 async function handleCreate(e){
   e.preventDefault();
-  try{busy(true);const j=await post("create",{destinationDepartmentId:$("io-destination-dept").value,destinationStoreId:$("io-destination-store").value,neededBy:$("io-needed-by").value,comment:$("io-comment").value,lines:formLines()});closeCreate();note("Заказ "+j.number+" сохранён как черновик.","ok");await load();openDetail(j.id)}catch(e){note(e.message,"error")}finally{busy(false)}
+  try{busy(true);const j=await post("create",{sourceDepartmentId:$("io-source-dept").value,sourceStoreId:$("io-source-store").value,destinationDepartmentId:$("io-destination-dept").value,destinationStoreId:$("io-destination-store").value,neededBy:$("io-needed-by").value,comment:$("io-comment").value,lines:formLines()});closeCreate();note("Заказ "+j.number+" сохранён как черновик.","ok");await load();openDetail(j.id)}catch(e){note(e.message,"error")}finally{busy(false)}
 }
 async function handleConfig(e){
   e.preventDefault();
@@ -175,9 +218,11 @@ async function handleConfig(e){
 }
 $("io-refresh").onclick=async()=>{try{busy(true);await load();note("Данные обновлены.","ok")}catch(e){note(e.message,"error")}finally{busy(false)}};
 $("io-query").oninput=render;$("io-status-filter").onchange=render;
+document.querySelectorAll("[data-io-view]").forEach(btn=>btn.onclick=()=>selectView(btn.dataset.ioView));
 $("io-open-create").onclick=openCreate;$("io-close").onclick=closeCreate;$("io-cancel").onclick=closeCreate;$("io-modal-shade").onclick=closeCreate;$("io-add-product").onclick=newLine;
 $("io-central-dept").onchange=()=>fillStores($("io-central-dept").value,"io-central-store");
 $("io-destination-dept").onchange=()=>fillStores($("io-destination-dept").value,"io-destination-store");
+$("io-source-dept").onchange=()=>fillStores($("io-source-dept").value,"io-source-store");
 $("io-config-form").onsubmit=handleConfig;$("io-create-form").onsubmit=handleCreate;
 start();
 })();
