@@ -463,6 +463,18 @@ async function handleIikoPairProbe(event){
       '<div class="io-pair-document"><strong>'+kind+' не найдена через API</strong><p>Проверьте номер, дату и REST-доступ к iikoChain. Документы на скриншотах могут храниться в другом RMS или контуре.</p></div>';
     html+=fields(o,"Расходная")+fields(i,"Приходная")+'</div>';
     html+='<p>Связь: '+esc(c.linkEvidence||"данных недостаточно")+'. Товары и количества: '+(c.productsMatch?"совпадают по ID":"не подтверждены либо различаются")+'.</p>';
+    const refs=r.supplierReferences||{};
+    html+='<div class="io-pair-document"><strong>Проверка контрагентов по справочнику iiko</strong>'+
+      '<p>Поиск в справочнике: '+esc(refs.supplierLookupStatus||"не выполнялся")+' · записей '+esc(refs.supplierDirectoryEntries??"—")+'</p>'+
+      '<p>Покупатель расходной №50001: <strong>'+esc(refs.outgoingBuyerSupplier?.name||"название пока не определено")+'</strong> '+
+      (refs.supplierDirectoryMatchedOutgoingBuyer?"(найден в справочнике поставщиков)":"(в справочнике пока не найден)")+'</p>'+
+      '<p>ID покупателя совпадает с ID склада-получателя: <strong>'+(refs.outgoingBuyerIsDestinationStore?"да":"нет")+'</strong></p>'+
+      '<p>Поставщик приходной №10001: <strong>'+esc(refs.incomingSupplierRecord?.name||"название пока не определено")+'</strong> '+
+      (refs.supplierDirectoryMatchedIncomingSupplier?"(найден в справочнике)":"(не найден)")+'</p>'+
+      '<p>ID поставщика совпадает с ID склада-отправителя: <strong>'+(refs.incomingSupplierIsSenderStore?"да":"нет")+'</strong></p>'+
+      (refs.supplierLookupError?'<p>Ошибка справочника: '+esc(refs.supplierLookupError)+'</p>':"")+
+      '<p class="io-muted">Это проверка существующих справочников. Никакая привязка автоматически не меняется.</p></div>';
+
     for(const [label,part] of [["Расходная",r.outgoing],["Приходная",r.incoming]]){
       html+='<details><summary>REST-запросы: '+label+'</summary><ul>'+((part?.attempts||[]).map(a=>'<li>'+esc(a.dateFormat||"")+" · HTTP "+esc(a.httpStatus??"ошибка")+" · документов "+esc(a.totalDocuments??0)+" · совпадений "+esc(a.matchingDocuments??0)+'</li>').join("")||"<li>Запросов нет</li>")+'</ul></details>';
     }
