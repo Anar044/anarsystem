@@ -4,6 +4,8 @@ import {getUser,loadPrivateIikoState,privateConnection,hasPrivateConnection} fro
 import {restaurantDirectory,cookieDepartmentIds} from "./iiko/_lib/restaurant-scope.js";
 import {resolveAccessForUser,hasPermission,requirePermission} from "./access/_lib/access-control.js";
 import {resolveStoreScope} from "./iiko/_lib/store-scope.js";
+import {iikoText} from "./iiko/_lib/iiko-client.js";
+import {parseOutgoingForVerification,inspectOutgoingForOrder} from "./_lib/internal-order-invoice.js";
 import {serverScopeFromConnection,logAuditEvent} from "./_lib/audit-log.js";
 import {normalizeInternalLines,validateApproval,internalNextStatus,assertCrossRmsRoute,canAccessInternalOrder} from "./_lib/internal-order-core.js";
 
@@ -153,6 +155,34 @@ export async function onRequestPost({request,env}){
         .bind(id,c.serverScope,number,source.id,source.name,sourceStore.id,sourceStore.name,destination.id,destination.name,store.id,store.name,neededBy,clean(body.comment).slice(0,2000),JSON.stringify(lines),userId,actor(c.auth.user),t).run();
       await audit(c,"CREATE",row,null,{number,status:"DRAFT",sourceDepartmentId:source.id,sourceStoreId:sourceStore.id,destinationDepartmentId:destination.id,destinationStoreId:store.id,lines});
       return json({success:true,id,number,status:"DRAFT"},201);
+    }
+    if(action==="verify-outgoing"){
+      requirePermission(c.access,"procurement.internal.fulfill");
+      const order=await orderFor(c,body.id);
+      if(!sendingStaff(c,order))throw fail("Проверить отгрузку может только сотрудник RMS-отправителя.",403);
+      if(order.status!=="READY")throw fail("Заказ ещё не подготовлен к отгрузке.",409);
+      const number=clean(body.outgoingNumber);
+      if(!number||number.length>100)throw fail("Укажите номер расходной накладной из iiko.",400);
+      const from=clean(order.created_at).slice(0,10);
+      const to=new Date().toISOString().slice(0,10);
+      const params=new URLSearchParams({number,currentYear:"false",from,to:to>=from?to:from});
+      const path="/resto/api/documents/export/outgoingInvoice/byNumber?"+params.toString();
+      const result=await iikoText(c.connection,path,{headers:{Accept:"application/xml,text/xml,*/*"},timeoutMs:30000});
+      if(!result.ok)throw fail("Не удалось прочитать расходную накладную из iiko: HTTP "+result.status,502);
+      const candidates=parseOutgoingForVerification(result.text);
+      const verification=inspectOutgoingForOrder({
+        sourceStoreId:order.central_store_id,
+        approvedLines:parse(order.approved_lines_json,[])
+      },candidates,number);
+      // Explicitly do not mark order shipped here. We have not verified that the
+      // counteragent is the receiving legal person or that Chain created its
+      // linked incoming invoice; nor can one order be restricted to one invoice.
+      return json({success:true,verification:{
+        ...verification,
+        recipientMappingVerified:false,
+        linkedIncomingVerified:false,
+        canMarkShipped:false
+      }});
     }
     if(["submit","cancel","approve","reject","picking","ready"].includes(action)){
       const order=await orderFor(c,body.id);
