@@ -181,7 +181,7 @@ function renderShipments(o,data){
       '<p>Покупатель в расходной: <strong>'+esc(m.outgoingBuyerName)+'</strong> · ID контрагента: <code>'+esc(m.outgoingBuyerId)+'</code></p>'+
       '<p>Поставщик связанной приходной: '+esc(m.incomingSupplierName)+'</p>'+
       '<p>Проверено по проведённой паре №'+esc(m.evidenceOutgoingNumber)+' / №'+esc(m.evidenceIncomingNumber)+'.</p>'+
-      '<p class="io-muted">Контрагент определён, но автоматическое создание связанной приходной через REST пока не подтверждено. Отгрузка остаётся заблокирована.</p></div>';
+      '<p class="io-muted">'+(data.testRouteEnabled?'Разрешена пробная реальная отгрузка только для подтверждённого тестового маршрута. После неё проверим связанную приходную.':'Автоматическая отгрузка для этого маршрута пока не разрешена.')+'</p></div>';
   }
   if(data.dispatchBlockedReason){
     if(data.confirmedReceiverMapping){
@@ -232,7 +232,7 @@ function renderShipments(o,data){
       // Cancellation of a never-sent PREPARED reservation is safe even
       // while all stock-affecting transport actions remain disabled.
       const actions=sh.status==="PREPARED"
-        ?(data.canDispatch?'<button type="button" class="io-btn io-primary" data-ship-action="dispatch-existing" data-ship-id="'+esc(sh.id)+'">Отгрузить</button> ':"")+
+        ?(data.canDispatch&&!data.testRouteEnabled?'<button type="button" class="io-btn io-primary" data-ship-action="dispatch-existing" data-ship-id="'+esc(sh.id)+'">Отгрузить</button> ':"")+
           '<button type="button" class="io-btn io-outline" data-ship-action="cancel" data-ship-id="'+esc(sh.id)+'">Отменить</button>'
         :sh.status==="IIKO_PROCESSED"
           ?'<button type="button" class="io-btn io-outline" data-check-receipt="'+esc(sh.id)+'">Проверить приёмку</button>'
@@ -271,18 +271,19 @@ function renderShipments(o,data){
       '<p class="io-muted">Даже при успешном расчёте реальная отгрузка остаётся отключена до проверки способа создания связанной приходной и подтверждения нормального режима Chain + RMS.</p></div>';
   }
   if(data.canFulfill&&data.canDispatch&&remaining.length){
-    body+='<form id="io-shipment-form" class="io-shipment-form"><h4>Подготовить новую отгрузку</h4>';
+    body+='<form id="io-shipment-form" class="io-shipment-form"><h4>'+(data.testRouteEnabled?'Реальная пробная отгрузка в iikoChain':'Подготовить новую отгрузку')+'</h4>';
     body+='<p class="io-muted">Отправитель: <strong>'+esc(o.sourceDepartmentName)+' / '+esc(o.sourceStoreName)+'</strong> → Получатель: <strong>'+esc(o.destinationDepartmentName)+' / '+esc(o.destinationStoreName)+'</strong></p>';
-    body+='<p class="io-muted">Покупатель iiko — склад получателя <strong>'+esc(o.destinationStoreName)+'</strong>. Он уже выбран в заказе и автоматически подставляется в накладную.</p>';
+    body+='<p class="io-muted">Покупатель iiko — внутренний контрагент <strong>'+esc(data.confirmedReceiverMapping?.outgoingBuyerName||'не выбран')+'</strong>, связанный со складом '+esc(o.destinationStoreName)+'.</p>';
     body+='<div class="io-ship-fields"><label>Дата расходной<input id="io-ship-date" type="date" required></label></div>';
     body+='<p id="io-cost-message" class="io-muted">Загружаем себестоимость склада отправителя из iiko…</p>';
+    body+='<p class="io-muted">Для первого теста выберите <strong>один товар</strong> и количество не больше 1 основной единицы. Остальным товарам поставьте 0. Реальная отгрузка уменьшит остаток отправителя.</p>';
     body+='<table class="io-detail-lines"><thead><tr><th>Товар</th><th>Согласовано</th><th>Осталось</th><th>К отгрузке</th><th>Себестоимость за ед., ₼</th></tr></thead><tbody>';
-    for(const l of remaining){
+    for(const [index,l] of remaining.entries()){
       const original=o.approvedLines.find(x=>String(x.productId).toLowerCase()===String(l.productId).toLowerCase());
-      body+='<tr data-ship-item="'+esc(l.productId)+'"><td>'+esc(original?.productName||l.productId)+'</td><td>'+number(l.approved)+'</td><td>'+number(l.remaining)+'</td><td><input type="number" min="0" max="'+l.remaining+'" step="0.001" value="'+l.remaining+'" data-ship-qty></td><td><strong data-ship-cost>Загрузка…</strong><small data-ship-available></small></td></tr>';
+      body+='<tr data-ship-item="'+esc(l.productId)+'"><td>'+esc(original?.productName||l.productId)+'</td><td>'+number(l.approved)+'</td><td>'+number(l.remaining)+'</td><td><input type="number" min="0" max="'+Math.min(l.remaining,1)+'" step="0.001" value="'+(index===0?Math.min(l.remaining,1):0)+'" data-ship-qty></td><td><strong data-ship-cost>Загрузка…</strong><small data-ship-available></small></td></tr>';
     }
     body+='</tbody></table><p class="io-muted">Себестоимость берётся непосредственно из iikoChain по складу-отправителю, наценка 0%. Если себестоимость или остатки неизвестны, оформление будет заблокировано.</p>';
-    body+='<button class="io-btn io-primary" type="submit" disabled>Отгрузить</button></form>';
+    body+='<button class="io-btn io-primary" type="submit" disabled>Отгрузить в тестовый iikoChain</button></form>';
   }else if(!remaining.length&&shipments.some(x=>x.status!=="CANCELLED"))body+='<p class="io-muted">Все согласованные количества распределены по отгрузкам.</p>';
   else if(!data.canFulfill)body+='<p class="io-muted">Оформление отгрузок доступно сотрудникам RMS-отправителя.</p>';
   block.innerHTML=body;
@@ -364,9 +365,11 @@ function renderShipments(o,data){
           if(!v?.verified||qty>Number(v.available)+0.00001)missing=true;
         }
       }
-      quoteValid=anySelected&&!missing;submit.disabled=!quoteValid;
+      const selected=[...form.querySelectorAll("[data-ship-item]")].filter(row=>Number(row.querySelector("[data-ship-qty]").value)>0);
+      const trialInvalid=selected.length!==1||Number(selected[0]?.querySelector("[data-ship-qty]")?.value)>1;
+      quoteValid=anySelected&&!missing&&!trialInvalid;submit.disabled=!quoteValid;
       message.textContent=missing?"Недостаточно остатков или себестоимость не определена в iiko. Проверьте склад и количество."
-        :anySelected?"Себестоимость загружена со склада "+o.sourceStoreName+". Наценка 0%.":"Укажите количество для отгрузки.";
+        :trialInvalid?"Для первого теста выберите только один товар и не более 1 основной единицы.":anySelected?"Себестоимость загружена со склада "+o.sourceStoreName+". Наценка 0%.":"Укажите количество для отгрузки.";
     }
     async function reloadCost(manual=false){
       if(licenceBlocked&&!manual){
@@ -411,7 +414,7 @@ function renderShipments(o,data){
         productId:row.dataset.shipItem,amount:Number(row.querySelector("[data-ship-qty]").value)
       })).filter(x=>x.amount>0);
       if(!lines.length){note("Укажите количество для отгрузки.","error");return}
-      if(!confirm("Отгрузить со склада "+o.sourceStoreName+" на "+o.destinationStoreName+"? Smart Horeca создаст и ПРОВЕДЁТ расходную накладную в iiko. Это изменит остатки отправителя. Продолжить?"))return;
+      if(!confirm("РЕАЛЬНАЯ ТЕСТОВАЯ ОТГРУЗКА из "+o.sourceStoreName+" в "+o.destinationStoreName+". Будет проведена расходная в iikoChain, остаток отправителя уменьшится. Связанная приходная у получателя может потребовать отдельного проведения. Продолжить?"))return;
       try{
         busy(true);
         const result=await shipPost("dispatch",{orderId:o.id,documentDate:dateInput.value,lines});
