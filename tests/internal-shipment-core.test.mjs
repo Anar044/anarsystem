@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import {prepareInternalShipment,shipmentXml,parseIikoValidation} from "../functions/api/_lib/internal-shipment-core.js";
 import {warehouseCostRows,costQuote,classifyRestApiLicenseError} from "../functions/api/_lib/internal-shipment-cost.js";
 
@@ -90,4 +91,18 @@ test("REST API license exhaustion has a safe actionable error, never zero cost",
 test("Other 403 errors cannot be misclassified as REST API license limitation",()=>{
   assert.equal(classifyRestApiLicenseError(new Error("HTTP 403 — Invalid token.")),null);
   assert.equal(classifyRestApiLicenseError(new Error("HTTP 403 — Only warehouse users may issue shipments.")),null);
+});
+
+test("Shipment quote UI exits loading state on any API error and keeps dispatch disabled",()=>{
+  const script=readFileSync(new URL("../internal-orders.js",import.meta.url),"utf8");
+  const backend=readFileSync(new URL("../functions/api/internal-order-shipments.js",import.meta.url),"utf8");
+  assert.match(script,/action==="quote"\?new AbortController/);
+  assert.match(script,/setTimeout\(\(\)=>controller\.abort\(\),45000\)/);
+  assert.match(script,/resetCostCells\("Недоступна"\)/);
+  assert.match(script,/lastQuotes=null;quoteValid=false;submit\.disabled=true/);
+  assert.match(script,/dateInput\.onchange=reloadCost/);
+  assert.match(script,/oninput=validateQuantities/);
+  assert.match(script,/seq!==quoteSeq\|\|!form\.isConnected/);
+  assert.match(backend,/classifyRestApiLicenseError\(e\)/);
+  assert.match(backend,/licensed\?\.status\|\|e\.status\|\|500/);
 });
