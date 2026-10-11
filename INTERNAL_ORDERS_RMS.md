@@ -179,3 +179,11 @@ Run `node --test tests/internal-shipment-core.test.mjs`; it checks package/base-
 - Only after confirming the outgoing does it export incoming invoices and require `linkedOutgoingInvoiceId` to match the exact outgoing UUID, the recipient store and sender supplier IDs to match the saved mapping, and the lines to match. `NEW` means linked but unposted; `PROCESSED` means received in iiko.
 - Any missing evidence or API failure is shown as unconfirmed; this never makes a shipment eligible for dispatch. Historical `CHECK_REQUIRED` shipments are NOT automatically converted to shipped.
 - No local order/shipment status change or D1 receipt posting is performed. The result is an on-screen read of current iiko state; order closure and automated linked-document creation remain separate future steps.
+
+## October 11: one-item READ-ONLY shipment quote before any live test
+
+- After verification that manually created, processed outgoing #50001 and incoming #10001 exist in sender/recipient RMS and that post-sync inventory quantities and inventory values match Chain, prepare a **separate new test shipment**, never replay the old CHECK_REQUIRED invoice.
+- A READY order with a confirmed warehouse-pair mapping now shows **Предпросмотр пробной отгрузки — без списания**. Operator selects one product, base-unit quantity and document date; backend re-resolves the supplier mapping and checks the sender's current iikoChain warehouse balance/cost.
+- Server computes the tentative transfer amount at the sender's warehouse valuation, without margin; it validates approved quantities, already reserved quantities and blocks any prior CHECK_REQUIRED/PROCESSING/IMPORTING document for the same order.
+- This diagnostic is NOT a persisted draft, does not reserve quantities, does not import an outgoing, does not create a linked incoming, and does not change stock. The server stock-write gate remains closed.
+- After the cost preview, confirm real end-to-end REST linkage and effective normal Chain + RMS mode before asking for explicit permission to conduct **one** stock-affecting controlled transfer. Actual operator approval is separate from agreeing that historical 50001/10001 and balances are correct.
