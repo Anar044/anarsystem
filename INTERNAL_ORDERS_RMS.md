@@ -73,3 +73,13 @@ Run `node --test tests/internal-shipment-core.test.mjs`; it checks package/base-
 - **Valuation disclaimer:** inventory value is the current iiko valuation for the warehouse and selected date; recalculation of past operations can change the actual write-off cost. We must not claim a fixed historic FIFO cost from `balance/stores`.
 - **Do not bypass real Chain posting/replication:** iiko outgoing invoice is still saved only as `NEW`. Before enabling `PROCESSED` and automatic linked incoming, test actual cross-legal-person route and verify the warehouse is configured for internal transfers. Tax treatment between separate VÖEN still requires verification.
 
+
+## Explicit shipment posting after verification (October 2026)
+
+- The initial READY order is **not** an outgoing invoice. The old 'verify an arbitrary invoice number' button was removed from this step.
+- A persisted shipment can be in PREPARED, DRAFT_SAVED, DRAFT_VERIFIED, PROCESSING, CHECK_REQUIRED or IIKO_PROCESSED. An iiko HTTP 500 during import is ambiguous and leaves CHECK_REQUIRED locked.
+- Verification now tries /outgoingInvoice/byNumber and falls back to the working /outgoingInvoice export with dates, matching by exact document number. Never treat one failing endpoint as proof that an invoice does not exist.
+- The **Отгрузить** button is shown only for DRAFT_VERIFIED, after iiko confirmed the outgoing document exists and is NEW with the correct UUID, source warehouse, buyer warehouse, products, amounts, prices and sums. The user explicitly confirms the stock-changing action.
+- Processing uses the exact document UUID with status PROCESSED, locks D1 state to PROCESSING before issuing the write, and re-verifies iiko reports PROCESSED before marking IIKO_PROCESSED. Ambiguous results remain locked and require manual read-back (no silent retry).
+- A processed outgoing is still **not** received by the destination RMS. Linked incoming and receipt status are not yet automated.
+- Current test order IO-20261011-06E974 / outgoing IO-20261011-06E974-S01 was reported CHECK_REQUIRED (iiko import HTTP 500). Do not attempt to post or recreate this invoice without confirming actual iiko state.
