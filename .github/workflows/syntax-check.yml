@@ -47,6 +47,7 @@ jobs:
           node --test tests/internal-order-pair-probe.test.mjs
           node --test tests/internal-order-incoming-lookup.test.mjs
           node --test tests/internal-order-receipt-check.test.mjs
+          node --test tests/internal-order-stock-contract.test.mjs
           node --test tests/chain-department-discovery.test.mjs
 
       - name: Check local AI Python syntax
