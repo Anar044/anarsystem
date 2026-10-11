@@ -109,3 +109,11 @@ Run `node --test tests/internal-shipment-core.test.mjs`; it checks package/base-
 - **Do not infer** that the REST `counteragentId` is a Store ID merely because the buyer display name contains "RMS 1 METBEX". The buyer selector is showing **Supplier** as the type. Determine actual REST `counteragentId` and incoming `supplier` through read-only export.
 - Added **Settings → Диагностика связанной пары накладных** with prefilled sample outgoing 50001, incoming 10001, date 2026-10-11. This admin-only operation reads the existing server connection, exports both documents, and displays IDs, status and linkage without raw XML, credentials, or writes.
 - Do not unlock real dispatch until a vendor-supported way of creating *linked* outgoing/incoming documents is established, typed buyer mapping is tested, and the old CHECK_REQUIRED shipments are reconciled.
+
+## Diagnosed pair: REST counterparty identity (2026-10-11)
+
+- The read-only iikoChain export successfully returned outgoing #50001 and incoming #10001; both status PROCESSED. The inbound linkedOutgoingInvoiceId exactly matches the outgoing ID; three line product IDs and quantities are equal.
+- Crucially, outgoing counteragentId is **not identical to the receiving store ID**. The incoming supplier ID is also **not identical to the sending store ID**. Do not use the Store ID in the outgoing `counteragentId` field.
+- The enhanced read-only Settings diagnostic now requests the standard `/resto/api/suppliers?revisionFrom=-1` reference list and attempts to resolve both buyer and supplier IDs to real reference names and codes. This is a read-only lookup, not a route change.
+- To enable cross-RMS dispatch, map each receiver RMS + store to the verified supplier/User-type counterparty that iikoChain uses in the successful paired outgoing, and verify the incoming pair is actually generated. Do not assume the UI display name guarantees any entity type.
+- Until validated, the server safety guard still blocks the stock-changing REST endpoint and old CHECK_REQUIRED shipment S01 remains locked.
