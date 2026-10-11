@@ -321,6 +321,15 @@ export async function onRequestPost({request,env}){
         if(s.status==="PROCESSING")await setShipStatus(c,s,"PROCESSING","CHECK_REQUIRED",{error:"Результат проведения неизвестен: "+str(result.message)});
         return json({success:true,verification:{...result,linkedIncomingVerified:false},shipment:expose(s)});
       }
+      // An ambiguous POST may still be in progress while an eventual-consistency
+      // read reports NEW. Never reopen the posting button in that situation.
+      if(!result.processed&&["CHECK_REQUIRED","PROCESSING"].includes(s.status)){
+        if(s.status==="PROCESSING")await setShipStatus(c,s,"PROCESSING","CHECK_REQUIRED",{
+          error:"Проверка iiko пока показывает NEW после попытки проведения. Нужна повторная серверная проверка без повторного POST.",
+          iikoDocumentNumber:result.documentNumber,iikoStatus:result.status
+        });
+        return json({success:true,verification:{...result,uncertainProcessing:true,linkedIncomingVerified:false,canMarkShipped:false},shipment:expose(s)});
+      }
       const status=result.processed?"IIKO_PROCESSED":"DRAFT_VERIFIED";
       await setShipStatus(c,s,s.status,status,{iikoDocumentNumber:result.documentNumber,iikoStatus:result.status});
       const updated=await shipment(c,o,s.id);
