@@ -185,7 +185,21 @@ export async function onRequestGet({request,env}){
     const totals=Object.fromEntries(parse(o.approved_lines_json).map(x=>[id(x.productId),{productId:x.productId,approved:Number(x.quantity),reserved:0}]));
     for(const s of list)if(s.status!=="CANCELLED")for(const l of parse(s.lines_json)){const t=totals[id(l.productId)];if(t)t.reserved+=Number(l.amount)}
     const route=assessInternalShipmentRoute(o);
-    return json({success:true,shipments:list.map(expose),remaining:Object.values(totals).map(x=>({...x,remaining:Math.max(0,Math.round((x.approved-x.reserved)*1000)/1000)})),canFulfill:shipper(o,c),canDispatch:shipper(o,c)&&route.supported,dispatchBlockedReason:route.supported?"":route.message,dispatchBlockCode:route.supported?"":route.code});
+    // Show the read-only, specifically confirmed buyer mapping for this
+    // exact pair of source and destination warehouses. Never derive it
+    // from RMS display names or client-supplied IDs.
+    const mapped=await c.env.DB.prepare("SELECT source_store_id,destination_store_id,outgoing_buyer_id,outgoing_buyer_name,incoming_supplier_id,incoming_supplier_name,evidence_outgoing_number,evidence_incoming_number,confirmed_at FROM sh_internal_order_warehouse_counterparties WHERE server_scope=?1 AND source_store_id=?2 AND destination_store_id=?3")
+      .bind(c.scope,id(o.central_store_id),id(o.destination_store_id)).first();
+    const verifiedMapping=mapped?{
+      sourceStoreId:mapped.source_store_id,destinationStoreId:mapped.destination_store_id,
+      outgoingBuyerId:mapped.outgoing_buyer_id,outgoingBuyerName:mapped.outgoing_buyer_name,
+      incomingSupplierId:mapped.incoming_supplier_id,incomingSupplierName:mapped.incoming_supplier_name,
+      evidenceOutgoingNumber:mapped.evidence_outgoing_number,evidenceIncomingNumber:mapped.evidence_incoming_number,
+      confirmedAt:mapped.confirmed_at
+    }:null;
+    return json({success:true,shipments:list.map(expose),remaining:Object.values(totals).map(x=>({...x,remaining:Math.max(0,Math.round((x.approved-x.reserved)*1000)/1000)})),canFulfill:shipper(o,c),
+      canDispatch:shipper(o,c)&&route.supported,dispatchBlockedReason:route.supported?"":route.message,dispatchBlockCode:route.supported?"":route.code,
+      confirmedReceiverMapping:verifiedMapping,requiresIntegrationValidation:true});
   }catch(e){
     if(isIikoRestApiLicenseError(e))return json({success:false,code:"IIKO_REST_API_LICENSE",message:IIKO_REST_API_LICENSE_MESSAGE},503);
     return json({success:false,message:e.message},e.status||500);
