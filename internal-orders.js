@@ -122,7 +122,7 @@ function detail(o){
   if(active)body+='<button class="io-btn io-primary" data-action="approve">Подтвердить количество</button><button class="io-btn io-danger" data-action="reject">Отклонить</button>';
   if(canFulfill&&o.status==="APPROVED")body+='<button class="io-btn io-primary" data-action="picking">Начать комплектацию</button>';
   if(canFulfill&&o.status==="PICKING")body+='<button class="io-btn io-primary" data-action="ready">Готов к отгрузке</button>';
-  if(canFulfill&&o.status==="READY")body+='<button class="io-btn io-outline" id="io-check-outgoing">Сверить расходную накладную iiko</button>';
+  if(canFulfill&&o.status==="READY")body+='<div class="io-ready-next"><strong>Следующий этап — оформление расходной накладной</strong><p>Готовность заказа не создаёт документ в iiko. Сначала оформите отгрузку ниже; сверка появится после сохранения накладной.</p><button type="button" class="io-btn io-primary" id="io-go-shipment">Перейти к оформлению отгрузки</button></div>';
   body+='</div>';
   if(o.status==="READY")body+='<section class="io-shipment-section" id="io-shipment-section"><p class="io-muted">Загрузка документов отгрузки…</p></section>';
   const verified=state.verification?.orderId===o.id?state.verification.data:null;
@@ -139,7 +139,8 @@ function detail(o){
   const panel=$("io-detail");panel.innerHTML=body;panel.hidden=false;
   panel.querySelector("#io-hide-detail").onclick=()=>{panel.hidden=true;state.selected=null};
   panel.querySelectorAll("[data-action]").forEach(b=>b.onclick=()=>transition(o,b.dataset.action));
-  const outgoingButton=panel.querySelector("#io-check-outgoing");if(outgoingButton)outgoingButton.onclick=()=>verifyOutgoing(o);
+  const jump=panel.querySelector("#io-go-shipment");
+  if(jump)jump.onclick=()=>panel.querySelector("#io-shipment-section")?.scrollIntoView({behavior:"smooth",block:"start"});
   if(o.status==="READY")loadShipments(o);
   panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
@@ -162,12 +163,13 @@ function renderShipments(o,data){
   let body='<h3>Отгрузки и расходные накладные iiko</h3>';
   body+='<p class="io-muted">Одна заявка может отгружаться частями. Подготовка и сохранение непроведённой расходной не меняют остатки. Факт проведения сверяем отдельно.</p>';
   const shipments=data.shipments||[];
+  if(!shipments.length)body+='<p class="io-shipment-empty">Расходная накладная по этому заказу ещё не создана. Ниже указаны товары для первой отгрузки. После подготовки появится документ с постоянным номером; только затем его можно отправить в iiko и сверить.</p>';
   if(shipments.length){
     body+='<div class="io-table-wrap"><table class="io-detail-lines"><thead><tr><th>Расходная</th><th>Сумма, ₼</th><th>Состояние</th><th>Действия</th></tr></thead><tbody>';
     for(const sh of shipments){
       const status=shStatus[sh.status]||sh.status;
       const actions=sh.status==="PREPARED"
-        ?'<button type="button" class="io-btn io-primary" data-ship-action="save-iiko-draft" data-ship-id="'+esc(sh.id)+'">Сохранить в iiko</button> <button type="button" class="io-btn io-outline" data-ship-action="cancel" data-ship-id="'+esc(sh.id)+'">Отменить</button>'
+        ?'<button type="button" class="io-btn io-primary" data-ship-action="save-iiko-draft" data-ship-id="'+esc(sh.id)+'">Сохранить непроведённую накладную в iiko</button> <button type="button" class="io-btn io-outline" data-ship-action="cancel" data-ship-id="'+esc(sh.id)+'">Отменить</button>'
         :["CHECK_REQUIRED","DRAFT_SAVED","DRAFT_VERIFIED","IIKO_PROCESSED"].includes(sh.status)?'<button type="button" class="io-btn io-outline" data-ship-action="verify-iiko" data-ship-id="'+esc(sh.id)+'">Сверить с iiko</button>':"—";
       body+='<tr><td><strong>'+esc(sh.number)+'</strong><small>'+esc(date(sh.documentDate))+' · '+sh.lines.length+' поз.</small></td><td>'+number(sh.totalCents/100)+'</td><td>'+esc(status)+(sh.error?'<small>'+esc(sh.error)+'</small>':'')+'</td><td>'+actions+'</td></tr>';
       if(sh.status==="IIKO_PROCESSED")body+='<tr><td colspan="4" class="io-muted">Расходная проведена, но связанная приходная ресторана ещё не сверена; заказ не закрывается.</td></tr>';
@@ -254,18 +256,6 @@ function renderShipments(o,data){
   });
 }
 
-async function verifyOutgoing(o){
-  const numberInput=prompt("Номер уже созданной расходной накладной в iiko (только проверка, без проведения):","");
-  if(numberInput===null)return;
-  const outgoingNumber=numberInput.trim();if(!outgoingNumber){note("Укажите номер расходной накладной.","error");return}
-  try{
-    busy(true);note("Сверяем расходную накладную "+outgoingNumber+" с iiko…");
-    const r=await post("verify-outgoing",{id:o.id,outgoingNumber});
-    state.verification={orderId:o.id,data:r.verification};
-    detail(o);
-    note(r.verification.valid?r.verification.message:r.verification.message,r.verification.valid?"ok":"error");
-  }catch(e){note(e.message||String(e),"error")}finally{busy(false)}
-}
 function openDetail(id){const o=state.data?.orders.find(x=>x.id===id);if(o)detail(o)}
 async function transition(o,action){
   const payload={id:o.id};const labels={submit:"отправить",cancel:"отменить",approve:"подтвердить",reject:"отклонить",picking:"начать комплектацию",ready:"отметить готовность"};
