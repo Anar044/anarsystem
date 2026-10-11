@@ -15,3 +15,6 @@
 .io-ready-next strong{color:#b4f3d8;font-size:14px}
 .io-ready-next p{margin:6px 0 12px;color:#a8c5b8;font-size:12px}
 .io-shipment-empty{padding:13px 15px;margin:14px 0;color:#b5cfdb;background:#182d38;border:1px solid #315466;border-radius:10px;font-size:13px}
+
+/* Do not leave the shipment cost screen stuck on loading after REST API failure. */
+#io-cost-message.io-cost-error{color:#ffb7bf!important;background:#332027;border:1px solid #8e3e4a;border-radius:10px;padding:12px 14px;line-height:1.5}
