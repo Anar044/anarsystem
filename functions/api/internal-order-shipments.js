@@ -115,7 +115,18 @@ async function outgoingLookup(c,s){
 }
 // A single operator click creates and POSTS one outgoing invoice in iiko.
 // All checks are server-side. A known/unknown existing iiko write is never replayed.
+// iikoChain UI permits a receiving STORE as invoice buyer, but this
+// installation's /documents/import/outgoingInvoice REST importer casts
+// counteragentId to resto.front.User and throws ClassCastException for STORE.
+// Never substitute an unrelated legal person or submit that invalid XML.
+const UNSUPPORTED_STORE_BUYER_MESSAGE="iiko отклонил получателя-склад: REST API расходной накладной ожидает другой тип контрагента (User), а выбранный RMS является Store. Для связанной приходной нужен поддерживаемый iikoChain способ внутренней отгрузки. Автоматическая отгрузка через этот API временно заблокирована; товары не списаны.";
+function assertSupportedIikoShipmentRoute(order){
+  if(id(order.central_department_id)!==id(order.destination_department_id)&&order.destination_store_id){
+    throw err(UNSUPPORTED_STORE_BUYER_MESSAGE,409);
+  }
+}
 async function dispatchShipment(c,o,s){
+  assertSupportedIikoShipmentRoute(o);
   if(o.status!=="READY")throw err("Заказ уже не готов к отгрузке.",409);
   if(s.status!=="PREPARED")throw err("Эта отгрузка уже передавалась в iiko. Повторная отправка запрещена.",409);
   await verifyRouteWarehouses(c,o);
@@ -171,7 +182,8 @@ export async function onRequestGet({request,env}){
     const list=await rows(c,o.id);
     const totals=Object.fromEntries(parse(o.approved_lines_json).map(x=>[id(x.productId),{productId:x.productId,approved:Number(x.quantity),reserved:0}]));
     for(const s of list)if(s.status!=="CANCELLED")for(const l of parse(s.lines_json)){const t=totals[id(l.productId)];if(t)t.reserved+=Number(l.amount)}
-    return json({success:true,shipments:list.map(expose),remaining:Object.values(totals).map(x=>({...x,remaining:Math.max(0,Math.round((x.approved-x.reserved)*1000)/1000)})),canFulfill:shipper(o,c)});
+    const unsupportedStoreRoute=id(o.central_department_id)!==id(o.destination_department_id)&&Boolean(o.destination_store_id);
+    return json({success:true,shipments:list.map(expose),remaining:Object.values(totals).map(x=>({...x,remaining:Math.max(0,Math.round((x.approved-x.reserved)*1000)/1000)})),canFulfill:shipper(o,c),canDispatch:shipper(o,c)&&!unsupportedStoreRoute,dispatchBlockedReason:unsupportedStoreRoute?UNSUPPORTED_STORE_BUYER_MESSAGE:""});
   }catch(e){
     if(isIikoRestApiLicenseError(e))return json({success:false,code:"IIKO_REST_API_LICENSE",message:IIKO_REST_API_LICENSE_MESSAGE},503);
     return json({success:false,message:e.message},e.status||500);
@@ -183,6 +195,7 @@ export async function onRequestPost({request,env}){
     const o=await order(c,body.orderId);
     if(!shipper(o,c))throw err("Только уполномоченный сотрудник RMS-отправителя может оформлять отгрузку.",403);
     if(action==="dispatch"){
+      assertSupportedIikoShipmentRoute(o);
       if(o.status!=="READY")throw err("Заказ ещё не готов к отгрузке.",409);
       const date=str(body.documentDate),prices=await getWarehouseQuote(c,o,date);
       const all=await rows(c,o.id),approved=parse(o.approved_lines_json);
@@ -201,6 +214,7 @@ export async function onRequestPost({request,env}){
       return json(await dispatchShipment(c,o,created));
     }
     if(action==="dispatch-existing"){
+      assertSupportedIikoShipmentRoute(o);
       const ready=await shipment(c,o,body.shipmentId);
       if(ready.status!=="PREPARED")throw err("Повторно отправлять накладную в iiko нельзя.",409);
       return json(await dispatchShipment(c,o,ready));
@@ -236,6 +250,7 @@ export async function onRequestPost({request,env}){
       return json({success:true});
     }
     if(action==="save-iiko-draft"){
+      assertSupportedIikoShipmentRoute(o);
       if(s.status!=="PREPARED")throw err("Этот документ уже отправлялся в iiko. Повторная отправка запрещена до сверки.",409);
       await verifyRouteWarehouses(c,o);
       if(id(s.counteragent_id)!==id(o.destination_store_id))throw err("Покупатель расходной должен совпадать со складом RMS-получателя, выбранным в заказе.",409);
@@ -272,6 +287,7 @@ export async function onRequestPost({request,env}){
       }
     }
     if(action==="process-iiko"){
+      assertSupportedIikoShipmentRoute(o);
       if(s.status!=="DRAFT_VERIFIED")throw err("Отгрузка возможна только после сохранения и сверки непроведённой накладной в iiko.",409);
       if(o.status!=="READY")throw err("Статус заявки изменён. Отгрузка заблокирована.",409);
       await verifyRouteWarehouses(c,o);
