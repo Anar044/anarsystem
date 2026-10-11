@@ -57,3 +57,22 @@ export function compareIikoInvoicePair(outgoing,incoming){
     noStockOperation:true
   };
 }
+
+export function identifyIikoPairCounteragents(outgoing,incoming,suppliers=[]){
+  const byId=new Map((suppliers||[]).filter(x=>x?.id).map(x=>[normalized(x.id),{id:x.id,name:clean(x.name),code:clean(x.code)}]));
+  const outgoingBuyerId=normalized(outgoing?.counteragentId),
+        incomingSupplierId=normalized(incoming?.supplierId);
+  const buyer=byId.get(outgoingBuyerId)||null,
+        supplier=byId.get(incomingSupplierId)||null;
+  return {
+    outgoingBuyerId:clean(outgoing?.counteragentId),
+    outgoingBuyerSupplier:buyer,
+    incomingSupplierId:clean(incoming?.supplierId),
+    incomingSupplierRecord:supplier,
+    outgoingBuyerIsDestinationStore:!!outgoingBuyerId&&outgoingBuyerId===normalized(incoming?.storeId),
+    incomingSupplierIsSenderStore:!!incomingSupplierId&&incomingSupplierId===normalized(outgoing?.storeId),
+    supplierDirectoryLookedUp:(suppliers||[]).length>0,
+    supplierDirectoryMatchedOutgoingBuyer:!!buyer,
+    supplierDirectoryMatchedIncomingSupplier:!!supplier
+  };
+}
