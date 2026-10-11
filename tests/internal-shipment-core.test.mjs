@@ -36,6 +36,7 @@ test("iiko outgoing XML must target receiving warehouse and use its source wareh
  assert.match(x,/<id>unique-uuid<\/id>/);
  assert.match(x,/<counteragentId>rms1-kitchen-store<\/counteragentId>/);
  assert.match(x,/<defaultStoreId>central-store<\/defaultStoreId>/);
+ assert.doesNotMatch(x,/<item>[\\s\\S]*?<storeId>/, "Document-level defaultStoreId must not conflict with line-level storeId");
  assert.match(x,/<price>1\.130000<\/price>/);
  assert.match(x,/<sum>5\.65<\/sum>/);
  assert.match(x,/<amount>5<\/amount>/);
