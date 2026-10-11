@@ -1,5 +1,6 @@
-// Internal RMS shipment workflow. Saves documents as UNPROCESSED iiko draft only;
-// never creates incoming invoices, posts stock, or pays debt.
+// Controlled cross-RMS outgoingInvoice trial on the dedicated test branch.
+// Outgoing may affect stock; linked incoming must be verified separately.
+// Never replay an outgoing whose result is unknown.
 import {getUser,loadPrivateIikoState,privateConnection,hasPrivateConnection} from "./iiko/_lib/user-state.js";
 import {restaurantDirectory} from "./iiko/_lib/restaurant-scope.js";
 import {resolveAccessForUser,hasPermission,requirePermission} from "./access/_lib/access-control.js";
@@ -127,9 +128,12 @@ async function outgoingLookup(c,s){
 // installation's /documents/import/outgoingInvoice REST importer casts
 // counteragentId to resto.front.User and throws ClassCastException for STORE.
 // Never substitute an unrelated legal person or submit that invalid XML.
-function assertSupportedIikoShipmentRoute(order){
-  const route=assessInternalShipmentRoute(order);
+async function assertSupportedIikoShipmentRoute(c,order){
+  const mapping=await c.env.DB.prepare("SELECT * FROM sh_internal_order_warehouse_counterparties WHERE server_scope=?1 AND source_store_id=?2 AND destination_store_id=?3")
+    .bind(c.scope,id(order.central_store_id),id(order.destination_store_id)).first();
+  const route=assessInternalShipmentRoute(order,{mapping,host:new URL(c.request.url).hostname});
   if(!route.supported)throw err(route.message,409);
+  return mapping;
 }
 // This is NOT authorization to post. The independent route gate remains closed.
 // When a vendor-confirmed shipment transport is available, never fall back
@@ -146,7 +150,7 @@ async function verifiedBuyerId(c,o){
   return preview.outgoing.counteragentId;
 }
 async function dispatchShipment(c,o,s){
-  assertSupportedIikoShipmentRoute(o);
+  await assertSupportedIikoShipmentRoute(c,o);
   if(o.status!=="READY")throw err("Заказ уже не готов к отгрузке.",409);
   if(s.status!=="PREPARED")throw err("Эта отгрузка уже передавалась в iiko. Повторная отправка запрещена.",409);
   await verifyRouteWarehouses(c,o);
@@ -202,12 +206,13 @@ export async function onRequestGet({request,env}){
     const list=await rows(c,o.id);
     const totals=Object.fromEntries(parse(o.approved_lines_json).map(x=>[id(x.productId),{productId:x.productId,approved:Number(x.quantity),reserved:0}]));
     for(const s of list)if(s.status!=="CANCELLED")for(const l of parse(s.lines_json)){const t=totals[id(l.productId)];if(t)t.reserved+=Number(l.amount)}
-    const route=assessInternalShipmentRoute(o);
-    // Show the read-only, specifically confirmed buyer mapping for this
+    // Show the specifically confirmed buyer mapping for this
     // exact pair of source and destination warehouses. Never derive it
     // from RMS display names or client-supplied IDs.
-    const mapped=await c.env.DB.prepare("SELECT source_store_id,destination_store_id,outgoing_buyer_id,outgoing_buyer_name,incoming_supplier_id,incoming_supplier_name,evidence_outgoing_number,evidence_incoming_number,confirmed_at FROM sh_internal_order_warehouse_counterparties WHERE server_scope=?1 AND source_store_id=?2 AND destination_store_id=?3")
+    const mapped=await c.env.DB.prepare("SELECT source_store_id,destination_store_id,outgoing_buyer_id,outgoing_buyer_name,incoming_supplier_id,incoming_supplier_name,evidence_outgoing_id,evidence_incoming_id,evidence_outgoing_number,evidence_incoming_number,confirmed_at FROM sh_internal_order_warehouse_counterparties WHERE server_scope=?1 AND source_store_id=?2 AND destination_store_id=?3")
       .bind(c.scope,id(o.central_store_id),id(o.destination_store_id)).first();
+    const route=assessInternalShipmentRoute(o,{mapping:mapped,host:new URL(request.url).hostname});
+    const oldUncertain=list.some(s=>["CHECK_REQUIRED","IMPORTING","PROCESSING"].includes(s.status));
     const verifiedMapping=mapped?{
       sourceStoreId:mapped.source_store_id,destinationStoreId:mapped.destination_store_id,
       outgoingBuyerId:mapped.outgoing_buyer_id,outgoingBuyerName:mapped.outgoing_buyer_name,
@@ -216,8 +221,10 @@ export async function onRequestGet({request,env}){
       confirmedAt:mapped.confirmed_at
     }:null;
     return json({success:true,shipments:list.map(expose),remaining:Object.values(totals).map(x=>({...x,remaining:Math.max(0,Math.round((x.approved-x.reserved)*1000)/1000)})),canFulfill:shipper(o,c),
-      canDispatch:shipper(o,c)&&route.supported,dispatchBlockedReason:route.supported?"":route.message,dispatchBlockCode:route.supported?"":route.code,
-      confirmedReceiverMapping:verifiedMapping,requiresIntegrationValidation:true});
+      canDispatch:shipper(o,c)&&route.supported&&!oldUncertain,
+      dispatchBlockedReason:oldUncertain?"По этой заявке есть расходная с неподтверждённым результатом iiko. Новая отгрузка запрещена до сверки.":route.supported?"":route.message,
+      dispatchBlockCode:oldUncertain?"PREVIOUS_SHIPMENT_UNCERTAIN":route.supported?"":route.code,
+      confirmedReceiverMapping:verifiedMapping,testRouteEnabled:route.supported,requiresIntegrationValidation:!route.supported});
   }catch(e){
     if(isIikoRestApiLicenseError(e))return json({success:false,code:"IIKO_REST_API_LICENSE",message:IIKO_REST_API_LICENSE_MESSAGE},503);
     return json({success:false,message:e.message},e.status||500);
@@ -401,11 +408,13 @@ export async function onRequestPost({request,env}){
         message:"Предварительный расчёт выполнен. Отгрузка и создание связанной приходной остаются заблокированными."});
     }
     if(action==="dispatch"){
-      assertSupportedIikoShipmentRoute(o);
+      await assertSupportedIikoShipmentRoute(c,o);
       if(o.status!=="READY")throw err("Заказ ещё не готов к отгрузке.",409);
       const buyerId=await verifiedBuyerId(c,o);
       const date=str(body.documentDate),prices=await getWarehouseQuote(c,o,date);
       const all=await rows(c,o.id),approved=parse(o.approved_lines_json);
+      if(all.some(x=>["CHECK_REQUIRED","IMPORTING","PROCESSING"].includes(x.status)))
+        throw err("Результат предыдущей отгрузки неизвестен. Сначала необходимо сверить документ в iiko.",409);
       const previous=all.map(x=>({status:x.status,lines:parse(x.lines_json)}));
       const prepared=prepareInternalShipment(approved,previous,body.lines,prices.quotes);
       const index=all.length+1,number=o.number+"-S"+String(index).padStart(2,"0");
@@ -421,7 +430,7 @@ export async function onRequestPost({request,env}){
       return json(await dispatchShipment(c,o,created));
     }
     if(action==="dispatch-existing"){
-      assertSupportedIikoShipmentRoute(o);
+      await assertSupportedIikoShipmentRoute(c,o);
       const ready=await shipment(c,o,body.shipmentId);
       if(ready.status!=="PREPARED")throw err("Повторно отправлять накладную в iiko нельзя.",409);
       return json(await dispatchShipment(c,o,ready));
@@ -434,7 +443,7 @@ export async function onRequestPost({request,env}){
     if(action==="prepare"){
       // Obsolete draft endpoint cannot reserve quantities while real REST
       // invoice pairing is still unverified.
-      assertSupportedIikoShipmentRoute(o);
+      await assertSupportedIikoShipmentRoute(c,o);
       if(o.status!=="READY")throw err("Подготовка отгрузки доступна только для готового к отгрузке заказа.",409);
       const counteragentId=await verifiedBuyerId(c,o),date=str(body.documentDate);
       const prices=await getWarehouseQuote(c,o,date);
@@ -460,7 +469,7 @@ export async function onRequestPost({request,env}){
       return json({success:true});
     }
     if(action==="save-iiko-draft"){
-      assertSupportedIikoShipmentRoute(o);
+      await assertSupportedIikoShipmentRoute(c,o);
       if(s.status!=="PREPARED")throw err("Этот документ уже отправлялся в iiko. Повторная отправка запрещена до сверки.",409);
       await verifyRouteWarehouses(c,o);
       if(id(s.counteragent_id)!==id(await verifiedBuyerId(c,o)))throw err("Покупатель расходной не совпадает с подтверждённым контрагентом RMS-получателя.",409);
@@ -497,7 +506,7 @@ export async function onRequestPost({request,env}){
       }
     }
     if(action==="process-iiko"){
-      assertSupportedIikoShipmentRoute(o);
+      await assertSupportedIikoShipmentRoute(c,o);
       if(s.status!=="DRAFT_VERIFIED")throw err("Отгрузка возможна только после сохранения и сверки непроведённой накладной в iiko.",409);
       if(o.status!=="READY")throw err("Статус заявки изменён. Отгрузка заблокирована.",409);
       await verifyRouteWarehouses(c,o);
