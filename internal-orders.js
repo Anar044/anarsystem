@@ -6,7 +6,18 @@ const state={token:"",data:null,refs:[],binding:null,storeCache:new Map(),select
 const date=v=>v?new Date(String(v).slice(0,10)+"T12:00:00").toLocaleDateString("ru-RU"):"—";
 const number=v=>Number(v||0).toLocaleString("ru-RU",{maximumFractionDigits:3});
 function note(msg,kind=""){const x=$("io-message");x.textContent=msg||"";x.className="io-message"+(kind?" "+kind:"")}
-function busy(b){state.busy=b;document.querySelectorAll(".io-btn").forEach(x=>x.disabled=b)}
+function busy(b){
+  state.busy=b;
+  document.querySelectorAll(".io-btn").forEach(btn=>{
+    if(b){
+      if(btn.dataset.wasDisabledBeforeBusy===undefined)btn.dataset.wasDisabledBeforeBusy=btn.disabled?"1":"0";
+      btn.disabled=true;
+    }else if(btn.dataset.wasDisabledBeforeBusy!==undefined){
+      btn.disabled=btn.dataset.wasDisabledBeforeBusy==="1";
+      delete btn.dataset.wasDisabledBeforeBusy;
+    }
+  });
+}
 async function token(){const c=await window.SHAuth?.createClient?.();if(!c)throw Error("Авторизация Smart Horeca недоступна");const r=await c.auth.getSession();if(!r.data?.session?.access_token)throw Error("Необходимо войти заново");return r.data.session.access_token}
 async function api(path,options={}){
   const headers=new Headers(options.headers||{});headers.set("Authorization","Bearer "+state.token);if(options.body)headers.set("Content-Type","application/json");
@@ -223,32 +234,61 @@ function renderShipments(o,data){
     const message=block.querySelector("#io-cost-message");
     const submit=form.querySelector('button[type="submit"]');
     dateInput.value=new Date().toISOString().slice(0,10);
-    let quoteValid=false;
-    async function reloadCost(){
+    let quoteValid=false,latestQuote=null,licenceBlocked=false,requestVersion=0;
+    function recalcQuantity(){
       quoteValid=false;submit.disabled=true;
+      if(!latestQuote)return;
+      const byId=new Map((latestQuote.quotes||[]).map(x=>[String(x.productId).toLowerCase(),x]));
+      let missing=false,anySelected=false;
+      for(const row of form.querySelectorAll("[data-ship-item]")){
+        const v=byId.get(String(row.dataset.shipItem).toLowerCase()),qty=Number(row.querySelector("[data-ship-qty]").value);
+        const cost=row.querySelector("[data-ship-cost]"),available=row.querySelector("[data-ship-available]");
+        cost.textContent=v?.verified&&v?.unitCost!=null?Number(v.unitCost).toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:6}):"Нет себестоимости";
+        available.textContent=v?.available!=null?"Остаток: "+number(v.available):"Нет данных по складу";
+        if(qty>0){
+          anySelected=true;
+          if(!v?.verified||qty>Number(v.available)+0.00001)missing=true;
+        }
+      }
+      quoteValid=anySelected&&!missing;submit.disabled=!quoteValid;
+      message.textContent=missing?"Недостаточно остатков или себестоимость не определена в iiko. Проверьте склад и количество."
+        :anySelected?"Себестоимость загружена со склада "+o.sourceStoreName+". Наценка 0%.":"Укажите количество для отгрузки.";
+    }
+    async function reloadCost(manual=false){
+      if(licenceBlocked&&!manual){
+        message.textContent="Доступ к REST API iiko ограничен лицензией. Повторная проверка возможна после освобождения подключения.";
+        return;
+      }
+      if(manual)licenceBlocked=false;
+      const thisRequest=++requestVersion;
+      latestQuote=null;quoteValid=false;submit.disabled=true;
       message.textContent="Проверяем себестоимость и остатки на складе "+o.sourceStoreName+" в iiko…";
+      form.querySelectorAll("[data-ship-cost]").forEach(x=>x.textContent="Загрузка…");
+      form.querySelectorAll("[data-ship-available]").forEach(x=>x.textContent="");
       try{
         const result=await shipPost("quote",{orderId:o.id,documentDate:dateInput.value});
-        if(!form.isConnected)return;
-        const byId=new Map((result.quotes||[]).map(x=>[String(x.productId).toLowerCase(),x]));
-        let missing=false;
-        for(const row of form.querySelectorAll("[data-ship-item]")){
-          const v=byId.get(String(row.dataset.shipItem).toLowerCase()),amount=Number(row.querySelector("[data-ship-qty]").value);
-          const cost=row.querySelector("[data-ship-cost]"),available=row.querySelector("[data-ship-available]");
-          cost.textContent=v?.verified&&v?.unitCost!=null?Number(v.unitCost).toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:6}):"Не определена";
-          available.textContent=v?.available!=null?"Остаток: "+number(v.available):"Нет данных по складу";
-          if(amount>0&&(!v?.verified||Number(v.available)+0.00001<amount))missing=true;
-        }
-        quoteValid=!missing;
-        submit.disabled=missing;
-        message.textContent=missing?"Для выбранного количества недостаточно остатков или не определена себестоимость в iiko. Измените количество или проверьте склад.":"Данные получены из iiko по складу "+o.sourceStoreName+". Отгрузка по себестоимости, наценка 0%.";
+        if(!form.isConnected||thisRequest!==requestVersion)return;
+        latestQuote=result;
+        recalcQuantity();
       }catch(e){
-        message.textContent=e.message||String(e);
-        submit.disabled=true;
+        if(!form.isConnected||thisRequest!==requestVersion)return;
+        const text=String(e?.message||e);
+        licenceBlocked=/REST_API|RestApi|лицензированного подключения REST API|License enhancement is required/i.test(text);
+        latestQuote=null;quoteValid=false;submit.disabled=true;
+        form.querySelectorAll("[data-ship-cost]").forEach(x=>x.textContent="Недоступно");
+        form.querySelectorAll("[data-ship-available]").forEach(x=>x.textContent="Нет данных от iiko");
+        message.textContent=text+" ";
+        const retry=document.createElement("button");
+        retry.type="button";retry.className="io-btn io-outline io-retry-cost";
+        retry.textContent="Повторить проверку";
+        retry.onclick=()=>reloadCost(true);
+        message.appendChild(retry);
       }
     }
-    dateInput.onchange=reloadCost;
-    form.querySelectorAll("[data-ship-qty]").forEach(x=>x.onchange=reloadCost);
+    dateInput.onchange=()=>reloadCost();
+    // Changing quantity only uses the already loaded iiko snapshot. It must NOT
+    // open another licensed iiko REST API connection on every keystroke.
+    form.querySelectorAll("[data-ship-qty]").forEach(x=>x.oninput=recalcQuantity);
     void reloadCost();
     form.onsubmit=async event=>{
       event.preventDefault();
