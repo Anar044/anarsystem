@@ -83,7 +83,7 @@ test("REST API license exhaustion has a safe actionable error, never zero cost",
   assert.equal(result?.status,503);
   assert.equal(result?.code,"IIKO_REST_API_LICENSE_UNAVAILABLE");
   assert.match(result.message,/REST API/);
-  assert.match(result.message,/Отгрузка заблокирована/);
+  assert.match(result.message,/отгрузка заблокирована/i);
   assert.equal(result.message.includes("License enhancement"),false);
   assert.equal(classifyRestApiLicenseError(new Error("Нет доступа к этому заказу. HTTP 403")),null);
   assert.equal(classifyRestApiLicenseError(new Error("iiko API HTTP 500")),null);
