@@ -34,3 +34,19 @@ export function costQuote(approved,balances,shipmentDate){
       verified:Boolean(stock)&&available>0&&unitCost>0,costSource:"iikoChain warehouse balance",costTimestamp:shipmentDate+"T23:59:59"};
   });
 }
+
+/**
+ * A REST_API(2000) 403 is an iiko Server license / concurrent-session limit,
+ * not a Smart Horeca role denial. Keep credentials and raw auth body out of UI.
+ */
+export function classifyRestApiLicenseError(error){
+  const message=String(error?.message||error||"");
+  if(!/\b(?:REST_API\s*\(?\s*2000\s*\)?|API\s*\(RestApi\))\b/i.test(message)
+      && !/REST_API\s*\(2000\)/i.test(message))return null;
+  if(!/\b403\b|no connections available|license enhancement is required/i.test(message))return null;
+  return{
+    code:"IIKO_REST_API_LICENSE_UNAVAILABLE",
+    status:503,
+    message:"iiko Server отказал в подключении REST API (HTTP 403): нет свободной лицензии или доступных сеансов REST_API(2000). Проверьте лицензии и активные API-подключения на сервере iiko. Пока доступ не восстановлен, себестоимость неизвестна, отгрузка заблокирована."
+  };
+}
