@@ -33,6 +33,7 @@ test("correct outgoing invoice XML uses unique document ID, counteragent, wareho
  assert.match(x,/<price>1.13<\/price>/);
  assert.match(x,/<sum>5.65<\/sum>/);
  assert.match(x,/<amount>5<\/amount>/);
+ assert.match(x,/<status>NEW<\/status>/);
  assert.doesNotMatch(x,/<status>PROCESSED<\/status>/);
 });
 test("safe XML escaping prevents contamination",()=>{
