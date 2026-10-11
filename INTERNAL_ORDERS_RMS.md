@@ -100,3 +100,12 @@ Run `node --test tests/internal-shipment-core.test.mjs`; it checks package/base-
 - Previously attempted CHECK_REQUIRED S01 stays locked and cannot be sent again until its actual iiko state is verified by read-only reconciliation.
 - Next investigation: vendor-approved iikoChain 9.x API method or a successful real outgoing/incoming invoice pair made in iikoChain and exported using GET, to confirm account/legal entity mapping and native internal shipment linkage.
 - v2 internalTransfer is not an automatic substitute for two-invoice transfer between separate enterprises: no switch until accounting-only-in-chain and legal entity configuration are known.
+
+## Real successful iikoChain 9.2 paired invoice sample (2026-10-11 screenshots)
+
+- **Outgoing #50001**, dated 11.10.2026, sender store Mərkəzi Anbar. Buyer type in iiko UI: **Təchizatçı (supplier)**; buyer displayed **RMS 1 : RMS 1 METBEX**; debit/credit accounts displayed (revenue "Ticarət gəliri", expense "Malların məsrəfi").
+- **Incoming #10001** dated 11.10.2026 in **RMS 1 METBEX**, supplier Mərkəzi Anbar; "Daxil.sənəd №" is **50001**, linking it to the outgoing number.
+- Matching product quantities, prices, and amounts on both sides: Kartof 10 kg × 0.60 = 6.00 AZN; Xiyar patron 5 kg × 1.30 = 6.50 AZN; Yumurta 30 pcs × 0.17 = 5.10 AZN; total 17.60 AZN.
+- **Do not infer** that the REST `counteragentId` is a Store ID merely because the buyer display name contains "RMS 1 METBEX". The buyer selector is showing **Supplier** as the type. Determine actual REST `counteragentId` and incoming `supplier` through read-only export.
+- Added **Settings → Диагностика связанной пары накладных** with prefilled sample outgoing 50001, incoming 10001, date 2026-10-11. This admin-only operation reads the existing server connection, exports both documents, and displays IDs, status and linkage without raw XML, credentials, or writes.
+- Do not unlock real dispatch until a vendor-supported way of creating *linked* outgoing/incoming documents is established, typed buyer mapping is tested, and the old CHECK_REQUIRED shipments are reconciled.
