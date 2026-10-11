@@ -19,8 +19,8 @@ export function prepareInternalShipment(approved,existing,requested){
     if(!a||visited.has(productId))throw new Error("Товар не согласован в заказе или повторяется.");
     visited.add(productId);
     const amount=Number(l.amount),unitPrice=Number(l.unitPrice);
-    if(!Number.isFinite(amount)||amount<=0||Math.round(amount*1000)!==amount*1000)throw new Error("Количество должно быть положительным, точность — до 0,001.");
-    if(!Number.isFinite(unitPrice)||unitPrice<=0||Math.round(unitPrice*100)!==unitPrice*100)throw new Error("Для разных VÖEN укажите положительную отпускную цену с точностью 0,01 ₼.");
+    if(!Number.isFinite(amount)||amount<=0||Math.abs(Math.round(amount*1000)-amount*1000)>0.00001)throw new Error("Количество должно быть положительным, точность — до 0,001.");
+    if(!Number.isFinite(unitPrice)||unitPrice<=0||Math.abs(Math.round(unitPrice*100)-unitPrice*100)>0.00001)throw new Error("Для разных VÖEN укажите положительную отпускную цену с точностью 0,01 ₼.");
     if(amount>Number(remaining.get(productId)||0)+0.00001)throw new Error("Отгрузка превышает неисполненное количество заказа.");
     lines.push({productId:a.productId,productName:a.productName,unit:a.unit,amount,unitPrice,priceCents:cents(unitPrice),sumCents:Math.round(amount*cents(unitPrice))});
   }
@@ -29,7 +29,7 @@ export function prepareInternalShipment(approved,existing,requested){
 export function shipmentXml({id:documentId,number,date,storeId,counteragentId,comment,accountToCode,revenueAccountCode,lines}){
   const esc=x=>String(x??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
   const tag=(name,x)=>x===undefined||x===null||String(x)===""?"":'<'+name+'>'+esc(x)+'</'+name+'>';
-  const items=lines.map((l,i)=>'<item>'+tag("productId",l.productId)+tag("storeId",storeId)+tag("num",i+1)+tag("amount",l.amount)+tag("price",(l.priceCents/100).toFixed(2))+tag("sum",(l.sumCents/100).toFixed(2))+'</item>').join("");
+  const items=lines.map((l,i)=>'<item>'+tag("productId",l.productId)+tag("storeId",storeId)+tag("amount",l.amount)+tag("price",(l.priceCents/100).toFixed(2))+tag("sum",(l.sumCents/100).toFixed(2))+'</item>').join("");
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><document>'+tag("id",documentId)+tag("documentNumber",number)+tag("dateIncoming",date+"T00:00:00")+tag("defaultStoreId",storeId)+tag("counteragentId",counteragentId)+tag("accountToCode",accountToCode)+tag("revenueAccountCode",revenueAccountCode)+tag("comment",comment)+'<items>'+items+'</items></document>';
 }
 export function parseIikoValidation(xml){
