@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {prepareInternalShipment,shipmentXml,parseIikoValidation} from "../functions/api/_lib/internal-shipment-core.js";
-import {warehouseCostRows,costQuote} from "../functions/api/_lib/internal-shipment-cost.js";
+import {warehouseCostRows,costQuote,classifyRestApiLicenseError} from "../functions/api/_lib/internal-shipment-cost.js";
 
 const approved=[{productId:"A",productName:"Pomidor çəhrayı",unit:"кг",quantity:5},{productId:"B",productName:"Xiyar patron",unit:"кг",quantity:3}];
 const quotes=[{productId:"A",verified:true,available:10,unitCost:1.13},{productId:"B",verified:true,available:10,unitCost:2.9}];
@@ -73,4 +73,21 @@ test("invalid missing cost must not be silently replaced by zero",()=>{
  const q=costQuote(approved,rows,"2026-10-11");
  assert.equal(q[0].verified,false);
  assert.equal(q[0].unitCost,null);
+});
+
+
+test("REST API license exhaustion has a safe actionable error, never zero cost",()=>{
+  const raw="Ошибка авторизации iiko Server: HTTP 403 — License enhancement is required: no connections available for module REST_API(2000) 'API (RestApi)'";
+  const result=classifyRestApiLicenseError(new Error(raw));
+  assert.equal(result?.status,503);
+  assert.equal(result?.code,"IIKO_REST_API_LICENSE_UNAVAILABLE");
+  assert.match(result.message,/REST API/);
+  assert.match(result.message,/Отгрузка заблокирована/);
+  assert.equal(result.message.includes("License enhancement"),false);
+  assert.equal(classifyRestApiLicenseError(new Error("Нет доступа к этому заказу. HTTP 403")),null);
+  assert.equal(classifyRestApiLicenseError(new Error("iiko API HTTP 500")),null);
+});
+test("Other 403 errors cannot be misclassified as REST API license limitation",()=>{
+  assert.equal(classifyRestApiLicenseError(new Error("HTTP 403 — Invalid token.")),null);
+  assert.equal(classifyRestApiLicenseError(new Error("HTTP 403 — Only warehouse users may issue shipments.")),null);
 });
