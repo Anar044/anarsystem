@@ -2,7 +2,7 @@
 "use strict";
 const $=id=>document.getElementById(id),esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const statusNames={DRAFT:"Черновик",SUBMITTED:"На согласовании",APPROVED:"Подтверждён",PICKING:"Комплектуется",READY:"Готов к отгрузке",REJECTED:"Отклонён",CANCELLED:"Отменён"};
-const state={token:"",data:null,refs:[],binding:null,storeCache:new Map(),selected:null,verification:null,autoChecked:new Set(),busy:false,view:new URLSearchParams(location.search).get("view")||"my"};
+const state={token:"",data:null,refs:[],binding:null,storeCache:new Map(),selected:null,verification:null,autoChecked:new Set(),receiptChecks:new Map(),receiptPending:new Set(),busy:false,view:new URLSearchParams(location.search).get("view")||"my"};
 const date=v=>v?new Date(String(v).slice(0,10)+"T12:00:00").toLocaleDateString("ru-RU"):"—";
 const number=v=>Number(v||0).toLocaleString("ru-RU",{maximumFractionDigits:3});
 function note(msg,kind=""){const x=$("io-message");x.textContent=msg||"";x.className="io-message"+(kind?" "+kind:"")}
@@ -234,10 +234,23 @@ function renderShipments(o,data){
       const actions=sh.status==="PREPARED"
         ?(data.canDispatch?'<button type="button" class="io-btn io-primary" data-ship-action="dispatch-existing" data-ship-id="'+esc(sh.id)+'">Отгрузить</button> ':"")+
           '<button type="button" class="io-btn io-outline" data-ship-action="cancel" data-ship-id="'+esc(sh.id)+'">Отменить</button>'
+        :sh.status==="IIKO_PROCESSED"
+          ?'<button type="button" class="io-btn io-outline" data-check-receipt="'+esc(sh.id)+'">Проверить приёмку</button>'
         :(data.canDispatch&&sh.status==="DRAFT_VERIFIED")
           ?'<button type="button" class="io-btn io-primary" data-ship-action="process-iiko" data-ship-id="'+esc(sh.id)+'">Отгрузить</button>':"—";
       body+='<tr><td><strong>'+esc(sh.number)+'</strong><small>'+esc(date(sh.documentDate))+' · '+sh.lines.length+' поз.</small></td><td>'+number(sh.totalCents/100)+'</td><td>'+esc(status)+(sh.error?'<small>'+esc(sh.error)+'</small>':'')+'</td><td>'+actions+'</td></tr>';
-      if(sh.status==="IIKO_PROCESSED")body+='<tr><td colspan="4" class="io-muted">Расходная проведена в iiko. Связанная приходная получателя ещё не сверена — заказ не закрыт.</td></tr>';
+      if(sh.status==="IIKO_PROCESSED"){
+        const check=state.receiptChecks.get(sh.id),receipt=check?.receipt;
+        const verdict=!check||check.loading
+          ?"Проверяем связанную приходную через iiko (только чтение)…"
+          :check.error?"Проверка приёмки недоступна: "+check.error
+          :receipt?.confirmed&&receipt.receiptPosted
+            ?"Приходная №"+(receipt.incoming?.number||"—")+" проведена в iiko, связь и количества подтверждены."
+          :receipt?.confirmed?"Приходная №"+(receipt.incoming?.number||"—")+" найдена, проведение получателем ещё не подтверждено."
+          :receipt?.message||"Приходная пока не подтверждена. Повторно отправлять расходную нельзя.";
+        body+='<tr><td colspan="4" class="io-muted">'+esc(verdict)+
+          '<small>Данные получены только чтением iiko. Статус заказа не меняется автоматически.</small></td></tr>';
+      }
       if(sh.status==="CHECK_REQUIRED"||sh.status==="PROCESSING")body+='<tr><td colspan="4" class="io-shipment-error">Ответ iiko не подтверждён. Система выполняет безопасную проверку в фоне. Повторная отправка заблокирована, чтобы не списать товар дважды. Если ошибка сохраняется, нужен разбор ответа iiko администратором.</td></tr>';
     }
     body+='</tbody></table></div>';
@@ -356,6 +369,26 @@ function renderShipments(o,data){
       }catch(e){note(e.message||String(e),"error");await loadShipments(o)}finally{busy(false)}
     };
   }
+  async function checkReceipt(shipmentId){
+    if(state.receiptPending.has(shipmentId))return;
+    state.receiptPending.add(shipmentId);
+    state.receiptChecks.set(shipmentId,{loading:true});
+    if(state.selected?.id===o.id)renderShipments(o,data);
+    try{
+      const result=await shipPost("check-receipt",{orderId:o.id,shipmentId});
+      state.receiptChecks.set(shipmentId,result);
+    }catch(e){
+      state.receiptChecks.set(shipmentId,{error:String(e?.message||e)});
+    }finally{
+      state.receiptPending.delete(shipmentId);
+      if(state.selected?.id===o.id)renderShipments(o,data);
+    }
+  }
+  block.querySelectorAll("[data-check-receipt]").forEach(btn=>btn.onclick=()=>{
+    const shipmentId=btn.dataset.checkReceipt;
+    state.autoChecked.add("receipt:"+shipmentId);
+    void checkReceipt(shipmentId);
+  });
   block.querySelectorAll("[data-ship-action]").forEach(btn=>btn.onclick=async()=>{
     const action=btn.dataset.shipAction,shipmentId=btn.dataset.shipId;
     if(action==="cancel"&&!confirm("Отменить неподанную расходную?"))return;
@@ -368,6 +401,15 @@ function renderShipments(o,data){
       await loadShipments(o);
     }catch(e){note(e.message||String(e),"error");await loadShipments(o)}finally{busy(false)}
   });
+
+  // iiko receipt status is checked once when a posted outgoing is opened.
+  // A manual button permits another check without replaying the shipment.
+  for(const sh of shipments.filter(x=>x.status==="IIKO_PROCESSED")){
+    const checkKey="receipt:"+sh.id;
+    if(state.autoChecked.has(checkKey))continue;
+    state.autoChecked.add(checkKey);
+    void checkReceipt(sh.id);
+  }
 
   // Verification belongs to the system, not to the cashier workflow.
   // A single read-only refresh per shipment/status on this page load.
