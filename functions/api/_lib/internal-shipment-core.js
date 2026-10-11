@@ -1,8 +1,9 @@
 // Pure calculations for internal shipment: base units and per-base-unit sale prices.
 const id=x=>String(x??"").trim().replace(/^\{+|\}+$/g,"").toLowerCase();
 const cents=x=>Math.round(Number(x)*100);
-export function prepareInternalShipment(approved,existing,requested){
+export function prepareInternalShipment(approved,existing,requested,costQuotes=[]){
   if(!Array.isArray(approved)||!approved.length)throw new Error("Согласованные товары заказа не найдены.");
+  const prices=new Map((costQuotes||[]).map(x=>[id(x.productId),x]));
   if(!Array.isArray(requested)||!requested.length)throw new Error("Выберите хотя бы один товар для отгрузки.");
   const approvedMap=new Map(approved.map(x=>[id(x.productId),x]));
   const remaining=new Map(approved.map(x=>[id(x.productId),Number(x.quantity)]));
@@ -18,18 +19,19 @@ export function prepareInternalShipment(approved,existing,requested){
     const productId=id(l.productId),a=approvedMap.get(productId);
     if(!a||visited.has(productId))throw new Error("Товар не согласован в заказе или повторяется.");
     visited.add(productId);
-    const amount=Number(l.amount),unitPrice=Number(l.unitPrice);
+    const amount=Number(l.amount),cost=prices.get(productId),unitPrice=Number(cost?.unitCost);
     if(!Number.isFinite(amount)||amount<=0||Math.abs(Math.round(amount*1000)-amount*1000)>0.00001)throw new Error("Количество должно быть положительным, точность — до 0,001.");
-    if(!Number.isFinite(unitPrice)||unitPrice<=0||Math.abs(Math.round(unitPrice*100)-unitPrice*100)>0.00001)throw new Error("Для разных VÖEN укажите положительную отпускную цену с точностью 0,01 ₼.");
+    if(!cost?.verified||!Number.isFinite(unitPrice)||unitPrice<=0)throw new Error("iikoChain не вернул достоверную себестоимость товара "+a.productName+" на складе отправителя.");
     if(amount>Number(remaining.get(productId)||0)+0.00001)throw new Error("Отгрузка превышает неисполненное количество заказа.");
-    lines.push({productId:a.productId,productName:a.productName,unit:a.unit,amount,unitPrice,priceCents:cents(unitPrice),sumCents:Math.round(amount*cents(unitPrice))});
+    if(amount>Number(cost.available)+0.00001)throw new Error("Недостаточный фактический остаток товара "+a.productName+" на складе отправителя.");
+    lines.push({productId:a.productId,productName:a.productName,unit:a.unit,amount,unitPrice,priceCents:cents(unitPrice),sumCents:Math.round(amount*unitPrice*100),costSource:"iikoChain warehouse balance",costTimestamp:cost.costTimestamp||""});
   }
   return {lines,totalCents:lines.reduce((sum,l)=>sum+l.sumCents,0),remaining:Object.fromEntries(remaining)};
 }
 export function shipmentXml({id:documentId,number,date,storeId,counteragentId,comment,accountToCode,revenueAccountCode,lines}){
   const esc=x=>String(x??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
   const tag=(name,x)=>x===undefined||x===null||String(x)===""?"":'<'+name+'>'+esc(x)+'</'+name+'>';
-  const items=lines.map((l,i)=>'<item>'+tag("productId",l.productId)+tag("storeId",storeId)+tag("amount",l.amount)+tag("price",(l.priceCents/100).toFixed(2))+tag("sum",(l.sumCents/100).toFixed(2))+'</item>').join("");
+  const items=lines.map((l,i)=>'<item>'+tag("productId",l.productId)+tag("storeId",storeId)+tag("amount",l.amount)+tag("price",Number(l.unitPrice).toFixed(6))+tag("sum",(l.sumCents/100).toFixed(2))+'</item>').join("");
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><document>'+tag("id",documentId)+tag("documentNumber",number)+tag("dateIncoming",date+"T00:00:00")+tag("status","NEW")+tag("defaultStoreId",storeId)+tag("counteragentId",counteragentId)+tag("accountToCode",accountToCode)+tag("revenueAccountCode",revenueAccountCode)+tag("comment",comment)+'<items>'+items+'</items></document>';
 }
 export function parseIikoValidation(xml){
