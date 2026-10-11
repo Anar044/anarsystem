@@ -3,8 +3,8 @@
 const clean=v=>String(v??"").trim();
 const key=v=>clean(v).replace(/^\{+|\}+$/g,"").toLowerCase();
 const decode=v=>String(v??"").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&");
-const tag=(source,name)=>{const m=String(source||"").match(new RegExp("<"+name+"(?:\\\\s[^>]*)?>([\\\\s\\\\S]*?)</"+name+">","i"));return m?decode(m[1]).trim():""};
-const blocks=(source,name)=>[...String(source||"").matchAll(new RegExp("<"+name+"(?:\\\\s[^>]*)?>[\\\\s\\\\S]*?</"+name+">","gi"))].map(x=>x[0]);
+const tag=(source,name)=>{const m=String(source||"").match(new RegExp("<"+name+"(?:\\s[^>]*)?>([\\s\\S]*?)</"+name+">","i"));return m?decode(m[1]).trim():""};
+const blocks=(source,name)=>[...String(source||"").matchAll(new RegExp("<"+name+"(?:\\s[^>]*)?>[\\s\\S]*?</"+name+">","gi"))].map(x=>x[0]);
 export function parseOutgoingForVerification(xml){
   return blocks(xml,"document").map(b=>({
     id:tag(b,"id"),
