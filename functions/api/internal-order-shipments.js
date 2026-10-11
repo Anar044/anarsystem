@@ -240,6 +240,37 @@ export async function onRequestPost({request,env}){
         },
         note:"Только чтение API. Идентификатор покупателя в успешно проведённой расходной необходимо сверять с iiko справочником поставщиков; ID склада не является допустимой заменой. Автоматическая отгрузка пока заблокирована."});
     }
+    if(action==="confirm-pair-mapping"){
+      requirePermission(c.access,"procurement.internal.configure");
+      const day=str(body.documentDate),outNo=str(body.outgoingNumber),inNo=str(body.incomingNumber);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!outNo||!inNo||outNo.length>60||inNo.length>60)
+        throw err("Дата и номера двух проведённых накладных обязательны.",400);
+      // Re-fetch evidence; never trust buyer/store IDs provided by the client.
+      const outgoing=await exportIikoPairExample(c,"outgoing",outNo,day);
+      const incoming=await exportIikoPairExample(c,"incoming",inNo,day);
+      if(!outgoing.document||!incoming.document||outgoing.ambiguous||incoming.ambiguous)
+        throw err("Не удалось однозначно найти обе эталонные накладные в iiko.",409);
+      const suppliers=await getIikoSuppliers(c.connection);
+      if(suppliers.status!==200)throw err("Справочник контрагентов iiko сейчас недоступен.",502);
+      const mapping=validatedPairWarehouseMapping(outgoing.document,incoming.document,suppliers.rows);
+      if(!mapping.valid)throw err(mapping.reason,409);
+      const now=new Date().toISOString();
+      await c.env.DB.prepare("INSERT INTO sh_internal_order_warehouse_counterparties (server_scope,source_store_id,destination_store_id,outgoing_buyer_id,outgoing_buyer_name,incoming_supplier_id,incoming_supplier_name,evidence_outgoing_id,evidence_incoming_id,evidence_outgoing_number,evidence_incoming_number,confirmed_by,confirmed_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13) ON CONFLICT(server_scope,source_store_id,destination_store_id) DO UPDATE SET outgoing_buyer_id=excluded.outgoing_buyer_id,outgoing_buyer_name=excluded.outgoing_buyer_name,incoming_supplier_id=excluded.incoming_supplier_id,incoming_supplier_name=excluded.incoming_supplier_name,evidence_outgoing_id=excluded.evidence_outgoing_id,evidence_incoming_id=excluded.evidence_incoming_id,evidence_outgoing_number=excluded.evidence_outgoing_number,evidence_incoming_number=excluded.evidence_incoming_number,confirmed_by=excluded.confirmed_by,confirmed_at=excluded.confirmed_at")
+        .bind(c.scope,mapping.sourceStoreId,mapping.destinationStoreId,mapping.outgoingBuyerId,mapping.outgoingBuyerName,mapping.incomingSupplierId,mapping.incomingSupplierName,mapping.evidenceOutgoingId,mapping.evidenceIncomingId,mapping.evidenceOutgoingNumber,mapping.evidenceIncomingNumber,str(c.auth.user.id),now).run();
+      return json({success:true,mapping:{...mapping,confirmedAt:now},canDispatch:false,
+        message:"Подтверждено соответствие внутренних контрагентов выбранным складам. Реальная отгрузка всё ещё заблокирована до проверки API создания связанной приходной."});
+    }
+    if(action==="list-pair-mappings"){
+      requirePermission(c.access,"procurement.internal.configure");
+      const r=(await c.env.DB.prepare("SELECT source_store_id,destination_store_id,outgoing_buyer_id,outgoing_buyer_name,incoming_supplier_id,incoming_supplier_name,evidence_outgoing_number,evidence_incoming_number,confirmed_at FROM sh_internal_order_warehouse_counterparties WHERE server_scope=?1 ORDER BY confirmed_at DESC LIMIT 100").bind(c.scope).all()).results||[];
+      return json({success:true,canDispatch:false,mappings:r.map(x=>({
+        sourceStoreId:x.source_store_id,destinationStoreId:x.destination_store_id,
+        outgoingBuyerId:x.outgoing_buyer_id,outgoingBuyerName:x.outgoing_buyer_name,
+        incomingSupplierId:x.incoming_supplier_id,incomingSupplierName:x.incoming_supplier_name,
+        evidenceOutgoingNumber:x.evidence_outgoing_number,evidenceIncomingNumber:x.evidence_incoming_number,
+        confirmedAt:x.confirmed_at
+      }))});
+    }
     const o=await order(c,body.orderId);
     if(!shipper(o,c))throw err("Только уполномоченный сотрудник RMS-отправителя может оформлять отгрузку.",403);
     if(action==="dispatch"){
