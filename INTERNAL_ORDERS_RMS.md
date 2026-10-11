@@ -28,7 +28,7 @@ From the user's official iikoChain 9.2 PDFs, topics 1007 (internal orders) and 8
 - New endpoint `/api/internal-order-shipments` manages priced **partial** shipments per READY internal order, with a stable UUID and a unique outgoing invoice number per shipment.
 - Sender-side fulfillment permissions and same connected server scope are verified on every action. Destination-side users may view but cannot modify.
 - Approval quantities are reserved across prepared, sent, and ambiguous shipments. Duplicate reservations are blocked with order revision CAS.
-- For separate legal entities, the sender enters the iiko counteragent ID of the **recipient company** and a positive sale price per base unit. No implicit markup or VAT assumptions.
+- Recipient counterparty is automatically mapped to the **receiving RMS warehouse** (iiko internal buyer). Outgoing line price is now calculated from the sender warehouse's reported inventory cost with zero markup; never manually entered.
 - `save-iiko-draft` imports the stable draft document using `/resto/api/documents/import/outgoingInvoice` **without `PROCESSED`**. Before import, existing document numbers are checked; repeated requests are blocked.
 - If iiko gives an ambiguous failure, shipment is locked in `CHECK_REQUIRED`: **do not resend automatically**. The operator must verify iiko first to avoid a duplicate.
 - `verify-iiko` performs read-only verification of number, document ID, sending store, counteragent, product IDs, quantities, item prices and sums, plus actual iiko status.
@@ -40,7 +40,7 @@ From the user's official iikoChain 9.2 PDFs, topics 1007 (internal orders) and 8
 1. Automatic **posting** (PROCESSED) of the outgoing invoice, after testing iikoChain 9.2 legal-person and `accounting-only-in-chain` settings. Draft outgoing document generation is now implemented.
 2. Verify authoritative Chain-created linked incoming invoice in recipient RMS.
 3. Full receipt verification, mismatch resolution, shipment-to-order final status, and authoritative partial receipt quantities. Partial outgoing drafts and read-only outgoing verification are now implemented.
-4. Automatic internal prices, electronic tax invoice (e-qaimə), verified counterparty mapping to legal persons, VAT, payment and balances between different VÖEN. Manually entered per-line sale prices and iiko counteragent identifiers are implemented for outgoing drafts.
+4. Automatic internal prices, electronic tax invoice (e-qaimə), verified counterparty mapping to legal persons, VAT, payment and balances between different VÖEN. Automatic source-warehouse valuation and buyer mapping to the receiver STORE are implemented for unprocessed outgoing drafts.
 5. Production orders, consolidated manufacturing plans, recipes/semifinished products.
 
 **Never mark a real shipment complete based on D1 workflow flags.** Verify outgoing and corresponding incoming through iiko's document APIs and preserve unique document IDs before changing stock-related status.
@@ -62,3 +62,14 @@ For different legal entities the official iikoChain 9.2 shipment manual describe
 Run `node --test tests/internal-shipment-core.test.mjs`; it checks package/base-unit amounts, partial reservation, AZN price precision and unprocessed outgoing XML. GitHub Actions also runs previous RMS department scope and outgoing document read-back tests.
 
 **Manual test needed:** open an already READY internal order (e.g. IO-20261011-06E974), supply a valid iiko counteragent ID for the recipient VÖEN and prices, create an outgoing shipment, then deliberately save the **unprocessed** document to the test iiko installation and confirm it appears exactly once. Only after that should processing and the Chain-created linked incoming be connected.
+
+## Warehouse-cost pricing and RMS buyer mapping (October 2026)
+
+- **Sender:** chosen source RMS and source warehouse, persisted with the order, e.g. Mərkəzi Anbar.
+- **Receiver / iiko buyer:** chosen receiving RMS STORE, e.g. RMS 1 / RMS 1 METBEX. iikoChain guide "Перемещение двумя документами" instructs selecting the receiving **warehouse as the buyer**, with the "Использовать для внутренних перемещений" flag enabled in corporation settings.
+- **No manual customer ID or price fields:** `internal-orders.js` displays the selected sender and receiver by name and loads read-only warehouse cost.
+- **Price:** server requests `/resto/api/v2/reports/balance/stores?timestamp=YYYY-MM-DDT23:59:59&store=<source_store_id>&department=<source_rms_id>`, computes `unitCost = sum / amount` only from matching source warehouse rows, preserves six decimal places, applies **zero markup**. Missing/zero valuation or insufficient stock blocks preparation.
+- **Anti-spoofing:** `prepare` ignores prices and counterparty IDs sent by the browser; it re-queries iiko and derives buyer from `sh_internal_orders.destination_store_id`. `save-iiko-draft` checks the destination-store buyer again; any older manually-priced drafts are blocked and must be recreated.
+- **Valuation disclaimer:** inventory value is the current iiko valuation for the warehouse and selected date; recalculation of past operations can change the actual write-off cost. We must not claim a fixed historic FIFO cost from `balance/stores`.
+- **Do not bypass real Chain posting/replication:** iiko outgoing invoice is still saved only as `NEW`. Before enabling `PROCESSED` and automatic linked incoming, test actual cross-legal-person route and verify the warehouse is configured for internal transfers. Tax treatment between separate VÖEN still requires verification.
+
