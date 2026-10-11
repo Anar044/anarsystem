@@ -40,6 +40,7 @@ jobs:
           node --test tests/internal-orders-store-scope.test.mjs
           node --test tests/internal-order-invoice.test.mjs
           node --test tests/internal-shipment-core.test.mjs
+          node --test tests/internal-order-iiko-lookup.test.mjs
           node --test tests/chain-department-discovery.test.mjs
 
       - name: Check local AI Python syntax
