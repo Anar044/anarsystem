@@ -147,7 +147,22 @@ function detail(o){
 
 const shStatus={PREPARED:"Подготовлена",IMPORTING:"Сохранение в iiko",CHECK_REQUIRED:"Ошибка iiko — нужна сверка",DRAFT_SAVED:"Черновик отправлен в iiko",DRAFT_VERIFIED:"Готова к отгрузке",PROCESSING:"Проводится в iiko — ждём сверку",IIKO_PROCESSED:"Отгружено в iiko · ждём приёмки",CANCELLED:"Отменена"};
 const shipGet=orderId=>api("/api/internal-order-shipments?orderId="+encodeURIComponent(orderId));
-const shipPost=(action,body)=>api("/api/internal-order-shipments",{method:"POST",body:JSON.stringify({action,...body})});
+const shipPost=async(action,body)=>{
+  // A cost quote is a read-only operation. Do not leave the UI waiting forever
+  // if the iiko Server cannot allocate an API session or the request stalls.
+  const controller=action==="quote"?new AbortController():null;
+  const timer=controller?setTimeout(()=>controller.abort(),45000):null;
+  try {
+    return await api("/api/internal-order-shipments",{
+      method:"POST",body:JSON.stringify({action,...body}),
+      ...(controller?{signal:controller.signal}:{})
+    });
+  }catch(error){
+    if(error?.name==="AbortError"&&action==="quote")
+      throw Error("Не удалось проверить себестоимость за 45 секунд. Проверьте доступность REST API на iiko Server. Отгрузка заблокирована.");
+    throw error;
+  }finally{if(timer!==null)clearTimeout(timer)}
+};
 async function loadShipments(o){
   const block=$("io-shipment-section");
   if(!block)return;
@@ -223,32 +238,61 @@ function renderShipments(o,data){
     const message=block.querySelector("#io-cost-message");
     const submit=form.querySelector('button[type="submit"]');
     dateInput.value=new Date().toISOString().slice(0,10);
-    let quoteValid=false;
+    let quoteValid=false,quoteSeq=0,lastQuotes=null;
+    function resetCostCells(label){
+      for(const row of form.querySelectorAll("[data-ship-item]")){
+        row.querySelector("[data-ship-cost]").textContent=label;
+        row.querySelector("[data-ship-available]").textContent="";
+      }
+    }
+    function validateQuantities(){
+      // Changing quantity never makes another licensed iiko API request.
+      // The warehouse quote is refreshed only when the document date changes.
+      if(lastQuotes===null){quoteValid=false;submit.disabled=true;return}
+      const byId=new Map(lastQuotes.map(x=>[String(x.productId).toLowerCase(),x]));
+      let missing=false,requested=false;
+      for(const row of form.querySelectorAll("[data-ship-item]")){
+        const v=byId.get(String(row.dataset.shipItem).toLowerCase());
+        const amount=Number(row.querySelector("[data-ship-qty]").value);
+        const cost=row.querySelector("[data-ship-cost]"),available=row.querySelector("[data-ship-available]");
+        cost.textContent=v?.verified&&v?.unitCost!=null
+          ?Number(v.unitCost).toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:6})
+          :"Не определена";
+        available.textContent=v?.available!=null?"Остаток: "+number(v.available):"Нет данных по складу";
+        if(amount>0){
+          requested=true;
+          if(!v?.verified||Number(v.available)+0.00001<amount)missing=true;
+        }
+      }
+      quoteValid=requested&&!missing;
+      submit.disabled=!quoteValid;
+      message.classList.remove("io-cost-error");
+      message.textContent=missing
+        ?"Для выбранного количества недостаточно остатков или не определена себестоимость в iiko. Измените количество или проверьте склад."
+        :!requested?"Укажите количество больше нуля для отгрузки."
+        :"Себестоимость проверена по складу "+o.sourceStoreName+". Наценка 0%.";
+    }
     async function reloadCost(){
-      quoteValid=false;submit.disabled=true;
+      const seq=++quoteSeq;
+      quoteValid=false;lastQuotes=null;submit.disabled=true;
+      message.classList.remove("io-cost-error");
       message.textContent="Проверяем себестоимость и остатки на складе "+o.sourceStoreName+" в iiko…";
+      resetCostCells("Загрузка…");
       try{
         const result=await shipPost("quote",{orderId:o.id,documentDate:dateInput.value});
-        if(!form.isConnected)return;
-        const byId=new Map((result.quotes||[]).map(x=>[String(x.productId).toLowerCase(),x]));
-        let missing=false;
-        for(const row of form.querySelectorAll("[data-ship-item]")){
-          const v=byId.get(String(row.dataset.shipItem).toLowerCase()),amount=Number(row.querySelector("[data-ship-qty]").value);
-          const cost=row.querySelector("[data-ship-cost]"),available=row.querySelector("[data-ship-available]");
-          cost.textContent=v?.verified&&v?.unitCost!=null?Number(v.unitCost).toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:6}):"Не определена";
-          available.textContent=v?.available!=null?"Остаток: "+number(v.available):"Нет данных по складу";
-          if(amount>0&&(!v?.verified||Number(v.available)+0.00001<amount))missing=true;
-        }
-        quoteValid=!missing;
-        submit.disabled=missing;
-        message.textContent=missing?"Для выбранного количества недостаточно остатков или не определена себестоимость в iiko. Измените количество или проверьте склад.":"Данные получены из iiko по складу "+o.sourceStoreName+". Отгрузка по себестоимости, наценка 0%.";
+        if(seq!==quoteSeq||!form.isConnected)return;
+        lastQuotes=result.quotes||[];
+        validateQuantities();
       }catch(e){
+        if(seq!==quoteSeq||!form.isConnected)return;
+        lastQuotes=null;quoteValid=false;submit.disabled=true;
+        resetCostCells("Недоступна");
+        message.classList.add("io-cost-error");
         message.textContent=e.message||String(e);
-        submit.disabled=true;
       }
     }
     dateInput.onchange=reloadCost;
-    form.querySelectorAll("[data-ship-qty]").forEach(x=>x.onchange=reloadCost);
+    form.querySelectorAll("[data-ship-qty]").forEach(x=>x.oninput=validateQuantities);
     void reloadCost();
     form.onsubmit=async event=>{
       event.preventDefault();
