@@ -43,6 +43,7 @@ jobs:
           node --test tests/internal-order-iiko-lookup.test.mjs
           node --test tests/internal-order-license.test.mjs
           node --test tests/internal-order-route.test.mjs
+          node --test tests/internal-order-pair-probe.test.mjs
           node --test tests/chain-department-discovery.test.mjs
 
       - name: Check local AI Python syntax
