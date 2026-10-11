@@ -1,6 +1,6 @@
 // Read-only preflight for one confirmed iikoChain warehouse pair.
 // It does not authorize document creation, posting or remote stock changes.
-const id=value=>String(value??"").trim().replace(/^\\{+|\\}+$/g,"").toLowerCase();
+const id=value=>String(value??"").trim().replace(/^[{]+|[}]+$/g,"").toLowerCase();
 const fail=(code,message)=>({valid:false,readOnly:true,canDispatch:false,code,message});
 export function previewConfirmedInternalRoute(order,mapping,suppliers=[]){
   const source=id(order?.central_store_id),destination=id(order?.destination_store_id);
