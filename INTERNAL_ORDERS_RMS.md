@@ -154,3 +154,11 @@ Run `node --test tests/internal-shipment-core.test.mjs`; it checks package/base-
 - An incoming document with only a matching visible number is not considered confirmed. Multiple linked documents, wrong stores/suppliers or failed exports also fail closed.
 - Show NEW vs PROCESSED to distinguish a discovered incoming document from stock receipt. This diagnostic never creates/posts stock documents, reserves quantities or changes shipment state.
 - Older iikoChain guides mention `force-create-invoices-for-different-jurpersons=true` alongside `accounting-only-in-chain=true`. Applicability to version 9.2 is unverified: do not modify server settings without checking version-specific support.
+
+## October 11: read-only incoming status on a posted Smart Horeca shipment
+
+- For an existing Smart Horeca shipment explicitly marked `IIKO_PROCESSED`, opening its order triggers **one** read-only receipt check per page session. Operators can refresh by selecting **Проверить приёмку**.
+- The server first exports the outgoing invoice and requires its exact UUID/number, `PROCESSED` status, sending store, saved RMS buyer supplier, all product IDs, quantities, prices and sums to match the saved Smart Horeca shipment. The reference mapping must also match the source/recipient warehouses.
+- Only after confirming the outgoing does it export incoming invoices and require `linkedOutgoingInvoiceId` to match the exact outgoing UUID, the recipient store and sender supplier IDs to match the saved mapping, and the lines to match. `NEW` means linked but unposted; `PROCESSED` means received in iiko.
+- Any missing evidence or API failure is shown as unconfirmed; this never makes a shipment eligible for dispatch. Historical `CHECK_REQUIRED` shipments are NOT automatically converted to shipped.
+- No local order/shipment status change or D1 receipt posting is performed. The result is an on-screen read of current iiko state; order closure and automated linked-document creation remain separate future steps.
