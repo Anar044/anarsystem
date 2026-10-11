@@ -3,6 +3,23 @@
 **Branch**: feature/internal-orders-rms-v1
 **Scope**: goods and ingredients only. Central production, recipes, ingredient write-offs and manufacturing plans are NOT part of this phase.
 
+## Mandatory accounting policy — NORMAL Chain + RMS mode (2026-10-11)
+
+**Business requirement confirmed by the owner: never enable or use `accounting-only-in-chain=true`.** We operate ordinary separate warehouse and inventory-value accounting in iikoChain AND each iikoRMS.
+
+- Every physical stock move must be represented by the **supported iikoChain/RMS document exchange**, not by Smart Horeca independently writing the same stock adjustment twice. Chain is the group view; RMS is the owning operational ledger for each location.
+- A processed outgoing invoice reduces the **sender** warehouse's stock quantity and total inventory valuation by the shipped quantity and its transfer-at-cost amount.
+- Until the recipient's incoming is posted, the goods are **in transit**. A linked incoming may exist in `NEW` status; this does **not** increase the recipient's posted stock.
+- A posted incoming invoice increases the **recipient** warehouse's quantity and total inventory valuation by the received quantity and incoming cost amount. The recipient's resulting unit average/FIFO cost is determined by its configured costing method; it need not match the sending warehouse's unit cost after blending with existing stock.
+- For the current transfer-at-cost policy, the outgoing total and incoming total must reconcile for matching quantities and units, with **zero Smart Horeca markup**. Adjustments for real discrepancies require an explicit documented accounting process, not an invisible difference.
+- Compare Chain and RMS **for the same warehouse, product, base unit, valuation method/cutoff**, and only after the relevant synchronization is confirmed complete. A transient discrepancy before replication is `SYNC_PENDING`, **not** confirmed balance inconsistency.
+- The consolidated Chain company/group view must not double-count the source and destination documents. Handle any legal-entity-specific intercompany entries through supported iiko accounting, not fictional D1 ledger movements.
+- If the effective `accounting-only-in-chain` configuration cannot be verified as **false**, keep dispatch blocked. A boolean from the browser does not count as server verification. This repository does not currently expose a trusted iiko 9.2 configuration read for that setting.
+- The pure, side-effect-free contract in `functions/api/_lib/internal-order-stock-contract.js` defines expected quantity/value deltas and snapshot reconciliation. **It is not yet a live balance reconciliation endpoint and does not change any iiko settings.**
+- Existing write gate `assessInternalShipmentRoute` remains closed independently of this policy. Do not enable a stock POST until supported document pairing, normal accounting configuration, and Chain↔RMS replication are validated on a controlled test.
+
+Example: sender 100 kg at total 60 AZN; recipient 20 kg at 12 AZN; transfer 10 kg at 0.60 AZN/kg → after outgoing: sender 90 kg / 54 AZN and receiver 20 kg / 12 AZN; after incoming: receiver 30 kg / 18 AZN. Stock value transferred = 6 AZN with no markup (illustrative only).
+
 ## Confirmed iikoChain 9.2 behavior
 From the user's official iikoChain 9.2 PDFs, topics 1007 (internal orders) and 89 (shipment):
 - Different legal entities: linked outgoing + incoming invoices; incoming created only after outgoing is processed.
@@ -28,7 +45,7 @@ From the user's official iikoChain 9.2 PDFs, topics 1007 (internal orders) and 8
 - New endpoint `/api/internal-order-shipments` manages priced **partial** shipments per READY internal order, with a stable UUID and a unique outgoing invoice number per shipment.
 - Sender-side fulfillment permissions and same connected server scope are verified on every action. Destination-side users may view but cannot modify.
 - Approval quantities are reserved across prepared, sent, and ambiguous shipments. Duplicate reservations are blocked with order revision CAS.
-- Recipient counterparty is automatically mapped to the **receiving RMS warehouse** (iiko internal buyer). Outgoing line price is now calculated from the sender warehouse's reported inventory cost with zero markup; never manually entered.
+- Recipient buyer is the **validated supplier/User counterparty for the receiving RMS**, not the receiving warehouse ID. Outgoing line price is now calculated from the sender warehouse's reported inventory cost with zero markup; never manually entered.
 - `save-iiko-draft` imports the stable draft document using `/resto/api/documents/import/outgoingInvoice` **without `PROCESSED`**. Before import, existing document numbers are checked; repeated requests are blocked.
 - If iiko gives an ambiguous failure, shipment is locked in `CHECK_REQUIRED`: **do not resend automatically**. The operator must verify iiko first to avoid a duplicate.
 - `verify-iiko` performs read-only verification of number, document ID, sending store, counteragent, product IDs, quantities, item prices and sums, plus actual iiko status.
