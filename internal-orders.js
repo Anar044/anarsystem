@@ -256,6 +256,20 @@ function renderShipments(o,data){
     body+='</tbody></table></div>';
   }
   const remaining=(data.remaining||[]).filter(l=>l.remaining>0);
+  if(data.canFulfill&&!data.canDispatch&&data.confirmedReceiverMapping&&remaining.length){
+    body+='<div class="io-pair-document io-dispatch-dryrun"><h4>Предпросмотр пробной отгрузки — без списания</h4>'+
+      '<p class="io-muted">Выберите один товар и небольшое количество. Smart Horeca только проверит доступные остатки и себестоимость отправителя в iikoChain. Документы не создаются.</p>'+
+      '<div class="io-ship-fields"><label>Товар<select id="io-dryrun-product">'+
+      remaining.map(l=>{
+        const original=o.approvedLines.find(x=>String(x.productId).toLowerCase()===String(l.productId).toLowerCase());
+        return '<option value="'+esc(l.productId)+'" data-remaining="'+esc(l.remaining)+'">'+esc(original?.productName||l.productId)+' · осталось '+number(l.remaining)+' '+esc(original?.unit||"")+'</option>';
+      }).join("")+
+      '</select></label><label>Количество<input type="number" id="io-dryrun-amount" min="0.001" step="0.001" value="1" required></label>'+
+      '<label>Дата<input type="date" id="io-dryrun-date" required></label></div>'+
+      '<button class="io-btn io-outline" type="button" id="io-dryrun-check">Рассчитать без отгрузки</button>'+
+      '<div id="io-dryrun-result" aria-live="polite"></div>'+
+      '<p class="io-muted">Даже при успешном расчёте реальная отгрузка остаётся отключена до проверки способа создания связанной приходной и подтверждения нормального режима Chain + RMS.</p></div>';
+  }
   if(data.canFulfill&&data.canDispatch&&remaining.length){
     body+='<form id="io-shipment-form" class="io-shipment-form"><h4>Подготовить новую отгрузку</h4>';
     body+='<p class="io-muted">Отправитель: <strong>'+esc(o.sourceDepartmentName)+' / '+esc(o.sourceStoreName)+'</strong> → Получатель: <strong>'+esc(o.destinationDepartmentName)+' / '+esc(o.destinationStoreName)+'</strong></p>';
@@ -291,6 +305,43 @@ function renderShipments(o,data){
     }catch(e){if(out)out.textContent="Проверка не выполнена: "+String(e?.message||e)}
     finally{routeButton.disabled=false}
   };
+  const dryrunButton=block.querySelector("#io-dryrun-check");
+  if(dryrunButton){
+    const day=block.querySelector("#io-dryrun-date");
+    const product=block.querySelector("#io-dryrun-product");
+    const qty=block.querySelector("#io-dryrun-amount");
+    const result=block.querySelector("#io-dryrun-result");
+    day.value=new Date().toISOString().slice(0,10);
+    const syncAmount=()=>{
+      const selected=product.selectedOptions[0],max=Number(selected?.dataset.remaining||0);
+      qty.max=String(max);
+      qty.value=String(Math.min(1,max));
+    };
+    product.onchange=syncAmount;
+    syncAmount();
+    dryrunButton.onclick=async()=>{
+      const amount=Number(qty.value),max=Number(product.selectedOptions[0]?.dataset.remaining||0);
+      if(!Number.isFinite(amount)||amount<=0||amount>max+0.00001){
+        result.textContent="Введите положительное количество, не превышающее остаток по заявке.";return;
+      }
+      dryrunButton.disabled=true;
+      result.textContent="Читаем остатки и себестоимость выбранного склада из iikoChain. Только чтение…";
+      try{
+        const reply=await shipPost("preview-dispatch",{orderId:o.id,documentDate:day.value,
+          lines:[{productId:product.value,amount}]});
+        const p=reply.preview||{};
+        if(!p.valid){result.innerHTML='<p class="io-shipment-error">'+esc(p.message||"Расчёт не подтверждён.")+'</p>';return;}
+        const line=p.quantityLines?.[0]||{};
+        result.innerHTML='<div class="io-pair-document"><strong>Предварительный расчёт подтверждён</strong>'+
+          '<p>Отправитель: '+esc(o.sourceStoreName)+' → Получатель: '+esc(o.destinationStoreName)+'</p>'+
+          '<p>Покупатель расходной: <strong>'+esc(p.buyerName||"")+'</strong></p>'+
+          '<p>Товар: '+esc(line.productName||"")+' · Количество: '+esc(number(line.quantity))+' '+esc(line.unit||"")+'</p>'+
+          '<p>Себестоимость: '+esc(Number(line.unitCost||0).toFixed(4))+' ₼ · Сумма передачи: <strong>'+esc(Number(p.totalAZN||0).toFixed(2))+' ₼</strong></p>'+
+          '<p class="io-muted">Расчёт не создавал накладные и не менял остатки. Реальная отправка остаётся заблокированной.</p></div>';
+      }catch(e){result.textContent="Проверка не выполнена: "+String(e?.message||e)}
+      finally{dryrunButton.disabled=false}
+    };
+  }
   const form=block.querySelector("#io-shipment-form");
   if(form){
     const dateInput=block.querySelector("#io-ship-date");
