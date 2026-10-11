@@ -194,6 +194,51 @@ export async function onRequestPost({request,env}){
         throw err("Ответ iiko неизвестен. Проверьте существование документа "+s.number+" в iiko; повторная отправка отключена. "+e.message,502);
       }
     }
+    if(action==="process-iiko"){
+      if(s.status!=="DRAFT_VERIFIED")throw err("Отгрузка возможна только после сохранения и сверки непроведённой накладной в iiko.",409);
+      if(o.status!=="READY")throw err("Статус заявки изменён. Отгрузка заблокирована.",409);
+      await verifyRouteWarehouses(c,o);
+      if(id(s.counteragent_id)!==id(o.destination_store_id))throw err("Покупатель накладной отличается от склада RMS-получателя.",409);
+      const lines=parse(s.lines_json,[]);
+      if(lines.some(l=>l.costSource!=="iikoChain warehouse balance"||!l.costTimestamp))throw err("Себестоимость накладной не подтверждена iiko.",409);
+      const before=await outgoingLookup(c,s);
+      if(!before.valid||!before.quantityMatched||before.processed||before.status!=="NEW")
+        throw err(before.message||"Накладная изменена, не найдена или уже проведена. Обновите сверку.",409);
+      if(id(before.documentId)!==id(s.iiko_document_id)||id(before.counteragentId)!==id(o.destination_store_id))
+        throw err("Номер, ID или покупатель документа не совпадает с заявкой.",409);
+      // Lock before any stock-affecting request. A lost response must NEVER
+      // cause an automatic second POST to iiko.
+      await setShipStatus(c,s,"DRAFT_VERIFIED","PROCESSING");
+      const xml=shipmentXml({id:s.iiko_document_id,number:s.iiko_document_number||s.number,
+        date:s.document_date,storeId:s.source_store_id,counteragentId:s.counteragent_id,
+        accountToCode:s.account_to_code,revenueAccountCode:s.revenue_account_code,
+        comment:"Smart Horeca internal order "+o.number+" → "+o.destination_department_name,
+        lines,status:"PROCESSED"});
+      try{
+        const response=await iikoText(c.connection,"/resto/api/documents/import/outgoingInvoice",{
+          method:"POST",headers:{"Content-Type":"application/xml; charset=utf-8",Accept:"application/xml,text/xml,*/*"},
+          body:xml,timeoutMs:60000
+        });
+        const validation=parseIikoValidation(response.text);
+        if(!response.ok||["false","0","no"].includes(str(validation.valid).toLowerCase())){
+          const hint=str(validation.errorMessage||validation.additionalInfo||response.text.replace(/<[^>]*>/g," ").trim()).slice(0,250);
+          await setShipStatus(c,s,"PROCESSING","CHECK_REQUIRED",{error:"Нужна сверка проведения: HTTP "+response.status+". "+hint});
+          return json({success:false,code:"PROCESS_UNCERTAIN",message:"iiko не подтвердил проведение (HTTP "+response.status+"). Повтор запрещён. Сверьте расходную "+s.number+"."},409);
+        }
+        let verification;
+        try{verification=await outgoingLookup(c,s)}catch(e){verification={valid:false,message:str(e.message)}}
+        if(!verification.valid||!verification.processed){
+          await setShipStatus(c,s,"PROCESSING","CHECK_REQUIRED",{error:"iiko принял запрос, но факт проведения ещё не подтверждён. "+str(verification.message)});
+          return json({success:false,code:"PROCESS_UNCERTAIN",message:"iiko получил запрос проведения, но списание не подтверждено. Проверьте "+s.number+"; не проводите повторно."},409);
+        }
+        await setShipStatus(c,s,"PROCESSING","IIKO_PROCESSED",{iikoDocumentNumber:verification.documentNumber,iikoStatus:verification.status});
+        try{await audit(c,"PROCESS_IIKO",o,s,{iikoDocumentId:verification.documentId,processed:true,linkedIncomingVerified:false})}catch(e){console.error("Internal shipment posting audit failure",String(e?.message||e))}
+        return json({success:true,shipmentNumber:s.number,verification:{...verification,linkedIncomingVerified:false},message:"Расходная проведена в iiko. Связанная приходная RMS-получателя ещё требует сверки."});
+      }catch(e){
+        await setShipStatus(c,s,"PROCESSING","CHECK_REQUIRED",{error:str(e.message).slice(0,700)});
+        throw err("Результат проведения в iiko неизвестен. Проверьте "+s.number+"; повторное проведение заблокировано. "+e.message,502);
+      }
+    }
     if(action==="verify-iiko"){
       if(!["CHECK_REQUIRED","DRAFT_SAVED","DRAFT_VERIFIED","IIKO_PROCESSED"].includes(s.status))throw err("Для этой отгрузки пока нет документа iiko.",409);
       const result=await outgoingLookup(c,s);
