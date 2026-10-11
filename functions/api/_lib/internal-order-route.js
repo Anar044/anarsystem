@@ -6,7 +6,7 @@ const id=x=>String(x??"").trim().replace(/^\{+|\}+$/g,"").toLowerCase();
 export const UNSUPPORTED_STORE_BUYER_MESSAGE=
   "iiko отклонил получателя-склад: REST API расходной накладной ожидает другой тип контрагента (User), а выбранный RMS является Store. "+
   "Для связанной приходной нужен поддерживаемый iikoChain способ внутренней отгрузки. "+
-  "Автоматическая отгрузка через этот API временно заблокирована; товары не списаны.";
+  "Автоматическая отгрузка через этот API временно заблокирована; новая попытка списания не выполняется. Состояние ранее отправленных документов требует отдельной проверки.";
 export function assessInternalShipmentRoute(order){
   const source=id(order?.central_department_id),destination=id(order?.destination_department_id);
   const receiver=id(order?.destination_store_id);
