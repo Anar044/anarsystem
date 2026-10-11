@@ -117,3 +117,12 @@ Run `node --test tests/internal-shipment-core.test.mjs`; it checks package/base-
 - The enhanced read-only Settings diagnostic now requests the standard `/resto/api/suppliers?revisionFrom=-1` reference list and attempts to resolve both buyer and supplier IDs to real reference names and codes. This is a read-only lookup, not a route change.
 - To enable cross-RMS dispatch, map each receiver RMS + store to the verified supplier/User-type counterparty that iikoChain uses in the successful paired outgoing, and verify the incoming pair is actually generated. Do not assume the UI display name guarantees any entity type.
 - Until validated, the server safety guard still blocks the stock-changing REST endpoint and old CHECK_REQUIRED shipment S01 remains locked.
+
+## iiko buyer mapping confirmed by API (11 Oct 2026)
+
+- Read-only diagnostic for **outgoing 50001** and **incoming 10001** found both documents `PROCESSED`, `incoming.linkedOutgoingInvoiceId == outgoing.id`, identical item IDs and quantities, and 8 supplier-directory records.
+- Outgoing buyer ID resolves to supplier record **RMS 1: RMS 1 METBEX**, and incoming supplier resolves to **Mərkəzi Anbar**. Neither is the ID of its corresponding warehouse. This supports the API `counteragentId` expecting a supplier/User record, not a Store.
+- Added a non-stock-admin-only action `confirm-pair-mapping`. It re-exports the exact two posted invoices and supplier directory itself, and saves the **pair of actual warehouse IDs** → buyer supplier ID and sender supplier ID in `sh_internal_order_warehouse_counterparties` scoped to this iiko server. A new pair from another RMS cannot be inferred from its name: it needs an independently verified example. No client-controlled IDs are persisted.
+- The settings UI shows this as an optional **«Сохранить соответствие для этих двух складов»** button only when both linked invoices were confirmed, both statuses are PROCESSED, item quantities match, both suppliers exist in the iiko directory and the warehouse IDs differ.
+- The mapping registry is NOT used to enable outbound REST document creation: the stock-writing route guard remains closed until we verify that the iikoChain REST import can create linked incoming in the actual receiver RMS. The prior HTTP 500 attempt `IO-20261011-DF4D8D-S01` remains CHECK_REQUIRED; no second POST.
+- The right long-term scenario remains one operator click to dispatch and an iikoChain-managed linked incoming, with recipient-side receipt confirmation. A source-RMS standalone outgoing is not an acceptable substitute.
