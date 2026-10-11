@@ -12,6 +12,7 @@ import {findOutgoingInvoices} from "./_lib/internal-order-iiko-lookup.js";
 import {prepareInternalShipment,shipmentXml,parseIikoValidation} from "./_lib/internal-shipment-core.js";
 import {canAccessInternalOrder} from "./_lib/internal-order-core.js";
 import {isIikoRestApiLicenseError,IIKO_REST_API_LICENSE_MESSAGE} from "./_lib/internal-order-license.js";
+import {assessInternalShipmentRoute} from "./_lib/internal-order-route.js";
 
 const H={"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"Content-Type,Authorization","Access-Control-Allow-Methods":"GET,POST,OPTIONS"};
 const str=v=>String(v??"").trim();
@@ -119,11 +120,9 @@ async function outgoingLookup(c,s){
 // installation's /documents/import/outgoingInvoice REST importer casts
 // counteragentId to resto.front.User and throws ClassCastException for STORE.
 // Never substitute an unrelated legal person or submit that invalid XML.
-const UNSUPPORTED_STORE_BUYER_MESSAGE="iiko отклонил получателя-склад: REST API расходной накладной ожидает другой тип контрагента (User), а выбранный RMS является Store. Для связанной приходной нужен поддерживаемый iikoChain способ внутренней отгрузки. Автоматическая отгрузка через этот API временно заблокирована; товары не списаны.";
 function assertSupportedIikoShipmentRoute(order){
-  if(id(order.central_department_id)!==id(order.destination_department_id)&&order.destination_store_id){
-    throw err(UNSUPPORTED_STORE_BUYER_MESSAGE,409);
-  }
+  const route=assessInternalShipmentRoute(order);
+  if(!route.supported)throw err(route.message,409);
 }
 async function dispatchShipment(c,o,s){
   assertSupportedIikoShipmentRoute(o);
@@ -182,8 +181,8 @@ export async function onRequestGet({request,env}){
     const list=await rows(c,o.id);
     const totals=Object.fromEntries(parse(o.approved_lines_json).map(x=>[id(x.productId),{productId:x.productId,approved:Number(x.quantity),reserved:0}]));
     for(const s of list)if(s.status!=="CANCELLED")for(const l of parse(s.lines_json)){const t=totals[id(l.productId)];if(t)t.reserved+=Number(l.amount)}
-    const unsupportedStoreRoute=id(o.central_department_id)!==id(o.destination_department_id)&&Boolean(o.destination_store_id);
-    return json({success:true,shipments:list.map(expose),remaining:Object.values(totals).map(x=>({...x,remaining:Math.max(0,Math.round((x.approved-x.reserved)*1000)/1000)})),canFulfill:shipper(o,c),canDispatch:shipper(o,c)&&!unsupportedStoreRoute,dispatchBlockedReason:unsupportedStoreRoute?UNSUPPORTED_STORE_BUYER_MESSAGE:""});
+    const route=assessInternalShipmentRoute(o);
+    return json({success:true,shipments:list.map(expose),remaining:Object.values(totals).map(x=>({...x,remaining:Math.max(0,Math.round((x.approved-x.reserved)*1000)/1000)})),canFulfill:shipper(o,c),canDispatch:shipper(o,c)&&route.supported,dispatchBlockedReason:route.supported?"":route.message,dispatchBlockCode:route.supported?"":route.code});
   }catch(e){
     if(isIikoRestApiLicenseError(e))return json({success:false,code:"IIKO_REST_API_LICENSE",message:IIKO_REST_API_LICENSE_MESSAGE},503);
     return json({success:false,message:e.message},e.status||500);
