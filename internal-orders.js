@@ -263,7 +263,7 @@ function renderShipments(o,data){
         const result=await shipPost("dispatch",{orderId:o.id,documentDate:dateInput.value,lines});
         note(result.message||"Запрос отправки обработан.",result.success?"ok":"error");
         await loadShipments(o);
-      }catch(e){note(e.message||String(e),"error")}finally{busy(false)}
+      }catch(e){note(e.message||String(e),"error");await loadShipments(o)}finally{busy(false)}
     };
   }
   block.querySelectorAll("[data-ship-action]").forEach(btn=>btn.onclick=async()=>{
