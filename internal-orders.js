@@ -2,7 +2,7 @@
 "use strict";
 const $=id=>document.getElementById(id),esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const statusNames={DRAFT:"Черновик",SUBMITTED:"На согласовании",APPROVED:"Подтверждён",PICKING:"Комплектуется",READY:"Готов к отгрузке",REJECTED:"Отклонён",CANCELLED:"Отменён"};
-const state={token:"",data:null,refs:[],binding:null,storeCache:new Map(),selected:null,busy:false,view:new URLSearchParams(location.search).get("view")||"my"};
+const state={token:"",data:null,refs:[],binding:null,storeCache:new Map(),selected:null,verification:null,busy:false,view:new URLSearchParams(location.search).get("view")||"my"};
 const date=v=>v?new Date(String(v).slice(0,10)+"T12:00:00").toLocaleDateString("ru-RU"):"—";
 const number=v=>Number(v||0).toLocaleString("ru-RU",{maximumFractionDigits:3});
 function note(msg,kind=""){const x=$("io-message");x.textContent=msg||"";x.className="io-message"+(kind?" "+kind:"")}
@@ -122,11 +122,36 @@ function detail(o){
   if(active)body+='<button class="io-btn io-primary" data-action="approve">Подтвердить количество</button><button class="io-btn io-danger" data-action="reject">Отклонить</button>';
   if(canFulfill&&o.status==="APPROVED")body+='<button class="io-btn io-primary" data-action="picking">Начать комплектацию</button>';
   if(canFulfill&&o.status==="PICKING")body+='<button class="io-btn io-primary" data-action="ready">Готов к отгрузке</button>';
+  if(canFulfill&&o.status==="READY")body+='<button class="io-btn io-outline" id="io-check-outgoing">Сверить расходную накладную iiko</button>';
   body+='</div>';
+  const verified=state.verification?.orderId===o.id?state.verification.data:null;
+  if(verified){
+    body+='<div class="io-invoice-check"><strong>Сверка с iiko: '+esc(verified.documentNumber||"не найдена")+'</strong><p class="io-muted">'+esc(verified.message||"")+'</p>';
+    if(verified.valid){
+      body+='<p class="io-muted">Статус расходной: '+esc(verified.status)+' · '+(verified.partial?"Частичная отгрузка":"Количество соответствует заказу")+'</p>';
+      body+='<p class="io-muted">Контрагент в iiko: '+esc(verified.counteragentId||"не указан")+'. Необходимо подтвердить, что это именно RMS-получатель.</p>';
+      body+='<p class="io-muted">Связанная приходная в RMS получателя ещё не сверена. Статус заказа не изменён, остатки не затронуты.</p>';
+      body+='<table class="io-detail-lines"><thead><tr><th>Товар iiko ID</th><th>Согласовано</th><th>В расходной</th></tr></thead><tbody>'+verified.items.map(x=>'<tr><td>'+esc(x.productId)+'</td><td>'+number(x.approvedQty)+'</td><td>'+number(x.documentQty)+'</td></tr>').join("")+'</tbody></table>';
+    }
+    body+='</div>';
+  }
   const panel=$("io-detail");panel.innerHTML=body;panel.hidden=false;
   panel.querySelector("#io-hide-detail").onclick=()=>{panel.hidden=true;state.selected=null};
   panel.querySelectorAll("[data-action]").forEach(b=>b.onclick=()=>transition(o,b.dataset.action));
+  const outgoingButton=panel.querySelector("#io-check-outgoing");if(outgoingButton)outgoingButton.onclick=()=>verifyOutgoing(o);
   panel.scrollIntoView({behavior:"smooth",block:"start"});
+}
+async function verifyOutgoing(o){
+  const numberInput=prompt("Номер уже созданной расходной накладной в iiko (только проверка, без проведения):","");
+  if(numberInput===null)return;
+  const outgoingNumber=numberInput.trim();if(!outgoingNumber){note("Укажите номер расходной накладной.","error");return}
+  try{
+    busy(true);note("Сверяем расходную накладную "+outgoingNumber+" с iiko…");
+    const r=await post("verify-outgoing",{id:o.id,outgoingNumber});
+    state.verification={orderId:o.id,data:r.verification};
+    detail(o);
+    note(r.verification.valid?r.verification.message:r.verification.message,r.verification.valid?"ok":"error");
+  }catch(e){note(e.message||String(e),"error")}finally{busy(false)}
 }
 function openDetail(id){const o=state.data?.orders.find(x=>x.id===id);if(o)detail(o)}
 async function transition(o,action){
