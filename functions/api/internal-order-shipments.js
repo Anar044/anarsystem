@@ -7,7 +7,8 @@ import {serverScopeFromConnection,logAuditEvent} from "./_lib/audit-log.js";
 import {iikoText,iikoJson} from "./iiko/_lib/iiko-client.js";
 import {resolveStoreScope} from "./iiko/_lib/store-scope.js";
 import {warehouseCostRows,costQuote} from "./_lib/internal-shipment-cost.js";
-import {parseOutgoingForVerification,inspectOutgoingForOrder} from "./_lib/internal-order-invoice.js";
+import {inspectOutgoingForOrder} from "./_lib/internal-order-invoice.js";
+import {findOutgoingInvoices} from "./_lib/internal-order-iiko-lookup.js";
 import {prepareInternalShipment,shipmentXml,parseIikoValidation} from "./_lib/internal-shipment-core.js";
 import {canAccessInternalOrder} from "./_lib/internal-order-core.js";
 
@@ -91,12 +92,9 @@ async function getWarehouseQuote(c,o,date){
   return {quotes:costQuote(approved,rows,date),timestamp:date+"T23:59:59",storeId:o.central_store_id,source:"/resto/api/v2/reports/balance/stores"};
 }
 async function outgoingLookup(c,s){
-  const date=str(s.document_date),to=new Date().toISOString().slice(0,10);
-  const from=date<=to?date:to;
-  const params=new URLSearchParams({number:s.iiko_document_number||s.number,currentYear:"false",from,to:date<=to?to:date});
-  const resp=await iikoText(c.connection,"/resto/api/documents/export/outgoingInvoice/byNumber?"+params,{headers:{Accept:"application/xml,text/xml,*/*"},timeoutMs:30000});
-  if(!resp.ok)throw err("Ошибка чтения расходной из iiko: HTTP "+resp.status,502);
-  const docs=parseOutgoingForVerification(resp.text);
+  const found=await findOutgoingInvoices(c.connection,s.iiko_document_number||s.number,s.document_date);
+  if(!found.checked)throw err("iiko не подтвердил результат поиска накладной. Попробуйте позже; повторная отправка заблокирована.",502);
+  const docs=found.documents;
   const lines=parse(s.lines_json);
   const v=inspectOutgoingForOrder({sourceStoreId:s.source_store_id,approvedLines:lines.map(l=>({productId:l.productId,quantity:l.amount}))},docs,s.iiko_document_number||s.number);
   if(v.valid){
@@ -172,18 +170,17 @@ export async function onRequestPost({request,env}){
       // persisted the draft even if the network response was lost.
       // Check the stable document number before importing; never silently
       // overwrite another user's unrelated outgoing invoice.
-      const from=s.document_date,to=new Date().toISOString().slice(0,10);
-      const q=new URLSearchParams({number:s.number,currentYear:"false",from:from<=to?from:to,to:from>to?from:to});
-      const prior=await iikoText(c.connection,"/resto/api/documents/export/outgoingInvoice/byNumber?"+q,{headers:{Accept:"application/xml,text/xml,*/*"},timeoutMs:30000});
-      if(!prior.ok)throw err("iiko не подтвердил отсутствие расходной с этим номером. Сохранение остановлено (HTTP "+prior.status+").",502);
-      if(parseOutgoingForVerification(prior.text).some(x=>x.number===s.number))throw err("Расходная с этим номером уже есть в iiko. Сначала сверьте её, повторная отправка запрещена.",409);
+      const prior=await findOutgoingInvoices(c.connection,s.number,s.document_date);
+      if(!prior.checked)throw err("iiko не подтвердил отсутствие расходной. Отправка остановлена, чтобы избежать дублирования.",502);
+      if(prior.documents.length)throw err("Расходная с номером "+s.number+" уже существует в iiko. Повторный импорт запрещён; используйте сверку.",409);
       await setShipStatus(c,s,"PREPARED","IMPORTING");
       const xml=shipmentXml({id:s.iiko_document_id,number:s.number,date:s.document_date,storeId:s.source_store_id,counteragentId:s.counteragent_id,accountToCode:s.account_to_code,revenueAccountCode:s.revenue_account_code,comment:"Smart Horeca internal order "+o.number+" → "+o.destination_department_name,lines:parse(s.lines_json)});
       try{
         const res=await iikoText(c.connection,"/resto/api/documents/import/outgoingInvoice",{method:"POST",headers:{"Content-Type":"application/xml; charset=utf-8",Accept:"application/xml,text/xml,*/*"},body:xml,timeoutMs:60000});
         const val=parseIikoValidation(res.text);
         if(!res.ok||["false","0","no"].includes(val.valid.toLowerCase())||(!val.valid&&!!val.errorMessage)){
-          const msg=val.errorMessage||val.additionalInfo||"iiko отклонил документ (HTTP "+res.status+").";
+          const plainText=String(res.text||"").replace(/<script[\s\S]*?<\/script>/gi," ").replace(/<style[\s\S]*?<\/style>/gi," ").replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim().slice(0,240);
+          const msg=val.errorMessage||val.additionalInfo||(plainText?"iiko: "+plainText:"iiko отклонил документ (HTTP "+res.status+").");
           await setShipStatus(c,s,"IMPORTING","CHECK_REQUIRED",{error:msg});
           return json({success:false,code:"CHECK_REQUIRED",message:msg+" Проверьте iiko по номеру "+s.number+"; автоматический повтор отключён."},409);
         }
