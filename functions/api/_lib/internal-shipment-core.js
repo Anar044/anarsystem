@@ -28,11 +28,12 @@ export function prepareInternalShipment(approved,existing,requested,costQuotes=[
   }
   return {lines,totalCents:lines.reduce((sum,l)=>sum+l.sumCents,0),remaining:Object.fromEntries(remaining)};
 }
-export function shipmentXml({id:documentId,number,date,storeId,counteragentId,comment,accountToCode,revenueAccountCode,lines}){
+export function shipmentXml({id:documentId,number,date,storeId,counteragentId,comment,accountToCode,revenueAccountCode,lines,status='NEW'}){
+  if(!['NEW','PROCESSED'].includes(status))throw new Error('Недопустимый статус накладной iiko.');
   const esc=x=>String(x??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
   const tag=(name,x)=>x===undefined||x===null||String(x)===""?"":'<'+name+'>'+esc(x)+'</'+name+'>';
   const items=lines.map((l,i)=>'<item>'+tag("productId",l.productId)+tag("storeId",storeId)+tag("amount",l.amount)+tag("price",Number(l.unitPrice).toFixed(6))+tag("sum",(l.sumCents/100).toFixed(2))+'</item>').join("");
-  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><document>'+tag("id",documentId)+tag("documentNumber",number)+tag("dateIncoming",date+"T00:00:00")+tag("status","NEW")+tag("defaultStoreId",storeId)+tag("counteragentId",counteragentId)+tag("accountToCode",accountToCode)+tag("revenueAccountCode",revenueAccountCode)+tag("comment",comment)+'<items>'+items+'</items></document>';
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><document>'+tag("id",documentId)+tag("documentNumber",number)+tag("dateIncoming",date+"T00:00:00")+tag("status",status)+tag("defaultStoreId",storeId)+tag("counteragentId",counteragentId)+tag("accountToCode",accountToCode)+tag("revenueAccountCode",revenueAccountCode)+tag("comment",comment)+'<items>'+items+'</items></document>';
 }
 export function parseIikoValidation(xml){
   const dec=v=>String(v||"").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&");
