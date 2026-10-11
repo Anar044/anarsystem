@@ -76,3 +76,22 @@ export function identifyIikoPairCounteragents(outgoing,incoming,suppliers=[]){
     supplierDirectoryMatchedIncomingSupplier:!!supplier
   };
 }
+
+export function validatedPairWarehouseMapping(outgoing,incoming,suppliers){
+  const pair=compareIikoInvoicePair(outgoing,incoming);
+  const refs=identifyIikoPairCounteragents(outgoing,incoming,suppliers);
+  if(!pair.linkConfirmed||!pair.productsMatch)return {valid:false,reason:"Не подтверждена связанная пара расходная–приходная с одинаковыми товарами."};
+  if(clean(outgoing?.status).toUpperCase()!=="PROCESSED"||clean(incoming?.status).toUpperCase()!=="PROCESSED")
+    return {valid:false,reason:"Оба эталонных документа должны быть проведены в iiko."};
+  if(!refs.outgoingBuyerSupplier||!refs.incomingSupplierRecord)
+    return {valid:false,reason:"Покупатель или поставщик не найдены в справочнике iiko."};
+  if(!normalized(outgoing?.storeId)||!normalized(incoming?.storeId)||normalized(outgoing.storeId)===normalized(incoming.storeId))
+    return {valid:false,reason:"Не определены два разных склада отправителя и получателя."};
+  if(refs.outgoingBuyerIsDestinationStore||refs.incomingSupplierIsSenderStore)
+    return {valid:false,reason:"ID контрагента ошибочно совпадает с ID склада. Нужна отдельная запись поставщика."};
+  return {valid:true,sourceStoreId:normalized(outgoing.storeId),destinationStoreId:normalized(incoming.storeId),
+    outgoingBuyerId:normalized(outgoing.counteragentId),outgoingBuyerName:refs.outgoingBuyerSupplier.name,
+    incomingSupplierId:normalized(incoming.supplierId),incomingSupplierName:refs.incomingSupplierRecord.name,
+    evidenceOutgoingId:normalized(outgoing.id),evidenceIncomingId:normalized(incoming.id),
+    evidenceOutgoingNumber:clean(outgoing.number),evidenceIncomingNumber:clean(incoming.number)};
+}
