@@ -315,11 +315,16 @@ export async function onRequestPost({request,env}){
     if(action==="verify-iiko"){
       if(!["CHECK_REQUIRED","DRAFT_SAVED","DRAFT_VERIFIED","PROCESSING","IIKO_PROCESSED"].includes(s.status))throw err("Для этой отгрузки пока нет документа iiko.",409);
       const result=await outgoingLookup(c,s);
-      if(!result.valid)return json({success:true,verification:{...result,linkedIncomingVerified:false},shipment:expose(s)});
+      if(!result.valid){
+        // An ambiguous remote request must remain blocked until an authoritative
+        // iiko document is found. Never release its reserved stock quantity.
+        if(s.status==="PROCESSING")await setShipStatus(c,s,"PROCESSING","CHECK_REQUIRED",{error:"Результат проведения неизвестен: "+str(result.message)});
+        return json({success:true,verification:{...result,linkedIncomingVerified:false},shipment:expose(s)});
+      }
       const status=result.processed?"IIKO_PROCESSED":"DRAFT_VERIFIED";
       await setShipStatus(c,s,s.status,status,{iikoDocumentNumber:result.documentNumber,iikoStatus:result.status});
       const updated=await shipment(c,o,s.id);
-      await audit(c,"VERIFY_IIKO",o,updated,{status,iikoDocumentId:result.documentId,processed:result.processed});
+      try{await audit(c,"VERIFY_IIKO",o,updated,{status,iikoDocumentId:result.documentId,processed:result.processed})}catch(e){console.error("Shipment background audit error",str(e?.message||e))}
       return json({success:true,verification:{...result,linkedIncomingVerified:false,canMarkReceived:false},shipment:expose(updated)});
     }
     throw err("Неизвестная операция.",400);
