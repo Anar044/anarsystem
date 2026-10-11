@@ -112,6 +112,56 @@ async function outgoingLookup(c,s){
   }
   return v;
 }
+// A single operator click creates and POSTS one outgoing invoice in iiko.
+// All checks are server-side. A known/unknown existing iiko write is never replayed.
+async function dispatchShipment(c,o,s){
+  if(o.status!=="READY")throw err("Заказ уже не готов к отгрузке.",409);
+  if(s.status!=="PREPARED")throw err("Эта отгрузка уже передавалась в iiko. Повторная отправка запрещена.",409);
+  await verifyRouteWarehouses(c,o);
+  if(id(s.counteragent_id)!==id(o.destination_store_id))throw err("Покупатель расходной должен совпадать со складом RMS-получателя.",409);
+  const lines=parse(s.lines_json,[]);
+  if(lines.some(l=>l.costSource!=="iikoChain warehouse balance"||!l.costTimestamp))
+    throw err("Нельзя отгрузить документ с неподтверждённой себестоимостью.",409);
+  const found=await findOutgoingInvoices(c.connection,s.number,s.document_date);
+  if(!found.checked)throw err("iiko не подтвердил отсутствие такой накладной. Отгрузка не отправлялась, попробуйте позже.",502);
+  if(found.documents.length)throw err("Накладная "+s.number+" уже существует в iiko. Отправка повторно запрещена.",409);
+  await setShipStatus(c,s,"PREPARED","PROCESSING");
+  const xml=shipmentXml({id:s.iiko_document_id,number:s.number,date:s.document_date,
+    storeId:s.source_store_id,counteragentId:s.counteragent_id,
+    accountToCode:s.account_to_code,revenueAccountCode:s.revenue_account_code,
+    comment:"Smart Horeca internal order "+o.number+" → "+o.destination_department_name,
+    lines,status:"PROCESSED"});
+  try{
+    const response=await iikoText(c.connection,"/resto/api/documents/import/outgoingInvoice",{
+      method:"POST",headers:{"Content-Type":"application/xml; charset=utf-8",Accept:"application/xml,text/xml,*/*"},
+      body:xml,timeoutMs:60000
+    });
+    const val=parseIikoValidation(response.text);
+    if(!response.ok||["false","0","no"].includes(str(val.valid).toLowerCase())||(!val.valid&&val.errorMessage)){
+      const errorText=str(val.errorMessage||val.additionalInfo||
+        response.text.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim()).slice(0,240);
+      await setShipStatus(c,s,"PROCESSING","CHECK_REQUIRED",{error:"iiko HTTP "+response.status+": "+errorText});
+      return {success:false,code:"IIKO_RESULT_UNKNOWN",message:"iiko не подтвердил отгрузку (HTTP "+response.status+"). Повторное списание заблокировано. Система проверит документ "+s.number+".",status:"CHECK_REQUIRED"};
+    }
+    let verification;
+    try{verification=await outgoingLookup(c,s)}catch(e){verification={valid:false,message:str(e.message)}}
+    if(!verification.valid||!verification.processed){
+      await setShipStatus(c,s,"PROCESSING","CHECK_REQUIRED",{error:"iiko принял запрос, но проведение не подтверждено: "+str(verification.message)});
+      return {success:false,code:"IIKO_RESULT_UNKNOWN",message:"Запрос отправлен в iiko, но проведение пока не подтверждено. Повторная отгрузка заблокирована.",status:"CHECK_REQUIRED"};
+    }
+    await setShipStatus(c,s,"PROCESSING","IIKO_PROCESSED",{iikoDocumentNumber:verification.documentNumber,iikoStatus:verification.status});
+    try{await audit(c,"PROCESS_IIKO",o,s,{iikoDocumentId:verification.documentId,sourceStoreId:s.source_store_id,destinationStoreId:s.destination_store_id,linkedIncomingVerified:false})}
+    catch(e){console.error("Internal order shipment audit",str(e?.message||e))}
+    return {success:true,status:"IIKO_PROCESSED",documentNumber:s.number,linkedIncomingVerified:false,
+      message:"Отгрузка подтверждена в iiko. Проверяем появление связанной приходной у RMS-получателя."};
+  }catch(e){
+    // Once processing was attempted, the remote outcome may be unknown.
+    // Never POST again automatically or expose a retry button.
+    try{await setShipStatus(c,s,"PROCESSING","CHECK_REQUIRED",{error:str(e.message).slice(0,700)})}
+    catch(f){console.error("Shipment uncertain transition",str(f?.message||f))}
+    return {success:false,code:"IIKO_RESULT_UNKNOWN",message:"Связь с iiko прервалась. Состояние отгрузки неизвестно; повторная отправка заблокирована до проверки.",status:"CHECK_REQUIRED"};
+  }
+}
 export async function onRequestOptions(){return new Response(null,{status:204,headers:H})}
 export async function onRequestGet({request,env}){
   try{
@@ -128,6 +178,29 @@ export async function onRequestPost({request,env}){
     const body=await request.json().catch(()=>({})),c=await ctx(request,env),action=str(body.action);
     const o=await order(c,body.orderId);
     if(!shipper(o,c))throw err("Только уполномоченный сотрудник RMS-отправителя может оформлять отгрузку.",403);
+    if(action==="dispatch"){
+      if(o.status!=="READY")throw err("Заказ ещё не готов к отгрузке.",409);
+      const date=str(body.documentDate),prices=await getWarehouseQuote(c,o,date);
+      const all=await rows(c,o.id),approved=parse(o.approved_lines_json);
+      const previous=all.map(x=>({status:x.status,lines:parse(x.lines_json)}));
+      const prepared=prepareInternalShipment(approved,previous,body.lines,prices.quotes);
+      const index=all.length+1,number=o.number+"-S"+String(index).padStart(2,"0");
+      const sid=crypto.randomUUID(),documentId=crypto.randomUUID(),time=new Date().toISOString();
+      const lock=await c.env.DB.prepare("UPDATE sh_internal_orders SET revision=revision+1,updated_at=?1 WHERE id=?2 AND server_scope=?3 AND status='READY' AND revision=?4")
+        .bind(time,o.id,c.scope,o.revision).run();
+      if(Number(lock.meta?.changes||0)!==1)throw err("Заявка изменена. Обновите её перед отгрузкой.",409);
+      await c.env.DB.prepare("INSERT INTO sh_internal_order_shipments (id,server_scope,order_id,number,iiko_document_id,status,source_store_id,destination_store_id,counteragent_id,document_date,account_to_code,revenue_account_code,lines_json,total_cents,created_at,created_by,updated_at) VALUES (?1,?2,?3,?4,?5,'PREPARED',?6,?7,?8,?9,'','',?10,?11,?12,?13,?12)")
+        .bind(sid,c.scope,o.id,number,documentId,o.central_store_id,o.destination_store_id,o.destination_store_id,date,JSON.stringify(prepared.lines),prepared.totalCents,time,c.auth.user.id).run();
+      const created=await shipment(c,o,sid);
+      try{await audit(c,"PREPARE_FOR_DISPATCH",o,created,{number,sourceStoreId:o.central_store_id,destinationStoreId:o.destination_store_id,lines:prepared.lines})}
+      catch(e){console.error("Internal shipment audit",str(e?.message||e))}
+      return json(await dispatchShipment(c,o,created));
+    }
+    if(action==="dispatch-existing"){
+      const ready=await shipment(c,o,body.shipmentId);
+      if(ready.status!=="PREPARED")throw err("Повторно отправлять накладную в iiko нельзя.",409);
+      return json(await dispatchShipment(c,o,ready));
+    }
     if(action==="quote"){
       if(o.status!=="READY")throw err("Заказ не готов к отгрузке.",409);
       const result=await getWarehouseQuote(c,o,str(body.documentDate));
