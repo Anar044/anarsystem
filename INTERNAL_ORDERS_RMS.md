@@ -132,3 +132,10 @@ Run `node --test tests/internal-shipment-core.test.mjs`; it checks package/base-
 - The saved per-server, per-warehouse-pair mapping is displayed on each READY internal order in read-only mode. It shows the exact receiver buyer supplier ID, names, and supporting outgoing/incoming invoice numbers. No generic fallback is allowed for unmapped RMS destinations.
 - The outgoing invoice XML builder now uses **document-level** `defaultStoreId` only; it does not also write `storeId` on each item. This follows the documented iiko outgoing invoice DTO storage placement rule. `counteragentId` remains a distinct **supplier/User** ID rather than a Store ID.
 - The server route gate remains closed for all cross-RMS stock writes, including users with confirmed mapping, until a controlled integration check proves iikoChain creates the linked incoming invoice automatically. The historical `CHECK_REQUIRED` invoice must not be resent.
+
+## October 11: read-only route preflight (test branch)
+
+- A fulfiller can now select **Проверить маршрут (без отгрузки)** for a READY order. The server re-checks both warehouse assignments against iikoChain, reads the saved warehouse-pair mapping from D1, and re-resolves the outgoing buyer and incoming supplier in the current iiko supplier directory.
+- The preflight reports the proposed `defaultStoreId`, **supplier** `counteragentId`, recipient store and incoming supplier. The browser cannot supply these IDs. Missing/stale mapping or vanished suppliers fails closed.
+- This check does not create shipments, issue document POST requests, mark a document processed, change stock or unlock the shipment feature. The old CHECK_REQUIRED invoice must never be replayed.
+- The server-side `assessInternalShipmentRoute` still denies all dispatch/save/process operations until the API-native outgoing-to-linked-incoming mechanism is confirmed with a controlled integration test and explicit authorization.
