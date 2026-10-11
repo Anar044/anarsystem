@@ -146,3 +146,11 @@ Run `node --test tests/internal-shipment-core.test.mjs`; it checks package/base-
 - Old `prepare` API can no longer reserve another document before the independent route gate approves a transport. Cancel for existing never-sent PREPARED records remains available.
 - UI removes repeated incompatibility messages for a mapped RMS. A confirmed route does NOT mean an authorized outgoing write or guaranteed linked incoming.
 - All stock-affecting endpoints are still guarded by `assessInternalShipmentRoute` returning unsupported. No stock write attempted by this change.
+
+## October 11: linked incoming lookup by outgoing document ID
+
+- Admin diagnostics now supports **Найти связанную приходную автоматически**: enter only the date and number of an existing outgoing invoice (e.g. 50001). Smart Horeca reads its confirmed UUID and searches iiko incoming exports using GET exclusively.
+- Confirmation requires `incoming.linkedOutgoingInvoiceId == outgoing.id` and identical product IDs/quantities. If a confirmed mapping exists for the evidence outgoing, the recipient store and incoming supplier must also match.
+- An incoming document with only a matching visible number is not considered confirmed. Multiple linked documents, wrong stores/suppliers or failed exports also fail closed.
+- Show NEW vs PROCESSED to distinguish a discovered incoming document from stock receipt. This diagnostic never creates/posts stock documents, reserves quantities or changes shipment state.
+- Older iikoChain guides mention `force-create-invoices-for-different-jurpersons=true` alongside `accounting-only-in-chain=true`. Applicability to version 9.2 is unverified: do not modify server settings without checking version-specific support.
