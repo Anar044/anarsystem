@@ -240,7 +240,7 @@ export async function onRequestPost({request,env}){
       }
     }
     if(action==="verify-iiko"){
-      if(!["CHECK_REQUIRED","DRAFT_SAVED","DRAFT_VERIFIED","IIKO_PROCESSED"].includes(s.status))throw err("Для этой отгрузки пока нет документа iiko.",409);
+      if(!["CHECK_REQUIRED","DRAFT_SAVED","DRAFT_VERIFIED","PROCESSING","IIKO_PROCESSED"].includes(s.status))throw err("Для этой отгрузки пока нет документа iiko.",409);
       const result=await outgoingLookup(c,s);
       if(!result.valid)return json({success:true,verification:{...result,linkedIncomingVerified:false},shipment:expose(s)});
       const status=result.processed?"IIKO_PROCESSED":"DRAFT_VERIFIED";
