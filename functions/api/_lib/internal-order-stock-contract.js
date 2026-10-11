@@ -22,7 +22,7 @@ export function expectedInternalStockMovement({quantity,unitCost}={}){
   if(!finite(unitCost)||unitCost<0)return reject("INVALID_COST","Себестоимость за единицу должна быть подтверждённым неотрицательным числом.");
   const value=money(quantity*unitCost);
   return {valid:true,quantity,value,
-    outgoing:{quantityDelta:-quantity,inventoryValueDelta:-value},
+    outgoing:{quantityDelta:-quantity,inventoryValueDelta:value===0?0:-value},
     incoming:{quantityDelta:quantity,inventoryValueDelta:value},
     inTransit:{quantity,value},
     marginAdded:0,
