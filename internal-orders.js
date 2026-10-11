@@ -184,7 +184,11 @@ function renderShipments(o,data){
       '<p class="io-muted">Контрагент определён, но автоматическое создание связанной приходной через REST пока не подтверждено. Отгрузка остаётся заблокирована.</p></div>';
   }
   if(data.dispatchBlockedReason){
-    body+='<div class="io-shipment-error io-route-error"><strong>Автоматическая отгрузка между RMS временно заблокирована</strong><p>'+esc(data.dispatchBlockedReason)+'</p><p>Выбранные отправитель и получатель верны. Не создавайте повторную расходную по уже отправленному номеру. Требуется проверить поддерживаемый API iikoChain для связанной пары расходная → приходная.</p></div>';
+    if(data.confirmedReceiverMapping){
+      body+='<p class="io-muted">Реальная отгрузка остаётся отключённой: правильные склады и контрагенты подтверждены, но необходимо доказать создание связанной приходной через REST API iikoChain.</p>';
+    }else{
+      body+='<div class="io-shipment-error io-route-error"><strong>Автоматическая отгрузка между RMS временно заблокирована</strong><p>'+esc(data.dispatchBlockedReason)+'</p><p>Для этого маршрута ещё требуется подтверждение внутреннего контрагента и механизма связанной приходной. Не повторяйте уже отправленные накладные.</p></div>';
+    }
   }
   const hint=$("io-detail")?.querySelector(".io-ready-next");
   if(hint&&data.canFulfill){
@@ -192,8 +196,10 @@ function renderShipments(o,data){
     const saved=shipments.some(x=>["CHECK_REQUIRED","DRAFT_SAVED","DRAFT_VERIFIED","IIKO_PROCESSED"].includes(x.status));
     const title=hint.querySelector("strong"),message=hint.querySelector("p"),button=hint.querySelector("#io-go-shipment");
     if(data.dispatchBlockedReason){
-      title.textContent="Обнаружена несовместимость формата накладной с iiko API";
-      message.textContent="В старом запросе вместо контрагента использовался ID склада. Сопоставление проверено, но создание связанной приходной через REST пока не подтверждено. Повторной отправки нет.";
+      title.textContent=data.confirmedReceiverMapping?"Маршрут и контрагенты подтверждены":"Маршрут iikoChain ещё не подтверждён";
+      message.textContent=data.confirmedReceiverMapping
+        ?"Отправитель и получатель сопоставлены правильно. Создание связанной приходной через REST пока не проверено, поэтому реальная отгрузка отключена."
+        :"В старом запросе ID склада ошибочно использовался как контрагент. Сопоставление для этого RMS и способ передачи документов ещё требуют проверки.";
       button.textContent="Посмотреть диагностику";
     }else if(shipments.some(x=>["CHECK_REQUIRED","PROCESSING"].includes(x.status))){
       title.textContent="Результат отгрузки ещё не подтверждён";
@@ -223,9 +229,13 @@ function renderShipments(o,data){
     body+='<div class="io-table-wrap"><table class="io-detail-lines"><thead><tr><th>Расходная</th><th>Сумма, ₼</th><th>Состояние</th><th>Действия</th></tr></thead><tbody>';
     for(const sh of shipments){
       const status=shStatus[sh.status]||sh.status;
-      const actions=!data.canDispatch?"—":sh.status==="PREPARED"
-        ?'<button type="button" class="io-btn io-primary" data-ship-action="dispatch-existing" data-ship-id="'+esc(sh.id)+'">Отгрузить</button> <button type="button" class="io-btn io-outline" data-ship-action="cancel" data-ship-id="'+esc(sh.id)+'">Отменить</button>'
-        :sh.status==="DRAFT_VERIFIED"?'<button type="button" class="io-btn io-primary" data-ship-action="process-iiko" data-ship-id="'+esc(sh.id)+'">Отгрузить</button>':"—";
+      // Cancellation of a never-sent PREPARED reservation is safe even
+      // while all stock-affecting transport actions remain disabled.
+      const actions=sh.status==="PREPARED"
+        ?(data.canDispatch?'<button type="button" class="io-btn io-primary" data-ship-action="dispatch-existing" data-ship-id="'+esc(sh.id)+'">Отгрузить</button> ':"")+
+          '<button type="button" class="io-btn io-outline" data-ship-action="cancel" data-ship-id="'+esc(sh.id)+'">Отменить</button>'
+        :(data.canDispatch&&sh.status==="DRAFT_VERIFIED")
+          ?'<button type="button" class="io-btn io-primary" data-ship-action="process-iiko" data-ship-id="'+esc(sh.id)+'">Отгрузить</button>':"—";
       body+='<tr><td><strong>'+esc(sh.number)+'</strong><small>'+esc(date(sh.documentDate))+' · '+sh.lines.length+' поз.</small></td><td>'+number(sh.totalCents/100)+'</td><td>'+esc(status)+(sh.error?'<small>'+esc(sh.error)+'</small>':'')+'</td><td>'+actions+'</td></tr>';
       if(sh.status==="IIKO_PROCESSED")body+='<tr><td colspan="4" class="io-muted">Расходная проведена в iiko. Связанная приходная получателя ещё не сверена — заказ не закрыт.</td></tr>';
       if(sh.status==="CHECK_REQUIRED"||sh.status==="PROCESSING")body+='<tr><td colspan="4" class="io-shipment-error">Ответ iiko не подтверждён. Система выполняет безопасную проверку в фоне. Повторная отправка заблокирована, чтобы не списать товар дважды. Если ошибка сохраняется, нужен разбор ответа iiko администратором.</td></tr>';
