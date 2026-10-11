@@ -6,7 +6,7 @@ import {resolveAccessForUser,hasPermission,requirePermission} from "./access/_li
 import {serverScopeFromConnection,logAuditEvent} from "./_lib/audit-log.js";
 import {iikoText,iikoJson} from "./iiko/_lib/iiko-client.js";
 import {resolveStoreScope} from "./iiko/_lib/store-scope.js";
-import {warehouseCostRows,costQuote} from "./_lib/internal-shipment-cost.js";
+import {warehouseCostRows,costQuote,classifyRestApiLicenseError} from "./_lib/internal-shipment-cost.js";
 import {inspectOutgoingForOrder} from "./_lib/internal-order-invoice.js";
 import {findOutgoingInvoices} from "./_lib/internal-order-iiko-lookup.js";
 import {prepareInternalShipment,shipmentXml,parseIikoValidation} from "./_lib/internal-shipment-core.js";
@@ -86,7 +86,11 @@ async function getWarehouseQuote(c,o,date){
   const q=new URLSearchParams({timestamp:date+"T23:59:59",store:id(o.central_store_id)});
   q.append("department",id(o.central_department_id));
   const res=await iikoJson(c.connection,"/resto/api/v2/reports/balance/stores?"+q,{timeoutMs:30000});
-  if(!res.ok||!res.payload)throw err("iikoChain не вернул себестоимость склада отправителя: HTTP "+res.status,502);
+  if(!res.ok||!res.payload){
+    const licensed=classifyRestApiLicenseError({message:"HTTP "+res.status+" "+str(res.text).slice(0,450)});
+    if(licensed)throw Object.assign(new Error(licensed.message),{status:licensed.status,code:licensed.code});
+    throw err("iikoChain не вернул себестоимость склада отправителя: HTTP "+res.status,502);
+  }
   const approved=parse(o.approved_lines_json,[]);
   const rows=warehouseCostRows(res.payload,o.central_store_id,approved.map(x=>x.productId));
   return {quotes:costQuote(approved,rows,date),timestamp:date+"T23:59:59",storeId:o.central_store_id,source:"/resto/api/v2/reports/balance/stores"};
@@ -337,5 +341,10 @@ export async function onRequestPost({request,env}){
       return json({success:true,verification:{...result,linkedIncomingVerified:false,canMarkReceived:false},shipment:expose(updated)});
     }
     throw err("Неизвестная операция.",400);
-  }catch(e){return json({success:false,message:e.message||String(e)},e.status||500)}
+  }catch(e){
+    const licensed=classifyRestApiLicenseError(e);
+    const code=licensed?.code||e?.code||"SHIPMENT_REQUEST_FAILED";
+    return json({success:false,code,message:licensed?.message||e.message||String(e)},
+      licensed?.status||e.status||500);
+  }
 }
