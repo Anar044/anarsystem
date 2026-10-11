@@ -177,31 +177,67 @@ function renderShipments(o,data){
   const remaining=(data.remaining||[]).filter(l=>l.remaining>0);
   if(data.canFulfill&&remaining.length){
     body+='<form id="io-shipment-form" class="io-shipment-form"><h4>Подготовить новую отгрузку</h4>';
-    body+='<div class="io-ship-fields"><label>ID контрагента iiko (VÖEN получателя)<input id="io-ship-counteragent" placeholder="ID контрагента в iiko" minlength="20" required></label><label>Дата расходной<input id="io-ship-date" type="date" required></label><label>Счёт получателя (необязательно)<input id="io-ship-account" placeholder="Код счёта"></label><label>Счёт выручки (необязательно)<input id="io-ship-revenue" placeholder="Код счёта"></label></div>';
-    body+='<table class="io-detail-lines"><thead><tr><th>Товар</th><th>Согласовано</th><th>Осталось</th><th>К отгрузке</th><th>Цена за осн. ед., ₼</th></tr></thead><tbody>';
+    body+='<p class="io-muted">Отправитель: <strong>'+esc(o.sourceDepartmentName)+' / '+esc(o.sourceStoreName)+'</strong> → Получатель: <strong>'+esc(o.destinationDepartmentName)+' / '+esc(o.destinationStoreName)+'</strong></p>';
+    body+='<p class="io-muted">Покупатель iiko — склад получателя <strong>'+esc(o.destinationStoreName)+'</strong>. Он уже выбран в заказе и автоматически подставляется в накладную.</p>';
+    body+='<div class="io-ship-fields"><label>Дата расходной<input id="io-ship-date" type="date" required></label></div>';
+    body+='<p id="io-cost-message" class="io-muted">Загружаем себестоимость склада отправителя из iiko…</p>';
+    body+='<table class="io-detail-lines"><thead><tr><th>Товар</th><th>Согласовано</th><th>Осталось</th><th>К отгрузке</th><th>Себестоимость за ед., ₼</th></tr></thead><tbody>';
     for(const l of remaining){
       const original=o.approvedLines.find(x=>String(x.productId).toLowerCase()===String(l.productId).toLowerCase());
-      body+='<tr data-ship-item="'+esc(l.productId)+'"><td>'+esc(original?.productName||l.productId)+'</td><td>'+number(l.approved)+'</td><td>'+number(l.remaining)+'</td><td><input type="number" min="0" max="'+l.remaining+'" step="0.001" value="'+l.remaining+'" data-ship-qty></td><td><input type="number" min="0.01" step="0.01" placeholder="0,00" data-ship-price></td></tr>';
+      body+='<tr data-ship-item="'+esc(l.productId)+'"><td>'+esc(original?.productName||l.productId)+'</td><td>'+number(l.approved)+'</td><td>'+number(l.remaining)+'</td><td><input type="number" min="0" max="'+l.remaining+'" step="0.001" value="'+l.remaining+'" data-ship-qty></td><td><strong data-ship-cost>Загрузка…</strong><small data-ship-available></small></td></tr>';
     }
-    body+='</tbody></table><p class="io-muted">Укажи отпускные цены и точный ID контрагента RMS-получателя из iiko. Цены не берём автоматически из себестоимости, налоги не рассчитываем без настроек VÖEN.</p>';
-    body+='<button class="io-btn io-primary" type="submit">Подготовить расходную накладную</button></form>';
+    body+='</tbody></table><p class="io-muted">Себестоимость берётся непосредственно из iikoChain по складу-отправителю, наценка 0%. Если себестоимость или остатки неизвестны, оформление будет заблокировано.</p>';
+    body+='<button class="io-btn io-primary" type="submit" disabled>Подготовить расходную накладную</button></form>';
   }else if(!remaining.length&&shipments.some(x=>x.status!=="CANCELLED"))body+='<p class="io-muted">Все согласованные количества распределены по отгрузкам.</p>';
   else if(!data.canFulfill)body+='<p class="io-muted">Оформление отгрузок доступно сотрудникам RMS-отправителя.</p>';
   block.innerHTML=body;
   const form=block.querySelector("#io-shipment-form");
   if(form){
-    const dateInput=block.querySelector("#io-ship-date");dateInput.value=new Date().toISOString().slice(0,10);
+    const dateInput=block.querySelector("#io-ship-date");
+    const message=block.querySelector("#io-cost-message");
+    const submit=form.querySelector('button[type="submit"]');
+    dateInput.value=new Date().toISOString().slice(0,10);
+    let quoteValid=false;
+    async function reloadCost(){
+      quoteValid=false;submit.disabled=true;
+      message.textContent="Проверяем себестоимость и остатки на складе "+o.sourceStoreName+" в iiko…";
+      try{
+        const result=await shipPost("quote",{orderId:o.id,documentDate:dateInput.value});
+        if(!form.isConnected)return;
+        const byId=new Map((result.quotes||[]).map(x=>[String(x.productId).toLowerCase(),x]));
+        let missing=false;
+        for(const row of form.querySelectorAll("[data-ship-item]")){
+          const v=byId.get(String(row.dataset.shipItem).toLowerCase()),amount=Number(row.querySelector("[data-ship-qty]").value);
+          const cost=row.querySelector("[data-ship-cost]"),available=row.querySelector("[data-ship-available]");
+          cost.textContent=v?.verified&&v?.unitCost!=null?Number(v.unitCost).toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:6}):"Не определена";
+          available.textContent=v?.available!=null?"Остаток: "+number(v.available):"Нет данных по складу";
+          if(amount>0&&(!v?.verified||Number(v.available)+0.00001<amount))missing=true;
+        }
+        quoteValid=!missing;
+        submit.disabled=missing;
+        message.textContent=missing?"Для выбранного количества недостаточно остатков или не определена себестоимость в iiko. Измените количество или проверьте склад.":"Данные получены из iiko по складу "+o.sourceStoreName+". Отгрузка по себестоимости, наценка 0%.";
+      }catch(e){
+        message.textContent=e.message||String(e);
+        submit.disabled=true;
+      }
+    }
+    dateInput.onchange=reloadCost;
+    form.querySelectorAll("[data-ship-qty]").forEach(x=>x.onchange=reloadCost);
+    void reloadCost();
     form.onsubmit=async event=>{
       event.preventDefault();
+      if(!quoteValid){note("Себестоимость товара ещё не проверена в iiko.","error");return}
       const lines=[...form.querySelectorAll("[data-ship-item]")].map(row=>({
-        productId:row.dataset.shipItem,
-        amount:Number(row.querySelector("[data-ship-qty]").value),
-        unitPrice:Number(row.querySelector("[data-ship-price]").value)
-      })).filter(l=>l.amount>0);
+        productId:row.dataset.shipItem,amount:Number(row.querySelector("[data-ship-qty]").value)
+      })).filter(x=>x.amount>0);
       if(!lines.length){note("Укажите количество для отгрузки.","error");return}
-      const counteragentId=block.querySelector("#io-ship-counteragent").value.trim();
-      if(!confirm("Подготовить расходную для "+o.destinationDepartmentName+"? Контрагент iiko: "+counteragentId+". Это резервирование количества, не проведение."))return;
-      try{busy(true);await shipPost("prepare",{orderId:o.id,counteragentId,documentDate:dateInput.value,accountToCode:block.querySelector("#io-ship-account").value,revenueAccountCode:block.querySelector("#io-ship-revenue").value,lines});note("Расходная накладная подготовлена. Проверьте её перед сохранением в iiko.","ok");await loadShipments(o)}catch(e){note(e.message,"error")}finally{busy(false)}
+      if(!confirm("Подготовить расходную: "+o.sourceStoreName+" → "+o.destinationStoreName+"? Цены по себестоимости iiko, наценка 0%. Документ не проводится."))return;
+      try{
+        busy(true);
+        await shipPost("prepare",{orderId:o.id,documentDate:dateInput.value,lines});
+        note("Расходная накладная подготовлена по себестоимости iiko.","ok");
+        await loadShipments(o);
+      }catch(e){note(e.message||String(e),"error")}finally{busy(false)}
     };
   }
   block.querySelectorAll("[data-ship-action]").forEach(btn=>btn.onclick=async()=>{
