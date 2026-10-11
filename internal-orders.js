@@ -2,7 +2,7 @@
 "use strict";
 const $=id=>document.getElementById(id),esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const statusNames={DRAFT:"Черновик",SUBMITTED:"На согласовании",APPROVED:"Подтверждён",PICKING:"Комплектуется",READY:"Готов к отгрузке",REJECTED:"Отклонён",CANCELLED:"Отменён"};
-const state={token:"",data:null,refs:[],binding:null,storeCache:new Map(),selected:null,verification:null,busy:false,view:new URLSearchParams(location.search).get("view")||"my"};
+const state={token:"",data:null,refs:[],binding:null,storeCache:new Map(),selected:null,verification:null,autoChecked:new Set(),busy:false,view:new URLSearchParams(location.search).get("view")||"my"};
 const date=v=>v?new Date(String(v).slice(0,10)+"T12:00:00").toLocaleDateString("ru-RU"):"—";
 const number=v=>Number(v||0).toLocaleString("ru-RU",{maximumFractionDigits:3});
 function note(msg,kind=""){const x=$("io-message");x.textContent=msg||"";x.className="io-message"+(kind?" "+kind:"")}
@@ -161,38 +161,42 @@ function renderShipments(o,data){
   const block=$("io-shipment-section");
   if(!block||!data)return;
   let body='<h3>Отгрузки и расходные накладные iiko</h3>';
-  body+='<p class="io-muted">Одна заявка может отгружаться частями. Подготовка и сохранение непроведённой расходной не меняют остатки. Факт проведения сверяем отдельно.</p>';
+  body+='<p class="io-muted">Укажите количество и нажмите «Отгрузить». Smart Horeca создаст и проведёт расходную в iiko; связанную приходную сформирует iikoChain по своим настройкам.</p>';
   const shipments=data.shipments||[];
   const hint=$("io-detail")?.querySelector(".io-ready-next");
   if(hint&&data.canFulfill){
     const prepared=shipments.some(x=>x.status==="PREPARED");
     const saved=shipments.some(x=>["CHECK_REQUIRED","DRAFT_SAVED","DRAFT_VERIFIED","IIKO_PROCESSED"].includes(x.status));
     const title=hint.querySelector("strong"),message=hint.querySelector("p"),button=hint.querySelector("#io-go-shipment");
-    if(prepared){
-      title.textContent="Расходная подготовлена в Smart Horeca";
-      message.textContent="Ниже появился документ с номером. Следующий шаг — «Сохранить непроведённую накладную в iiko». Только после сохранения выполняется сверка.";
-      button.textContent="Перейти к сохранению";
+    if(shipments.some(x=>["CHECK_REQUIRED","PROCESSING"].includes(x.status))){
+      title.textContent="Результат отгрузки ещё не подтверждён";
+      message.textContent="Smart Horeca проверяет документ в iiko. Повторная отправка заблокирована во избежание двойного списания.";
+      button.textContent="Посмотреть состояние";
+    }else if(prepared){
+      title.textContent="Расходная подготовлена";
+      message.textContent="Нажмите «Отгрузить» рядом с документом. Система сама проведёт его в iiko.";
+      button.textContent="К отгрузке";
     }else if(saved){
-      title.textContent="Накладная передана в iiko или требует сверки";
-      message.textContent="Выберите «Сверить с iiko» рядом с нужной расходной ниже. Проверка производится по номеру созданного документа.";
-      button.textContent="Перейти к накладным";
+      title.textContent="Документы отгрузки";
+      message.textContent="Smart Horeca автоматически проверяет их состояние в iiko.";
+      button.textContent="Посмотреть документы";
     }else{
-      title.textContent="Следующий этап — оформление расходной накладной";
-      message.textContent="Расходная в iiko ещё не создана. Подготовьте отгрузку ниже: выбранные склады и себестоимость подставятся автоматически.";
-      button.textContent="Перейти к оформлению отгрузки";
+      title.textContent="Следующий этап — отгрузка";
+      message.textContent="Проверьте количество и нажмите «Отгрузить». Накладная создаётся автоматически.";
+      button.textContent="Перейти к отгрузке";
     }
   }
-  if(!shipments.length)body+='<p class="io-shipment-empty">Расходная накладная по этому заказу ещё не создана. Ниже указаны товары для первой отгрузки. После подготовки появится документ с постоянным номером; только затем его можно отправить в iiko и сверить.</p>';
+  if(!shipments.length)body+='<p class="io-shipment-empty">Накладных пока нет. Нажмите «Отгрузить» — Smart Horeca оформит документ автоматически.</p>';
   if(shipments.length){
     body+='<div class="io-table-wrap"><table class="io-detail-lines"><thead><tr><th>Расходная</th><th>Сумма, ₼</th><th>Состояние</th><th>Действия</th></tr></thead><tbody>';
     for(const sh of shipments){
       const status=shStatus[sh.status]||sh.status;
       const actions=sh.status==="PREPARED"
-        ?'<button type="button" class="io-btn io-primary" data-ship-action="save-iiko-draft" data-ship-id="'+esc(sh.id)+'">Сохранить непроведённую накладную в iiko</button> <button type="button" class="io-btn io-outline" data-ship-action="cancel" data-ship-id="'+esc(sh.id)+'">Отменить</button>'
-        :sh.status==="DRAFT_VERIFIED"?'<button type="button" class="io-btn io-primary" data-ship-action="process-iiko" data-ship-id="'+esc(sh.id)+'">Отгрузить</button> <button type="button" class="io-btn io-outline" data-ship-action="verify-iiko" data-ship-id="'+esc(sh.id)+'">Проверить</button>':["CHECK_REQUIRED","DRAFT_SAVED","PROCESSING","IIKO_PROCESSED"].includes(sh.status)?'<button type="button" class="io-btn io-outline" data-ship-action="verify-iiko" data-ship-id="'+esc(sh.id)+'">Сверить с iiko</button>':"—";
+        ?'<button type="button" class="io-btn io-primary" data-ship-action="dispatch-existing" data-ship-id="'+esc(sh.id)+'">Отгрузить</button> <button type="button" class="io-btn io-outline" data-ship-action="cancel" data-ship-id="'+esc(sh.id)+'">Отменить</button>'
+        :sh.status==="DRAFT_VERIFIED"?'<button type="button" class="io-btn io-primary" data-ship-action="process-iiko" data-ship-id="'+esc(sh.id)+'">Отгрузить</button>':"—";
       body+='<tr><td><strong>'+esc(sh.number)+'</strong><small>'+esc(date(sh.documentDate))+' · '+sh.lines.length+' поз.</small></td><td>'+number(sh.totalCents/100)+'</td><td>'+esc(status)+(sh.error?'<small>'+esc(sh.error)+'</small>':'')+'</td><td>'+actions+'</td></tr>';
       if(sh.status==="IIKO_PROCESSED")body+='<tr><td colspan="4" class="io-muted">Расходная проведена в iiko. Связанная приходная получателя ещё не сверена — заказ не закрыт.</td></tr>';
-      if(sh.status==="CHECK_REQUIRED"||sh.status==="PROCESSING")body+='<tr><td colspan="4" class="io-shipment-error">Отгрузка заблокирована: результат запроса iiko неизвестен. Сначала нажмите «Сверить с iiko». Пока нет подтверждённой непроведённой накладной, кнопка «Отгрузить» не появится.</td></tr>';
+      if(sh.status==="CHECK_REQUIRED"||sh.status==="PROCESSING")body+='<tr><td colspan="4" class="io-shipment-error">Ответ iiko не подтверждён. Система выполняет безопасную проверку в фоне. Повторная отправка заблокирована, чтобы не списать товар дважды. Если ошибка сохраняется, нужен разбор ответа iiko администратором.</td></tr>';
     }
     body+='</tbody></table></div>';
   }
@@ -209,7 +213,7 @@ function renderShipments(o,data){
       body+='<tr data-ship-item="'+esc(l.productId)+'"><td>'+esc(original?.productName||l.productId)+'</td><td>'+number(l.approved)+'</td><td>'+number(l.remaining)+'</td><td><input type="number" min="0" max="'+l.remaining+'" step="0.001" value="'+l.remaining+'" data-ship-qty></td><td><strong data-ship-cost>Загрузка…</strong><small data-ship-available></small></td></tr>';
     }
     body+='</tbody></table><p class="io-muted">Себестоимость берётся непосредственно из iikoChain по складу-отправителю, наценка 0%. Если себестоимость или остатки неизвестны, оформление будет заблокировано.</p>';
-    body+='<button class="io-btn io-primary" type="submit" disabled>Подготовить расходную накладную</button></form>';
+    body+='<button class="io-btn io-primary" type="submit" disabled>Отгрузить</button></form>';
   }else if(!remaining.length&&shipments.some(x=>x.status!=="CANCELLED"))body+='<p class="io-muted">Все согласованные количества распределены по отгрузкам.</p>';
   else if(!data.canFulfill)body+='<p class="io-muted">Оформление отгрузок доступно сотрудникам RMS-отправителя.</p>';
   block.innerHTML=body;
@@ -253,20 +257,19 @@ function renderShipments(o,data){
         productId:row.dataset.shipItem,amount:Number(row.querySelector("[data-ship-qty]").value)
       })).filter(x=>x.amount>0);
       if(!lines.length){note("Укажите количество для отгрузки.","error");return}
-      if(!confirm("Подготовить расходную: "+o.sourceStoreName+" → "+o.destinationStoreName+"? Цены по себестоимости iiko, наценка 0%. Документ не проводится."))return;
+      if(!confirm("Отгрузить со склада "+o.sourceStoreName+" на "+o.destinationStoreName+"? Smart Horeca создаст и ПРОВЕДЁТ расходную накладную в iiko. Это изменит остатки отправителя. Продолжить?"))return;
       try{
         busy(true);
-        await shipPost("prepare",{orderId:o.id,documentDate:dateInput.value,lines});
-        note("Расходная накладная подготовлена по себестоимости iiko.","ok");
+        const result=await shipPost("dispatch",{orderId:o.id,documentDate:dateInput.value,lines});
+        note(result.message||"Запрос отправки обработан.",result.success?"ok":"error");
         await loadShipments(o);
       }catch(e){note(e.message||String(e),"error")}finally{busy(false)}
     };
   }
   block.querySelectorAll("[data-ship-action]").forEach(btn=>btn.onclick=async()=>{
     const action=btn.dataset.shipAction,shipmentId=btn.dataset.shipId;
-    if(action==="save-iiko-draft"&&!confirm("Сохранить НЕПРОВЕДЁННУЮ расходную в iiko? Реального списания пока не будет. Не нажимайте повторно при неизвестном ответе сервера."))return;
     if(action==="cancel"&&!confirm("Отменить неподанную расходную?"))return;
-    if(action==="process-iiko"&&!confirm("ОТГРУЗИТЬ товар со склада "+o.sourceStoreName+" на склад "+o.destinationStoreName+"? Эта операция ПРОВЕДЁТ расходную в iiko и изменит остатки отправителя. После этого нужно подтвердить связанную приходную у получателя. Продолжить?"))return;
+    if(["dispatch-existing","process-iiko"].includes(action)&&!confirm("Отгрузить со склада "+o.sourceStoreName+" на "+o.destinationStoreName+"? Накладная будет проведена в iiko, остаток отправителя изменится. Продолжить?"))return;
     try{
       busy(true);
       const r=await shipPost(action,{orderId:o.id,shipmentId});
@@ -275,6 +278,21 @@ function renderShipments(o,data){
       await loadShipments(o);
     }catch(e){note(e.message||String(e),"error");await loadShipments(o)}finally{busy(false)}
   });
+
+  // Verification belongs to the system, not to the cashier workflow.
+  // A single read-only refresh per shipment/status on this page load.
+  for(const sh of shipments.filter(x=>["CHECK_REQUIRED","PROCESSING","DRAFT_SAVED"].includes(x.status))){
+    const checkKey=sh.id+":"+sh.status;
+    if(state.autoChecked.has(checkKey))continue;
+    state.autoChecked.add(checkKey);
+    void (async()=>{
+      try{
+        const check=await shipPost("verify-iiko",{orderId:o.id,shipmentId:sh.id});
+        if(check?.verification?.valid&&state.selected?.id===o.id)await loadShipments(o);
+      }catch(e){console.warn("Background iiko shipment lookup unavailable",String(e?.message||e))}
+    })();
+  }
+
 }
 
 function openDetail(id){const o=state.data?.orders.find(x=>x.id===id);if(o)detail(o)}
