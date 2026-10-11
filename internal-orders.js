@@ -174,12 +174,19 @@ function renderShipments(o,data){
   let body='<h3>Отгрузки и расходные накладные iiko</h3>';
   body+='<p class="io-muted">Укажите количество и нажмите «Отгрузить». Smart Horeca создаст и проведёт расходную в iiko; связанную приходную сформирует iikoChain по своим настройкам.</p>';
   const shipments=data.shipments||[];
+  if(data.dispatchBlockedReason){
+    body+='<div class="io-shipment-error io-route-error"><strong>Автоматическая отгрузка между RMS временно заблокирована</strong><p>'+esc(data.dispatchBlockedReason)+'</p><p>Выбранные отправитель и получатель верны. Не создавайте повторную расходную по уже отправленному номеру. Требуется проверить поддерживаемый API iikoChain для связанной пары расходная → приходная.</p></div>';
+  }
   const hint=$("io-detail")?.querySelector(".io-ready-next");
   if(hint&&data.canFulfill){
     const prepared=shipments.some(x=>x.status==="PREPARED");
     const saved=shipments.some(x=>["CHECK_REQUIRED","DRAFT_SAVED","DRAFT_VERIFIED","IIKO_PROCESSED"].includes(x.status));
     const title=hint.querySelector("strong"),message=hint.querySelector("p"),button=hint.querySelector("#io-go-shipment");
-    if(shipments.some(x=>["CHECK_REQUIRED","PROCESSING"].includes(x.status))){
+    if(data.dispatchBlockedReason){
+      title.textContent="Обнаружена несовместимость формата накладной с iiko API";
+      message.textContent="iiko пытается прочитать склад-покупатель как User. Отправка отключена до исправления интеграции. Уже выполненная попытка не повторяется.";
+      button.textContent="Посмотреть диагностику";
+    }else if(shipments.some(x=>["CHECK_REQUIRED","PROCESSING"].includes(x.status))){
       title.textContent="Результат отгрузки ещё не подтверждён";
       message.textContent="Smart Horeca проверяет документ в iiko. Повторная отправка заблокирована во избежание двойного списания.";
       button.textContent="Посмотреть состояние";
@@ -202,7 +209,7 @@ function renderShipments(o,data){
     body+='<div class="io-table-wrap"><table class="io-detail-lines"><thead><tr><th>Расходная</th><th>Сумма, ₼</th><th>Состояние</th><th>Действия</th></tr></thead><tbody>';
     for(const sh of shipments){
       const status=shStatus[sh.status]||sh.status;
-      const actions=sh.status==="PREPARED"
+      const actions=!data.canDispatch?"—":sh.status==="PREPARED"
         ?'<button type="button" class="io-btn io-primary" data-ship-action="dispatch-existing" data-ship-id="'+esc(sh.id)+'">Отгрузить</button> <button type="button" class="io-btn io-outline" data-ship-action="cancel" data-ship-id="'+esc(sh.id)+'">Отменить</button>'
         :sh.status==="DRAFT_VERIFIED"?'<button type="button" class="io-btn io-primary" data-ship-action="process-iiko" data-ship-id="'+esc(sh.id)+'">Отгрузить</button>':"—";
       body+='<tr><td><strong>'+esc(sh.number)+'</strong><small>'+esc(date(sh.documentDate))+' · '+sh.lines.length+' поз.</small></td><td>'+number(sh.totalCents/100)+'</td><td>'+esc(status)+(sh.error?'<small>'+esc(sh.error)+'</small>':'')+'</td><td>'+actions+'</td></tr>';
@@ -212,7 +219,7 @@ function renderShipments(o,data){
     body+='</tbody></table></div>';
   }
   const remaining=(data.remaining||[]).filter(l=>l.remaining>0);
-  if(data.canFulfill&&remaining.length){
+  if(data.canFulfill&&data.canDispatch&&remaining.length){
     body+='<form id="io-shipment-form" class="io-shipment-form"><h4>Подготовить новую отгрузку</h4>';
     body+='<p class="io-muted">Отправитель: <strong>'+esc(o.sourceDepartmentName)+' / '+esc(o.sourceStoreName)+'</strong> → Получатель: <strong>'+esc(o.destinationDepartmentName)+' / '+esc(o.destinationStoreName)+'</strong></p>';
     body+='<p class="io-muted">Покупатель iiko — склад получателя <strong>'+esc(o.destinationStoreName)+'</strong>. Он уже выбран в заказе и автоматически подставляется в накладную.</p>';
