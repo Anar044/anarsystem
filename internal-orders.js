@@ -163,6 +163,25 @@ function renderShipments(o,data){
   let body='<h3>Отгрузки и расходные накладные iiko</h3>';
   body+='<p class="io-muted">Одна заявка может отгружаться частями. Подготовка и сохранение непроведённой расходной не меняют остатки. Факт проведения сверяем отдельно.</p>';
   const shipments=data.shipments||[];
+  const hint=$("io-detail")?.querySelector(".io-ready-next");
+  if(hint&&data.canFulfill){
+    const prepared=shipments.some(x=>x.status==="PREPARED");
+    const saved=shipments.some(x=>["CHECK_REQUIRED","DRAFT_SAVED","DRAFT_VERIFIED","IIKO_PROCESSED"].includes(x.status));
+    const title=hint.querySelector("strong"),message=hint.querySelector("p"),button=hint.querySelector("#io-go-shipment");
+    if(prepared){
+      title.textContent="Расходная подготовлена в Smart Horeca";
+      message.textContent="Ниже появился документ с номером. Следующий шаг — «Сохранить непроведённую накладную в iiko». Только после сохранения выполняется сверка.";
+      button.textContent="Перейти к сохранению";
+    }else if(saved){
+      title.textContent="Накладная передана в iiko или требует сверки";
+      message.textContent="Выберите «Сверить с iiko» рядом с нужной расходной ниже. Проверка производится по номеру созданного документа.";
+      button.textContent="Перейти к накладным";
+    }else{
+      title.textContent="Следующий этап — оформление расходной накладной";
+      message.textContent="Расходная в iiko ещё не создана. Подготовьте отгрузку ниже: выбранные склады и себестоимость подставятся автоматически.";
+      button.textContent="Перейти к оформлению отгрузки";
+    }
+  }
   if(!shipments.length)body+='<p class="io-shipment-empty">Расходная накладная по этому заказу ещё не создана. Ниже указаны товары для первой отгрузки. После подготовки появится документ с постоянным номером; только затем его можно отправить в iiko и сверить.</p>';
   if(shipments.length){
     body+='<div class="io-table-wrap"><table class="io-detail-lines"><thead><tr><th>Расходная</th><th>Сумма, ₼</th><th>Состояние</th><th>Действия</th></tr></thead><tbody>';
