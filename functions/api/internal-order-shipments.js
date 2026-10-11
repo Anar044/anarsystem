@@ -17,6 +17,7 @@ import {previewConfirmedInternalRoute} from "./_lib/internal-order-route-preview
 import {extractIikoInvoiceSummaries,compareIikoInvoicePair,identifyIikoPairCounteragents,validatedPairWarehouseMapping} from "./_lib/internal-order-pair-probe.js";
 import {getIikoSuppliers} from "./iiko/_lib/iiko-suppliers.js";
 import {findLinkedIncomingInvoices} from "./_lib/internal-order-incoming-lookup.js";
+import {validateShipmentOutgoingForReceipt} from "./_lib/internal-order-receipt-check.js";
 
 const H={"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"Content-Type,Authorization","Access-Control-Allow-Methods":"GET,POST,OPTIONS"};
 const str=v=>String(v??"").trim();
@@ -327,6 +328,33 @@ export async function onRequestPost({request,env}){
       }))});
     }
     const o=await order(c,body.orderId);
+    if(action==="check-receipt"){
+      // Available to users allowed to view this order, including receiver RMS.
+      // All remote calls are GET; no D1 changes, new shipment reservations,
+      // automatic receipt postings, or status transitions are performed.
+      const s=await shipment(c,o,body.shipmentId);
+      if(s.status!=="IIKO_PROCESSED")
+        return json({success:true,readOnly:true,stockOperation:false,receipt:{confirmed:false,code:"OUTGOING_NOT_VERIFIED",
+          message:"Нельзя проверять приёмку: расходная этой отгрузки ещё не подтверждена как проведённая."}});
+      const mapping=await c.env.DB.prepare("SELECT * FROM sh_internal_order_warehouse_counterparties WHERE server_scope=?1 AND source_store_id=?2 AND destination_store_id=?3")
+        .bind(c.scope,id(o.central_store_id),id(o.destination_store_id)).first();
+      if(!mapping||id(mapping.outgoing_buyer_id)!==id(s.counteragent_id))
+        return json({success:true,readOnly:true,stockOperation:false,receipt:{confirmed:false,code:"RECEIVER_MAPPING_UNVERIFIED",
+          message:"Пара складов или внутренний контрагент этой отгрузки не подтверждены."}});
+      const source=await exportIikoPairExample(c,"outgoing",s.iiko_document_number||s.number,s.document_date);
+      if(!source.document||source.ambiguous)
+        return json({success:true,readOnly:true,stockOperation:false,receipt:{confirmed:false,code:"OUTGOING_NOT_FOUND",
+          message:"Не удалось однозначно прочитать проведённую расходную из iiko. Ничего не изменено."}});
+      const validation=validateShipmentOutgoingForReceipt(s,source.document,mapping.outgoing_buyer_id);
+      if(!validation.valid)
+        return json({success:true,readOnly:true,stockOperation:false,receipt:{confirmed:false,code:validation.code,message:validation.message}});
+      const incoming=await findLinkedIncomingInvoices(c.connection,source.document,{
+        recipientStoreId:o.destination_store_id,supplierId:mapping.incoming_supplier_id
+      });
+      return json({success:true,readOnly:true,stockOperation:false,sourceConfirmed:true,
+        receipt:incoming,canMarkReceived:false,
+        message:incoming.message});
+    }
     if(!shipper(o,c))throw err("Только уполномоченный сотрудник RMS-отправителя может оформлять отгрузку.",403);
     if(action==="preview-route"){
       // Explicitly read only: no shipment reservation, no iiko POST.
