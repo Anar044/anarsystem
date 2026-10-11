@@ -172,7 +172,7 @@ function renderShipments(o,data){
   const block=$("io-shipment-section");
   if(!block||!data)return;
   let body='<h3>Отгрузки и расходные накладные iiko</h3>';
-  body+='<p class="io-muted">Укажите количество и нажмите «Отгрузить». Smart Horeca создаст и проведёт расходную в iiko; связанную приходную сформирует iikoChain по своим настройкам.</p>';
+  body+='<p class="io-muted">'+(data.canDispatch?"Укажите количество для отгрузки. Перед проведением система повторно проверит документы.":"Отгрузка ещё не разрешена: сначала проверяем маршрут и механизм создания связанной приходной через iikoChain.")+'</p>';
   const shipments=data.shipments||[];
   if(data.confirmedReceiverMapping){
     const m=data.confirmedReceiverMapping;
@@ -213,7 +213,12 @@ function renderShipments(o,data){
       button.textContent="Перейти к отгрузке";
     }
   }
-  if(!shipments.length)body+='<p class="io-shipment-empty">Накладных пока нет. Нажмите «Отгрузить» — Smart Horeca оформит документ автоматически.</p>';
+  if(data.canFulfill){
+    body+='<div class="io-pair-document"><button type="button" class="io-btn io-outline" id="io-route-preview">Проверить маршрут (без отгрузки)</button>'+
+      '<p class="io-muted">Проверяются склад отправителя, склад RMS-получателя и контрагенты из действующего справочника iiko. Документы не создаются, остатки не меняются.</p>'+
+      '<div id="io-route-preview-result" aria-live="polite"></div></div>';
+  }
+  if(!shipments.length)body+='<p class="io-shipment-empty">'+(data.canDispatch?"Накладных пока нет. Для новой отгрузки заполните форму ниже.":"Накладных пока нет. Создание документов отключено до проверки интеграции.")+'</p>';
   if(shipments.length){
     body+='<div class="io-table-wrap"><table class="io-detail-lines"><thead><tr><th>Расходная</th><th>Сумма, ₼</th><th>Состояние</th><th>Действия</th></tr></thead><tbody>';
     for(const sh of shipments){
@@ -244,6 +249,25 @@ function renderShipments(o,data){
   }else if(!remaining.length&&shipments.some(x=>x.status!=="CANCELLED"))body+='<p class="io-muted">Все согласованные количества распределены по отгрузкам.</p>';
   else if(!data.canFulfill)body+='<p class="io-muted">Оформление отгрузок доступно сотрудникам RMS-отправителя.</p>';
   block.innerHTML=body;
+  const routeButton=block.querySelector("#io-route-preview");
+  if(routeButton)routeButton.onclick=async()=>{
+    const out=block.querySelector("#io-route-preview-result");
+    routeButton.disabled=true;
+    if(out)out.textContent="Проверяем только чтением…";
+    try{
+      const reply=await shipPost("preview-route",{orderId:o.id});
+      const v=reply.preview||{};
+      if(out){
+        out.innerHTML='<strong>'+esc(v.valid?"Соответствие подтверждено":"Маршрут не подтверждён")+'</strong>'+
+          '<p>'+esc(v.message||"Результат проверки отсутствует.")+'</p>'+
+          (v.valid?'<p>Склад расходной (defaultStoreId): <code>'+esc(v.outgoing?.defaultStoreId||"")+'</code></p>'+
+          '<p>Покупатель расходной (counteragentId): <strong>'+esc(v.outgoing?.counteragentName||"")+'</strong> · <code>'+esc(v.outgoing?.counteragentId||"")+'</code></p>'+
+          '<p>Склад связанной приходной: <code>'+esc(v.expectedIncoming?.recipientStoreId||"")+'</code> · Поставщик: '+esc(v.expectedIncoming?.supplierName||"")+'</p>':
+          '')+'<p class="io-muted">Только чтение. Реальная отгрузка и создание связанной приходной остаются заблокированными.</p>';
+      }
+    }catch(e){if(out)out.textContent="Проверка не выполнена: "+String(e?.message||e)}
+    finally{routeButton.disabled=false}
+  };
   const form=block.querySelector("#io-shipment-form");
   if(form){
     const dateInput=block.querySelector("#io-ship-date");
