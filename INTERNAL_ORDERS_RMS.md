@@ -139,3 +139,10 @@ Run `node --test tests/internal-shipment-core.test.mjs`; it checks package/base-
 - The preflight reports the proposed `defaultStoreId`, **supplier** `counteragentId`, recipient store and incoming supplier. The browser cannot supply these IDs. Missing/stale mapping or vanished suppliers fails closed.
 - This check does not create shipments, issue document POST requests, mark a document processed, change stock or unlock the shipment feature. The old CHECK_REQUIRED invoice must never be replayed.
 - The server-side `assessInternalShipmentRoute` still denies all dispatch/save/process operations until the API-native outgoing-to-linked-incoming mechanism is confirmed with a controlled integration test and explicit authorization.
+
+## October 11: corrected dormant shipment buyer references
+
+- After read-only RMS 1 preflight confirmed the correct User/supplier buyer, the *unreachable while guarded* dispatch, prepare, save-draft and process paths were aligned to use the confirmed buyer rather than destination Store ID.
+- Old `prepare` API can no longer reserve another document before the independent route gate approves a transport. Cancel for existing never-sent PREPARED records remains available.
+- UI removes repeated incompatibility messages for a mapped RMS. A confirmed route does NOT mean an authorized outgoing write or guaranteed linked incoming.
+- All stock-affecting endpoints are still guarded by `assessInternalShipmentRoute` returning unsupported. No stock write attempted by this change.
