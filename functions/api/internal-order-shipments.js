@@ -16,6 +16,7 @@ import {assessInternalShipmentRoute} from "./_lib/internal-order-route.js";
 import {previewConfirmedInternalRoute} from "./_lib/internal-order-route-preview.js";
 import {extractIikoInvoiceSummaries,compareIikoInvoicePair,identifyIikoPairCounteragents,validatedPairWarehouseMapping} from "./_lib/internal-order-pair-probe.js";
 import {getIikoSuppliers} from "./iiko/_lib/iiko-suppliers.js";
+import {findLinkedIncomingInvoices} from "./_lib/internal-order-incoming-lookup.js";
 
 const H={"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"Content-Type,Authorization","Access-Control-Allow-Methods":"GET,POST,OPTIONS"};
 const str=v=>String(v??"").trim();
@@ -268,6 +269,31 @@ export async function onRequestPost({request,env}){
           supplierDirectoryEntries:referenceRows.length
         },
         note:"Только чтение API. Идентификатор покупателя в успешно проведённой расходной необходимо сверять с iiko справочником поставщиков; ID склада не является допустимой заменой. Автоматическая отгрузка пока заблокирована."});
+    }
+    if(action==="find-linked-incoming"){
+      requirePermission(c.access,"procurement.internal.configure");
+      const day=str(body.documentDate),number=str(body.outgoingNumber);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!number||number.length>60)
+        throw err("Укажите дату и номер ранее проведённой расходной накладной iiko.",400);
+      const outgoing=await exportIikoPairExample(c,"outgoing",number,day);
+      if(!outgoing.document||outgoing.ambiguous)
+        return json({success:true,readOnly:true,stockOperation:false,found:false,confirmed:false,
+          code:"OUTGOING_NOT_VERIFIED",message:"Не удалось однозначно найти расходную в iiko. Приходную не искали.",outgoingAttempts:outgoing.attempts});
+      // Use only server-verified mapping evidence, never client-supplied Store or supplier IDs.
+      const records=(await c.env.DB.prepare("SELECT destination_store_id,incoming_supplier_id,outgoing_buyer_id FROM sh_internal_order_warehouse_counterparties WHERE server_scope=?1 AND evidence_outgoing_id=?2")
+        .bind(c.scope,id(outgoing.document.id)).all()).results||[];
+      const exact=records.filter(row=>id(row.outgoing_buyer_id)===id(outgoing.document.counteragentId));
+      const mapped=exact.length===1?exact[0]:null;
+      const result=await findLinkedIncomingInvoices(c.connection,outgoing.document,{
+        recipientStoreId:mapped?.destination_store_id||"",
+        supplierId:mapped?.incoming_supplier_id||""
+      });
+      return json({success:true,readOnly:true,stockOperation:false,
+        outgoing:{id:outgoing.document.id,number:outgoing.document.number,status:outgoing.document.status,
+          storeId:outgoing.document.storeId,counteragentId:outgoing.document.counteragentId},
+        validatedWarehouseMapping:!!mapped,receiverStoreId:mapped?.destination_store_id||"",
+        ...result,
+        note:"Только GET iiko. Подтверждение связи не даёт разрешения на отгрузку или проведение приходной."});
     }
     if(action==="confirm-pair-mapping"){
       requirePermission(c.access,"procurement.internal.configure");
