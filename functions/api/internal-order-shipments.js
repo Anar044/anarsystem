@@ -13,7 +13,7 @@ import {prepareInternalShipment,shipmentXml,parseIikoValidation} from "./_lib/in
 import {canAccessInternalOrder} from "./_lib/internal-order-core.js";
 import {isIikoRestApiLicenseError,IIKO_REST_API_LICENSE_MESSAGE} from "./_lib/internal-order-license.js";
 import {assessInternalShipmentRoute} from "./_lib/internal-order-route.js";
-import {extractIikoInvoiceSummaries,compareIikoInvoicePair,identifyIikoPairCounteragents} from "./_lib/internal-order-pair-probe.js";
+import {extractIikoInvoiceSummaries,compareIikoInvoicePair,identifyIikoPairCounteragents,validatedPairWarehouseMapping} from "./_lib/internal-order-pair-probe.js";
 import {getIikoSuppliers} from "./iiko/_lib/iiko-suppliers.js";
 
 const H={"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"Content-Type,Authorization","Access-Control-Allow-Methods":"GET,POST,OPTIONS"};
@@ -27,7 +27,8 @@ async function ensure(db){
   await db.batch([
     db.prepare("CREATE TABLE IF NOT EXISTS sh_internal_order_shipments (id TEXT PRIMARY KEY,server_scope TEXT NOT NULL,order_id TEXT NOT NULL,number TEXT NOT NULL,iiko_document_id TEXT NOT NULL,status TEXT NOT NULL,source_store_id TEXT NOT NULL,destination_store_id TEXT NOT NULL,counteragent_id TEXT NOT NULL,document_date TEXT NOT NULL,account_to_code TEXT NOT NULL DEFAULT '',revenue_account_code TEXT NOT NULL DEFAULT '',lines_json TEXT NOT NULL,total_cents INTEGER NOT NULL,created_at TEXT NOT NULL,created_by TEXT NOT NULL,updated_at TEXT NOT NULL,iiko_document_number TEXT NOT NULL DEFAULT '',iiko_status TEXT NOT NULL DEFAULT '',error_text TEXT NOT NULL DEFAULT '')"),
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_internal_shipment_number ON sh_internal_order_shipments(server_scope,number)"),
-    db.prepare("CREATE INDEX IF NOT EXISTS idx_internal_shipment_order ON sh_internal_order_shipments(server_scope,order_id,created_at)")
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_internal_shipment_order ON sh_internal_order_shipments(server_scope,order_id,created_at)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS sh_internal_order_warehouse_counterparties (server_scope TEXT NOT NULL,source_store_id TEXT NOT NULL,destination_store_id TEXT NOT NULL,outgoing_buyer_id TEXT NOT NULL,outgoing_buyer_name TEXT NOT NULL,incoming_supplier_id TEXT NOT NULL,incoming_supplier_name TEXT NOT NULL,evidence_outgoing_id TEXT NOT NULL,evidence_incoming_id TEXT NOT NULL,evidence_outgoing_number TEXT NOT NULL,evidence_incoming_number TEXT NOT NULL,confirmed_by TEXT NOT NULL,confirmed_at TEXT NOT NULL,PRIMARY KEY(server_scope,source_store_id,destination_store_id))")
   ]);
 }
 function visible(o,c){
@@ -231,6 +232,7 @@ export async function onRequestPost({request,env}){
       }
       return json({success:true,readOnly:true,from:"iikoChain REST export",outgoing,incoming,
         comparison:compareIikoInvoicePair(outgoing.document,incoming.document),
+        mappingCandidate:validatedPairWarehouseMapping(outgoing.document,incoming.document,referenceRows),
         supplierReferences:{
           ...identifyIikoPairCounteragents(outgoing.document,incoming.document,referenceRows),
           supplierLookupStatus,supplierLookupError,
