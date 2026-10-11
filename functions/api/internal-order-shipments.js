@@ -13,6 +13,7 @@ import {prepareInternalShipment,shipmentXml,parseIikoValidation} from "./_lib/in
 import {canAccessInternalOrder} from "./_lib/internal-order-core.js";
 import {isIikoRestApiLicenseError,IIKO_REST_API_LICENSE_MESSAGE} from "./_lib/internal-order-license.js";
 import {assessInternalShipmentRoute} from "./_lib/internal-order-route.js";
+import {previewConfirmedInternalRoute} from "./_lib/internal-order-route-preview.js";
 import {extractIikoInvoiceSummaries,compareIikoInvoicePair,identifyIikoPairCounteragents,validatedPairWarehouseMapping} from "./_lib/internal-order-pair-probe.js";
 import {getIikoSuppliers} from "./iiko/_lib/iiko-suppliers.js";
 
@@ -287,6 +288,17 @@ export async function onRequestPost({request,env}){
     }
     const o=await order(c,body.orderId);
     if(!shipper(o,c))throw err("Только уполномоченный сотрудник RMS-отправителя может оформлять отгрузку.",403);
+    if(action==="preview-route"){
+      // Explicitly read only: no shipment reservation, no iiko POST.
+      const mapping=await c.env.DB.prepare("SELECT * FROM sh_internal_order_warehouse_counterparties WHERE server_scope=?1 AND source_store_id=?2 AND destination_store_id=?3")
+        .bind(c.scope,id(o.central_store_id),id(o.destination_store_id)).first();
+      if(!mapping)return json({success:true,readOnly:true,stockOperation:false,preview:previewConfirmedInternalRoute(o,null,[])});
+      await verifyRouteWarehouses(c,o);
+      const suppliers=await getIikoSuppliers(c.connection);
+      if(suppliers.status!==200||!suppliers.rows?.length)throw err("Невозможно подтвердить контрагентов по текущему справочнику iiko. Ничего не отправлено.",502);
+      const preview=previewConfirmedInternalRoute(o,mapping,suppliers.rows);
+      return json({success:true,readOnly:true,stockOperation:false,preview});
+    }
     if(action==="dispatch"){
       assertSupportedIikoShipmentRoute(o);
       if(o.status!=="READY")throw err("Заказ ещё не готов к отгрузке.",409);
