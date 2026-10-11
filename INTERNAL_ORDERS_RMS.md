@@ -126,3 +126,9 @@ Run `node --test tests/internal-shipment-core.test.mjs`; it checks package/base-
 - The settings UI shows this as an optional **«Сохранить соответствие для этих двух складов»** button only when both linked invoices were confirmed, both statuses are PROCESSED, item quantities match, both suppliers exist in the iiko directory and the warehouse IDs differ.
 - The mapping registry is NOT used to enable outbound REST document creation: the stock-writing route guard remains closed until we verify that the iikoChain REST import can create linked incoming in the actual receiver RMS. The prior HTTP 500 attempt `IO-20261011-DF4D8D-S01` remains CHECK_REQUIRED; no second POST.
 - The right long-term scenario remains one operator click to dispatch and an iikoChain-managed linked incoming, with recipient-side receipt confirmation. A source-RMS standalone outgoing is not an acceptable substitute.
+
+## October 11: confirmed buyer mapping visibility and outbound XML warehouse placement
+
+- The saved per-server, per-warehouse-pair mapping is displayed on each READY internal order in read-only mode. It shows the exact receiver buyer supplier ID, names, and supporting outgoing/incoming invoice numbers. No generic fallback is allowed for unmapped RMS destinations.
+- The outgoing invoice XML builder now uses **document-level** `defaultStoreId` only; it does not also write `storeId` on each item. This follows the documented iiko outgoing invoice DTO storage placement rule. `counteragentId` remains a distinct **supplier/User** ID rather than a Store ID.
+- The server route gate remains closed for all cross-RMS stock writes, including users with confirmed mapping, until a controlled integration check proves iikoChain creates the linked incoming invoice automatically. The historical `CHECK_REQUIRED` invoice must not be resent.
