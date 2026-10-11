@@ -6,3 +6,5 @@
 .io-view[hidden],.io-kpis[hidden],.io-top-actions [hidden],.io-panel[hidden]{display:none!important}
 .io-panel#io-list-panel[hidden]{display:none!important}
 @media(max-width:850px){.io-subnav{overflow-x:auto;flex-wrap:nowrap}.io-view{white-space:nowrap}.io-main{padding:14px}.io-line{grid-template-columns:1fr 1fr}}
+
+.io-invoice-check{margin-top:18px;padding:16px;background:#112c30;border:1px solid #2d625c;border-radius:12px}.io-invoice-check strong{color:#a8f3d3}.io-invoice-check .io-muted{margin:8px 0;color:#afc6d2}.io-invoice-check .io-detail-lines{margin-top:10px}
