@@ -164,6 +164,10 @@ export async function onRequestPost({request,env}){
       if(s.status!=="PREPARED")throw err("Этот документ уже отправлялся в iiko. Повторная отправка запрещена до сверки.",409);
       await verifyRouteWarehouses(c,o);
       if(id(s.counteragent_id)!==id(o.destination_store_id))throw err("Покупатель расходной должен совпадать со складом RMS-получателя, выбранным в заказе.",409);
+      // Block old manually-priced shipments prepared before the automatic
+      // warehouse valuation upgrade. Users must cancel and recreate them.
+      const previousLines=parse(s.lines_json,[]);
+      if(previousLines.some(l=>l.costSource!=="iikoChain warehouse balance"||!l.costTimestamp))throw err("Эта отгрузка подготовлена по старой схеме с ручной ценой. Отмените её и создайте заново по себестоимости iiko.",409);
       // Do not automatically retry an ambiguous transport error: iiko may have
       // persisted the draft even if the network response was lost.
       // Check the stable document number before importing; never silently
