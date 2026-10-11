@@ -174,6 +174,15 @@ function renderShipments(o,data){
   let body='<h3>Отгрузки и расходные накладные iiko</h3>';
   body+='<p class="io-muted">Укажите количество и нажмите «Отгрузить». Smart Horeca создаст и проведёт расходную в iiko; связанную приходную сформирует iikoChain по своим настройкам.</p>';
   const shipments=data.shipments||[];
+  if(data.confirmedReceiverMapping){
+    const m=data.confirmedReceiverMapping;
+    body+='<div class="io-pair-document"><strong>Получатель сопоставлен со справочником iiko</strong>'+
+      '<p>Склад отправителя: '+esc(o.sourceStoreName)+' → Склад получателя: '+esc(o.destinationStoreName)+'</p>'+
+      '<p>Покупатель в расходной: <strong>'+esc(m.outgoingBuyerName)+'</strong> · ID контрагента: <code>'+esc(m.outgoingBuyerId)+'</code></p>'+
+      '<p>Поставщик связанной приходной: '+esc(m.incomingSupplierName)+'</p>'+
+      '<p>Проверено по проведённой паре №'+esc(m.evidenceOutgoingNumber)+' / №'+esc(m.evidenceIncomingNumber)+'.</p>'+
+      '<p class="io-muted">Контрагент определён, но автоматическое создание связанной приходной через REST пока не подтверждено. Отгрузка остаётся заблокирована.</p></div>';
+  }
   if(data.dispatchBlockedReason){
     body+='<div class="io-shipment-error io-route-error"><strong>Автоматическая отгрузка между RMS временно заблокирована</strong><p>'+esc(data.dispatchBlockedReason)+'</p><p>Выбранные отправитель и получатель верны. Не создавайте повторную расходную по уже отправленному номеру. Требуется проверить поддерживаемый API iikoChain для связанной пары расходная → приходная.</p></div>';
   }
