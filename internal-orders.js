@@ -145,7 +145,7 @@ function detail(o){
   panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
 
-const shStatus={PREPARED:"Подготовлена",IMPORTING:"Сохранение в iiko",CHECK_REQUIRED:"Нужна проверка в iiko",DRAFT_SAVED:"Черновик отправлен в iiko",DRAFT_VERIFIED:"Непроведённая накладная проверена",IIKO_PROCESSED:"Расходная проведена в iiko",CANCELLED:"Отменена"};
+const shStatus={PREPARED:"Подготовлена",IMPORTING:"Сохранение в iiko",CHECK_REQUIRED:"Ошибка iiko — нужна сверка",DRAFT_SAVED:"Черновик отправлен в iiko",DRAFT_VERIFIED:"Готова к отгрузке",PROCESSING:"Проводится в iiko — ждём сверку",IIKO_PROCESSED:"Отгружено в iiko · ждём приёмки",CANCELLED:"Отменена"};
 const shipGet=orderId=>api("/api/internal-order-shipments?orderId="+encodeURIComponent(orderId));
 const shipPost=(action,body)=>api("/api/internal-order-shipments",{method:"POST",body:JSON.stringify({action,...body})});
 async function loadShipments(o){
@@ -189,9 +189,10 @@ function renderShipments(o,data){
       const status=shStatus[sh.status]||sh.status;
       const actions=sh.status==="PREPARED"
         ?'<button type="button" class="io-btn io-primary" data-ship-action="save-iiko-draft" data-ship-id="'+esc(sh.id)+'">Сохранить непроведённую накладную в iiko</button> <button type="button" class="io-btn io-outline" data-ship-action="cancel" data-ship-id="'+esc(sh.id)+'">Отменить</button>'
-        :["CHECK_REQUIRED","DRAFT_SAVED","DRAFT_VERIFIED","IIKO_PROCESSED"].includes(sh.status)?'<button type="button" class="io-btn io-outline" data-ship-action="verify-iiko" data-ship-id="'+esc(sh.id)+'">Сверить с iiko</button>':"—";
+        :sh.status==="DRAFT_VERIFIED"?'<button type="button" class="io-btn io-primary" data-ship-action="process-iiko" data-ship-id="'+esc(sh.id)+'">Отгрузить</button> <button type="button" class="io-btn io-outline" data-ship-action="verify-iiko" data-ship-id="'+esc(sh.id)+'">Проверить</button>':["CHECK_REQUIRED","DRAFT_SAVED","PROCESSING","IIKO_PROCESSED"].includes(sh.status)?'<button type="button" class="io-btn io-outline" data-ship-action="verify-iiko" data-ship-id="'+esc(sh.id)+'">Сверить с iiko</button>':"—";
       body+='<tr><td><strong>'+esc(sh.number)+'</strong><small>'+esc(date(sh.documentDate))+' · '+sh.lines.length+' поз.</small></td><td>'+number(sh.totalCents/100)+'</td><td>'+esc(status)+(sh.error?'<small>'+esc(sh.error)+'</small>':'')+'</td><td>'+actions+'</td></tr>';
-      if(sh.status==="IIKO_PROCESSED")body+='<tr><td colspan="4" class="io-muted">Расходная проведена, но связанная приходная ресторана ещё не сверена; заказ не закрывается.</td></tr>';
+      if(sh.status==="IIKO_PROCESSED")body+='<tr><td colspan="4" class="io-muted">Расходная проведена в iiko. Связанная приходная получателя ещё не сверена — заказ не закрыт.</td></tr>';
+      if(sh.status==="CHECK_REQUIRED"||sh.status==="PROCESSING")body+='<tr><td colspan="4" class="io-shipment-error">Отгрузка заблокирована: результат запроса iiko неизвестен. Сначала нажмите «Сверить с iiko». Пока нет подтверждённой непроведённой накладной, кнопка «Отгрузить» не появится.</td></tr>';
     }
     body+='</tbody></table></div>';
   }
@@ -265,6 +266,7 @@ function renderShipments(o,data){
     const action=btn.dataset.shipAction,shipmentId=btn.dataset.shipId;
     if(action==="save-iiko-draft"&&!confirm("Сохранить НЕПРОВЕДЁННУЮ расходную в iiko? Реального списания пока не будет. Не нажимайте повторно при неизвестном ответе сервера."))return;
     if(action==="cancel"&&!confirm("Отменить неподанную расходную?"))return;
+    if(action==="process-iiko"&&!confirm("ОТГРУЗИТЬ товар со склада "+o.sourceStoreName+" на склад "+o.destinationStoreName+"? Эта операция ПРОВЕДЁТ расходную в iiko и изменит остатки отправителя. После этого нужно подтвердить связанную приходную у получателя. Продолжить?"))return;
     try{
       busy(true);
       const r=await shipPost(action,{orderId:o.id,shipmentId});
