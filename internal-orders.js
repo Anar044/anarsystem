@@ -124,6 +124,7 @@ function detail(o){
   if(canFulfill&&o.status==="PICKING")body+='<button class="io-btn io-primary" data-action="ready">Готов к отгрузке</button>';
   if(canFulfill&&o.status==="READY")body+='<button class="io-btn io-outline" id="io-check-outgoing">Сверить расходную накладную iiko</button>';
   body+='</div>';
+  if(o.status==="READY")body+='<section class="io-shipment-section" id="io-shipment-section"><p class="io-muted">Загрузка документов отгрузки…</p></section>';
   const verified=state.verification?.orderId===o.id?state.verification.data:null;
   if(verified){
     body+='<div class="io-invoice-check"><strong>Сверка с iiko: '+esc(verified.documentNumber||"не найдена")+'</strong><p class="io-muted">'+esc(verified.message||"")+'</p>';
@@ -139,8 +140,84 @@ function detail(o){
   panel.querySelector("#io-hide-detail").onclick=()=>{panel.hidden=true;state.selected=null};
   panel.querySelectorAll("[data-action]").forEach(b=>b.onclick=()=>transition(o,b.dataset.action));
   const outgoingButton=panel.querySelector("#io-check-outgoing");if(outgoingButton)outgoingButton.onclick=()=>verifyOutgoing(o);
+  if(o.status==="READY")loadShipments(o);
   panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
+
+const shStatus={PREPARED:"Подготовлена",IMPORTING:"Сохранение в iiko",CHECK_REQUIRED:"Нужна проверка в iiko",DRAFT_SAVED:"Черновик отправлен в iiko",DRAFT_VERIFIED:"Непроведённая накладная проверена",IIKO_PROCESSED:"Расходная проведена в iiko",CANCELLED:"Отменена"};
+const shipGet=orderId=>api("/api/internal-order-shipments?orderId="+encodeURIComponent(orderId));
+const shipPost=(action,body)=>api("/api/internal-order-shipments",{method:"POST",body:JSON.stringify({action,...body})});
+async function loadShipments(o){
+  const block=$("io-shipment-section");
+  if(!block)return;
+  try{
+    const r=await shipGet(o.id);
+    if(state.selected?.id!==o.id)return;
+    renderShipments(o,r);
+  }catch(e){if(state.selected?.id===o.id)block.innerHTML='<p class="io-muted">'+esc(e.message)+'</p>'}
+}
+function renderShipments(o,data){
+  const block=$("io-shipment-section");
+  if(!block||!data)return;
+  let body='<h3>Отгрузки и расходные накладные iiko</h3>';
+  body+='<p class="io-muted">Одна заявка может отгружаться частями. Подготовка и сохранение непроведённой расходной не меняют остатки. Факт проведения сверяем отдельно.</p>';
+  const shipments=data.shipments||[];
+  if(shipments.length){
+    body+='<div class="io-table-wrap"><table class="io-detail-lines"><thead><tr><th>Расходная</th><th>Сумма, ₼</th><th>Состояние</th><th>Действия</th></tr></thead><tbody>';
+    for(const sh of shipments){
+      const status=shStatus[sh.status]||sh.status;
+      const actions=sh.status==="PREPARED"
+        ?'<button type="button" class="io-btn io-primary" data-ship-action="save-iiko-draft" data-ship-id="'+esc(sh.id)+'">Сохранить в iiko</button> <button type="button" class="io-btn io-outline" data-ship-action="cancel" data-ship-id="'+esc(sh.id)+'">Отменить</button>'
+        :["CHECK_REQUIRED","DRAFT_SAVED","DRAFT_VERIFIED","IIKO_PROCESSED"].includes(sh.status)?'<button type="button" class="io-btn io-outline" data-ship-action="verify-iiko" data-ship-id="'+esc(sh.id)+'">Сверить с iiko</button>':"—";
+      body+='<tr><td><strong>'+esc(sh.number)+'</strong><small>'+esc(date(sh.documentDate))+' · '+sh.lines.length+' поз.</small></td><td>'+number(sh.totalCents/100)+'</td><td>'+esc(status)+(sh.error?'<small>'+esc(sh.error)+'</small>':'')+'</td><td>'+actions+'</td></tr>';
+      if(sh.status==="IIKO_PROCESSED")body+='<tr><td colspan="4" class="io-muted">Расходная проведена, но связанная приходная ресторана ещё не сверена; заказ не закрывается.</td></tr>';
+    }
+    body+='</tbody></table></div>';
+  }
+  const remaining=(data.remaining||[]).filter(l=>l.remaining>0);
+  if(data.canFulfill&&remaining.length){
+    body+='<form id="io-shipment-form" class="io-shipment-form"><h4>Подготовить новую отгрузку</h4>';
+    body+='<div class="io-ship-fields"><label>ID контрагента iiko (VÖEN получателя)<input id="io-ship-counteragent" placeholder="ID контрагента в iiko" minlength="20" required></label><label>Дата расходной<input id="io-ship-date" type="date" required></label><label>Счёт получателя (необязательно)<input id="io-ship-account" placeholder="Код счёта"></label><label>Счёт выручки (необязательно)<input id="io-ship-revenue" placeholder="Код счёта"></label></div>';
+    body+='<table class="io-detail-lines"><thead><tr><th>Товар</th><th>Согласовано</th><th>Осталось</th><th>К отгрузке</th><th>Цена за осн. ед., ₼</th></tr></thead><tbody>';
+    for(const l of remaining){
+      const original=o.approvedLines.find(x=>String(x.productId).toLowerCase()===String(l.productId).toLowerCase());
+      body+='<tr data-ship-item="'+esc(l.productId)+'"><td>'+esc(original?.productName||l.productId)+'</td><td>'+number(l.approved)+'</td><td>'+number(l.remaining)+'</td><td><input type="number" min="0" max="'+l.remaining+'" step="0.001" value="'+l.remaining+'" data-ship-qty></td><td><input type="number" min="0.01" step="0.01" placeholder="0,00" data-ship-price></td></tr>';
+    }
+    body+='</tbody></table><p class="io-muted">Укажи отпускные цены и точный ID контрагента RMS-получателя из iiko. Цены не берём автоматически из себестоимости, налоги не рассчитываем без настроек VÖEN.</p>';
+    body+='<button class="io-btn io-primary" type="submit">Подготовить расходную накладную</button></form>';
+  }else if(!remaining.length&&shipments.some(x=>x.status!=="CANCELLED"))body+='<p class="io-muted">Все согласованные количества распределены по отгрузкам.</p>';
+  else if(!data.canFulfill)body+='<p class="io-muted">Оформление отгрузок доступно сотрудникам RMS-отправителя.</p>';
+  block.innerHTML=body;
+  const form=block.querySelector("#io-shipment-form");
+  if(form){
+    const dateInput=block.querySelector("#io-ship-date");dateInput.value=new Date().toISOString().slice(0,10);
+    form.onsubmit=async event=>{
+      event.preventDefault();
+      const lines=[...form.querySelectorAll("[data-ship-item]")].map(row=>({
+        productId:row.dataset.shipItem,
+        amount:Number(row.querySelector("[data-ship-qty]").value),
+        unitPrice:Number(row.querySelector("[data-ship-price]").value)
+      })).filter(l=>l.amount>0);
+      if(!lines.length){note("Укажите количество для отгрузки.","error");return}
+      const counteragentId=block.querySelector("#io-ship-counteragent").value.trim();
+      if(!confirm("Подготовить расходную для "+o.destinationDepartmentName+"? Контрагент iiko: "+counteragentId+". Это резервирование количества, не проведение."))return;
+      try{busy(true);await shipPost("prepare",{orderId:o.id,counteragentId,documentDate:dateInput.value,accountToCode:block.querySelector("#io-ship-account").value,revenueAccountCode:block.querySelector("#io-ship-revenue").value,lines});note("Расходная накладная подготовлена. Проверьте её перед сохранением в iiko.","ok");await loadShipments(o)}catch(e){note(e.message,"error")}finally{busy(false)}
+    };
+  }
+  block.querySelectorAll("[data-ship-action]").forEach(btn=>btn.onclick=async()=>{
+    const action=btn.dataset.shipAction,shipmentId=btn.dataset.shipId;
+    if(action==="save-iiko-draft"&&!confirm("Сохранить НЕПРОВЕДЁННУЮ расходную в iiko? Реального списания пока не будет. Не нажимайте повторно при неизвестном ответе сервера."))return;
+    if(action==="cancel"&&!confirm("Отменить неподанную расходную?"))return;
+    try{
+      busy(true);
+      const r=await shipPost(action,{orderId:o.id,shipmentId});
+      if(r.verification)note(r.verification.message,r.verification.valid?"ok":"error");
+      else note(r.message||"Операция выполнена.","ok");
+      await loadShipments(o);
+    }catch(e){note(e.message||String(e),"error");await loadShipments(o)}finally{busy(false)}
+  });
+}
+
 async function verifyOutgoing(o){
   const numberInput=prompt("Номер уже созданной расходной накладной в iiko (только проверка, без проведения):","");
   if(numberInput===null)return;
