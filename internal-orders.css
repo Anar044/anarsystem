@@ -15,3 +15,15 @@
 .io-ready-next strong{color:#b4f3d8;font-size:14px}
 .io-ready-next p{margin:6px 0 12px;color:#a8c5b8;font-size:12px}
 .io-shipment-empty{padding:13px 15px;margin:14px 0;color:#b5cfdb;background:#182d38;border:1px solid #315466;border-radius:10px;font-size:13px}
+
+.io-pair-probe{margin-top:22px;padding-top:17px;border-top:1px solid #334b4c}
+.io-pair-probe h3{margin:0 0 5px;font-size:17px;color:#ebfbf5}
+.io-pair-probe>p{font-size:13px;color:#a9c5c1}
+.io-pair-results{margin-top:16px;overflow-wrap:anywhere;font-size:13px;color:#c1d6d0}
+.io-pair-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}
+.io-pair-document{background:#0b1d25;border:1px solid #36535d;border-radius:12px;padding:13px}
+.io-pair-document strong{color:#d4fff0}
+.io-pair-document p{margin:6px 0}
+.io-pair-document code{white-space:normal;overflow-wrap:anywhere}
+.io-pair-results details{padding:8px;border-bottom:1px solid #36535d}
+@media(max-width:800px){.io-pair-grid{grid-template-columns:1fr}}
