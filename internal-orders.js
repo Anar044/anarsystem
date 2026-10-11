@@ -193,7 +193,7 @@ function renderShipments(o,data){
     const title=hint.querySelector("strong"),message=hint.querySelector("p"),button=hint.querySelector("#io-go-shipment");
     if(data.dispatchBlockedReason){
       title.textContent="Обнаружена несовместимость формата накладной с iiko API";
-      message.textContent="iiko пытается прочитать склад-покупатель как User. Отправка отключена до исправления интеграции. Уже выполненная попытка не повторяется.";
+      message.textContent="В старом запросе вместо контрагента использовался ID склада. Сопоставление проверено, но создание связанной приходной через REST пока не подтверждено. Повторной отправки нет.";
       button.textContent="Посмотреть диагностику";
     }else if(shipments.some(x=>["CHECK_REQUIRED","PROCESSING"].includes(x.status))){
       title.textContent="Результат отгрузки ещё не подтверждён";
