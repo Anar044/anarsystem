@@ -18,6 +18,7 @@ import {extractIikoInvoiceSummaries,compareIikoInvoicePair,identifyIikoPairCount
 import {getIikoSuppliers} from "./iiko/_lib/iiko-suppliers.js";
 import {findLinkedIncomingInvoices} from "./_lib/internal-order-incoming-lookup.js";
 import {validateShipmentOutgoingForReceipt} from "./_lib/internal-order-receipt-check.js";
+import {buildInternalDispatchPreview} from "./_lib/internal-order-dispatch-preview.js";
 
 const H={"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"Content-Type,Authorization","Access-Control-Allow-Methods":"GET,POST,OPTIONS"};
 const str=v=>String(v??"").trim();
@@ -366,6 +367,38 @@ export async function onRequestPost({request,env}){
       if(suppliers.status!==200||!suppliers.rows?.length)throw err("Невозможно подтвердить контрагентов по текущему справочнику iiko. Ничего не отправлено.",502);
       const preview=previewConfirmedInternalRoute(o,mapping,suppliers.rows);
       return json({success:true,readOnly:true,stockOperation:false,preview});
+    }
+    if(action==="preview-dispatch"){
+      // Dry run: validate ONE chosen product and its actual iikoChain source-store cost.
+      // No iiko document import, no D1 reservation, no change to order/shipment state.
+      if(o.status!=="READY")throw err("Для расчёта отгрузки заявка должна быть готова.",409);
+      if(!Array.isArray(body.lines)||body.lines.length!==1)
+        throw err("Для первого теста выберите один товар и его количество.",400);
+      const savedMapping=await c.env.DB.prepare("SELECT * FROM sh_internal_order_warehouse_counterparties WHERE server_scope=?1 AND source_store_id=?2 AND destination_store_id=?3")
+        .bind(c.scope,id(o.central_store_id),id(o.destination_store_id)).first();
+      if(!savedMapping)throw err("Для получателя ещё нет подтверждённого соответствия контрагента.",409);
+      await verifyRouteWarehouses(c,o);
+      const suppliers=await getIikoSuppliers(c.connection);
+      if(suppliers.status!==200||!suppliers.rows?.length)throw err("Не удалось прочитать справочник внутренних контрагентов iiko.",502);
+      const route=previewConfirmedInternalRoute(o,savedMapping,suppliers.rows);
+      if(!route.valid)throw err(route.message,409);
+      const all=await rows(c,o.id);
+      const date=str(body.documentDate);
+      // Check uncertain local statuses before doing any additional read of iiko.
+      if(all.some(x=>["CHECK_REQUIRED","IMPORTING","PROCESSING"].includes(x.status)))
+        return json({success:true,readOnly:true,stockOperation:false,preview:buildInternalDispatchPreview({
+          status:o.status,route,approved:parse(o.approved_lines_json,[]),
+          existing:all.map(x=>({status:x.status,lines:parse(x.lines_json)})),
+          requested:body.lines,costQuotes:[],documentDate:date
+        })});
+      const prices=await getWarehouseQuote(c,o,date);
+      const preview=buildInternalDispatchPreview({status:o.status,route,
+        approved:parse(o.approved_lines_json,[]),
+        existing:all.map(x=>({status:x.status,lines:parse(x.lines_json)})),
+        requested:body.lines,costQuotes:prices.quotes,documentDate:date});
+      return json({success:true,readOnly:true,stockOperation:false,
+        source:prices.source,accountingModeVerified:false,preview,
+        message:"Предварительный расчёт выполнен. Отгрузка и создание связанной приходной остаются заблокированными."});
     }
     if(action==="dispatch"){
       assertSupportedIikoShipmentRoute(o);
