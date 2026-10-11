@@ -11,6 +11,7 @@ import {inspectOutgoingForOrder} from "./_lib/internal-order-invoice.js";
 import {findOutgoingInvoices} from "./_lib/internal-order-iiko-lookup.js";
 import {prepareInternalShipment,shipmentXml,parseIikoValidation} from "./_lib/internal-shipment-core.js";
 import {canAccessInternalOrder} from "./_lib/internal-order-core.js";
+import {isIikoRestApiLicenseError,IIKO_REST_API_LICENSE_MESSAGE} from "./_lib/internal-order-license.js";
 
 const H={"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"Content-Type,Authorization","Access-Control-Allow-Methods":"GET,POST,OPTIONS"};
 const str=v=>String(v??"").trim();
@@ -171,7 +172,10 @@ export async function onRequestGet({request,env}){
     const totals=Object.fromEntries(parse(o.approved_lines_json).map(x=>[id(x.productId),{productId:x.productId,approved:Number(x.quantity),reserved:0}]));
     for(const s of list)if(s.status!=="CANCELLED")for(const l of parse(s.lines_json)){const t=totals[id(l.productId)];if(t)t.reserved+=Number(l.amount)}
     return json({success:true,shipments:list.map(expose),remaining:Object.values(totals).map(x=>({...x,remaining:Math.max(0,Math.round((x.approved-x.reserved)*1000)/1000)})),canFulfill:shipper(o,c)});
-  }catch(e){return json({success:false,message:e.message},e.status||500)}
+  }catch(e){
+    if(isIikoRestApiLicenseError(e))return json({success:false,code:"IIKO_REST_API_LICENSE",message:IIKO_REST_API_LICENSE_MESSAGE},503);
+    return json({success:false,message:e.message},e.status||500);
+  }
 }
 export async function onRequestPost({request,env}){
   try{
@@ -337,5 +341,8 @@ export async function onRequestPost({request,env}){
       return json({success:true,verification:{...result,linkedIncomingVerified:false,canMarkReceived:false},shipment:expose(updated)});
     }
     throw err("Неизвестная операция.",400);
-  }catch(e){return json({success:false,message:e.message||String(e)},e.status||500)}
+  }catch(e){
+    if(isIikoRestApiLicenseError(e))return json({success:false,code:"IIKO_REST_API_LICENSE",message:IIKO_REST_API_LICENSE_MESSAGE},503);
+    return json({success:false,message:e.message||String(e)},e.status||500);
+  }
 }
