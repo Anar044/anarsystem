@@ -478,8 +478,33 @@ async function handleIikoPairProbe(event){
     for(const [label,part] of [["Расходная",r.outgoing],["Приходная",r.incoming]]){
       html+='<details><summary>REST-запросы: '+label+'</summary><ul>'+((part?.attempts||[]).map(a=>'<li>'+esc(a.dateFormat||"")+" · HTTP "+esc(a.httpStatus??"ошибка")+" · документов "+esc(a.totalDocuments??0)+" · совпадений "+esc(a.matchingDocuments??0)+'</li>').join("")||"<li>Запросов нет</li>")+'</ul></details>';
     }
+    const candidate=r.mappingCandidate||{};
+    if(candidate.valid){
+      html+='<div class="io-pair-document"><strong>Соответствие складов и внутренних контрагентов подтверждено</strong>'+
+        '<p>Склад отправителя: <code>'+esc(candidate.sourceStoreId)+'</code></p>'+
+        '<p>Склад получателя: <code>'+esc(candidate.destinationStoreId)+'</code></p>'+
+        '<p>Покупатель расходной: '+esc(candidate.outgoingBuyerName)+' (ID <code>'+esc(candidate.outgoingBuyerId)+'</code>)</p>'+
+        '<p>Поставщик приходной: '+esc(candidate.incomingSupplierName)+'</p>'+
+        '<button type="button" class="io-btn io-primary" id="io-save-pair-map">Сохранить соответствие для этих двух складов</button>'+
+        '<p class="io-muted">Запись настройки не создаёт документов, не изменяет остатки и не разрешает отгрузку. Другие RMS остаются без сопоставления, пока нет подтверждённой пары.</p></div>';
+    }else{
+      html+='<p class="io-shipment-error">Сохранить сопоставление пока нельзя: '+esc(candidate.reason||"Нет достаточных данных iiko")+'</p>';
+    }
     html+='<p class="io-muted">Это диагностическая проверка. Никакие накладные не создавались и не проводились.</p>';
     result.innerHTML=html;
+    const mapButton=result.querySelector("#io-save-pair-map");
+    if(mapButton)mapButton.onclick=async()=>{
+      if(!confirm("Сохранить точное соответствие контрагентов iiko для складов этой проведённой пары? Это только настройка, без отгрузки."))return;
+      mapButton.disabled=true;
+      try{
+        const saved=await shipPost("confirm-pair-mapping",{
+          documentDate:$("io-pair-date").value,outgoingNumber:$("io-pair-outgoing").value.trim(),
+          incomingNumber:$("io-pair-incoming").value.trim()
+        });
+        note(saved.message||"Соответствие сохранено.","ok");
+        mapButton.textContent="Соответствие сохранено";
+      }catch(e){note(e.message||String(e),"error");mapButton.disabled=false}
+    };
   }catch(e){result.textContent="Не удалось получить документы из iiko: "+String(e?.message||e)}
   finally{button.disabled=false}
 }
