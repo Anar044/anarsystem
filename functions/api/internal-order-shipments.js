@@ -188,8 +188,9 @@ async function dispatchShipment(c,o,s){
     await setShipStatus(c,s,"PROCESSING","IIKO_PROCESSED",{iikoDocumentNumber:verification.documentNumber,iikoStatus:verification.status});
     try{await audit(c,"PROCESS_IIKO",o,s,{iikoDocumentId:verification.documentId,sourceStoreId:s.source_store_id,destinationStoreId:s.destination_store_id,linkedIncomingVerified:false})}
     catch(e){console.error("Internal order shipment audit",str(e?.message||e))}
-    return {success:true,status:"IIKO_PROCESSED",documentNumber:s.number,linkedIncomingVerified:false,
-      message:"Отгрузка подтверждена в iiko. Проверяем появление связанной приходной у RMS-получателя."};
+    return {success:true,status:"IIKO_PROCESSED",documentNumber:s.number,shipmentId:s.id,
+      outgoingPosted:true,linkedIncomingVerified:false,
+      message:"Расходная №"+s.number+" проведена в iiko. Теперь проверяем связанную приходную у получателя. Не отправляйте повторно."};
   }catch(e){
     // Once processing was attempted, the remote outcome may be unknown.
     // Never POST again automatically or expose a retry button.
@@ -407,9 +408,17 @@ export async function onRequestPost({request,env}){
         source:prices.source,accountingModeVerified:false,preview,
         message:"Предварительный расчёт выполнен. Отгрузка и создание связанной приходной остаются заблокированными."});
     }
+    // Test branch exposes only one controlled one-click POST flow.
+    // Do not revive legacy draft/update and old PREPARED import paths.
+    if(["dispatch-existing","prepare","save-iiko-draft","process-iiko"].includes(action))
+      throw err("Для пробной отправки используйте только новую кнопку «Отгрузить» в готовой заявке. Старые способы импорта заблокированы.",409);
     if(action==="dispatch"){
       await assertSupportedIikoShipmentRoute(c,o);
       if(o.status!=="READY")throw err("Заказ ещё не готов к отгрузке.",409);
+      if(!Array.isArray(body.lines)||body.lines.length!==1||
+         !Number.isFinite(Number(body.lines[0]?.amount))||
+         Number(body.lines[0].amount)<=0||Number(body.lines[0].amount)>1)
+        throw err("Первая пробная отгрузка: один товар, количество не более 1 в основной единице. Другие документы не создаются.",400);
       const buyerId=await verifiedBuyerId(c,o);
       const date=str(body.documentDate),prices=await getWarehouseQuote(c,o,date);
       const all=await rows(c,o.id),approved=parse(o.approved_lines_json);
