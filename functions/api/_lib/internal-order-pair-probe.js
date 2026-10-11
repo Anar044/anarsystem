@@ -5,7 +5,7 @@ const normalized=x=>clean(x).replace(/^\{+|\}+$/g,"").toLowerCase();
 const dec=x=>clean(x).replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&");
 const tag=(xml,n)=>dec(String(xml||"").match(new RegExp("<"+n+"(?:\\s[^>]*)?>([\\s\\S]*?)</"+n+">","i"))?.[1]||"");
 const blocks=(xml,n)=>[...String(xml||"").matchAll(new RegExp("<"+n+"(?:\\s[^>]*)?>[\\s\\S]*?</"+n+">","gi"))].map(x=>x[0]);
-const num=x=>{const n=Number(clean(x).replace(",","."));return Number.isFinite(n)?n:null;};
+const num=x=>{const value=clean(x);if(!value)return null;const n=Number(value.replace(",","."));return Number.isFinite(n)?n:null;};
 export function extractIikoInvoiceSummaries(xml,kind){
   const source=String(xml||"");
   let documents=blocks(source,"document");
