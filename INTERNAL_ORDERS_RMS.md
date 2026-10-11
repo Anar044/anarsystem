@@ -91,3 +91,12 @@ Run `node --test tests/internal-shipment-core.test.mjs`; it checks package/base-
 - The incoming invoice must be created via iikoChain's normal cross-RMS mechanism (subject to iikoChain accounting-only and legal-entity settings). It is **NOT manually created** by Smart Horeca. Automatic identification and acceptance of the linked incoming invoice are NOT YET completed.
 - Ambiguous error/HTTP 500: shipment stays locked as CHECK_REQUIRED; read-only reconciliation is performed automatically when the order is opened. No second POST and no manual operator-level 'Сверить' button. A blocked order needs diagnosis if the document still cannot be found.
 - Older PREPARED shipments can be dispatched from their list; older DRAFT_VERIFIED shipments can be posted after automatic confirmation. The test record IO-20261011-06E974-S01 was previously CHECK_REQUIRED after HTTP 500 and must **NOT** be blindly resent.
+
+## Confirmed REST buyer type mismatch (2026-10-11)
+- Test shipment IO-20261011-DF4D8D-S01 to RMS 2 METBEX returned HTTP 500 java.lang.ClassCastException: expected resto.front.User but encountered resto.back.store.Store.
+- iikoChain's UI supports STORE as the buyer of an outgoing invoice that automatically creates a paired incoming. The tested REST /documents/import/outgoingInvoice appears to coerce counteragentId to User. These are not interchangeable interfaces.
+- NEVER replace the recipient Store with a random external company or employee User: it risks creating a separate sale without the linked incoming invoice.
+- New server guard assessInternalShipmentRoute rejects unverified cross-RMS Store-buyer outgoing imports for dispatch, dispatch-existing, save-iiko-draft and process-iiko BEFORE any stock write. The GET returns canDispatch:false with clear reason; the UI removes unsafe dispatch controls.
+- Previously attempted CHECK_REQUIRED S01 stays locked and cannot be sent again until its actual iiko state is verified by read-only reconciliation.
+- Next investigation: vendor-approved iikoChain 9.x API method or a successful real outgoing/incoming invoice pair made in iikoChain and exported using GET, to confirm account/legal entity mapping and native internal shipment linkage.
+- v2 internalTransfer is not an automatic substitute for two-invoice transfer between separate enterprises: no switch until accounting-only-in-chain and legal entity configuration are known.
