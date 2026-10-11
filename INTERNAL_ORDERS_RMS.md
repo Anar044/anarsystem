@@ -83,3 +83,11 @@ Run `node --test tests/internal-shipment-core.test.mjs`; it checks package/base-
 - Processing uses the exact document UUID with status PROCESSED, locks D1 state to PROCESSING before issuing the write, and re-verifies iiko reports PROCESSED before marking IIKO_PROCESSED. Ambiguous results remain locked and require manual read-back (no silent retry).
 - A processed outgoing is still **not** received by the destination RMS. Linked incoming and receipt status are not yet automated.
 - Current test order IO-20261011-06E974 / outgoing IO-20261011-06E974-S01 was reported CHECK_REQUIRED (iiko import HTTP 500). Do not attempt to post or recreate this invoice without confirming actual iiko state.
+
+## One-click dispatch UX (October 2026)
+
+- Operator-facing workflow: choose source/destination and products during the order, then at READY choose actual quantities and click **Отгрузить** once. There is NO required manual sequence of draft save → verify → post.
+- Server \`dispatch\` atomically reserves a shipment UUID/number, confirms the source RMS warehouse and receiver STORE, re-reads source warehouse costing, checks if the outgoing number exists, and issues a single \`PROCESSED\` outgoing import. A read-only iiko check verifies the same UUID, store, counterparty, amounts, prices and PROCESSED status before Smart Horeca marks the shipment dispatched.
+- The incoming invoice must be created via iikoChain's normal cross-RMS mechanism (subject to iikoChain accounting-only and legal-entity settings). It is **NOT manually created** by Smart Horeca. Automatic identification and acceptance of the linked incoming invoice are NOT YET completed.
+- Ambiguous error/HTTP 500: shipment stays locked as CHECK_REQUIRED; read-only reconciliation is performed automatically when the order is opened. No second POST and no manual operator-level 'Сверить' button. A blocked order needs diagnosis if the document still cannot be found.
+- Older PREPARED shipments can be dispatched from their list; older DRAFT_VERIFIED shipments can be posted after automatic confirmation. The test record IO-20261011-06E974-S01 was previously CHECK_REQUIRED after HTTP 500 and must **NOT** be blindly resent.
