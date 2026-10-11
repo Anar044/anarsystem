@@ -13,7 +13,8 @@ import {prepareInternalShipment,shipmentXml,parseIikoValidation} from "./_lib/in
 import {canAccessInternalOrder} from "./_lib/internal-order-core.js";
 import {isIikoRestApiLicenseError,IIKO_REST_API_LICENSE_MESSAGE} from "./_lib/internal-order-license.js";
 import {assessInternalShipmentRoute} from "./_lib/internal-order-route.js";
-import {extractIikoInvoiceSummaries,compareIikoInvoicePair} from "./_lib/internal-order-pair-probe.js";
+import {extractIikoInvoiceSummaries,compareIikoInvoicePair,identifyIikoPairCounteragents} from "./_lib/internal-order-pair-probe.js";
+import {getIikoSuppliers} from "./iiko/_lib/iiko-suppliers.js";
 
 const H={"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"Content-Type,Authorization","Access-Control-Allow-Methods":"GET,POST,OPTIONS"};
 const str=v=>String(v??"").trim();
@@ -217,9 +218,25 @@ export async function onRequestPost({request,env}){
         throw err("Укажите дату и номера двух проведённых накладных iiko.",400);
       const outgoing=await exportIikoPairExample(c,"outgoing",outgoingNumber,day);
       const incoming=await exportIikoPairExample(c,"incoming",incomingNumber,day);
+      let referenceRows=[],supplierLookupStatus="not-requested",supplierLookupError="";
+      if(outgoing.document&&incoming.document){
+        try{
+          const supplierResult=await getIikoSuppliers(c.connection);
+          referenceRows=supplierResult.rows||[];
+          supplierLookupStatus=supplierResult.status===200?"ok":"HTTP "+supplierResult.status;
+        }catch(e){
+          supplierLookupStatus="error";
+          supplierLookupError=str(e?.message||e).slice(0,160);
+        }
+      }
       return json({success:true,readOnly:true,from:"iikoChain REST export",outgoing,incoming,
         comparison:compareIikoInvoicePair(outgoing.document,incoming.document),
-        note:"Только чтение API. Скриншоты подтверждают визуальную пару, но до проверки ID и типа контрагента автоматическая отгрузка не включается."});
+        supplierReferences:{
+          ...identifyIikoPairCounteragents(outgoing.document,incoming.document,referenceRows),
+          supplierLookupStatus,supplierLookupError,
+          supplierDirectoryEntries:referenceRows.length
+        },
+        note:"Только чтение API. Идентификатор покупателя в успешно проведённой расходной необходимо сверять с iiko справочником поставщиков; ID склада не является допустимой заменой. Автоматическая отгрузка пока заблокирована."});
     }
     const o=await order(c,body.orderId);
     if(!shipper(o,c))throw err("Только уполномоченный сотрудник RMS-отправителя может оформлять отгрузку.",403);
