@@ -4,7 +4,9 @@ import {getUser,loadPrivateIikoState,privateConnection,hasPrivateConnection} fro
 import {restaurantDirectory} from "./iiko/_lib/restaurant-scope.js";
 import {resolveAccessForUser,hasPermission,requirePermission} from "./access/_lib/access-control.js";
 import {serverScopeFromConnection,logAuditEvent} from "./_lib/audit-log.js";
-import {iikoText} from "./iiko/_lib/iiko-client.js";
+import {iikoText,iikoJson} from "./iiko/_lib/iiko-client.js";
+import {resolveStoreScope} from "./iiko/_lib/store-scope.js";
+import {warehouseCostRows,costQuote} from "./_lib/internal-shipment-cost.js";
 import {parseOutgoingForVerification,inspectOutgoingForOrder} from "./_lib/internal-order-invoice.js";
 import {prepareInternalShipment,shipmentXml,parseIikoValidation} from "./_lib/internal-shipment-core.js";
 import {canAccessInternalOrder} from "./_lib/internal-order-core.js";
@@ -67,6 +69,27 @@ async function setShipStatus(c,s,from,to,extra={}){
     .bind(to,time,str(extra.iikoDocumentNumber??s.iiko_document_number),str(extra.iikoStatus??s.iiko_status),str(extra.error??""),c.scope,s.id,from).run();
   if(Number(r.meta?.changes||0)!==1)throw err("Отгрузка была изменена другим пользователем. Обновите страницу.",409);
 }
+async function verifyRouteWarehouses(c,o){
+  const [source,destination]=await Promise.all([
+    resolveStoreScope(c.connection,[o.central_department_id]),
+    resolveStoreScope(c.connection,[o.destination_department_id])
+  ]);
+  if(!source.resolved||!source.storeIds.some(x=>id(x)===id(o.central_store_id)))throw err("Склад отправителя не подтверждён в структуре iikoChain.",409);
+  if(!destination.resolved||!destination.storeIds.some(x=>id(x)===id(o.destination_store_id)))throw err("Склад-покупатель RMS не подтверждён в структуре iikoChain.",409);
+}
+async function getWarehouseQuote(c,o,date){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(date+"T00:00:00Z")))throw err("Укажите корректную дату накладной.",400);
+  const today=new Date().toISOString().slice(0,10);
+  if(date>today)throw err("Нельзя подготовить отгрузку будущей датой: себестоимость ещё не рассчитана.",409);
+  await verifyRouteWarehouses(c,o);
+  const q=new URLSearchParams({timestamp:date+"T23:59:59",store:id(o.central_store_id)});
+  q.append("department",id(o.central_department_id));
+  const res=await iikoJson(c.connection,"/resto/api/v2/reports/balance/stores?"+q,{timeoutMs:30000});
+  if(!res.ok||!res.payload)throw err("iikoChain не вернул себестоимость склада отправителя: HTTP "+res.status,502);
+  const approved=parse(o.approved_lines_json,[]);
+  const rows=warehouseCostRows(res.payload,o.central_store_id,approved.map(x=>x.productId));
+  return {quotes:costQuote(approved,rows,date),timestamp:date+"T23:59:59",storeId:o.central_store_id,source:"/resto/api/v2/reports/balance/stores"};
+}
 async function outgoingLookup(c,s){
   const date=str(s.document_date),to=new Date().toISOString().slice(0,10);
   const from=date<=to?date:to;
@@ -107,14 +130,18 @@ export async function onRequestPost({request,env}){
     const body=await request.json().catch(()=>({})),c=await ctx(request,env),action=str(body.action);
     const o=await order(c,body.orderId);
     if(!shipper(o,c))throw err("Только уполномоченный сотрудник RMS-отправителя может оформлять отгрузку.",403);
+    if(action==="quote"){
+      if(o.status!=="READY")throw err("Заказ не готов к отгрузке.",409);
+      const result=await getWarehouseQuote(c,o,str(body.documentDate));
+      return json({success:true,...result,recipient:{departmentId:o.destination_department_id,departmentName:o.destination_department_name,storeId:o.destination_store_id,storeName:o.destination_store_name}});
+    }
     if(action==="prepare"){
       if(o.status!=="READY")throw err("Подготовка отгрузки доступна только для готового к отгрузке заказа.",409);
-      const counteragentId=str(body.counteragentId),date=str(body.documentDate);
-      if(!/^[a-z0-9-]{20,80}$/i.test(counteragentId))throw err("Укажите реальный ID контрагента iiko для VÖEN получателя.",400);
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(date+"T00:00:00Z")))throw err("Укажите дату расходной накладной.",400);
+      const counteragentId=str(o.destination_store_id),date=str(body.documentDate);
+      const prices=await getWarehouseQuote(c,o,date);
       const all=await rows(c,o.id);
       const approved=parse(o.approved_lines_json),prior=all.map(s=>({status:s.status,lines:parse(s.lines_json)}));
-      const prepared=prepareInternalShipment(approved,prior,body.lines);
+      const prepared=prepareInternalShipment(approved,prior,body.lines,prices.quotes);
       const index=all.length+1,number=o.number+"-S"+String(index).padStart(2,"0");
       const sid=crypto.randomUUID(),documentId=crypto.randomUUID(),time=new Date().toISOString();
       // CAS locks the order revision, preventing concurrent reservations of the
@@ -123,7 +150,7 @@ export async function onRequestPost({request,env}){
       if(Number(lock.meta?.changes||0)!==1)throw err("Кто-то изменил заказ. Обновите список и повторите.",409);
       await c.env.DB.prepare("INSERT INTO sh_internal_order_shipments (id,server_scope,order_id,number,iiko_document_id,status,source_store_id,destination_store_id,counteragent_id,document_date,account_to_code,revenue_account_code,lines_json,total_cents,created_at,created_by,updated_at) VALUES (?1,?2,?3,?4,?5,'PREPARED',?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?14)")
        .bind(sid,c.scope,o.id,number,documentId,o.central_store_id,o.destination_store_id,counteragentId,date,str(body.accountToCode),str(body.revenueAccountCode),JSON.stringify(prepared.lines),prepared.totalCents,time,c.auth.user.id).run();
-      const s=await shipment(c,o,sid);await audit(c,"PREPARE",o,s,{number,lines:prepared.lines,totalCents:prepared.totalCents,counteragentId});
+      const s=await shipment(c,o,sid);await audit(c,"PREPARE",o,s,{number,lines:prepared.lines,totalCents:prepared.totalCents,counteragentId,sourceStoreId:o.central_store_id,recipientStoreId:o.destination_store_id,costTimestamp:prices.timestamp});
       return json({success:true,shipment:expose(s)},201);
     }
     const s=await shipment(c,o,body.shipmentId);
@@ -135,6 +162,8 @@ export async function onRequestPost({request,env}){
     }
     if(action==="save-iiko-draft"){
       if(s.status!=="PREPARED")throw err("Этот документ уже отправлялся в iiko. Повторная отправка запрещена до сверки.",409);
+      await verifyRouteWarehouses(c,o);
+      if(id(s.counteragent_id)!==id(o.destination_store_id))throw err("Покупатель расходной должен совпадать со складом RMS-получателя, выбранным в заказе.",409);
       // Do not automatically retry an ambiguous transport error: iiko may have
       // persisted the draft even if the network response was lost.
       // Check the stable document number before importing; never silently
