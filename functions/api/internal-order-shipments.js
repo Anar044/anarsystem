@@ -128,12 +128,26 @@ function assertSupportedIikoShipmentRoute(order){
   const route=assessInternalShipmentRoute(order);
   if(!route.supported)throw err(route.message,409);
 }
+// This is NOT authorization to post. The independent route gate remains closed.
+// When a vendor-confirmed shipment transport is available, never fall back
+// from a confirmed supplier/User counterparty to the receiving Store ID.
+async function verifiedBuyerId(c,o){
+  const mapping=await c.env.DB.prepare("SELECT * FROM sh_internal_order_warehouse_counterparties WHERE server_scope=?1 AND source_store_id=?2 AND destination_store_id=?3")
+    .bind(c.scope,id(o.central_store_id),id(o.destination_store_id)).first();
+  if(!mapping)throw err("Для выбранной пары складов не сохранён подтверждённый внутренний контрагент.",409);
+  await verifyRouteWarehouses(c,o);
+  const suppliers=await getIikoSuppliers(c.connection);
+  if(suppliers.status!==200||!suppliers.rows?.length)throw err("Не удалось проверить внутреннего контрагента по справочнику iiko.",502);
+  const preview=previewConfirmedInternalRoute(o,mapping,suppliers.rows);
+  if(!preview.valid)throw err(preview.message,409);
+  return preview.outgoing.counteragentId;
+}
 async function dispatchShipment(c,o,s){
   assertSupportedIikoShipmentRoute(o);
   if(o.status!=="READY")throw err("Заказ уже не готов к отгрузке.",409);
   if(s.status!=="PREPARED")throw err("Эта отгрузка уже передавалась в iiko. Повторная отправка запрещена.",409);
   await verifyRouteWarehouses(c,o);
-  if(id(s.counteragent_id)!==id(o.destination_store_id))throw err("Покупатель расходной должен совпадать со складом RMS-получателя.",409);
+  if(id(s.counteragent_id)!==id(await verifiedBuyerId(c,o)))throw err("Покупатель расходной не совпадает с подтверждённым внутренним контрагентом RMS-получателя.",409);
   const lines=parse(s.lines_json,[]);
   if(lines.some(l=>l.costSource!=="iikoChain warehouse balance"||!l.costTimestamp))
     throw err("Нельзя отгрузить документ с неподтверждённой себестоимостью.",409);
@@ -302,6 +316,7 @@ export async function onRequestPost({request,env}){
     if(action==="dispatch"){
       assertSupportedIikoShipmentRoute(o);
       if(o.status!=="READY")throw err("Заказ ещё не готов к отгрузке.",409);
+      const buyerId=await verifiedBuyerId(c,o);
       const date=str(body.documentDate),prices=await getWarehouseQuote(c,o,date);
       const all=await rows(c,o.id),approved=parse(o.approved_lines_json);
       const previous=all.map(x=>({status:x.status,lines:parse(x.lines_json)}));
@@ -312,7 +327,7 @@ export async function onRequestPost({request,env}){
         .bind(time,o.id,c.scope,o.revision).run();
       if(Number(lock.meta?.changes||0)!==1)throw err("Заявка изменена. Обновите её перед отгрузкой.",409);
       await c.env.DB.prepare("INSERT INTO sh_internal_order_shipments (id,server_scope,order_id,number,iiko_document_id,status,source_store_id,destination_store_id,counteragent_id,document_date,account_to_code,revenue_account_code,lines_json,total_cents,created_at,created_by,updated_at) VALUES (?1,?2,?3,?4,?5,'PREPARED',?6,?7,?8,?9,'','',?10,?11,?12,?13,?12)")
-        .bind(sid,c.scope,o.id,number,documentId,o.central_store_id,o.destination_store_id,o.destination_store_id,date,JSON.stringify(prepared.lines),prepared.totalCents,time,c.auth.user.id).run();
+        .bind(sid,c.scope,o.id,number,documentId,o.central_store_id,o.destination_store_id,buyerId,date,JSON.stringify(prepared.lines),prepared.totalCents,time,c.auth.user.id).run();
       const created=await shipment(c,o,sid);
       try{await audit(c,"PREPARE_FOR_DISPATCH",o,created,{number,sourceStoreId:o.central_store_id,destinationStoreId:o.destination_store_id,lines:prepared.lines})}
       catch(e){console.error("Internal shipment audit",str(e?.message||e))}
@@ -330,8 +345,11 @@ export async function onRequestPost({request,env}){
       return json({success:true,...result,recipient:{departmentId:o.destination_department_id,departmentName:o.destination_department_name,storeId:o.destination_store_id,storeName:o.destination_store_name}});
     }
     if(action==="prepare"){
+      // Obsolete draft endpoint cannot reserve quantities while real REST
+      // invoice pairing is still unverified.
+      assertSupportedIikoShipmentRoute(o);
       if(o.status!=="READY")throw err("Подготовка отгрузки доступна только для готового к отгрузке заказа.",409);
-      const counteragentId=str(o.destination_store_id),date=str(body.documentDate);
+      const counteragentId=await verifiedBuyerId(c,o),date=str(body.documentDate);
       const prices=await getWarehouseQuote(c,o,date);
       const all=await rows(c,o.id);
       const approved=parse(o.approved_lines_json),prior=all.map(s=>({status:s.status,lines:parse(s.lines_json)}));
@@ -358,7 +376,7 @@ export async function onRequestPost({request,env}){
       assertSupportedIikoShipmentRoute(o);
       if(s.status!=="PREPARED")throw err("Этот документ уже отправлялся в iiko. Повторная отправка запрещена до сверки.",409);
       await verifyRouteWarehouses(c,o);
-      if(id(s.counteragent_id)!==id(o.destination_store_id))throw err("Покупатель расходной должен совпадать со складом RMS-получателя, выбранным в заказе.",409);
+      if(id(s.counteragent_id)!==id(await verifiedBuyerId(c,o)))throw err("Покупатель расходной не совпадает с подтверждённым контрагентом RMS-получателя.",409);
       // Block old manually-priced shipments prepared before the automatic
       // warehouse valuation upgrade. Users must cancel and recreate them.
       const previousLines=parse(s.lines_json,[]);
@@ -396,13 +414,13 @@ export async function onRequestPost({request,env}){
       if(s.status!=="DRAFT_VERIFIED")throw err("Отгрузка возможна только после сохранения и сверки непроведённой накладной в iiko.",409);
       if(o.status!=="READY")throw err("Статус заявки изменён. Отгрузка заблокирована.",409);
       await verifyRouteWarehouses(c,o);
-      if(id(s.counteragent_id)!==id(o.destination_store_id))throw err("Покупатель накладной отличается от склада RMS-получателя.",409);
+      if(id(s.counteragent_id)!==id(await verifiedBuyerId(c,o)))throw err("Покупатель накладной не совпадает с подтверждённым контрагентом RMS-получателя.",409);
       const lines=parse(s.lines_json,[]);
       if(lines.some(l=>l.costSource!=="iikoChain warehouse balance"||!l.costTimestamp))throw err("Себестоимость накладной не подтверждена iiko.",409);
       const before=await outgoingLookup(c,s);
       if(!before.valid||!before.quantityMatched||before.processed||before.status!=="NEW")
         throw err(before.message||"Накладная изменена, не найдена или уже проведена. Обновите сверку.",409);
-      if(id(before.documentId)!==id(s.iiko_document_id)||id(before.counteragentId)!==id(o.destination_store_id))
+      if(id(before.documentId)!==id(s.iiko_document_id)||id(before.counteragentId)!==id(s.counteragent_id))
         throw err("Номер, ID или покупатель документа не совпадает с заявкой.",409);
       // Lock before any stock-affecting request. A lost response must NEVER
       // cause an automatic second POST to iiko.
