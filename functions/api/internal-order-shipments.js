@@ -13,6 +13,7 @@ import {prepareInternalShipment,shipmentXml,parseIikoValidation} from "./_lib/in
 import {canAccessInternalOrder} from "./_lib/internal-order-core.js";
 import {isIikoRestApiLicenseError,IIKO_REST_API_LICENSE_MESSAGE} from "./_lib/internal-order-license.js";
 import {assessInternalShipmentRoute} from "./_lib/internal-order-route.js";
+import {extractIikoInvoiceSummaries,compareIikoInvoicePair} from "./_lib/internal-order-pair-probe.js";
 
 const H={"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"Content-Type,Authorization","Access-Control-Allow-Methods":"GET,POST,OPTIONS"};
 const str=v=>String(v??"").trim();
@@ -188,9 +189,38 @@ export async function onRequestGet({request,env}){
     return json({success:false,message:e.message},e.status||500);
   }
 }
+// Read-only: admin can compare real successful iikoChain outgoing/incoming pair.
+async function exportIikoPairExample(c,kind,documentNumber,day){
+  const dd=day.slice(8,10)+"."+day.slice(5,7)+"."+day.slice(0,4);
+  const attempts=[];
+  for(const d of [day,dd]){
+    const params=new URLSearchParams({from:d,to:d});
+    const path="/resto/api/documents/export/"+(kind==="outgoing"?"outgoingInvoice":"incomingInvoice")+"?"+params;
+    let res;
+    try{res=await iikoText(c.connection,path,{headers:{Accept:"application/xml,text/xml,*/*"},timeoutMs:30000})}
+    catch(e){attempts.push({dateFormat:d,httpStatus:null,error:str(e.message).slice(0,100)});continue}
+    const rows=res.ok?extractIikoInvoiceSummaries(res.text,kind):[];
+    const found=rows.filter(x=>str(x.number).toLowerCase()===str(documentNumber).toLowerCase());
+    attempts.push({dateFormat:d,httpStatus:res.status,totalDocuments:rows.length,matchingDocuments:found.length});
+    if(found.length===1)return {document:found[0],attempts,found:true};
+    if(found.length>1)return {document:null,attempts,found:false,ambiguous:true};
+  }
+  return {document:null,found:false,attempts};
+}
 export async function onRequestPost({request,env}){
   try{
     const body=await request.json().catch(()=>({})),c=await ctx(request,env),action=str(body.action);
+    if(action==="diagnose-pair"){
+      requirePermission(c.access,"procurement.internal.configure");
+      const day=str(body.documentDate),outgoingNumber=str(body.outgoingNumber),incomingNumber=str(body.incomingNumber);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!outgoingNumber||!incomingNumber||outgoingNumber.length>60||incomingNumber.length>60)
+        throw err("Укажите дату и номера двух проведённых накладных iiko.",400);
+      const outgoing=await exportIikoPairExample(c,"outgoing",outgoingNumber,day);
+      const incoming=await exportIikoPairExample(c,"incoming",incomingNumber,day);
+      return json({success:true,readOnly:true,from:"iikoChain REST export",outgoing,incoming,
+        comparison:compareIikoInvoicePair(outgoing.document,incoming.document),
+        note:"Только чтение API. Скриншоты подтверждают визуальную пару, но до проверки ID и типа контрагента автоматическая отгрузка не включается."});
+    }
     const o=await order(c,body.orderId);
     if(!shipper(o,c))throw err("Только уполномоченный сотрудник RMS-отправителя может оформлять отгрузку.",403);
     if(action==="dispatch"){
