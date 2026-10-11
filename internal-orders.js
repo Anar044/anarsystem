@@ -437,6 +437,41 @@ $("io-open-create").onclick=openCreate;$("io-close").onclick=closeCreate;$("io-c
 $("io-central-dept").onchange=()=>fillStores($("io-central-dept").value,"io-central-store");
 $("io-destination-dept").onchange=()=>fillStores($("io-destination-dept").value,"io-destination-store");
 $("io-source-dept").onchange=()=>fillStores($("io-source-dept").value,"io-source-store");
+async function handleIikoPairProbe(event){
+  event.preventDefault();
+  const result=$("io-pair-results"),button=$("io-pair-probe-form").querySelector('button[type="submit"]');
+  button.disabled=true;result.textContent="Читаем две проведённые накладные iikoChain. Складские данные не изменяются…";
+  try{
+    const r=await shipPost("diagnose-pair",{
+      documentDate:$("io-pair-date").value,
+      outgoingNumber:$("io-pair-outgoing").value.trim(),
+      incomingNumber:$("io-pair-incoming").value.trim()
+    });
+    const o=r.outgoing?.document,i=r.incoming?.document,c=r.comparison||{};
+    let html='<p><strong>Диагностика выполнена — только чтение.</strong> '+(c.linkConfirmed?"Связь подтверждена полями API.":"Связь пока не подтверждена полями API.")+'</p>';
+    html+='<div class="io-pair-grid">';
+    const fields=(doc,kind)=>doc?'<div class="io-pair-document"><strong>'+kind+': №'+esc(doc.number)+'</strong>'+
+      '<p>Статус: '+esc(doc.status||"не получен")+' · дата '+esc(doc.date||"не возвращена")+'</p>'+
+      '<p>ID документа: <code>'+esc(doc.id||"—")+'</code></p>'+
+      '<p>Склад: <code>'+esc(doc.storeId||"—")+'</code></p>'+
+      '<p>Покупатель / counteragentId: <code>'+esc(doc.counteragentId||"—")+'</code></p>'+
+      '<p>Тип покупателя (если есть в XML): '+esc(doc.counteragentType||"не передан")+'</p>'+
+      '<p>Поставщик / supplier: <code>'+esc(doc.supplierId||"—")+'</code></p>'+
+      '<p>Входящий номер: '+esc(doc.incomingDocumentNumber||"—")+'</p>'+
+      '<p>ID связанной расходной: <code>'+esc(doc.linkedOutgoingInvoiceId||"—")+'</code></p>'+
+      '<p>Позиции: '+doc.itemsCount+'</p></div>':
+      '<div class="io-pair-document"><strong>'+kind+' не найдена через API</strong><p>Проверьте номер, дату и REST-доступ к iikoChain. Документы на скриншотах могут храниться в другом RMS или контуре.</p></div>';
+    html+=fields(o,"Расходная")+fields(i,"Приходная")+'</div>';
+    html+='<p>Связь: '+esc(c.linkEvidence||"данных недостаточно")+'. Товары и количества: '+(c.productsMatch?"совпадают по ID":"не подтверждены либо различаются")+'.</p>';
+    for(const [label,part] of [["Расходная",r.outgoing],["Приходная",r.incoming]]){
+      html+='<details><summary>REST-запросы: '+label+'</summary><ul>'+((part?.attempts||[]).map(a=>'<li>'+esc(a.dateFormat||"")+" · HTTP "+esc(a.httpStatus??"ошибка")+" · документов "+esc(a.totalDocuments??0)+" · совпадений "+esc(a.matchingDocuments??0)+'</li>').join("")||"<li>Запросов нет</li>")+'</ul></details>';
+    }
+    html+='<p class="io-muted">Это диагностическая проверка. Никакие накладные не создавались и не проводились.</p>';
+    result.innerHTML=html;
+  }catch(e){result.textContent="Не удалось получить документы из iiko: "+String(e?.message||e)}
+  finally{button.disabled=false}
+}
 $("io-config-form").onsubmit=handleConfig;$("io-create-form").onsubmit=handleCreate;
+$("io-pair-probe-form").onsubmit=handleIikoPairProbe;
 start();
 })();
