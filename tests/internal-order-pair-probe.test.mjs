@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {extractIikoInvoiceSummaries,compareIikoInvoicePair,identifyIikoPairCounteragents} from "../functions/api/_lib/internal-order-pair-probe.js";
+import {extractIikoInvoiceSummaries,compareIikoInvoicePair,identifyIikoPairCounteragents,validatedPairWarehouseMapping} from "../functions/api/_lib/internal-order-pair-probe.js";
 const outgoing='<root><document><id>OUT-ID</id><documentNumber>50001</documentNumber><status>PROCESSED</status><defaultStoreId>central-store</defaultStoreId><counteragentId>buyer-user-or-store-id</counteragentId><counteragentCode>RMS1</counteragentCode><items><item><productId>KARTOF</productId><amount>10</amount><price>0.6</price><sum>6</sum></item><item><productId>XIYAR</productId><amount>5</amount><price>1.3</price><sum>6.5</sum></item><item><productId>YUMURTA</productId><amount>30</amount><price>0.17</price><sum>5.1</sum></item></items></document></root>';
 const incoming='<root><document><id>IN-ID</id><documentNumber>10001</documentNumber><status>PROCESSED</status><defaultStore>rms1-kitchen</defaultStore><supplier>central-supplier</supplier><incomingDocumentNumber>50001</incomingDocumentNumber><linkedOutgoingInvoiceId>OUT-ID</linkedOutgoingInvoiceId><items><item><product>KARTOF</product><amount>10</amount><price>0.6</price><sum>6</sum></item><item><product>XIYAR</product><amount>5</amount><price>1.3</price><sum>6.5</sum></item><item><product>YUMURTA</product><amount>30</amount><price>0.17</price><sum>5.1</sum></item></items></document></root>';
 test("parse real pair format including outgoing buyer ID and incoming supplier ID",()=>{
@@ -48,4 +48,25 @@ test("unknown buyer cannot be silently replaced by a warehouse",()=>{
  assert.equal(result.outgoingBuyerSupplier,null);
  assert.equal(result.supplierDirectoryMatchedOutgoingBuyer,false);
  assert.equal(result.outgoingBuyerIsDestinationStore,false);
+});
+
+test("mapping is proposed only from processed, linked invoice pair and reference-confirmed suppliers",()=>{
+ const o=extractIikoInvoiceSummaries(outgoing.replace("<defaultStoreId>central-store</defaultStoreId>","<defaultStoreId>central-store</defaultStoreId>"),"outgoing")[0];
+ const i=extractIikoInvoiceSummaries(incoming,"incoming")[0];
+ const references=[{id:"buyer-user-or-store-id",name:"RMS 1 METBEX"},{id:"central-supplier",name:"Mərkəzi Anbar"}];
+ const map=validatedPairWarehouseMapping(o,i,references);
+ assert.equal(map.valid,true);
+ assert.equal(map.sourceStoreId,"central-store");
+ assert.equal(map.destinationStoreId,"rms1-kitchen");
+ assert.equal(map.outgoingBuyerId,"buyer-user-or-store-id");
+ assert.equal(map.incomingSupplierId,"central-supplier");
+ assert.equal(map.evidenceOutgoingNumber,"50001");
+ assert.equal(map.evidenceIncomingNumber,"10001");
+});
+test("unconfirmed supplier or unmatched documents cannot be mapped to RMS",()=>{
+ const o=extractIikoInvoiceSummaries(outgoing,"outgoing")[0];
+ const i=extractIikoInvoiceSummaries(incoming,"incoming")[0];
+ assert.equal(validatedPairWarehouseMapping(o,i,[]).valid,false);
+ assert.equal(validatedPairWarehouseMapping({...o,status:"NEW"},i,[{id:"buyer-user-or-store-id",name:"RMS 1"},{id:"central-supplier",name:"Central"}]).valid,false);
+ assert.equal(validatedPairWarehouseMapping(o,{...i,linkedOutgoingInvoiceId:"",incomingDocumentNumber:""},[{id:"buyer-user-or-store-id",name:"RMS 1"},{id:"central-supplier",name:"Central"}]).valid,false);
 });
