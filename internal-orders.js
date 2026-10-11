@@ -551,7 +551,35 @@ async function handleIikoPairProbe(event){
   }catch(e){result.textContent="Не удалось получить документы из iiko: "+String(e?.message||e)}
   finally{button.disabled=false}
 }
+async function handleLinkedIncomingFind(){
+  const output=$("io-linked-incoming-results"),button=$("io-find-linked-incoming");
+  if(!output||!button)return;
+  button.disabled=true;
+  output.textContent="Ищем связанную приходную по ID расходной. Только чтение iikoChain, никаких складских операций…";
+  try{
+    const result=await shipPost("find-linked-incoming",{
+      documentDate:$("io-pair-date").value,
+      outgoingNumber:$("io-pair-outgoing").value.trim()
+    });
+    const posted=result.receiptPosted===true,confirmed=result.confirmed===true,incoming=result.incoming;
+    let html='<div class="io-pair-document"><strong>'+
+      esc(confirmed?"Связанная приходная найдена":"Связь пока не подтверждена")+
+      '</strong><p>'+esc(result.message||"Проверка завершена без определённого результата.")+'</p>';
+    if(result.outgoing)html+='<p>Расходная: №'+esc(result.outgoing.number||"—")+' · ID <code>'+esc(result.outgoing.id||"—")+'</code></p>';
+    if(incoming){
+      html+='<p>Связанная приходная: №'+esc(incoming.number||"—")+' · ID <code>'+esc(incoming.id||"—")+'</code></p>'+
+        '<p>Склад получателя: <code>'+esc(incoming.storeId||"—")+'</code> · Поставщик: <code>'+esc(incoming.supplierId||"—")+'</code></p>'+
+        '<p>Статус в iiko: <strong>'+esc(incoming.status||"не получен")+'</strong>'+
+        (confirmed?(posted?" · Проведена":" · Требует отдельной проверки приёмки"):" · Связь или содержимое не подтверждены")+'</p>';
+    }
+    if(result.validatedWarehouseMapping)html+='<p>Соответствие получателя также проверено по ранее сохранённому маршруту.</p>';
+    html+='<p class="io-muted">Только GET-запросы. Документы и складские остатки не изменялись. Подтверждение связи не включает кнопку «Отгрузить».</p></div>';
+    output.innerHTML=html;
+  }catch(e){output.textContent="Поиск не выполнен: "+String(e?.message||e)+". Документы не менялись."}
+  finally{button.disabled=false}
+}
 $("io-config-form").onsubmit=handleConfig;$("io-create-form").onsubmit=handleCreate;
 $("io-pair-probe-form").onsubmit=handleIikoPairProbe;
+$("io-find-linked-incoming").onclick=handleLinkedIncomingFind;
 start();
 })();
