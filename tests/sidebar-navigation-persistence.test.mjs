@@ -85,3 +85,42 @@ test("sidebar transition is released only after RBAC checked links and groups",(
   assert.match(source,/groups\.every\(g=>g\.dataset\.shAccessChecked==='1'\)/);
   assert.match(source,/releaseSidebarSnapshot\(true\)/);
 });
+
+test("sidebar-only view transition waits for verified permissions without delaying main content",()=>{
+  const marker="  let pendingSidebarTransition=null;";
+  const start=shell.indexOf(marker),stop=shell.indexOf("  function syncChainScopeCookie(",start);
+  assert.ok(start>0&&stop>start);
+  const listeners=new Map();
+  const navLinks=[{dataset:{shAccessChecked:"0"}},{dataset:{shAccessChecked:"0"}}];
+  const navGroups=[{dataset:{shAccessChecked:"0"}}];
+  const nav={querySelectorAll(selector){
+    return selector==="a[href]"?navLinks:navGroups;
+  }};
+  const window={SHAccess:{context:{allowed:true}},
+    addEventListener(type,fn){listeners.set("window:"+type,fn);}};
+  const document={querySelector(selector){return selector===".sidebar .unified-main-nav"?nav:null},
+    addEventListener(type,fn){listeners.set("document:"+type,fn);}};
+  new Function("window","document",shell.slice(start,stop))(window,document);
+  let skipCount=0;
+  const vt={finished:new Promise(()=>{}),skipTransition(){skipCount++}};
+  listeners.get("window:pagereveal")({viewTransition:vt});
+  assert.equal(skipCount,0,"early incomplete sidebar must keep outgoing snapshot");
+  navLinks.forEach(el=>el.dataset.shAccessChecked="1");
+  navGroups.forEach(el=>el.dataset.shAccessChecked="1");
+  listeners.get("window:sh:access-visibility-ready")();
+  assert.equal(skipCount,1,"fully checked navigation releases screenshot immediately");
+  listeners.get("window:sh:access-visibility-ready")();
+  assert.equal(skipCount,1,"release is idempotent");
+});
+test("denied access releases the old sidebar snapshot and lets deny page render",()=>{
+  const start=shell.indexOf("  let pendingSidebarTransition=null;");
+  const stop=shell.indexOf("  function syncChainScopeCookie(",start);
+  const listeners=new Map(),window={SHAccess:{context:{allowed:false}},addEventListener(t,fn){listeners.set(t,fn)}};
+  const document={querySelector(){return null},addEventListener(t,fn){listeners.set(t,fn)}};
+  new Function("window","document",shell.slice(start,stop))(window,document);
+  let releases=0;
+  listeners.get("pagereveal")({viewTransition:{finished:new Promise(()=>{}),skipTransition(){releases++}}});
+  assert.equal(releases,0);
+  listeners.get("sh-access-ready")({detail:{allowed:false}});
+  assert.equal(releases,1);
+});
