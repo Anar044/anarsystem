@@ -53,7 +53,7 @@
   function activateHr(group,link){
     const nav=document.querySelector('.sidebar .unified-main-nav'),sub=group?.querySelector('.documents-subnav'),toggle=group?.querySelector('.documents-nav-toggle');if(!nav||!sub||!toggle||!link)return;
     nav.querySelectorAll(':scope > a[data-unified-nav-item]').forEach(a=>a.classList.remove('active'));
-    nav.querySelectorAll(':scope > .documents-nav-group,:scope > .reports-nav-group').forEach(g=>{if(g===group)return;g.classList.remove('open');const t=g.querySelector('.documents-nav-toggle'),s=g.querySelector('.documents-subnav');t?.classList.remove('active');t?.setAttribute('aria-expanded','false');if(s)s.hidden=true});
+    // Keep previously expanded sibling groups. Sidebar state is owned by app-shell.
     sub.querySelectorAll('a[data-unified-nav-item]').forEach(a=>a.classList.toggle('active',a===link));group.classList.add('open');toggle.classList.add('active');toggle.setAttribute('aria-expanded','true');sub.hidden=false;
   }
 
