@@ -590,7 +590,7 @@ async function handleIikoPairProbe(event){
       '<p>Покупатель расходной №'+esc(o?.number||"—")+': <strong>'+esc(refs.outgoingBuyerSupplier?.name||"название пока не определено")+'</strong> '+
       (refs.supplierDirectoryMatchedOutgoingBuyer?"(найден в справочнике поставщиков)":"(в справочнике пока не найден)")+'</p>'+
       '<p>ID покупателя совпадает с ID склада-получателя: <strong>'+(refs.outgoingBuyerIsDestinationStore?"да":"нет")+'</strong></p>'+
-      '<p>Поставщик приходной №10001: <strong>'+esc(refs.incomingSupplierRecord?.name||"название пока не определено")+'</strong> '+
+      '<p>Поставщик приходной №'+esc(i?.number||"—")+': <strong>'+esc(refs.incomingSupplierRecord?.name||"название пока не определено")+'</strong> '+
       (refs.supplierDirectoryMatchedIncomingSupplier?"(найден в справочнике)":"(не найден)")+'</p>'+
       '<p>ID поставщика совпадает с ID склада-отправителя: <strong>'+(refs.incomingSupplierIsSenderStore?"да":"нет")+'</strong></p>'+
       (refs.supplierLookupError?'<p>Ошибка справочника: '+esc(refs.supplierLookupError)+'</p>':"")+
