@@ -210,3 +210,58 @@ test("first-party child signals verified access to the persistent shell before i
   assert.match(workspace,/activateMenu\(route\);\s*const frame=document\.createElement\('iframe'\)/);
   assert.match(markup,/sh-workspace-frame-host\.sh-is-loading::after/);
 });
+
+test("desktop sidebar collapse is scoped to workspace and keeps RBAC visibility",()=>{
+  const html=readFileSync(resolve(root,"persistent-workspace.html"),"utf8");
+  const js=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
+  const css=html.slice(html.indexOf("/* Desktop-only compact sidebar"),html.indexOf("@media (max-width:760px)",html.indexOf("/* Desktop-only compact sidebar")));
+  assert.match(css,/body\.sh-workspace-page\.sh-sidebar-collapsed \.app-shell>\.sidebar/);
+  assert.match(css,/body\.sh-workspace-page\.sh-sidebar-collapsed \.app-shell>\.main/);
+  assert.match(css,/margin-left:70px!important/);
+  assert.match(css,/width:calc\(100% - 70px\)!important/);
+  assert.match(css,/\.documents-subnav\{\s*display:none!important/);
+  assert.doesNotMatch(css,/\.unified-main-nav>a[^{}]*\{[^}]*display:flex!important/);
+  assert.doesNotMatch(css,/\.documents-nav-group,\s*body[^{}]+\{[^}]*display:block!important/);
+  assert.match(js,/sidebar\.insertBefore\(button,sidebar\.firstChild\)/);
+  assert.match(js,/SIDEBAR_COLLAPSE_KEY='shPersistentSidebarCollapsedV1'/);
+  assert.match(js,/group\)setGroupExpansion\(group,false\)/);
+});
+test("sidebar collapse button persists its state and restores expanded scroll",()=>{
+  const source=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
+  const begin=source.indexOf("  const SIDEBAR_COLLAPSE_KEY=");
+  const end=source.indexOf("  function setGroupExpansion(",begin);
+  assert.ok(begin>0&&end>begin);
+  const active=new Set();
+  const elements={
+    ".sh-sidebar-collapse-icon":{textContent:""},
+    ".sh-sidebar-collapse-label":{textContent:""}
+  };
+  const attributes={};
+  const button={
+    setAttribute(key,value){attributes[key]=value},
+    querySelector(sel){return elements[sel]||null}
+  };
+  const sidebar={scrollTop:142,querySelector(sel){
+    return sel===".sh-sidebar-collapse-btn"?button:null;
+  }};
+  const doc={body:{classList:{
+    contains(k){return active.has(k)},
+    toggle(k,on){if(on)active.add(k);else active.delete(k)}
+  }},querySelector(sel){return sel===".sidebar"?sidebar:null}};
+  const saved=new Map();
+  const storage={setItem(k,v){saved.set(k,v)},getItem(k){return saved.get(k)||null}};
+  const make=new Function("document","sessionStorage","sidebarNav",source.slice(begin,end)+
+    "\nreturn {setSidebarCollapsed,isSidebarCollapsed};");
+  const {setSidebarCollapsed,isSidebarCollapsed}=make(doc,storage,()=>null);
+  setSidebarCollapsed(true);
+  assert.equal(isSidebarCollapsed(),true);
+  assert.equal(sidebar.scrollTop,0);
+  assert.equal(saved.get("shPersistentSidebarCollapsedV1"),"1");
+  assert.equal(attributes["aria-expanded"],"false");
+  assert.equal(attributes["aria-label"],"Развернуть меню");
+  setSidebarCollapsed(false);
+  assert.equal(isSidebarCollapsed(),false);
+  assert.equal(sidebar.scrollTop,142);
+  assert.equal(saved.get("shPersistentSidebarCollapsedV1"),"0");
+  assert.equal(attributes["aria-expanded"],"true");
+});
