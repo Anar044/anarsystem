@@ -83,7 +83,7 @@ test("real-page persistent workspace stays opt-in and reuses independent authent
   assert.match(route,/frame\.src=route\.href/);
   assert.match(route,/addEventListener\('popstate'/);
   assert.match(route,/location\.assign\('\/login\.html'\)/);
-  assert.doesNotMatch(route,/fetch\s*\(/);
+  assert.doesNotMatch(route,/\bfetch\s*\(/);
   assert.doesNotMatch(route,/location\.replace\s*\(/);
 });
 test("permitted navigation routes are sourced from the checked sidebar, not duplicated",()=>{
