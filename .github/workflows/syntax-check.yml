@@ -584,3 +584,4 @@ jobs:
           node --test tests/access-chain-departments.test.mjs
           node --test tests/access-display-name.test.mjs
           node --test tests/invite-onboarding.test.mjs
+          node --test tests/invite-relogin.test.mjs
