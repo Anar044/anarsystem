@@ -1,6 +1,22 @@
 (()=>{
   'use strict';
   const root=document.documentElement;
+  // Chrome cross-document View Transitions retain the prior page snapshot
+  // until the new, permission-filtered navigation is ready to paint.
+  let pendingPageNavigationTransition=null;
+  window.addEventListener('pagereveal',event=>{
+    pendingPageNavigationTransition=event.viewTransition||null;
+  });
+  function finishPageNavigationTransition(){
+    const transition=pendingPageNavigationTransition;
+    pendingPageNavigationTransition=null;
+    if(transition&&typeof transition.skipTransition==='function'){
+      try{transition.skipTransition()}catch(_){}
+    }
+  }
+  document.addEventListener('sh-access-ready',event=>{
+    if(event.detail?.allowed===false)requestAnimationFrame(finishPageNavigationTransition);
+  });
   function syncChainScopeCookie(ids=null){
     let values=Array.isArray(ids)?ids:null;
     if(!values){
@@ -203,7 +219,10 @@
       restoreSidebarScroll();
       if(side)side.dataset.shNavReady='1';
       reveal();
-      requestAnimationFrame(restoreSidebarScroll);
+      requestAnimationFrame(()=>{
+        restoreSidebarScroll();
+        finishPageNavigationTransition();
+      });
     };
     if(!document.body?.dataset.protected||isAuthPage()||window.SHAccess?.context?.allowed)showCompletedNavigation();
     else{
