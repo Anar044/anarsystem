@@ -164,6 +164,28 @@
     'Загрузка товаров…':['Məhsullar yüklənir…','Loading products…'],
     'Поиск по товару, группе…':['Məhsula və qrupa görə axtarış…','Search by product or group…'],
     'Номер, ресторан, товар…':['Nömrə, restoran, məhsul…','Number, restaurant, product…']
+    ,'Оборудование':['Avadanlıq','Equipment']
+    ,'ТО · гарантия · ремонты · замена':['Texniki xidmət · zəmanət · təmir · dəyişdirmə','Service · warranty · repairs · replacement']
+    ,'Открыть план →':['Plana bax →','Open plan →']
+    ,'В эксплуатации':['İstismardadır','In operation']
+    ,'ТО ≤ 30 дней':['TX ≤ 30 gün','Service ≤ 30 days']
+    ,'Гарантия ≤ 60 дней':['Zəmanət ≤ 60 gün','Warranty ≤ 60 days']
+    ,'Проверить замену':['Dəyişdirməni yoxla','Check replacement']
+    ,'Ремонты 12 мес.':['12 aylıq təmir','Repairs in 12 months']
+    ,'По оборудованию нет срочных задач.':['Avadanlıq üzrə təcili tapşırıq yoxdur.','No urgent equipment tasks.']
+    ,'Оборудование · уведомления':['Avadanlıq · bildirişlər','Equipment · notifications']
+    ,'Все →':['Hamısı →','All →']
+    ,'Срочных уведомлений нет.':['Təcili bildiriş yoxdur.','No urgent notifications.']
+    ,'Уведомления по оборудованию':['Avadanlıq bildirişləri','Equipment notifications']
+    ,'Рестораны':['Restoranlar','Restaurants']
+    ,'Выбор ресторанов':['Restoran seçimi','Select restaurants']
+    ,'Показать в отчётах':['Hesabatlarda göstər','Show in reports']
+    ,'Выбрать все':['Hamısını seç','Select all']
+    ,'Снять все':['Hamısını sil','Deselect all']
+    ,'Применить':['Tətbiq et','Apply']
+    ,'Все рестораны':['Bütün restoranlar','All restaurants']
+    ,'Обзор сети':['Şəbəkə icmalı','Network overview']
+
   });
   let language='ru';
   function savedLanguage(){
@@ -231,7 +253,56 @@
       collapse.setAttribute('aria-label',value(source));
     }
   }
-  function apply(){document.documentElement.lang=language;createSwitcher();applyExplicit();applySidebar()}
+  // Safe selectors for labels created asynchronously by existing modules.
+  // Never inspect/translate product rows, restaurant names, user-entered
+  // values, currencies, status payloads or document content.
+  const DYNAMIC_UI_TEXT=[
+    '#assetDashCard .asset-dash-title h3',
+    '#assetDashCard .asset-dash-title .ctitle > span',
+    '#assetDashCard .asset-dash-title > a',
+    '#assetDashCard .asset-dash-metric > span',
+    '#assetDashCard .asset-dash-empty',
+    '#assetNotifyMenu .asset-notify-head b',
+    '#assetNotifyMenu .asset-notify-head a',
+    '#assetNotifyMenu .asset-notify-empty',
+    '#sh-global-restaurant-filter .sh-rf-label',
+    '#sh-global-restaurant-filter .sh-rf-title',
+    '#sh-global-restaurant-filter [data-rf-all]',
+    '#sh-global-restaurant-filter [data-rf-none]',
+    '#sh-global-restaurant-filter [data-rf-cancel]',
+    '#sh-global-restaurant-filter [data-rf-apply]'
+  ];
+  function translateSafeDynamic(){
+    for(const element of document.querySelectorAll(DYNAMIC_UI_TEXT.join(',')))
+      sidebarLabel(element);
+    const restaurantFilter=document.querySelector('#sh-global-restaurant-filter');
+    if(!restaurantFilter)return;
+    const inputs=restaurantFilter.querySelectorAll('.sh-rf-list input[type="checkbox"]');
+    if(!inputs.length)return;
+    const total=inputs.length;
+    const chosen=Array.from(inputs).filter(input=>input.checked).length;
+    const count=restaurantFilter.querySelector('.sh-rf-count');
+    const state=restaurantFilter.querySelector('.sh-rf-status');
+    // Derive display numbers from live checkboxes, not translated strings.
+    // No changes to the actual restaurant selection or any API parameters.
+    const all=chosen===total;
+    const countText=all
+      ?(language==='az'?'hamısı':language==='en'?'all':'все')+' ('+chosen+')'
+      :language==='az'?total+'-dən '+chosen+'-si':
+        language==='en'?chosen+' of '+total:chosen+' из '+total;
+    const stateText=all?value('Все рестораны'):
+      language==='az'?chosen+' seçilib':
+      language==='en'?chosen+' selected':chosen+' выбрано';
+    if(count&&count.textContent!==countText)count.textContent=countText;
+    if(state&&state.textContent!==stateText)state.textContent=stateText;
+    const menu=restaurantFilter.querySelector('.sh-rf-menu');
+    if(menu&&menu.getAttribute('aria-label')!==value('Выбор ресторанов'))
+      menu.setAttribute('aria-label',value('Выбор ресторанов'));
+    const bell=document.querySelector('#assetNotifyWrap .asset-notify-btn');
+    if(bell&&bell.getAttribute('aria-label')!==value('Уведомления по оборудованию'))
+      bell.setAttribute('aria-label',value('Уведомления по оборудованию'));
+  }
+  function apply(){document.documentElement.lang=language;createSwitcher();applyExplicit();applySidebar();translateSafeDynamic()}
   let scheduled=false;
   function schedule(){
     if(scheduled)return;
@@ -286,12 +357,12 @@
     document.documentElement.lang=language;
     createSwitcher();
     apply();
-    if(document.body?.classList.contains('sh-workspace-page')){
-      const sidebar=document.querySelector('.sidebar');
-      if(sidebar&&!observer){
-        observer=new MutationObserver(()=>schedule());
-        observer.observe(sidebar,{childList:true,subtree:true});
-      }
+    if(document.body&&!observer){
+      // Child-list changes pick up asynchronous UI cards and nav updates.
+      // The i18n routine only writes changed, allowlisted text and cannot
+      // mutate restaurant data or the permission-filtered DOM structure.
+      observer=new MutationObserver(()=>schedule());
+      observer.observe(document.body,{childList:true,subtree:true});
     }
   }
   window.addEventListener('storage',event=>{
