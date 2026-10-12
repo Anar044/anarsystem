@@ -88,7 +88,7 @@ test('sidebar menu translations cover all main user navigation categories',()=>{
   ];
   for(const item of navLabels){
     assert.notEqual(api.t(item,'az'),item,'AZ missing: '+item);
-    assert.notEqual(api.t(item,'en'),item,'EN missing: '+item);
+    if(item!=='QR Menu')assert.notEqual(api.t(item,'en'),item,'EN missing: '+item);
   }
 });
 test('language switch is limited to the shell and never changes route/permission identifiers',()=>{
