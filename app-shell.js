@@ -161,6 +161,9 @@
     document.body.appendChild(script);
   }
   function init(){ensureMasterStyles().then(()=>{
+    // app-shell.css masks protected content under hc-loading. Reveal only
+    // its safe loading shell now, not the RBAC-filtered page or sidebar.
+    root.style.visibility='visible';
     installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();ensureMobileResponsive();applySHBranding();markNetworkSharedPage();
     const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');
     if(menu&&side)menu.onclick=()=>side.classList.toggle('open');
