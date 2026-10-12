@@ -178,7 +178,7 @@ test("route activation closes old sidebar groups and opens only the active categ
     return[];
   }};
   const make=new Function("sidebarNav","resolvePilotRoute",
-    source.slice(begin,end)+"\\nreturn {activateMenu,showOnlyGroup};");
+    source.slice(begin,end)+"\nreturn {activateMenu,showOnlyGroup};");
   const {activateMenu}=make(()=>nav,href=>({
     "/index.html":{href:"/dashboard.html"},
     "/procurement.html?view=catalog":{href:"/procurement.html?view=catalog"},
