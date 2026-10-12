@@ -1,29 +1,26 @@
-# Smart Horeca: real-page persistent sidebar pilot
+# Smart Horeca: stable navigation architecture (opt-in)
 
-This is an **opt-in prototype**, not the default application navigation.
-Use `/persistent-workspace.html` on the same deployment origin.
+## Root cause
+The production app is a multi-page application with dozens of protected HTML documents. Each reinitializes `app-shell.js`; `site-access.js` asynchronously filters nav links; global CSS hides unchecked links. During cross-document navigation the sidebar is destroyed and rebuilt. A separate `.reports-nav-group` briefly remains visible while other groups are hidden. Shared nav, branding and mobile scripts load with inconsistent querystring versions between pages, so the transient state can vary.
 
-## Enabled real modules
-- Dashboard
-- External procurement: catalog, requests, approvals, RFQ, suppliers, orders, receiving, analytics, norms and settings
-- Internal orders: my, incoming, preparing, shipments, receiving, all and settings
+Cross-document View Transitions only animate snapshots; caching old link visibility merely hides some symptoms. Introducing Turbo Drive directly would reuse the JS execution environment despite page-specific global scripts; every existing module would first need lifecycle cleanup.
 
-The parent document owns the left sidebar. Each module remains its own protected HTML document within a **same-origin first-party iframe**. All original module JavaScript, independent Supabase session checks and server-side RBAC remain active. Existing nonpilot menu items still navigate normally.
+## Chosen architecture
+One authenticated first-party parent document `/persistent-workspace.html` owns the sidebar, permission filtering, collapsed groups and scroll position. An opt-in route controller `persistent-workspace.js` sends only the **right content area** to same-origin first-party HTML documents in a buffered iframe. The old document stays visible until the new child proves it has an authorized session. No API data is cached by the parent, and child endpoints continue to enforce authorization. All nav routes use the common access-checked sidebar's `data-permission`; procurement and internal order views keep their explicit per-view role rules. Every child running `app-shell.js` hides its *duplicate* sidebar only when embedded by the tagged parent.
 
-The parent allows only these exact module paths and applies view-level permission checks. On a refused or expired child session it does not show unverified content. Only if the iframe element has `data-sh-persistent-workspace="1"` do the three existing page heads mark themselves as embedded, which suppresses their duplicated menus.
+This retains hundreds of existing scripts and handlers without forcing an unsafe same-document lifecycle refactor. It is a migration adapter, not a claim that iframes are a perfect final architecture. Long term, convert new modules to a real nested-layout router (for example React Router) and a single lifecycle-managed frontend bundle.
 
-## How to test
-1. Sign in with an active workspace membership **on the preview deployment origin**.
-2. Open `/persistent-workspace.html`. If the preview environment returns `NO_MEMBERSHIP`, **do not recreate accounts or bypass access**; the preview D1 workspace/member data must be configured separately.
-3. Open Dashboard, RFQ, and Internal Orders from the same left sidebar.
-4. Expand multiple groups and scroll the left menu. Only the right pane should reload.
-5. Test procurement views including PO and receiving, internal order forms and Back/Forward.
-6. Test roles with restricted access, including procurement-only and internal-order-only roles.
-7. Test logout, session expiry and switching organization.
+## Scope and test
+1. This route is **opt-in**. Do not test ordinary `/procurement.html`, `/dashboard.html`, etc. expecting a persistent sidebar.
+2. Enter via `/persistent-workspace.html`, then click the authorized left menu links. Nonmenu URLs, external URLs, auth links and hidden/unchecked entries are blocked by the persistent controller.
+3. Check Dashboard, AI Assistant, cash, external procurement (all views), internal orders (all views), warehouse, reports, finance and HR.
+4. Expand groups, scroll, navigate back/forward, open documents, switch restaurants, try a restricted-role employee, and test logout/expired session.
+5. Use an active workspace membership on the *same origin*. Preview DB access may differ from production; `NO_MEMBERSHIP` means no real-user preview acceptance test, not an invitation to bypass authorization.
 
-## Explicit non-goals / limitations
-- No rollout to all modules until real-page browser tests pass.
-- Full same-origin child documents still initialize their own authenticated services. The browser does not reuse their JS state across document loads.
-- An internal-orders URL changed by history.replaceState is observed in the parent without any extra API calls.
-- The iframe is intentionally not sandboxed because these first-party applications depend on their existing scripts and app APIs; revisit during production review.
-- This pilot has **not** been merged into main and does not modify document posting, stock movements, accounting or HR.
+## Constraints and rollback
+- Current `main` keeps its old navigation untouched.
+- No changes to purchasing, inventory, payroll, accounting or POS business actions.
+- Browser nested-history handling and same-origin iframe behaviour need actual Chrome end-to-end acceptance. Opening a section that navigates itself can modify iframe history independently, so test Back/Forward in real workflows.
+- A frame is deliberately not sandboxed because existing trusted scripts expect the normal first-party environment. Never load arbitrary external content in the pilot frame.
+- If an origin fails membership authentication, do not attempt to fix UI by automatically granting membership.
+- Before enabling by default, run e2e tests for permissions, document drafts, embedded modals, uploads/exports, direct links and session logout. Only then consider merging and enabling via a feature flag.
