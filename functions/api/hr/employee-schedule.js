@@ -46,34 +46,38 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+    const userId=state.storageUserId||state.user.id;
     await ensure(env.DB);
     const employeeId=clean(new URL(request.url).searchParams.get('id'),120);if(!employeeId)return json({success:false,message:'Не указан сотрудник'},400);
-    const scope=await resolveHrRestaurantScope(request,env,state.user.id),employee=await employeeRow(env.DB,state.user.id,employeeId,scope);
+    const scope=await resolveHrRestaurantScope(request,env,userId,state.access),employee=await employeeRow(env.DB,userId,employeeId,scope);
     if(!employee)return json({success:false,message:'Сотрудник не найден или недоступен в выбранном ресторане'},404);
-    return json({success:true,employee:{id:employeeId,name:employeeName(employee),code:employee.employee_code||'',roleCode:employee.role_code||'',roleName:employee.role_name||''},attendanceRule:await attendanceSnapshot(env.DB,state.user.id,employee)});
+    return json({success:true,employee:{id:employeeId,name:employeeName(employee),code:employee.employee_code||'',roleCode:employee.role_code||'',roleName:employee.role_name||''},attendanceRule:await attendanceSnapshot(env.DB,userId,employee)});
   }catch(e){console.error('[HR-EMPLOYEE-ATTENDANCE-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
 }
 
 export async function onRequestPost({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+    const userId=state.storageUserId||state.user.id;
     await ensure(env.DB);
     const body=await request.json().catch(()=>({})),action=clean(body.action,40),employeeId=clean(body.employeeId,120);
     if(!employeeId)return json({success:false,message:'Не указан сотрудник'},400);
-    const scope=await resolveHrRestaurantScope(request,env,state.user.id),employee=await employeeRow(env.DB,state.user.id,employeeId,scope);
+    const scope=await resolveHrRestaurantScope(request,env,userId,state.access),employee=await employeeRow(env.DB,userId,employeeId,scope);
     if(!employee)return json({success:false,message:'Сотрудник не найден или недоступен в выбранном ресторане'},404);
     if(action!=='saveAttendanceRule')return json({success:false,message:'Старые индивидуальные графики отключены. Используйте тип смены Face ID.'},410);
 
     const shiftTypeOverride=clean(body.shiftTypeOverride,20).toUpperCase();
     if(shiftTypeOverride&&!['DAY','NIGHT'].includes(shiftTypeOverride))return json({success:false,message:'Тип смены должен быть DAY, NIGHT или пустым для наследования должности'},400);
-    const before=await env.DB.prepare(`SELECT shift_type_override,updated_at FROM hr_employee_attendance_rules WHERE user_id=?1 AND iiko_employee_id=?2 LIMIT 1`).bind(state.user.id,employeeId).first();
+    const before=await env.DB.prepare(`SELECT shift_type_override,updated_at FROM hr_employee_attendance_rules WHERE user_id=?1 AND iiko_employee_id=?2 LIMIT 1`).bind(userId,employeeId).first();
     const t=now();
     await env.DB.prepare(`INSERT INTO hr_employee_attendance_rules(user_id,iiko_employee_id,shift_type_override,updated_at)
       VALUES(?1,?2,?3,?4)
       ON CONFLICT(user_id,iiko_employee_id) DO UPDATE SET shift_type_override=excluded.shift_type_override,updated_at=excluded.updated_at`)
-      .bind(state.user.id,employeeId,shiftTypeOverride,t).run();
+      .bind(userId,employeeId,shiftTypeOverride,t).run();
     await logAuditEvent({request,env,connection:privateConnection(state.state),action:'UPDATE',entityType:'HR_EMPLOYEE_ATTENDANCE_RULE',entityId:employeeId,entityLabel:`Учёт времени · ${employeeName(employee)}`,
       before:before?{shiftTypeOverride:before.shift_type_override||''}:null,after:{shiftTypeOverride},restaurantIds:scope?.selectedDepartmentIds||[],metadata:{roleCode:employee.role_code||''}});
-    return json({success:true,message:shiftTypeOverride?'Тип смены сотрудника сохранён':'Сотрудник наследует тип смены должности',attendanceRule:await attendanceSnapshot(env.DB,state.user.id,employee)});
+    return json({success:true,message:shiftTypeOverride?'Тип смены сотрудника сохранён':'Сотрудник наследует тип смены должности',attendanceRule:await attendanceSnapshot(env.DB,userId,employee)});
   }catch(e){console.error('[HR-EMPLOYEE-ATTENDANCE-POST]',e);return json({success:false,message:e?.message||String(e)},500)}
 }

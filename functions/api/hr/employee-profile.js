@@ -1,5 +1,6 @@
 import { loadRequestIikoState, privateConnection } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
+import { hasPermission } from '../access/_lib/access-control.js';
 import { calculateCompensation, AZ_PAYROLL_RULE_PROFILE } from './_lib/az-payroll-rules.js';
 import { logAuditEvent } from '../_lib/audit-log.js';
 
@@ -141,8 +142,8 @@ function employeeDto(e){
 }
 
 async function snapshot(request,env,state,employeeId){
-  const userId=state.user.id;
-  const scope=await resolveHrRestaurantScope(request,env,userId);
+  const userId=state.storageUserId||state.user.id;
+  const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
   const row=await employeeRow(env.DB,userId,employeeId);
   if(!row)return{error:json({success:false,message:'Сотрудник не найден. Сначала синхронизируйте справочник сотрудников.'},404)};
   if(filterEmployeesByScope([row],scope).length===0)return{error:json({success:false,message:'Сотрудник не относится к выбранному ресторану.'},403)};
@@ -151,7 +152,13 @@ async function snapshot(request,env,state,employeeId){
     loadProfile(env.DB,userId,employeeId),
     compensationSnapshot(env.DB,userId,row,asOf)
   ]);
-  return{data:{success:true,asOf,employee:employeeDto(row),profile,compensation,restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds||[],departmentCodes:scope.selectedDepartmentCodes||[]}:null}};
+  // Restaurant managers may view basic staff details; confidential documents and salary
+  // require explicit HR management / compensation permissions, not just employee-list access.
+  const maySeeProfile=hasPermission(state.access,'hr.employees.manage');
+  const maySeeSalary=hasPermission(state.access,'hr.compensation.view')||hasPermission(state.access,'sensitive.salary.view');
+  const visibleProfile=maySeeProfile?profile:null;
+  const visibleCompensation=maySeeSalary?compensation:{configured:false,restricted:true,sourceLabel:'Нет доступа к условиям оплаты',term:null,calculation:null};
+  return{data:{success:true,asOf,employee:employeeDto(row),profile:visibleProfile,compensation:visibleCompensation,restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds||[],departmentCodes:scope.selectedDepartmentCodes||[]}:null}};
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
@@ -159,6 +166,7 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
     await ensure(env.DB);
     const employeeId=clean(new URL(request.url).searchParams.get('id'),120);if(!employeeId)return json({success:false,message:'Не указан сотрудник'},400);
     const snap=await snapshot(request,env,state,employeeId);if(snap.error)return snap.error;return json(snap.data);
@@ -168,6 +176,7 @@ export async function onRequestGet({request,env}){
 export async function onRequestPost({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
     await ensure(env.DB);
     const body=await request.json().catch(()=>({})),action=clean(body.action,40);
     if(action!=='saveProfile')return json({success:false,message:'Неизвестное действие'},400);
@@ -192,7 +201,7 @@ export async function onRequestPost({request,env}){
       employment_type=excluded.employment_type,factual_hire_date=excluded.factual_hire_date,factual_fire_date=excluded.factual_fire_date,official_hire_date=excluded.official_hire_date,official_fire_date=excluded.official_fire_date,
       official_employer_name=excluded.official_employer_name,official_employer_voen=excluded.official_employer_voen,quota_category=excluded.quota_category,work_capacity_percent=excluded.work_capacity_percent,
       notes=excluded.notes,updated_at=excluded.updated_at`)
-      .bind(state.user.id,employeeId,profile.fin,profile.ssn,profile.birthDate,profile.phonePrimary,profile.phoneSecondary,profile.emailPersonal,profile.address,
+      .bind(state.storageUserId||state.user.id,employeeId,profile.fin,profile.ssn,profile.birthDate,profile.phonePrimary,profile.phoneSecondary,profile.emailPersonal,profile.address,
         profile.emergencyContactName,profile.emergencyContactRelation,profile.emergencyContactPhone,profile.educationLevel,profile.educationInstitution,profile.specialty,
         profile.employmentType,profile.factualHireDate,profile.factualFireDate,profile.officialHireDate,profile.officialFireDate,profile.officialEmployerName,profile.officialEmployerVoen,
         profile.quotaCategory,profile.workCapacityPercent,profile.notes,t).run();

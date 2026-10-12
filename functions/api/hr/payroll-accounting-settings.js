@@ -31,10 +31,12 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:"Требуется авторизация"},401);
+if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+const userId=state.storageUserId||state.user.id;
     requireCapability(state.user,"canViewPayroll");await ensurePayrollAccountingTables(env.DB);
-    const scope=await resolveHrRestaurantScope(request,env,state.user.id),scopeKey=currentScopeKey(scope);
-    const config=await getPayrollAccountingConfig(env.DB,state.user.id,scopeKey==="*"?"":scopeKey);
-    let bankAccounts=await getPayrollBankAccounts(env.DB,state.user.id,scopeKey==="*"?"":scopeKey);
+    const scope=await resolveHrRestaurantScope(request,env,userId,state.access),scopeKey=currentScopeKey(scope);
+    const config=await getPayrollAccountingConfig(env.DB,userId,scopeKey==="*"?"":scopeKey);
+    let bankAccounts=await getPayrollBankAccounts(env.DB,userId,scopeKey==="*"?"":scopeKey);
     if(!bankAccounts.length&&config?.bank_account_id){
       bankAccounts=[{account_id:config.bank_account_id,account_name:config.bank_account_name||"",account_type:config.bank_account_type||"",is_default:1,effective_scope_key:config.effective_scope_key||scopeKey}];
     }
@@ -50,17 +52,24 @@ export async function onRequestGet({request,env}){
 export async function onRequestPost({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:"Требуется авторизация"},401);
+if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+const userId=state.storageUserId||state.user.id;
     const access=requireCapability(state.user,"canConfigurePayrollAccounting");await ensurePayrollAccountingTables(env.DB);
-    const body=await request.json().catch(()=>({})),scope=await resolveHrRestaurantScope(request,env,state.user.id),scopeKey=currentScopeKey(scope);
+    const body=await request.json().catch(()=>({})),scope=await resolveHrRestaurantScope(request,env,userId,state.access),scopeKey=currentScopeKey(scope);
     const selectedScope=clean(body.scopeKey,180)||scopeKey;
-    if(selectedScope!=="*"&&scopeKey!=="*"&&selectedScope!==scopeKey)return json({success:false,message:"Нельзя сохранить настройки для другого подразделения"},403);
-    const beforeConfig=dto(await getPayrollAccountingConfig(env.DB,state.user.id,selectedScope==="*"?"":selectedScope));
-    const beforeBanks=(await getPayrollBankAccounts(env.DB,state.user.id,selectedScope==="*"?"":selectedScope)).map(x=>({id:x.account_id,name:x.account_name,type:x.account_type,isDefault:Boolean(x.is_default)}));
+    if(scopeKey!=="*"&&selectedScope!==scopeKey)return json({success:false,message:"Нельзя сохранить настройки для другого подразделения"},403);
+if(selectedScope==='*'&&scope?.isChain){
+  const selected=new Set(scope.selectedDepartmentIds||[]),allowed=new Set(scope.allowedDepartmentIds||[]);
+  if(scope.membershipRestricted||!allowed.size||selected.size!==allowed.size||[...allowed].some(id=>!selected.has(id)))
+    return json({success:false,message:'Общие настройки Payroll доступны только уполномоченному сотруднику всей сети'},403);
+}
+    const beforeConfig=dto(await getPayrollAccountingConfig(env.DB,userId,selectedScope==="*"?"":selectedScope));
+    const beforeBanks=(await getPayrollBankAccounts(env.DB,userId,selectedScope==="*"?"":selectedScope)).map(x=>({id:x.account_id,name:x.account_name,type:x.account_type,isDefault:Boolean(x.is_default)}));
     const banks=(Array.isArray(body.bankAccounts)?body.bankAccounts:[]).map(x=>({id:clean(x?.id,180),name:clean(x?.name,300),type:clean(x?.type,120),isDefault:Boolean(x?.isDefault)})).filter(x=>x.id);
     const defaultBank=banks.find(x=>x.isDefault)||banks[0]||null;
     const configPayload={...(body.config||{}),bankAccountId:defaultBank?.id||"",bankAccountName:defaultBank?.name||"",bankAccountType:defaultBank?.type||""};
-    const cfg=await savePayrollAccountingConfig(env.DB,state.user.id,selectedScope,configPayload,state.user.id);
-    const savedBanks=await savePayrollBankAccounts(env.DB,state.user.id,selectedScope,banks,state.user.id);
+    const cfg=await savePayrollAccountingConfig(env.DB,userId,selectedScope,configPayload,state.user.id);
+    const savedBanks=await savePayrollBankAccounts(env.DB,userId,selectedScope,banks,state.user.id);
     const after=dto(cfg),afterBanks=savedBanks.map(x=>({id:x.account_id,name:x.account_name,type:x.account_type,isDefault:Boolean(x.is_default)}));
     await logAuditEvent({
       request,env,connection:state.state?.iikoConnection||null,action:"UPDATE",entityType:"HR_PAYROLL_ACCOUNTING_CONFIG",

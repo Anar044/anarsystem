@@ -128,7 +128,7 @@ function renderContext(){
   $('hrpTaxProfile').textContent=`${t.mode==='MANUAL'?'Ручной':'Системный'}${t.active?.effectiveFrom?' · с '+t.active.effectiveFrom:''}`;
   $('hrpAttendance').textContent=p.attendance?.mode==='FACE_ID'?`Face ID · устройств: ${Number(p.attendance.activeDevices||0)}`:p.attendance?.mode==='MANUAL'?'Ручные фактические часы':'Face ID пока не подключён';
   $('hrpAttendance').className=p.attendance?.mode==='FACE_ID'?'connected':'not-connected';
-  $('hrpOvertime').textContent=p.timesheetApproval?.approved?`${hours(p.summary?.overtimePayableMinutes||0)} · ${Number(p.summary?.overtimeExtraDays||0).toLocaleString('ru-RU',{maximumFractionDigits:2})} дн. · ${money(p.summary?.overtimeExtraPay||0)}`:(p.timesheetApproval?.stale?'Табель изменён · требуется повторное согласование HR':'Доп. часы заблокированы · табель месяца не утверждён HR');
+  $('hrpOvertime').textContent=p.timesheetApproval?.aggregateView?`Сводка CHAIN · ${Number((p.timesheetApproval.departmentApprovals||[]).filter(x=>x.approved).length)} из ${Number((p.timesheetApproval.departmentApprovals||[]).length)} ресторанов утверждено · для начислений выберите ресторан`:p.timesheetApproval?.approved?`${hours(p.summary?.overtimePayableMinutes||0)} · ${Number(p.summary?.overtimeExtraDays||0).toLocaleString('ru-RU',{maximumFractionDigits:2})} дн. · ${money(p.summary?.overtimeExtraPay||0)}`:(p.timesheetApproval?.stale?'Табель изменён · требуется повторное согласование HR':'Доп. часы заблокированы · табель месяца не утверждён HR');
 }
 function head(cols){return`<tr>${cols.map(c=>`<th class="${c.left?'text-left':''} ${c.cls||''}">${esc(c.label)}</th>`).join('')}</tr>`}
 function daysCell(m,kind='factual'){
