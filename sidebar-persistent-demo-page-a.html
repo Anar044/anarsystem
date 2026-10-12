@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Horeca — демонстрационный рабочий раздел A</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}html,body{height:100%;margin:0;background:#0b1017;color:#e7eef5;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+main{padding:30px;max-width:1040px}h1{font-size:27px;margin:10px 0 14px}p{color:#a1b1c3;line-height:1.6}.eyebrow{color:#57dda2;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin:24px 0}.card{background:#111a25;border:1px solid #263442;border-radius:14px;padding:20px}
+.card span{display:block;font-size:12px;color:#98a9b7;margin-bottom:12px}.card strong{font-size:22px}
+.note{background:#10221d;border:1px solid #1f563f;border-radius:12px;padding:17px;color:#bcf1d6}.detail{display:flex;gap:12px;flex-wrap:wrap}
+.detail>div{border:1px solid #253444;border-radius:8px;padding:12px 14px;color:#a8b7c8}
+</style></head><body><main>
+<div class="eyebrow">Smart Horeca · безопасная демонстрация</div>
+<h1 id="current-heading">Рабочий раздел A</h1>
+<p>Первый отдельный HTML-документ. При выборе другого пункта слева загружается <b>другой HTML-документ</b> только в правой области. Левое меню принадлежит родительской странице и не пересоздаётся.</p>
+<div class="cards"><div class="card"><span>Демо · Документ</span><strong>A</strong></div><div class="card"><span>Рабочие данные</span><strong>Не загружаются</strong></div><div class="card"><span>Постоянное меню</span><strong>Активно</strong></div></div>
+<div class="note">Проверка: откройте несколько разделов, разверните закупки, прокрутите меню вниз, перейдите в отчёты и обратно. При смене содержимого справа меню не должно исчезать или перемещаться само.</div>
+<div class="detail"><div>Страница: A</div><div id="section-label">Раздел: Dashboard</div></div>
+</main>
+<script>(()=>{const section=new URLSearchParams(location.search).get('section')||'Dashboard';document.getElementById('section-label').textContent='Раздел: '+section;document.getElementById('current-heading').textContent=section;})();</script>
+</body></html>
