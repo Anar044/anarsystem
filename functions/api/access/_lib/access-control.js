@@ -241,13 +241,19 @@ export async function ensureOwnerWorkspace(db,ownerUserId,user=null){
 
   // Several page APIs can initialize access in parallel (access/me, access/admin,
   // HR, iiko state). The workspace creation therefore must be idempotent.
+  // Existing workspace is read-only. Avoid a redundant INSERT into D1 on
+  // every access check; creation remains atomic for the first login.
+  const find=()=>db.prepare(`SELECT * FROM sh_workspaces WHERE owner_user_id=?1 LIMIT 1`).bind(owner).first();
+  let row=await find();
+  if(row)return row;
+
   const now=NOW(),id=uid(),name=workspaceNameForUser(user);
   await db.prepare(`INSERT INTO sh_workspaces(id,owner_user_id,server_owner_user_id,name,status,created_at,updated_at)
     VALUES(?1,?2,?2,?3,'ACTIVE',?4,?4)
     ON CONFLICT(owner_user_id) DO NOTHING`)
     .bind(id,owner,name,now).run();
 
-  const row=await db.prepare(`SELECT * FROM sh_workspaces WHERE owner_user_id=?1 LIMIT 1`).bind(owner).first();
+  row=await find();
   if(!row)throw new Error('Не удалось создать или загрузить рабочее пространство Smart Horeca.');
   return row;
 }
