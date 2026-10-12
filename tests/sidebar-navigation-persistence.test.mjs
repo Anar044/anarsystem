@@ -291,3 +291,24 @@ test("compact hamburger matches sidebar icon scale without persistent highlighte
   assert.match(compact,/width:40px!important/);
   assert.match(html,/display:block!important;width:18px!important;height:2px!important/);
 });
+
+test("repeated clicks do not restart the same in-flight iframe or authorization",()=>{
+  const workspace=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
+  const guard=workspace.indexOf("if(pendingFrame?.getAttribute('src')===route.href)");
+  const create=workspace.indexOf("const frame=document.createElement('iframe')");
+  assert.ok(guard>0&&create>guard,"reuse pending iframe before creating a new one");
+  assert.match(workspace.slice(guard,create),/activateMenu\(route\);\s*return/);
+});
+test("opt-in timing trace never changes authentication or requests",()=>{
+  const workspace=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
+  const shell=readFileSync(resolve(root,"app-shell.js"),"utf8");
+  assert.match(workspace,/const NAV_DEBUG=new URLSearchParams\(location\.search\)\.get\('navDebug'\)==='1'/);
+  assert.match(workspace,/const routeTimings=new WeakMap\(\)/);
+  assert.match(workspace,/event\.origin!==location\.origin\|\|event\.data\?\.type!=='sh:embedded-nav-stage'/);
+  assert.match(workspace,/event\.source!==frame\.contentWindow/);
+  for(const stage of ["frame-boot","auth-ready","access-ready"]){
+    assert.ok(shell.includes("sendStage('"+stage+"')"));
+  }
+  assert.doesNotMatch(workspace,/fetch\s*\(/);
+  assert.doesNotMatch(workspace,/access_token|refresh_token|localStorage\.setItem\('sh/);
+});
