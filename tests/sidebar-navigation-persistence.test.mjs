@@ -89,7 +89,7 @@ test("real-page persistent workspace stays opt-in and reuses independent authent
 test("permitted navigation routes are sourced from the checked sidebar, not duplicated",()=>{
   const route=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
   const rules=route.slice(route.indexOf("  const PROCUREMENT="),route.indexOf("  const host="));
-  const resolveFn=route.slice(route.indexOf("  function resolvePilotRoute(raw){"),route.indexOf("  function permitted(route){"));
+  const resolveFn=route.slice(route.indexOf("  function canonicalPagePath(path){"),route.indexOf("  function permitted(route){"));
   const hrLink={
     href:"https://preview.smarthoreca.pages.dev/hr-payroll.html",
     hidden:false,
@@ -106,6 +106,10 @@ test("permitted navigation routes are sourced from the checked sidebar, not dupl
   assert.ok(route.includes("Object.keys(PROCUREMENT).map(view=>"));
   assert.ok(route.includes("preparing"));
   assert.equal(resolveRoute("/index.html").href,"/dashboard.html");
+  assert.equal(resolveRoute("/dashboard").href,"/dashboard.html");
+  assert.equal(resolveRoute("/").href,"/dashboard.html");
+  assert.equal(resolveRoute("/procurement?view=sourcing").href,"/procurement.html?view=sourcing");
+  assert.equal(resolveRoute("/internal-orders?view=shipments").href,"/internal-orders.html?view=shipments");
   assert.equal(resolveRoute("/dashboard.html").permissions[0],"dashboard.view");
   assert.deepEqual(resolveRoute("/procurement.html?view=sourcing").permissions,["procurement.sourcing"]);
   assert.deepEqual(resolveRoute("/internal-orders.html?view=shipments").permissions,
@@ -114,6 +118,9 @@ test("permitted navigation routes are sourced from the checked sidebar, not dupl
   assert.equal(resolveRoute("/internal-orders.html?view=unknown"),null);
 
   assert.deepEqual(resolveRoute("/hr-payroll.html").permissions,["hr.payroll.view"]);
+  assert.equal(resolveRoute("/hr-payroll").href,"/hr-payroll.html");
+  assert.equal(resolveRoute("/login"),null);
+  assert.equal(resolveRoute("/persistent-workspace"),null);
   hrLink.dataset.shAccessChecked="0";
   assert.equal(resolveRoute("/hr-payroll.html"),null,"unchecked links are never routed");
   hrLink.dataset.shAccessChecked="1";
