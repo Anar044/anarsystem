@@ -2,10 +2,13 @@
    next static HTML page. This opt-in is intentionally progressive enhancement:
    browsers without cross-document View Transitions retain normal navigation. */
 @view-transition { navigation: auto; }
-@keyframes shNavHoldOld { 0%,85% { opacity:1 } 100% { opacity:0 } }
-@keyframes shNavShowNew { 0% { opacity:0 } 100% { opacity:1 } }
-::view-transition-old(root) { animation: 850ms linear both shNavHoldOld; }
-::view-transition-new(root) { animation: 220ms ease-out 630ms both shNavShowNew; }
+/* The old page snapshot stays visible until Smart Horeca has finished its
+   protected-page startup. app-shell calls ViewTransition.skipTransition once
+   the navigation can be painted, rather than fading to a black document. */
+@keyframes shNavKeepOld { from,to { opacity:1 } }
+@keyframes shNavKeepNewHidden { from,to { opacity:0 } }
+::view-transition-old(root) { animation: 4200ms linear both shNavKeepOld; }
+::view-transition-new(root) { animation: 4200ms linear both shNavKeepNewHidden; }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(root),::view-transition-new(root) { animation-duration:1ms;animation-delay:0ms; }
 }
