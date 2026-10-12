@@ -49,11 +49,20 @@ async function load(){
   state.data=await get();const d=state.data;
   $("io-open-create").hidden=!d.permissions?.request;
   $("io-config-panel").hidden=!(d.permissions?.configure&&state.view==="settings");
-  $("io-config-panel").hidden=!(d.permissions?.configure&&state.view==="settings");
   $("io-central-label").textContent=d.settings?("Склад по умолчанию: "+d.settings.centralDepartmentName+" · "+d.settings.centralStoreName):"Центральный RMS можно выбрать в настройках; заказы между ресторанами уже доступны";
   if(d.permissions?.configure){
     selection("io-central-dept",d.configurableDepartments||[],"Выберите центральный RMS",d.settings?.centralDepartmentId||"");
     await fillStores($("io-central-dept").value,"io-central-store",d.settings?.centralStoreId||"");
+    try{
+      const result=await api("/api/internal-order-shipments?settings=accounts");
+      $("io-revenue-account").value=result.settings?.revenueAccountCode||"";
+      $("io-expense-account").value=result.settings?.expenseAccountCode||"";
+      $("io-account-settings-result").textContent=result.settings?.usesIikoDefaults
+        ?"Сейчас используются стандартные счета, заданные в iiko."
+        :"Сохранённые счета применяются к следующим расходным накладным.";
+    }catch(error){
+      $("io-account-settings-result").textContent="Не удалось загрузить настройки счетов: "+String(error?.message||error);
+    }
   }
   selection("io-destination-dept",d.departments||[],"Выберите получателя");
   selection("io-source-dept",d.sendingDepartments||[],"Выберите RMS-отправителя",d.settings?.centralDepartmentId||"");
@@ -69,20 +78,38 @@ async function load(){
 function updateView(){
   if(!state.data)return;
   const roles=state.data.permissions||{};
-  const available=["my","incoming","preparing","all","settings"];
-  if(!available.includes(state.view)||((state.view==="all"||state.view==="settings")&&!roles.configure)||(["incoming","preparing"].includes(state.view)&&!roles.fulfill&&!roles.configure))state.view="my";
+  const available=["my","incoming","preparing","shipments","receiving","all","settings"];
+  const canFulfill=roles.fulfill||roles.configure,canRequest=roles.request||roles.configure;
+  if(!available.includes(state.view)||(["all","settings"].includes(state.view)&&!roles.configure)||
+    (["incoming","preparing","shipments"].includes(state.view)&&!canFulfill)||
+    (state.view==="receiving"&&!canRequest))state.view="my";
   document.querySelectorAll("[data-io-view]").forEach(btn=>{
     const mode=btn.dataset.ioView;
-    btn.hidden=((mode==="settings"||mode==="all")&&!roles.configure)||((mode==="incoming"||mode==="preparing")&&!roles.fulfill&&!roles.configure);
+    btn.hidden=(["settings","all"].includes(mode)&&!roles.configure)||
+      (["incoming","preparing","shipments"].includes(mode)&&!canFulfill)||
+      (mode==="receiving"&&!canRequest);
     btn.classList.toggle("active",mode===state.view);
     btn.setAttribute("aria-pressed",String(mode===state.view));
   });
   $("io-config-panel").hidden=state.view!=="settings"||!roles.configure;
   $("io-list-panel").hidden=state.view==="settings";
   $("io-kpis").hidden=state.view==="settings";
-  $("io-open-create").hidden=state.view==="settings"||!roles.request;
-  const titles={my:"Мои заявки",incoming:"Входящие заказы",preparing:"Комплектация и готовые к отгрузке",all:"Все внутренние заказы",settings:"Настройки внутренних заказов"};
+  $("io-open-create").hidden=state.view!=="my"||!roles.request;
+  const notice=document.querySelector(".io-notice");if(notice)notice.hidden=state.view==="settings";
+  const titles={my:"Мои заявки",incoming:"Входящие заказы",preparing:"Комплектация",shipments:"Отгрузки",receiving:"Приёмка",all:"Все внутренние заказы",settings:"Настройки внутренних заказов"};
+  const explanations={my:"Заявки, созданные ресторанами; оформление нового внутреннего заказа.",
+    incoming:"Заявки, поступившие на RMS-отправителя, согласование количества.",
+    preparing:"Подготовка и комплектация подтверждённых заявок.",
+    shipments:"Расходные накладные и отправка готовых заказов между RMS.",
+    receiving:"Готовые к поступлению заказы и контроль связанных приходных у получателя.",
+    all:"Полный журнал внутренних заявок по доступным подразделениям.",
+    settings:"Центральный склад, счета расходной накладной и диагностика связанной пары."};
   $("io-list-title").textContent=titles[state.view]||"Внутренние заказы";
+  const heading=document.querySelector(".io-heading h1"),desc=document.querySelector(".io-heading p");
+  if(heading)heading.textContent=titles[state.view]||"Внутренние заказы";
+  if(desc)desc.textContent=explanations[state.view]||"Поставка товаров между RMS.";
+  const viewHeading=document.querySelector(".topbar-title");
+  if(viewHeading)viewHeading.textContent="Внутренние заказы · "+(titles[state.view]||"Заявки");
 }
 function selectView(view){
   state.view=view;
@@ -100,7 +127,9 @@ function render(){
     const incoming=admin||(d.permissions?.fulfill&&allowed.has(o.sourceDepartmentId));
     if(mode==="my"&&!mine)return false;
     if(mode==="incoming"&&!incoming)return false;
-    if(mode==="preparing"&&(!incoming||!["APPROVED","PICKING","READY"].includes(o.status)))return false;
+    if(mode==="preparing"&&(!incoming||!["APPROVED","PICKING"].includes(o.status)))return false;
+    if(mode==="shipments"&&(!incoming||o.status!=="READY"))return false;
+    if(mode==="receiving"&&(!mine||o.status!=="READY"))return false;
     return (!status||o.status===status)&&(!query||[o.number,o.sourceDepartmentName,o.sourceStoreName,o.destinationDepartmentName,o.destinationStoreName,...o.lines.map(x=>x.productName)].join(" ").toLocaleLowerCase().includes(query));
   });
   $("io-rows").innerHTML=shown.map(o=>'<tr><td><strong>'+esc(o.number)+'</strong><small>'+esc(date(o.createdAt))+'</small></td><td><strong>'+esc(o.sourceDepartmentName||o.centralDepartmentName)+'</strong><small>'+esc(o.sourceStoreName||o.centralStoreName)+' → '+esc(o.destinationDepartmentName)+' / '+esc(o.destinationStoreName)+'</small></td><td>'+esc(date(o.neededBy))+'</td><td>'+o.lines.length+'</td><td><span class="io-pill" data-status="'+esc(o.status)+'">'+esc(statusNames[o.status]||o.status)+'</span></td><td><button class="io-btn io-outline" data-open="'+esc(o.id)+'">Открыть</button></td></tr>').join("");
@@ -569,6 +598,22 @@ async function handleConfig(e){
   e.preventDefault();
   try{busy(true);await post("save-settings",{centralDepartmentId:$("io-central-dept").value,centralStoreId:$("io-central-store").value});state.storeCache.clear();note("Центральный склад сохранён.","ok");await load()}catch(e){note(e.message,"error")}finally{busy(false)}
 }
+async function handleAccountSettings(e){
+  e.preventDefault();
+  const revenueAccountCode=$("io-revenue-account").value.trim(),expenseAccountCode=$("io-expense-account").value.trim();
+  const result=$("io-account-settings-result");
+  if(Boolean(revenueAccountCode)!==Boolean(expenseAccountCode)){
+    result.textContent="Укажи оба счёта либо очисти оба поля, если хочешь использовать стандартные настройки iiko.";return;
+  }
+  try{
+    busy(true);
+    const saved=await shipPost("save-account-settings",{revenueAccountCode,expenseAccountCode});
+    result.textContent=saved.message||"Счета сохранены для новых расходных.";
+    note("Счета расходной накладной сохранены.","ok");
+  }catch(error){result.textContent="Ошибка сохранения счетов: "+String(error?.message||error);}
+  finally{busy(false)}
+}
+
 $("io-refresh").onclick=async()=>{try{busy(true);await load();note("Данные обновлены.","ok")}catch(e){note(e.message,"error")}finally{busy(false)}};
 $("io-query").oninput=render;$("io-status-filter").onchange=render;
 document.querySelectorAll("[data-io-view]").forEach(btn=>btn.onclick=()=>selectView(btn.dataset.ioView));
@@ -674,7 +719,7 @@ async function handleLinkedIncomingFind(){
   }catch(e){output.textContent="Поиск не выполнен: "+String(e?.message||e)+". Документы не менялись."}
   finally{button.disabled=false}
 }
-$("io-config-form").onsubmit=handleConfig;$("io-create-form").onsubmit=handleCreate;
+$("io-config-form").onsubmit=handleConfig;$("io-account-settings-form").onsubmit=handleAccountSettings;$("io-create-form").onsubmit=handleCreate;
 $("io-pair-probe-form").onsubmit=handleIikoPairProbe;
 $("io-find-linked-incoming").onclick=handleLinkedIncomingFind;
 start();
