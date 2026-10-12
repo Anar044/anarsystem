@@ -59,7 +59,8 @@
   }
   function rememberSidebarNavigation(){
     const sidebar=document.querySelector('.sidebar');
-    if(!sidebar)return;
+    if(!sidebar||sidebar.dataset.shNavReady!=='1')return;
+    // Never store transient states while permission-filtered groups are loading.
     // A permission-hidden group must not overwrite the user's previous choice.
     sidebar.querySelectorAll('.documents-nav-group,.reports-nav-group').forEach(group=>{
       if(!group.hidden)savedNavState.groups[navGroupKey(group)]=group.classList.contains('open');
@@ -168,11 +169,23 @@
     let finished=false,accessObserver=null;
     const showCompletedNavigation=()=>{
       if(finished)return;
+      if(document.body?.dataset.protected&&!isAuthPage()&&!window.SHAccess?.context?.allowed)return;
+      // The global sidebar must never be visible between menu construction
+      // and completion of every individual permission check.
+      window.SHAccess?.applyVisibility?.(document.querySelector('.sidebar'));
+      const nav=side?.querySelector('.unified-main-nav');
+      if(document.body?.dataset.protected&&nav){
+        const links=nav.querySelectorAll('a[href]');
+        const groups=nav.querySelectorAll('.documents-nav-group,.reports-nav-group');
+        if(!links.length||
+           [...links].some(link=>link.dataset.shAccessChecked!=='1')||
+           [...groups].some(group=>group.dataset.shAccessChecked!=='1'))return;
+      }
       finished=true;
       accessObserver?.disconnect();
       window.removeEventListener('sh:access-visibility-ready',showCompletedNavigation);
-      window.SHAccess?.applyVisibility?.(document.querySelector('.sidebar'));
       restoreSidebarScroll();
+      if(side)side.dataset.shNavReady='1';
       reveal();
       requestAnimationFrame(restoreSidebarScroll);
     };

@@ -28,6 +28,13 @@
   html body .app-shell .cash-overview-grid{grid-template-columns:1fr!important}
 }
 
+/* Keep sidebar completely hidden while its links and groups are being
+   permission-filtered. Without this rule the browser briefly paints only
+   already-checked groups (often just Reports), then expands every other item.
+   app-shell.js sets data-sh-nav-ready after all links are evaluated. */
+html body .app-shell aside.sidebar:not([data-sh-nav-ready="1"]),
+html body .app aside.sidebar:not([data-sh-nav-ready="1"]){visibility:hidden!important}
+
 /* RBAC navigation: CSS must respect hidden even when links use display:flex!important.
    Never show a new sidebar item before its permission has been evaluated. */
 .sidebar [hidden]{display:none!important}

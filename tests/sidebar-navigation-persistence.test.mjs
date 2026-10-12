@@ -19,8 +19,8 @@ function mockGroup(key,open,{hidden=false}={}){
   const classes=new Set([key,...(open?["open"]:[])]);
   return {hidden,classList:{contains:k=>classes.has(k)},querySelector:()=>({dataset:{unifiedNavItem:key}})};
 }
-function instance(storage,groups,scrollTop=0){
-  const sidebar={scrollTop,querySelectorAll:()=>groups};
+function instance(storage,groups,scrollTop=0,{ready=true}={}){
+  const sidebar={scrollTop,dataset:{shNavReady:ready?'1':'0'},querySelectorAll:()=>groups};
   const document={querySelector:query=>query===".sidebar"?sidebar:null};
   return {...navigationFactory()(storage,document),sidebar};
 }
@@ -64,4 +64,19 @@ test("the access gate exposes sidebar only after all links are checked",()=>{
 });
 test("legacy HR menu cannot forcibly collapse other sections",()=>{
   assert.doesNotMatch(legacy,/if\(g===group\)return;g\.classList\.remove\('open'\)/);
+});
+
+test("state from a partially checked sidebar cannot overwrite saved user choices",()=>{
+  const raw=JSON.stringify({groups:{procurement:true,"internal-orders":true},scrollTop:165});
+  const db=new Map([["shUnifiedSidebarStateV1",raw]]);
+  const storage={getItem:key=>db.get(key)||null,setItem:(key,value)=>db.set(key,value)};
+  instance(storage,[mockGroup("procurement-nav-group",false)],0,{ready:false}).rememberSidebarNavigation();
+  assert.equal(db.get("shUnifiedSidebarStateV1"),raw);
+});
+test("sidebar cannot become visible until every link and group is permission checked",()=>{
+  const styles=readFileSync(resolve(root,"app-shell.css"),"utf8");
+  assert.match(styles,/aside\.sidebar:not\(\[data-sh-nav-ready="1"\]\)/);
+  assert.match(shell,/\[\.\.\.links\]\.some\(link=>link\.dataset\.shAccessChecked!=='1'\)/);
+  assert.match(shell,/\[\.\.\.groups\]\.some\(group=>group\.dataset\.shAccessChecked!=='1'\)/);
+  assert.match(shell,/side\.dataset\.shNavReady='1'/);
 });
