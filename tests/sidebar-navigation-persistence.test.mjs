@@ -331,6 +331,7 @@ test("embedded pages do not rebuild the hidden sidebar",()=>{
   const part=shell.slice(shell.indexOf("  function init(){"),shell.indexOf("  init();"));
   const embedded=part.slice(part.indexOf("if(root.classList.contains('sh-pilot-embedded')){"),
     part.indexOf("    installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();"));
+  assert.ok(embedded.includes("installUnifiedStyle()"));
   assert.ok(embedded.includes("removeLegacyStyles()"));
   assert.ok(embedded.includes("ensureMobileResponsive()"));
   assert.ok(embedded.includes("applySHBranding()"));
