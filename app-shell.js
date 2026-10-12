@@ -184,6 +184,19 @@
     document.body.appendChild(script);
   }
   function init(){ensureMasterStyles().then(()=>{
+    if(root.classList.contains('sh-pilot-embedded')){
+      // This document lives in the authenticated first-party content frame.
+      // The parent already owns the only visible sidebar. Avoid rebuilding,
+      // filtering and normalizing an entirely invisible duplicate 50+ link
+      // tree for every navigation. Keep styles, branding, access and the
+      // original business module initialization untouched.
+      removeLegacyStyles();
+      ensureMobileResponsive();
+      applySHBranding();
+      markNetworkSharedPage();
+      reveal();
+      return;
+    }
     installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();
     ensureMobileResponsive();applySHBranding();markNetworkSharedPage();
     const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');
