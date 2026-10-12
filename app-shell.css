@@ -38,3 +38,9 @@
    including cached HTML before the unified app shell is constructed. */
 .sidebar a[href="/settings.html"],.sidebar a[href="settings.html"],
 .sidebar a[href="/debug.html"],.sidebar a[href="debug.html"]{display:none!important}
+
+/* Opt-in iframe layout for the three first-party persistent-shell pilot pages. */
+html.sh-pilot-embedded .sidebar{display:none!important}
+html.sh-pilot-embedded .app-shell>.main,html.sh-pilot-embedded .main{margin-left:0!important;width:100%!important;max-width:none!important}
+html.sh-pilot-embedded .app-shell{width:100%!important;min-width:0!important}
+html.sh-pilot-embedded .mobile-menu{display:none!important}

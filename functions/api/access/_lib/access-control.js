@@ -123,9 +123,31 @@ export const ROLE_TEMPLATES=[
   {code:'RESTAURANT_MANAGER',name:'Менеджер ресторана',description:'Операционный просмотр и согласования своего ресторана.',permissions:['dashboard.view','cash.view','cash_shifts.view','procurement.request.create','procurement.request.view_all','procurement.approve','procurement.internal.request','inventory.stock.view','inventory.movements.view','reports.olap','reports.pnl','hr.employees.view','hr.schedules.view','hr.attendance.view','hr.timesheet.view','hr.timesheet.manage','hr.timesheet.manager_approve']}
 ];
 
+// Cache ONLY schema readiness, never membership or role decisions.
+// A new D1 binding receives its own check and failed checks are retried.
+const ACCESS_SCHEMA_READY=new WeakMap();
+const ACCESS_SCHEMA_NAMES=[
+  'sh_workspaces','idx_sh_workspaces_owner',
+  'sh_workspace_invites','idx_sh_workspace_invites_member',
+  'sh_access_members','idx_sh_access_members_user','idx_sh_access_members_email',
+  'sh_access_roles','sh_access_role_permissions','sh_access_member_roles',
+  'sh_access_member_overrides'
+];
 export async function ensureAccessTables(db){
   if(!db)throw new Error('D1 binding DB не настроен.');
-  await db.batch([
+  const previous=ACCESS_SCHEMA_READY.get(db);
+  if(previous)return previous;
+  const initialize=(async()=>{
+    // Established databases do not need the CREATE TABLE/INDEX batch on
+    // every page navigation. Fall back to the original batch if incomplete.
+    try{
+      const count=await db.prepare(
+        'SELECT COUNT(*) AS c FROM sqlite_master WHERE name IN ('+
+        ACCESS_SCHEMA_NAMES.map(()=>'?').join(',')+')'
+      ).bind(...ACCESS_SCHEMA_NAMES).first();
+      if(Number(count?.c)===ACCESS_SCHEMA_NAMES.length)return;
+    }catch(_){}
+    await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS sh_workspaces (
       id TEXT PRIMARY KEY,
       owner_user_id TEXT NOT NULL UNIQUE,
@@ -198,7 +220,15 @@ export async function ensureAccessTables(db){
       effect TEXT NOT NULL,
       PRIMARY KEY(owner_user_id,member_id,permission)
     )`)
-  ]);
+    ]);
+  })();
+  ACCESS_SCHEMA_READY.set(db,initialize);
+  try{
+    return await initialize;
+  }catch(error){
+    ACCESS_SCHEMA_READY.delete(db);
+    throw error;
+  }
 }
 
 function workspaceNameForUser(user){
@@ -211,13 +241,19 @@ export async function ensureOwnerWorkspace(db,ownerUserId,user=null){
 
   // Several page APIs can initialize access in parallel (access/me, access/admin,
   // HR, iiko state). The workspace creation therefore must be idempotent.
+  // Existing workspace is read-only. Avoid a redundant INSERT into D1 on
+  // every access check; creation remains atomic for the first login.
+  const find=()=>db.prepare(`SELECT * FROM sh_workspaces WHERE owner_user_id=?1 LIMIT 1`).bind(owner).first();
+  let row=await find();
+  if(row)return row;
+
   const now=NOW(),id=uid(),name=workspaceNameForUser(user);
   await db.prepare(`INSERT INTO sh_workspaces(id,owner_user_id,server_owner_user_id,name,status,created_at,updated_at)
     VALUES(?1,?2,?2,?3,'ACTIVE',?4,?4)
     ON CONFLICT(owner_user_id) DO NOTHING`)
     .bind(id,owner,name,now).run();
 
-  const row=await db.prepare(`SELECT * FROM sh_workspaces WHERE owner_user_id=?1 LIMIT 1`).bind(owner).first();
+  row=await find();
   if(!row)throw new Error('Не удалось создать или загрузить рабочее пространство Smart Horeca.');
   return row;
 }
