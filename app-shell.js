@@ -171,7 +171,7 @@
       finished=true;
       accessObserver?.disconnect();
       window.removeEventListener('sh:access-visibility-ready',showCompletedNavigation);
-      window.SHAccess?.applyVisibility?.(side);
+      window.SHAccess?.applyVisibility?.(document.querySelector('.sidebar'));
       restoreSidebarScroll();
       reveal();
       requestAnimationFrame(restoreSidebarScroll);
