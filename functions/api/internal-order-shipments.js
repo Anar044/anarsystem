@@ -20,7 +20,7 @@ import {getIikoSuppliers} from "./iiko/_lib/iiko-suppliers.js";
 import {findLinkedIncomingInvoices} from "./_lib/internal-order-incoming-lookup.js";
 import {validateShipmentOutgoingForReceipt} from "./_lib/internal-order-receipt-check.js";
 import {buildInternalDispatchPreview} from "./_lib/internal-order-dispatch-preview.js";
-import {validateInternalAccountCodes} from "./_lib/internal-order-account-codes.js";
+import {validateInternalAccountCodes,normalizeInternalIikoAccounts} from "./_lib/internal-order-account-codes.js";
 
 const H={"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"Content-Type,Authorization","Access-Control-Allow-Methods":"GET,POST,OPTIONS"};
 const str=v=>String(v??"").trim();
@@ -217,6 +217,22 @@ export async function onRequestGet({request,env}){
     if(new URL(request.url).searchParams.get("settings")==="accounts"){
       requirePermission(c.access,"procurement.internal.configure");
       return json({success:true,settings:await accountSettings(c)});
+    }
+    if(new URL(request.url).searchParams.get("settings")==="account-catalog"){
+      requirePermission(c.access,"procurement.internal.configure");
+      const attempts=[];
+      for(const url of ["/resto/api/v2/entities/accounts/list","/resto/api/entities/accounts/list"]){
+        try{
+          const reply=await iikoJson(c.connection,url,{timeoutMs:30000});
+          const accounts=reply.ok?normalizeInternalIikoAccounts(reply.payload):[];
+          attempts.push({endpoint:url,status:reply.status,count:accounts.length});
+          if(accounts.length)return json({success:true,readOnly:true,accounts,source:url});
+        }catch(error){
+          attempts.push({endpoint:url,error:str(error?.message||error).slice(0,140)});
+        }
+      }
+      return json({success:false,readOnly:true,code:"IIKO_ACCOUNT_CATALOG_UNAVAILABLE",
+        message:"Справочник счетов iiko сейчас недоступен через REST. Коды можно указать вручную в настройках.",attempts},502);
     }
     const o=await order(c,orderId);
     const list=await rows(c,o.id);
