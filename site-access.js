@@ -89,9 +89,12 @@
   }
 
   function pendingInvite(){
+    // Only explicit links may claim an invitation. One-time tokens stored by
+    // older versions of the app must not block already-active users.
     const params=new URLSearchParams(location.search),fromUrl=params.get('invite')||'';
-    if(fromUrl){try{localStorage.setItem('sh_pending_invite',fromUrl)}catch{}return fromUrl}
-    try{return localStorage.getItem('sh_pending_invite')||''}catch{return''}
+    if(fromUrl)return fromUrl;
+    try{localStorage.removeItem('sh_pending_invite')}catch{}
+    return '';
   }
 
   async function selectWorkspace(workspaceId){
