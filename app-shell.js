@@ -12,6 +12,14 @@
   // parent that the page can be displayed without waiting for unrelated
   // iframe load events (charts/fonts/other subresources).
   if(root.classList.contains('sh-pilot-embedded')){
+    // UI-only instrumentation: milestones reveal where navigation latency
+    // occurs without logging any user, restaurant, token or business data.
+    const sendStage=stage=>{
+      try{window.parent.postMessage({type:'sh:embedded-nav-stage',stage},location.origin)}catch(_){}
+    };
+    sendStage('frame-boot');
+    document.addEventListener('sh-auth-ready',()=>sendStage('auth-ready'));
+    document.addEventListener('sh-access-ready',()=>sendStage('access-ready'));
     window.addEventListener('sh:access-visibility-ready',()=>{
       if(window.SHAccess?.context?.allowed!==true)return;
       try{window.parent.postMessage({type:'sh:embedded-access-ready'},location.origin)}catch(_){}
