@@ -130,10 +130,8 @@
     button.setAttribute('aria-label',text);
     button.setAttribute('title',text);
     button.setAttribute('aria-expanded',String(!collapsed));
-    const icon=button.querySelector('.sh-sidebar-collapse-icon');
-    if(icon)icon.textContent=collapsed?'→':'←';
-    const label=button.querySelector('.sh-sidebar-collapse-label');
-    if(label)label.textContent=text;
+    // Keep the three-bar icon unchanged in both states. The tooltip,
+    // accessible label and aria-expanded communicate the action.
     if(save){
       try{sessionStorage.setItem(SIDEBAR_COLLAPSE_KEY,collapsed?'1':'0')}catch(_){}
     }
@@ -143,8 +141,13 @@
     const button=document.createElement('button');
     button.type='button';
     button.className='sh-sidebar-collapse-btn';
-    button.innerHTML='<span class="sh-sidebar-collapse-icon" aria-hidden="true">←</span><span class="sh-sidebar-collapse-label">Свернуть меню</span>';
+    button.innerHTML='<span class="sh-sidebar-hamburger" aria-hidden="true"><span></span><span></span><span></span></span>';
     sidebar.insertBefore(button,sidebar.firstChild);
+    const navForControl=sidebarNav();
+    if(navForControl){
+      navForControl.id ||= 'sh-primary-sidebar-navigation';
+      button.setAttribute('aria-controls',navForControl.id);
+    }
     button.addEventListener('click',()=>setSidebarCollapsed(!isSidebarCollapsed()));
     // Native tooltips and accessible names make icon-only mode understandable.
     const nav=sidebarNav();
