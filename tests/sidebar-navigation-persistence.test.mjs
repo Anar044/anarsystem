@@ -367,7 +367,7 @@ test("request timing probes do not cache, bypass, or duplicate access verificati
   assert.ok(access.includes("reportEmbeddedAccessStage('access-response')"));
   assert.ok(access.includes("reportEmbeddedAccessStage('access-body')"));
   assert.ok(access.includes("cache:'no-store'"));
-  assert.ok(access.includes("await fetch(endpoint,"));
+  assert.ok(access.includes("await fetch(measuredEndpoint,"));
   assert.ok(access.includes("const data=await response.json()"));
   assert.ok(access.includes("if(window.frameElement?.dataset?.shPersistentWorkspace!=='1')return"));
   assert.ok(shell.includes("'access-request','access-response','access-body','access-ready'"));
