@@ -410,24 +410,24 @@
     if(language!=='ru'){
       const locale=language==='az'?0:1;
       const counters={
-        'stock-result-meta':{re:/^(\\d+) из (\\d+) позиций$/,suffix:[' mövqedən ',' of '],tail:[' mövqe',' items']},
-        'mov-result-meta':{re:/^(\\d+) из (\\d+) строк$/,suffix:[' sətirdən ',' of '],tail:[' sətir',' rows']},
-        'fc-result-meta':{re:/^(\\d+) из (\\d+) ингредиентов$/,suffix:[' inqrediyentdən ',' of '],tail:[' inqrediyent',' ingredients']}
+        'stock-result-meta':{re:/^(\d+) из (\d+) позиций$/,suffix:[' mövqedən ',' of '],tail:[' mövqe',' items']},
+        'mov-result-meta':{re:/^(\d+) из (\d+) строк$/,suffix:[' sətirdən ',' of '],tail:[' sətir',' rows']},
+        'fc-result-meta':{re:/^(\d+) из (\d+) ингредиентов$/,suffix:[' inqrediyentdən ',' of '],tail:[' inqrediyent',' ingredients']}
       };
       const counter=counters[id],match=counter?.re.exec(source);
       if(match)return language==='az'
         ?match[2]+counter.suffix[0]+match[1]+counter.tail[0]
         :match[1]+counter.suffix[1]+match[2]+counter.tail[1];
       const statuses={
-        'stock-status':{re:/^Готово · (\\d+) реальных строк$/,units:[' faktiki sətir',' actual rows']},
-        'mov-status':{re:/^Готово · (\\d+) движений$/,units:[' əməliyyat',' movements']},
-        'fc-status':{re:/^Готово · (\\d+) ингредиентов$/,units:[' inqrediyent',' ingredients']},
-        'lc-status':{re:/^Готово · (\\d+) сотрудников$/,units:[' işçi',' employees']}
+        'stock-status':{re:/^Готово · (\d+) реальных строк$/,units:[' faktiki sətir',' actual rows']},
+        'mov-status':{re:/^Готово · (\d+) движений$/,units:[' əməliyyat',' movements']},
+        'fc-status':{re:/^Готово · (\d+) ингредиентов$/,units:[' inqrediyent',' ingredients']},
+        'lc-status':{re:/^Готово · (\d+) сотрудников$/,units:[' işçi',' employees']}
       };
       const status=statuses[id],m=status?.re.exec(source);
       if(m)return (language==='az'?'Hazırdır · ':'Ready · ')+m[1]+status.units[locale];
       if(['mov-period','lc-period','fc-period'].includes(id)&&
-          /^Период: \\d{4}-\\d{2}-\\d{2} — \\d{4}-\\d{2}-\\d{2}/.test(source)){
+          /^Период: \d{4}-\d{2}-\d{2} — \d{4}-\d{2}-\d{2}/.test(source)){
         const core=source.replace(/^Период: /,language==='az'?'Dövr: ':'Period: ');
         return id==='fc-period'?core
           .replace(' · источник теории: ',language==='az'?' · nəzəri məlumat mənbəyi: ':' · theoretical source: ')
