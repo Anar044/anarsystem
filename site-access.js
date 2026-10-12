@@ -252,6 +252,9 @@
           const url=new URL(location.href);url.searchParams.delete('invite');history.replaceState({},'',url.pathname+url.search+url.hash);
         }
         guardCurrentPage();applyVisibility(document);installWorkspaceSwitcher();
+        // A protected page's app-shell waits for fully permission-filtered
+        // navigation before revealing it, avoiding a visible menu rebuild.
+        window.dispatchEvent(new Event('sh:access-visibility-ready'));
         return context;
       }catch(error){
         console.error('Smart Horeca access error',error);
