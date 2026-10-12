@@ -125,3 +125,16 @@ test("denied access releases the old sidebar snapshot and lets deny page render"
   listeners.get("sh-access-ready")({detail:{allowed:false}});
   assert.equal(releases,1);
 });
+
+test("static sidebar demo uses the same app shell without authenticating to production data",()=>{
+  for(const path of ["sidebar-navigation-demo-a.html","sidebar-navigation-demo-b.html"]){
+    const demo=readFileSync(resolve(root,path),"utf8");
+    assert.match(demo,/app-shell\.js\?v=20261012-sidebar-continuity1/);
+    assert.match(demo,/app-shell\.css\?v=20261012-sidebar-continuity1/);
+    assert.match(demo,/sidebar-navigation-demo-[ab]\.html/);
+    assert.match(demo,/setTimeout\(\(\)=>\{/);
+    assert.doesNotMatch(demo,/<script[^>]+(?:auth\.js|site-access\.js|supabase)/);
+    assert.doesNotMatch(demo,/fetch\s*\(/);
+    assert.doesNotMatch(demo,/data-protected="true"/);
+  }
+});
