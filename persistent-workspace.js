@@ -289,6 +289,7 @@
   function ensureMenu(){
     const nav=sidebarNav();
     if(!nav)return false;
+    document.body.classList.add('sh-workspace-ready');
     nav.closest('.sidebar').addEventListener('click',onSidebarClick,true);
     if(navObserver){navObserver.disconnect();navObserver=null}
     const landing=chooseLandingRoute();
