@@ -1,6 +1,79 @@
 (()=>{
   'use strict';
   const root=document.documentElement;
+  // Reuse only menu links already approved for this same signed-in user.
+  // This prevents the RBAC placeholder from collapsing the sidebar while a
+  // different HTML document rechecks access. Nothing here grants API access.
+  const SIDEBAR_VERIFIED_CACHE_KEY='shSidebarVerifiedLinksV1';
+  function sidebarCacheIdentity(){
+    if(document.body?.dataset.sidebarDemo==='1')return 'public-static-demo';
+    const user=window.SH_CURRENT_USER;
+    return user?.id?'user:'+String(user.id):null;
+  }
+  function restoreVerifiedSidebarLinks(){
+    const nav=document.querySelector('.sidebar .unified-main-nav');
+    const owner=sidebarCacheIdentity();
+    if(!nav||!owner||nav.dataset.shCachedLinksRestored==='1')return;
+    try{
+      const cached=JSON.parse(sessionStorage.getItem(SIDEBAR_VERIFIED_CACHE_KEY)||'null');
+      if(!cached||cached.owner!==owner||Date.now()-cached.at>60000||
+         !Array.isArray(cached.visible))return;
+      const visible=new Set(cached.visible);
+      for(const link of nav.querySelectorAll('a[href]')){
+        const href=link.getAttribute('href');
+        link.hidden=!visible.has(href);
+        link.dataset.shAccessChecked='1';
+      }
+      for(const group of nav.querySelectorAll('.documents-nav-group,.reports-nav-group')){
+        group.hidden=![...group.querySelectorAll('a[href]')].some(link=>!link.hidden);
+        group.dataset.shAccessChecked='1';
+      }
+      nav.dataset.shCachedLinksRestored='1';
+    }catch(_){}
+  }
+  function rememberVerifiedSidebarLinks(){
+    if(!sidebarPermissionsReady())return;
+    const owner=sidebarCacheIdentity();
+    const nav=document.querySelector('.sidebar .unified-main-nav');
+    if(!owner||!nav)return;
+    const visible=[...nav.querySelectorAll('a[href]')]
+      .filter(link=>link.dataset.shAccessChecked==='1'&&!link.hidden)
+      .map(link=>link.getAttribute('href'));
+    try{sessionStorage.setItem(SIDEBAR_VERIFIED_CACHE_KEY,
+      JSON.stringify({owner,at:Date.now(),visible}))}catch(_){}
+  }
+  document.addEventListener('sh-auth-ready',restoreVerifiedSidebarLinks);
+  // Cross-document navigation keeps the previous sidebar's visual snapshot
+  // until the new page has finished checking its menu permissions. This does
+  // NOT block the new document, defer its business logic, or create a splash.
+  let pendingSidebarTransition=null;
+  function sidebarPermissionsReady(){
+    const nav=document.querySelector('.sidebar .unified-main-nav');
+    if(!nav||!window.SHAccess?.context?.allowed)return false;
+    const links=[...nav.querySelectorAll('a[href]')];
+    const groups=[...nav.querySelectorAll('.documents-nav-group,.reports-nav-group')];
+    return links.length>0 &&
+      links.every(a=>a.dataset.shAccessChecked==='1') &&
+      groups.every(g=>g.dataset.shAccessChecked==='1');
+  }
+  function releaseSidebarSnapshot(force=false){
+    if(!pendingSidebarTransition||(!force&&!sidebarPermissionsReady()))return;
+    const vt=pendingSidebarTransition;
+    pendingSidebarTransition=null;
+    try{vt.skipTransition()}catch(_){}
+  }
+  window.addEventListener('pagereveal',event=>{
+    if(!event.viewTransition)return;
+    pendingSidebarTransition=event.viewTransition;
+    Promise.resolve(event.viewTransition.finished).then(()=>{
+      if(pendingSidebarTransition===event.viewTransition)pendingSidebarTransition=null;
+    }).catch(()=>{});
+    releaseSidebarSnapshot();
+  });
+  window.addEventListener('sh:access-visibility-ready',()=>{rememberVerifiedSidebarLinks();releaseSidebarSnapshot()});
+  document.addEventListener('sh-access-ready',event=>{
+    if(event.detail?.allowed===false)releaseSidebarSnapshot(true);
+  });
   function syncChainScopeCookie(ids=null){
     let values=Array.isArray(ids)?ids:null;
     if(!values){
@@ -21,7 +94,7 @@
   try{localStorage.setItem('shReportsTheme','dark')}catch(e){}
   root.dataset.theme='dark';
   function isAuthPage(){return document.body&&document.body.dataset.authPage}
-  function ensureMasterStyles(){if(isAuthPage())return Promise.resolve();if(document.querySelector('link[href*="app-shell.css"]'))return Promise.resolve();return new Promise(resolve=>{const link=document.createElement('link');link.rel='stylesheet';link.href='/app-shell.css?v=8';link.onload=resolve;link.onerror=resolve;document.head.appendChild(link)})}
+  function ensureMasterStyles(){if(isAuthPage())return Promise.resolve();if(document.querySelector('link[href*="app-shell.css"]'))return Promise.resolve();return new Promise(resolve=>{const link=document.createElement('link');link.rel='stylesheet';link.href='/app-shell.css?v=20261012-sidebar-continuity1';link.onload=resolve;link.onerror=resolve;document.head.appendChild(link)})}
   function installUnifiedStyle(){if(document.getElementById('hc-unified-style'))return;const style=document.createElement('style');style.id='hc-unified-style';style.textContent=`.sidebar{position:fixed!important;left:0!important;top:0!important;bottom:0!important;width:248px!important;height:100vh!important;display:flex!important;flex-direction:column!important;visibility:visible!important;opacity:1!important;transform:none!important;z-index:100!important;overflow-y:auto!important;overflow-x:hidden!important}.sidebar .unified-brand:before{content:none!important;display:none!important}.sidebar .unified-brand{display:flex!important;align-items:center!important;gap:10px!important;width:100%!important;min-width:0!important;height:auto!important;padding:7px 12px 28px!important;margin:0!important;box-sizing:border-box!important;color:#fff!important}.sidebar .unified-logo{width:31px!important;min-width:31px!important;height:31px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:0 0 31px!important;margin:0!important;border-radius:9px!important;background:#42d392!important;color:#06110b!important;font-size:16px!important;font-weight:900!important;line-height:1!important;position:static!important}.sidebar .unified-brand .brand-copy{display:flex!important;flex-direction:column!important;justify-content:center!important;gap:2px!important;min-width:0!important;flex:1 1 auto!important;line-height:1.15!important}.sidebar .unified-brand .brand-copy b{display:block!important;margin:0!important;padding:0!important;color:#f4f7fa!important;font-size:17px!important;font-weight:850!important;white-space:nowrap!important;line-height:1.15!important}.sidebar .unified-brand .brand-copy small{display:block!important;margin:0!important;padding:0!important;color:#8994a3!important;font-size:11px!important;font-weight:500!important;white-space:nowrap!important;line-height:1.2!important}.documents-nav-group,.reports-nav-group{margin:0!important;padding:0!important;border:0!important}.documents-nav-toggle{appearance:none!important;-webkit-appearance:none!important;width:100%!important;min-height:42px!important;display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important;padding:10px 13px!important;margin:2px 0!important;border:1px solid transparent!important;border-radius:11px!important;background:transparent!important;color:#8fa0b3!important;font:600 13.5px/1 inherit!important;text-align:left!important;cursor:pointer!important;box-sizing:border-box!important}.documents-nav-toggle:hover{background:#121b25!important;color:#eef5fb!important;border-color:#1d2a37!important}.documents-nav-toggle.active{background:#15251f!important;color:#fff!important;border-color:#1f4a37!important;box-shadow:inset 3px 0 #42d392!important}.documents-nav-toggle-left{display:flex!important;align-items:center!important;gap:11px!important;min-width:0!important;flex:1 1 auto!important}.documents-nav-toggle-left>span:last-child{min-width:0!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}.documents-nav-folder{width:20px!important;min-width:20px!important;text-align:center!important;color:inherit!important}.documents-nav-chevron{width:18px!important;min-width:18px!important;height:18px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;color:#8994a3!important;transition:transform .18s ease!important}.documents-nav-group.open .documents-nav-chevron,.reports-nav-group.open .documents-nav-chevron{transform:rotate(180deg)!important;color:#42d392!important}.documents-subnav{margin:3px 0 3px 8px!important;padding:2px 0 2px 8px!important;border-left:1px solid #26313d!important}.documents-subnav[hidden],.documents-nav-group:not(.open)>.documents-subnav,.reports-nav-group:not(.open)>.documents-subnav{display:none!important}.documents-subnav a{font-size:12px!important;min-height:38px!important}.main{margin-left:248px!important;width:calc(100% - 248px)!important;min-width:0!important;min-height:100vh!important;background:#0b1017!important}@media(max-width:760px){.sidebar{width:260px!important;transform:translateX(-100%)!important}.sidebar.open{transform:translateX(0)!important}.main{margin-left:0!important;width:100%!important}.topbar{padding:0 18px!important}.top-actions .icon-btn{display:none!important}}.sh-theme-toggle,.theme-btn,[data-theme-label]{display:none!important}@media(max-width:760px){html body .app-shell aside.sidebar,html body .app aside.sidebar{display:none!important;position:fixed!important;left:0!important;top:0!important;bottom:0!important;width:280px!important;height:100dvh!important;margin:0!important;transform:translate3d(-110%,0,0)!important;z-index:9999!important;overflow-y:auto!important;overflow-x:hidden!important}html body .app-shell aside.sidebar.open,html body .app aside.sidebar.open{display:flex!important;transform:translate3d(0,0,0)!important}html body .app-shell main.main,html body .app main.main{margin-left:0!important;width:100%!important;min-width:0!important}html body button[data-mobile-menu]{display:inline-flex!important;align-items:center!important;justify-content:center!important;width:40px!important;height:40px!important;flex:0 0 40px!important;padding:0!important;margin:0!important;visibility:visible!important;opacity:1!important;position:relative!important;z-index:20!important}}`;document.head.appendChild(style)}
   function removeLegacyStyles(){document.querySelectorAll('link[rel="stylesheet"]').forEach(link=>{const href=(link.getAttribute('href')||'').toLowerCase();if(href.includes('app-shell.css')||href.includes('hr-pnl.css')||href.includes('hr-employee.css')||href.includes('hr-timesheet.css')||href.includes('hr-payroll-v3.css')||href.includes('hr-payroll-v2.css')||href.includes('pnl.css')||href.includes('qr-menu.css')||href.includes('assets.css')||href.includes('plugin-control.css')||href.includes('supplier-balances.css')||href.includes('abc-xyz.css')||href.includes('cash.css')||href.includes('cash-history.css')||href.includes('cash-shifts.css')||href.includes('nakladnye.css')||href.includes('ai-documents.css')||href.includes('ai-assistant.css')||href.includes('rashodnye-nakladnye.css')||href.includes('nomenclature.css')||href.includes('stock-balances.css')||href.includes('stock-movements.css')||href.includes('procurement.css')||href.includes('internal-orders.css')||href.includes('food-cost.css')||href.includes('labor-cost.css')||href.includes('reports-fields-scroll.css')||href.includes('reports-result.css')||href.includes('audit-log.css')||(isAuthPage()&&href.includes('auth.css')))return;link.remove()});const path=location.pathname.toLowerCase();if(!path.endsWith('/index.html')&&!path.endsWith('/')&&!isAuthPage())document.querySelectorAll('head > style').forEach(style=>{if(style.id!=='hc-unified-style'&&style.id!=='sh-mobile-responsive'&&style.id!=='cash-order-details-polish'&&style.id!=='incoming-invoices-critical-style'&&style.id!=='hrp-critical-styles'&&style.id!=='hrpa-critical-styles')style.remove()})}
   function update(){
@@ -160,7 +233,7 @@
     document.body.appendChild(script);
   }
   function init(){ensureMasterStyles().then(()=>{
-    installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();
+    installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();restoreVerifiedSidebarLinks();
     ensureMobileResponsive();applySHBranding();markNetworkSharedPage();
     const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');
     if(menu&&side)menu.onclick=()=>side.classList.toggle('open');
@@ -169,6 +242,8 @@
     // Server-side APIs still authorize every privileged operation.
     // Keep the expansion/scroll preferences from the earlier sidebar fix.
     window.SHAccess?.applyVisibility?.(document.querySelector('.sidebar'));
+    rememberVerifiedSidebarLinks();
+    releaseSidebarSnapshot();
     restoreSidebarScroll();
     reveal();
     requestAnimationFrame(restoreSidebarScroll);

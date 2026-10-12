@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Smart Horeca — тест навигации</title>
+  <link rel="stylesheet" href="/app-shell.css?v=20261012-sidebar-continuity2">
+</head>
+<body data-sidebar-demo="1">
+  <!-- Public, static UX test only. No Supabase, no workspace data, no API calls. -->
+  <div class="app-shell">
+    <aside class="sidebar"></aside>
+    <main class="main">
+      <header class="topbar">
+        <div><strong class="topbar-title">Smart Horeca · Демонстрация переходов</strong></div>
+      </header>
+      <div style="max-width:900px;margin:56px auto;padding:24px;color:#dbe7e8">
+        <p style="color:#5fe4ad;font-weight:700">Проверка левого меню · демонстрационные данные</p>
+        <h1>Переходы между разделами</h1>
+        <p>Эта страница не подключается к данным ресторанов и не требует авторизации.</p>
+        <p>Нажимайте разные пункты слева: мы открываем другую тестовую HTML-страницу, чтобы проверить, исчезает ли меню при переходе.</p>
+        <p id="current-section" style="font-weight:700"></p>
+        <p style="color:#aebbc6">Проверьте 5–6 переходов. В демонстрации специально имитируется задержка проверки прав 750 мс. Левое меню при этом должно оставаться видимым, а положение его прокрутки и раскрытые разделы — сохраняться.</p>
+        <p><a href="https://smarthoreca.pages.dev/dashboard.html" style="color:#56d8a7">Вернуться на основной сайт Smart Horeca</a></p>
+      </div>
+    </main>
+  </div>
+  <script>
+  // An explicit mock limited to the two public demo pages. It does NOT grant
+  // access to any application API or production workspace.
+  window.SHAccess = {
+    context: {allowed:true},
+    applyVisibility(root) {
+      if (!root || root.dataset.demoAccessPending === "1" || root.dataset.demoAccessReady === "1") return;
+      root.dataset.demoAccessPending = "1";
+      // Simulates async permission filtering only in this static demo.
+      // No account membership, real API or restaurant data is involved.
+      setTimeout(()=>{
+        for(const link of root.querySelectorAll("a[href]")){
+          link.hidden=false;link.dataset.shAccessChecked="1";
+        }
+        for(const group of root.querySelectorAll(".documents-nav-group,.reports-nav-group")){
+          group.hidden=false;group.dataset.shAccessChecked="1";
+        }
+        root.dataset.demoAccessReady="1";
+        window.dispatchEvent(new Event("sh:access-visibility-ready"));
+      },750);
+    }
+  };
+  </script>
+  <script src="/app-shell.js?v=20261012-sidebar-continuity2"></script>
+  <script>
+  (()=>{
+    const label = new URLSearchParams(location.search).get("section") || "Dashboard";
+    document.getElementById("current-section").textContent="Открыт демонстрационный раздел: "+label;
+    document.querySelector(".topbar-title").textContent="Smart Horeca · "+label;
+    // Redirect only sidebar navigation links within the demo; these URLs
+    // never open secured pages and no remote API request is sent.
+    const toOtherPage = location.pathname.endsWith("-a.html")
+      ? "/sidebar-navigation-demo-b.html"
+      : "/sidebar-navigation-demo-a.html";
+    document.querySelector(".sidebar")?.addEventListener("click",event=>{
+      const anchor=event.target.closest("a[href]");
+      if(!anchor) return;
+      event.preventDefault();
+      location.assign(toOtherPage+"?section="+encodeURIComponent(anchor.textContent.trim()));
+    });
+  })();
+  </script>
+</body>
+</html>

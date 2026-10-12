@@ -56,11 +56,97 @@ test("first paint does not wait on asynchronous access check",()=>{
   assert.doesNotMatch(init,/sh:access-visibility-ready|showCompletedNavigation|finishPageNavigationTransition/);
   assert.match(access,/guardCurrentPage\(\);applyVisibility\(document\);installWorkspaceSwitcher\(\)/);
 });
-test("long full-page navigation overlays and delays are removed",()=>{
-  assert.doesNotMatch(css,/@view-transition|shNavKeepOld|Загрузка раздела/);
-  assert.doesNotMatch(css,/4200ms/);
-  assert.doesNotMatch(shell,/prefetchSidebarLink|skipTransition\(\)/);
+test("full-page blocking overlays remain removed even with sidebar-only transition",()=>{
+  assert.match(css,/@view-transition\s*\{\s*navigation:\s*auto;/);
+  assert.match(css,/::view-transition-old\(root\)/);
+  assert.doesNotMatch(css,/shNavKeepOld|Загрузка раздела|4200ms/);
+  assert.doesNotMatch(shell,/prefetchSidebarLink|finishPageNavigationTransition/);
 });
 test("the legacy HR menu cannot collapse sibling sections",()=>{
   assert.doesNotMatch(legacy,/if\(g===group\)return;g\.classList\.remove\('open'\)/);
+});
+
+test("cross-document transition preserves only sidebar, not page-content loading",()=>{
+  const css=readFileSync(resolve(root,"app-shell.css"),"utf8");
+  assert.match(css,/@view-transition\s*\{\s*navigation:\s*auto;/);
+  assert.match(css,/\.sidebar\s*\{\s*view-transition-name:\s*sh-sidebar;/);
+  assert.match(css,/::view-transition-old\(sh-sidebar\)/);
+  assert.match(css,/::view-transition-new\(sh-sidebar\)/);
+  assert.match(css,/::view-transition-old\(root\)/);
+  assert.doesNotMatch(css,/Загрузка раздела|shNavKeepOld|4200ms/);
+  assert.match(shell,/addEventListener\('pagereveal'/);
+  assert.match(shell,/addEventListener\('sh:access-visibility-ready'/);
+  assert.match(shell,/vt\.skipTransition\(\)/);
+});
+test("sidebar transition is released only after RBAC checked links and groups",()=>{
+  const source=shell.slice(shell.indexOf("  let pendingSidebarTransition=null;"),
+    shell.indexOf("  function syncChainScopeCookie("));
+  assert.match(source,/window\.SHAccess\?\.context\?\.allowed/);
+  assert.match(source,/links\.every\(a=>a\.dataset\.shAccessChecked==='1'\)/);
+  assert.match(source,/groups\.every\(g=>g\.dataset\.shAccessChecked==='1'\)/);
+  assert.match(source,/releaseSidebarSnapshot\(true\)/);
+});
+
+test("sidebar-only view transition waits for verified permissions without delaying main content",()=>{
+  const marker="  let pendingSidebarTransition=null;";
+  const start=shell.indexOf(marker),stop=shell.indexOf("  function syncChainScopeCookie(",start);
+  assert.ok(start>0&&stop>start);
+  const listeners=new Map();
+  const navLinks=[{dataset:{shAccessChecked:"0"}},{dataset:{shAccessChecked:"0"}}];
+  const navGroups=[{dataset:{shAccessChecked:"0"}}];
+  const nav={querySelectorAll(selector){
+    return selector==="a[href]"?navLinks:navGroups;
+  }};
+  const window={SHAccess:{context:{allowed:true}},
+    addEventListener(type,fn){listeners.set("window:"+type,fn);}};
+  const document={querySelector(selector){return selector===".sidebar .unified-main-nav"?nav:null},
+    addEventListener(type,fn){listeners.set("document:"+type,fn);}};
+  new Function("window","document","rememberVerifiedSidebarLinks",shell.slice(start,stop))(window,document,()=>{});
+  let skipCount=0;
+  const vt={finished:new Promise(()=>{}),skipTransition(){skipCount++}};
+  listeners.get("window:pagereveal")({viewTransition:vt});
+  assert.equal(skipCount,0,"early incomplete sidebar must keep outgoing snapshot");
+  navLinks.forEach(el=>el.dataset.shAccessChecked="1");
+  navGroups.forEach(el=>el.dataset.shAccessChecked="1");
+  listeners.get("window:sh:access-visibility-ready")();
+  assert.equal(skipCount,1,"fully checked navigation releases screenshot immediately");
+  listeners.get("window:sh:access-visibility-ready")();
+  assert.equal(skipCount,1,"release is idempotent");
+});
+test("denied access releases the old sidebar snapshot and lets deny page render",()=>{
+  const start=shell.indexOf("  let pendingSidebarTransition=null;");
+  const stop=shell.indexOf("  function syncChainScopeCookie(",start);
+  const listeners=new Map(),window={SHAccess:{context:{allowed:false}},addEventListener(t,fn){listeners.set(t,fn)}};
+  const document={querySelector(){return null},addEventListener(t,fn){listeners.set(t,fn)}};
+  new Function("window","document","rememberVerifiedSidebarLinks",shell.slice(start,stop))(window,document,()=>{});
+  let releases=0;
+  listeners.get("pagereveal")({viewTransition:{finished:new Promise(()=>{}),skipTransition(){releases++}}});
+  assert.equal(releases,0);
+  listeners.get("sh-access-ready")({detail:{allowed:false}});
+  assert.equal(releases,1);
+});
+
+test("sidebar restores only previously permission-verified links for the same user",()=>{
+  const segment=shell.slice(shell.indexOf("  const SIDEBAR_VERIFIED_CACHE_KEY="),
+    shell.indexOf("  // Cross-document navigation keeps"));
+  assert.match(segment,/sidebarCacheIdentity/);
+  assert.match(segment,/window\.SH_CURRENT_USER/);
+  assert.match(segment,/cached\.owner!==owner/);
+  assert.match(segment,/Date\.now\(\)-cached\.at>60000/);
+  assert.match(segment,/link\.hidden=!visible\.has\(href\)/);
+  assert.match(segment,/link\.dataset\.shAccessChecked='1'/);
+  assert.match(segment,/sidebarPermissionsReady\(\)/);
+  assert.match(css,/\.reports-nav-group:not\(\[data-sh-access-checked="1"\]\)/);
+});
+test("static sidebar demo uses the same app shell without authenticating to production data",()=>{
+  for(const path of ["sidebar-navigation-demo-a.html","sidebar-navigation-demo-b.html"]){
+    const demo=readFileSync(resolve(root,path),"utf8");
+    assert.match(demo,/app-shell\.js\?v=20261012-sidebar-continuity2/);
+    assert.match(demo,/app-shell\.css\?v=20261012-sidebar-continuity2/);
+    assert.match(demo,/sidebar-navigation-demo-[ab]\.html/);
+    assert.match(demo,/setTimeout\(\(\)=>\{/);
+    assert.doesNotMatch(demo,/<script[^>]+(?:auth\.js|site-access\.js|supabase)/);
+    assert.doesNotMatch(demo,/fetch\s*\(/);
+    assert.doesNotMatch(demo,/data-protected="true"/);
+  }
 });
