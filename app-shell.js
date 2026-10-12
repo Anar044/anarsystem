@@ -190,6 +190,9 @@
       // filtering and normalizing an entirely invisible duplicate 50+ link
       // tree for every navigation. Keep styles, branding, access and the
       // original business module initialization untouched.
+      // Preserve the exact shared styling of existing modules; only skip
+      // duplicate sidebar DOM work and its navigation event listeners.
+      installUnifiedStyle();
       removeLegacyStyles();
       ensureMobileResponsive();
       applySHBranding();
