@@ -187,7 +187,14 @@
     }
 
     async function initLogin() {
-        const invite = captureInvite();
+        // A normal email/password login must NOT replay a one-time invitation
+        // left in localStorage by an earlier browser tab or an accepted invite.
+        // Explicit ?invite= links still support adding another organization.
+        const explicitInvite = new URLSearchParams(window.location.search).get("invite") || "";
+        const invite = explicitInvite ? captureInvite() : "";
+        if (!explicitInvite) {
+            try { localStorage.removeItem("sh_pending_invite"); } catch {}
+        }
         if (!requireConfigured()) return;
         const sb = await createClient();
         const user = await getUser();
@@ -491,7 +498,7 @@
         if (!script) {
             script = document.createElement("script");
             script.id = "sh-site-access-script";
-            script.src = "/site-access.js?v=20261012-sidebar-stable-v1";
+            script.src = "/site-access.js?v=20261012-invite-relogin-v1";
             document.head.appendChild(script);
         }
         await new Promise((resolve, reject) => {
@@ -533,7 +540,13 @@
         }, 700);
     }
 
-    window.SHAuth = { createClient, getUser, protectPage, initUserUI, signOut: async function () { const sb = await createClient(); if (sb) { await clearWorkspaceSelection(sb); await sb.auth.signOut(); } window.location.replace("login.html"); } };
+    window.SHAuth = { createClient, getUser, protectPage, initUserUI, signOut: async function () {
+        const sb = await createClient();
+        // Clear only temporary invite data; never erase legitimate memberships.
+        try { localStorage.removeItem("sh_pending_invite"); } catch {}
+        if (sb) { await clearWorkspaceSelection(sb); await sb.auth.signOut(); }
+        window.location.replace("login.html");
+    } };
 
     document.addEventListener("DOMContentLoaded", async () => {
         const page = document.body.dataset.authPage || "";

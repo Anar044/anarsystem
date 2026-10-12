@@ -234,13 +234,22 @@ async function workspaceForMembership(db,row,user=null){
 }
 async function claimInviteByToken(db,user,email,token){
   const hash=await tokenHash(token);
-  const invite=await db.prepare(`SELECT * FROM sh_workspace_invites WHERE token_hash=?1 AND status='PENDING' LIMIT 1`).bind(hash).first();
+  const invite=await db.prepare(`SELECT * FROM sh_workspace_invites WHERE token_hash=?1 LIMIT 1`).bind(hash).first();
   if(!invite)return{ok:false,reason:'INVITE_NOT_FOUND'};
-  if(new Date(invite.expires_at).getTime()<Date.now())return{ok:false,reason:'INVITE_EXPIRED'};
   if(emailKey(invite.email)!==emailKey(email))return{ok:false,reason:'INVITE_EMAIL_MISMATCH'};
   const member=await db.prepare(`SELECT * FROM sh_access_members WHERE id=?1 AND owner_user_id=?2 LIMIT 1`).bind(invite.member_id,invite.owner_user_id).first();
   if(!member)return{ok:false,reason:'INVITE_MEMBER_NOT_FOUND'};
   if(clean(member.user_id)&&clean(member.user_id)!==clean(user.id))return{ok:false,reason:'INVITE_ALREADY_USED'};
+  // Reopening an already accepted invitation is a harmless retry ONLY for
+  // the same verified Supabase user. Do not reactivate disabled membership,
+  // extend access, or permit a different identity to reuse this token.
+  if(String(invite.status).toUpperCase()==='ACCEPTED'){
+    if(clean(member.user_id)!==clean(user.id))return{ok:false,reason:'INVITE_ALREADY_USED'};
+    const workspace=await ensureOwnerWorkspace(db,invite.owner_user_id,null);
+    return{ok:true,member,workspace,alreadyAccepted:true};
+  }
+  if(String(invite.status).toUpperCase()!=='PENDING')return{ok:false,reason:'INVITE_NOT_FOUND'};
+  if(new Date(invite.expires_at).getTime()<Date.now())return{ok:false,reason:'INVITE_EXPIRED'};
   const now=NOW();
   await db.batch([
     db.prepare(`UPDATE sh_access_members SET user_id=?2,status='ACTIVE',updated_at=?3 WHERE id=?1`).bind(member.id,user.id,now),
