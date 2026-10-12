@@ -8,6 +8,15 @@
       root.classList.add('sh-pilot-embedded');
     }
   }catch(_){}
+  // The protected child has finished site-access RBAC. Tell its SAME-ORIGIN
+  // parent that the page can be displayed without waiting for unrelated
+  // iframe load events (charts/fonts/other subresources).
+  if(root.classList.contains('sh-pilot-embedded')){
+    window.addEventListener('sh:access-visibility-ready',()=>{
+      if(window.SHAccess?.context?.allowed!==true)return;
+      try{window.parent.postMessage({type:'sh:embedded-access-ready'},location.origin)}catch(_){}
+    });
+  }
   function syncChainScopeCookie(ids=null){
     let values=Array.isArray(ids)?ids:null;
     if(!values){
