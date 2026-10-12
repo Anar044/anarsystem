@@ -412,11 +412,14 @@
       const counters={
         'stock-result-meta':{re:/^(\d+) из (\d+) позиций$/,suffix:[' mövqedən ',' of '],tail:[' mövqe',' items']},
         'mov-result-meta':{re:/^(\d+) из (\d+) строк$/,suffix:[' sətirdən ',' of '],tail:[' sətir',' rows']},
-        'fc-result-meta':{re:/^(\d+) из (\d+) ингредиентов$/,suffix:[' inqrediyentdən ',' of '],tail:[' inqrediyent',' ingredients']}
+        'fc-result-meta':{re:/^(\d+) из (\d+) ингредиентов$/,suffix:[' inqrediyentdən ',' of '],tail:[' inqrediyent',' ingredients']},
+        'lc-day-meta':{re:/^(\d+) дней$/,simple:[' gün',' days']},
+        'lc-employee-meta':{re:/^(\d+) сотрудников$/,simple:[' işçi',' employees']}
       };
       const counter=counters[id],match=counter?.re.exec(source);
+      if(counter?.simple&&match)return match[1]+counter.simple[locale];
       if(match)return language==='az'
-        ?match[2]+counter.suffix[0]+match[1]+counter.tail[0]
+        ?match[1]+' / '+match[2]+counter.tail[0]
         :match[1]+counter.suffix[1]+match[2]+counter.tail[1];
       const statuses={
         'stock-status':{re:/^Готово · (\d+) реальных строк$/,units:[' faktiki sətir',' actual rows']},
@@ -426,6 +429,8 @@
       };
       const status=statuses[id],m=status?.re.exec(source);
       if(m)return (language==='az'?'Hazırdır · ':'Ready · ')+m[1]+status.units[locale];
+      if(id==='stock-source'&&source.startsWith('Источник: '))
+        return (language==='az'?'Mənbə: ':'Source: ')+source.slice('Источник: '.length);
       if(['mov-period','lc-period','fc-period'].includes(id)&&
           /^Период: \d{4}-\d{2}-\d{2} — \d{4}-\d{2}-\d{2}/.test(source)){
         const core=source.replace(/^Период: /,language==='az'?'Dövr: ':'Period: ');
