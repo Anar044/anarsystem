@@ -231,7 +231,7 @@
       collapse.setAttribute('aria-label',value(source));
     }
   }
-  function apply(){document.documentElement.lang=language;applyExplicit();applySidebar()}
+  function apply(){document.documentElement.lang=language;createSwitcher();applyExplicit();applySidebar()}
   let scheduled=false;
   function schedule(){
     if(scheduled)return;
@@ -300,6 +300,9 @@
   window.addEventListener('message',event=>{
     if(event.origin!==location.origin||event.source!==window.parent)return;
     if(event.data?.type==='sh:language-change')update(event.data.language,{save:false});
+  });
+  document.addEventListener('click',event=>{
+    if(event.target?.closest?.('.sh-sidebar-collapse-btn'))schedule();
   });
   document.addEventListener('sh-access-ready',schedule);
   window.addEventListener('sh:access-visibility-ready',schedule);
