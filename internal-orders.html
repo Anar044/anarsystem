@@ -16,6 +16,23 @@
 <div class="io-kpis" id="io-kpis"><div><span>На согласовании</span><strong id="io-kpi-submitted">0</strong></div><div><span>Готовятся к отгрузке</span><strong id="io-kpi-active">0</strong></div><div><span>Всего заказов</span><strong id="io-kpi-all">0</strong></div></div>
 <section class="io-panel" id="io-config-panel" hidden><div class="io-pair-document"><strong>Режим складского учёта Smart Horeca: Chain + RMS</strong><p>Работаем в обычном режиме с учётом остатков и стоимости запасов отдельно в iikoChain и каждом iikoRMS. Режим <code>accounting-only-in-chain=true</code> не используем.</p><p>Расходная уменьшает количество и стоимость запасов отправителя; после проведения связанной приходной количество и стоимость увеличиваются у получателя. До приёмки товар считается находящимся в пути.</p><p class="io-muted">Это правило работы Smart Horeca, а не подтверждение текущих серверных настроек. До проверки режима iikoChain и механизма обмена реальная отгрузка остаётся заблокирована.</p></div><div class="io-section-head"><h2>Центральный склад по умолчанию</h2><p>Необязательная настройка. Заказы между ресторанами работают независимо от выбранного центрального склада.</p></div>
 <form id="io-config-form" class="io-form io-config-grid"><label>Центральное RMS<select id="io-central-dept" required></select></label><label>Склад центрального RMS<select id="io-central-store" required></select></label><button class="io-btn io-primary" type="submit">Сохранить</button></form>
+<div class="io-pair-document io-account-settings">
+  <h3>Счета расходной накладной</h3>
+  <p>Укажи коды счетов из плана счетов iiko, которые будут подставляться в <strong>новые</strong> расходные внутреннего перемещения. Настройка общая для подключённого сервера и не изменяет старые документы.</p>
+  <form id="io-account-settings-form" class="io-form">
+    <div class="io-form-grid">
+      <label>Счёт выручки (revenueAccountCode)
+        <input id="io-revenue-account" maxlength="40" placeholder="Код счёта выручки" autocomplete="off">
+      </label>
+      <label>Счёт расхода (accountToCode)
+        <input id="io-expense-account" maxlength="40" placeholder="Код счёта расхода" autocomplete="off">
+      </label>
+    </div>
+    <p class="io-muted">Нужны именно коды существующих счетов iiko, не их названия. Чтобы сохранить стандартное назначение счетов iiko, очисти оба поля. Изменения применятся только к следующим накладным.</p>
+    <button type="submit" class="io-btn io-primary">Сохранить счета</button>
+    <div id="io-account-settings-result" class="io-muted" role="status"></div>
+  </form>
+</div>
 <div class="io-pair-probe">
   <h3>Диагностика связанной пары накладных iikoChain</h3>
   <p>Только чтение iiko API. На снимках проведены расходная №50001 из Mərkəzi Anbar и приходная №10001 в RMS 1 METBEX. Проверим сохранённые идентификаторы покупателя и поставщика, не изменяя остатки.</p>
@@ -39,5 +56,5 @@
 <form id="io-create-form" class="io-form"><div class="io-form-grid"><label>Откуда — RMS-отправитель<select id="io-source-dept" required></select></label><label>Склад отправителя<select id="io-source-store" required></select></label><label>Куда — RMS-получатель<select id="io-destination-dept" required></select></label><label>Склад получателя<select id="io-destination-store" required></select></label><label>Дата поставки<input id="io-needed-by" type="date" required></label><label>Комментарий<input id="io-comment" maxlength="2000" placeholder="Примечание к заказу"></label></div>
 <h3>Товары</h3><p class="io-muted">Количество вводится в выбранных фасовках из справочника iiko.</p><div id="io-lines"></div><datalist id="io-products"></datalist><button type="button" class="io-btn io-outline" id="io-add-product">+ Добавить товар</button>
 <footer><button type="button" class="io-btn io-outline" id="io-cancel">Отмена</button><button type="submit" class="io-btn io-primary" id="io-save">Сохранить черновик</button></footer></form></div></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/auth-config.js"></script><script src="/auth.js"></script><script src="/iiko-context.js?v=20261003-chain-3"></script><script src="/app-shell.js?v=20261009"></script><script src="/smart-horeca-sidebar-brand.js?v=20260920-1"></script><script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script><script src="/internal-orders.js?v=20261011-test-dispatch1"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/auth-config.js"></script><script src="/auth.js"></script><script src="/iiko-context.js?v=20261003-chain-3"></script><script src="/app-shell.js?v=20261012-internal-nav1"></script><script src="/smart-horeca-sidebar-brand.js?v=20260920-1"></script><script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script><script src="/internal-orders.js?v=20261012-account-nav1"></script>
 </body></html>
