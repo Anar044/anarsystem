@@ -293,6 +293,19 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   const supplierTitle=nodeContainer('Поставщик · Best for Bar MMC');
   supplierTitle.el.id='proc-modal-title';
   const contractsCount=nodeContainer('Договоры · 3');
+  const timesheetCounter=nodeContainer('18 сотрудников');
+  timesheetCounter.el.id='tsMatrixCount';
+  const roleCounter=nodeContainer('4 должностей');
+  roleCounter.el.id='hcpRoleCount';
+  const tableMonth=nodeContainer('Октябрь 2026 · клик по ячейке открывает детали дня');
+  tableMonth.el.id='tsMatrixSub';
+  const faceDevices=nodeContainer('Face ID · устройств: 2');
+  faceDevices.el.id='hrpAttendance';
+  const taxBadge=nodeContainer('Ручной · с 2026-10-01');
+  taxBadge.el.id='hrpTaxProfile';
+  const userRole=nodeContainer('Роль: Владелец');
+  userRole.el.id='tsAccessBadge';
+
   const stockCounter=nodeContainer('12 из 40 позиций');stockCounter.el.id='stock-result-meta';
   const movementCounter=nodeContainer('5 из 17 строк');movementCounter.el.id='mov-result-meta';
   const foodCounter=nodeContainer('3 из 8 ингредиентов');foodCounter.el.id='fc-result-meta';
@@ -339,6 +352,13 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   assert.equal(olapSummary.node.nodeValue,'0 ₼ based on OLAP data.');
   assert.equal(supplierTitle.node.nodeValue,'Supplier · Best for Bar MMC');
   assert.equal(contractsCount.node.nodeValue,'Contracts · 3');
+  assert.equal(timesheetCounter.node.nodeValue,'18 employees');
+  assert.equal(roleCounter.node.nodeValue,'4 positions');
+  assert.equal(tableMonth.node.nodeValue,'October 2026 · click a cell for day details');
+  assert.equal(faceDevices.node.nodeValue,'Face ID · devices: 2');
+  assert.equal(taxBadge.node.nodeValue,'Manual · effective: 2026-10-01');
+  assert.equal(userRole.node.nodeValue,'Role: Owner');
+
   assert.equal(stockCounter.node.nodeValue,'12 of 40 items');
   assert.equal(movementCounter.node.nodeValue,'5 of 17 rows');
   assert.equal(foodCounter.node.nodeValue,'3 of 8 ingredients');
@@ -360,6 +380,13 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   assert.equal(olapSummary.node.nodeValue,'0 ₼ OLAP məlumatlarına əsasən.');
   assert.equal(supplierTitle.node.nodeValue,'Təchizatçı · Best for Bar MMC');
   assert.equal(contractsCount.node.nodeValue,'Müqavilələr · 3');
+  assert.equal(timesheetCounter.node.nodeValue,'18 işçi');
+  assert.equal(roleCounter.node.nodeValue,'4 vəzifə');
+  assert.equal(tableMonth.node.nodeValue,'Oktyabr 2026 · günün təfərrüatı üçün xanaya basın');
+  assert.equal(faceDevices.node.nodeValue,'Face ID · cihazlar: 2');
+  assert.equal(taxBadge.node.nodeValue,'Əl ilə · tarixdən: 2026-10-01');
+  assert.equal(userRole.node.nodeValue,'Rol: Sahib');
+
   assert.equal(stockCounter.node.nodeValue,'12 / 40 mövqe');
   assert.equal(movementCounter.node.nodeValue,'5 / 17 sətir');
   assert.equal(foodCounter.node.nodeValue,'3 / 8 inqrediyent');
@@ -379,6 +406,13 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   assert.equal(olapSummary.node.nodeValue,'0 ₼ по данным OLAP.');
   assert.equal(supplierTitle.node.nodeValue,'Поставщик · Best for Bar MMC');
   assert.equal(contractsCount.node.nodeValue,'Договоры · 3');
+  assert.equal(timesheetCounter.node.nodeValue,'18 сотрудников');
+  assert.equal(roleCounter.node.nodeValue,'4 должностей');
+  assert.equal(tableMonth.node.nodeValue,'Октябрь 2026 · клик по ячейке открывает детали дня');
+  assert.equal(faceDevices.node.nodeValue,'Face ID · устройств: 2');
+  assert.equal(taxBadge.node.nodeValue,'Ручной · с 2026-10-01');
+  assert.equal(userRole.node.nodeValue,'Роль: Владелец');
+
   assert.equal(stockCounter.node.nodeValue,'12 из 40 позиций');
   assert.equal(movementCounter.node.nodeValue,'5 из 17 строк');
   assert.equal(foodCounter.node.nodeValue,'3 из 8 ингредиентов');
@@ -494,4 +528,33 @@ test('food, finance, labor and warehouse reporting labels have reviewed AZ and E
     assert.equal(api.t(source,'az'),az);
     assert.equal(api.t(source,'en'),en);
   }
+});
+
+test('approved HR and finance text is translated while names and payroll values remain verbatim',()=>{
+  const {api}=createI18n('ru',true);
+  for(const [source,az,en] of [
+    ['Табель утверждён HR','Tabel HR tərəfindən təsdiqlənib','Timesheet approved by HR'],
+    ['Менеджер подтвердил','Menecer təsdiqləyib','Manager approved'],
+    ['Ожидается утверждение HR.','HR təsdiqi gözlənilir.','Awaiting HR approval.'],
+    ['Фактический табель','Faktiki tabel','Actual timesheet'],
+    ['Условия не настроены','Şərtlər sazlanmayıb','Conditions not configured'],
+    ['Структура выручки по категориям','Kateqoriyalar üzrə dövriyyə strukturu','Revenue breakdown by category'],
+    ['Получаем P&L из SH OLAP и амортизацию из Smart Horeca…',
+      'SH OLAP-dan P&L və Smart Horeca-dan amortizasiya alınır…',
+      'Loading P&L from SH OLAP and depreciation from Smart Horeca…']
+  ]){
+    assert.equal(api.t(source,'az'),az,source+' AZ');
+    assert.equal(api.t(source,'en'),en,source+' EN');
+    assert.equal(api.t(source,'ru'),source,source+' RU');
+  }
+  for(const data of ['Jelly Park bulvar','Pomidor','PAYROLL-2026-10','6 480,00 ₼']){
+    assert.equal(api.t(data,'en'),data);
+    assert.equal(api.t(data,'az'),data);
+  }
+  const engine=readFileSync(resolve(root,'sh-i18n.js'),'utf8');
+  assert.ok(engine.includes('#tsApprovalTitle'));
+  assert.ok(engine.includes('#tsMatrixSub'));
+  assert.ok(engine.includes('#hrpTaxProfile'));
+  assert.ok(engine.includes('.revenue-category-head strong'));
+  assert.ok(engine.includes('.revenue-category-name,.hep-name,.hr-name'));
 });
