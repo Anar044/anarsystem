@@ -13,3 +13,16 @@ export function validateInternalAccountCodes(raw){
   return {valid:true,revenueAccountCode,expenseAccountCode,
     usesIikoDefaults:!revenueAccountCode&&!expenseAccountCode};
 }
+
+export function normalizeInternalIikoAccounts(payload){
+  const rows=Array.isArray(payload)?payload:
+    [payload?.accounts,payload?.data,payload?.items,payload?.result,payload?.results].find(Array.isArray)||[];
+  const byCode=new Map();
+  for(const row of rows){
+    if(!row||typeof row!=="object"||row.deleted===true)continue;
+    const code=trim(row.code),name=trim(row.name),type=trim(row.type||row.accountType);
+    if(!code||!name||!/^[\p{L}\p{N}_.\/-]{1,40}$/u.test(code))continue;
+    if(!byCode.has(code))byCode.set(code,{code,name,type});
+  }
+  return [...byCode.values()].sort((a,b)=>a.code.localeCompare(b.code,"ru",{numeric:true}));
+}
