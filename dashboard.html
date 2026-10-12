@@ -2,6 +2,23 @@
 <html lang="ru">
 <head>
 <script>(function(){try{if(window.frameElement?.dataset?.shPersistentWorkspace==="1")document.documentElement.classList.add("sh-pilot-embedded")}catch(_){}})();</script>
+<script id="sh-dashboard-entry-redirect">(function(){
+  'use strict';
+  try{
+    // Redirect only the normal top-level Dashboard. The same HTML document
+    // must continue working unchanged when loaded inside the workspace frame.
+    if(window.top!==window.self)return;
+    const host=location.hostname.toLowerCase();
+    if(host!=='smarthoreca.pages.dev'&&!host.endsWith('.smarthoreca.pages.dev'))return;
+    const p=new URLSearchParams(location.search);
+    if(p.has('code')||p.has('invite')||p.has('token_hash')||
+      /\b(?:access_token|refresh_token|error_description)=/.test(location.hash))return;
+    const target=location.pathname+location.search+location.hash;
+    const next=new URL('/persistent-workspace.html',location.origin);
+    next.searchParams.set('target',target);
+    location.replace(next.pathname+next.search);
+  }catch(_){}
+})();</script>
 
 <script src="/auth-canonical-origin.js?v=20261009-v1"></script>
 <meta charset="UTF-8">
