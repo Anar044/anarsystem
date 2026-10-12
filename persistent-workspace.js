@@ -32,7 +32,7 @@
   function resolvePilotRoute(raw){
     let url;
     try{url=new URL(raw,location.origin)}catch(_){return null}
-    if(url.origin!==location.origin||url.hash)return null;
+    if(url.origin!==location.origin)return null;
     if(url.pathname==='/index.html'||url.pathname==='/dashboard.html'){
       return{href:'/dashboard.html',label:'Dashboard',permissions:['dashboard.view']};
     }
