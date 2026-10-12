@@ -425,24 +425,24 @@
     const hrLocale=language==='az'?0:1;
     if(language!=='ru'){
       const hrCounters={
-        tsMatrixCount:[/^(\\d+) сотрудников$/, [' işçi',' employees']],
-        hrpCount:[/^(\\d+) сотрудников$/, [' işçi',' employees']],
-        hcpRowCount:[/^(\\d+) сотрудников$/, [' işçi',' employees']],
-        hcpRoleCount:[/^(\\d+) должностей$/, [' vəzifə',' positions']],
-        hrpSettlementCount:[/^(\\d+) сотрудников с движением$/, [' əməliyyatlı işçi',' employees with activity']],
-        bindingCount:[/^(\\d+) связей$/, [' əlaqə',' links']],
-        eventCount:[/^(\\d+) последних событий$/, [' son hadisə',' recent events']],
-        admsRequestCount:[/^(\\d+) запросов$/, [' sorğu',' requests']],
-        rawAdmsCount:[/^(\\d+) записей$/, [' qeyd',' records']]
+        tsMatrixCount:[/^(\d+) сотрудников$/, [' işçi',' employees']],
+        hrpCount:[/^(\d+) сотрудников$/, [' işçi',' employees']],
+        hcpRowCount:[/^(\d+) сотрудников$/, [' işçi',' employees']],
+        hcpRoleCount:[/^(\d+) должностей$/, [' vəzifə',' positions']],
+        hrpSettlementCount:[/^(\d+) сотрудников с движением$/, [' əməliyyatlı işçi',' employees with activity']],
+        bindingCount:[/^(\d+) связей$/, [' əlaqə',' links']],
+        eventCount:[/^(\d+) последних событий$/, [' son hadisə',' recent events']],
+        admsRequestCount:[/^(\d+) запросов$/, [' sorğu',' requests']],
+        rawAdmsCount:[/^(\d+) записей$/, [' qeyd',' records']]
       };
       const spec=hrCounters[hrId],found=spec?.[0].exec(source);
       if(found)return found[1]+spec[1][hrLocale];
       if(hrId==='hrpAttendance'){
-        const face=/^Face ID · устройств: (\\d+)$/.exec(source);
+        const face=/^Face ID · устройств: (\d+)$/.exec(source);
         if(face)return 'Face ID · '+(language==='az'?'cihazlar: ':'devices: ')+face[1];
       }
       if(hrId==='hrpTaxProfile'){
-        const tax=/^(Ручной|Системный)(?: · с (\\d{4}-\\d{2}-\\d{2}))?$/.exec(source);
+        const tax=/^(Ручной|Системный)(?: · с (\d{4}-\d{2}-\d{2}))?$/.exec(source);
         if(tax)return (tax[1]==='Ручной'
           ?(language==='az'?'Əl ilə':'Manual')
           :(language==='az'?'Sistem':'System'))+
@@ -461,12 +461,12 @@
           'Сентябрь':['Sentyabr','September'],'Октябрь':['Oktyabr','October'],
           'Ноябрь':['Noyabr','November'],'Декабрь':['Dekabr','December']
         };
-        const month=/^([^ ]+) (\\d{4}) · клик по ячейке открывает детали дня$/.exec(source);
+        const month=/^([^ ]+) (\d{4}) · клик по ячейке открывает детали дня$/.exec(source);
         if(month&&months[month[1]])return months[month[1]][hrLocale]+' '+month[2]+
           (language==='az'?' · günün təfərrüatı üçün xanaya basın':' · click a cell for day details');
       }
       if(element?.matches?.('.hr-summary-card > small')){
-        const configured=/^С условиями: (\\d+) · без: (\\d+)$/.exec(source);
+        const configured=/^С условиями: (\d+) · без: (\d+)$/.exec(source);
         if(configured)return language==='az'
           ?'Şərtləri olan: '+configured[1]+' · olmayan: '+configured[2]
           :'Configured: '+configured[1]+' · without: '+configured[2];
