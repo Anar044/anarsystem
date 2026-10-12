@@ -179,17 +179,19 @@
     }
   }
 
-  function denyScreen(message){
+  function denyScreen(message,{temporary=false}={}){
     document.documentElement.style.visibility='visible';
     const old=document.getElementById('sh-access-denied');if(old)return;
     document.body.innerHTML='';
     const box=document.createElement('div');
     box.id='sh-access-denied';
-    box.innerHTML='<div class="sh-access-denied-card"><div class="sh-access-denied-icon">🔒</div><h1>Нет доступа</h1><p>'+String(message||'Для этого раздела у вашей учётной записи нет разрешения.')+'</p><div class="sh-access-denied-actions"><a href="/index.html">На главную</a><button type="button">Выйти</button></div></div>';
+    box.innerHTML='<div class="sh-access-denied-card"><div class="sh-access-denied-icon">🔒</div><h1>'+(temporary?'Сервис временно недоступен':'Нет доступа')+'</h1><p>'+String(message||'Для этого раздела у вашей учётной записи нет разрешения.')+'</p><div class="sh-access-denied-actions"><a href="/index.html">На главную</a><button type="button">Выйти</button></div></div>';
     const style=document.createElement('style');
     style.textContent='#sh-access-denied{min-height:100vh;display:grid;place-items:center;background:#0b1017;color:#eaf0f5;font-family:Inter,system-ui,sans-serif;padding:24px}.sh-access-denied-card{width:min(520px,100%);border:1px solid #263746;border-radius:16px;background:#101923;padding:28px;text-align:center;box-shadow:0 20px 60px #0008}.sh-access-denied-icon{font-size:34px}.sh-access-denied-card h1{margin:12px 0 8px}.sh-access-denied-card p{color:#8fa0b0;line-height:1.5}.sh-access-denied-actions{display:flex;justify-content:center;gap:10px;margin-top:20px}.sh-access-denied-actions a,.sh-access-denied-actions button{border:1px solid #304355;border-radius:9px;background:#14202b;color:#eaf0f5;padding:10px 15px;text-decoration:none;cursor:pointer}.sh-access-denied-actions a{background:#35d39a;color:#07150f;border-color:#35d39a}';
     document.head.appendChild(style);document.body.appendChild(box);
-    box.querySelector('button').onclick=()=>window.SHAuth?.signOut?.();
+    const button=box.querySelector('button');
+    if(temporary){button.textContent='Повторить';button.onclick=()=>location.reload()}
+    else button.onclick=()=>window.SHAuth?.signOut?.();
   }
 
   function installWorkspaceSwitcher(){
@@ -224,6 +226,16 @@
         const endpoint='/api/access/me'+(invite?'?invite='+encodeURIComponent(invite):'');
         const response=await fetch(endpoint,{headers:{Authorization:'Bearer '+t,Accept:'application/json'},cache:'no-store'});
         const data=await response.json().catch(()=>({}));
+        // A failing access API is NOT proof that the signed-in user lost
+        // membership or permissions. Never turn HTTP 5xx/429 into UNKNOWN.
+        if(response.status===429||response.status>=500||(!response.ok&&!data?.reason&&!data?.access)){
+          const e=new Error('Сервис проверки доступа временно недоступен (HTTP '+response.status+'). Права пользователя не изменялись. Повторите попытку через несколько секунд.');
+          e.temporary=true;throw e;
+        }
+        if(response.ok&&(!data?.access||typeof data.access.allowed!=='boolean')){
+          const e=new Error('Сервис вернул неполные данные доступа. Обновите страницу через несколько секунд.');
+          e.temporary=true;throw e;
+        }
         context=data?.access||{allowed:false,reason:data?.reason||'UNKNOWN'};
         window.SH_ACCESS_CONTEXT=context;
         document.dispatchEvent(new CustomEvent('sh-access-ready',{detail:context}));
@@ -239,6 +251,7 @@
             INVITE_ALREADY_USED:'Это приглашение уже связано с другой учётной записью.',
             INVITE_MEMBER_NOT_FOUND:'Приглашение больше не связано с пользователем Smart Horeca.',
             NO_USER:'Не удалось определить текущего пользователя. Войдите в Smart Horeca заново.',
+            UNAUTHENTICATED:'Сессия входа истекла. Войдите в Smart Horeca заново.',
             NO_MEMBERSHIP:'Вход выполнен, но приглашение не привязалось к аккаунту. Откройте исходную ссылку приглашения снова через smarthoreca.pages.dev и подтвердите email, на который оно отправлено. Если ссылка недоступна — попросите администратора выдать новую.',
             MEMBERSHIP_PENDING:'Доступ создан, но ещё ожидает активации входа сотрудника.',
             MEMBERSHIP_DISABLED:'Доступ этой учётной записи отключён владельцем или администратором.',
@@ -261,8 +274,9 @@
         return context;
       }catch(error){
         console.error('Smart Horeca access error',error);
-        denyScreen(error?.message||'Не удалось проверить права доступа.');
-        return{allowed:false,reason:'ERROR'};
+        const temporary=Boolean(error?.temporary)||/fetch|network|timeout|connection/i.test(String(error?.message||''));
+        denyScreen(temporary?(error?.message||'Временный сбой проверки прав. Повторите попытку.'):(error?.message||'Не удалось проверить права доступа.'),{temporary});
+        return{allowed:false,reason:temporary?'ACCESS_SERVICE_UNAVAILABLE':'ERROR'};
       }
     })();
     return loading;
