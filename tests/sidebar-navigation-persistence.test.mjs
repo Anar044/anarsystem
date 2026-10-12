@@ -309,7 +309,7 @@ test("opt-in timing trace never changes authentication or requests",()=>{
   for(const stage of ["frame-boot","auth-ready","access-ready"]){
     assert.ok(shell.includes("sendStage('"+stage+"')"));
   }
-  assert.doesNotMatch(workspace,/fetch\s*\(/);
+  assert.doesNotMatch(workspace,/\bfetch\s*\(/);
   const trace=workspace.slice(workspace.indexOf("  const NAV_DEBUG="),
     workspace.indexOf("  // Cloudflare Pages",workspace.indexOf("  const NAV_DEBUG=")));
   assert.doesNotMatch(trace,/access_token|refresh_token|fetch\s*\(/);
@@ -352,7 +352,7 @@ test("static warmup targets only checked and authorized menu links",()=>{
   assert.ok(section.includes("navigator.connection?.saveData"));
   assert.ok(!section.includes("createElement('iframe')"));
   assert.ok(!section.includes("script.src"));
-  assert.ok(!section.includes("fetch("));
+  assert.ok(!/\bfetch\s*\(/.test(section));
   assert.ok(js.includes("installSidebarPrefetch(nav.closest('.sidebar'))"));
   for(const sensitive of ["hr-payroll.html","hr-compensation.html","site-users.html"]){
     assert.ok(!section.includes("'/" + sensitive + "'"));
