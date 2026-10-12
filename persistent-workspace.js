@@ -52,6 +52,8 @@
         ' · авторизация '+num('auth-ready')+
         ' · запрос '+num('access-request')+
         ' · сервер '+apiElapsed+
+        (entry.serverAuthMs===undefined?'':' · Supabase '+entry.serverAuthMs+' мс')+
+        (entry.serverDbMs===undefined?'':' · D1 '+entry.serverDbMs+' мс')+
         ' · права '+num('access-ready')+
         ' · показ '+num('verified');
     }
@@ -296,6 +298,17 @@
     else setStatus(message);
   }
   window.addEventListener('message',event=>{
+    if(!NAV_DEBUG||event.origin!==location.origin||event.data?.type!=='sh:embedded-server-timing')return;
+    const frame=pendingFrame||currentFrame;
+    if(!frame||event.source!==frame.contentWindow)return;
+    const entry=routeTimings.get(frame);
+    if(!entry)return;
+    const value=event.data;
+    if(Number.isFinite(value.supabaseMs)&&value.supabaseMs>=0&&value.supabaseMs<=20000)entry.serverAuthMs=Math.round(value.supabaseMs);
+    if(Number.isFinite(value.d1Ms)&&value.d1Ms>=0&&value.d1Ms<=20000)entry.serverDbMs=Math.round(value.d1Ms);
+    markNavigation(frame,'server-breakdown');
+  });
+  window.addEventListener('message',event=>{
     if(!NAV_DEBUG||event.origin!==location.origin||event.data?.type!=='sh:embedded-nav-stage')return;
     const frame=pendingFrame||currentFrame;
     if(!frame||event.source!==frame.contentWindow)return;
@@ -401,6 +414,7 @@
     if(NAV_DEBUG)routeTimings.set(frame,{page:new URL(route.href,location.origin).pathname,start:performance.now()});
     frame.className='sh-workspace-frame sh-pending';
     frame.dataset.shPersistentWorkspace='1';
+    if(NAV_DEBUG)frame.dataset.shNavDebug='1';
     frame.title='Smart Horeca — '+route.label;
     frame.referrerPolicy='same-origin';
     // No sandbox: these first-party modules require their existing auth and
