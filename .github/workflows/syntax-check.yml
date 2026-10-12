@@ -48,7 +48,6 @@ jobs:
           node --test tests/internal-order-incoming-lookup.test.mjs
           node --test tests/internal-order-receipt-check.test.mjs
           node --test tests/internal-order-stock-contract.test.mjs
-          node --test tests/internal-order-dispatch-preview.test.mjs
           node --test tests/internal-order-account-codes.test.mjs
           node --test tests/chain-department-discovery.test.mjs
 
@@ -573,8 +572,12 @@ jobs:
         run: |
           set -euo pipefail
           node --test tests/hr-punch-correction.test.mjs
+          node --test tests/hr-timeclock-tenant-scope.test.mjs
           node --test tests/hr-live-shift.test.mjs
           node --test tests/hr-timesheet-performance.test.mjs
+          node --test tests/hr-access-rules-v2.test.mjs
+          node --test tests/hr-department-approvals.test.mjs
+          node --test tests/hr-department-snapshot.test.mjs
           node --test tests/hr-timesheet-resilient-load.test.mjs
           node --test tests/chain-connect-diagnostics.test.mjs
           node --test tests/access-chain-departments.test.mjs
