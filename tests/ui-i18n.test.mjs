@@ -383,3 +383,45 @@ test('table translation is bounded to approved system badge classes',()=>{
   assert.ok(js.includes("UI_EXCLUDE='tbody,[contenteditable]"));
   assert.ok(!js.includes("querySelectorAll('tbody td')"));
 });
+
+test('AZ/RU/EN supplier, GRN and internal-order modal labels are consistent',()=>{
+  const {api}=createI18n('ru',true);
+  const labels=[
+    ['КАРТОЧКА ПОСТАВЩИКА','TƏCHİZATÇI KARTI','SUPPLIER PROFILE'],
+    ['Номер договора','Müqavilə nömrəsi','Contract number'],
+    ['Сохранить договор','Müqaviləni saxla','Save contract'],
+    ['Новая заявка на закупку','Yeni satınalma tələbi','New purchase request'],
+    ['Фактическая приёмка GRN','Faktiki qəbul GRN','Physical receipt GRN'],
+    ['Связать и сверить','Əlaqələndir və tutuşdur','Link and reconcile'],
+    ['Сохранить и провести','Saxla və uçota al','Save and post'],
+    ['Откуда — RMS-отправитель','Haradan — göndərən RMS','From — sending RMS'],
+    ['Склад получателя','Qəbul edənin anbarı','Receiver warehouse'],
+    ['Название фасовки','Qablaşdırmanın adı','Packaging name']
+  ];
+  for(const [source,az,en] of labels){
+    assert.equal(api.t(source,'az'),az,source+' AZ');
+    assert.equal(api.t(source,'en'),en,source+' EN');
+    assert.equal(api.t(source,'ru'),source,source+' RU');
+  }
+  for(const original of ['Restoran Merkez', 'invoice-00029','Pomidor 4 kg','BR-2026-001']){
+    assert.equal(api.t(original,'az'),original,'record data unchanged');
+  }
+});
+test('detached modals are localized only through known UI container roots',()=>{
+  const engine=readFileSync(resolve(root,'sh-i18n.js'),'utf8');
+  assert.match(engine,/\.proc-modal,\.io-modal-dialog,\.modal-back \.modal,\.ts-drawer-panel/);
+  assert.ok(engine.includes("['proc-modal','io-modal','tsDrawer']"));
+  assert.ok(engine.includes("node.matches?.('.modal-back')"));
+  assert.ok(engine.includes('observer.observe(node,{childList:true,subtree:true})'));
+  assert.ok(engine.includes('translateUiLabels(node)'));
+  assert.ok(engine.includes("observer.observe(document.body,{childList:true})"));
+  assert.ok(!engine.includes("observer.observe(document.body,{childList:true,subtree:true})"));
+  assert.ok(engine.includes('tbody,[contenteditable]'));
+  assert.ok(!engine.includes("element.innerHTML=next"));
+  const supplier=readFileSync(resolve(root,'procurement.html'),'utf8');
+  assert.ok(supplier.includes('id="proc-modal-body"'));
+  const internal=readFileSync(resolve(root,'internal-orders.html'),'utf8');
+  assert.ok(internal.includes('id="io-modal"'));
+  const nomenclature=readFileSync(resolve(root,'nomenclature.js'),'utf8');
+  assert.ok(nomenclature.includes("back.className='modal-back'"));
+});
