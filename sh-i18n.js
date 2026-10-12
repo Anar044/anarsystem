@@ -364,15 +364,35 @@
     {
       match:/^([\d\s.,]+₼) по данным OLAP\.$/,
       target:[' OLAP məlumatlarına əsasən.',' based on OLAP data.']
+    },
+    {
+      match:/^Договоры\s*·\s*(\d+)$/,
+      target:['Müqavilələr · ','Contracts · ']
     }
   ];
-  function dynamicUiText(source){
+  function dynamicUiText(source,element){
+    // A modal title combines a fixed UI prefix with a supplier/document
+    // identifier. Translate only the prefix, retaining the identifier bytes.
+    if(element?.id==='proc-modal-title'&&language!=='ru'){
+      const prefixes=[
+        ['Поставщик · ','Təchizatçı · ','Supplier · '],
+        ['Договор · ','Müqavilə · ','Contract · '],
+        ['Новый договор · ','Yeni müqavilə · ','New contract · '],
+        ['Новый RFQ · ','Yeni RFQ · ','New RFQ · '],
+        ['Предложение поставщика · ','Təchizatçı təklifi · ','Supplier quotation · '],
+        ['Фактическая приёмка · ','Faktiki qəbul · ','Physical receipt · '],
+        ['Изменить заявку ','Tələbi dəyişdir ','Edit request ']
+      ];
+      for(const group of prefixes)if(source.startsWith(group[0]))
+        return group[language==='az'?1:2]+source.slice(group[0].length);
+    }
     for(const rule of NUMBERED_UI_PATTERNS){
       const match=source.match(rule.match);
       if(!match)continue;
       if(language==='ru')return source;
       const part=rule.target[language==='az'?0:1];
-      return rule===NUMBERED_UI_PATTERNS[0]?part+match[1]:match[1]+part;
+      return (rule===NUMBERED_UI_PATTERNS[0]||rule===NUMBERED_UI_PATTERNS[2])
+        ?part+match[1]:match[1]+part;
     }
     return null;
   }
@@ -383,7 +403,7 @@
     const literal=node.nodeValue||'';
     const source=NODE_SOURCES.get(node)||literal.trim();
     const hasExact=Object.prototype.hasOwnProperty.call(LABELS,source);
-    const dynamic=!hasExact?dynamicUiText(source):null;
+    const dynamic=!hasExact?dynamicUiText(source,element):null;
     if(!hasExact&&dynamic===null)return;
     NODE_SOURCES.set(node,source);
     const next=hasExact?value(source):dynamic;
