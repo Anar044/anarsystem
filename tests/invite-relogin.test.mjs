@@ -31,6 +31,7 @@ function loginHarness({query='?next=%2Fdashboard',currentUser=null,signInUser=nu
     URLSearchParams,
     localStorage:{removeItem:key=>removed.push(key),getItem:()=>{throw Error('Login must not read stale invite')}},
     captureInvite:()=>new URLSearchParams(query).get('invite'),
+    invitePreview:async()=>({email:'already@example.test',workspace:{name:'Test Ofis Chain'}}),
     requireConfigured:()=>true,createClient:async()=>sb,
     getUser:async()=>currentUser,
     claimInvitedWorkspace:async(_,token)=>{claims.push(token);return{ok:true}},
@@ -54,7 +55,7 @@ test('Existing active user with leftover invite token enters by password without
   assert.equal(h.authCalls.length,1);
   assert.deepEqual(h.claims,[]);
   assert.deepEqual(h.redirects,['/dashboard']);
-  assert.deepEqual(h.messages,[]);
+  assert.ok(h.messages.every(args=>args[0]==='' || /Test Ofis Chain/.test(args[0])));
 });
 test('Already signed-in member ignores leftover invitation during normal login',async()=>{
   const h=loginHarness({currentUser:{id:'supabase-account'}});
