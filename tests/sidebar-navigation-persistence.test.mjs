@@ -141,8 +141,8 @@ test("sidebar restores only previously permission-verified links for the same us
 test("static sidebar demo uses the same app shell without authenticating to production data",()=>{
   for(const path of ["sidebar-navigation-demo-a.html","sidebar-navigation-demo-b.html"]){
     const demo=readFileSync(resolve(root,path),"utf8");
-    assert.match(demo,/app-shell\.js\?v=20261012-sidebar-continuity1/);
-    assert.match(demo,/app-shell\.css\?v=20261012-sidebar-continuity1/);
+    assert.match(demo,/app-shell\.js\?v=20261012-sidebar-continuity2/);
+    assert.match(demo,/app-shell\.css\?v=20261012-sidebar-continuity2/);
     assert.match(demo,/sidebar-navigation-demo-[ab]\.html/);
     assert.match(demo,/setTimeout\(\(\)=>\{/);
     assert.doesNotMatch(demo,/<script[^>]+(?:auth\.js|site-access\.js|supabase)/);
