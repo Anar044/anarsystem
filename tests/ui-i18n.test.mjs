@@ -258,3 +258,59 @@ test('module UI localization changes text nodes only, not DOM children, routes, 
   assert.ok(!/\.value\s*=/.test(snippet));
   assert.ok(!snippet.includes("fetch("));
 });
+
+test('dynamic module label translation preserves nested icons and row data',()=>{
+  const labels=[];
+  function nodeContainer(text,inBusinessTable=false){
+    const el={
+      nodeType:1,tagName:'H2',childNodes:[],attributes:{},
+      closest(sel){
+        if(sel.startsWith('tbody')&&inBusinessTable)return {tagName:'TBODY'};
+        if(sel.startsWith('tbody'))return null;
+        if(sel==='main,.app-shell,.sh-workspace-page')return{tagName:'MAIN'};
+        return null;
+      },
+      matches(){return false}
+    };
+    const node={nodeType:3,nodeValue:text,parentElement:el};
+    const icon={nodeType:1,tagName:'SVG',parentElement:el};
+    el.childNodes=[node,icon];
+    labels.push(el);
+    return{el,node,icon};
+  }
+  const title=nodeContainer('Расход');
+  const data=nodeContainer('Аванс',true);
+  const listeners={};
+  const body={
+    hasAttribute:key=>key==='data-protected',
+    classList:{contains:()=>false}
+  };
+  const document={
+    readyState:'loading',body,documentElement:{lang:'ru'},
+    addEventListener:(key,fn)=>{listeners['doc:'+key]=fn},
+    querySelector(){return null},
+    querySelectorAll(selector){
+      if(selector.startsWith('h1,h2'))return labels;
+      return [];
+    }
+  };
+  const window={parent:null,addEventListener(){},dispatchEvent(){}};
+  window.parent=window;
+  runInNewContext(catalogSrc,{window});
+  runInNewContext(script,{
+    window,document,location:{origin:'https://test.smarthoreca.pages.dev'},
+    localStorage:{getItem:()=>null,setItem(){}},
+    requestAnimationFrame:fn=>fn(),
+    MutationObserver:class{observe(){}},
+    CustomEvent:class{constructor(type,data){this.type=type;this.data=data}}
+  });
+  listeners['doc:DOMContentLoaded']();
+  assert.equal(window.SH_I18N.setLanguage('en'),true);
+  assert.equal(title.node.nodeValue,'Outgoing');
+  assert.equal(title.el.childNodes[1],title.icon,'icon child identity remains stable');
+  assert.equal(data.node.nodeValue,'Аванс','user data in table body is never translated');
+  assert.equal(window.SH_I18N.setLanguage('az'),true);
+  assert.equal(title.node.nodeValue,'Məxaric');
+  assert.equal(window.SH_I18N.setLanguage('ru'),true);
+  assert.equal(title.node.nodeValue,'Расход');
+});
