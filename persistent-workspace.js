@@ -24,6 +24,7 @@
   let currentFrame=null;
   let currentRoute=null;
   let pendingFrame=null;
+  let pendingMode=null;
   let serial=0;
   let started=false;
   let navObserver=null;
@@ -174,6 +175,8 @@
   function revealFrame(frame,route,mode){
     if(pendingFrame!==frame)return;
     pendingFrame=null;
+    pendingMode=null;
+    host.classList.remove('sh-is-loading');
     frame.classList.remove('sh-pending');
     if(currentFrame&&currentFrame!==frame)currentFrame.remove();
     currentFrame=frame;
@@ -187,10 +190,27 @@
     if(frame!==pendingFrame)return;
     frame.remove();
     pendingFrame=null;
+    pendingMode=null;
+    host.classList.remove('sh-is-loading');
+    if(currentRoute)activateMenu(currentRoute);
     setStatus('Ошибка открытия');
     if(!currentFrame)showEmpty(message);
     else setStatus(message);
   }
+  function onAccessReadyMessage(event){
+    if(event.origin!==location.origin||event.data?.type!=='sh:embedded-access-ready')return;
+    const frame=pendingFrame;
+    if(!frame||event.source!==frame.contentWindow)return;
+    const url=childLocation(frame);
+    const route=url?resolvePilotRoute(url.href):null;
+    if(!route||!permitted(route))return;
+    if(frame.contentWindow.SHAccess?.context?.allowed!==true)return;
+    if(frame.contentDocument?.getElementById('sh-access-denied'))return;
+    // Same-origin first-party page and its own RBAC are confirmed. Present
+    // content as soon as ready, without waiting for charts/fonts to finish.
+    revealFrame(frame,route,pendingMode||'push');
+  }
+  window.addEventListener('message',onAccessReadyMessage);
   function onFrameLoad(frame,intendedRoute,mode){
     const url=childLocation(frame);
     if(!url){
@@ -263,6 +283,9 @@
     }
     const id=++serial;
     if(pendingFrame){pendingFrame.remove();pendingFrame=null}
+    // Select the destination immediately, rather than leaving old folders
+    // expanded for the entire first-load delay.
+    activateMenu(route);
     const frame=document.createElement('iframe');
     frame.className='sh-workspace-frame sh-pending';
     frame.dataset.shPersistentWorkspace='1';
@@ -277,6 +300,8 @@
       else if(frame===currentFrame)observeEmbeddedNavigation(frame);
     });
     pendingFrame=frame;
+    pendingMode=historyMode;
+    host.classList.add('sh-is-loading');
     host.appendChild(frame);
     setStatus('Открываем: '+route.label);
   }
