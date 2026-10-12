@@ -280,6 +280,13 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   }
   const title=nodeContainer('Расход');
   const data=nodeContainer('Аванс',true);
+  const dashboardEmpty=nodeContainer('Нет данных по времени');
+  const aiEmpty=nodeContainer('Диалогов пока нет.');
+  const cashEmpty=nodeContainer('Для выбранных ресторанов сейчас нет онлайн-касс.');
+  const shiftsEmpty=nodeContainer('За выбранный период кассовые смены не найдены.');
+  const prEmpty=nodeContainer('Нет заявок, ожидающих согласования.');
+  const prSummary=nodeContainer('Завершённые и закрытые · 2');
+  const olapSummary=nodeContainer('0 ₼ по данным OLAP.');
   const listeners={};
   const body={
     hasAttribute:key=>key==='data-protected',
@@ -307,10 +314,41 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   listeners['doc:DOMContentLoaded']();
   assert.equal(window.SH_I18N.setLanguage('en'),true);
   assert.equal(title.node.nodeValue,'Outgoing');
+  assert.equal(dashboardEmpty.node.nodeValue,'No hourly data');
+  assert.equal(aiEmpty.node.nodeValue,'No conversations yet.');
+  assert.equal(cashEmpty.node.nodeValue,'There are currently no online registers for the selected restaurants.');
+  assert.equal(shiftsEmpty.node.nodeValue,'No cashier shifts were found for the selected period.');
+  assert.equal(prEmpty.node.nodeValue,'No requests are awaiting approval.');
+  assert.equal(prSummary.node.nodeValue,'Completed and closed · 2');
+  assert.equal(olapSummary.node.nodeValue,'0 ₼ based on OLAP data.');
   assert.equal(title.el.childNodes[1],title.icon,'icon child identity remains stable');
   assert.equal(data.node.nodeValue,'Аванс','user data in table body is never translated');
   assert.equal(window.SH_I18N.setLanguage('az'),true);
   assert.equal(title.node.nodeValue,'Məxaric');
+  assert.equal(dashboardEmpty.node.nodeValue,'Saatlar üzrə məlumat yoxdur');
+  assert.equal(aiEmpty.node.nodeValue,'Hələ söhbət yoxdur.');
+  assert.equal(cashEmpty.node.nodeValue,'Seçilmiş restoranlarda hazırda onlayn kassa yoxdur.');
+  assert.equal(prEmpty.node.nodeValue,'Təsdiq gözləyən tələb yoxdur.');
+  assert.equal(prSummary.node.nodeValue,'Tamamlanmış və bağlanmış · 2');
+  assert.equal(olapSummary.node.nodeValue,'0 ₼ OLAP məlumatlarına əsasən.');
   assert.equal(window.SH_I18N.setLanguage('ru'),true);
   assert.equal(title.node.nodeValue,'Расход');
+  assert.equal(dashboardEmpty.node.nodeValue,'Нет данных по времени');
+  assert.equal(aiEmpty.node.nodeValue,'Диалогов пока нет.');
+  assert.equal(cashEmpty.node.nodeValue,'Для выбранных ресторанов сейчас нет онлайн-касс.');
+  assert.equal(prEmpty.node.nodeValue,'Нет заявок, ожидающих согласования.');
+  assert.equal(prSummary.node.nodeValue,'Завершённые и закрытые · 2');
+  assert.equal(olapSummary.node.nodeValue,'0 ₼ по данным OLAP.');
+});
+test('late-created dynamic messages use approved selectors and do not translate chat answers',()=>{
+  const js=readFileSync(resolve(root,'sh-i18n.js'),'utf8');
+  for(const selector of ['.dash-empty','.sha-empty','.sha-hint',
+    '.cash-modern-empty','.cs-empty','.cs-status','.proc-empty',
+    '.proc-history-block summary','.proc-list-section-title']){
+    assert.ok(js.includes(selector),'missing dynamic UI selector '+selector);
+  }
+  assert.ok(js.includes('.sha-messages,.sha-conversation-list'));
+  assert.ok(js.includes("element.closest?.('tbody')&&!emptyOlAPCell(element)"));
+  const shifts=readFileSync(resolve(root,'cash-shifts-optimized.js'),'utf8');
+  assert.ok(!shifts.includes('Смен не найдено. Запросов к Smart Horeca:'));
 });
