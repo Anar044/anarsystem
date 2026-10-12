@@ -447,6 +447,53 @@
       }
     },750);
   }
+  // Warm the next document's PUBLIC, static HTML on deliberate pointer
+  // intent. The browser handles this at low priority; prefetch neither
+  // executes its scripts nor calls its authenticated APIs. Restricted and
+  // cache-control:no-store modules are intentionally excluded.
+  const STATIC_PREFETCH_PAGES=new Set([
+    '/dashboard.html','/procurement.html','/internal-orders.html',
+    '/cash-shifts.html','/ai-assistant.html','/reports.html',
+    '/nomenclature.html','/stock-balances.html','/stock-movements.html'
+  ]);
+  const prefetchedPages=new Set();
+  let hoverPrefetchTimer=0;
+  function eligibleStaticPrefetch(rawLink){
+    const link=rawLink?.closest?.('a[href]');
+    if(!link||link.dataset.shAccessChecked!=='1'||link.hidden||link.closest('[hidden]'))return null;
+    const route=resolvePilotRoute(link.href);
+    if(!permitted(route))return null;
+    const url=new URL(route.href,location.origin);
+    const path=canonicalPagePath(url.pathname);
+    if(!STATIC_PREFETCH_PAGES.has(path))return null;
+    if(path===canonicalPagePath(new URL(currentRoute?.href||'/persistent-workspace.html',location.origin).pathname))return null;
+    return path;
+  }
+  function prefetchStaticPage(path){
+    if(!path||prefetchedPages.has(path)||prefetchedPages.size>=6)return;
+    // Respect limited or metered connections; navigation still works normally.
+    if(navigator.connection?.saveData)return;
+    prefetchedPages.add(path);
+    const link=document.createElement('link');
+    link.rel='prefetch';
+    link.as='document';
+    link.href=path;
+    link.dataset.shNavPrefetch='static-only';
+    document.head.appendChild(link);
+  }
+  function scheduleSidebarPrefetch(event){
+    clearTimeout(hoverPrefetchTimer);
+    const path=eligibleStaticPrefetch(event.target);
+    if(path)hoverPrefetchTimer=setTimeout(()=>prefetchStaticPage(path),100);
+  }
+  function installSidebarPrefetch(sidebar){
+    if(!sidebar||sidebar.dataset.shPrefetchReady==='1')return;
+    sidebar.dataset.shPrefetchReady='1';
+    sidebar.addEventListener('pointerover',scheduleSidebarPrefetch,{passive:true});
+    sidebar.addEventListener('pointerout',()=>clearTimeout(hoverPrefetchTimer),{passive:true});
+    sidebar.addEventListener('focusin',scheduleSidebarPrefetch);
+    sidebar.addEventListener('focusout',()=>clearTimeout(hoverPrefetchTimer));
+  }
   function onSidebarClick(event){
     const groupToggle=event.target.closest('.documents-nav-toggle');
     if(groupToggle){
@@ -477,6 +524,7 @@
     const nav=sidebarNav();
     if(!nav)return false;
     installSidebarCollapse(nav.closest('.sidebar'));
+    installSidebarPrefetch(nav.closest('.sidebar'));
     document.body.classList.add('sh-workspace-ready');
     nav.closest('.sidebar').addEventListener('click',onSidebarClick,true);
     if(navObserver){navObserver.disconnect();navObserver=null}
