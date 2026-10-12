@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Smart Horeca — постоянное левое меню (тест)</title>
+  <link rel="stylesheet" href="/app-shell.css?v=20261012-persistent-demo1">
+  <style id="sh-persistent-demo-style">
+    .persistent-demo-main{display:flex;flex-direction:column;min-height:100vh}
+    .persistent-demo-topbar{flex:0 0 74px}
+    .persistent-demo-info{padding:12px 24px;background:#101c20;border-bottom:1px solid #27543d;color:#bfe8d4;font-size:12px;line-height:1.5}
+    .persistent-demo-info strong{color:#56dda0}
+    .persistent-demo-frame-host{position:relative;display:block;flex:1 1 auto;width:100%;min-width:0;min-height:calc(100vh - 160px);background:#0b1017;overflow:hidden}
+    .persistent-demo-frame{position:absolute;inset:0;box-sizing:border-box;width:100%;min-width:100%;height:100%;border:0;background:#0b1017;display:block}
+    .persistent-demo-frame.pending{visibility:hidden;pointer-events:none}
+    .persistent-demo-status{color:#849eae;font-size:11px;margin-left:auto}
+    @media(max-width:680px){.persistent-demo-topbar{padding:0 14px!important}.persistent-demo-info{padding:10px 14px}}
+  </style>
+</head>
+<body data-sidebar-demo="1">
+  <!-- Static UX proof only: no authentication, memberships, or restaurant APIs. -->
+  <div class="app-shell">
+    <aside class="sidebar"></aside>
+    <main class="main persistent-demo-main">
+      <header class="topbar persistent-demo-topbar">
+        <div><span class="topbar-title">Smart Horeca · постоянная навигация</span>
+          <div class="topbar-sub">Отдельные HTML-страницы открываются только справа</div>
+        </div>
+        <span class="persistent-demo-status" id="page-status">Тестовая версия</span>
+      </header>
+      <div class="persistent-demo-info">
+        <strong>Проверка без авторизации.</strong>
+        Нажимайте ссылки слева, раскрывайте разделы, прокрутите меню вниз и переключайтесь дальше.
+        Меню остаётся в родительском документе, а содержимое справа загружается в отдельный документ.
+      </div>
+      <section class="persistent-demo-frame-host" id="demo-frame-host" aria-label="Демонстрационный раздел">
+        <iframe class="persistent-demo-frame" id="current-demo-frame"
+                title="Демонстрационный рабочий раздел"
+                src="/sidebar-persistent-demo-page-a.html?section=Dashboard"></iframe>
+      </section>
+    </main>
+  </div>
+  <script>
+    // Demo-only access mock: no Supabase or protected API is included.
+    window.SHAccess = {
+      context:{allowed:true},
+      applyVisibility(root){
+        if(!root)return;
+        for(const link of root.querySelectorAll('a[href]')){
+          link.hidden=false;
+          link.dataset.shAccessChecked='1';
+        }
+        for(const group of root.querySelectorAll('.documents-nav-group,.reports-nav-group')){
+          group.hidden=false;
+          group.dataset.shAccessChecked='1';
+        }
+        window.dispatchEvent(new Event('sh:access-visibility-ready'));
+      }
+    };
+  </script>
+  <script src="/app-shell.js?v=20261012-persistent-demo1"></script>
+  <script>
+    (()=>{
+      const sidebar=document.querySelector('.sidebar');
+      const host=document.getElementById('demo-frame-host');
+      const status=document.getElementById('page-status');
+      let currentFrame=document.getElementById('current-demo-frame');
+      let pendingFrame=null;
+      let navigationSerial=0;
+      let nextVariant='b';
+
+      function showPage(section,variant,record){
+        const chosen=variant==='b'?'b':'a';
+        const serial=++navigationSerial;
+        if(pendingFrame)pendingFrame.remove();
+        const next=document.createElement('iframe');
+        next.className='persistent-demo-frame pending';
+        next.title='Демонстрационный раздел: '+section;
+        next.src='/sidebar-persistent-demo-page-'+chosen+'.html?section='+encodeURIComponent(section);
+        next.addEventListener('load',()=>{
+          if(serial!==navigationSerial){next.remove();return}
+          next.classList.remove('pending');
+          if(currentFrame)currentFrame.remove();
+          currentFrame=next;pendingFrame=null;
+          status.textContent='Открыт: '+section;
+        },{once:true});
+        pendingFrame=next;
+        host.appendChild(next);
+        if(record){
+          const url=new URL(location.href);
+          url.searchParams.set('section',section);
+          url.searchParams.set('view',chosen);
+          history.pushState({section,view:chosen},'',url.pathname+url.search);
+        }
+        nextVariant=chosen==='a'?'b':'a';
+      }
+      sidebar.addEventListener('click',event=>{
+        const link=event.target.closest('a[href]');
+        if(!link||!sidebar.contains(link))return;
+        event.preventDefault();
+        // Explicitly DO NOT navigate the top-level document.
+        const section=link.textContent.trim().replace(/\s+/g,' ')||'Раздел';
+        sidebar.querySelectorAll('a[href].active').forEach(item=>item.classList.remove('active'));
+        link.classList.add('active');
+        showPage(section,nextVariant,true);
+      },true);
+      window.addEventListener('popstate',()=>{
+        const qs=new URLSearchParams(location.search);
+        showPage(qs.get('section')||'Dashboard',qs.get('view')||'a',false);
+      });
+      const qs=new URLSearchParams(location.search);
+      if(qs.has('section'))showPage(qs.get('section')||'Dashboard',qs.get('view')||'a',false);
+    })();
+  </script>
+</body>
+</html>
