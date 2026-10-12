@@ -338,6 +338,20 @@
     '#stock-status','#mov-status','#fc-status','#lc-status',
     '#mov-period','#fc-period','#lc-period','#stock-source',
     '#fin-status','#fin-modal-status',
+    // HR/Payroll approval, calculation and timekeeping system text.
+    '#tsApprovalTitle','#tsApprovalMeta','#tsApprovalBadge',
+    '#tsManagerMeta','#tsHrMeta','#tsApprovalDepartmentHint',
+    '#tsMatrixTitle','#tsMatrixSub','#tsMatrixCount','#tsAccessBadge',
+    '#hrpTableTitle','#hrpTableSub','#hrpCount','#hrpSettlementCount',
+    '#hrpTaxProfile','#hrpAttendance','#hrpOvertime',
+    '#hcpRoleCount','#hcpRowCount','#pvTaxNote',
+    '.hr-summary-card > span','.hr-summary-card > small',
+    '.hr-card-title','.hr-card-sub','.hep-pay-empty',
+    '.ts-approval-badge','.hr-status',
+    // P&L metadata, excluding data-backed category names and rows.
+    '.revenue-category-head strong','.revenue-category-head span',
+    '#pnl-status','#message',
+
 
 
     '.proc-status-badge','.io-pill','.status-pill','.status-badge',
@@ -353,7 +367,8 @@
     '.monaco-editor,.cm-editor,.ag-root,[data-business-value],'+
     '[data-auth-name],[data-auth-email],[data-auth-avatar],[data-sh-i18n],'+
     // Headings containing inventory product names or account names are data.
-    '#stock-modal-title,#mov-modal-title,#fc-modal-title,#fin-modal-title';
+    '#stock-modal-title,#mov-modal-title,#fc-modal-title,#fin-modal-title,'+
+    '.revenue-category-name,.hep-name,.hr-name';
   const NODE_SOURCES=new WeakMap(),ATTRIBUTE_SOURCES=new WeakMap();
   // Only known system-state badges or empty-message cells are eligible
   // inside data tables. Product, employee, supplier and document cells stay untouched.
