@@ -64,3 +64,51 @@ test("long full-page navigation overlays and delays are removed",()=>{
 test("the legacy HR menu cannot collapse sibling sections",()=>{
   assert.doesNotMatch(legacy,/if\(g===group\)return;g\.classList\.remove\('open'\)/);
 });
+
+test("real-page persistent workspace stays opt-in and reuses independent authentication",()=>{
+  const html=readFileSync(resolve(root,"persistent-workspace.html"),"utf8");
+  const route=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
+  assert.match(html,/data-protected="true"/);
+  assert.match(html,/\/auth\.js\?/);
+  assert.match(html,/\/app-shell\.js\?/);
+  assert.match(html,/persistent-workspace\.js\?/);
+  assert.match(html,/<aside class="sidebar"><\/aside>/);
+  assert.match(html,/sh-workspace-frame-host/);
+  assert.match(html,/<style id="sh-workspace-shell-style">/);
+  assert.match(shell,/style\.id!=='sh-workspace-shell-style'/);
+  assert.doesNotMatch(html,/<iframe[^>]+src="\/dashboard/);
+  assert.match(route,/SHAccess\?\.context\?\.allowed/);
+  assert.match(route,/SHAccess\.canAny\?\.\(route\.permissions\)/);
+  assert.match(route,/frame\.dataset\.shPersistentWorkspace='1'/);
+  assert.match(route,/frame\.src=route\.href/);
+  assert.match(route,/addEventListener\('popstate'/);
+  assert.match(route,/location\.assign\('\/login\.html'\)/);
+  assert.doesNotMatch(route,/fetch\s*\(/);
+  assert.doesNotMatch(route,/location\.replace\s*\(/);
+});
+test("only the selected three real modules can load inside the persistent shell",()=>{
+  const route=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
+  const rules=route.slice(route.indexOf("  const PROCUREMENT="),route.indexOf("  const host="));
+  const resolveFn=route.slice(route.indexOf("  function resolvePilotRoute(raw){"),route.indexOf("  function permitted(route){"));
+  const make=new Function("location",rules+resolveFn+"\nreturn resolvePilotRoute;");
+  const resolveRoute=make({origin:"https://preview.smarthoreca.pages.dev"});
+  assert.equal(resolveRoute("/index.html").href,"/dashboard.html");
+  assert.equal(resolveRoute("/dashboard.html").permissions[0],"dashboard.view");
+  assert.deepEqual(resolveRoute("/procurement.html?view=sourcing").permissions,["procurement.sourcing"]);
+  assert.deepEqual(resolveRoute("/internal-orders.html?view=shipments").permissions,
+    ["procurement.internal.fulfill","procurement.internal.configure"]);
+  assert.equal(resolveRoute("/procurement.html?view=unknown"),null);
+  assert.equal(resolveRoute("/internal-orders.html?view=unknown"),null);
+  assert.equal(resolveRoute("/hr-payroll.html"),null);
+  assert.equal(resolveRoute("https://example.com/dashboard.html"),null);
+});
+test("embedded content hides duplicate sidebar only when opened by the pilot frame",()=>{
+  for(const path of ["dashboard.html","procurement.html","internal-orders.html"]){
+    const content=readFileSync(resolve(root,path),"utf8");
+    assert.match(content,/frameElement\?\.dataset\?\.shPersistentWorkspace/);
+    assert.match(content,/classList\.add\("sh-pilot-embedded"\)/);
+    assert.match(content,/data-protected="true"/);
+  }
+  assert.match(css,/html\.sh-pilot-embedded \.sidebar\{display:none!important\}/);
+  assert.match(css,/html\.sh-pilot-embedded \.app-shell>\.main/);
+});
