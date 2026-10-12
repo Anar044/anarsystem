@@ -56,10 +56,11 @@ test("first paint does not wait on asynchronous access check",()=>{
   assert.doesNotMatch(init,/sh:access-visibility-ready|showCompletedNavigation|finishPageNavigationTransition/);
   assert.match(access,/guardCurrentPage\(\);applyVisibility\(document\);installWorkspaceSwitcher\(\)/);
 });
-test("long full-page navigation overlays and delays are removed",()=>{
-  assert.doesNotMatch(css,/@view-transition|shNavKeepOld|Загрузка раздела/);
-  assert.doesNotMatch(css,/4200ms/);
-  assert.doesNotMatch(shell,/prefetchSidebarLink|skipTransition\(\)/);
+test("full-page blocking overlays remain removed even with sidebar-only transition",()=>{
+  assert.match(css,/@view-transition\s*\{\s*navigation:\s*auto;/);
+  assert.match(css,/::view-transition-old\(root\)/);
+  assert.doesNotMatch(css,/shNavKeepOld|Загрузка раздела|4200ms/);
+  assert.doesNotMatch(shell,/prefetchSidebarLink|finishPageNavigationTransition/);
 });
 test("the legacy HR menu cannot collapse sibling sections",()=>{
   assert.doesNotMatch(legacy,/if\(g===group\)return;g\.classList\.remove\('open'\)/);
