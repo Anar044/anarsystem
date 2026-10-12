@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Smart Horeca — постоянное левое меню (тест)</title>
   <link rel="stylesheet" href="/app-shell.css?v=20261012-persistent-demo1">
-  <style>
+  <style id="sh-persistent-demo-style">
     .persistent-demo-main{display:flex;flex-direction:column;min-height:100vh}
     .persistent-demo-topbar{flex:0 0 74px}
     .persistent-demo-info{padding:12px 24px;background:#101c20;border-bottom:1px solid #27543d;color:#bfe8d4;font-size:12px;line-height:1.5}
     .persistent-demo-info strong{color:#56dda0}
-    .persistent-demo-frame-host{position:relative;flex:1;min-height:calc(100vh - 120px);background:#0b1017;overflow:hidden}
-    .persistent-demo-frame{position:absolute;inset:0;width:100%;height:100%;border:0;background:#0b1017;display:block}
+    .persistent-demo-frame-host{position:relative;display:block;flex:1 1 auto;width:100%;min-width:0;min-height:calc(100vh - 160px);background:#0b1017;overflow:hidden}
+    .persistent-demo-frame{position:absolute;inset:0;box-sizing:border-box;width:100%;min-width:100%;height:100%;border:0;background:#0b1017;display:block}
     .persistent-demo-frame.pending{visibility:hidden;pointer-events:none}
     .persistent-demo-status{color:#849eae;font-size:11px;margin-left:auto}
     @media(max-width:680px){.persistent-demo-topbar{padding:0 14px!important}.persistent-demo-info{padding:10px 14px}}
