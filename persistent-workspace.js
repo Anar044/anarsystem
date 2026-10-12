@@ -103,10 +103,9 @@
     if(permitted(requested))return requested;
     const candidates=[
       '/dashboard.html',
-      '/procurement.html?view=requests',
-      '/procurement.html?view=catalog',
-      '/internal-orders.html?view=my',
-      '/internal-orders.html?view=incoming'
+      ...Object.keys(PROCUREMENT).map(view=>'/procurement.html?view='+view),
+      ...['my','incoming','preparing','shipments','receiving','all','settings']
+        .map(view=>'/internal-orders.html?view='+view)
     ];
     return candidates.map(resolvePilotRoute).find(permitted)||null;
   }
