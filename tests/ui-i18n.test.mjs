@@ -154,3 +154,39 @@ test('language selector stays accessible at bottom of scrolling navigation',()=>
   const page=readFileSync(resolve(root,'persistent-workspace.html'),'utf8');
   assert.match(page,/\.sidebar \.sh-language-picker\{[\s\S]*?position:sticky;bottom:0;z-index:20/);
 });
+
+test('Dashboard hides developer-only OLAP request counts but keeps loading and errors visible',()=>{
+  const src=readFileSync(resolve(root,'dashboard-optimized.js'),'utf8');
+  assert.ok(!src.includes('1 API запрос вместо 5'));
+  assert.ok(!src.includes('ресторанов выбрано •'));
+  assert.ok(src.includes('dashboardNotice()'));
+  assert.ok(src.includes('dashboardNotice("Загружаем данные…")'));
+  assert.ok(src.includes('dashboardNotice("🔴 OLAP: "+e.message,true)'));
+  assert.ok(src.includes('showDisconnected(false)'));
+  assert.ok(src.includes('dashboardNotice("Нет подключения к SH OLAP",true)'));
+});
+test('Dashboard status helper hides success and preserves localized errors',()=>{
+  const src=readFileSync(resolve(root,'dashboard-optimized.js'),'utf8');
+  const from=src.indexOf('function dashboardNotice(');
+  const to=src.indexOf('const money=',from);
+  assert.ok(from>=0&&to>from);
+  const element={textContent:'',hidden:false,role:null,setAttribute(k,v){this[k]=v}};
+  const context={
+    document:{getElementById:id=>id==='dashStatus'?element:null},
+    window:{SH_I18N:{t:x=>x==='Загружаем данные…'?'Loading data…':x}}
+  };
+  const helper=new Function('document','window',
+    'const $=id=>document.getElementById(id);'+src.slice(from,to)+'\nreturn dashboardNotice;'
+  )(context.document,context.window);
+  helper('Загружаем данные…');
+  assert.equal(element.hidden,false);
+  assert.equal(element.textContent,'Loading data…');
+  assert.equal(element.role,'status');
+  helper();
+  assert.equal(element.hidden,true);
+  assert.equal(element.textContent,'');
+  helper('🔴 OLAP: connection lost',true);
+  assert.equal(element.hidden,false);
+  assert.equal(element.role,'alert');
+  assert.equal(element.textContent,'🔴 OLAP: connection lost');
+});
