@@ -45,9 +45,13 @@
     entry[stage]=Math.round(performance.now()-entry.start);
     if(timingPanel){
       const num=key=>entry[key]===undefined?'…':entry[key]+' мс';
+      const apiElapsed=entry['access-response']!==undefined&&entry['access-request']!==undefined
+        ?entry['access-response']-entry['access-request']+' мс':'…';
       timingPanel.textContent='Переход: '+entry.page+
         ' · начало '+num('frame-boot')+
         ' · авторизация '+num('auth-ready')+
+        ' · запрос '+num('access-request')+
+        ' · сервер '+apiElapsed+
         ' · права '+num('access-ready')+
         ' · показ '+num('verified');
     }
@@ -295,7 +299,7 @@
     if(!NAV_DEBUG||event.origin!==location.origin||event.data?.type!=='sh:embedded-nav-stage')return;
     const frame=pendingFrame||currentFrame;
     if(!frame||event.source!==frame.contentWindow)return;
-    if(!['frame-boot','auth-ready','access-ready'].includes(event.data.stage))return;
+    if(!['frame-boot','auth-ready','access-request','access-response','access-body','access-ready'].includes(event.data.stage))return;
     markNavigation(frame,event.data.stage);
   });
   function onAccessReadyMessage(event){
