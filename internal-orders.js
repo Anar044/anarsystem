@@ -719,7 +719,27 @@ async function handleLinkedIncomingFind(){
   }catch(e){output.textContent="Поиск не выполнен: "+String(e?.message||e)+". Документы не менялись."}
   finally{button.disabled=false}
 }
+async function loadIikoAccountCatalog(){
+  const button=$("io-load-account-catalog"),out=$("io-account-settings-result");
+  button.disabled=true;out.textContent="Читаем план счетов подключённого сервера iiko (без изменения данных)…";
+  try{
+    const result=await api("/api/internal-order-shipments?settings=account-catalog");
+    const accounts=result.accounts||[];
+    const renderList=(listId,allowedTypes)=>{
+      const select=$(listId);
+      const relevant=accounts.filter(a=>allowedTypes.includes(String(a.type||"").toUpperCase()));
+      const options=relevant.length?relevant:accounts;
+      select.innerHTML=options.map(a=>'<option value="'+esc(a.code)+'" label="'+esc(a.name)+' · '+esc(a.type||"Счёт")+'"></option>').join("");
+    };
+    renderList("io-revenue-account-list",["INCOME","OTHER_INCOME"]);
+    renderList("io-expense-account-list",["EXPENSES","OTHER_EXPENSES","COST_OF_GOODS_SOLD"]);
+    out.textContent="Загружено счетов: "+accounts.length+". Выберите код в поле «Счёт выручки» и «Счёт расхода», затем сохраните.";
+  }catch(error){
+    out.textContent="Справочник счетов недоступен: "+String(error?.message||error)+" Можно продолжить с ручным вводом кода.";
+  }finally{button.disabled=false}
+}
 $("io-config-form").onsubmit=handleConfig;$("io-account-settings-form").onsubmit=handleAccountSettings;$("io-create-form").onsubmit=handleCreate;
+$("io-load-account-catalog").onclick=loadIikoAccountCatalog;
 $("io-pair-probe-form").onsubmit=handleIikoPairProbe;
 $("io-find-linked-incoming").onclick=handleLinkedIncomingFind;
 start();
