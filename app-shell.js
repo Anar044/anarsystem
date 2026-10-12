@@ -1,6 +1,48 @@
 (()=>{
   'use strict';
   const root=document.documentElement;
+  // Reuse only menu links already approved for this same signed-in user.
+  // This prevents the RBAC placeholder from collapsing the sidebar while a
+  // different HTML document rechecks access. Nothing here grants API access.
+  const SIDEBAR_VERIFIED_CACHE_KEY='shSidebarVerifiedLinksV1';
+  function sidebarCacheIdentity(){
+    if(document.body?.dataset.sidebarDemo==='1')return 'public-static-demo';
+    const user=window.SH_CURRENT_USER;
+    return user?.id?'user:'+String(user.id):null;
+  }
+  function restoreVerifiedSidebarLinks(){
+    const nav=document.querySelector('.sidebar .unified-main-nav');
+    const owner=sidebarCacheIdentity();
+    if(!nav||!owner||nav.dataset.shCachedLinksRestored==='1')return;
+    try{
+      const cached=JSON.parse(sessionStorage.getItem(SIDEBAR_VERIFIED_CACHE_KEY)||'null');
+      if(!cached||cached.owner!==owner||Date.now()-cached.at>60000||
+         !Array.isArray(cached.visible))return;
+      const visible=new Set(cached.visible);
+      for(const link of nav.querySelectorAll('a[href]')){
+        const href=link.getAttribute('href');
+        link.hidden=!visible.has(href);
+        link.dataset.shAccessChecked='1';
+      }
+      for(const group of nav.querySelectorAll('.documents-nav-group,.reports-nav-group')){
+        group.hidden=![...group.querySelectorAll('a[href]')].some(link=>!link.hidden);
+        group.dataset.shAccessChecked='1';
+      }
+      nav.dataset.shCachedLinksRestored='1';
+    }catch(_){}
+  }
+  function rememberVerifiedSidebarLinks(){
+    if(!sidebarPermissionsReady())return;
+    const owner=sidebarCacheIdentity();
+    const nav=document.querySelector('.sidebar .unified-main-nav');
+    if(!owner||!nav)return;
+    const visible=[...nav.querySelectorAll('a[href]')]
+      .filter(link=>link.dataset.shAccessChecked==='1'&&!link.hidden)
+      .map(link=>link.getAttribute('href'));
+    try{sessionStorage.setItem(SIDEBAR_VERIFIED_CACHE_KEY,
+      JSON.stringify({owner,at:Date.now(),visible}))}catch(_){}
+  }
+  document.addEventListener('sh-auth-ready',restoreVerifiedSidebarLinks);
   // Cross-document navigation keeps the previous sidebar's visual snapshot
   // until the new page has finished checking its menu permissions. This does
   // NOT block the new document, defer its business logic, or create a splash.
@@ -28,7 +70,7 @@
     }).catch(()=>{});
     releaseSidebarSnapshot();
   });
-  window.addEventListener('sh:access-visibility-ready',()=>releaseSidebarSnapshot());
+  window.addEventListener('sh:access-visibility-ready',()=>{rememberVerifiedSidebarLinks();releaseSidebarSnapshot()});
   document.addEventListener('sh-access-ready',event=>{
     if(event.detail?.allowed===false)releaseSidebarSnapshot(true);
   });
@@ -191,7 +233,7 @@
     document.body.appendChild(script);
   }
   function init(){ensureMasterStyles().then(()=>{
-    installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();
+    installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();normalizeUnifiedSidebar();restoreVerifiedSidebarLinks();
     ensureMobileResponsive();applySHBranding();markNetworkSharedPage();
     const menu=document.querySelector('[data-mobile-menu]')||document.getElementById('mobileMenu'),side=document.querySelector('.sidebar');
     if(menu&&side)menu.onclick=()=>side.classList.toggle('open');
@@ -200,6 +242,7 @@
     // Server-side APIs still authorize every privileged operation.
     // Keep the expansion/scroll preferences from the earlier sidebar fix.
     window.SHAccess?.applyVisibility?.(document.querySelector('.sidebar'));
+    rememberVerifiedSidebarLinks();
     releaseSidebarSnapshot();
     restoreSidebarScroll();
     reveal();
