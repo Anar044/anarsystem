@@ -458,7 +458,8 @@
     const literal=node.nodeValue||'';
     const source=NODE_SOURCES.get(node)||literal.trim();
     const hasExact=Object.prototype.hasOwnProperty.call(LABELS,source);
-    const dynamic=!hasExact?dynamicUiText(source,element):null;
+    // Previously translated dynamic labels must restore their original RU source.
+    const dynamic=!hasExact?(language==='ru'&&NODE_SOURCES.has(node)?source:dynamicUiText(source,element)):null;
     if(!hasExact&&dynamic===null)return;
     NODE_SOURCES.set(node,source);
     const next=hasExact?value(source):dynamic;
