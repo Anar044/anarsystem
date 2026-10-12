@@ -80,3 +80,17 @@ test("sidebar cannot become visible until every link and group is permission che
   assert.match(shell,/\[\.\.\.groups\]\.some\(group=>group\.dataset\.shAccessChecked!=='1'\)/);
   assert.match(shell,/side\.dataset\.shNavReady='1'/);
 });
+
+test("protected pages render an inert loading shell instead of hiding the entire screen",()=>{
+  const stylesheet=readFileSync(resolve(root,"app-shell.css"),"utf8");
+  assert.match(stylesheet,/html\.hc-loading body\[data-protected="true"\] > \.app-shell/);
+  assert.match(stylesheet,/html\.hc-loading body\[data-protected="true"\]::before/);
+  assert.match(stylesheet,/html\.hc-loading body\[data-protected="true"\]::after/);
+  assert.doesNotMatch(stylesheet,/html\.hc-loading body\{visibility:hidden!important\}/);
+  assert.match(shell,/root\.style\.visibility='visible';\s*installUnifiedStyle\(\)/);
+  assert.match(shell,/window\.SHAccess\?\.applyVisibility\?\.\(document\.querySelector\('\.sidebar'\)\)/);
+});
+test("same-origin navigation transitions retain the outgoing view until the new page paints",()=>{
+  const stylesheet=readFileSync(resolve(root,"app-shell.css"),"utf8");
+  assert.match(stylesheet,/@view-transition\{navigation:auto\}/);
+});
