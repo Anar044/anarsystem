@@ -64,3 +64,24 @@ test("long full-page navigation overlays and delays are removed",()=>{
 test("the legacy HR menu cannot collapse sibling sections",()=>{
   assert.doesNotMatch(legacy,/if\(g===group\)return;g\.classList\.remove\('open'\)/);
 });
+
+test("persistent demo navigates separate HTML documents without rebuilding sidebar",()=>{
+  const demo=readFileSync(resolve(root,"sidebar-persistent-demo.html"),"utf8");
+  for(const page of ["a","b"]){
+    const content=readFileSync(resolve(root,"sidebar-persistent-demo-page-"+page+".html"),"utf8");
+    assert.match(content,/<title>Smart Horeca — демонстрационный рабочий раздел/);
+    assert.doesNotMatch(content,/<script[^>]+(?:auth\.js|site-access\.js|supabase)/);
+    assert.doesNotMatch(content,/fetch\s*\(/);
+  }
+  assert.match(demo,/<aside class="sidebar"><\/aside>/);
+  assert.match(demo,/<iframe class="persistent-demo-frame"/);
+  assert.match(demo,/sidebar\.addEventListener\('click'/);
+  assert.match(demo,/event\.preventDefault\(\)/);
+  assert.match(demo,/host\.appendChild\(next\)/);
+  assert.match(demo,/currentFrame\.remove\(\)/);
+  assert.match(demo,/window\.addEventListener\('popstate'/);
+  assert.doesNotMatch(demo,/location\.(assign|replace|reload)\(/);
+  assert.doesNotMatch(demo,/<script[^>]+(?:auth\.js|site-access\.js|supabase)/);
+  assert.doesNotMatch(demo,/fetch\s*\(/);
+  assert.doesNotMatch(demo,/data-protected="true"/);
+});
