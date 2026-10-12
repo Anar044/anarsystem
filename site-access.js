@@ -55,6 +55,15 @@
 
   let context=null,loading=null;
 
+  // Navigation timing only: the parent opt-in workspace observes milestones
+  // without receiving tokens, permissions or response data. No extra calls.
+  function reportEmbeddedAccessStage(stage){
+    try{
+      if(window.frameElement?.dataset?.shPersistentWorkspace!=='1')return;
+      window.parent.postMessage({type:'sh:embedded-nav-stage',stage},location.origin);
+    }catch(_){}
+  }
+
   function pageName(){
     const path=location.pathname.toLowerCase().replace(/\/+$/,'');
     if(path.endsWith('/cash')||path.endsWith('/cash/index.html'))return'cash.html';
@@ -224,8 +233,11 @@
         if(!t)throw new Error('Сессия пользователя не найдена.');
         const invite=pendingInvite();
         const endpoint='/api/access/me'+(invite?'?invite='+encodeURIComponent(invite):'');
+        reportEmbeddedAccessStage('access-request');
         const response=await fetch(endpoint,{headers:{Authorization:'Bearer '+t,Accept:'application/json'},cache:'no-store'});
+        reportEmbeddedAccessStage('access-response');
         const data=await response.json().catch(()=>({}));
+        reportEmbeddedAccessStage('access-body');
         // A failing access API is NOT proof that the signed-in user lost
         // membership or permissions. Never turn HTTP 5xx/429 into UNKNOWN.
         if(response.status===429||response.status>=500||(!response.ok&&!data?.reason&&!data?.access)){
