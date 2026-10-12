@@ -165,17 +165,27 @@
     if(menu&&side)menu.onclick=()=>side.classList.toggle('open');
     // site-access applies the permission mask asynchronously. Avoid displaying a
     // half-empty sidebar that expands when that operation finishes.
-    let finished=false;
+    let finished=false,accessObserver=null;
     const showCompletedNavigation=()=>{
       if(finished)return;
       finished=true;
+      accessObserver?.disconnect();
+      window.removeEventListener('sh:access-visibility-ready',showCompletedNavigation);
       window.SHAccess?.applyVisibility?.(side);
       restoreSidebarScroll();
       reveal();
       requestAnimationFrame(restoreSidebarScroll);
     };
     if(!document.body?.dataset.protected||isAuthPage()||window.SHAccess?.context?.allowed)showCompletedNavigation();
-    else window.addEventListener('sh:access-visibility-ready',showCompletedNavigation,{once:true});
+    else{
+      window.addEventListener('sh:access-visibility-ready',showCompletedNavigation,{once:true});
+      // Covers earlier cached site-access scripts which don't dispatch the
+      // new event but still mark navigation links after permission filtering.
+      if(side&&typeof MutationObserver==='function'){
+        accessObserver=new MutationObserver(()=>{if(window.SHAccess?.context?.allowed)showCompletedNavigation()});
+        accessObserver.observe(side,{subtree:true,attributes:true,attributeFilter:['data-sh-access-checked']});
+      }
+    }
   })}
   init();
 })();
