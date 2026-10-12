@@ -289,6 +289,9 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   const untouchedProduct=nodeContainer('Помидор',true,false);
   const prSummary=nodeContainer('Завершённые и закрытые · 2');
   const olapSummary=nodeContainer('0 ₼ по данным OLAP.');
+  const supplierTitle=nodeContainer('Поставщик · Best for Bar MMC');
+  supplierTitle.el.id='proc-modal-title';
+  const contractsCount=nodeContainer('Договоры · 3');
   const listeners={};
   const body={
     hasAttribute:key=>key==='data-protected',
@@ -325,6 +328,8 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   assert.equal(untouchedProduct.node.nodeValue,'Помидор');
   assert.equal(prSummary.node.nodeValue,'Completed and closed · 2');
   assert.equal(olapSummary.node.nodeValue,'0 ₼ based on OLAP data.');
+  assert.equal(supplierTitle.node.nodeValue,'Supplier · Best for Bar MMC');
+  assert.equal(contractsCount.node.nodeValue,'Contracts · 3');
   assert.equal(title.el.childNodes[1],title.icon,'icon child identity remains stable');
   assert.equal(data.node.nodeValue,'Аванс','user data in table body is never translated');
   assert.equal(window.SH_I18N.setLanguage('az'),true);
@@ -337,6 +342,8 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   assert.equal(untouchedProduct.node.nodeValue,'Помидор');
   assert.equal(prSummary.node.nodeValue,'Tamamlanmış və bağlanmış · 2');
   assert.equal(olapSummary.node.nodeValue,'0 ₼ OLAP məlumatlarına əsasən.');
+  assert.equal(supplierTitle.node.nodeValue,'Təchizatçı · Best for Bar MMC');
+  assert.equal(contractsCount.node.nodeValue,'Müqavilələr · 3');
   assert.equal(window.SH_I18N.setLanguage('ru'),true);
   assert.equal(title.node.nodeValue,'Расход');
   assert.equal(dashboardEmpty.node.nodeValue,'Нет данных по времени');
@@ -347,6 +354,8 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   assert.equal(untouchedProduct.node.nodeValue,'Помидор');
   assert.equal(prSummary.node.nodeValue,'Завершённые и закрытые · 2');
   assert.equal(olapSummary.node.nodeValue,'0 ₼ по данным OLAP.');
+  assert.equal(supplierTitle.node.nodeValue,'Поставщик · Best for Bar MMC');
+  assert.equal(contractsCount.node.nodeValue,'Договоры · 3');
 });
 test('late-created dynamic messages use approved selectors and do not translate chat answers',()=>{
   const js=readFileSync(resolve(root,'sh-i18n.js'),'utf8');
