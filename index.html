@@ -3,17 +3,37 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="refresh" content="0; url=/dashboard.html">
-  <title>HorecaControl</title>
+  <meta http-equiv="refresh" content="0; url=/persistent-workspace.html">
+  <title>Smart Horeca — Главная</title>
   <script>(function(){
+    'use strict';
+    // Keep legacy auth callbacks and invitation entry behavior unchanged.
+    // Only the DEFAULT navigation entry switches to the persistent shell.
     const p=new URLSearchParams(location.search),h=location.hash;
-    const authSignal=p.has('invite')||p.has('code')||p.has('token_hash')||/\b(?:access_token|refresh_token|type|error_description)=/.test(h);
-    if(location.hostname==='anarsystem.pages.dev'&&authSignal){
+    const legacy=location.hostname.toLowerCase()==='anarsystem.pages.dev';
+    const callback=p.has('code')||p.has('token_hash')||
+      /\b(?:access_token|refresh_token|type|error_description)=/.test(h);
+    if(legacy&&(callback||p.has('invite'))){
       location.replace('https://smarthoreca.pages.dev/auth-callback.html'+location.search+h);
-    }else location.replace('/dashboard.html'+location.search+h);
+      return;
+    }
+    if(callback){
+      location.replace('/auth-callback.html'+location.search+h);
+      return;
+    }
+    if(legacy||p.has('invite')){
+      // Existing direct legacy Dashboard and invite links are not migrated.
+      location.replace('/dashboard.html'+location.search+h);
+      return;
+    }
+    const next=new URL('/persistent-workspace.html',location.origin);
+    const target=p.get('target');
+    if(target)next.searchParams.set('target',target);
+    if(p.get('navDebug')==='1')next.searchParams.set('navDebug','1');
+    location.replace(next.pathname+next.search);
   })();</script>
 </head>
 <body>
-  <p><a href="/dashboard.html">Открыть Dashboard</a></p>
+  <p><a href="/persistent-workspace.html">Открыть Smart Horeca</a></p>
 </body>
 </html>
