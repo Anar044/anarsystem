@@ -29,20 +29,32 @@
   let navObserver=null;
   let routeWatch=null;
 
+  // Cloudflare Pages serves HTML routes as clean URLs (e.g. /dashboard)
+  // even when the sidebar links to /dashboard.html. Match both forms,
+  // without changing the route loaded by any existing business module.
+  function canonicalPagePath(path){
+    const normalized=String(path||'/').replace(/\/+$/,'')||'/';
+    if(normalized==='/'||normalized==='/index')return '/dashboard.html';
+    if(normalized==='/cash'||normalized==='/cash/index.html')return '/cash';
+    if(normalized.endsWith('.html'))return normalized;
+    if(!normalized.split('/').pop().includes('.'))return normalized+'.html';
+    return normalized;
+  }
   function resolvePilotRoute(raw){
     let url;
     try{url=new URL(raw,location.origin)}catch(_){return null}
     if(url.origin!==location.origin)return null;
-    if(url.pathname==='/index.html'||url.pathname==='/dashboard.html'){
+    const path=canonicalPagePath(url.pathname);
+    if(path==='/index.html'||path==='/dashboard.html'){
       return{href:'/dashboard.html',label:'Dashboard',permissions:['dashboard.view']};
     }
-    if(url.pathname==='/procurement.html'){
+    if(path==='/procurement.html'){
       const view=url.searchParams.get('view')||'catalog';
       if(!Object.prototype.hasOwnProperty.call(PROCUREMENT,view))return null;
       return{href:'/procurement.html?view='+encodeURIComponent(view),
         label:'Внешние закупки',permissions:PROCUREMENT[view]};
     }
-    if(url.pathname==='/internal-orders.html'){
+    if(path==='/internal-orders.html'){
       const view=url.searchParams.get('view')||'my';
       const allowed=['my','incoming','preparing','shipments','receiving','all','settings'];
       if(!allowed.includes(view))return null;
@@ -61,8 +73,8 @@
     const link=[...nav.querySelectorAll('a[href][data-unified-nav-item]')].find(a=>{
       try{
         const target=new URL(a.href,location.origin);
-        return target.origin===url.origin&&target.pathname===url.pathname
-          && !['/login.html','/register.html','/persistent-workspace.html'].includes(target.pathname);
+        return target.origin===url.origin&&canonicalPagePath(target.pathname)===path
+          && !['/login.html','/register.html','/persistent-workspace.html'].includes(path);
       }catch(_){return false}
     });
     if(!link||link.hidden||link.closest('[hidden]')
@@ -72,7 +84,7 @@
     if(['invite','access_token','refresh_token','code','token_hash'].some(key=>url.searchParams.has(key)))return null;
     const permissions=(link.dataset.permission||'').split('|').map(x=>x.trim()).filter(Boolean);
     if(!permissions.length)return null;
-    return{href:url.pathname+url.search,label:link.textContent.trim()||'Smart Horeca',
+    return{href:(path==='/cash'?'/cash':path)+url.search,label:link.textContent.trim()||'Smart Horeca',
       permissions};
   }
   function permitted(route){
@@ -166,7 +178,7 @@
       frameFailure(frame,'Встраивание внешних страниц отключено.');
       return;
     }
-    if(url.pathname==='/login.html'){
+    if(canonicalPagePath(url.pathname)==='/login.html'){
       // An expired session should never show a nested login in the iframe.
       location.assign('/login.html');
       return;
