@@ -358,11 +358,17 @@
     createSwitcher();
     apply();
     if(document.body&&!observer){
-      // Child-list changes pick up asynchronous UI cards and nav updates.
-      // The i18n routine only writes changed, allowlisted text and cannot
-      // mutate restaurant data or the permission-filtered DOM structure.
+      // Observe only language-relevant UI zones, not entire document
+      // tables. This prevents extra CPU work on large procurement/HR lists.
       observer=new MutationObserver(()=>schedule());
-      observer.observe(document.body,{childList:true,subtree:true});
+      const zones=[];
+      if(document.body.classList.contains('sh-workspace-page')){
+        zones.push(document.querySelector('.sidebar'));
+      }else if(document.body.classList.contains('dashboard-page')){
+        zones.push(document.querySelector('.topbar'),document.querySelector('.content'));
+      }
+      for(const zone of zones.filter(Boolean))
+        observer.observe(zone,{childList:true,subtree:true});
     }
   }
   window.addEventListener('storage',event=>{
