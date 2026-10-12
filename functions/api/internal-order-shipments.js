@@ -33,7 +33,8 @@ async function ensure(db){
     db.prepare("CREATE TABLE IF NOT EXISTS sh_internal_order_shipments (id TEXT PRIMARY KEY,server_scope TEXT NOT NULL,order_id TEXT NOT NULL,number TEXT NOT NULL,iiko_document_id TEXT NOT NULL,status TEXT NOT NULL,source_store_id TEXT NOT NULL,destination_store_id TEXT NOT NULL,counteragent_id TEXT NOT NULL,document_date TEXT NOT NULL,account_to_code TEXT NOT NULL DEFAULT '',revenue_account_code TEXT NOT NULL DEFAULT '',lines_json TEXT NOT NULL,total_cents INTEGER NOT NULL,created_at TEXT NOT NULL,created_by TEXT NOT NULL,updated_at TEXT NOT NULL,iiko_document_number TEXT NOT NULL DEFAULT '',iiko_status TEXT NOT NULL DEFAULT '',error_text TEXT NOT NULL DEFAULT '')"),
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_internal_shipment_number ON sh_internal_order_shipments(server_scope,number)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_internal_shipment_order ON sh_internal_order_shipments(server_scope,order_id,created_at)"),
-    db.prepare("CREATE TABLE IF NOT EXISTS sh_internal_order_warehouse_counterparties (server_scope TEXT NOT NULL,source_store_id TEXT NOT NULL,destination_store_id TEXT NOT NULL,outgoing_buyer_id TEXT NOT NULL,outgoing_buyer_name TEXT NOT NULL,incoming_supplier_id TEXT NOT NULL,incoming_supplier_name TEXT NOT NULL,evidence_outgoing_id TEXT NOT NULL,evidence_incoming_id TEXT NOT NULL,evidence_outgoing_number TEXT NOT NULL,evidence_incoming_number TEXT NOT NULL,confirmed_by TEXT NOT NULL,confirmed_at TEXT NOT NULL,PRIMARY KEY(server_scope,source_store_id,destination_store_id))")
+    db.prepare("CREATE TABLE IF NOT EXISTS sh_internal_order_warehouse_counterparties (server_scope TEXT NOT NULL,source_store_id TEXT NOT NULL,destination_store_id TEXT NOT NULL,outgoing_buyer_id TEXT NOT NULL,outgoing_buyer_name TEXT NOT NULL,incoming_supplier_id TEXT NOT NULL,incoming_supplier_name TEXT NOT NULL,evidence_outgoing_id TEXT NOT NULL,evidence_incoming_id TEXT NOT NULL,evidence_outgoing_number TEXT NOT NULL,evidence_incoming_number TEXT NOT NULL,confirmed_by TEXT NOT NULL,confirmed_at TEXT NOT NULL,PRIMARY KEY(server_scope,source_store_id,destination_store_id))"),
+    db.prepare("CREATE TABLE IF NOT EXISTS sh_internal_order_account_settings (server_scope TEXT PRIMARY KEY,revenue_account_code TEXT NOT NULL DEFAULT '',expense_account_code TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL,updated_by TEXT NOT NULL)")
   ]);
 }
 function visible(o,c){
@@ -66,6 +67,16 @@ async function rows(c,orderId){
   return (await c.env.DB.prepare("SELECT * FROM sh_internal_order_shipments WHERE server_scope=?1 AND order_id=?2 ORDER BY created_at,number").bind(c.scope,orderId).all()).results||[];
 }
 const expose=s=>({id:s.id,number:s.number,status:s.status,documentDate:s.document_date,sourceStoreId:s.source_store_id,destinationStoreId:s.destination_store_id,counteragentId:s.counteragent_id,accountToCode:s.account_to_code,revenueAccountCode:s.revenue_account_code,lines:parse(s.lines_json),totalCents:s.total_cents,iikoDocumentId:s.iiko_document_id,iikoDocumentNumber:s.iiko_document_number,iikoStatus:s.iiko_status,error:s.error_text,createdAt:s.created_at,updatedAt:s.updated_at});
+// This is a configuration of CODE identifiers, not a replacement of iiko chart
+// of accounts. Empty pair preserves the server's default account mapping.
+const validAccountCode=x=>!x||(/^[\p{L}\p{N}_.\/-]{1,40}$/u).test(x);
+async function accountSettings(c){
+  const row=await c.env.DB.prepare("SELECT revenue_account_code,expense_account_code,updated_at FROM sh_internal_order_account_settings WHERE server_scope=?1")
+    .bind(c.scope).first();
+  return {revenueAccountCode:str(row?.revenue_account_code),expenseAccountCode:str(row?.expense_account_code),
+    updatedAt:str(row?.updated_at),usesIikoDefaults:!row||(!row.revenue_account_code&&!row.expense_account_code)};
+}
+
 async function audit(c,action,o,s,info){
   await logAuditEvent({request:c.request,env:c.env,connection:c.connection,action,entityType:"INTERNAL_SHIPMENT",entityId:s.id,entityLabel:s.number,documentNumber:s.number,restaurantIds:[o.central_department_id,o.destination_department_id],restaurantNames:[o.central_department_name,o.destination_department_name],before:null,after:info});
 }
@@ -203,6 +214,10 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const c=await ctx(request,env),orderId=new URL(request.url).searchParams.get("orderId");
+    if(new URL(request.url).searchParams.get("settings")==="accounts"){
+      requirePermission(c.access,"procurement.internal.configure");
+      return json({success:true,settings:await accountSettings(c)});
+    }
     const o=await order(c,orderId);
     const list=await rows(c,o.id);
     const totals=Object.fromEntries(parse(o.approved_lines_json).map(x=>[id(x.productId),{productId:x.productId,approved:Number(x.quantity),reserved:0}]));
@@ -252,6 +267,21 @@ async function exportIikoPairExample(c,kind,documentNumber,day){
 export async function onRequestPost({request,env}){
   try{
     const body=await request.json().catch(()=>({})),c=await ctx(request,env),action=str(body.action);
+    if(action==="save-account-settings"){
+      requirePermission(c.access,"procurement.internal.configure");
+      const revenueAccountCode=str(body.revenueAccountCode),expenseAccountCode=str(body.expenseAccountCode);
+      if(!validAccountCode(revenueAccountCode)||!validAccountCode(expenseAccountCode))
+        throw err("Неверный код счёта: разрешены буквы, цифры, точка, дефис, подчёркивание и слэш; максимум 40 символов.",400);
+      if(Boolean(revenueAccountCode)!==Boolean(expenseAccountCode))
+        throw err("Укажите оба счёта — выручки и расхода — либо очистите оба поля для стандартных настроек iiko.",400);
+      const now=new Date().toISOString();
+      await c.env.DB.prepare("INSERT INTO sh_internal_order_account_settings (server_scope,revenue_account_code,expense_account_code,updated_at,updated_by) VALUES (?1,?2,?3,?4,?5) ON CONFLICT(server_scope) DO UPDATE SET revenue_account_code=excluded.revenue_account_code,expense_account_code=excluded.expense_account_code,updated_at=excluded.updated_at,updated_by=excluded.updated_by")
+        .bind(c.scope,revenueAccountCode,expenseAccountCode,now,str(c.auth.user.id)).run();
+      try{await logAuditEvent({request:c.request,env:c.env,connection:c.connection,action:"INTERNAL_SHIPMENT_ACCOUNT_SETTINGS",entityType:"INTERNAL_SETTINGS",entityId:c.scope,entityLabel:"Счета внутренних заказов",before:null,after:{revenueAccountCode,expenseAccountCode}})}
+      catch(e){console.error("Internal order account settings audit failed",str(e?.message||e))}
+      return json({success:true,settings:await accountSettings(c),
+        message:"Счета сохранены для будущих расходных накладных в текущем серверном контуре. Уже проведённые документы не изменены."});
+    }
     if(action==="diagnose-pair"){
       requirePermission(c.access,"procurement.internal.configure");
       const day=str(body.documentDate),outgoingNumber=str(body.outgoingNumber),incomingNumber=str(body.incomingNumber);
@@ -420,6 +450,7 @@ export async function onRequestPost({request,env}){
          Number(body.lines[0].amount)<=0||Number(body.lines[0].amount)>1)
         throw err("Первая пробная отгрузка: один товар, количество не более 1 в основной единице. Другие документы не создаются.",400);
       const buyerId=await verifiedBuyerId(c,o);
+      const accounts=await accountSettings(c);
       const date=str(body.documentDate),prices=await getWarehouseQuote(c,o,date);
       const all=await rows(c,o.id),approved=parse(o.approved_lines_json);
       if(all.some(x=>["CHECK_REQUIRED","IMPORTING","PROCESSING"].includes(x.status)))
@@ -431,8 +462,8 @@ export async function onRequestPost({request,env}){
       const lock=await c.env.DB.prepare("UPDATE sh_internal_orders SET revision=revision+1,updated_at=?1 WHERE id=?2 AND server_scope=?3 AND status='READY' AND revision=?4")
         .bind(time,o.id,c.scope,o.revision).run();
       if(Number(lock.meta?.changes||0)!==1)throw err("Заявка изменена. Обновите её перед отгрузкой.",409);
-      await c.env.DB.prepare("INSERT INTO sh_internal_order_shipments (id,server_scope,order_id,number,iiko_document_id,status,source_store_id,destination_store_id,counteragent_id,document_date,account_to_code,revenue_account_code,lines_json,total_cents,created_at,created_by,updated_at) VALUES (?1,?2,?3,?4,?5,'PREPARED',?6,?7,?8,?9,'','',?10,?11,?12,?13,?12)")
-        .bind(sid,c.scope,o.id,number,documentId,o.central_store_id,o.destination_store_id,buyerId,date,JSON.stringify(prepared.lines),prepared.totalCents,time,c.auth.user.id).run();
+      await c.env.DB.prepare("INSERT INTO sh_internal_order_shipments (id,server_scope,order_id,number,iiko_document_id,status,source_store_id,destination_store_id,counteragent_id,document_date,account_to_code,revenue_account_code,lines_json,total_cents,created_at,created_by,updated_at) VALUES (?1,?2,?3,?4,?5,'PREPARED',?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?14)")
+        .bind(sid,c.scope,o.id,number,documentId,o.central_store_id,o.destination_store_id,buyerId,date,accounts.expenseAccountCode,accounts.revenueAccountCode,JSON.stringify(prepared.lines),prepared.totalCents,time,c.auth.user.id).run();
       const created=await shipment(c,o,sid);
       try{await audit(c,"PREPARE_FOR_DISPATCH",o,created,{number,sourceStoreId:o.central_store_id,destinationStoreId:o.destination_store_id,lines:prepared.lines})}
       catch(e){console.error("Internal shipment audit",str(e?.message||e))}
