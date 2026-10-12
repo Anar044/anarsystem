@@ -22,6 +22,7 @@ export async function onRequestGet({request,env}){
     },status,headers);
   }catch(error){
     console.error('[ACCESS-ME]',error);
-    return json({success:false,allowed:false,message:error?.message||String(error)},500);
+    // Internal D1/service failures must not be reported as a missing membership.
+    return json({success:false,allowed:false,reason:'ACCESS_CHECK_FAILED',message:'Не удалось проверить доступ из-за внутренней ошибки сервиса.'},500);
   }
 }
