@@ -279,3 +279,15 @@ test("collapse control uses only an accessible three-bar hamburger, never a text
   assert.doesNotMatch(html,/\.sh-sidebar-collapse-icon\{/);
   assert.match(html,/@media \(max-width:760px\)\{/);
 });
+
+test("compact hamburger matches sidebar icon scale without persistent highlighted border",()=>{
+  const html=readFileSync(resolve(root,"persistent-workspace.html"),"utf8");
+  const button=html.slice(html.indexOf("body.sh-workspace-page .sidebar>.sh-sidebar-collapse-btn{"),html.indexOf("body.sh-workspace-page .sidebar>.sh-sidebar-collapse-btn:hover"));
+  assert.match(button,/width:40px!important/);
+  assert.match(button,/height:40px!important/);
+  assert.match(button,/border:1px solid transparent!important/);
+  assert.match(button,/background:transparent!important/);
+  const compact=html.slice(html.indexOf("body.sh-workspace-page.sh-sidebar-collapsed .sidebar>.sh-sidebar-collapse-btn{"),html.indexOf("body.sh-workspace-page.sh-sidebar-collapsed .sidebar>.sh-sidebar-collapse-label",html.indexOf("body.sh-workspace-page.sh-sidebar-collapsed .sidebar>.sh-sidebar-collapse-btn{"))<0?html.length:html.indexOf("body.sh-workspace-page.sh-sidebar-collapsed .sh-sidebar-collapse-label"));
+  assert.match(compact,/width:40px!important/);
+  assert.match(html,/display:block!important;width:18px!important;height:2px!important/);
+});
