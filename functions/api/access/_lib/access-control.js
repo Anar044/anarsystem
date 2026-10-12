@@ -46,10 +46,10 @@ export const PERMISSIONS=[
   ['procurement.analytics','Закупки','Аналитика закупок'],
   ['procurement.norms.manage','Закупки','Нормы запаса'],
   ['procurement.settings.manage','Закупки','Настройки закупок'],
+
   ['procurement.internal.request','Закупки','Внутренние заказы: создание заявок ресторана'],
   ['procurement.internal.fulfill','Закупки','Внутренние заказы: выполнение центральным складом'],
-  ['procurement.internal.configure','Закупки','Внутренние заказы: назначение центрального RMS'],
-
+  ['procurement.internal.configure','Закупки','Внутренние заказы: настройка межскладских маршрутов'],
   ['inventory.nomenclature.view','Склад','Просмотр номенклатуры'],
   ['inventory.nomenclature.manage','Склад','Изменение номенклатуры и фасовок'],
   ['inventory.stock.view','Склад','Просмотр остатков'],
@@ -87,6 +87,8 @@ export const PERMISSIONS=[
   ['hr.attendance.manage','HR','Настройка Face ID / учёта времени'],
   ['hr.timesheet.view','HR','Просмотр табеля'],
   ['hr.timesheet.manage','HR','Изменение и закрытие табеля'],
+  ['hr.timesheet.manager_approve','HR','Подтверждение табеля менеджером'],
+  ['hr.timesheet.hr_approve','HR','Утверждение табеля HR и дополнительных часов'],
   ['hr.compensation.view','HR','Просмотр условий оплаты'],
   ['hr.compensation.manage','HR','Изменение условий оплаты'],
   ['hr.payroll.view','HR','Просмотр расчёта зарплаты'],
@@ -114,11 +116,11 @@ export const ROLE_TEMPLATES=[
   {code:'BUYER',name:'Закупщик',description:'Работает с поставщиками, ценами и PO.',permissions:['dashboard.view','procurement.request.view_all','procurement.sourcing','procurement.prices.view','procurement.po.manage','inventory.stock.view','sensitive.cost.view']},
   {code:'CENTRAL_WAREHOUSE',name:'Склад-отправитель RMS',description:'Подтверждает и комплектует внутренние заказы своего RMS: центральный склад или ресторан.',permissions:['dashboard.view','procurement.internal.fulfill','inventory.stock.view','inventory.outgoing.view']},
   {code:'WAREHOUSE_RECEIVER',name:'Приёмщик склада',description:'Видит ожидаемые поставки и принимает товар.',permissions:['dashboard.view','procurement.receive','inventory.stock.view','inventory.incoming.view','inventory.incoming.manage']},
-  {code:'HR_MANAGER',name:'HR менеджер',description:'Сотрудники, графики, явки и табель без зарплат.',permissions:['dashboard.view','hr.employees.view','hr.employees.manage','hr.schedules.view','hr.schedules.manage','hr.attendance.view','hr.attendance.manage','hr.timesheet.view','hr.timesheet.manage']},
+  {code:'HR_MANAGER',name:'HR менеджер',description:'Сотрудники, графики, явки и табель без зарплат.',permissions:['dashboard.view','hr.employees.view','hr.employees.manage','hr.schedules.view','hr.schedules.manage','hr.attendance.view','hr.attendance.manage','hr.timesheet.view','hr.timesheet.manage','hr.timesheet.hr_approve']},
   {code:'PAYROLL',name:'Расчётчик зарплаты',description:'Условия оплаты и payroll.',permissions:['dashboard.view','hr.employees.view','hr.timesheet.view','hr.compensation.view','hr.compensation.manage','hr.payroll.view','hr.payroll.calculate','hr.payroll.approve','sensitive.salary.view']},
   {code:'ACCOUNTANT',name:'Бухгалтер',description:'Финансы, документы, поставщики и выплаты.',permissions:['dashboard.view','finance.view','finance.manage','finance.payments','inventory.incoming.view','inventory.incoming.manage','inventory.outgoing.view','inventory.outgoing.manage','reports.supplier_balances','hr.payroll.view','hr.payroll.pay','sensitive.salary.view','sensitive.cost.view']},
   {code:'ANALYST',name:'Аналитик',description:'Отчёты без права изменения операционных данных.',permissions:['dashboard.view','reports.olap','reports.abc_xyz','reports.menu_engineering','reports.waiters','reports.supplier_balances','reports.food_cost','reports.labor_cost','reports.pnl']},
-  {code:'RESTAURANT_MANAGER',name:'Менеджер ресторана',description:'Операционный просмотр и согласования своего ресторана.',permissions:['dashboard.view','cash.view','cash_shifts.view','procurement.request.create','procurement.request.view_all','procurement.approve','procurement.internal.request','inventory.stock.view','inventory.movements.view','reports.olap','reports.pnl','hr.employees.view','hr.schedules.view','hr.attendance.view','hr.timesheet.view']}
+  {code:'RESTAURANT_MANAGER',name:'Менеджер ресторана',description:'Операционный просмотр и согласования своего ресторана.',permissions:['dashboard.view','cash.view','cash_shifts.view','procurement.request.create','procurement.request.view_all','procurement.approve','procurement.internal.request','inventory.stock.view','inventory.movements.view','reports.olap','reports.pnl','hr.employees.view','hr.schedules.view','hr.attendance.view','hr.timesheet.view','hr.timesheet.manage','hr.timesheet.manager_approve']}
 ];
 
 export async function ensureAccessTables(db){
@@ -322,7 +324,19 @@ async function hasLegacyOwnerData(db,userId){
 
 async function seedRoles(db,ownerUserId){
   const existing=await db.prepare(`SELECT COUNT(*) AS c FROM sh_access_roles WHERE owner_user_id=?1`).bind(ownerUserId).first();
-  if(Number(existing?.c||0)>0)return;
+  if(Number(existing?.c||0)>0){
+    // Backfill newly added permissions on built-in templates for existing workspaces.
+    // Only system templates receive upgrades; custom roles and member overrides stay untouched.
+    const additions=[['HR_MANAGER','hr.timesheet.hr_approve'],['RESTAURANT_MANAGER','hr.timesheet.manage'],['RESTAURANT_MANAGER','hr.timesheet.manager_approve'],['PURCHASE_REQUESTER','procurement.internal.request'],['RESTAURANT_MANAGER','procurement.internal.request']];
+    const current=await db.prepare(`SELECT r.code,p.permission FROM sh_access_roles r JOIN sh_access_role_permissions p ON p.role_id=r.id AND p.owner_user_id=r.owner_user_id WHERE r.owner_user_id=?1 AND r.is_system=1 AND r.code IN ('HR_MANAGER','RESTAURANT_MANAGER','PURCHASE_REQUESTER')`).bind(ownerUserId).all();
+    const have=new Set((current.results||[]).map(x=>x.code+'|'+x.permission));
+    const missing=additions.filter(([role,permission])=>!have.has(role+'|'+permission));
+    if(missing.length){
+      const statements=missing.map(([role,permission])=>db.prepare(`INSERT OR IGNORE INTO sh_access_role_permissions(owner_user_id,role_id,permission) SELECT owner_user_id,id,?3 FROM sh_access_roles WHERE owner_user_id=?1 AND code=?2 AND is_system=1`).bind(ownerUserId,role,permission));
+      await db.batch(statements);
+    }
+    return;
+  }
   const now=NOW(),stmts=[];
   for(const t of ROLE_TEMPLATES){
     const id=uid();
