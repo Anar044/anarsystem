@@ -64,3 +64,24 @@ test("long full-page navigation overlays and delays are removed",()=>{
 test("the legacy HR menu cannot collapse sibling sections",()=>{
   assert.doesNotMatch(legacy,/if\(g===group\)return;g\.classList\.remove\('open'\)/);
 });
+
+test("cross-document transition preserves only sidebar, not page-content loading",()=>{
+  const css=readFileSync(resolve(root,"app-shell.css"),"utf8");
+  assert.match(css,/@view-transition\s*\{\s*navigation:\s*auto;/);
+  assert.match(css,/\.sidebar\s*\{\s*view-transition-name:\s*sh-sidebar;/);
+  assert.match(css,/::view-transition-old\(sh-sidebar\)/);
+  assert.match(css,/::view-transition-new\(sh-sidebar\)/);
+  assert.match(css,/::view-transition-old\(root\)/);
+  assert.doesNotMatch(css,/Загрузка раздела|shNavKeepOld|4200ms/);
+  assert.match(shell,/addEventListener\('pagereveal'/);
+  assert.match(shell,/addEventListener\('sh:access-visibility-ready'/);
+  assert.match(shell,/vt\.skipTransition\(\)/);
+});
+test("sidebar transition is released only after RBAC checked links and groups",()=>{
+  const source=shell.slice(shell.indexOf("  let pendingSidebarTransition=null;"),
+    shell.indexOf("  function syncChainScopeCookie("));
+  assert.match(source,/window\.SHAccess\?\.context\?\.allowed/);
+  assert.match(source,/links\.every\(a=>a\.dataset\.shAccessChecked==='1'\)/);
+  assert.match(source,/groups\.every\(g=>g\.dataset\.shAccessChecked==='1'\)/);
+  assert.match(source,/releaseSidebarSnapshot\(true\)/);
+});
