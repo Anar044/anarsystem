@@ -306,7 +306,7 @@
   });
   document.addEventListener('sh-access-ready',schedule);
   window.addEventListener('sh:access-visibility-ready',schedule);
-  window.SH_I18N=Object.freeze({getLanguage:()=>language,setLanguage:update,t:value,apply:schedule,available:LANGUAGES.slice()});
+  window.SH_I18N=Object.freeze({getLanguage:()=>language,setLanguage:update,t:value,apply:schedule,applyNow:apply,available:LANGUAGES.slice()});
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});
   else start();
 })();
