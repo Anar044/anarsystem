@@ -53,7 +53,8 @@
    Never show a new sidebar item before its permission has been evaluated. */
 .sidebar [hidden]{display:none!important}
 .sidebar .unified-main-nav a[href]:not([data-sh-access-checked="1"]),
-.sidebar .unified-main-nav .documents-nav-group:not([data-sh-access-checked="1"]){display:none!important}
+.sidebar .unified-main-nav .documents-nav-group:not([data-sh-access-checked="1"]),
+.sidebar .unified-main-nav .reports-nav-group:not([data-sh-access-checked="1"]){display:none!important}
 
 /* Organization users never see legacy SH Server Settings/Debug navigation,
    including cached HTML before the unified app shell is constructed. */
