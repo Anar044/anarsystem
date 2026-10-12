@@ -86,12 +86,23 @@ test("real-page persistent workspace stays opt-in and reuses independent authent
   assert.doesNotMatch(route,/fetch\s*\(/);
   assert.doesNotMatch(route,/location\.replace\s*\(/);
 });
-test("only the selected three real modules can load inside the persistent shell",()=>{
+test("permitted navigation routes are sourced from the checked sidebar, not duplicated",()=>{
   const route=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
   const rules=route.slice(route.indexOf("  const PROCUREMENT="),route.indexOf("  const host="));
   const resolveFn=route.slice(route.indexOf("  function resolvePilotRoute(raw){"),route.indexOf("  function permitted(route){"));
-  const make=new Function("location",rules+resolveFn+"\nreturn resolvePilotRoute;");
-  const resolveRoute=make({origin:"https://preview.smarthoreca.pages.dev"});
+  const hrLink={
+    href:"https://preview.smarthoreca.pages.dev/hr-payroll.html",
+    hidden:false,
+    dataset:{permission:"hr.payroll.view",shAccessChecked:"1"},
+    closest(){return null},
+    textContent:"Расчёт зарплаты"
+  };
+  const doc={querySelector(selector){
+    return selector===".sidebar .unified-main-nav"?
+      {querySelectorAll(){return [hrLink]}}:null;
+  }};
+  const make=new Function("location","document",rules+resolveFn+"\nreturn resolvePilotRoute;");
+  const resolveRoute=make({origin:"https://preview.smarthoreca.pages.dev"},doc);
   assert.ok(route.includes("Object.keys(PROCUREMENT).map(view=>"));
   assert.ok(route.includes("preparing"));
   assert.equal(resolveRoute("/index.html").href,"/dashboard.html");
@@ -101,7 +112,16 @@ test("only the selected three real modules can load inside the persistent shell"
     ["procurement.internal.fulfill","procurement.internal.configure"]);
   assert.equal(resolveRoute("/procurement.html?view=unknown"),null);
   assert.equal(resolveRoute("/internal-orders.html?view=unknown"),null);
-  assert.equal(resolveRoute("/hr-payroll.html"),null);
+
+  assert.deepEqual(resolveRoute("/hr-payroll.html").permissions,["hr.payroll.view"]);
+  hrLink.dataset.shAccessChecked="0";
+  assert.equal(resolveRoute("/hr-payroll.html"),null,"unchecked links are never routed");
+  hrLink.dataset.shAccessChecked="1";
+  hrLink.hidden=true;
+  assert.equal(resolveRoute("/hr-payroll.html"),null,"hidden links are never routed");
+  hrLink.hidden=false;
+  assert.equal(resolveRoute("/hr-payroll.html?invite=secret"),null,
+    "authentication parameters must not enter generic navigation");
   assert.equal(resolveRoute("https://example.com/dashboard.html"),null);
 });
 test("embedded content hides duplicate sidebar only when opened by the pilot frame",()=>{
@@ -111,6 +131,6 @@ test("embedded content hides duplicate sidebar only when opened by the pilot fra
     assert.match(content,/classList\.add\("sh-pilot-embedded"\)/);
     assert.match(content,/data-protected="true"/);
   }
-  assert.match(css,/html\.sh-pilot-embedded \.sidebar\{display:none!important\}/);
+  assert.match(shell,/frameElement\\?\\.dataset\\?\\.shPersistentWorkspace/);\n  assert.match(css,/html\.sh-pilot-embedded \.sidebar\{display:none!important\}/);
   assert.match(css,/html\.sh-pilot-embedded \.app-shell>\.main/);
 });
