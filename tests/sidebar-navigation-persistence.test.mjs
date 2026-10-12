@@ -92,6 +92,8 @@ test("only the selected three real modules can load inside the persistent shell"
   const resolveFn=route.slice(route.indexOf("  function resolvePilotRoute(raw){"),route.indexOf("  function permitted(route){"));
   const make=new Function("location",rules+resolveFn+"\nreturn resolvePilotRoute;");
   const resolveRoute=make({origin:"https://preview.smarthoreca.pages.dev"});
+  assert.match(route,/Object\\.keys\\(PROCUREMENT\\)\\.map\\(view=>/);
+  assert.match(route,/\['my','incoming','preparing','shipments','receiving','all','settings'\]/);
   assert.equal(resolveRoute("/index.html").href,"/dashboard.html");
   assert.equal(resolveRoute("/dashboard.html").permissions[0],"dashboard.view");
   assert.deepEqual(resolveRoute("/procurement.html?view=sourcing").permissions,["procurement.sourcing"]);
