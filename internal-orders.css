@@ -27,3 +27,10 @@
 .io-pair-document code{white-space:normal;overflow-wrap:anywhere}
 .io-pair-results details{padding:8px;border-bottom:1px solid #36535d}
 @media(max-width:800px){.io-pair-grid{grid-template-columns:1fr}}
+
+/* Navigation lives in the independent Internal Orders sidebar group. */
+.internal-orders-page .io-subnav{display:none!important}
+.internal-orders-page .io-account-settings{margin:18px 0 24px;border-color:#2d625c;background:#10251f}
+.internal-orders-page .io-account-settings h3{margin:0 0 8px;font-size:17px}
+.internal-orders-page .io-account-settings .io-form{margin-top:13px}
+.internal-orders-page .io-account-settings #io-account-settings-result{margin-top:12px;min-height:19px}
