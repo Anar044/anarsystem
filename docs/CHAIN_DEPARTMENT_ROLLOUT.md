@@ -52,3 +52,8 @@
 2. Аудит и миграция всех HR write/read endpoint: employee-profile/leaves/schedules, timeclock, payroll-adjustments, overtime-settlements, payroll-accounting, tax-settings, compensation.
 3. Реальный тест CHAIN с минимум тремя ресторанами и ролями, затем решение о публикации.
 4. Только после готовности HR — охват Procurement, Inventory, Cash, Finance/P&L, Reports и AI по единым инвариантам.
+
+## Release checklist for Platform Admin organizations
+
+- Validation is performed with isolated test accounts for RMS 1, RMS 2 and central HR; do not perform live payroll accruals or approvals when checking access boundaries.
+- The first deployment includes the CHAIN HR server-side access guards, but account-by-account acceptance remains required before production payroll use.
