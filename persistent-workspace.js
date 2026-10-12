@@ -543,6 +543,8 @@
     if(!nav)return false;
     installSidebarCollapse(nav.closest('.sidebar'));
     installSidebarPrefetch(nav.closest('.sidebar'));
+    // Apply the saved language before the access-approved sidebar is shown.
+    window.SH_I18N?.applyNow?.();
     document.body.classList.add('sh-workspace-ready');
     nav.closest('.sidebar').addEventListener('click',onSidebarClick,true);
     if(navObserver){navObserver.disconnect();navObserver=null}

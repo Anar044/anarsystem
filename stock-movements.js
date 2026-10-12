@@ -107,7 +107,7 @@ function render(){
       '<td class="num">'+(r.value===null||r.value===undefined?'—':money(r.value))+'</td>'+
       '<td class="doc-cell"><strong>'+esc(r.documentNumber||'—')+'</strong><small>'+esc(r.documentId||'')+'</small></td>'+
       '<td>'+esc(r.status||'—')+'</td></tr>';
-  }).join('')||'<tr><td colspan="11" style="text-align:center;padding:34px;color:#8192a4">По выбранным фильтрам движений нет.</td></tr>';
+  }).join('')||'<tr><td colspan="11" class="sh-i18n-empty-state" style="text-align:center;padding:34px;color:#8192a4">По выбранным фильтрам движений нет.</td></tr>';
 
   $('mov-result-meta').textContent=Math.min(visible.length,shownRows.length)+' из '+visible.length+' строк';
   $('mov-limit-note').textContent=visible.length>shownRows.length?'На экране показаны первые '+shownRows.length+' строк. CSV содержит все найденные движения.':'';

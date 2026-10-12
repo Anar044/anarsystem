@@ -97,7 +97,7 @@ function render(){
       '<td class="num">'+(r.minAmount===null||r.minAmount===undefined?'—':amount(r.minAmount))+'</td>'+
       '<td class="num">'+(r.maxAmount===null||r.maxAmount===undefined?'—':amount(r.maxAmount))+'</td>'+
       '<td>'+badge(r)+'</td></tr>';
-  }).join('')||'<tr><td colspan="10" style="text-align:center;padding:34px;color:#8192a4">По выбранным фильтрам данных нет.</td></tr>';
+  }).join('')||'<tr><td colspan="10" class="sh-i18n-empty-state" style="text-align:center;padding:34px;color:#8192a4">По выбранным фильтрам данных нет.</td></tr>';
 
   const shown=Math.min(visible.length,renderedRows.length);
   $('stock-result-meta').textContent=shown+' из '+visible.length+' позиций';

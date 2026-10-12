@@ -78,7 +78,7 @@ async function load(){
    }
    const seen=new Set(),base=all.filter(s=>{const k=s._sessionId||s.id||JSON.stringify(s);if(seen.has(k))return false;seen.add(k);return true});
    render(base);
-   if(!base.length){setStatus(`Смен не найдено. Запросов к Smart Horeca: ${listRequests}.`,"ok");return}
+   if(!base.length){setStatus("Смен не найдено.","ok");return}
    setStatus(`Найдено ${base.length} смен. Загружаем детали…`);
    const enriched=[];let detailRequests=0;
    for(let i=0;i<base.length;i+=30){

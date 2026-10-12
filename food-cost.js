@@ -104,7 +104,7 @@ function render(){
       '<td class="num">'+money(r.unitCost)+'</td><td class="num">'+money(r.theoreticalValue)+'</td><td class="num">'+money(r.actualValue)+'</td>'+
       '<td class="num '+vclass(r.varianceValue)+'">'+(Number(r.varianceValue||0)>0?'+':'')+money(r.varianceValue)+'</td>'+
       '<td class="num '+vclass(r.variancePct)+'">'+pct(r.variancePct)+'</td><td>'+statusBadge(r)+'</td></tr>';
-  }).join('')||'<tr><td colspan="12" style="text-align:center;padding:34px;color:#8192a4">По фильтрам данных нет.</td></tr>';
+  }).join('')||'<tr><td colspan="12" class="sh-i18n-empty-state" style="text-align:center;padding:34px;color:#8192a4">По фильтрам данных нет.</td></tr>';
   $('fc-result-meta').textContent=Math.min(data.length,shown.length)+' из '+data.length+' ингредиентов';
   $('fc-limit-note').textContent=data.length>shown.length?'Показаны первые '+shown.length+' строк. CSV содержит все найденные ингредиенты.':'';
 }
