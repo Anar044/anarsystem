@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {validateInternalAccountCodes} from "../functions/api/_lib/internal-order-account-codes.js";
+import {validateInternalAccountCodes,normalizeInternalIikoAccounts} from "../functions/api/_lib/internal-order-account-codes.js";
 import {shipmentXml} from "../functions/api/_lib/internal-shipment-core.js";
 
 test("both blank codes preserve original server-side iiko accounting defaults",()=>{
@@ -37,4 +37,22 @@ test("outgoing XML uses the persisted account code pair",()=>{
   assert.match(xml,/<revenueAccountCode>701\.1<\/revenueAccountCode>/);
   assert.match(xml,/<defaultStoreId>sender-store<\/defaultStoreId>/);
   assert.match(xml,/<counteragentId>receiver-buyer<\/counteragentId>/);
+});
+
+test("account list ignores deleted accounts and returns iiko codes rather than labels",()=>{
+  const rows=normalizeInternalIikoAccounts([
+    {code:"701",name:"Revenue",type:"INCOME",deleted:false},
+    {code:"711",name:"Expenses",type:"EXPENSES",deleted:false},
+    {code:"799",name:"Retired",deleted:true},
+    {code:"701",name:"Duplicate",type:"INCOME"},
+    {code:"bad code",name:"Invalid"},
+    {code:"722",name:""}
+  ]);
+  assert.deepEqual(rows.map(x=>x.code),["701","711"]);
+  assert.equal(rows[0].name,"Revenue");
+});
+test("account list handles wrapped JSON and unavailable payloads",()=>{
+  assert.equal(normalizeInternalIikoAccounts({data:[{code:"101",name:"Cash"}]}).length,1);
+  assert.deepEqual(normalizeInternalIikoAccounts(null),[]);
+  assert.deepEqual(normalizeInternalIikoAccounts({status:"ERROR"}),[]);
 });
