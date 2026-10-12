@@ -501,6 +501,6 @@ window.SH_I18N_CATALOG=Object.freeze({
   ,'Только для просмотра.':['Yalnız baxış üçün.','Read-only.']
   ,'Выберите документ':['Sənəd seçin','Select document']
   ,'Выберите склад':['Anbar seçin','Select warehouse']
-  ,'Список документов':['Sənədlərin siyahısı','Documents list']
+  ,'Список документов':['Sənədlərin siyahısı','Document list']
 
 });
