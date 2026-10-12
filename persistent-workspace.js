@@ -150,13 +150,13 @@
     const nav=sidebarNav();
     for(const link of nav?.querySelectorAll('a[href]')||[]){
       if(link.dataset.shAccessChecked!=='1'||link.hidden)continue;
-      const name=link.textContent.trim().replace(/\\s+/g,' ');
+      const name=link.textContent.trim().replace(/\s+/g,' ');
       if(!name)continue;
       link.title=name;
       link.setAttribute('aria-label',name);
     }
     for(const toggle of nav?.querySelectorAll('.documents-nav-toggle')||[]){
-      const name=toggle.querySelector('.documents-nav-toggle-left')?.textContent.trim().replace(/\\s+/g,' ')||'Открыть раздел';
+      const name=toggle.querySelector('.documents-nav-toggle-left')?.textContent.trim().replace(/\s+/g,' ')||'Открыть раздел';
       toggle.title=name;
       toggle.setAttribute('aria-label',name);
     }
