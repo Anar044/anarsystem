@@ -373,7 +373,8 @@
   function dynamicUiText(source,element){
     // A modal title combines a fixed UI prefix with a supplier/document
     // identifier. Translate only the prefix, retaining the identifier bytes.
-    if(element?.id==='proc-modal-title'&&language!=='ru'){
+    if(element?.id==='proc-modal-title'){
+      if(language==='ru')return source;
       const prefixes=[
         ['Поставщик · ','Təchizatçı · ','Supplier · '],
         ['Договор · ','Müqavilə · ','Contract · '],
