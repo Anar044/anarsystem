@@ -1,7 +1,24 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<script>(function(){try{if(window.frameElement?.dataset?.shPersistentWorkspace==="1")document.documentElement.classList.add("sh-pilot-embedded")}catch(_){}})();</script>
+<script>(function(){
+  try{
+    if(window.top!==window.self){
+      // An iframe-hosted Dashboard runs normally; its parent owns the sidebar.
+      if(window.frameElement?.dataset?.shPersistentWorkspace==="1")
+        document.documentElement.classList.add("sh-pilot-embedded");
+      return;
+    }
+    // Old bookmarked Dashboard URLs should use the permanent navigation,
+    // but keep legacy domains and auth/invitation callbacks unchanged.
+    const host=location.hostname.toLowerCase();
+    if(host!=="smarthoreca.pages.dev"&&!host.endsWith(".smarthoreca.pages.dev"))return;
+    const params=new URLSearchParams(location.search);
+    if(params.has("invite")||params.has("code")||params.has("token_hash")||
+      /\b(?:access_token|refresh_token|type|error_description)=/.test(location.hash))return;
+    location.replace("/persistent-workspace.html?target=%2Fdashboard.html");
+  }catch(_){}
+})();</script>
 
 <script src="/auth-canonical-origin.js?v=20261009-v1"></script>
 <meta charset="UTF-8">
