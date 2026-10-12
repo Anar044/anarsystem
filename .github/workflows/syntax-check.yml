@@ -32,6 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           node --test tests/access-navigation-visibility.test.mjs
+          node --test tests/default-workspace-entry.test.mjs
           node --test tests/access-db-performance.test.mjs
           node --test tests/access-outage.test.mjs
           node --test tests/mobile-navigation-access.test.mjs
@@ -216,12 +217,12 @@ jobs:
           unexpected=0
           for file in "${refs[@]}"; do
             case "$file" in
-              index.html) ;; # inactive on Cloudflare: _redirects rewrites it to dashboard.html
+              index.html) ;; # legacy bridge is still forbidden everywhere else
               *) echo "Unexpected unified bridge reference: $file"; unexpected=1 ;;
             esac
           done
           test "$unexpected" = "0"
-          grep -q '^/index.html /dashboard.html 200$' _redirects
+          grep -q '^/ /index.html 200$' _redirects
           echo 'Unified bridge allowlist check passed'
 
       - name: Verify document routes use shared iiko authentication
@@ -418,6 +419,19 @@ jobs:
           echo "Cloudflare Pages preview did not reach the expected current version"
           cat /tmp/preview-state.json || true
           exit 1
+
+      - name: Smoke test default persistent sidebar entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL "$PREVIEW_BASE/" -o /tmp/smarthoreca-default-entry.html
+          grep -q 'const next=new URL' /tmp/smarthoreca-default-entry.html
+          grep -q '/persistent-workspace.html' /tmp/smarthoreca-default-entry.html
+          curl -fsSL "$PREVIEW_BASE/index.html" -o /tmp/smarthoreca-index-entry.html
+          grep -q '/persistent-workspace.html' /tmp/smarthoreca-index-entry.html
+          curl -fsSL "$PREVIEW_BASE/persistent-workspace.html" -o /tmp/smarthoreca-shell.html
+          grep -q 'sh-workspace-frame-host' /tmp/smarthoreca-shell.html
+          echo 'Root, index and persistent navigation entry confirmed'
 
       - name: Smoke test application pages
         shell: bash
