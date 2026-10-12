@@ -325,9 +325,34 @@
     '.monaco-editor,.cm-editor,.ag-root,[data-business-value],'+
     '[data-auth-name],[data-auth-email],[data-auth-avatar],[data-sh-i18n]';
   const NODE_SOURCES=new WeakMap(),ATTRIBUTE_SOURCES=new WeakMap();
+  // A single known OLAP no-data cell is UI, not a product record.
+  function emptyOlAPCell(element){
+    return Boolean(element?.matches?.('.dash-empty')&&element.closest?.('#dashDishBody'));
+  }
   function uiSafe(element){
-    if(!element||element.closest?.(UI_EXCLUDE))return false;
+    if(!element)return false;
+    if(element.closest?.(UI_EXCLUDE)&&!emptyOlAPCell(element))return false;
     return Boolean(element.closest?.('main,.app-shell,.sh-workspace-page'));
+  }
+  const NUMBERED_UI_PATTERNS=[
+    {
+      match:/^Завершённые и закрытые\s*·\s*(\d+)$/,
+      target:['Tamamlanmış və bağlanmış · ','Completed and closed · ']
+    },
+    {
+      match:/^([\d\s.,]+₼) по данным OLAP\.$/,
+      target:[' OLAP məlumatlarına əsasən.',' based on OLAP data.']
+    }
+  ];
+  function dynamicUiText(source){
+    for(const rule of NUMBERED_UI_PATTERNS){
+      const match=source.match(rule.match);
+      if(!match)continue;
+      if(language==='ru')return source;
+      const part=rule.target[language==='az'?0:1];
+      return rule===NUMBERED_UI_PATTERNS[0]?part+match[1]:match[1]+part;
+    }
+    return null;
   }
   function translateUiNode(node){
     if(node.nodeType!==3)return;
@@ -335,11 +360,12 @@
     if(!uiSafe(element))return;
     const literal=node.nodeValue||'';
     const source=NODE_SOURCES.get(node)||literal.trim();
-    if(!Object.prototype.hasOwnProperty.call(LABELS,source))return;
+    const hasExact=Object.prototype.hasOwnProperty.call(LABELS,source);
+    const dynamic=!hasExact?dynamicUiText(source):null;
+    if(!hasExact&&dynamic===null)return;
     NODE_SOURCES.set(node,source);
-    const text=literal.replace(/^\s*/, '').replace(/\s*$/, '');
-    const next=value(source);
-    if(text===next)return;
+    const next=hasExact?value(source):dynamic;
+    if(literal.trim()===next)return;
     const leading=literal.match(/^\s*/)?.[0]||'';
     const trailing=literal.match(/\s*$/)?.[0]||'';
     node.nodeValue=leading+next+trailing;
@@ -362,7 +388,7 @@
     for(const element of root.querySelectorAll?.(UI_LABEL_SELECTORS)||[])candidates.push(element);
     for(const element of candidates){
       if(!uiSafe(element))continue;
-      if(element.closest?.('tbody'))continue;
+      if(element.closest?.('tbody')&&!emptyOlAPCell(element))continue;
       for(const node of element.childNodes||[])translateUiNode(node);
       if(element.matches?.('button,option,label'))translateUiAttribute(element,'title');
       if(element.matches?.('button,input,select,textarea'))translateUiAttribute(element,'aria-label');
