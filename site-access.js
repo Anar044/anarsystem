@@ -233,9 +233,25 @@
         if(!t)throw new Error('Сессия пользователя не найдена.');
         const invite=pendingInvite();
         const endpoint='/api/access/me'+(invite?'?invite='+encodeURIComponent(invite):'');
+        // Request timing details only in the explicitly activated preview
+        // diagnostic. Every other user keeps the exact existing endpoint.
+        let navDebug=false;
+        try{navDebug=window.frameElement?.dataset?.shNavDebug==='1'}catch(_){}
+        const measuredEndpoint=navDebug?endpoint+(invite?'&':'?')+'navDebug=1':endpoint;
         reportEmbeddedAccessStage('access-request');
-        const response=await fetch(endpoint,{headers:{Authorization:'Bearer '+t,Accept:'application/json'},cache:'no-store'});
+        const response=await fetch(measuredEndpoint,{headers:{Authorization:'Bearer '+t,Accept:'application/json'},cache:'no-store'});
         reportEmbeddedAccessStage('access-response');
+        if(navDebug){
+          const timing=response.headers.get('Server-Timing')||'';
+          const ms=name=>{
+            const m=timing.match(new RegExp('(?:^|,)\\s*'+name+';dur=([0-9.]+)'));
+            return m?Number(m[1]):null;
+          };
+          const supabaseMs=ms('supabase'),d1Ms=ms('d1');
+          if(supabaseMs!==null||d1Ms!==null){
+            try{window.parent.postMessage({type:'sh:embedded-server-timing',supabaseMs,d1Ms},location.origin)}catch(_){}
+          }
+        }
         const data=await response.json().catch(()=>({}));
         reportEmbeddedAccessStage('access-body');
         // A failing access API is NOT proof that the signed-in user lost
