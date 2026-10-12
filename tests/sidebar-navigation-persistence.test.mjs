@@ -265,3 +265,17 @@ test("sidebar collapse button persists its state and restores expanded scroll",(
   assert.equal(saved.get("shPersistentSidebarCollapsedV1"),"0");
   assert.equal(attributes["aria-expanded"],"true");
 });
+
+test("collapse control uses only an accessible three-bar hamburger, never a text button",()=>{
+  const workspace=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
+  const html=readFileSync(resolve(root,"persistent-workspace.html"),"utf8");
+  assert.match(workspace,/button\.innerHTML='<span class="sh-sidebar-hamburger" aria-hidden="true"><span><\/span><span><\/span><span><\/span><\/span>'/);
+  assert.doesNotMatch(workspace,/sh-sidebar-collapse-icon|sh-sidebar-collapse-label/);
+  assert.match(workspace,/button\.setAttribute\('aria-expanded',String\(!collapsed\)\)/);
+  assert.match(workspace,/button\.setAttribute\('aria-label',text\)/);
+  assert.match(workspace,/button\.setAttribute\('aria-controls',navForControl\.id\)/);
+  assert.match(html,/\.sh-sidebar-hamburger>span\{/);
+  assert.match(html,/\.sh-sidebar-hamburger\{\s*display:flex!important;flex-direction:column!important/);
+  assert.doesNotMatch(html,/\.sh-sidebar-collapse-icon\{/);
+  assert.match(html,/@media \(max-width:760px\)\{/);
+});
