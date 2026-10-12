@@ -261,7 +261,7 @@ test('module UI localization changes text nodes only, not DOM children, routes, 
 
 test('dynamic module label translation preserves nested icons and row data',()=>{
   const labels=[];
-  function nodeContainer(text,inBusinessTable=false){
+  function nodeContainer(text,inBusinessTable=false,systemStatus=false){
     const el={
       nodeType:1,tagName:'H2',childNodes:[],attributes:{},
       closest(sel){
@@ -270,7 +270,7 @@ test('dynamic module label translation preserves nested icons and row data',()=>
         if(sel==='main,.app-shell,.sh-workspace-page')return{tagName:'MAIN'};
         return null;
       },
-      matches(){return false}
+      matches(selector){return systemStatus&&selector.includes('.proc-status-badge')}
     };
     const node={nodeType:3,nodeValue:text,parentElement:el};
     const icon={nodeType:1,tagName:'SVG',parentElement:el};
@@ -285,6 +285,8 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   const cashEmpty=nodeContainer('Для выбранных ресторанов сейчас нет онлайн-касс.');
   const shiftsEmpty=nodeContainer('За выбранный период кассовые смены не найдены.');
   const prEmpty=nodeContainer('Нет заявок, ожидающих согласования.');
+  const systemStatus=nodeContainer('Выполнен',true,true);
+  const untouchedProduct=nodeContainer('Помидор',true,false);
   const prSummary=nodeContainer('Завершённые и закрытые · 2');
   const olapSummary=nodeContainer('0 ₼ по данным OLAP.');
   const listeners={};
@@ -319,6 +321,8 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   assert.equal(cashEmpty.node.nodeValue,'There are currently no online registers for the selected restaurants.');
   assert.equal(shiftsEmpty.node.nodeValue,'No cashier shifts were found for the selected period.');
   assert.equal(prEmpty.node.nodeValue,'No requests are awaiting approval.');
+  assert.equal(systemStatus.node.nodeValue,'Completed');
+  assert.equal(untouchedProduct.node.nodeValue,'Помидор');
   assert.equal(prSummary.node.nodeValue,'Completed and closed · 2');
   assert.equal(olapSummary.node.nodeValue,'0 ₼ based on OLAP data.');
   assert.equal(title.el.childNodes[1],title.icon,'icon child identity remains stable');
@@ -329,6 +333,8 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   assert.equal(aiEmpty.node.nodeValue,'Hələ söhbət yoxdur.');
   assert.equal(cashEmpty.node.nodeValue,'Seçilmiş restoranlarda hazırda onlayn kassa yoxdur.');
   assert.equal(prEmpty.node.nodeValue,'Təsdiq gözləyən tələb yoxdur.');
+  assert.equal(systemStatus.node.nodeValue,'Tamamlanıb');
+  assert.equal(untouchedProduct.node.nodeValue,'Помидор');
   assert.equal(prSummary.node.nodeValue,'Tamamlanmış və bağlanmış · 2');
   assert.equal(olapSummary.node.nodeValue,'0 ₼ OLAP məlumatlarına əsasən.');
   assert.equal(window.SH_I18N.setLanguage('ru'),true);
@@ -337,6 +343,8 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   assert.equal(aiEmpty.node.nodeValue,'Диалогов пока нет.');
   assert.equal(cashEmpty.node.nodeValue,'Для выбранных ресторанов сейчас нет онлайн-касс.');
   assert.equal(prEmpty.node.nodeValue,'Нет заявок, ожидающих согласования.');
+  assert.equal(systemStatus.node.nodeValue,'Выполнен');
+  assert.equal(untouchedProduct.node.nodeValue,'Помидор');
   assert.equal(prSummary.node.nodeValue,'Завершённые и закрытые · 2');
   assert.equal(olapSummary.node.nodeValue,'0 ₼ по данным OLAP.');
 });
@@ -351,4 +359,27 @@ test('late-created dynamic messages use approved selectors and do not translate 
   assert.ok(js.includes("element.closest?.('tbody')&&!emptyOlAPCell(element)"));
   const shifts=readFileSync(resolve(root,'cash-shifts-optimized.js'),'utf8');
   assert.ok(!shifts.includes('Смен не найдено. Запросов к Smart Horeca:'));
+});
+
+test('new AI suggested prompts use chosen language without changing stored user messages',()=>{
+  const {api}=createI18n('ru',true);
+  const key='Покажи продажи за текущий месяц по кассам и блюдам: сумма со скидкой и количество блюд.';
+  assert.match(api.t(key,'az'),/Cari ay/);
+  assert.match(api.t(key,'en'),/Show sales/);
+  assert.equal(api.t(key,'ru'),key);
+  const script=readFileSync(resolve(root,'ai-assistant.js'),'utf8');
+  assert.ok(script.includes('window.SH_I18N?.t(b.dataset.example||b.textContent)'));
+  assert.ok(script.includes('message:text'));
+  assert.ok(!script.includes('window.SH_I18N?.t(message.content)'));
+});
+test('table translation is bounded to approved system badge classes',()=>{
+  const js=readFileSync(resolve(root,'sh-i18n.js'),'utf8');
+  assert.ok(js.includes("const TABLE_UI_BADGES="));
+  assert.ok(js.includes('.proc-status-badge,.io-pill,.status-pill,.status-badge'));
+  assert.ok(js.includes('.hrp-status,.hrp-source'));
+  assert.ok(js.includes("element.matches?.(TABLE_UI_BADGES)"));
+  assert.ok(js.includes('tableUiRoots.push(node)'));
+  assert.ok(js.includes('translateUiLabels(node)'));
+  assert.ok(js.includes("UI_EXCLUDE='tbody,[contenteditable]"));
+  assert.ok(!js.includes("querySelectorAll('tbody td')"));
 });
