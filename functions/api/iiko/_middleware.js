@@ -32,7 +32,7 @@ function routePermissions(path,body=null){
   if(p.endsWith("/incoming-invoices"))return["inventory.incoming.view","inventory.incoming.manage","procurement.receive"];
   if(p.endsWith("/outgoing-invoices"))return["inventory.outgoing.view","inventory.outgoing.manage"];
   if(p.endsWith("/documents")||p.endsWith("/document-by-number"))return["inventory.incoming.view","inventory.outgoing.view","inventory.writeoff.view","inventory.transfer.view","procurement.receive"];
-  if(p.endsWith("/invoice-reference-data")||p.endsWith("/references"))return["inventory.nomenclature.view","inventory.incoming.view","inventory.incoming.manage","procurement.request.create","procurement.sourcing","procurement.receive","procurement.norms.manage"];
+  if(p.endsWith("/invoice-reference-data")||p.endsWith("/references"))return["inventory.nomenclature.view","inventory.incoming.view","inventory.incoming.manage","procurement.request.create","procurement.internal.request","procurement.internal.fulfill","procurement.sourcing","procurement.receive","procurement.norms.manage"];
   if(p.endsWith("/nomenclature")){
     const action=String(body?.action||"").toLowerCase();
     const mutating=/save|update|delete|restore/.test(action);
