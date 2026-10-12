@@ -12,7 +12,8 @@
 
 /* Even with a slow permission check the loading state should never be a bare
    black page. Root visibility is still controlled by the RBAC guard. */
-html[style*="visibility:hidden"]::after {
+html[style*="visibility:hidden"]::after,
+html[style*="visibility: hidden"]::after {
   content:"Smart Horeca · Загрузка раздела…";
   visibility:visible!important;
   position:fixed;
