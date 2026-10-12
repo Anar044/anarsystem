@@ -725,15 +725,12 @@ async function loadIikoAccountCatalog(){
   try{
     const result=await api("/api/internal-order-shipments?settings=account-catalog");
     const accounts=result.accounts||[];
-    const renderList=(listId,allowedTypes)=>{
-      const select=$(listId);
-      const relevant=accounts.filter(a=>allowedTypes.includes(String(a.type||"").toUpperCase()));
-      const options=relevant.length?relevant:accounts;
-      select.innerHTML=options.map(a=>'<option value="'+esc(a.code)+'" label="'+esc(a.name)+' · '+esc(a.type||"Счёт")+'"></option>').join("");
-    };
-    renderList("io-revenue-account-list",["INCOME","OTHER_INCOME"]);
-    renderList("io-expense-account-list",["EXPENSES","OTHER_EXPENSES","COST_OF_GOODS_SOLD"]);
-    out.textContent="Загружено счетов: "+accounts.length+". Выберите код в поле «Счёт выручки» и «Счёт расхода», затем сохраните.";
+    // Do not separate the chart by type: the restaurant administrator may
+    // legitimately select the very same account code in both fields.
+    const options=accounts.map(a=>'<option value="'+esc(a.code)+'" label="'+esc(a.name)+' · '+esc(a.type||"Счёт")+'"></option>').join("");
+    $("io-revenue-account-list").innerHTML=options;
+    $("io-expense-account-list").innerHTML=options;
+    out.textContent="Загружено счетов: "+accounts.length+". В обоих полях доступен весь план счетов. Можно выбрать один и тот же код для выручки и расхода, затем сохранить.";
   }catch(error){
     out.textContent="Справочник счетов недоступен: "+String(error?.message||error)+" Можно продолжить с ручным вводом кода.";
   }finally{button.disabled=false}
