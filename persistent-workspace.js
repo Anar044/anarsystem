@@ -109,15 +109,38 @@
   function sidebarNav(){
     return document.querySelector('.sidebar .unified-main-nav');
   }
+  function setGroupExpansion(group,open){
+    // Never change RBAC visibility. Only update the view state of a
+    // permission-approved group; users may still toggle groups themselves.
+    if(!group||group.hidden)return;
+    group.classList.toggle('open',open);
+    const toggle=group.querySelector('.documents-nav-toggle');
+    const sub=group.querySelector('.documents-subnav');
+    toggle?.classList.toggle('active',open);
+    toggle?.setAttribute('aria-expanded',String(open));
+    if(sub)sub.hidden=!open;
+  }
+  function showOnlyGroup(selected){
+    const nav=sidebarNav();if(!nav)return;
+    for(const group of nav.querySelectorAll('.documents-nav-group,.reports-nav-group')){
+      setGroupExpansion(group,group===selected);
+    }
+  }
   function activateMenu(route){
     if(!route)return;
     const nav=sidebarNav();if(!nav)return;
+    let selectedGroup=null;
     for(const link of nav.querySelectorAll('a[href]')){
       const normalized=resolvePilotRoute(link.getAttribute('href'));
       // Leave original access-controlled visibility unchanged.
-      link.classList.toggle('active',!!normalized&&normalized.href===route.href);
+      const active=!!normalized&&normalized.href===route.href;
+      link.classList.toggle('active',active);
+      if(active)selectedGroup=link.closest('.documents-nav-group,.reports-nav-group');
     }
-    // Deliberately keep expanded/collapsed groups and scroll unchanged.
+    // A new page selects its own category. Dashboard/AI/Cash have no
+    // category, so old procurement, warehouse and HR folders close.
+    showOnlyGroup(selectedGroup);
+    // No scrollTop assignment: a category change never jumps the sidebar.
   }
   function syncAddress(route,mode='replace'){
     if(!route)return;
@@ -291,6 +314,16 @@
     },750);
   }
   function onSidebarClick(event){
+    const groupToggle=event.target.closest('.documents-nav-toggle');
+    if(groupToggle){
+      // Run after app-shell.js updates the clicked button. Only one folder
+      // remains open, but clicking a folder does not navigate or fetch data.
+      queueMicrotask(()=>{
+        const group=groupToggle.closest('.documents-nav-group,.reports-nav-group');
+        if(group?.classList.contains('open'))showOnlyGroup(group);
+      });
+      return;
+    }
     const link=event.target.closest('a[href]');
     if(!isNavigableLink(link,event))return;
     const route=resolvePilotRoute(link.href);
