@@ -131,7 +131,7 @@ test("embedded content hides duplicate sidebar only when opened by the pilot fra
     assert.match(content,/classList\.add\("sh-pilot-embedded"\)/);
     assert.match(content,/data-protected="true"/);
   }
-  assert.match(shell,/frameElement\\?\\.dataset\\?\\.shPersistentWorkspace/);
+  assert.ok(shell.includes("frameElement?.dataset?.shPersistentWorkspace"));
   assert.match(css,/html\.sh-pilot-embedded \.sidebar\{display:none!important\}/);
   assert.match(css,/html\.sh-pilot-embedded \.app-shell>\.main/);
 });
