@@ -359,3 +359,18 @@ test("static warmup targets only checked and authorized menu links",()=>{
     assert.ok(!section.includes("'/" + sensitive + "'"));
   }
 });
+
+test("request timing probes do not cache, bypass, or duplicate access verification",()=>{
+  const access=readFileSync(resolve(root,"site-access.js"),"utf8");
+  const shell=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
+  assert.ok(access.includes("reportEmbeddedAccessStage('access-request')"));
+  assert.ok(access.includes("reportEmbeddedAccessStage('access-response')"));
+  assert.ok(access.includes("reportEmbeddedAccessStage('access-body')"));
+  assert.ok(access.includes("cache:'no-store'"));
+  assert.ok(access.includes("await fetch(endpoint,"));
+  assert.ok(access.includes("const data=await response.json()"));
+  assert.ok(access.includes("if(window.frameElement?.dataset?.shPersistentWorkspace!=='1')return"));
+  assert.ok(shell.includes("'access-request','access-response','access-body','access-ready'"));
+  assert.ok(shell.includes("entry['access-response']-entry['access-request']"));
+  assert.ok(shell.includes("· сервер "));
+});
