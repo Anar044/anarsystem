@@ -6,6 +6,7 @@
   const LANGUAGES=['az','ru','en'];
   // Russian is the existing production UI. Each pair is [AZ, EN].
   const LABELS=Object.freeze({
+    ...(window.SH_I18N_CATALOG||{}),
     'ОСНОВНОЕ':['ƏSAS','MAIN'],
     'Restaurant Management':['Restoran idarəetməsi','Restaurant management'],
     'Управляй рестораном легко':['Restoranını asanlıqla idarə et','Manage your restaurant easily'],
@@ -302,7 +303,70 @@
     if(menu&&menu.getAttribute('aria-label')!==value('Выбор ресторанов'))
       menu.setAttribute('aria-label',value('Выбор ресторанов'));
   }
-  function apply(){document.documentElement.lang=language;createSwitcher();applyExplicit();applySidebar();translateSafeDynamic()}
+  // Extend localization to all protected Smart Horeca modules. Only exact
+  // UI labels are translated; no general machine translation or data fields.
+  // Preserve existing text nodes/children so buttons keep their click handlers.
+  const UI_LABEL_SELECTORS=[
+    'h1','h2','h3','h4','h5','h6','button','label','legend','summary',
+    'th','option','p','span','small','strong','b',
+    '.topbar-title','.topbar-sub','.crumb','.title','.subtitle',
+    '.muted','.hint','.description','.section-title','.section-sub',
+    '.stat-label','.khead','.ksub','.ctitle','.tab','.chip',
+    '.toolbar-title','.panel-title','.field-label'
+  ].join(',');
+  const UI_EXCLUDE='tbody,[contenteditable],.sh-rf-list,.asset-notify-item,'+
+    '.monaco-editor,.cm-editor,.ag-root,[data-business-value],'+
+    '[data-auth-name],[data-auth-email],[data-auth-avatar],[data-sh-i18n]';
+  const NODE_SOURCES=new WeakMap(),ATTRIBUTE_SOURCES=new WeakMap();
+  function uiSafe(element){
+    if(!element||element.closest?.(UI_EXCLUDE))return false;
+    return Boolean(element.closest?.('main,.app-shell,.sh-workspace-page'));
+  }
+  function translateUiNode(node){
+    if(node.nodeType!==3)return;
+    const element=node.parentElement;
+    if(!uiSafe(element))return;
+    const literal=node.nodeValue||'';
+    const source=NODE_SOURCES.get(node)||literal.trim();
+    if(!Object.prototype.hasOwnProperty.call(LABELS,source))return;
+    NODE_SOURCES.set(node,source);
+    const text=literal.replace(/^\\s*/, '').replace(/\\s*$/, '');
+    const next=value(source);
+    if(text===next)return;
+    const leading=literal.match(/^\\s*/)?.[0]||'';
+    const trailing=literal.match(/\\s*$/)?.[0]||'';
+    node.nodeValue=leading+next+trailing;
+  }
+  function translateUiAttribute(element,attribute){
+    const current=element.getAttribute(attribute);
+    if(!current)return;
+    let sources=ATTRIBUTE_SOURCES.get(element);
+    const source=sources?.get(attribute)||current;
+    if(!Object.prototype.hasOwnProperty.call(LABELS,source))return;
+    if(!sources){sources=new Map();ATTRIBUTE_SOURCES.set(element,sources)}
+    sources.set(attribute,source);
+    const next=value(source);
+    if(current!==next)element.setAttribute(attribute,next);
+  }
+  function translateUiLabels(root=document){
+    if(!document.body?.hasAttribute?.('data-protected'))return;
+    const candidates=[];
+    if(root.nodeType===1&&root.matches?.(UI_LABEL_SELECTORS))candidates.push(root);
+    for(const element of root.querySelectorAll?.(UI_LABEL_SELECTORS)||[])candidates.push(element);
+    for(const element of candidates){
+      if(!uiSafe(element))continue;
+      if(element.closest?.('tbody'))continue;
+      for(const node of element.childNodes||[])translateUiNode(node);
+      if(element.matches?.('button,option,label'))translateUiAttribute(element,'title');
+      if(element.matches?.('button,input,select,textarea'))translateUiAttribute(element,'aria-label');
+      if(element.matches?.('input,textarea'))translateUiAttribute(element,'placeholder');
+    }
+    // Input placeholders are not included among the text-label selectors.
+    for(const input of root.querySelectorAll?.('input[placeholder],textarea[placeholder]')||[]){
+      if(uiSafe(input))translateUiAttribute(input,'placeholder');
+    }
+  }
+  function apply(){document.documentElement.lang=language;createSwitcher();applyExplicit();applySidebar();translateSafeDynamic();translateUiLabels()}
   let scheduled=false;
   function schedule(){
     if(scheduled)return;
@@ -358,17 +422,21 @@
     createSwitcher();
     apply();
     if(document.body&&!observer){
-      // Observe only language-relevant UI zones, not entire document
-      // tables. This prevents extra CPU work on large procurement/HR lists.
-      observer=new MutationObserver(()=>schedule());
-      const zones=[];
-      if(document.body.classList.contains('sh-workspace-page')){
-        zones.push(document.querySelector('.sidebar'));
-      }else if(document.body.classList.contains('dashboard-page')){
-        zones.push(document.querySelector('.topbar'),document.querySelector('.content'));
-      }
-      for(const zone of zones.filter(Boolean))
+      // Observe only the active visible module or persistent sidebar.
+      // Skip table-body mutations to avoid rescanning large datasets.
+      const zone=document.body.classList.contains('sh-workspace-page')
+        ?document.querySelector('.sidebar')
+        :(document.querySelector('main.main')||document.querySelector('main')||document.body);
+      if(zone){
+        observer=new MutationObserver(changes=>{
+          const relevant=changes.some(change=>
+            !change.target?.closest?.('tbody,.ag-root,.sh-rf-list,.data-grid')
+            && Array.from(change.addedNodes||[]).some(node=>node.nodeType===1||node.nodeType===3)
+          );
+          if(relevant)schedule();
+        });
         observer.observe(zone,{childList:true,subtree:true});
+      }
     }
   }
   window.addEventListener('storage',event=>{
