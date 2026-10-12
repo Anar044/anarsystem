@@ -498,7 +498,7 @@
         if (!script) {
             script = document.createElement("script");
             script.id = "sh-site-access-script";
-            script.src = "/site-access.js?v=20261012-sidebar-stable-v1";
+            script.src = "/site-access.js?v=20261012-invite-relogin-v1";
             document.head.appendChild(script);
         }
         await new Promise((resolve, reject) => {
