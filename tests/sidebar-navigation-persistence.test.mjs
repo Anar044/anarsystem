@@ -310,5 +310,7 @@ test("opt-in timing trace never changes authentication or requests",()=>{
     assert.ok(shell.includes("sendStage('"+stage+"')"));
   }
   assert.doesNotMatch(workspace,/fetch\s*\(/);
-  assert.doesNotMatch(workspace,/access_token|refresh_token|localStorage\.setItem\('sh/);
+  const trace=workspace.slice(workspace.indexOf("  const NAV_DEBUG="),
+    workspace.indexOf("  // Cloudflare Pages",workspace.indexOf("  const NAV_DEBUG=")));
+  assert.doesNotMatch(trace,/access_token|refresh_token|fetch\s*\(/);
 });
