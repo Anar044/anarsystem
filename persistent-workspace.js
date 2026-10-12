@@ -396,14 +396,12 @@
     const groupToggle=event.target.closest('.documents-nav-toggle');
     if(groupToggle){
       if(isSidebarCollapsed()){
-        // Icon-only groups are closed visually. Expand the rail and the
-        // requested group, without triggering the legacy toggle a second time.
-        event.preventDefault();
-        event.stopImmediatePropagation();
+        // Expand the rail and reset this group to closed before its ORIGINAL
+        // handler runs. It will open the group and persist state normally.
+        // Do not cancel the click or alter any menu/business handlers.
         const group=groupToggle.closest('.documents-nav-group,.reports-nav-group');
         setSidebarCollapsed(false);
-        if(group)showOnlyGroup(group);
-        return;
+        if(group)setGroupExpansion(group,false);
       }
       // Run after app-shell.js updates the clicked button. Only one folder
       // remains open, but clicking a folder does not navigate or fetch data.
