@@ -314,3 +314,14 @@ test("opt-in timing trace never changes authentication or requests",()=>{
     workspace.indexOf("  // Cloudflare Pages",workspace.indexOf("  const NAV_DEBUG=")));
   assert.doesNotMatch(trace,/access_token|refresh_token|fetch\s*\(/);
 });
+
+test("navigation debug overlay is opt-in, hides by default and reports only stage times",()=>{
+  const workspace=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
+  const html=readFileSync(resolve(root,"persistent-workspace.html"),"utf8");
+  assert.match(html,/id="sh-nav-performance" class="sh-nav-performance" hidden/);
+  assert.match(html,/\.sh-nav-performance\[hidden\]\{display:none!important\}/);
+  assert.match(workspace,/if\(NAV_DEBUG&&timingPanel\)\{/);
+  assert.match(workspace,/if\(NAV_DEBUG\)url\.searchParams\.set\('navDebug','1'\)/);
+  assert.match(workspace,/page:new URL\(route\.href,location\.origin\)\.pathname/);
+  assert.doesNotMatch(workspace,/routeTimings\.set\(frame,\{page:route\.href/);
+});
