@@ -325,6 +325,20 @@
     '.modal-back .modal-foot button',
     '.ts-drawer-panel .ts-kicker','.ts-drawer-panel .ts-detail-note',
     '.ts-drawer-panel footer a',
+    // Financial/stock analytics: status text and safe report labels only.
+    '.sh-i18n-empty-state','.fin-empty','.source-title',
+    '.result-meta','.limit-note','.stock-message','.mov-message',
+    '.fc-message','.lc-warning','.coverage-warning',
+    '.stock-modal .modal-item > span','.mov-modal .modal-item > span',
+    '.fc-modal .modal-item > span',
+    '.stock-modal .modal-foot',
+    '.stock-modal .eyebrow','.mov-modal .eyebrow','.fc-modal .eyebrow',
+    '.fin-modal-card .fin-section-kicker','.fin-modal-card label',
+    '.fin-modal-card button',
+    '#stock-status','#mov-status','#fc-status','#lc-status',
+    '#mov-period','#fc-period','#lc-period','#stock-source',
+    '#fin-status','#fin-modal-status',
+
 
     '.proc-status-badge','.io-pill','.status-pill','.status-badge',
     '.cs-badge','.cs-payment-empty','.hrp-status','.hrp-source',
@@ -337,13 +351,16 @@
   const UI_EXCLUDE='tbody,[contenteditable],.sh-rf-list,.asset-notify-item,'+
     '.sha-messages,.sha-conversation-list,.cm-history,.cash-order-items,'+
     '.monaco-editor,.cm-editor,.ag-root,[data-business-value],'+
-    '[data-auth-name],[data-auth-email],[data-auth-avatar],[data-sh-i18n]';
+    '[data-auth-name],[data-auth-email],[data-auth-avatar],[data-sh-i18n],'+
+    // Headings containing inventory product names or account names are data.
+    '#stock-modal-title,#mov-modal-title,#fc-modal-title,#fin-modal-title';
   const NODE_SOURCES=new WeakMap(),ATTRIBUTE_SOURCES=new WeakMap();
   // Only known system-state badges or empty-message cells are eligible
   // inside data tables. Product, employee, supplier and document cells stay untouched.
   const TABLE_UI_BADGES='.proc-status-badge,.io-pill,.status-pill,.status-badge,'+
     '.cs-badge,.cs-payment-empty,.hrp-status,.hrp-source,'+
-    '.ts-ot-badge,.hr-badge,.order-status,.proc-empty,.hr-empty,.dash-empty';
+    '.ts-ot-badge,.hr-badge,.order-status,.proc-empty,.hr-empty,.dash-empty,'+
+    '.fin-empty,.sh-i18n-empty-state';
   function safeTableUiElement(element){
     return Boolean(element?.closest?.('tbody')&&element.matches?.(TABLE_UI_BADGES));
   }
@@ -354,7 +371,7 @@
   function uiSafe(element){
     if(!element)return false;
     if(element.closest?.(UI_EXCLUDE)&&!emptyOlAPCell(element)&&!safeTableUiElement(element))return false;
-    return Boolean(element.closest?.('main,.app-shell,.sh-workspace-page,.proc-modal,.io-modal-dialog,.modal-back .modal,.ts-drawer-panel'));
+    return Boolean(element.closest?.('main,.app-shell,.sh-workspace-page,.proc-modal,.io-modal-dialog,.modal-back .modal,.ts-drawer-panel,.stock-modal,.mov-modal,.fc-modal,.fin-modal-card'));
   }
   const NUMBERED_UI_PATTERNS=[
     {
@@ -386,6 +403,38 @@
       ];
       for(const group of prefixes)if(source.startsWith(group[0]))
         return group[language==='az'?1:2]+source.slice(group[0].length);
+    }
+    // Preserve the original counts and periods. Never parse or rewrite
+    // prices, document numbers or user-entered values.
+    const id=element?.id||'';
+    if(language!=='ru'){
+      const locale=language==='az'?0:1;
+      const counters={
+        'stock-result-meta':{re:/^(\\d+) из (\\d+) позиций$/,suffix:[' mövqedən ',' of '],tail:[' mövqe',' items']},
+        'mov-result-meta':{re:/^(\\d+) из (\\d+) строк$/,suffix:[' sətirdən ',' of '],tail:[' sətir',' rows']},
+        'fc-result-meta':{re:/^(\\d+) из (\\d+) ингредиентов$/,suffix:[' inqrediyentdən ',' of '],tail:[' inqrediyent',' ingredients']}
+      };
+      const counter=counters[id],match=counter?.re.exec(source);
+      if(match)return language==='az'
+        ?match[2]+counter.suffix[0]+match[1]+counter.tail[0]
+        :match[1]+counter.suffix[1]+match[2]+counter.tail[1];
+      const statuses={
+        'stock-status':{re:/^Готово · (\\d+) реальных строк$/,units:[' faktiki sətir',' actual rows']},
+        'mov-status':{re:/^Готово · (\\d+) движений$/,units:[' əməliyyat',' movements']},
+        'fc-status':{re:/^Готово · (\\d+) ингредиентов$/,units:[' inqrediyent',' ingredients']},
+        'lc-status':{re:/^Готово · (\\d+) сотрудников$/,units:[' işçi',' employees']}
+      };
+      const status=statuses[id],m=status?.re.exec(source);
+      if(m)return (language==='az'?'Hazırdır · ':'Ready · ')+m[1]+status.units[locale];
+      if(['mov-period','lc-period','fc-period'].includes(id)&&
+          /^Период: \\d{4}-\\d{2}-\\d{2} — \\d{4}-\\d{2}-\\d{2}/.test(source)){
+        const core=source.replace(/^Период: /,language==='az'?'Dövr: ':'Period: ');
+        return id==='fc-period'?core
+          .replace(' · источник теории: ',language==='az'?' · nəzəri məlumat mənbəyi: ':' · theoretical source: ')
+          .replace('SALES OLAP себестоимость',language==='az'?'SALES OLAP maya dəyəri':'SALES OLAP cost')
+          .replace('оценка по техкартам',language==='az'?'texnoloji kart üzrə qiymətləndirmə':'recipe-based estimate')
+          :core;
+      }
     }
     for(const rule of NUMBERED_UI_PATTERNS){
       const match=source.match(rule.match);
@@ -540,7 +589,7 @@
         observer.observe(zone,{childList:true,subtree:true});
         // Procurement/internal-order modal roots are siblings of .app-shell.
         // They must be watched separately to localize freshly opened dialogs.
-        for(const id of ['proc-modal','io-modal','tsDrawer']){
+        for(const id of ['proc-modal','io-modal','tsDrawer','stock-modal','mov-modal','fc-modal','fin-account-modal']){
           const root=document.getElementById?.(id);
           if(root&&root!==zone&&!zone.contains?.(root))
             observer.observe(root,{childList:true,subtree:true});
