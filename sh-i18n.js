@@ -473,11 +473,27 @@
         :(document.querySelector('main.main')||document.querySelector('main')||document.body);
       if(zone){
         observer=new MutationObserver(changes=>{
-          const relevant=changes.some(change=>
-            !change.target?.closest?.('tbody,.ag-root,.sh-rf-list,.data-grid')
-            && Array.from(change.addedNodes||[]).some(node=>node.nodeType===1||node.nodeType===3)
-          );
-          if(relevant)schedule();
+          let changedUi=false;
+          const tableUiRoots=[];
+          for(const change of changes){
+            const additions=Array.from(change.addedNodes||[]);
+            if(!additions.length)continue;
+            if(change.target?.closest?.('tbody')){
+              // A newly rendered table row may contain system badges.
+              // Inspect only those rows, never translate record values.
+              for(const node of additions){
+                if(node.nodeType===1&&
+                    (node.matches?.(TABLE_UI_BADGES)||node.querySelector?.(TABLE_UI_BADGES)))
+                  tableUiRoots.push(node);
+              }
+            }else if(!change.target?.closest?.('.ag-root,.sh-rf-list,.data-grid')){
+              changedUi=true;
+            }
+          }
+          if(changedUi)schedule();
+          if(tableUiRoots.length)requestAnimationFrame(()=>{
+            for(const node of tableUiRoots)if(node.isConnected!==false)translateUiLabels(node);
+          });
         });
         observer.observe(zone,{childList:true,subtree:true});
       }
