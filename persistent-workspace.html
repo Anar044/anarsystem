@@ -13,6 +13,9 @@
     body.sh-workspace-page .sh-workspace-topbar{display:none!important}
     .sh-workspace-head-status{font-size:11px;color:#9aabb9}
     .sh-workspace-frame-host{position:relative;flex:1 1 auto;min-width:0;min-height:0;overflow:hidden;background:#0b1017}
+    /* Small nonblocking progress line: never replace working page with a splash. */
+    .sh-workspace-frame-host.sh-is-loading::after{content:"";position:absolute;left:0;top:0;width:26%;height:2px;background:#42d392;z-index:5;pointer-events:none;animation:sh-shell-progress 1.15s ease-in-out infinite alternate}
+    @keyframes sh-shell-progress{from{transform:translateX(0)}to{transform:translateX(270%)}}
     .sh-workspace-frame{position:absolute;inset:0;display:block;width:100%;height:100%;border:0;background:#0b1017}
     .sh-workspace-frame.sh-pending{visibility:hidden;pointer-events:none}
     .sh-workspace-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:28px;color:#a1b1bf;font-size:14px}
