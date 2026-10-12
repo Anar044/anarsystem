@@ -56,3 +56,15 @@ test("account list handles wrapped JSON and unavailable payloads",()=>{
   assert.deepEqual(normalizeInternalIikoAccounts(null),[]);
   assert.deepEqual(normalizeInternalIikoAccounts({status:"ERROR"}),[]);
 });
+
+test("the same accounting code is explicitly valid for both revenue and expense",()=>{
+  const cfg=validateInternalAccountCodes({revenueAccountCode:"4.01",expenseAccountCode:"4.01"});
+  assert.equal(cfg.valid,true);
+  assert.equal(cfg.revenueAccountCode,cfg.expenseAccountCode);
+  const xml=shipmentXml({id:"equal-account-demo",number:"TEST-EQUAL-S01",date:"2026-10-12",
+    storeId:"sender",counteragentId:"receiver",status:"PROCESSED",
+    accountToCode:cfg.expenseAccountCode,revenueAccountCode:cfg.revenueAccountCode,
+    comment:"test-only",lines:[{productId:"p1",amount:1,unitPrice:15,sumCents:1500}]});
+  assert.match(xml,/<accountToCode>4\.01<\/accountToCode>/);
+  assert.match(xml,/<revenueAccountCode>4\.01<\/revenueAccountCode>/);
+});
