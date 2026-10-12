@@ -26,12 +26,11 @@
     @media (min-width:761px){
       body.sh-workspace-page .sidebar>.sh-sidebar-collapse-btn{
         display:flex!important;align-items:center!important;justify-content:center!important;
-        gap:10px!important;flex:0 0 40px!important;min-height:40px!important;
-        width:calc(100% - 12px)!important;margin:0 6px 12px!important;padding:0 8px!important;
+        flex:0 0 42px!important;min-height:42px!important;
+        width:44px!important;margin:0 6px 12px!important;padding:0!important;
         position:sticky!important;top:0!important;z-index:15!important;
         border:1px solid #253a43!important;border-radius:10px!important;
-        background:#14232b!important;color:#d4efe3!important;font-size:12px!important;font-weight:650!important;
-        white-space:nowrap!important;cursor:pointer!important;
+        background:#14232b!important;color:#d4efe3!important;cursor:pointer!important;
       }
       body.sh-workspace-page .sidebar>.sh-sidebar-collapse-btn:hover{
         background:#203f35!important;border-color:#347a5b!important;
@@ -39,7 +38,14 @@
       body.sh-workspace-page .sidebar>.sh-sidebar-collapse-btn:focus-visible{
         outline:2px solid #42d392!important;outline-offset:2px!important;
       }
-      body.sh-workspace-page .sh-sidebar-collapse-icon{font-size:20px!important;line-height:1!important}
+      body.sh-workspace-page .sh-sidebar-hamburger{
+        display:flex!important;flex-direction:column!important;align-items:center!important;
+        justify-content:center!important;gap:4px!important;width:22px!important;height:22px!important;
+      }
+      body.sh-workspace-page .sh-sidebar-hamburger>span{
+        display:block!important;width:19px!important;height:2px!important;
+        flex:0 0 2px!important;border-radius:2px!important;background:currentColor!important;
+      }
       body.sh-workspace-page.sh-sidebar-collapsed{--sidebar-w:70px}
       body.sh-workspace-page.sh-sidebar-collapsed .app-shell>.sidebar{
         width:70px!important;min-width:70px!important;padding:12px 6px!important;
@@ -51,7 +57,6 @@
       body.sh-workspace-page.sh-sidebar-collapsed .sidebar>.sh-sidebar-collapse-btn{
         width:46px!important;margin:0 auto 10px!important;padding:0!important;
       }
-      body.sh-workspace-page.sh-sidebar-collapsed .sh-sidebar-collapse-label,
       body.sh-workspace-page.sh-sidebar-collapsed .sidebar .nav-title,
       body.sh-workspace-page.sh-sidebar-collapsed .sidebar .sh-exact-brand-copy,
       body.sh-workspace-page.sh-sidebar-collapsed .sidebar .brand-copy,
