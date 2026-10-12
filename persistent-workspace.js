@@ -2,7 +2,7 @@
   'use strict';
   if(!document.body?.classList.contains('sh-workspace-page'))return;
 
-  // Opt-in pilot: all pages are existing first-party, independently protected HTML.
+  // Opt-in legacy bridge: first-party pages retain their independently protected HTML.
   // The shell only retains the menu and frames approved sections; it never grants access.
   const PROCUREMENT=Object.freeze({
     catalog:['procurement.request.create'],
@@ -53,7 +53,27 @@
       return{href:'/internal-orders.html?view='+encodeURIComponent(view),
         label:'Внутренние заказы',permissions};
     }
-    return null;
+    // Legacy modules retain their own protected HTML and business code.
+    // Derive the remaining routes from the ONE permission-filtered sidebar,
+    // not a second hand-maintained list of names and permission strings.
+    const nav=document.querySelector('.sidebar .unified-main-nav');
+    if(!nav)return null;
+    const link=[...nav.querySelectorAll('a[href][data-unified-nav-item]')].find(a=>{
+      try{
+        const target=new URL(a.href,location.origin);
+        return target.origin===url.origin&&target.pathname===url.pathname
+          && !['/login.html','/register.html','/persistent-workspace.html'].includes(target.pathname);
+      }catch(_){return false}
+    });
+    if(!link||link.hidden||link.closest('[hidden]')
+       ||link.dataset.shAccessChecked!=='1')return null;
+    // User-controlled query parameters cannot introduce authentication flows
+    // or override a dedicated view; those must be checked as separate routes.
+    if(['invite','access_token','refresh_token','code','token_hash'].some(key=>url.searchParams.has(key)))return null;
+    const permissions=(link.dataset.permission||'').split('|').map(x=>x.trim()).filter(Boolean);
+    if(!permissions.length)return null;
+    return{href:url.pathname+url.search,label:link.textContent.trim()||'Smart Horeca',
+      permissions};
   }
   function permitted(route){
     return !!(route&&window.SHAccess?.context?.allowed
@@ -107,7 +127,11 @@
       ...['my','incoming','preparing','shipments','receiving','all','settings']
         .map(view=>'/internal-orders.html?view='+view)
     ];
-    return candidates.map(resolvePilotRoute).find(permitted)||null;
+    const builtIn=candidates.map(resolvePilotRoute).find(permitted);
+    if(builtIn)return builtIn;
+    const nav=sidebarNav();
+    const available=nav?[...nav.querySelectorAll('a[href][data-unified-nav-item]')]:[];
+    return available.map(link=>resolvePilotRoute(link.href)).find(permitted)||null;
   }
   function childLocation(frame){
     try{return new URL(frame.contentWindow.location.href)}catch(_){return null}
