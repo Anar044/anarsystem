@@ -438,9 +438,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL "$PREVIEW_BASE/dashboard" -o /tmp/sh-dashboard-direct.html
-          grep -q 'location.replace("/persistent-workspace.html?target=%2Fdashboard.html")' /tmp/sh-dashboard-direct.html
-          grep -q 'window.top!==window.self' /tmp/sh-dashboard-direct.html
+          curl -fsSL -D /tmp/sh-dashboard-headers.txt "$PREVIEW_BASE/dashboard" -o /tmp/sh-dashboard-direct.html
+          echo 'Dashboard pretty route headers:'
+          head -n 12 /tmp/sh-dashboard-headers.txt
+          echo 'Dashboard pretty route content markers:'
+          grep -En 'sh-pilot-embedded|persistent-workspace|<title' /tmp/sh-dashboard-direct.html | head -n 9 || true
+          curl -fsSL "$PREVIEW_BASE/dashboard.html" -o /tmp/sh-dashboard-html.html
+          echo 'Dashboard HTML route markers:'
+          grep -En 'sh-pilot-embedded|persistent-workspace|<title' /tmp/sh-dashboard-html.html | head -n 9 || true
+          grep -Fq 'location.replace("/persistent-workspace.html?target=%2Fdashboard.html")' /tmp/sh-dashboard-direct.html
+          grep -Fq 'window.top!==window.self' /tmp/sh-dashboard-direct.html
           echo 'Direct Dashboard now routes through the sidebar; framed Dashboard unaffected'
 
       - name: Smoke test application pages
