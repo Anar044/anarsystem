@@ -1,0 +1,45 @@
+// Pure calculations for internal shipment: base units and per-base-unit sale prices.
+const id=x=>String(x??"").trim().replace(/^\{+|\}+$/g,"").toLowerCase();
+const cents=x=>Math.round(Number(x)*100);
+export function prepareInternalShipment(approved,existing,requested,costQuotes=[]){
+  if(!Array.isArray(approved)||!approved.length)throw new Error("Согласованные товары заказа не найдены.");
+  const prices=new Map((costQuotes||[]).map(x=>[id(x.productId),x]));
+  if(!Array.isArray(requested)||!requested.length)throw new Error("Выберите хотя бы один товар для отгрузки.");
+  const approvedMap=new Map(approved.map(x=>[id(x.productId),x]));
+  const remaining=new Map(approved.map(x=>[id(x.productId),Number(x.quantity)]));
+  for(const shipment of existing||[]){
+    if(shipment.status==="CANCELLED")continue;
+    for(const l of shipment.lines||[]){
+      const p=id(l.productId);
+      if(remaining.has(p))remaining.set(p,Math.round((remaining.get(p)-Number(l.amount))*1000)/1000);
+    }
+  }
+  const visited=new Set(),lines=[];
+  for(const l of requested){
+    const productId=id(l.productId),a=approvedMap.get(productId);
+    if(!a||visited.has(productId))throw new Error("Товар не согласован в заказе или повторяется.");
+    visited.add(productId);
+    const amount=Number(l.amount),cost=prices.get(productId),unitPrice=Number(cost?.unitCost);
+    if(!Number.isFinite(amount)||amount<=0||Math.abs(Math.round(amount*1000)-amount*1000)>0.00001)throw new Error("Количество должно быть положительным, точность — до 0,001.");
+    if(!cost?.verified||!Number.isFinite(unitPrice)||unitPrice<=0)throw new Error("iikoChain не вернул достоверную себестоимость товара "+a.productName+" на складе отправителя.");
+    if(amount>Number(remaining.get(productId)||0)+0.00001)throw new Error("Отгрузка превышает неисполненное количество заказа.");
+    if(amount>Number(cost.available)+0.00001)throw new Error("Недостаточный фактический остаток товара "+a.productName+" на складе отправителя.");
+    lines.push({productId:a.productId,productName:a.productName,unit:a.unit,amount,unitPrice,priceCents:cents(unitPrice),sumCents:Math.round(amount*unitPrice*100),costSource:"iikoChain warehouse balance",costTimestamp:cost.costTimestamp||""});
+  }
+  return {lines,totalCents:lines.reduce((sum,l)=>sum+l.sumCents,0),remaining:Object.fromEntries(remaining)};
+}
+export function shipmentXml({id:documentId,number,date,storeId,counteragentId,comment,accountToCode,revenueAccountCode,lines,status='NEW'}){
+  if(!['NEW','PROCESSED'].includes(status))throw new Error('Недопустимый статус накладной iiko.');
+  const esc=x=>String(x??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
+  const tag=(name,x)=>x===undefined||x===null||String(x)===""?"":'<'+name+'>'+esc(x)+'</'+name+'>';
+  // iiko outgoing invoice DTO: use defaultStoreId at document level, not an
+  // additional storeId on each item. Source/store ownership is validated by
+  // the shipment route before serialization.
+  const items=lines.map((l,i)=>'<item>'+tag("productId",l.productId)+tag("amount",l.amount)+tag("price",Number(l.unitPrice).toFixed(6))+tag("sum",(l.sumCents/100).toFixed(2))+'</item>').join("");
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><document>'+tag("id",documentId)+tag("documentNumber",number)+tag("dateIncoming",date+"T00:00:00")+tag("status",status)+tag("defaultStoreId",storeId)+tag("counteragentId",counteragentId)+tag("accountToCode",accountToCode)+tag("revenueAccountCode",revenueAccountCode)+tag("comment",comment)+'<items>'+items+'</items></document>';
+}
+export function parseIikoValidation(xml){
+  const dec=v=>String(v||"").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&");
+  const val=name=>dec(String(xml||"").match(new RegExp("<"+name+">([\\s\\S]*?)</"+name+">","i"))?.[1]||"").trim();
+  return {valid:val("valid"),documentNumber:val("documentNumber"),errorMessage:val("errorMessage"),additionalInfo:val("additionalInfo")};
+}

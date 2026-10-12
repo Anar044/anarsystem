@@ -87,7 +87,7 @@ function viewMeta(view){
     analytics:{title:'Аналитика закупок',subtitle:'Исполнение, суммы и поставщики'},
     norms:{title:'Нормы запаса',subtitle:'Min и целевой остаток по товару и складу'},
     settings:{title:'Настройки закупок',subtitle:'Лимиты согласования и правила процесса'}
-  })[view]||{title:'Закупки',subtitle:''};
+  })[view]||{title:'Внешние закупки',subtitle:''};
 }
 function applyProcurementView(){
   state.view=currentProcurementView();
