@@ -25,6 +25,6 @@ export function previewConfirmedInternalRoute(order,mapping,suppliers=[]){
     outgoing:{defaultStoreId:source,counteragentId:buyer,counteragentName:String(buyerReference.name)},
     expectedIncoming:{recipientStoreId:destination,supplierId:sender,supplierName:String(senderReference.name)},
     evidence:{outgoingNumber:String(mapping.evidence_outgoing_number),incomingNumber:String(mapping.evidence_incoming_number),confirmedAt:String(mapping.confirmed_at||"")},
-    message:"Склады и контрагенты подтверждены по справочнику iiko. Создание связанной приходной через REST ещё не подтверждено; реальная отгрузка заблокирована."
+    message:"Склады и внутренние контрагенты подтверждены по справочнику iiko. При отгрузке Smart Horeca отдельно проверит связанную приходную и статус её проведения."
   };
 }
