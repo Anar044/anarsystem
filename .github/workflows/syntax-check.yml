@@ -33,6 +33,7 @@ jobs:
           set -euo pipefail
           node --test tests/access-navigation-visibility.test.mjs
           node --test tests/default-workspace-entry.test.mjs
+          node --test tests/dashboard-direct-entry.test.mjs
           node --test tests/access-db-performance.test.mjs
           node --test tests/access-outage.test.mjs
           node --test tests/mobile-navigation-access.test.mjs
@@ -432,6 +433,15 @@ jobs:
           curl -fsSL "$PREVIEW_BASE/persistent-workspace.html" -o /tmp/smarthoreca-shell.html
           grep -q 'sh-workspace-frame-host' /tmp/smarthoreca-shell.html
           echo 'Root, index and persistent navigation entry confirmed'
+
+      - name: Smoke test old Dashboard bookmarked URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL "$PREVIEW_BASE/dashboard" -o /tmp/sh-dashboard-direct.html
+          grep -q 'location.replace("/persistent-workspace.html?target=%2Fdashboard.html")' /tmp/sh-dashboard-direct.html
+          grep -q 'window.top!==window.self' /tmp/sh-dashboard-direct.html
+          echo 'Direct Dashboard now routes through the sidebar; framed Dashboard unaffected'
 
       - name: Smoke test application pages
         shell: bash
