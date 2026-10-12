@@ -275,6 +275,9 @@
   function translateSafeDynamic(){
     for(const element of document.querySelectorAll(DYNAMIC_UI_TEXT.join(',')))
       sidebarLabel(element);
+    const bell=document.querySelector('#assetNotifyWrap .asset-notify-btn');
+    if(bell&&bell.getAttribute('aria-label')!==value('Уведомления по оборудованию'))
+      bell.setAttribute('aria-label',value('Уведомления по оборудованию'));
     const restaurantFilter=document.querySelector('#sh-global-restaurant-filter');
     if(!restaurantFilter)return;
     const inputs=restaurantFilter.querySelectorAll('.sh-rf-list input[type="checkbox"]');
@@ -298,9 +301,6 @@
     const menu=restaurantFilter.querySelector('.sh-rf-menu');
     if(menu&&menu.getAttribute('aria-label')!==value('Выбор ресторанов'))
       menu.setAttribute('aria-label',value('Выбор ресторанов'));
-    const bell=document.querySelector('#assetNotifyWrap .asset-notify-btn');
-    if(bell&&bell.getAttribute('aria-label')!==value('Уведомления по оборудованию'))
-      bell.setAttribute('aria-label',value('Уведомления по оборудованию'));
   }
   function apply(){document.documentElement.lang=language;createSwitcher();applyExplicit();applySidebar();translateSafeDynamic()}
   let scheduled=false;
