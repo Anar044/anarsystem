@@ -20,6 +20,7 @@ import {getIikoSuppliers} from "./iiko/_lib/iiko-suppliers.js";
 import {findLinkedIncomingInvoices} from "./_lib/internal-order-incoming-lookup.js";
 import {validateShipmentOutgoingForReceipt} from "./_lib/internal-order-receipt-check.js";
 import {buildInternalDispatchPreview} from "./_lib/internal-order-dispatch-preview.js";
+import {validateInternalAccountCodes} from "./_lib/internal-order-account-codes.js";
 
 const H={"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"Content-Type,Authorization","Access-Control-Allow-Methods":"GET,POST,OPTIONS"};
 const str=v=>String(v??"").trim();
@@ -69,7 +70,6 @@ async function rows(c,orderId){
 const expose=s=>({id:s.id,number:s.number,status:s.status,documentDate:s.document_date,sourceStoreId:s.source_store_id,destinationStoreId:s.destination_store_id,counteragentId:s.counteragent_id,accountToCode:s.account_to_code,revenueAccountCode:s.revenue_account_code,lines:parse(s.lines_json),totalCents:s.total_cents,iikoDocumentId:s.iiko_document_id,iikoDocumentNumber:s.iiko_document_number,iikoStatus:s.iiko_status,error:s.error_text,createdAt:s.created_at,updatedAt:s.updated_at});
 // This is a configuration of CODE identifiers, not a replacement of iiko chart
 // of accounts. Empty pair preserves the server's default account mapping.
-const validAccountCode=x=>!x||(/^[\p{L}\p{N}_.\/-]{1,40}$/u).test(x);
 async function accountSettings(c){
   const row=await c.env.DB.prepare("SELECT revenue_account_code,expense_account_code,updated_at FROM sh_internal_order_account_settings WHERE server_scope=?1")
     .bind(c.scope).first();
@@ -269,11 +269,9 @@ export async function onRequestPost({request,env}){
     const body=await request.json().catch(()=>({})),c=await ctx(request,env),action=str(body.action);
     if(action==="save-account-settings"){
       requirePermission(c.access,"procurement.internal.configure");
-      const revenueAccountCode=str(body.revenueAccountCode),expenseAccountCode=str(body.expenseAccountCode);
-      if(!validAccountCode(revenueAccountCode)||!validAccountCode(expenseAccountCode))
-        throw err("Неверный код счёта: разрешены буквы, цифры, точка, дефис, подчёркивание и слэш; максимум 40 символов.",400);
-      if(Boolean(revenueAccountCode)!==Boolean(expenseAccountCode))
-        throw err("Укажите оба счёта — выручки и расхода — либо очистите оба поля для стандартных настроек iiko.",400);
+      const checked=validateInternalAccountCodes(body);
+      if(!checked.valid)throw err(checked.message,400);
+      const {revenueAccountCode,expenseAccountCode}=checked;
       const now=new Date().toISOString();
       await c.env.DB.prepare("INSERT INTO sh_internal_order_account_settings (server_scope,revenue_account_code,expense_account_code,updated_at,updated_by) VALUES (?1,?2,?3,?4,?5) ON CONFLICT(server_scope) DO UPDATE SET revenue_account_code=excluded.revenue_account_code,expense_account_code=excluded.expense_account_code,updated_at=excluded.updated_at,updated_by=excluded.updated_by")
         .bind(c.scope,revenueAccountCode,expenseAccountCode,now,str(c.auth.user.id)).run();
