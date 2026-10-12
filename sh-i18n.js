@@ -315,6 +315,9 @@
     '.proc-empty','.proc-history-block summary','.proc-list-section-title',
     '.proc-status','.proc-list-head p','.proc-section-head p',
     '.proc-history-note',
+    '.proc-status-badge','.io-pill','.status-pill','.status-badge',
+    '.cs-badge','.cs-payment-empty','.hrp-status','.hrp-source',
+    '.ts-ot-badge','.hr-badge','.order-status','.hr-empty',
     '.topbar-title','.topbar-sub','.crumb','.title','.subtitle',
     '.muted','.hint','.description','.section-title','.section-sub',
     '.stat-label','.khead','.ksub','.ctitle','.tab','.chip',
@@ -325,13 +328,21 @@
     '.monaco-editor,.cm-editor,.ag-root,[data-business-value],'+
     '[data-auth-name],[data-auth-email],[data-auth-avatar],[data-sh-i18n]';
   const NODE_SOURCES=new WeakMap(),ATTRIBUTE_SOURCES=new WeakMap();
+  // Only known system-state badges or empty-message cells are eligible
+  // inside data tables. Product, employee, supplier and document cells stay untouched.
+  const TABLE_UI_BADGES='.proc-status-badge,.io-pill,.status-pill,.status-badge,'+
+    '.cs-badge,.cs-payment-empty,.hrp-status,.hrp-source,'+
+    '.ts-ot-badge,.hr-badge,.order-status,.proc-empty,.hr-empty,.dash-empty';
+  function safeTableUiElement(element){
+    return Boolean(element?.closest?.('tbody')&&element.matches?.(TABLE_UI_BADGES));
+  }
   // A single known OLAP no-data cell is UI, not a product record.
   function emptyOlAPCell(element){
     return Boolean(element?.matches?.('.dash-empty')&&element.closest?.('#dashDishBody'));
   }
   function uiSafe(element){
     if(!element)return false;
-    if(element.closest?.(UI_EXCLUDE)&&!emptyOlAPCell(element))return false;
+    if(element.closest?.(UI_EXCLUDE)&&!emptyOlAPCell(element)&&!safeTableUiElement(element))return false;
     return Boolean(element.closest?.('main,.app-shell,.sh-workspace-page'));
   }
   const NUMBERED_UI_PATTERNS=[
@@ -388,7 +399,7 @@
     for(const element of root.querySelectorAll?.(UI_LABEL_SELECTORS)||[])candidates.push(element);
     for(const element of candidates){
       if(!uiSafe(element))continue;
-      if(element.closest?.('tbody')&&!emptyOlAPCell(element))continue;
+      if(element.closest?.('tbody')&&!emptyOlAPCell(element)&&!safeTableUiElement(element))continue;
       for(const node of element.childNodes||[])translateUiNode(node);
       if(element.matches?.('button,option,label'))translateUiAttribute(element,'title');
       if(element.matches?.('button,input,select,textarea'))translateUiAttribute(element,'aria-label');
