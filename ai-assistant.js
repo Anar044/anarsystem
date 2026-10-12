@@ -426,7 +426,7 @@ function setRecordingUi(active){
   const button=$('micBtn'),timer=$('recordTimer');
   button.classList.toggle('recording',active);
   button.setAttribute('aria-pressed',active?'true':'false');
-  button.title=active?'Остановить запись':'Голосовой запрос';
+  button.title=window.SH_I18N?.t(active?'Остановить запись':'Голосовой запрос')||(active?'Остановить запись':'Голосовой запрос');
   timer.hidden=!active;
   if(!active)timer.textContent='0:00';
 }
@@ -527,7 +527,7 @@ function bind(){$('newChatBtn').onclick=()=>newChat().catch(e=>note(e.message,'e
   const index=Number(button.dataset.speakIndex);
   const message=currentMessages[index];
   if(message?.role==='assistant')speakText(message.content,button)
-});document.querySelectorAll('[data-example]').forEach(b=>b.onclick=()=>{$('messageInput').value=b.dataset.example||b.textContent;size();send()})}
+});document.querySelectorAll('[data-example]').forEach(b=>b.onclick=()=>{$('messageInput').value=window.SH_I18N?.t(b.dataset.example||b.textContent)||(b.dataset.example||b.textContent);size();send()})}
 async function init(){bind();try{await Promise.all([loadStatus(),loadChats()]);if(conversations[0])await select(conversations[0].id)}catch(e){state('Ошибка','error');note(e.message,'error')}}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();
