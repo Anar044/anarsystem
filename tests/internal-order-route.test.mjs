@@ -1,47 +1,47 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {assessInternalShipmentRoute,UNSUPPORTED_STORE_BUYER_MESSAGE} from "../functions/api/_lib/internal-order-route.js";
-const order={central_department_id:"central-rms",destination_department_id:"rms1",
- central_store_id:"central-store",destination_store_id:"rms1-store"};
-const mapping={source_store_id:"central-store",destination_store_id:"rms1-store",
- outgoing_buyer_id:"rms1-supplier",incoming_supplier_id:"central-supplier",
- evidence_outgoing_id:"uuid-out",evidence_incoming_id:"uuid-in",
- evidence_outgoing_number:"50001",evidence_incoming_number:"10001"};
-const host="feature-internal-orders-rms.smarthoreca.pages.dev";
-test("cross-RMS route is not enabled merely by supplying an RMS destination",()=>{
- const r=assessInternalShipmentRoute(order);
- assert.equal(r.supported,false);
- assert.equal(r.code,"TEST_PREVIEW_ONLY");
-});
-test("main deployment or other hosts can never invoke this test stock write",()=>{
- for(const site of ["smarthoreca.pages.dev","anarsystem.pages.dev","feature-internal-orders-rms.anarsystem.pages.dev",""]){
-  const r=assessInternalShipmentRoute(order,{host:site,mapping});
+const order={central_department_id:"sender-rms",destination_department_id:"recipient-rms",
+  central_store_id:"sender-store",destination_store_id:"recipient-store"};
+const mapping={source_store_id:"sender-store",destination_store_id:"recipient-store",
+  outgoing_buyer_id:"recipient-counterparty",incoming_supplier_id:"sender-counterparty",
+  evidence_outgoing_id:"example-out",evidence_incoming_id:"example-in",
+  evidence_outgoing_number:"50001",evidence_incoming_number:"10001"};
+test("no mapping never permits a stock-affecting route",()=>{
+  const r=assessInternalShipmentRoute(order);
   assert.equal(r.supported,false);
-  assert.equal(r.code,"TEST_PREVIEW_ONLY");
- }
+  assert.equal(r.code,"ROUTE_MAPPING_REQUIRED");
 });
-test("only exact confirmed 50001-10001 pair enables the test invoice importer",()=>{
- const r=assessInternalShipmentRoute(order,{host,mapping});
- assert.equal(r.supported,true);assert.equal(r.testOnly,true);
- assert.equal(r.code,"CONFIRMED_TEST_ROUTE");
+test("confirmed mapping permits a supported shipment without preview-host gating",()=>{
+  for(const host of ["smarthoreca.pages.dev","feature-internal-orders-rms.smarthoreca.pages.dev",""]){
+    const r=assessInternalShipmentRoute(order,{mapping,host});
+    assert.equal(r.supported,true);
+    assert.equal(r.code,"CONFIRMED_RMS_ROUTE");
+  }
 });
-test("unmapped or wrong RMS or unverified reference pair fails closed",()=>{
- const candidates=[null,{...mapping,destination_store_id:"other"},
-   {...mapping,evidence_incoming_number:"10002"},
-   {...mapping,outgoing_buyer_id:"rms1-store"},
-   {...mapping,incoming_supplier_id:"central-store"},
-   {...mapping,evidence_outgoing_id:""}];
- for(const m of candidates){
-  const r=assessInternalShipmentRoute(order,{host,mapping:m});
-  assert.equal(r.supported,false);assert.equal(r.code,"TEST_ROUTE_NOT_CONFIRMED");
- }
+test("new verified invoice pairs can authorize a different RMS route",()=>{
+  const alternative={...mapping,evidence_outgoing_number:"9855",evidence_incoming_number:"4344"};
+  const r=assessInternalShipmentRoute(order,{mapping:alternative});
+  assert.equal(r.supported,true);
 });
-test("same RMS and undefined source are still forbidden",()=>{
- for(const o of [{...order,destination_department_id:"central-rms"},{...order,central_department_id:""}]){
-  assert.equal(assessInternalShipmentRoute(o,{host,mapping}).supported,false);
- }
+test("unrelated stores or missing authoritative evidence are refused",()=>{
+  for(const m of [null,{...mapping,destination_store_id:"wrong"},
+    {...mapping,source_store_id:"wrong"},
+    {...mapping,outgoing_buyer_id:"recipient-store"},
+    {...mapping,incoming_supplier_id:"sender-store"},
+    {...mapping,evidence_incoming_id:""},
+    {...mapping,evidence_outgoing_number:""}]){
+    assert.equal(assessInternalShipmentRoute(order,{mapping:m}).supported,false);
+  }
 });
-test("legacy invalid warehouse as User message still describes previous attempt",()=>{
- assert.match(UNSUPPORTED_STORE_BUYER_MESSAGE,/Store/);
- assert.match(UNSUPPORTED_STORE_BUYER_MESSAGE,/связанной приходной/);
+test("sender and recipient RMS must be different and have distinct stores",()=>{
+  for(const o of [{...order,destination_department_id:"sender-rms"},
+    {...order,destination_store_id:"sender-store"},
+    {...order,central_department_id:""}]){
+    assert.equal(assessInternalShipmentRoute(o,{mapping}).supported,false);
+  }
+});
+test("mapping never confuses iiko buyer counterparty with destination Store ID",()=>{
+  assert.match(UNSUPPORTED_STORE_BUYER_MESSAGE,/ID склада RMS/);
+  assert.match(UNSUPPORTED_STORE_BUYER_MESSAGE,/контрагента/);
 });
