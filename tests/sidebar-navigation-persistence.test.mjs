@@ -101,7 +101,7 @@ test("sidebar-only view transition waits for verified permissions without delayi
     addEventListener(type,fn){listeners.set("window:"+type,fn);}};
   const document={querySelector(selector){return selector===".sidebar .unified-main-nav"?nav:null},
     addEventListener(type,fn){listeners.set("document:"+type,fn);}};
-  new Function("window","document",shell.slice(start,stop))(window,document);
+  new Function("window","document","rememberVerifiedSidebarLinks",shell.slice(start,stop))(window,document,()=>{});
   let skipCount=0;
   const vt={finished:new Promise(()=>{}),skipTransition(){skipCount++}};
   listeners.get("window:pagereveal")({viewTransition:vt});
@@ -118,7 +118,7 @@ test("denied access releases the old sidebar snapshot and lets deny page render"
   const stop=shell.indexOf("  function syncChainScopeCookie(",start);
   const listeners=new Map(),window={SHAccess:{context:{allowed:false}},addEventListener(t,fn){listeners.set(t,fn)}};
   const document={querySelector(){return null},addEventListener(t,fn){listeners.set(t,fn)}};
-  new Function("window","document",shell.slice(start,stop))(window,document);
+  new Function("window","document","rememberVerifiedSidebarLinks",shell.slice(start,stop))(window,document,()=>{});
   let releases=0;
   listeners.get("pagereveal")({viewTransition:{finished:new Promise(()=>{}),skipTransition(){releases++}}});
   assert.equal(releases,0);
@@ -126,6 +126,18 @@ test("denied access releases the old sidebar snapshot and lets deny page render"
   assert.equal(releases,1);
 });
 
+test("sidebar restores only previously permission-verified links for the same user",()=>{
+  const segment=shell.slice(shell.indexOf("  const SIDEBAR_VERIFIED_CACHE_KEY="),
+    shell.indexOf("  // Cross-document navigation keeps"));
+  assert.match(segment,/sidebarCacheIdentity/);
+  assert.match(segment,/window\.SH_CURRENT_USER/);
+  assert.match(segment,/cached\.owner!==owner/);
+  assert.match(segment,/Date\.now\(\)-cached\.at>60000/);
+  assert.match(segment,/link\.hidden=!visible\.has\(href\)/);
+  assert.match(segment,/link\.dataset\.shAccessChecked='1'/);
+  assert.match(segment,/sidebarPermissionsReady\(\)/);
+  assert.match(css,/\.reports-nav-group:not\(\[data-sh-access-checked="1"\]\)/);
+});
 test("static sidebar demo uses the same app shell without authenticating to production data",()=>{
   for(const path of ["sidebar-navigation-demo-a.html","sidebar-navigation-demo-b.html"]){
     const demo=readFileSync(resolve(root,path),"utf8");
