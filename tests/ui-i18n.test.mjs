@@ -261,16 +261,17 @@ test('module UI localization changes text nodes only, not DOM children, routes, 
 
 test('dynamic module label translation preserves nested icons and row data',()=>{
   const labels=[];
-  function nodeContainer(text,inBusinessTable=false,systemStatus=false){
+  function nodeContainer(text,inBusinessTable=false,systemStatus=false,safeEmpty=false){
     const el={
       nodeType:1,tagName:'H2',childNodes:[],attributes:{},
       closest(sel){
+        if(sel.includes('#stock-modal-title,#mov-modal-title,#fc-modal-title,#fin-modal-title')&&el.id==='fin-modal-title')return el;
         if(sel.startsWith('tbody')&&inBusinessTable)return {tagName:'TBODY'};
         if(sel.startsWith('tbody'))return null;
         if(sel.startsWith('main,.app-shell,.sh-workspace-page'))return{tagName:'MAIN'};
         return null;
       },
-      matches(selector){return systemStatus&&selector.includes('.proc-status-badge')}
+      matches(selector){return (systemStatus&&selector.includes('.proc-status-badge'))||(safeEmpty&&selector.includes('.sh-i18n-empty-state'))}
     };
     const node={nodeType:3,nodeValue:text,parentElement:el};
     const icon={nodeType:1,tagName:'SVG',parentElement:el};
@@ -292,6 +293,14 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   const supplierTitle=nodeContainer('Поставщик · Best for Bar MMC');
   supplierTitle.el.id='proc-modal-title';
   const contractsCount=nodeContainer('Договоры · 3');
+  const stockCounter=nodeContainer('12 из 40 позиций');stockCounter.el.id='stock-result-meta';
+  const movementCounter=nodeContainer('5 из 17 строк');movementCounter.el.id='mov-result-meta';
+  const foodCounter=nodeContainer('3 из 8 ингредиентов');foodCounter.el.id='fc-result-meta';
+  const stockStatus=nodeContainer('Готово · 40 реальных строк');stockStatus.el.id='stock-status';
+  const emptyReport=nodeContainer('По выбранным фильтрам данных нет.',true,false,true);
+  const accountName=nodeContainer('Расход',false);accountName.el.id='fin-modal-title';
+  // A mock exclusion is implemented by closest('#...') for account headings.
+
   const listeners={};
   const body={
     hasAttribute:key=>key==='data-protected',
@@ -330,6 +339,13 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   assert.equal(olapSummary.node.nodeValue,'0 ₼ based on OLAP data.');
   assert.equal(supplierTitle.node.nodeValue,'Supplier · Best for Bar MMC');
   assert.equal(contractsCount.node.nodeValue,'Contracts · 3');
+  assert.equal(stockCounter.node.nodeValue,'12 of 40 items');
+  assert.equal(movementCounter.node.nodeValue,'5 of 17 rows');
+  assert.equal(foodCounter.node.nodeValue,'3 of 8 ingredients');
+  assert.equal(stockStatus.node.nodeValue,'Ready · 40 actual rows');
+  assert.equal(emptyReport.node.nodeValue,'No data matches the selected filters.');
+  assert.equal(accountName.node.nodeValue,'Расход','account name must remain untouched');
+
   assert.equal(title.el.childNodes[1],title.icon,'icon child identity remains stable');
   assert.equal(data.node.nodeValue,'Аванс','user data in table body is never translated');
   assert.equal(window.SH_I18N.setLanguage('az'),true);
@@ -344,6 +360,13 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   assert.equal(olapSummary.node.nodeValue,'0 ₼ OLAP məlumatlarına əsasən.');
   assert.equal(supplierTitle.node.nodeValue,'Təchizatçı · Best for Bar MMC');
   assert.equal(contractsCount.node.nodeValue,'Müqavilələr · 3');
+  assert.equal(stockCounter.node.nodeValue,'12 / 40 mövqe');
+  assert.equal(movementCounter.node.nodeValue,'5 / 17 sətir');
+  assert.equal(foodCounter.node.nodeValue,'3 / 8 inqrediyent');
+  assert.equal(stockStatus.node.nodeValue,'Hazırdır · 40 faktiki sətir');
+  assert.equal(emptyReport.node.nodeValue,'Seçilmiş filtrlər üzrə məlumat yoxdur.');
+  assert.equal(accountName.node.nodeValue,'Расход','account heading is business data');
+
   assert.equal(window.SH_I18N.setLanguage('ru'),true);
   assert.equal(title.node.nodeValue,'Расход');
   assert.equal(dashboardEmpty.node.nodeValue,'Нет данных по времени');
@@ -356,6 +379,13 @@ test('dynamic module label translation preserves nested icons and row data',()=>
   assert.equal(olapSummary.node.nodeValue,'0 ₼ по данным OLAP.');
   assert.equal(supplierTitle.node.nodeValue,'Поставщик · Best for Bar MMC');
   assert.equal(contractsCount.node.nodeValue,'Договоры · 3');
+  assert.equal(stockCounter.node.nodeValue,'12 из 40 позиций');
+  assert.equal(movementCounter.node.nodeValue,'5 из 17 строк');
+  assert.equal(foodCounter.node.nodeValue,'3 из 8 ингредиентов');
+  assert.equal(stockStatus.node.nodeValue,'Готово · 40 реальных строк');
+  assert.equal(emptyReport.node.nodeValue,'По выбранным фильтрам данных нет.');
+  assert.equal(accountName.node.nodeValue,'Расход');
+
 });
 test('late-created dynamic messages use approved selectors and do not translate chat answers',()=>{
   const js=readFileSync(resolve(root,'sh-i18n.js'),'utf8');
@@ -433,4 +463,35 @@ test('detached modals are localized only through known UI container roots',()=>{
   assert.ok(internal.includes('id="io-modal"'));
   const nomenclature=readFileSync(resolve(root,'nomenclature.js'),'utf8');
   assert.ok(nomenclature.includes("back.className='modal-back'"));
+});
+
+test('report empty states are marked explicitly; business rows, products, names and amounts are not',()=>{
+  for(const path of ['stock-balances.js','stock-movements.js','food-cost.js','labor-cost.js']){
+    const src=readFileSync(resolve(root,path),'utf8');
+    assert.ok(src.includes('class="sh-i18n-empty-state"'),path+' missing safe empty-row marker');
+    assert.ok(src.includes('tbody'),path+' should keep table business data structure');
+  }
+  const i18n=readFileSync(resolve(root,'sh-i18n.js'),'utf8');
+  assert.ok(i18n.includes('.fin-empty,.sh-i18n-empty-state'));
+  assert.ok(i18n.includes('#stock-modal-title,#mov-modal-title,#fc-modal-title,#fin-modal-title'));
+  for(const rootId of ['stock-modal','mov-modal','fc-modal','fin-account-modal'])
+    assert.ok(i18n.includes("'"+rootId+"'"),'missing modal observer '+rootId);
+  assert.ok(i18n.includes('.stock-modal .modal-item > span'));
+  assert.ok(i18n.includes('.mov-modal .modal-item > span'));
+  assert.ok(i18n.includes('.fc-modal .modal-item > span'));
+  assert.ok(!i18n.includes('.modal-item > strong'));
+});
+test('food, finance, labor and warehouse reporting labels have reviewed AZ and EN terms',()=>{
+  const {api}=createI18n('ru',true);
+  for(const [source,az,en] of [
+    ['КАРТОЧКА ОСТАТКА','QALIQ KARTI','STOCK BALANCE DETAILS'],
+    ['СКЛАДСКАЯ ОПЕРАЦИЯ','ANBAR ƏMƏLİYYATI','WAREHOUSE OPERATION'],
+    ['РАСЧЁТ ИНГРЕДИЕНТА','İNQREDİYENT HESABLAMASI','INGREDIENT CALCULATION'],
+    ['За выбранный период проводок по этому счёту нет.','Seçilmiş dövr üçün bu hesab üzrə mühasibat yazılışı yoxdur.','No accounting entries for this account in the selected period.'],
+    ['Получаем остатки и номенклатуру из iiko…','iiko-dan qalıqlar və nomenklatura alınır…','Loading stock balances and catalog from iiko…'],
+    ['Собираем складские документы iiko…','iiko anbar sənədləri toplanır…','Retrieving iiko stock documents…']
+  ]){
+    assert.equal(api.t(source,'az'),az);
+    assert.equal(api.t(source,'en'),en);
+  }
 });
