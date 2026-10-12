@@ -29,6 +29,28 @@
   let started=false;
   let navObserver=null;
   let routeWatch=null;
+  // Opt-in performance trace: no tokens, user IDs or response payloads.
+  // Add ?navDebug=1 on the workspace URL to log first render timings.
+  const NAV_DEBUG=new URLSearchParams(location.search).get('navDebug')==='1';
+  const routeTimings=new WeakMap();
+  function markNavigation(frame,stage){
+    if(!NAV_DEBUG||!frame)return;
+    const entry=routeTimings.get(frame);
+    if(!entry)return;
+    entry[stage]=Math.round(performance.now()-entry.start);
+    if(stage==='verified'||stage==='loaded'){
+      console.info('[Smart Horeca Navigation]',{
+        page:entry.page,
+        step:stage,
+        elapsedMs:entry[stage],
+        frameBootMs:entry['frame-boot'],
+        authMs:entry['auth-ready'],
+        accessMs:entry['access-ready'],
+        firstDisplayMs:entry.verified
+      });
+    }
+  }
+
 
   // Cloudflare Pages serves HTML routes as clean URLs (e.g. /dashboard)
   // even when the sidebar links to /dashboard.html. Match both forms,
@@ -234,6 +256,7 @@
     pendingFrame=null;
     pendingMode=null;
     host.classList.remove('sh-is-loading');
+    markNavigation(frame,'verified');
     frame.classList.remove('sh-pending');
     if(currentFrame&&currentFrame!==frame)currentFrame.remove();
     currentFrame=frame;
@@ -254,6 +277,13 @@
     if(!currentFrame)showEmpty(message);
     else setStatus(message);
   }
+  window.addEventListener('message',event=>{
+    if(!NAV_DEBUG||event.origin!==location.origin||event.data?.type!=='sh:embedded-nav-stage')return;
+    const frame=pendingFrame||currentFrame;
+    if(!frame||event.source!==frame.contentWindow)return;
+    if(!['frame-boot','auth-ready','access-ready'].includes(event.data.stage))return;
+    markNavigation(frame,event.data.stage);
+  });
   function onAccessReadyMessage(event){
     if(event.origin!==location.origin||event.data?.type!=='sh:embedded-access-ready')return;
     const frame=pendingFrame;
@@ -338,12 +368,19 @@
       activateMenu(route);
       return;
     }
+    // Re-clicking a pending route must not discard its already-in-progress
+    // document, Supabase session check and API requests.
+    if(pendingFrame?.getAttribute('src')===route.href){
+      activateMenu(route);
+      return;
+    }
     const id=++serial;
     if(pendingFrame){pendingFrame.remove();pendingFrame=null}
     // Select the destination immediately, rather than leaving old folders
     // expanded for the entire first-load delay.
     activateMenu(route);
     const frame=document.createElement('iframe');
+    if(NAV_DEBUG)routeTimings.set(frame,{page:route.href,start:performance.now()});
     frame.className='sh-workspace-frame sh-pending';
     frame.dataset.shPersistentWorkspace='1';
     frame.title='Smart Horeca — '+route.label;
@@ -353,6 +390,7 @@
     frame.src=route.href;
     frame.addEventListener('load',()=>{
       if(id!==serial)return;
+      markNavigation(frame,'loaded');
       if(frame===pendingFrame)onFrameLoad(frame,route,historyMode);
       else if(frame===currentFrame)observeEmbeddedNavigation(frame);
     });
