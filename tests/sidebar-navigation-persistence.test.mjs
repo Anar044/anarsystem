@@ -339,3 +339,22 @@ test("embedded pages do not rebuild the hidden sidebar",()=>{
   assert.equal(embedded.includes("buildUnifiedSidebar()"),false);
   assert.equal(embedded.includes("normalizeUnifiedSidebar()"),false);
 });
+
+test("static warmup targets only checked and authorized menu links",()=>{
+  const js=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
+  const section=js.slice(js.indexOf("  const STATIC_PREFETCH_PAGES="),js.indexOf("  function onSidebarClick("));
+  assert.ok(section.includes("link.dataset.shAccessChecked!=='1'"));
+  assert.ok(section.includes("if(!permitted(route))return null"));
+  assert.ok(section.includes("link.rel='prefetch'"));
+  assert.ok(section.includes("link.as='document'"));
+  assert.ok(section.includes("link.href=path"));
+  assert.ok(section.includes("prefetchedPages.size>=6"));
+  assert.ok(section.includes("navigator.connection?.saveData"));
+  assert.ok(!section.includes("createElement('iframe')"));
+  assert.ok(!section.includes("script.src"));
+  assert.ok(!section.includes("fetch("));
+  assert.ok(js.includes("installSidebarPrefetch(nav.closest('.sidebar'))"));
+  for(const sensitive of ["hr-payroll.html","hr-compensation.html","site-users.html"]){
+    assert.ok(!section.includes("'/" + sensitive + "'"));
+  }
+});
