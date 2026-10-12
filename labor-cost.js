@@ -155,7 +155,7 @@ function renderDays(){
     '<td class="num">'+money(x.laborCost)+'</td>'+
     '<td class="num">'+pct(x.laborCostPct)+'</td>'+
     '<td class="num">'+(x.splh===null?'—':money(x.splh))+'</td></tr>').join(''):
-    '<tr><td colspan="8" style="text-align:center;padding:30px;color:#8192a4">За месяц данных нет.</td></tr>';
+    '<tr><td colspan="8" class="sh-i18n-empty-state" style="text-align:center;padding:30px;color:#8192a4">За месяц данных нет.</td></tr>';
   $('lc-day-meta').textContent=state.daily.length+' дней';
 }
 function statusBadge(r){
@@ -179,7 +179,7 @@ function renderEmployees(){
       '<td class="num">'+perHour(r.costPerHour)+'</td>'+
       '<td class="num">'+pct(r.share)+'</td>'+
       '<td>'+statusBadge(r)+'</td></tr>';
-  }).join(''):'<tr><td colspan="9" style="text-align:center;padding:30px;color:#8192a4">Сотрудники не найдены.</td></tr>';
+  }).join(''):'<tr><td colspan="9" class="sh-i18n-empty-state" style="text-align:center;padding:30px;color:#8192a4">Сотрудники не найдены.</td></tr>';
   $('lc-employee-meta').textContent=rows.length+' сотрудников';
 }
 function exportCsv(){
