@@ -16,7 +16,7 @@ function navigationFactory(){
     "\nreturn {state:savedNavState,rememberSidebarNavigation,restoreSidebarScroll,navGroupKey};");
 }
 function mockGroup(key,open,{hidden=false}={}){
-  const classes=new Set([key,...open?["open"]:[]]);
+  const classes=new Set([key,...(open?["open"]:[])]);
   return {hidden,classList:{contains:k=>classes.has(k)},querySelector:()=>({dataset:{unifiedNavItem:key}})};
 }
 function instance(storage,groups,scrollTop=0){
