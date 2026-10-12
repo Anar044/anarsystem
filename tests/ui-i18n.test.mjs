@@ -267,7 +267,7 @@ test('dynamic module label translation preserves nested icons and row data',()=>
       closest(sel){
         if(sel.startsWith('tbody')&&inBusinessTable)return {tagName:'TBODY'};
         if(sel.startsWith('tbody'))return null;
-        if(sel==='main,.app-shell,.sh-workspace-page')return{tagName:'MAIN'};
+        if(sel.startsWith('main,.app-shell,.sh-workspace-page'))return{tagName:'MAIN'};
         return null;
       },
       matches(selector){return systemStatus&&selector.includes('.proc-status-badge')}
