@@ -110,6 +110,60 @@
   function sidebarNav(){
     return document.querySelector('.sidebar .unified-main-nav');
   }
+  const SIDEBAR_COLLAPSE_KEY='shPersistentSidebarCollapsedV1';
+  let expandedSidebarScroll=0;
+  function isSidebarCollapsed(){
+    return document.body.classList.contains('sh-sidebar-collapsed');
+  }
+  function setSidebarCollapsed(collapsed,{save=true}={}){
+    const sidebar=document.querySelector('.sidebar');
+    const button=sidebar?.querySelector('.sh-sidebar-collapse-btn');
+    if(!sidebar||!button)return;
+    const wasCollapsed=isSidebarCollapsed();
+    if(collapsed&&!wasCollapsed){
+      expandedSidebarScroll=sidebar.scrollTop;
+    }
+    document.body.classList.toggle('sh-sidebar-collapsed',collapsed);
+    if(collapsed)sidebar.scrollTop=0;
+    else if(wasCollapsed)sidebar.scrollTop=expandedSidebarScroll;
+    const text=collapsed?'Развернуть меню':'Свернуть меню';
+    button.setAttribute('aria-label',text);
+    button.setAttribute('title',text);
+    button.setAttribute('aria-expanded',String(!collapsed));
+    const icon=button.querySelector('.sh-sidebar-collapse-icon');
+    if(icon)icon.textContent=collapsed?'→':'←';
+    const label=button.querySelector('.sh-sidebar-collapse-label');
+    if(label)label.textContent=text;
+    if(save){
+      try{sessionStorage.setItem(SIDEBAR_COLLAPSE_KEY,collapsed?'1':'0')}catch(_){}
+    }
+  }
+  function installSidebarCollapse(sidebar){
+    if(!sidebar||sidebar.querySelector('.sh-sidebar-collapse-btn'))return;
+    const button=document.createElement('button');
+    button.type='button';
+    button.className='sh-sidebar-collapse-btn';
+    button.innerHTML='<span class="sh-sidebar-collapse-icon" aria-hidden="true">←</span><span class="sh-sidebar-collapse-label">Свернуть меню</span>';
+    sidebar.insertBefore(button,sidebar.firstChild);
+    button.addEventListener('click',()=>setSidebarCollapsed(!isSidebarCollapsed()));
+    // Native tooltips and accessible names make icon-only mode understandable.
+    const nav=sidebarNav();
+    for(const link of nav?.querySelectorAll('a[href]')||[]){
+      if(link.dataset.shAccessChecked!=='1'||link.hidden)continue;
+      const name=link.textContent.trim().replace(/\\s+/g,' ');
+      if(!name)continue;
+      link.title=name;
+      link.setAttribute('aria-label',name);
+    }
+    for(const toggle of nav?.querySelectorAll('.documents-nav-toggle')||[]){
+      const name=toggle.querySelector('.documents-nav-toggle-left')?.textContent.trim().replace(/\\s+/g,' ')||'Открыть раздел';
+      toggle.title=name;
+      toggle.setAttribute('aria-label',name);
+    }
+    let saved=false;
+    try{saved=sessionStorage.getItem(SIDEBAR_COLLAPSE_KEY)==='1'}catch(_){}
+    setSidebarCollapsed(saved,{save:false});
+  }
   function setGroupExpansion(group,open){
     // Never change RBAC visibility. Only update the view state of a
     // permission-approved group; users may still toggle groups themselves.
@@ -341,6 +395,16 @@
   function onSidebarClick(event){
     const groupToggle=event.target.closest('.documents-nav-toggle');
     if(groupToggle){
+      if(isSidebarCollapsed()){
+        // Icon-only groups are closed visually. Expand the rail and the
+        // requested group, without triggering the legacy toggle a second time.
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const group=groupToggle.closest('.documents-nav-group,.reports-nav-group');
+        setSidebarCollapsed(false);
+        if(group)showOnlyGroup(group);
+        return;
+      }
       // Run after app-shell.js updates the clicked button. Only one folder
       // remains open, but clicking a folder does not navigate or fetch data.
       queueMicrotask(()=>{
@@ -359,6 +423,7 @@
   function ensureMenu(){
     const nav=sidebarNav();
     if(!nav)return false;
+    installSidebarCollapse(nav.closest('.sidebar'));
     document.body.classList.add('sh-workspace-ready');
     nav.closest('.sidebar').addEventListener('click',onSidebarClick,true);
     if(navObserver){navObserver.disconnect();navObserver=null}
