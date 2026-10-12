@@ -325,3 +325,17 @@ test("navigation debug overlay is opt-in, hides by default and reports only stag
   assert.match(workspace,/page:new URL\(route\.href,location\.origin\)\.pathname/);
   assert.doesNotMatch(workspace,/routeTimings\.set\(frame,\{page:route\.href/);
 });
+
+test("embedded pages do not rebuild the hidden sidebar",()=>{
+  const shell=readFileSync(resolve(root,"app-shell.js"),"utf8");
+  const part=shell.slice(shell.indexOf("  function init(){"),shell.indexOf("  init();"));
+  const embedded=part.slice(part.indexOf("if(root.classList.contains('sh-pilot-embedded')){"),
+    part.indexOf("    installUnifiedStyle();removeLegacyStyles();buildUnifiedSidebar();"));
+  assert.ok(embedded.includes("removeLegacyStyles()"));
+  assert.ok(embedded.includes("ensureMobileResponsive()"));
+  assert.ok(embedded.includes("applySHBranding()"));
+  assert.ok(embedded.includes("markNetworkSharedPage()"));
+  assert.ok(embedded.includes("reveal()"));
+  assert.equal(embedded.includes("buildUnifiedSidebar()"),false);
+  assert.equal(embedded.includes("normalizeUnifiedSidebar()"),false);
+});
