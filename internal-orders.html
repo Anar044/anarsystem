@@ -36,12 +36,12 @@
 </div>
 <div class="io-pair-probe">
   <h3>Диагностика связанной пары накладных iikoChain</h3>
-  <p>Только чтение iiko API. На снимках проведены расходная №50001 из Mərkəzi Anbar и приходная №10001 в RMS 1 METBEX. Проверим сохранённые идентификаторы покупателя и поставщика, не изменяя остатки.</p>
+  <p>Администратор может проверить проведённую пару накладных и сохранить соответствие складов и внутренних контрагентов для будущих отгрузок. Диагностика ничего не проводит.</p>
   <form id="io-pair-probe-form" class="io-form">
     <div class="io-form-grid">
-      <label>Дата документов<input id="io-pair-date" type="date" value="2026-10-11" required></label>
-      <label>Расходная №<input id="io-pair-outgoing" value="50001" required maxlength="60"></label>
-      <label>Приходная №<input id="io-pair-incoming" value="10001" required maxlength="60"></label>
+      <label>Дата документов<input id="io-pair-date" type="date" required></label>
+      <label>Расходная №<input id="io-pair-outgoing" placeholder="Номер расходной" required maxlength="60"></label>
+      <label>Приходная №<input id="io-pair-incoming" placeholder="Номер приходной" required maxlength="60"></label>
     </div>
     <button class="io-btn io-outline" type="submit">Проверить пару в iiko (только чтение)</button>
     <button class="io-btn io-outline" type="button" id="io-find-linked-incoming">Найти связанную приходную автоматически</button>
@@ -51,11 +51,11 @@
 </div></section>
 <section class="io-panel" id="io-list-panel"><div class="io-list-head"><div class="io-section-head"><h2 id="io-list-title">Мои заявки</h2><p id="io-central-label">Центральный склад можно указать в настройках</p></div><div class="io-filters"><input id="io-query" type="search" placeholder="Номер, ресторан, товар…"><select id="io-status-filter"><option value="">Все статусы</option><option value="DRAFT">Черновики</option><option value="SUBMITTED">На согласовании</option><option value="APPROVED">Подтверждены</option><option value="PICKING">Комплектуются</option><option value="READY">Готовы к отгрузке</option><option value="CANCELLED">Отменены</option><option value="REJECTED">Отклонены</option></select></div></div><div class="io-table-wrap"><table class="io-table"><thead><tr><th>Заказ</th><th>Отправитель → Получатель</th><th>Дата поставки</th><th>Позиций</th><th>Статус</th><th></th></tr></thead><tbody id="io-rows"></tbody></table></div><p id="io-empty" class="io-empty" hidden>Заказов пока нет.</p></section>
 <section id="io-detail" class="io-panel" hidden></section>
-<section class="io-panel io-notice"><strong>Документы iiko</strong><p>Только для подтверждённого маршрута Mərkəzi Anbar → RMS 1 METBEX в этой тестовой ветке разрешена пробная расходная (один товар, до 1 основной единицы). Документ реально проводится и уменьшает остаток отправителя. Связанную приходную проверяем отдельно; её отсутствие означает незавершённую передачу. Другие маршруты и повторная отправка проблемной накладной остаются заблокированными.</p></section>
+<section class="io-panel io-notice"><strong>Складские документы</strong><p>При отгрузке формируется расходная на складе отправителя. Связанная приходная RMS-получателя и её статус проверяются отдельно. Накладные с неизвестным результатом повторно не отправляются.</p></section>
 </div></main></div>
 <div class="io-modal" id="io-modal" hidden><div class="io-overlay" id="io-modal-shade"></div><div class="io-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="io-modal-title"><header><h2 id="io-modal-title">Новый внутренний заказ</h2><button type="button" class="io-btn io-outline" id="io-close">✕</button></header>
 <form id="io-create-form" class="io-form"><div class="io-form-grid"><label>Откуда — RMS-отправитель<select id="io-source-dept" required></select></label><label>Склад отправителя<select id="io-source-store" required></select></label><label>Куда — RMS-получатель<select id="io-destination-dept" required></select></label><label>Склад получателя<select id="io-destination-store" required></select></label><label>Дата поставки<input id="io-needed-by" type="date" required></label><label>Комментарий<input id="io-comment" maxlength="2000" placeholder="Примечание к заказу"></label></div>
 <h3>Товары</h3><p class="io-muted">Количество вводится в выбранных фасовках из справочника iiko.</p><div id="io-lines"></div><datalist id="io-products"></datalist><button type="button" class="io-btn io-outline" id="io-add-product">+ Добавить товар</button>
 <footer><button type="button" class="io-btn io-outline" id="io-cancel">Отмена</button><button type="submit" class="io-btn io-primary" id="io-save">Сохранить черновик</button></footer></form></div></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/auth-config.js"></script><script src="/auth.js"></script><script src="/iiko-context.js?v=20261003-chain-3"></script><script src="/app-shell.js?v=20261012-internal-nav1"></script><script src="/smart-horeca-sidebar-brand.js?v=20260920-1"></script><script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script><script src="/internal-orders.js?v=20261012-equal-accounts1"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/auth-config.js"></script><script src="/auth.js"></script><script src="/iiko-context.js?v=20261003-chain-3"></script><script src="/app-shell.js?v=20261012-internal-nav1"></script><script src="/smart-horeca-sidebar-brand.js?v=20260920-1"></script><script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script><script src="/internal-orders.js?v=20261012-prod-clean1"></script>
 </body></html>
