@@ -33,11 +33,24 @@
   // Add ?navDebug=1 on the workspace URL to log first render timings.
   const NAV_DEBUG=new URLSearchParams(location.search).get('navDebug')==='1';
   const routeTimings=new WeakMap();
+  const timingPanel=document.getElementById('sh-nav-performance');
+  if(NAV_DEBUG&&timingPanel){
+    timingPanel.hidden=false;
+    timingPanel.textContent='Диагностика переходов включена. Откройте раздел меню.';
+  }
   function markNavigation(frame,stage){
     if(!NAV_DEBUG||!frame)return;
     const entry=routeTimings.get(frame);
     if(!entry)return;
     entry[stage]=Math.round(performance.now()-entry.start);
+    if(timingPanel){
+      const num=key=>entry[key]===undefined?'…':entry[key]+' мс';
+      timingPanel.textContent='Переход: '+entry.page+
+        ' · начало '+num('frame-boot')+
+        ' · авторизация '+num('auth-ready')+
+        ' · права '+num('access-ready')+
+        ' · показ '+num('verified');
+    }
     if(stage==='verified'||stage==='loaded'){
       console.info('[Smart Horeca Navigation]',{
         page:entry.page,
@@ -117,6 +130,7 @@
   function shellUrl(route){
     const url=new URL(shellPath,location.origin);
     url.searchParams.set('target',route.href);
+    if(NAV_DEBUG)url.searchParams.set('navDebug','1');
     return url.pathname+url.search;
   }
   function setStatus(message){if(status)status.textContent=message}
@@ -380,7 +394,7 @@
     // expanded for the entire first-load delay.
     activateMenu(route);
     const frame=document.createElement('iframe');
-    if(NAV_DEBUG)routeTimings.set(frame,{page:route.href,start:performance.now()});
+    if(NAV_DEBUG)routeTimings.set(frame,{page:new URL(route.href,location.origin).pathname,start:performance.now()});
     frame.className='sh-workspace-frame sh-pending';
     frame.dataset.shPersistentWorkspace='1';
     frame.title='Smart Horeca — '+route.label;
