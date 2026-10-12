@@ -309,12 +309,19 @@
   const UI_LABEL_SELECTORS=[
     'h1','h2','h3','h4','h5','h6','button','label','legend','summary',
     'th','option','p','span','small','strong','b',
+    '.dash-empty','.insights .insight p',
+    '.sha-empty','.sha-hint','.sha-chat-head p','.sha-chats-head span',
+    '.cash-modern-empty','.cs-empty','.cs-status',
+    '.proc-empty','.proc-history-block summary','.proc-list-section-title',
+    '.proc-status','.proc-list-head p','.proc-section-head p',
+    '.proc-history-note',
     '.topbar-title','.topbar-sub','.crumb','.title','.subtitle',
     '.muted','.hint','.description','.section-title','.section-sub',
     '.stat-label','.khead','.ksub','.ctitle','.tab','.chip',
     '.toolbar-title','.panel-title','.field-label'
   ].join(',');
   const UI_EXCLUDE='tbody,[contenteditable],.sh-rf-list,.asset-notify-item,'+
+    '.sha-messages,.sha-conversation-list,.cm-history,.cash-order-items,'+
     '.monaco-editor,.cm-editor,.ag-root,[data-business-value],'+
     '[data-auth-name],[data-auth-email],[data-auth-avatar],[data-sh-i18n]';
   const NODE_SOURCES=new WeakMap(),ATTRIBUTE_SOURCES=new WeakMap();
@@ -330,11 +337,11 @@
     const source=NODE_SOURCES.get(node)||literal.trim();
     if(!Object.prototype.hasOwnProperty.call(LABELS,source))return;
     NODE_SOURCES.set(node,source);
-    const text=literal.replace(/^\\s*/, '').replace(/\\s*$/, '');
+    const text=literal.replace(/^\s*/, '').replace(/\s*$/, '');
     const next=value(source);
     if(text===next)return;
-    const leading=literal.match(/^\\s*/)?.[0]||'';
-    const trailing=literal.match(/\\s*$/)?.[0]||'';
+    const leading=literal.match(/^\s*/)?.[0]||'';
+    const trailing=literal.match(/\s*$/)?.[0]||'';
     node.nodeValue=leading+next+trailing;
   }
   function translateUiAttribute(element,attribute){
