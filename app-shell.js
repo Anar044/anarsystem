@@ -1,6 +1,13 @@
 (()=>{
   'use strict';
   const root=document.documentElement;
+  // A single opt-in parent shell owns the sidebar. Legacy modules still
+  // execute their own scripts and server-authorized actions in the content pane.
+  try{
+    if(window.frameElement?.dataset?.shPersistentWorkspace==='1'){
+      root.classList.add('sh-pilot-embedded');
+    }
+  }catch(_){}
   function syncChainScopeCookie(ids=null){
     let values=Array.isArray(ids)?ids:null;
     if(!values){
