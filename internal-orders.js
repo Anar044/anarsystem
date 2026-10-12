@@ -587,7 +587,7 @@ async function handleIikoPairProbe(event){
     const refs=r.supplierReferences||{};
     html+='<div class="io-pair-document"><strong>Проверка контрагентов по справочнику iiko</strong>'+
       '<p>Поиск в справочнике: '+esc(refs.supplierLookupStatus||"не выполнялся")+' · записей '+esc(refs.supplierDirectoryEntries??"—")+'</p>'+
-      '<p>Покупатель расходной №50001: <strong>'+esc(refs.outgoingBuyerSupplier?.name||"название пока не определено")+'</strong> '+
+      '<p>Покупатель расходной №'+esc(o?.number||"—")+': <strong>'+esc(refs.outgoingBuyerSupplier?.name||"название пока не определено")+'</strong> '+
       (refs.supplierDirectoryMatchedOutgoingBuyer?"(найден в справочнике поставщиков)":"(в справочнике пока не найден)")+'</p>'+
       '<p>ID покупателя совпадает с ID склада-получателя: <strong>'+(refs.outgoingBuyerIsDestinationStore?"да":"нет")+'</strong></p>'+
       '<p>Поставщик приходной №10001: <strong>'+esc(refs.incomingSupplierRecord?.name||"название пока не определено")+'</strong> '+
