@@ -80,3 +80,15 @@ test("sidebar cannot become visible until every link and group is permission che
   assert.match(shell,/\[\.\.\.groups\]\.some\(group=>group\.dataset\.shAccessChecked!=='1'\)/);
   assert.match(shell,/side\.dataset\.shNavReady='1'/);
 });
+
+test("cross-page transitions retain old page until secure new sidebar is ready",()=>{
+ const css=readFileSync(resolve(root,"app-shell.css"),"utf8");
+ assert.match(css,/@view-transition\s*\{\s*navigation:\s*auto;/);
+ assert.match(css,/::view-transition-old\(root\)/);
+ assert.match(shell,/addEventListener\('pagereveal'/);
+ assert.match(shell,/pendingPageNavigationTransition=event\.viewTransition/);
+ assert.match(shell,/finishPageNavigationTransition\(\)/);
+ assert.match(shell,/skipTransition\(\)/);
+ assert.match(shell,/prefetchSidebarLink/);
+ assert.match(shell,/link\.dataset\.shAccessChecked!=='1'/);
+});
