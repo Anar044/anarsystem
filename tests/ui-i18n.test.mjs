@@ -7,8 +7,9 @@ import {fileURLToPath} from 'node:url';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const script=readFileSync(resolve(root,'sh-i18n.js'),'utf8');
+const catalogSrc=readFileSync(resolve(root,'sh-i18n-catalog.js'),'utf8');
 
-function createI18n(initial){
+function createI18n(initial,loadCatalog=false){
   const listeners={};
   const saved=new Map(initial?[['shUiLanguage',initial]]:[]);
   const document={
@@ -26,6 +27,7 @@ function createI18n(initial){
   };
   window.parent=window;
   const storage={getItem:key=>saved.get(key)||null,setItem:(key,v)=>saved.set(key,v)};
+  if(loadCatalog)runInNewContext(catalogSrc,{window});
   runInNewContext(script,{
     window,document,localStorage:storage,location:{origin:'https://preview.smarthoreca.pages.dev'},
     requestAnimationFrame:fn=>fn(),MutationObserver:class{observe(){} disconnect(){}},
@@ -189,4 +191,70 @@ test('Dashboard status helper hides success and preserves localized errors',()=>
   assert.equal(element.hidden,false);
   assert.equal(element.role,'alert');
   assert.equal(element.textContent,'🔴 OLAP: connection lost');
+});
+
+test('shared module catalog supplies AZ and EN labels for operations and HR',()=>{
+  const {api}=createI18n('ru',true);
+  const cases=[
+    ['Кассовые смены','Kassa növbələri','Cashier shifts'],
+    ['Список документов','Sənədlərin siyahısı','Document list'],
+    ['План счетов','Hesablar planı','Chart of accounts'],
+    ['Поставщик','Təchizatçı','Supplier'],
+    ['Табель сотрудников','İşçilərin iş vaxtı cədvəli','Employee timesheet'],
+    ['Настройки налогов','Vergi ayarları','Tax settings'],
+    ['Сохранить операцию','Əməliyyatı saxla','Save transaction'],
+    ['Опубликовать меню','Menyunu dərc et','Publish menu'],
+    ['Добавить банк','Bank əlavə et','Add bank'],
+    ['Остаток на конец','Son qalıq','Closing balance']
+  ];
+  for(const [source,az,en] of cases){
+    assert.equal(api.t(source,'az'),az,source+' AZ');
+    assert.equal(api.t(source,'en'),en,source+' EN');
+    assert.equal(api.t(source,'ru'),source,source+' RU');
+  }
+  for(const businessText of ['Tomato premium grade','RMS Gelato Park','65.00 ₼']){
+    assert.equal(api.t(businessText,'az'),businessText);
+    assert.equal(api.t(businessText,'en'),businessText);
+  }
+});
+test('every main protected module imports catalog before locale engine',()=>{
+  const paths=[
+    'persistent-workspace.html','dashboard.html','procurement.html','internal-orders.html',
+    'cash-shifts.html','cash/index.html','finance.html','reports.html',
+    'nomenclature.html','stock-balances.html','stock-movements.html',
+    'ai-assistant.html','ai-documents.html','site-users.html','hr-employees.html',
+    'hr-payroll.html','qr-menu.html','audit-log.html','abc-xyz.html',
+    'food-cost.html','labor-cost.html','menu-engineering.html','waiter-performance.html',
+    'supplier-balances.html','pnl.html','hr-employee.html','hr-payroll-adjustments.html',
+    'hr-payroll-accounting.html','hr-payroll-tax-settings.html','hr-timesheet.html',
+    'hr-timeclock.html','hr-compensation.html','hr-role-schedules.html',
+    'hr-calendar.html','rashodnye-nakladnye.html','nakladnye.html',
+    'akty-spisaniya.html','vnutrennie-peremescheniya.html','assets-plan/assets.html',
+    'assets.html','documents.html','events.html','plugin-events.html'
+  ];
+  for(const page of paths){
+    const html=readFileSync(resolve(root,page),'utf8');
+    const catalog=html.indexOf('/sh-i18n-catalog.js');
+    const locale=html.indexOf('/sh-i18n.js');
+    assert.ok(catalog>=0&&locale>catalog,page+' must load dictionary before engine');
+  }
+  for(const publicPage of ['login.html','register.html','menu.html','rfq-response.html']){
+    const html=readFileSync(resolve(root,publicPage),'utf8');
+    assert.ok(!html.includes('/sh-i18n-catalog.js'),publicPage+' has a separate access/user flow');
+  }
+});
+test('module UI localization changes text nodes only, not DOM children, routes, IDs or data',()=>{
+  const js=readFileSync(resolve(root,'sh-i18n.js'),'utf8');
+  const start=js.indexOf('  const UI_LABEL_SELECTORS='),end=js.indexOf('  function apply(){',start);
+  const snippet=js.slice(start,end);
+  assert.ok(start>0&&end>start);
+  assert.ok(snippet.includes("const NODE_SOURCES=new WeakMap()"));
+  assert.ok(snippet.includes("node.nodeValue=leading+next+trailing"));
+  assert.ok(snippet.includes("tbody,[contenteditable]"));
+  assert.ok(snippet.includes("translateUiAttribute(input,'placeholder')"));
+  assert.ok(!snippet.includes('element.innerHTML='));
+  assert.ok(!snippet.includes('element.textContent='));
+  assert.ok(!/\.checked\s*=/.test(snippet));
+  assert.ok(!/\.value\s*=/.test(snippet));
+  assert.ok(!snippet.includes("fetch("));
 });
