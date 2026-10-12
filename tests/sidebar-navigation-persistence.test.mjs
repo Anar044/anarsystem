@@ -142,3 +142,71 @@ test("embedded content hides duplicate sidebar only when opened by the pilot fra
   assert.match(css,/html\.sh-pilot-embedded \.sidebar\{display:none!important\}/);
   assert.match(css,/html\.sh-pilot-embedded \.app-shell>\.main/);
 });
+
+test("route activation closes old sidebar groups and opens only the active category",()=>{
+  const source=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
+  const begin=source.indexOf("  function setGroupExpansion(group,open){");
+  const end=source.indexOf("  function syncAddress(",begin);
+  assert.ok(begin>=0&&end>begin);
+  const classes=(initial=[])=>{
+    const set=new Set(initial);
+    return{contains:key=>set.has(key),toggle:(key,flag)=>{
+      if(flag===undefined)flag=!set.has(key);
+      flag?set.add(key):set.delete(key);
+    }};
+  };
+  function group(){
+    const toggle={classList:classes(["active"]),attributes:{},
+      setAttribute(k,v){this.attributes[k]=v}};
+    const sub={hidden:false};
+    return{hidden:false,classList:classes(["open"]),querySelector(q){
+      if(q===".documents-nav-toggle")return toggle;
+      if(q===".documents-subnav")return sub;
+      return null;
+    },toggle,sub};
+  }
+  const procurement=group(),reports=group();
+  const dashboard={href:"/index.html",classList:classes(),
+    getAttribute(){return this.href},closest(){return null}};
+  const procurementLink={href:"/procurement.html?view=catalog",classList:classes(),
+    getAttribute(){return this.href},closest(){return procurement}};
+  const reportLink={href:"/reports.html",classList:classes(),
+    getAttribute(){return this.href},closest(){return reports}};
+  const nav={querySelectorAll(sel){
+    if(sel==="a[href]")return[dashboard,procurementLink,reportLink];
+    if(sel===".documents-nav-group,.reports-nav-group")return[procurement,reports];
+    return[];
+  }};
+  const make=new Function("sidebarNav","resolvePilotRoute",
+    source.slice(begin,end)+"\\nreturn {activateMenu,showOnlyGroup};");
+  const {activateMenu}=make(()=>nav,href=>({
+    "/index.html":{href:"/dashboard.html"},
+    "/procurement.html?view=catalog":{href:"/procurement.html?view=catalog"},
+    "/reports.html":{href:"/reports.html"}
+  })[href]||null);
+  activateMenu({href:"/dashboard.html"});
+  assert.equal(procurement.classList.contains("open"),false);
+  assert.equal(reports.classList.contains("open"),false);
+  assert.equal(procurement.sub.hidden,true);
+  assert.equal(reports.sub.hidden,true);
+  activateMenu({href:"/procurement.html?view=catalog"});
+  assert.equal(procurement.classList.contains("open"),true);
+  assert.equal(procurement.sub.hidden,false);
+  assert.equal(procurement.toggle.attributes["aria-expanded"],"true");
+  assert.equal(reports.classList.contains("open"),false);
+  activateMenu({href:"/reports.html"});
+  assert.equal(procurement.classList.contains("open"),false);
+  assert.equal(reports.classList.contains("open"),true);
+});
+test("first-party child signals verified access to the persistent shell before iframe load",()=>{
+  const workspace=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
+  const markup=readFileSync(resolve(root,"persistent-workspace.html"),"utf8");
+  assert.match(shell,/postMessage\(\{type:'sh:embedded-access-ready'\},location\.origin\)/);
+  assert.match(workspace,/event\.origin!==location\.origin/);
+  assert.match(workspace,/event\.source!==frame\.contentWindow/);
+  assert.match(workspace,/frame\.contentWindow\.SHAccess\?\.context\?\.allowed!==true/);
+  assert.match(workspace,/frame\.contentDocument\?\.getElementById\('sh-access-denied'\)/);
+  assert.match(workspace,/revealFrame\(frame,route,pendingMode\|\|'push'\)/);
+  assert.match(workspace,/activateMenu\(route\);\s*const frame=document\.createElement\('iframe'\)/);
+  assert.match(markup,/sh-workspace-frame-host\.sh-is-loading::after/);
+});
