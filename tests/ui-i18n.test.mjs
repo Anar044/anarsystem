@@ -28,7 +28,8 @@ function createI18n(initial){
   const storage={getItem:key=>saved.get(key)||null,setItem:(key,v)=>saved.set(key,v)};
   runInNewContext(script,{
     window,document,localStorage:storage,location:{origin:'https://preview.smarthoreca.pages.dev'},
-    requestAnimationFrame:fn=>fn(),CustomEvent:class{constructor(name,opts){this.name=name;this.detail=opts.detail}}
+    requestAnimationFrame:fn=>fn(),MutationObserver:class{observe(){} disconnect(){}},
+    CustomEvent:class{constructor(name,opts){this.name=name;this.detail=opts.detail}}
   });
   listeners['document:DOMContentLoaded']();
   return{api:window.SH_I18N,document,window,saved,listeners};
@@ -116,4 +117,40 @@ test('annotated module UI loads same language but excludes user names and mutabl
   assert.doesNotMatch(procurement,/<[^>]*id="proc-status"[^>]*data-sh-i18n/);
   const orders=readFileSync(resolve(root,'internal-orders.html'),'utf8');
   assert.doesNotMatch(orders,/<[^>]*id="io-message"[^>]*data-sh-i18n/);
+});
+
+test('late-rendered equipment labels and restaurant controls have exact AZ/EN translations',()=>{
+  const {api}=createI18n();
+  const labels=[
+    'Оборудование','ТО · гарантия · ремонты · замена','Открыть план →',
+    'В эксплуатации','ТО ≤ 30 дней','Гарантия ≤ 60 дней',
+    'Проверить замену','Ремонты 12 мес.','По оборудованию нет срочных задач.',
+    'Рестораны','Показать в отчётах','Выбрать все','Снять все','Применить',
+    'Все рестораны','Уведомления по оборудованию'
+  ];
+  for(const label of labels){
+    assert.notEqual(api.t(label,'az'),label,'AZ missing: '+label);
+    assert.notEqual(api.t(label,'en'),label,'EN missing: '+label);
+  }
+  assert.equal(api.t('Pomidor 5kg','az'),'Pomidor 5kg');
+});
+test('dynamic translation touches only UI labels, never restaurant data or selected checkboxes',()=>{
+  const js=readFileSync(resolve(root,'sh-i18n.js'),'utf8');
+  const from=js.indexOf('  const DYNAMIC_UI_TEXT=');
+  const to=js.indexOf('  function apply(){',from);
+  const section=js.slice(from,to);
+  assert.ok(section.includes("'#assetDashCard .asset-dash-metric > span'"));
+  assert.ok(section.includes("'#sh-global-restaurant-filter .sh-rf-label'"));
+  assert.ok(section.includes("querySelectorAll('.sh-rf-list input[type"));
+  assert.ok(section.includes("input.checked"));
+  assert.ok(!section.includes('.sh-rf-list label span'));
+  assert.ok(!section.includes('.asset-dash-alert b'));
+  assert.ok(!/\.checked\s*=/.test(section));
+  assert.ok(!/\.value\s*=/.test(section));
+  assert.ok(!/fetch\s*\(/.test(section));
+  assert.ok(!section.includes('window.location'));
+});
+test('language selector stays accessible at bottom of scrolling navigation',()=>{
+  const page=readFileSync(resolve(root,'persistent-workspace.html'),'utf8');
+  assert.match(page,/\.sidebar \.sh-language-picker\{[\s\S]*?position:sticky;bottom:0;z-index:20/);
 });
