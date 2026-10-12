@@ -75,6 +75,10 @@ test("persistent demo navigates separate HTML documents without rebuilding sideb
   }
   assert.match(demo,/<aside class="sidebar"><\/aside>/);
   assert.match(demo,/<iframe class="persistent-demo-frame"/);
+  assert.match(demo,/<style id="sh-persistent-demo-style">/);
+  assert.match(shell,/style\.id!==\x27sh-persistent-demo-style\x27/);
+  assert.match(demo,/\.persistent-demo-frame\{position:absolute;inset:0;/);
+  assert.match(demo,/\.persistent-demo-frame-host\{position:relative;display:block;/);
   assert.match(demo,/sidebar\.addEventListener\('click'/);
   assert.match(demo,/event\.preventDefault\(\)/);
   assert.match(demo,/host\.appendChild\(next\)/);
