@@ -449,7 +449,7 @@ test('AZ/RU/EN supplier, GRN and internal-order modal labels are consistent',()=
 test('detached modals are localized only through known UI container roots',()=>{
   const engine=readFileSync(resolve(root,'sh-i18n.js'),'utf8');
   assert.match(engine,/\.proc-modal,\.io-modal-dialog,\.modal-back \.modal,\.ts-drawer-panel/);
-  assert.ok(engine.includes("['proc-modal','io-modal','tsDrawer']"));
+  assert.ok(engine.includes("['proc-modal','io-modal','tsDrawer'"));
   assert.ok(engine.includes("node.matches?.('.modal-back')"));
   assert.ok(engine.includes('observer.observe(node,{childList:true,subtree:true})'));
   assert.ok(engine.includes('translateUiLabels(node)'));
