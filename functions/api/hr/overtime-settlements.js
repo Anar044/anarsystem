@@ -1,5 +1,6 @@
 import { loadRequestIikoState, privateConnection } from "../iiko/_lib/user-state.js";
 import { resolveHrRestaurantScope, filterEmployeesByScope } from "./_lib/restaurant-scope.js";
+import { approvalDepartments } from "./_lib/department-approvals.js";
 import { hrAccessForUser, requireCapability } from "./_lib/timesheet-adjustments.js";
 import { logAuditEvent } from "../_lib/audit-log.js";
 import { getPayrollAccountingConfig, getPayrollBankAccounts, payrollAccountingReady, syncOvertimePaymentPosting, cancelAccountingSource } from "./_lib/payroll-accounting.js";
@@ -24,14 +25,14 @@ async function ensure(db){
     db.prepare("CREATE TABLE IF NOT EXISTS hr_overtime_payment_sources (user_id TEXT NOT NULL,payment_id TEXT NOT NULL,account_id TEXT NOT NULL DEFAULT '',account_name TEXT NOT NULL DEFAULT '',account_type TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,PRIMARY KEY(user_id,payment_id))")
   ]);
 }
-async function scopedEmployees(request,env,userId){
-  const scope=await resolveHrRestaurantScope(request,env,userId);
+async function scopedEmployees(request,env,userId,access=null){
+  const scope=await resolveHrRestaurantScope(request,env,userId,access);
   const r=await env.DB.prepare("SELECT iiko_employee_id,employee_code,display_name,first_name,middle_name,last_name,role_code,role_name,department_code,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE").bind(userId).all();
   const employees=filterEmployeesByScope(r.results||[],scope).filter(x=>!Number(x.is_deleted)).map(e=>({id:String(e.iiko_employee_id),code:e.employee_code||"",name:[e.last_name,e.first_name,e.middle_name].filter(Boolean).join(" ")||e.display_name||e.employee_code||String(e.iiko_employee_id),roleCode:e.role_code||"",roleName:e.role_name||e.role_code||"",departmentCode:e.department_code||""}));
   return{scope,employees};
 }
-async function snapshot(request,env,userId,month){
-  const b=monthBounds(month),scoped=await scopedEmployees(request,env,userId),employees=scoped.employees,ids=employees.map(x=>x.id),accruals=[],payments=[];
+async function snapshot(request,env,userId,month,access=null){
+  const b=monthBounds(month),scoped=await scopedEmployees(request,env,userId,access),employees=scoped.employees,ids=employees.map(x=>x.id),accruals=[],payments=[];
   for(const part of chunkList(ids,50)){
     if(!part.length)continue;
     const qs=part.map(()=>"?").join(",");
@@ -62,23 +63,27 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:"Требуется авторизация"},401);
-    requireCapability(state.user,"canViewPayroll");await ensure(env.DB);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+    requireCapability(state.user,"canViewPayroll",state.access);await ensure(env.DB);
     const url=new URL(request.url),month=monthOnly(url.searchParams.get("month"));if(!month)return json({success:false,message:"Укажите месяц YYYY-MM"},400);
-    const out=await snapshot(request,env,state.user.id,month);out.access=hrAccessForUser(state.user);return json(out);
+    const out=await snapshot(request,env,state.storageUserId||state.user.id,month,state.access);out.access=hrAccessForUser(state.user,state.access);return json(out);
   }catch(e){console.error("[HR-OVERTIME-SETTLEMENTS-GET]",e);return json({success:false,message:e?.message||String(e),access:e?.access||undefined},e?.status||500)}
 }
 export async function onRequestPost({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:"Требуется авторизация"},401);
-    const access=requireCapability(state.user,"canSettlePayroll");await ensure(env.DB);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+    const access=requireCapability(state.user,"canSettlePayroll",state.access);await ensure(env.DB);
     const body=await request.json().catch(()=>({})),action=clean(body.action,40).toUpperCase(),month=monthOnly(body.month);if(!month)return json({success:false,message:"Укажите месяц YYYY-MM"},400);
-    const userId=state.user.id,b=monthBounds(month),actorId=clean(state.user.id,180),actor=actorLabel(state.user),t=new Date().toISOString(),connection=privateConnection(state.state);
+    const userId=state.storageUserId||state.user.id,b=monthBounds(month),actorId=clean(state.user.id,180),actor=actorLabel(state.user),t=new Date().toISOString(),connection=privateConnection(state.state);
+    const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
+    if(scope?.isChain&&approvalDepartments(scope).length!==1)return json({success:false,message:'Для записи или отмены выплаты выберите один ресторан CHAIN'},409);
     if(action==="RECORD_PAYMENT"){
       const employeeId=clean(body.employeeId,180),paymentDate=dateOnly(body.paymentDate),amount=money(body.amount),method=clean(body.paymentMethod||"CASH",30).toUpperCase(),bankAccountId=clean(body.bankAccountId,180),reference=clean(body.reference,180),note=clean(body.note,1000);
       if(!employeeId||!paymentDate||amount<=0)return json({success:false,message:"Укажите сотрудника, дату и сумму выплаты"},400);
       if(paymentDate<b.from||paymentDate>b.to)return json({success:false,message:"Дата выплаты должна относиться к выбранному месяцу"},400);
       if(!["CASH","BANK","OTHER"].includes(method))return json({success:false,message:"Некорректный способ выплаты"},400);
-      const before=await snapshot(request,env,userId,month),row=before.rows.find(x=>String(x.id)===employeeId);
+      const before=await snapshot(request,env,userId,month,state.access),row=before.rows.find(x=>String(x.id)===employeeId);
       if(!row)return json({success:false,message:"Сотрудник не найден в выбранном подразделении"},404);
       if(amount>Number(row.closingDebt||0)+.009)return json({success:false,message:"Сумма выплаты превышает долг "+Number(row.closingDebt||0).toFixed(2)+" AZN"},409);
       const accounting=await getPayrollAccountingConfig(env.DB,userId,row.departmentCode||"");
@@ -109,7 +114,7 @@ export async function onRequestPost({request,env}){
         ]);
         throw error;
       }
-      const after=await snapshot(request,env,userId,month);after.access=access;
+      const after=await snapshot(request,env,userId,month,state.access);after.access=access;
       await logAuditEvent({request,env,connection,action:"CREATE",entityType:"HR_OVERTIME_PAYMENT",entityId:id,entityLabel:"Выплата доп. часов · "+row.name,before:null,after:{employeeId,paymentDate,amount,method,paymentAccount:selectedPaymentAccount,reference,note},restaurantIds:after.restaurantScope?.departmentIds||[],metadata:{month}});
       return json(after);
     }
@@ -117,11 +122,11 @@ export async function onRequestPost({request,env}){
       const paymentId=clean(body.paymentId,180),reason=clean(body.reason,1000);if(!paymentId)return json({success:false,message:"Не указана выплата"},400);
       const old=await env.DB.prepare("SELECT * FROM hr_overtime_payments WHERE user_id=?1 AND payment_id=?2 AND status='POSTED' LIMIT 1").bind(userId,paymentId).first();
       if(!old)return json({success:false,message:"Выплата не найдена или уже отменена"},404);
-      const before=await snapshot(request,env,userId,month);if(!before.rows.some(x=>String(x.id)===String(old.iiko_employee_id)))return json({success:false,message:"Выплата относится к сотруднику вне выбранного подразделения"},403);
+      const before=await snapshot(request,env,userId,month,state.access);if(!before.rows.some(x=>String(x.id)===String(old.iiko_employee_id)))return json({success:false,message:"Выплата относится к сотруднику вне выбранного подразделения"},403);
       const note=reason?String(old.note||"")+(old.note?" · ":"")+"Отмена: "+reason:String(old.note||"");
       await env.DB.prepare("UPDATE hr_overtime_payments SET status='CANCELLED',note=?3,actor_id=?4,actor_label=?5,updated_at=?6 WHERE user_id=?1 AND payment_id=?2").bind(userId,paymentId,note,actorId,actor,t).run();
       await cancelAccountingSource(env.DB,userId,"HR_OT_PAYMENT:"+paymentId);
-      const after=await snapshot(request,env,userId,month);after.access=access;
+      const after=await snapshot(request,env,userId,month,state.access);after.access=access;
       await logAuditEvent({request,env,connection,action:"DELETE",entityType:"HR_OVERTIME_PAYMENT",entityId:paymentId,entityLabel:"Отмена выплаты дополнительных часов",before:old,after:{status:"CANCELLED",reason},restaurantIds:after.restaurantScope?.departmentIds||[],metadata:{month}});
       return json(after);
     }

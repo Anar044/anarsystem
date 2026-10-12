@@ -29,11 +29,20 @@ async function ensureEmployeeVisible(db,userId,employeeId,scope){
   const ids=await visibleEmployeeIds(db,userId,scope);
   if(!ids.has(String(employeeId))){const e=new Error('Сотрудник не найден в выбранном ресторане.');e.status=403;throw e}
 }
-async function invalidateFactualApprovals(db,userId,workDate){
+async function invalidateFactualApprovals(db,userId,workDate,employeeId,scope){
   if(!workDate)return;
-  // A new correction or overtime decision requires Manager and HR to approve the new month snapshot.
-  try{await db.prepare("UPDATE hr_timesheet_approvals SET status='DRAFT',snapshot_hash='',manager_id='',manager_label='',manager_at='',hr_id='',hr_label='',hr_at='',updated_at=?3 WHERE user_id=?1 AND period_month=?2 AND contour='FACTUAL'").bind(userId,workDate.slice(0,7),now()).run();}
-  catch(error){if(!/no such table/i.test(String(error?.message||error)))throw error}
+  let scopeKey='ACCOUNT';
+  if(scope?.isChain){
+    const emp=await db.prepare('SELECT department_code FROM hr_employees WHERE user_id=?1 AND iiko_employee_id=?2 LIMIT 1').bind(userId,employeeId).first();
+    const dep=String(emp?.department_code||'');
+    const restaurant=(scope.selectedRestaurants||[]).find(x=>String(x.code)===dep||String(x.id)===dep);
+    if(!restaurant?.id){const e=new Error('Невозможно определить ресторан сотрудника для сброса согласования');e.status=409;throw e}
+    scopeKey=String(restaurant.id);
+  }
+  try{
+    await db.prepare("UPDATE hr_timesheet_approvals SET status='DRAFT',snapshot_hash='',manager_id='',manager_label='',manager_at='',hr_id='',hr_label='',hr_at='',updated_at=?4 WHERE user_id=?1 AND period_month=?2 AND contour='FACTUAL' AND scope_key=?3")
+      .bind(userId,workDate.slice(0,7),scopeKey,now()).run();
+  }catch(error){if(!/no such table/i.test(String(error?.message||error)))throw error}
 }
 async function correctionRow(db,userId,employeeId,workDate,kind){
   return db.prepare(`SELECT * FROM hr_timesheet_day_corrections WHERE user_id=?1 AND iiko_employee_id=?2 AND work_date=?3 AND contour=?4 LIMIT 1`).bind(userId,employeeId,workDate,kind).first();
@@ -49,11 +58,12 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
     const url=new URL(request.url),from=ymd(url.searchParams.get('from')),to=ymd(url.searchParams.get('to'));
     if(!from||!to||from>to)return json({success:false,message:'Некорректный период'},400);
-    const userId=state.user.id,access=hrAccessForUser(state.user);
+    const userId=state.storageUserId||state.user.id,access=hrAccessForUser(state.user,state.access);
     await ensureTimesheetAdjustmentTables(env.DB);
-    const scope=await resolveHrRestaurantScope(request,env,userId),visible=await visibleEmployeeIds(env.DB,userId,scope);
+    const scope=await resolveHrRestaurantScope(request,env,userId,state.access),visible=await visibleEmployeeIds(env.DB,userId,scope);
     try{
       const [c,r,o]=await Promise.all([
         env.DB.prepare(`SELECT * FROM hr_timesheet_day_corrections WHERE user_id=?1 AND work_date>=?2 AND work_date<=?3 ORDER BY work_date,iiko_employee_id`).bind(userId,from,to).all(),
@@ -74,15 +84,24 @@ export async function onRequestGet({request,env}){
 export async function onRequestPost({request,env}){
   try{
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
     await ensureTimesheetAdjustmentTables(env.DB);
-    const body=await request.json().catch(()=>({})),action=clean(body.action,60).toUpperCase(),userId=state.user.id,actorId=clean(state.user.id,180),actor=actorLabel(state.user),t=now();
-    const access=hrAccessForUser(state.user),scope=await resolveHrRestaurantScope(request,env,userId),connection=privateConnection(state.state);
+    const body=await request.json().catch(()=>({})),action=clean(body.action,60).toUpperCase(),userId=state.storageUserId||state.user.id,actorId=clean(state.user.id,180),actor=actorLabel(state.user),t=now();
+    const access=hrAccessForUser(state.user,state.access),scope=await resolveHrRestaurantScope(request,env,userId,state.access),connection=privateConnection(state.state);
     const employeeId=clean(body.employeeId,180),workDate=ymd(body.workDate),kind=contour(body.contour)||'FACTUAL';
-    if(employeeId)await ensureEmployeeVisible(env.DB,userId,employeeId,scope);
+    if(employeeId&&employeeId!=='*'){
+      await ensureEmployeeVisible(env.DB,userId,employeeId,scope);
+      if(scope?.isChain){
+        const e=await env.DB.prepare('SELECT department_code FROM hr_employees WHERE user_id=?1 AND iiko_employee_id=?2 LIMIT 1').bind(userId,employeeId).first();
+        const dep=clean(e?.department_code,180);
+        if(!(scope.selectedRestaurants||[]).some(x=>String(x.code)===dep||String(x.id)===dep))
+          return json({success:false,message:'Ресторан сотрудника недоступен или не определён'},403);
+      }
+    }
     const audit=async({auditAction,entityType,entityId,entityLabel,before,after,metadata={}})=>logAuditEvent({request,env,connection,action:auditAction,entityType,entityId,entityLabel,before,after,restaurantIds:scope?.selectedDepartmentIds||[],metadata});
 
     if(action==='SAVE_CORRECTION'){
-      requireCapability(state.user,'canCorrect');
+      requireCapability(state.user,'canCorrect',state.access);
       if(!employeeId||!workDate)return json({success:false,message:'Не указан сотрудник или дата'},400);
       const allowed=new Set(['','WORK','WORK_HOLIDAY','WORK_REST','LEAVE','LEAVE_WITH_WORK','ABSENT','REST','REVIEW','NO_SCHEDULE','WORK_NO_SCHEDULE','INCOMPLETE']);
       let statusOverride=clean(body.statusOverride,40).toUpperCase();
@@ -117,12 +136,12 @@ export async function onRequestPost({request,env}){
       }
       await audit({auditAction:'UPDATE',entityType:'HR_TIMESHEET_CORRECTION',entityId:id,entityLabel:`Корректировка табеля · ${employeeId} · ${workDate}`,before:old,after,metadata:{employeeId,workDate,contour:kind,overtimeReset:Boolean(resetOvertime)}});
       if(resetOvertime)await audit({auditAction:'REOPEN',entityType:'HR_OVERTIME_REQUEST',entityId:resetOvertime.id||`${employeeId}:${workDate}`,entityLabel:`Сброс доп. часов после изменения факта · ${employeeId} · ${workDate}`,before:resetOvertime,after:null,metadata:{employeeId,workDate,reason:'FACTUAL_CORRECTION_CHANGED'}});
-      await invalidateFactualApprovals(env.DB,userId,workDate);
+      await invalidateFactualApprovals(env.DB,userId,workDate,employeeId,scope);
       return json({success:true,access,correction:after,overtimeReset:Boolean(resetOvertime)});
     }
 
     if(action==='DELETE_CORRECTION'){
-      requireCapability(state.user,'canCorrect');
+      requireCapability(state.user,'canCorrect',state.access);
       if(!employeeId||!workDate)return json({success:false,message:'Не указан сотрудник или дата'},400);
       const old=correctionDto(await correctionRow(env.DB,userId,employeeId,workDate,kind));
       if(old)await env.DB.prepare(`DELETE FROM hr_timesheet_day_corrections WHERE user_id=?1 AND iiko_employee_id=?2 AND work_date=?3 AND contour=?4`).bind(userId,employeeId,workDate,kind).run();
@@ -133,13 +152,19 @@ export async function onRequestPost({request,env}){
       }
       await audit({auditAction:'DELETE',entityType:'HR_TIMESHEET_CORRECTION',entityId:old?.id||`${employeeId}:${workDate}:${kind}`,entityLabel:`Корректировка табеля · ${employeeId} · ${workDate}`,before:old,after:null,metadata:{employeeId,workDate,contour:kind,overtimeReset:Boolean(resetOvertime)}});
       if(resetOvertime)await audit({auditAction:'REOPEN',entityType:'HR_OVERTIME_REQUEST',entityId:resetOvertime.id||`${employeeId}:${workDate}`,entityLabel:`Сброс доп. часов после отмены факта · ${employeeId} · ${workDate}`,before:resetOvertime,after:null,metadata:{employeeId,workDate,reason:'FACTUAL_CORRECTION_DELETED'}});
-      await invalidateFactualApprovals(env.DB,userId,workDate);
+      await invalidateFactualApprovals(env.DB,userId,workDate,employeeId,scope);
       return json({success:true,access,deleted:Boolean(old),overtimeReset:Boolean(resetOvertime)});
     }
 
     if(action==='SAVE_OVERTIME_RULE'){
-      requireCapability(state.user,'canSetOvertimeRule');
+      requireCapability(state.user,'canSetOvertimeRule',state.access);
       const target=employeeId||'*',threshold=mins(body.thresholdMinutes,{max:1440}),payable=mins(body.payableFromMinutes,{max:1440}),note=clean(body.note,1000);
+      if(target==='*'&&scope?.isChain){
+        const selected=new Set((scope.selectedDepartmentIds||[]).map(String));
+        const allowed=new Set((scope.allowedDepartmentIds||[]).map(String));
+        if(scope.membershipRestricted||!allowed.size||selected.size!==allowed.size||[...allowed].some(id=>!selected.has(id)))
+          return json({success:false,message:'Общее правило доп. часов доступно только HR с полномочиями на всю сеть'},403);
+      }
       if(threshold===null||payable===null||threshold<1||payable<threshold)return json({success:false,message:'Порог оплаты должен быть не меньше порога дополнительных часов'},400);
       const old=await ruleRow(env.DB,userId,target);
       const created=old?.created_at||t;
@@ -153,7 +178,7 @@ export async function onRequestPost({request,env}){
     }
 
     if(action==='SUBMIT_OVERTIME'){
-      requireCapability(state.user,'canManagerApprove');
+      requireCapability(state.user,'canManagerApprove',state.access);
       if(!employeeId||!workDate)return json({success:false,message:'Не указан сотрудник или дата'},400);
       const candidate=mins(body.candidateMinutes,{max:1440}),requested=mins(body.requestedMinutes,{max:1440}),reason=clean(body.managerReason,1600);
       if(candidate===null||requested===null||candidate<=0)return json({success:false,message:'На выбранную дату нет дополнительных часов для подтверждения'},400);
@@ -166,12 +191,12 @@ export async function onRequestPost({request,env}){
         .bind(userId,id,employeeId,workDate,candidate,requested,reason,actorId,actor,t,created).run();
       const after=overtimeDto(await overtimeRow(env.DB,userId,employeeId,workDate));
       await audit({auditAction:'SUBMIT',entityType:'HR_OVERTIME_REQUEST',entityId:id,entityLabel:`Доп. часы · ${employeeId} · ${workDate}`,before:old,after,metadata:{employeeId,workDate}});
-      await invalidateFactualApprovals(env.DB,userId,workDate);
+      await invalidateFactualApprovals(env.DB,userId,workDate,employeeId,scope);
       return json({success:true,access,overtime:after});
     }
 
     if(action==='HR_APPROVE_OVERTIME'){
-      requireCapability(state.user,'canHrApprove');
+      requireCapability(state.user,'canHrApprove',state.access);
       if(!employeeId||!workDate)return json({success:false,message:'Не указан сотрудник или дата'},400);
       const oldRow=await overtimeRow(env.DB,userId,employeeId,workDate),old=overtimeDto(oldRow);
       if(!oldRow||oldRow.status!=='MANAGER_SUBMITTED')return json({success:false,message:'Сначала менеджер должен отправить дополнительные часы на HR'},409);
@@ -182,12 +207,12 @@ export async function onRequestPost({request,env}){
         .bind(userId,employeeId,workDate,approved,comment,status,actorId,actor,t).run();
       const after=overtimeDto(await overtimeRow(env.DB,userId,employeeId,workDate));
       await audit({auditAction:'APPROVE',entityType:'HR_OVERTIME_REQUEST',entityId:after.id,entityLabel:`Доп. часы · ${employeeId} · ${workDate}`,before:old,after,metadata:{employeeId,workDate}});
-      await invalidateFactualApprovals(env.DB,userId,workDate);
+      await invalidateFactualApprovals(env.DB,userId,workDate,employeeId,scope);
       return json({success:true,access,overtime:after});
     }
 
     if(action==='HR_REJECT_OVERTIME'){
-      requireCapability(state.user,'canHrApprove');
+      requireCapability(state.user,'canHrApprove',state.access);
       if(!employeeId||!workDate)return json({success:false,message:'Не указан сотрудник или дата'},400);
       const oldRow=await overtimeRow(env.DB,userId,employeeId,workDate),old=overtimeDto(oldRow),comment=clean(body.hrComment,1600);
       if(!oldRow||oldRow.status!=='MANAGER_SUBMITTED')return json({success:false,message:'Нет заявки менеджера на подтверждение'},409);
@@ -195,17 +220,17 @@ export async function onRequestPost({request,env}){
         .bind(userId,employeeId,workDate,comment,actorId,actor,t).run();
       const after=overtimeDto(await overtimeRow(env.DB,userId,employeeId,workDate));
       await audit({auditAction:'REJECT',entityType:'HR_OVERTIME_REQUEST',entityId:after.id,entityLabel:`Доп. часы · ${employeeId} · ${workDate}`,before:old,after,metadata:{employeeId,workDate}});
-      await invalidateFactualApprovals(env.DB,userId,workDate);
+      await invalidateFactualApprovals(env.DB,userId,workDate,employeeId,scope);
       return json({success:true,access,overtime:after});
     }
 
     if(action==='RESET_OVERTIME'){
-      requireCapability(state.user,'canReopen');
+      requireCapability(state.user,'canReopen',state.access);
       if(!employeeId||!workDate)return json({success:false,message:'Не указан сотрудник или дата'},400);
       const old=overtimeDto(await overtimeRow(env.DB,userId,employeeId,workDate));
       if(old)await env.DB.prepare(`DELETE FROM hr_overtime_requests WHERE user_id=?1 AND iiko_employee_id=?2 AND work_date=?3`).bind(userId,employeeId,workDate).run();
       await audit({auditAction:'REOPEN',entityType:'HR_OVERTIME_REQUEST',entityId:old?.id||`${employeeId}:${workDate}`,entityLabel:`Доп. часы · ${employeeId} · ${workDate}`,before:old,after:null,metadata:{employeeId,workDate}});
-      await invalidateFactualApprovals(env.DB,userId,workDate);
+      await invalidateFactualApprovals(env.DB,userId,workDate,employeeId,scope);
       return json({success:true,access,deleted:Boolean(old)});
     }
 

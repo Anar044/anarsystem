@@ -1,4 +1,5 @@
-import { getUser } from '../iiko/_lib/user-state.js';
+import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
+import { approvalTarget,approvalDepartments } from './_lib/department-approvals.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
 import { calculateCompensation, AZ_PAYROLL_RULE_PROFILE } from './_lib/az-payroll-rules.js';
 import { syncOvertimeAccrualPosting } from './_lib/payroll-accounting.js';
@@ -102,15 +103,25 @@ function overlapTermCount(rows,key,value,from,to){return rows.filter(r=>String(r
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
 export async function onRequestGet({request,env}){
   try{
-    const auth=await getUser(request,env);if(!auth)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);await ensureTimesheetAdjustmentTables(env.DB);
+    const auth=await loadRequestIikoState(request,env);if(!auth?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!auth.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+    await ensure(env.DB);await ensureTimesheetAdjustmentTables(env.DB);
     const url=new URL(request.url),fallback=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit'}).format(new Date()),month=monthOnly(url.searchParams.get('month'))||fallback,b=monthBounds(month);
     if(b.year!==2026)return json({success:false,message:'В HR Preview производственный календарь Payroll пока настроен на 2026 год.'},400);
-    const userId=auth.user.id,norm=MONTH_NORMS_2026[b.month];
-    const scope=await resolveHrRestaurantScope(request,env,userId);
-    const scopeIds=[...(scope?.selectedDepartmentIds||[])].map(String).filter(Boolean).sort();
-    const approvalScopeKey=scopeIds.length?scopeIds.join(','):'ACCOUNT';
+    const userId=auth.storageUserId||auth.user.id,norm=MONTH_NORMS_2026[b.month];
+    const scope=await resolveHrRestaurantScope(request,env,userId,auth.access);
+    const departments=approvalDepartments(scope),aggregateView=Boolean(scope?.isChain&&departments.length!==1);
+    const approvalScopeKey=aggregateView?'':approvalTarget(scope).key;
+    let departmentApprovals=[];
     let approvedTimesheet=null;
-    try{approvedTimesheet=await env.DB.prepare("SELECT status,updated_at FROM hr_timesheet_approvals WHERE user_id=?1 AND period_month=?2 AND contour='FACTUAL' AND scope_key=?3 LIMIT 1").bind(userId,month,approvalScopeKey).first();}
+    try{
+      if(approvalScopeKey)approvedTimesheet=await env.DB.prepare("SELECT status,updated_at FROM hr_timesheet_approvals WHERE user_id=?1 AND period_month=?2 AND contour='FACTUAL' AND scope_key=?3 LIMIT 1").bind(userId,month,approvalScopeKey).first();
+      if(departments.length){
+        const all=await env.DB.prepare("SELECT scope_key,status,updated_at FROM hr_timesheet_approvals WHERE user_id=?1 AND period_month=?2 AND contour='FACTUAL'").bind(userId,month).all();
+        const byKey=new Map((all.results||[]).map(x=>[String(x.scope_key),x]));
+        departmentApprovals=departments.map(d=>({id:d.id,code:d.code,name:d.name,status:byKey.get(d.id)?.status||'DRAFT',approved:byKey.get(d.id)?.status==='HR_APPROVED'}));
+      }
+    }
     catch(error){if(!/no such table/i.test(String(error?.message||error)))throw error}
     let timesheetApprovalStale=false,payrollTimesheetApproved=approvedTimesheet?.status==='HR_APPROVED';
     const [employeesR,employeeTermsR,roleTermsR,devicesR,profilesR,roleAttendanceR,employeeAttendanceR]=await Promise.all([
@@ -206,7 +217,7 @@ export async function onRequestGet({request,env}){
       const ot=overtimeByEmployee.get(id)||{approvedMinutes:0,payableMinutes:0,unpaidGapMinutes:0,candidateMinutes:0,extraDayEquivalent:0,days:0};
       const otRule=overtimeRuleFor(id,overtimeRules,attendanceCfg.dailyNormMinutes),extraDayPay=term&&norm.days>0?round2(monthlyFactualGross/norm.days*Number(ot.extraDayEquivalent||0)):0;
       const termChanges=overlapTermCount(employeeTerms,'iiko_employee_id',id,b.from,b.to)+(individualRaw?0:overlapTermCount(roleTerms,'role_code',roleCode,b.from,b.to));
-      let status='READY';const flags=[];if(!term){status='NO_TERMS';flags.push('Нет условий оплаты')}if(!payrollTimesheetApproved){if(term)status='REVIEW';flags.push(timesheetApprovalStale?'После утверждения HR табель изменился — требуется повторное подтверждение':'Фактический табель месяца не утверждён HR — доп. часы не начисляются')}if(attendanceTracked&&attendance.issues){status='REVIEW';flags.push(`Ошибки табеля: ${attendance.issues}`)}if(termChanges>1){status='REVIEW';flags.push('Изменение условий внутри месяца')}
+      let status='READY';const flags=[];if(!term){status='NO_TERMS';flags.push('Нет условий оплаты')}if(!payrollTimesheetApproved){if(term)status='REVIEW';flags.push(aggregateView?'Сводный просмотр CHAIN: для проведения начислений выберите один ресторан':timesheetApprovalStale?'После утверждения HR табель изменился — требуется повторное подтверждение':'Фактический табель месяца не утверждён HR — доп. часы не начисляются')}if(attendanceTracked&&attendance.issues){status='REVIEW';flags.push(`Ошибки табеля: ${attendance.issues}`)}if(termChanges>1){status='REVIEW';flags.push('Изменение условий внутри месяца')}
       if(term&&factualPayDays<norm.days)flags.push(`Неполный месяц: ${factualPayDays} из ${norm.days} раб. дней`);
       if(Number(ot.payableMinutes||0)>0)flags.push(`Доп. часы к отдельной оплате: ${Math.round(ot.payableMinutes)} мин`);
       if(Number(ot.unpaidGapMinutes||0)>0)flags.push(`Неоплачиваемый промежуток доп. часов: ${Math.round(ot.unpaidGapMinutes)} мин`);
@@ -269,7 +280,7 @@ export async function onRequestGet({request,env}){
       totalFactualGross:round2(configured.reduce((a,r)=>a+Number(r.accrual?.totalFactualGross||0),0))
     };
     return json({
-      success:true,engine:'MONTHLY_PAYROLL_V3_FREE_SHIFT',month,period:{from:b.from,to:b.to},currency:'AZN',timesheetApproval:{status:approvedTimesheet?.status||'DRAFT',approved:payrollTimesheetApproved,stale:timesheetApprovalStale},
+      success:true,engine:'MONTHLY_PAYROLL_V3_FREE_SHIFT',month,period:{from:b.from,to:b.to},currency:'AZN',timesheetApproval:{status:aggregateView?'AGGREGATE_VIEW':(approvedTimesheet?.status||'DRAFT'),approved:payrollTimesheetApproved,stale:timesheetApprovalStale,aggregateView,departmentApprovals},
       restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
       ruleProfile:AZ_PAYROLL_RULE_PROFILE,calendar:{year:2026,workDays:norm.days,normHours:norm.hours,source:'ƏƏSMN 2026 istehsalat təqvimi'},
       attendance:{mode:faceIdConnected?'FACE_ID':(correctionsByEmployee.size?'MANUAL':'NOT_CONNECTED'),activeDevices:activeDevices.length,label:faceIdConnected?'Face ID подключён':(correctionsByEmployee.size?'Факт введён вручную':'Face ID пока не подключён')},
