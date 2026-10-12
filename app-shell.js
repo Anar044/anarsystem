@@ -1,6 +1,37 @@
 (()=>{
   'use strict';
   const root=document.documentElement;
+  // Cross-document navigation keeps the previous sidebar's visual snapshot
+  // until the new page has finished checking its menu permissions. This does
+  // NOT block the new document, defer its business logic, or create a splash.
+  let pendingSidebarTransition=null;
+  function sidebarPermissionsReady(){
+    const nav=document.querySelector('.sidebar .unified-main-nav');
+    if(!nav||!window.SHAccess?.context?.allowed)return false;
+    const links=[...nav.querySelectorAll('a[href]')];
+    const groups=[...nav.querySelectorAll('.documents-nav-group,.reports-nav-group')];
+    return links.length>0 &&
+      links.every(a=>a.dataset.shAccessChecked==='1') &&
+      groups.every(g=>g.dataset.shAccessChecked==='1');
+  }
+  function releaseSidebarSnapshot(force=false){
+    if(!pendingSidebarTransition||(!force&&!sidebarPermissionsReady()))return;
+    const vt=pendingSidebarTransition;
+    pendingSidebarTransition=null;
+    try{vt.skipTransition()}catch(_){}
+  }
+  window.addEventListener('pagereveal',event=>{
+    if(!event.viewTransition)return;
+    pendingSidebarTransition=event.viewTransition;
+    Promise.resolve(event.viewTransition.finished).then(()=>{
+      if(pendingSidebarTransition===event.viewTransition)pendingSidebarTransition=null;
+    }).catch(()=>{});
+    releaseSidebarSnapshot();
+  });
+  window.addEventListener('sh:access-visibility-ready',()=>releaseSidebarSnapshot());
+  document.addEventListener('sh-access-ready',event=>{
+    if(event.detail?.allowed===false)releaseSidebarSnapshot(true);
+  });
   function syncChainScopeCookie(ids=null){
     let values=Array.isArray(ids)?ids:null;
     if(!values){
@@ -169,6 +200,7 @@
     // Server-side APIs still authorize every privileged operation.
     // Keep the expansion/scroll preferences from the earlier sidebar fix.
     window.SHAccess?.applyVisibility?.(document.querySelector('.sidebar'));
+    releaseSidebarSnapshot();
     restoreSidebarScroll();
     reveal();
     requestAnimationFrame(restoreSidebarScroll);
