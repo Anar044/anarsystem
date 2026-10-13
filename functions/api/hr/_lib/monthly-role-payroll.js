@@ -48,11 +48,14 @@ export function previewRmsRolePayroll({hourRows=[],employees=[],norms=[],employe
   const cfgByKey=new Map(norms.filter(n=>n.payroll_mode===MODES.RESTAURANT).map(n=>[
     clean(n.restaurant_id)+'|'+clean(n.role_code),n]));
   const activeTerm=(list,col,val)=>list.find(t=>clean(t[col])===val&&t.effective_from<=month+'-31'&&(!t.effective_to||t.effective_to>=month+'-01')&&Number(t.is_active)!==0);
-  const rows=[],missingNorms=[],missingSalary=[];
+  const officeRules=new Set(norms.filter(n=>n.payroll_mode===MODES.OFFICE&&n.restaurant_id===OFFICE_RESTAURANT_ID)
+    .map(n=>clean(n.role_code)));
+  const rows=[],missingNorms=[],missingSalary=[],officeRows=[];
   for(const item of hourRows){
     const employee=employeeMap.get(clean(item.employeeId));
     if(!employee||Number(employee.is_deleted))continue;
     const roleCode=clean(employee.role_code);
+    if(officeRules.has(roleCode))continue; // salaried office role has no restaurant hourly accrual
     const cfg=cfgByKey.get(clean(item.restaurantId)+'|'+roleCode);
     const base={employeeId:clean(item.employeeId),employeeName:clean(item.employeeName)||clean(employee.display_name),
       restaurantId:clean(item.restaurantId),restaurantName:clean(item.restaurantName),roleCode,
@@ -70,6 +73,20 @@ export function previewRmsRolePayroll({hourRows=[],employees=[],norms=[],employe
     });
     rows.push({...base,...c});
   }
+  for(const employee of employees){
+    if(Number(employee.is_deleted)||clean(employee.fire_date))continue;
+    const roleCode=clean(employee.role_code);
+    if(!officeRules.has(roleCode))continue;
+    const id=clean(employee.iiko_employee_id??employee.id);
+    const salary=activeTerm(employeeTerms,'iiko_employee_id',id)||activeTerm(roleTerms,'role_code',roleCode);
+    if(!salary){
+      officeRows.push({employeeId:id,employeeName:clean(employee.display_name),roleCode,
+        status:'SALARY_NOT_CONFIGURED',postingAllowed:false});
+      continue;
+    }
+    officeRows.push({employeeId:id,employeeName:clean(employee.display_name),roleCode,
+      ...calculateOfficeGross({monthlyOfficialGross:salary.official_gross,monthlyAdditionalGross:salary.additional_amount})});
+  }
   const selected=new Set((scope?.selectedDepartmentIds||[]).map(clean));
   const departments=(scope?.selectedRestaurants||[]).filter(r=>selected.has(clean(r.id))).map(r=>{
     const group=rows.filter(x=>x.restaurantId===clean(r.id));
@@ -80,10 +97,14 @@ export function previewRmsRolePayroll({hourRows=[],employees=[],norms=[],employe
       attention:group.filter(x=>x.status!=='PREVIEW_NOT_APPROVED').length};
   });
   return{
-    mode:'PER_RMS_ROLE_NORM_PREVIEW',appliedToPayroll:false,postingAllowed:false,rows,departments,
-    network:{uniqueEmployees:new Set(rows.map(x=>x.employeeId)).size,employeeRestaurantRows:rows.length,
+    mode:'PER_RMS_ROLE_NORM_PREVIEW',appliedToPayroll:false,postingAllowed:false,rows,officeRows,departments,
+    network:{uniqueEmployees:new Set([...rows.map(x=>x.employeeId),...officeRows.map(x=>x.employeeId)]).size,
+      employeeRestaurantRows:rows.length,officeEmployees:officeRows.length,
       acceptedMinutes:departments.reduce((a,x)=>a+x.acceptedMinutes,0),
-      previewGross:cents(departments.reduce((a,x)=>a+x.previewGross,0)),
+      restaurantGross:cents(departments.reduce((a,x)=>a+x.previewGross,0)),
+      officeGross:cents(officeRows.reduce((a,x)=>a+Number(x.totalGross||0),0)),
+      previewGross:cents(departments.reduce((a,x)=>a+x.previewGross,0)+
+        officeRows.reduce((a,x)=>a+Number(x.totalGross||0),0)),
       attention:departments.reduce((a,x)=>a+x.attention,0)},
     missingNorms:missingNorms.length,missingSalary:missingSalary.length
   };
