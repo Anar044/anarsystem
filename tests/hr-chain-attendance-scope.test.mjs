@@ -56,6 +56,7 @@ test('Role schedules, meals and payroll accounting use workspace membership',()=
   const meals=file('functions/api/hr/meal-transactions-v2.js');
   assert.match(meals,/const userId=state\.storageUserId\|\|state\.user\.id/);
   assert.match(meals,/resolveHrRestaurantScope\(request,env,userId,state\.access\)/);
+  assert.match(meals,/if\(scope\?\.isChain&&restricted\)/);
   assert.match(meals,/if\(!restricted&&unmatched\.length<25\)/);
   const accounting=file('functions/api/hr/payroll-accounting-settings.js');
   assert.match(accounting,/requireCapability\(state\.user,"canViewPayroll",state\.access\)/);
