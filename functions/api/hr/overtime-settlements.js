@@ -77,7 +77,7 @@ export async function onRequestPost({request,env}){
     const body=await request.json().catch(()=>({})),action=clean(body.action,40).toUpperCase(),month=monthOnly(body.month);if(!month)return json({success:false,message:"Укажите месяц YYYY-MM"},400);
     const userId=state.storageUserId||state.user.id,b=monthBounds(month),actorId=clean(state.user.id,180),actor=actorLabel(state.user),t=new Date().toISOString(),connection=privateConnection(state.state);
     const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
-    if(scope?.isChain&&approvalDepartments(scope).length!==1)return json({success:false,message:'Для записи или отмены выплаты выберите один ресторан CHAIN'},409);
+    if(scope?.isChain)return json({success:false,message:'Старые выплаты дополнительных часов для CHAIN временно заблокированы: требуется сверить задолженность с новыми независимыми Payroll RMS, чтобы не провести её повторно. История сохранена.'},409);
     if(action==="RECORD_PAYMENT"){
       const employeeId=clean(body.employeeId,180),paymentDate=dateOnly(body.paymentDate),amount=money(body.amount),method=clean(body.paymentMethod||"CASH",30).toUpperCase(),bankAccountId=clean(body.bankAccountId,180),reference=clean(body.reference,180),note=clean(body.note,1000);
       if(!employeeId||!paymentDate||amount<=0)return json({success:false,message:"Укажите сотрудника, дату и сумму выплаты"},400);
