@@ -33,7 +33,7 @@ export async function onRequestGet({request,env}){
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:"Требуется авторизация"},401);
 if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
 const userId=state.storageUserId||state.user.id;
-    requireCapability(state.user,"canViewPayroll");await ensurePayrollAccountingTables(env.DB);
+    requireCapability(state.user,"canViewPayroll",state.access);await ensurePayrollAccountingTables(env.DB);
     const scope=await resolveHrRestaurantScope(request,env,userId,state.access),scopeKey=currentScopeKey(scope);
     const config=await getPayrollAccountingConfig(env.DB,userId,scopeKey==="*"?"":scopeKey);
     let bankAccounts=await getPayrollBankAccounts(env.DB,userId,scopeKey==="*"?"":scopeKey);
@@ -45,7 +45,7 @@ const userId=state.storageUserId||state.user.id;
       scope:{scopeKey,mode:scope?.mode||null,selectedDepartmentCodes:scope?.selectedDepartmentCodes||[],selectedDepartmentIds:scope?.selectedDepartmentIds||[]},
       config:dto(config),
       bankAccounts:bankAccounts.map(x=>({id:x.account_id,name:x.account_name,type:x.account_type,isDefault:Boolean(x.is_default),effectiveScopeKey:x.effective_scope_key||scopeKey})),
-      access:hrAccessForUser(state.user)
+      access:hrAccessForUser(state.user,state.access)
     });
   }catch(e){console.error("[HR-PAYROLL-ACCOUNTING-GET]",e);return json({success:false,message:e?.message||String(e),access:e?.access||undefined},e?.status||500)}
 }
@@ -54,7 +54,7 @@ export async function onRequestPost({request,env}){
     const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:"Требуется авторизация"},401);
 if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
 const userId=state.storageUserId||state.user.id;
-    const access=requireCapability(state.user,"canConfigurePayrollAccounting");await ensurePayrollAccountingTables(env.DB);
+    const access=requireCapability(state.user,"canConfigurePayrollAccounting",state.access);await ensurePayrollAccountingTables(env.DB);
     const body=await request.json().catch(()=>({})),scope=await resolveHrRestaurantScope(request,env,userId,state.access),scopeKey=currentScopeKey(scope);
     const selectedScope=clean(body.scopeKey,180)||scopeKey;
     if(scopeKey!=="*"&&selectedScope!==scopeKey)return json({success:false,message:"Нельзя сохранить настройки для другого подразделения"},403);
