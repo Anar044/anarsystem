@@ -37,7 +37,7 @@ test('sync response identifies import, cache-only and reasons for empty scope',(
   const ui=readFileSync(new URL('../hr-employees.js',import.meta.url),'utf8');
   assert.match(api,/parseEmployeeDirectory\(entry\.response\.text\)/);
   assert.match(api,/parseEmployeeDirectory\(all\.text\)/);
-  assert.match(api,/reason:'MEMBER_CACHE_ONLY'/);
+  assert.match(api,/reason:meta\.performed\?'SERVER_IMPORT':'MEMBER_CACHE_ONLY'/);
   assert.match(api,/sourceRecords:stats\.sourceRecords/);
   assert.match(ui,/hrSyncInfo/);
 });
