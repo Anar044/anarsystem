@@ -95,3 +95,19 @@
 .hrp-empty-settlement span{max-width:720px;color:#718294;font-size:9px;line-height:1.5;text-align:center}
 .hrp-empty-settlement .hr-link-button{margin-top:3px}
 .hrp-explain[hidden]{display:none!important}
+
+
+/* CHAIN payroll: department ledger-like read-only overview */
+.hrp-scope-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 16px;margin:4px 0 12px}
+.hrp-scope-heading strong{font-size:17px;font-weight:800;color:var(--text-color,#e8eef7)}
+.hrp-scope-heading span{font-size:12px;color:var(--muted,#98a7bb)}
+.hrp-department-payroll{margin-bottom:16px}
+.hrp-department-payroll .hr-table-scroll{max-width:100%}
+.hrp-department-table{width:100%;border-collapse:collapse;min-width:880px}
+.hrp-department-table th,.hrp-department-table td{padding:12px 13px;border-bottom:1px solid rgba(128,149,173,.18);text-align:right;white-space:nowrap;font-size:12px}
+.hrp-department-table th{color:var(--muted,#98a7bb);font-size:11px;font-weight:750}
+.hrp-department-table td:first-child,.hrp-department-table th:first-child{text-align:left}
+.hrp-department-table td:first-child small{display:block;color:var(--muted,#98a7bb);margin-top:3px}
+.hrp-department-table .hrp-network-total{font-weight:800;background:rgba(75,132,213,.09)}
+.hrp-department-warning{margin:10px 0;padding:10px 13px;border:1px solid rgba(229,159,62,.45);border-radius:8px;color:var(--text-color,#e8eef7);font-size:12px}
+#hrpDepartmentFilter[hidden]{display:none}
