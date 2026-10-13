@@ -168,6 +168,19 @@
             </table>
           </div>
         </section>
+        <section id="hrpRmsTaxAllocation" class="hr-card" hidden>
+          <div class="hr-card-title-row"><div>
+            <div class="hr-card-title">Сводный налоговый расчёт сети · предварительный</div>
+            <div class="hr-card-sub">Налоги считаются один раз на сотрудника со всей суммы по RMS, затем пропорционально распределяются до копейки между ресторанами.</div>
+          </div><span id="hrpRmsTaxSummary" class="hr-muted"></span></div>
+          <div class="hrp-department-warning" role="note">Только проверочный расчёт по выбранному налоговому профилю. Требуется проверка бухгалтерией, утверждение всех RMS, сверка удержаний и юридически корректное оформление. Выплаты и проводки не выполняются.</div>
+          <div class="hr-table-scroll">
+            <table class="hrp-department-table">
+              <thead><tr><th class="text-left">Ресторан</th><th class="text-left">Сотрудник</th><th>Gross</th><th>Удержания</th><th>Net</th><th>Расход работодателя</th></tr></thead>
+              <tbody id="hrpRmsTaxRows"></tbody>
+            </table>
+          </div>
+        </section>
         <section id="hrpMonthlyNormPreview" class="hr-card" hidden>
           <div class="hr-card-title-row">
             <div>
@@ -344,7 +357,7 @@
 <script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
 <script src="mobile-responsive.js?v=20261009-role-aware-v2"></script>
 <script src="documents-nav.js?v=20"></script>
-<script src="/hr-payroll.js?v=20261013-rms-approval-v1"></script>
+<script src="/hr-payroll.js?v=20261013-rms-approval-tax-v2"></script>
 <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script>
 <script src="/sh-i18n.js?v=20261012-ui-i18n-v1"></script>
 </body>
