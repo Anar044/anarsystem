@@ -170,6 +170,25 @@ function renderMonthlyNormPreview(){
     <td>${new Set(all.map(x=>x.employeeId)).size} сотрудников</td><td></td><td></td><td></td><td></td>
     <td><strong>${money(gross)}</strong></td><td>${attention?'Требуют проверки: '+attention:'Без проведения выплат'}</td></tr>`;
 }
+function renderRmsTaxAllocation(){
+  const box=$('hrpRmsTaxAllocation');
+  if(!box)return;
+  const source=state.rmsPayroll,tax=source?.taxAllocation;
+  box.hidden=!source||!tax;
+  if(box.hidden)return;
+  const totals=tax.network||{},profile=source.taxProfile||{};
+  $('hrpRmsTaxSummary').textContent=`${Number(totals.uniqueEmployees||0)} сотрудников · gross ${money(totals.gross)} · net ${money(totals.net)} · профиль ${profile.source||'не задан'}`;
+  const lines=tax.lines||[];
+  $('hrpRmsTaxRows').innerHTML=lines.map(x=>`<tr>
+    <td class="text-left">${esc(x.restaurantId==='NETWORK_OFFICE'?'Центральный офис':x.restaurantId)}</td>
+    <td class="text-left">${esc(x.employeeName||x.employeeId)}</td>
+    <td>${money(x.gross)}</td><td>${money(x.withheld)}</td>
+    <td><strong>${money(x.net)}</strong></td><td>${money(x.employerCost)}</td></tr>`
+  ).join('')+`<tr class="hrp-network-total">
+    <td class="text-left">ИТОГО CHAIN</td><td>${Number(totals.uniqueEmployees||0)} сотрудников</td>
+    <td>${money(totals.gross)}</td><td>${money(totals.withheld)}</td>
+    <td><strong>${money(totals.net)}</strong></td><td>${money(totals.employerCost)}</td></tr>`;
+}
 function renderRmsApprovals(){
   const panel=$('hrpRmsApproval'),source=state.rmsPayroll||null;
   if(!panel)return;
@@ -489,7 +508,7 @@ function renderTabs(){
   const explain=document.querySelector('.hrp-explain');if(explain)explain.hidden=settlements;
   document.querySelector('.hrp-filter-card')?.classList.toggle('settlement-mode',settlements);
 }
-function render(){renderFilters();renderScopeHeading();renderRmsApprovals();renderMonthlyNormPreview();renderRmsHours();renderDepartmentPayroll();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
+function render(){renderFilters();renderScopeHeading();renderRmsApprovals();renderRmsTaxAllocation();renderMonthlyNormPreview();renderRmsHours();renderDepartmentPayroll();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
 function onFilter(){renderSummary();renderTable();renderSettlements();renderRmsApprovals();renderMonthlyNormPreview();renderRmsHours()}
 async function load(){
   if(busy)return;
