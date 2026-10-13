@@ -424,7 +424,7 @@ function settlementVisibleRows(){
 }
 function renderSettlements(){
   const box=$('hrpSettlementSummary'),tbody=$('hrpSettlementRows');if(!box||!tbody)return;
-  const snap=state.settlements||{summary:{},rows:[],access:{}},rows=settlementVisibleRows(),canSettle=Boolean(snap.access?.canSettlePayroll)&&state.payroll?.payrollView!=='NETWORK_SUMMARY';
+  const snap=state.settlements||{summary:{},rows:[],access:{}},rows=settlementVisibleRows(),canSettle=Boolean(snap.access?.canSettlePayroll)&&state.payroll?.restaurantScope?.mode!=='CHAIN'&&state.payroll?.payrollView!=='NETWORK_SUMMARY';
   const sum={openingDebt:r(rows.reduce((a,x)=>a+Number(x.openingDebt||0),0)),accrued:r(rows.reduce((a,x)=>a+Number(x.currentAccrued||0),0)),paid:r(rows.reduce((a,x)=>a+Number(x.currentPaid||0),0)),closingDebt:r(rows.reduce((a,x)=>a+Number(x.closingDebt||0),0)),withDebt:rows.filter(x=>Number(x.closingDebt||0)>0).length};
   $('hrpSettlementCount').textContent=`${rows.length} сотрудников с движением`;
   box.innerHTML=[
