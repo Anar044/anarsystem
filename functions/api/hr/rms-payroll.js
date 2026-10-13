@@ -72,9 +72,9 @@ async function loadDocument(db,userId,scope,period){
     rows(db,`SELECT iiko_employee_id,employee_code,display_name,role_code,department_code,fire_date,is_deleted
       FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>''`,[userId]),
     rows(db,`SELECT device_id,restaurant_id,is_active FROM hr_devices WHERE user_id=?1`,[userId]),
-    rows(db,`SELECT iiko_employee_id,effective_from,effective_to,official_gross,additional_amount,is_active,updated_at
+    rows(db,`SELECT iiko_employee_id,effective_from,effective_to,official_gross,additional_amount,additional_tax_treatment,is_active,updated_at
       FROM hr_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY effective_from DESC`,[userId]),
-    rows(db,`SELECT role_code,effective_from,effective_to,official_gross,additional_amount,is_active,updated_at
+    rows(db,`SELECT role_code,effective_from,effective_to,official_gross,additional_amount,additional_tax_treatment,is_active,updated_at
       FROM hr_role_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY effective_from DESC`,[userId]),
     rows(db,`SELECT restaurant_id,role_code,payroll_mode,norm_days,daily_norm_minutes,updated_at
       FROM hr_role_monthly_payroll_norms WHERE user_id=?1 AND month=?2`,[userId,period]).catch(e=>/no such table/i.test(String(e?.message||e))?[]:Promise.reject(e)),
