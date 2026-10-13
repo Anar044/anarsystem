@@ -3,6 +3,8 @@ import {resolveHrRestaurantScope} from './_lib/restaurant-scope.js';
 import {approvalMonthClosed,approvalDepartments} from './_lib/department-approvals.js';
 import {hasPermission} from '../access/_lib/access-control.js';
 import {buildRmsPayrollDocument,approvalSourceForRestaurant,hashRmsDocument} from './_lib/rms-payroll-document.js';
+import {loadPayrollTaxContext} from './_lib/payroll-tax-engine.js';
+import {allocateNetworkPayrollTax} from './_lib/rms-tax-allocation.js';
 
 const clean=v=>String(v??'').trim();
 const now=()=>new Date().toISOString();
@@ -112,7 +114,7 @@ async function loadDocument(db,userId,scope,period){
           ?JSON.parse(record.approved_snapshot||'{}'):null
       }:{status:'DRAFT',stale:false,storedStatus:'DRAFT',managerAt:'',hrAt:'',approvedSnapshot:null}});
   }
-  return{doc,docs,corrections:visibleCorrections};
+  return{doc,docs,corrections:visibleCorrections,terms,roleTerms};
 }
 async function audit(db,userId,month,restaurantId,action,actorId,employeeId='',details={}){
   await db.prepare(`INSERT INTO hr_rms_payroll_audit(user_id,audit_id,month,restaurant_id,action,employee_id,actor_id,details_json,created_at)
@@ -131,8 +133,20 @@ export async function onRequestGet({request,env}){
     const userId=state.storageUserId||state.user.id;
     await ensure(env.DB);
     const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
-    const {doc,docs,corrections}=await loadDocument(env.DB,userId,scope,period);
+    const {doc,docs,corrections,terms,roleTerms}=await loadDocument(env.DB,userId,scope,period);
+    const central=!scope.membershipRestricted&&
+      (scope.selectedDepartmentIds||[]).length===(scope.allowedDepartmentIds||[]).length;
+    let taxAllocation=null,taxProfile=null;
+    if(central){
+      const tax=await loadPayrollTaxContext(env.DB,userId,monthEnd(period));
+      taxProfile={source:tax.source,mode:tax.mode,effectiveFrom:tax.active?.effectiveFrom||''};
+      taxAllocation=allocateNetworkPayrollTax({
+        rmsRows:doc.pay.rows,officeRows:doc.pay.officeRows,
+        employeeTerms:terms,roleTerms,settings:tax.settings
+      });
+    }
     return json({success:true,month:period,mode:'RMS_PAYROLL_APPROVAL_V1',postingEnabled:false,
+      taxProfile,taxAllocation,
       canManage:reviewer('SAVE_CORRECTION',state.access,scope),
       canManagerApprove:reviewer('MANAGER_APPROVE',state.access,scope),
       canHrApprove:reviewer('HR_APPROVE',state.access,scope),
