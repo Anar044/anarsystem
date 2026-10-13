@@ -5,7 +5,7 @@ import { resolveHrRestaurantScope,filterEmployeesByScope,isHrSubsetScope } from 
 import { parseEmployeeDirectory } from './_lib/employee-directory-xml.js';
 import { canStartEmployeeImport,employeeImportScope,targetEmployeeDepartment } from './_lib/employee-sync-scope.js';
 
-function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
+function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
 function clean(v){return String(v??'').trim()}
 function decodeXml(v){return String(v??'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&')}
