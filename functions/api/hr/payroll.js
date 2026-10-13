@@ -1,6 +1,6 @@
 import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
 import { approvalTarget,approvalDepartments } from './_lib/department-approvals.js';
-import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
+import { resolveHrRestaurantScope, filterEmployeesByScope, filterAttendanceEventsByRestaurant } from './_lib/restaurant-scope.js';
 import { calculateCompensation, AZ_PAYROLL_RULE_PROFILE } from './_lib/az-payroll-rules.js';
 import { syncOvertimeAccrualPosting } from './_lib/payroll-accounting.js';
 import { ensureTimesheetAdjustmentTables } from './_lib/timesheet-adjustments.js';
@@ -128,12 +128,15 @@ export async function onRequestGet({request,env}){
       env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,first_name,middle_name,last_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY display_name COLLATE NOCASE`).bind(userId).all(),
       env.DB.prepare(`SELECT * FROM hr_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY iiko_employee_id,effective_from DESC`).bind(userId).all(),
       env.DB.prepare(`SELECT * FROM hr_role_compensation_terms WHERE user_id=?1 AND is_active=1 ORDER BY role_code,effective_from DESC`).bind(userId).all(),
-      env.DB.prepare(`SELECT device_id,name,timezone,is_active,last_sync_at FROM hr_devices WHERE user_id=?1 AND is_active=1 ORDER BY name`).bind(userId).all(),
+      env.DB.prepare(`SELECT * FROM hr_devices WHERE user_id=?1 ORDER BY name`).bind(userId).all(),
       env.DB.prepare(`SELECT iiko_employee_id,factual_hire_date,factual_fire_date,official_hire_date,official_fire_date,work_capacity_percent FROM hr_employee_profiles WHERE user_id=?1`).bind(userId).all(),
       env.DB.prepare(`SELECT role_code,daily_norm_minutes,shift_type,updated_at FROM hr_role_attendance_rules WHERE user_id=?1`).bind(userId).all(),
       env.DB.prepare(`SELECT iiko_employee_id,shift_type_override,updated_at FROM hr_employee_attendance_rules WHERE user_id=?1`).bind(userId).all()
     ]);
-    const employeeTerms=employeeTermsR.results||[],roleTerms=roleTermsR.results||[],activeDevices=devicesR.results||[];
+    const employeeTerms=employeeTermsR.results||[],roleTerms=roleTermsR.results||[],allDevices=devicesR.results||[];
+    const allowedDeviceRestaurants=new Set((scope?.selectedDepartmentIds||[]).map(clean).filter(Boolean));
+    const activeDevices=allDevices.filter(d=>Number(d.is_active)&&
+      (scope?.isChain!==true||allowedDeviceRestaurants.has(clean(d.restaurant_id))));
     const profiles=new Map((profilesR.results||[]).map(x=>[String(x.iiko_employee_id),x]));
     const roleAttendance=new Map((roleAttendanceR.results||[]).map(x=>[String(x.role_code||''),x]));
     const employeeAttendance=new Map((employeeAttendanceR.results||[]).map(x=>[String(x.iiko_employee_id||''),x]));
@@ -155,6 +158,18 @@ export async function onRequestGet({request,env}){
         const qs=ids.map(()=>'?').join(',');
         const part=await env.DB.prepare(`SELECT event_id,device_id,iiko_employee_id,event_time,event_type,imported_at FROM hr_attendance_events WHERE user_id=? AND iiko_employee_id IN (${qs}) AND event_time>=? AND event_time<=? ORDER BY iiko_employee_id,event_time`).bind(userId,...ids,`${isoDayShift(b.from,-1)}T00:00:00.000Z`,`${isoDayShift(b.to,1)}T23:59:59.999Z`).all();
         for(const e of part.results||[]){const id=String(e.iiko_employee_id||'');if(!eventsByEmployee.has(id))eventsByEmployee.set(id,[]);eventsByEmployee.get(id).push(e)}
+      }
+    }
+    // The employee may have punched on devices across the network.
+    // Never calculate one restaurant's payroll from another restaurant's marks.
+    if(scope?.isChain){
+      const filtered=filterAttendanceEventsByRestaurant(
+        [...eventsByEmployee.values()].flat(),allDevices,scopedEmployees,scope);
+      eventsByEmployee.clear();
+      for(const event of filtered){
+        const id=String(event.iiko_employee_id||'');
+        if(!eventsByEmployee.has(id))eventsByEmployee.set(id,[]);
+        eventsByEmployee.get(id).push(event);
       }
     }
     if(scopedIds.length){

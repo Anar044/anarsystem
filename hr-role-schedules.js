@@ -2,7 +2,7 @@
   'use strict';
   const $=id=>document.getElementById(id);
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let data={roles:[],counts:{}},busy=false;
+  let data={roles:[],counts:{},canEditSharedRules:false},busy=false;
 
   async function token(){
     const client=await window.SHAuth?.createClient?.();if(!client)throw new Error('Supabase Auth не готов');
@@ -28,16 +28,16 @@
     ].map(x=>`<article class="hr-summary-card"><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
   }
   function renderAttendanceRules(){
-    const list=activeRoles();$('rsAttendanceRuleCount').textContent=`${list.length} должностей`;
+    const list=activeRoles(),editable=Boolean(data.canEditSharedRules);$('rsAttendanceRuleCount').textContent=`${list.length} должностей`;
     $('rsAttendanceRuleRows').innerHTML=list.length?list.map(r=>{
       const hours=Math.max(1,Number(r.dailyNormMinutes||480))/60,shift=String(r.shiftType||'DAY').toUpperCase()==='NIGHT'?'NIGHT':'DAY';
       return `<tr data-attendance-role="${esc(r.code)}">
         <td class="text-left"><div class="hr-name">${esc(r.name)}</div><div class="hr-sub">${esc(r.code)}</div></td>
         <td>${Number(r.employeeCount||0)}</td>
-        <td><input data-attendance-norm type="number" min="1" max="24" step="0.25" value="${Number(hours.toFixed(2))}"> <span class="hr-muted">ч</span></td>
-        <td><select data-attendance-shift><option value="DAY" ${shift==='DAY'?'selected':''}>Дневная</option><option value="NIGHT" ${shift==='NIGHT'?'selected':''}>Ночная</option></select></td>
+        <td><input data-attendance-norm type="number" min="1" max="24" step="0.25" value="${Number(hours.toFixed(2))}" ${editable?'':'disabled'}> <span class="hr-muted">ч</span></td>
+        <td><select data-attendance-shift ${editable?'':'disabled'}><option value="DAY" ${shift==='DAY'?'selected':''}>Дневная</option><option value="NIGHT" ${shift==='NIGHT'?'selected':''}>Ночная</option></select></td>
         <td><span class="hr-attendance-window">${shift==='NIGHT'?'12:00 → 11:59':'05:00 → 04:59'}</span></td>
-        <td><button type="button" class="hr-link-button" data-attendance-save>Сохранить</button></td>
+        <td>${editable?'<button type="button" class="hr-link-button" data-attendance-save>Сохранить</button>':'<span class="hr-muted" title="Общие нормы меняет HR всей сети">Только просмотр</span>'}</td>
       </tr>`;
     }).join(''):'<tr><td colspan="6" class="hr-empty">Должности ещё не синхронизированы.</td></tr>';
     $('rsAttendanceRuleRows').querySelectorAll('[data-attendance-shift]').forEach(sel=>sel.onchange=()=>{
@@ -46,7 +46,7 @@
     });
     $('rsAttendanceRuleRows').querySelectorAll('[data-attendance-save]').forEach(btn=>btn.onclick=()=>saveAttendanceRule(btn.closest('[data-attendance-role]')));
   }
-  function render(){renderSummary();renderAttendanceRules()}
+  function render(){renderSummary();renderAttendanceRules();$('rsSync').disabled=!data.canEditSharedRules;$('rsSync').title=data.canEditSharedRules?'':'Синхронизация общих должностей доступна уполномоченному HR всей сети';}
   async function load(){
     if(busy)return;try{busy=true;$('rsRefresh').disabled=true;$('rsError').hidden=true;setStatus('Загрузка…','loading');data=await api();render();setStatus('Готово','ok')}
     catch(e){$('rsError').hidden=false;$('rsError').textContent=e.message;setStatus('Ошибка','error')}

@@ -1,6 +1,6 @@
 import { getOlapFields, iikoJson } from '../iiko/_lib/iiko-client.js';
 import { loadRequestIikoState, privateConnection, hasPrivateConnection } from '../iiko/_lib/user-state.js';
-import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
+import { resolveHrRestaurantScope, filterEmployeesByScope, isHrSubsetScope } from './_lib/restaurant-scope.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -128,10 +128,21 @@ function detectAmount(row,d){
   return{amount:money(best),field:bestField}
 }
 
-async function sync(request,env,userId,month){
-  const state=await loadRequestIikoState(request,env);if(!state?.user||String(state.user.id)!==String(userId))throw new Error('Требуется авторизация');
+async function sync(request,env,state,month){
+  if(!state?.user||!state.access?.allowed)throw Object.assign(new Error('Нет доступа к рабочему пространству'),{status:403});
+  const userId=state.storageUserId||state.user.id;
   if(!state.found||!hasPrivateConnection(state.state))throw new Error('Сначала подключите SH Server в настройках.');
-  const scope=await resolveHrRestaurantScope(request,env,userId);
+  const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
+  // Unmatched OLAP rows can belong to other restaurants and must not be returned
+  // to employees with department-scoped access.
+  const restricted=scope?.membershipRestricted===true||isHrSubsetScope(scope);
+  // The TRANSACTIONS OLAP query does not include a verified department column.
+  // A department-only sync can attribute equal-name counteragents to the wrong
+  // restaurant. Central HR must sync the complete network, while members may
+  // safely read only their own employee rows from the shared cache.
+  if(scope?.isChain&&restricted){
+    throw Object.assign(new Error('Синхронизацию питания в CHAIN выполняет центральный HR при выборе всех ресторанов. Для своего ресторана доступен просмотр уже синхронизированных данных.'),{status:403});
+  }
   const connection=privateConnection(state.state),bounds=monthBounds(month),list=await employees(env.DB,userId,scope),lookup=employeeLookup(list),accounts=await mealAccounts(connection),meta=await getOlapFields(connection,'TRANSACTIONS',{force:true}),d=discover(meta),tx=await loadTransactions(connection,d,bounds);
   const spent=new Map(),repaid=new Map(),beforeSpent=new Map(),beforeRepaid=new Map(),matched=[],unmatched=[],rawKinds=new Map();
   let accountRows=0,kredRows=0;
@@ -140,7 +151,7 @@ async function sync(request,env,userId,month){
     const kind=detectKind(row,d);if(!kind.k)continue;kredRows++;rawKinds.set(kind.raw,(rawKinds.get(kind.raw)||0)+1);
     const date=detectDate(row,d);if(!date)continue;
     const employee=detectEmployee(row,d,lookup),amt=detectAmount(row,d);if(amt.amount<=0)continue;
-    if(!employee.id){if(unmatched.length<25)unmatched.push({date,type:kind.raw,amount:amt.amount,account:account.value,row:Object.fromEntries(Object.entries(row).slice(0,20))});continue}
+    if(!employee.id){if(!restricted&&unmatched.length<25)unmatched.push({date,type:kind.raw,amount:amt.amount,account:account.value,row:Object.fromEntries(Object.entries(row).slice(0,20))});continue}
     const current=date>=bounds.from&&date<=bounds.to,before=date<bounds.from;
     const target=kind.k==='REPAY'?(current?repaid:beforeRepaid):(current?spent:beforeSpent);
     if(current||before)target.set(employee.id,(target.get(employee.id)||0)+amt.amount);
@@ -162,5 +173,31 @@ async function records(db,userId,month,scope=null){
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
-export async function onRequestGet({request,env}){try{const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);const url=new URL(request.url),month=monthOnly(url.searchParams.get('month'));if(!month)return json({success:false,message:'Укажите месяц YYYY-MM'},400);const scope=await resolveHrRestaurantScope(request,env,state.user.id);return json({success:true,month,records:await records(env.DB,state.user.id,month,scope),restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null})}catch(e){console.error('[HR-MEAL-V2-GET]',e);return json({success:false,message:e?.message||String(e)},500)}}
-export async function onRequestPost({request,env}){try{const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);await ensure(env.DB);const b=await request.json().catch(()=>({})),month=monthOnly(b.month),action=clean(b.action);if(!month)return json({success:false,message:'Укажите месяц YYYY-MM'},400);if(action!=='sync')return json({success:false,message:'Неизвестное действие'},400);const diagnostics=await sync(request,env,state.user.id,month);const scope=await resolveHrRestaurantScope(request,env,state.user.id);return json({success:true,month,records:await records(env.DB,state.user.id,month,scope),diagnostics,restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null})}catch(e){console.error('[HR-MEAL-V2-POST]',e);return json({success:false,message:e?.message||String(e)},500)}}
+export async function onRequestGet({request,env}){
+  try{
+    const state=await loadRequestIikoState(request,env);
+    if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+    await ensure(env.DB);
+    const month=monthOnly(new URL(request.url).searchParams.get('month'));
+    if(!month)return json({success:false,message:'Укажите месяц YYYY-MM'},400);
+    const userId=state.storageUserId||state.user.id;
+    const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
+    return json({success:true,month,records:await records(env.DB,userId,month,scope),restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null});
+  }catch(e){console.error('[HR-MEAL-V2-GET]',e);return json({success:false,message:e?.message||String(e)},e?.status||500)}
+}
+export async function onRequestPost({request,env}){
+  try{
+    const state=await loadRequestIikoState(request,env);
+    if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+    await ensure(env.DB);
+    const body=await request.json().catch(()=>({})),month=monthOnly(body.month),action=clean(body.action);
+    if(!month)return json({success:false,message:'Укажите месяц YYYY-MM'},400);
+    if(action!=='sync')return json({success:false,message:'Неизвестное действие'},400);
+    const userId=state.storageUserId||state.user.id;
+    const diagnostics=await sync(request,env,state,month);
+    const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
+    return json({success:true,month,records:await records(env.DB,userId,month,scope),diagnostics,restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null});
+  }catch(e){console.error('[HR-MEAL-V2-POST]',e);return json({success:false,message:e?.message||String(e)},e?.status||500)}
+}

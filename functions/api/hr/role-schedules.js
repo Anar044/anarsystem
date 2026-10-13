@@ -1,5 +1,6 @@
 import { iikoText } from '../iiko/_lib/iiko-client.js';
-import { getUser, loadRequestIikoState, privateConnection, hasPrivateConnection } from '../iiko/_lib/user-state.js';
+import { hasPermission } from '../access/_lib/access-control.js';
+import { loadRequestIikoState, privateConnection, hasPrivateConnection } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope, isHrSubsetScope } from './_lib/restaurant-scope.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
@@ -46,7 +47,7 @@ async function snapshot(db,userId,scope=null){
     if(Number(x.is_deleted)||(x.fire_date&&String(x.fire_date).trim()))continue;
     const code=String(x.role_code||'');if(code)employeeCounts.set(code,(employeeCounts.get(code)||0)+1);
   }
-  const subset=isHrSubsetScope(scope),visibleRoleCodes=new Set(employeeCounts.keys()),ruleMap=new Map((rulesResult.results||[]).map(r=>[String(r.role_code||''),r]));
+  const subset=isHrSubsetScope(scope)||scope?.membershipRestricted===true,visibleRoleCodes=new Set(employeeCounts.keys()),ruleMap=new Map((rulesResult.results||[]).map(r=>[String(r.role_code||''),r]));
   const roles=(rolesResult.results||[]).filter(r=>!subset||visibleRoleCodes.has(String(r.role_code||''))).map(r=>{
     const rule=ruleMap.get(String(r.role_code||''))||{},shift=String(rule.shift_type||'DAY').toUpperCase()==='NIGHT'?'NIGHT':'DAY';
     return{id:r.iiko_role_id||'',code:r.role_code,name:r.role_name||r.role_code,deleted:Boolean(r.is_deleted),syncedAt:r.synced_at||'',employeeCount:employeeCounts.get(String(r.role_code))||0,dailyNormMinutes:Number(rule.daily_norm_minutes||480),shiftType:shift,attendanceRuleUpdatedAt:rule.updated_at||''};
@@ -55,8 +56,8 @@ async function snapshot(db,userId,scope=null){
   return{roles,schedules:[],schedulePolicyScope:'FREE_SHIFT_ROLE_NORM',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds||[],departmentCodes:scope.selectedDepartmentCodes||[]}:null,
     counts:{roles:active.length,employees:active.reduce((a,r)=>a+Number(r.employeeCount||0),0),dayRoles:active.filter(r=>r.shiftType==='DAY').length,nightRoles:active.filter(r=>r.shiftType==='NIGHT').length}};
 }
-async function syncRoles(request,env,userId,scope){
-  const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+async function syncRoles(state,env,userId,scope){
+  if(!state?.user||!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
   if(!state.found||!hasPrivateConnection(state.state))return json({success:false,message:'Сначала подключите SH Server в настройках.'},409);
   const result=await iikoText(privateConnection(state.state),'/resto/api/employees/roles?revisionFrom=-1');
   if(!result.ok)throw new Error(`SH Roles HTTP ${result.status}: ${result.text.slice(0,500)}`);
@@ -65,23 +66,31 @@ async function syncRoles(request,env,userId,scope){
   const stm=roles.map(r=>env.DB.prepare(`INSERT INTO hr_roles(user_id,iiko_role_id,role_code,role_name,is_deleted,synced_at) VALUES(?1,?2,?3,?4,?5,?6)
     ON CONFLICT(user_id,role_code) DO UPDATE SET iiko_role_id=excluded.iiko_role_id,role_name=excluded.role_name,is_deleted=excluded.is_deleted,synced_at=excluded.synced_at`).bind(userId,r.id||'',r.code,r.name||r.code,r.deleted?1:0,t));
   for(let i=0;i<stm.length;i+=50)await env.DB.batch(stm.slice(i,i+50));
-  return json({success:true,syncedAt:t,...await snapshot(env.DB,userId,scope)});
+  return json({success:true,canEditSharedRules:true,syncedAt:t,...await snapshot(env.DB,userId,scope)});
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
 export async function onRequestGet({request,env}){
   try{
-    const a=await getUser(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);
-    await ensure(env.DB);const scope=await resolveHrRestaurantScope(request,env,a.user.id);
-    return json({success:true,source:'SMART_HORECA_ROLES',...await snapshot(env.DB,a.user.id,scope)});
-  }catch(e){console.error('[HR-ROLES-GET]',e);return json({success:false,message:e?.message||String(e)},500)}
+    const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+    const userId=state.storageUserId||state.user.id;
+    await ensure(env.DB);const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
+    return json({success:true,source:'SMART_HORECA_ROLES',canEditSharedRules:!scope?.membershipRestricted&&!isHrSubsetScope(scope)&&hasPermission(state.access,'hr.schedules.manage'),...await snapshot(env.DB,userId,scope)});
+  }catch(e){console.error('[HR-ROLES-GET]',e);return json({success:false,message:e?.message||String(e)},e?.status||500)}
 }
 export async function onRequestPost({request,env}){
   try{
-    const a=await getUser(request,env);if(!a)return json({success:false,message:'Требуется авторизация'},401);
-    await ensure(env.DB);const userId=a.user.id,scope=await resolveHrRestaurantScope(request,env,userId);
+    const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
+    const userId=state.storageUserId||state.user.id;
+    await ensure(env.DB);const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
     const body=await request.json().catch(()=>({})),action=clean(body.action);
-    if(action==='syncRoles')return syncRoles(request,env,userId,scope);
+    // Role norms are network-wide, so a department-restricted member cannot edit them.
+    if(scope?.membershipRestricted||isHrSubsetScope(scope)){
+      return json({success:false,message:'Общие должности и нормы часов может менять только уполномоченный HR всей сети при выборе всех ресторанов.'},403);
+    }
+    if(action==='syncRoles')return syncRoles(state,env,userId,scope);
     if(action!=='saveAttendanceRule')return json({success:false,message:'Старые шаблоны графиков отключены. Используйте норму должности и тип смены Face ID.'},410);
     const roleCode=clean(body.roleCode),shiftType=clean(body.shiftType).toUpperCase(),dailyNormMinutes=int(body.dailyNormMinutes,60,1440,480);
     if(!roleCode)return json({success:false,message:'Не указана должность'},400);
@@ -92,6 +101,6 @@ export async function onRequestPost({request,env}){
       VALUES(?1,?2,?3,?4,?5)
       ON CONFLICT(user_id,role_code) DO UPDATE SET daily_norm_minutes=excluded.daily_norm_minutes,shift_type=excluded.shift_type,updated_at=excluded.updated_at`)
       .bind(userId,roleCode,dailyNormMinutes,shiftType,now()).run();
-    return json({success:true,roleCode,dailyNormMinutes,shiftType,...await snapshot(env.DB,userId,scope)});
-  }catch(e){console.error('[HR-ROLES-POST]',e);return json({success:false,message:e?.message||String(e)},500)}
+    return json({success:true,canEditSharedRules:true,roleCode,dailyNormMinutes,shiftType,...await snapshot(env.DB,userId,scope)});
+  }catch(e){console.error('[HR-ROLES-POST]',e);return json({success:false,message:e?.message||String(e)},e?.status||500)}
 }
