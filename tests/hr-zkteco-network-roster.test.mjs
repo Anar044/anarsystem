@@ -49,6 +49,15 @@ test('A device outside authorized CHAIN scope produces no roster entries',()=>{
   assert.equal(previews[1].rosterStatus,'RESTAURANT_NOT_IN_SCOPE');
   assert.equal(previews[2].eligibleCount,0);
 });
+test('CHAIN member cannot view the full network roster from another restaurant',()=>{
+  const restricted={...scope,selectedDepartmentIds:['b'],selectedRestaurants:[scope.selectedRestaurants[1]],membershipRestricted:true};
+  const preview=plannedDeviceRoster(devices,employees,restricted);
+  assert.equal(preview[0].eligibleCount,0);
+  assert.equal(preview[0].rosterStatus,'RESTAURANT_NOT_IN_SCOPE');
+  assert.equal(preview[1].eligibleCount,1);
+  assert.equal(preview[1].rosterStatus,'MEMBER_VIEW_ONLY');
+  assert.equal(preview[2].eligibleCount,0);
+});
 test('PIN candidate never equals a generated internal code or duplicates another numeric code',()=>{
   const rows=[
     {iiko_employee_id:'x',employee_code:'44',departmentCodes:['1']},
