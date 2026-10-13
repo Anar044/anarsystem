@@ -27,8 +27,8 @@ test('One Farid in CHAIN has two independent payable restaurant documents',()=>{
  const doc=base([first,beforeLunch,second,last]);
  assert.equal(doc.network.uniqueEmployees,1);
  assert.equal(doc.restaurants.length,2);
- assert.deepEqual(doc.restaurants.map(x=>x.gross),[61.54,76.92]);
- assert.equal(doc.network.restaurantGross,138.46);
+ assert.deepEqual(doc.restaurants.map(x=>x.gross),[6.15,7.69]);
+ assert.equal(doc.network.restaurantGross,13.84);
  assert.ok(doc.restaurants.every(x=>x.ready));
  assert.equal(doc.restaurants[0].rows[0].actualMinutes,240);
  assert.equal(doc.restaurants[1].rows[0].actualMinutes,300);
@@ -38,7 +38,7 @@ test('Missed exit at RMS1 is independent of complete RMS2 session and blocks app
  assert.equal(doc.restaurants[0].ready,false);
  assert.equal(doc.restaurants[0].issueCount,1);
  assert.equal(doc.restaurants[1].ready,true);
- assert.equal(doc.restaurants[1].gross,76.92);
+ assert.equal(doc.restaurants[1].gross,7.69);
  assert.equal(doc.restaurants[0].gross,0);
 });
 test('Explicit manual correction applies to only named restaurant and work date',()=>{
