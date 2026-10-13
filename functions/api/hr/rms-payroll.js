@@ -54,7 +54,7 @@ function reviewer(action,access,scope){
     return can(access,'hr.timesheet.manage');
   if(action==='MANAGER_APPROVE')return can(access,'hr.timesheet.manager_approve');
   if(action==='HR_APPROVE')return central&&can(access,'hr.timesheet.hr_approve');
-  if(action==='REOPEN')return can(access,'hr.timesheet.hr_approve');
+  if(action==='REOPEN')return can(access,'hr.timesheet.hr_approve')||can(access,'hr.timesheet.manager_approve');
   return false;
 }
 async function rows(db,sql,args){
@@ -137,7 +137,7 @@ export async function onRequestGet({request,env}){
       canManagerApprove:reviewer('MANAGER_APPROVE',state.access,scope),
       canHrApprove:reviewer('HR_APPROVE',state.access,scope),
       canReopen:reviewer('REOPEN',state.access,scope),
-      closed:approvalMonthClosed(period),restaurants:docs,corrections,
+      closed:approvalMonthClosed(period),restaurants:docs,attendance:doc.attendance,corrections,
       network:doc.network,office:scope.membershipRestricted?[]:doc.pay.officeRows});
   }catch(e){console.error('[HR-RMS-PAYROLL-GET]',e);return json({success:false,message:e?.message||String(e)},e?.status||500)}
 }
@@ -146,11 +146,11 @@ export async function onRequestPost({request,env}){
     const state=await loadRequestIikoState(request,env);
     if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
     const body=await request.json().catch(()=>({}));
+    if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
     const action=clean(body.action).toUpperCase(),period=month(body.month),restaurantId=clean(body.restaurantId);
     if(!period||!restaurantId)return json({success:false,message:'Укажите месяц и один ресторан'},400);
-    if(!reviewer(action,state.access,await resolveHrRestaurantScope(request,env,state.storageUserId||state.user?.id,state.access)))
-      return json({success:false,message:'Недостаточно прав для этого действия'},403);
     const userId=state.storageUserId||state.user.id,scope=await resolveHrRestaurantScope(request,env,userId,state.access);
+    if(!reviewer(action,state.access,scope))return json({success:false,message:'Недостаточно прав для этого действия'},403);
     if(!authorizedRestaurants(scope).some(x=>x.id===restaurantId))return json({success:false,message:'Ресторан не входит в область доступа'},403);
     await ensure(env.DB);
     const actorId=clean(state.user.id),old=await env.DB.prepare(`SELECT * FROM hr_rms_payroll_approvals
@@ -215,6 +215,7 @@ export async function onRequestPost({request,env}){
           .bind(userId,period,restaurantId,JSON.stringify(snapshot),actorId,t,target.sourceHash).run();
       }else{
         if(old?.status!=='HR_APPROVED'&&old?.status!=='MANAGER_APPROVED')return json({success:false,message:'Payroll ещё не утверждён'},409);
+        if(old.status==='HR_APPROVED'&&!can(state.access,'hr.timesheet.hr_approve'))return json({success:false,message:'После утверждения HR вернуть документ на перерасчёт может только HR сети'},403);
         await env.DB.prepare(`UPDATE hr_rms_payroll_approvals SET status='DRAFT',source_hash='',
           approved_snapshot='{}',manager_id='',manager_at='',hr_id='',hr_at='',updated_at=?4
           WHERE user_id=?1 AND month=?2 AND restaurant_id=?3`).bind(userId,period,restaurantId,t).run();
@@ -223,6 +224,6 @@ export async function onRequestPost({request,env}){
     }else return json({success:false,message:'Неизвестное действие'},400);
     const updated=await loadDocument(env.DB,userId,scope,period);
     return json({success:true,month:period,restaurantId,restaurants:updated.docs,
-      network:updated.doc.network,postingEnabled:false});
+      network:updated.doc.network,attendance:updated.doc.attendance,postingEnabled:false});
   }catch(e){console.error('[HR-RMS-PAYROLL-POST]',e);return json({success:false,message:e?.message||String(e)},e?.status||500)}
 }
