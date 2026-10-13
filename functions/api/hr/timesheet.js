@@ -1,5 +1,5 @@
 import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
-import { resolveHrRestaurantScope, filterEmployeesByScope } from './_lib/restaurant-scope.js';
+import { resolveHrRestaurantScope, filterEmployeesByScope, filterAttendanceEventsByRestaurant } from './_lib/restaurant-scope.js';
 import { singlePunchStatus } from './_lib/live-shift-status.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
@@ -208,7 +208,7 @@ export async function onRequestGet({request,env}){
     const employeeChunks=chunkList(employeeIds,50);
 
     const [deviceRows,typeRows,roleAttendanceRows]=await env.DB.batch([
-      env.DB.prepare(`SELECT device_id,name,timezone FROM hr_devices WHERE user_id=?1`).bind(userId),
+      env.DB.prepare(`SELECT * FROM hr_devices WHERE user_id=?1`).bind(userId),
       env.DB.prepare(`SELECT leave_type,display_name FROM hr_leave_type_settings WHERE user_id=?1`).bind(userId),
       env.DB.prepare(`SELECT role_code,daily_norm_minutes,shift_type,updated_at FROM hr_role_attendance_rules WHERE user_id=?1`).bind(userId)
     ]);
@@ -241,7 +241,7 @@ export async function onRequestGet({request,env}){
     const roleAttendanceMap=new Map((roleAttendanceRows.results||[]).map(x=>[String(x.role_code||''),x]));
     const employeeAttendanceMap=new Map((employeeAttendanceResults||[]).map(x=>[String(x.iiko_employee_id||''),x]));
 
-    const events=eventRows.results||[],byEmployee=new Map();for(const e of events){const id=String(e.iiko_employee_id||'');if(!byEmployee.has(id))byEmployee.set(id,[]);byEmployee.get(id).push(e)}
+    const events=filterAttendanceEventsByRestaurant(eventRows.results||[],devices,employees,scope),byEmployee=new Map();for(const e of events){const id=String(e.iiko_employee_id||'');if(!byEmployee.has(id))byEmployee.set(id,[]);byEmployee.get(id).push(e)}
     const intervals=[],issues=[],rawDayMap=new Map(),attendanceConfigByEmployee=new Map(),nowMs=Date.now();
     for(const employee of employees){
       const list=byEmployee.get(employee.id)||[],firstDevice=deviceMap.get(String(list[0]?.device_id||'')),zone=timeZoneOf(firstDevice?.timezone||'Asia/Baku');
