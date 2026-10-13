@@ -1,4 +1,5 @@
 import { iikoText } from '../iiko/_lib/iiko-client.js';
+import { hasPermission } from '../access/_lib/access-control.js';
 import { loadRequestIikoState, privateConnection, hasPrivateConnection } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope, isHrSubsetScope } from './_lib/restaurant-scope.js';
 
@@ -65,7 +66,7 @@ async function syncRoles(state,env,userId,scope){
   const stm=roles.map(r=>env.DB.prepare(`INSERT INTO hr_roles(user_id,iiko_role_id,role_code,role_name,is_deleted,synced_at) VALUES(?1,?2,?3,?4,?5,?6)
     ON CONFLICT(user_id,role_code) DO UPDATE SET iiko_role_id=excluded.iiko_role_id,role_name=excluded.role_name,is_deleted=excluded.is_deleted,synced_at=excluded.synced_at`).bind(userId,r.id||'',r.code,r.name||r.code,r.deleted?1:0,t));
   for(let i=0;i<stm.length;i+=50)await env.DB.batch(stm.slice(i,i+50));
-  return json({success:true,syncedAt:t,...await snapshot(env.DB,userId,scope)});
+  return json({success:true,canEditSharedRules:true,syncedAt:t,...await snapshot(env.DB,userId,scope)});
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
@@ -75,7 +76,7 @@ export async function onRequestGet({request,env}){
     if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
     const userId=state.storageUserId||state.user.id;
     await ensure(env.DB);const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
-    return json({success:true,source:'SMART_HORECA_ROLES',...await snapshot(env.DB,userId,scope)});
+    return json({success:true,source:'SMART_HORECA_ROLES',canEditSharedRules:!scope?.membershipRestricted&&!isHrSubsetScope(scope)&&hasPermission(state.access,'hr.schedules.manage'),...await snapshot(env.DB,userId,scope)});
   }catch(e){console.error('[HR-ROLES-GET]',e);return json({success:false,message:e?.message||String(e)},e?.status||500)}
 }
 export async function onRequestPost({request,env}){
@@ -86,7 +87,7 @@ export async function onRequestPost({request,env}){
     await ensure(env.DB);const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
     const body=await request.json().catch(()=>({})),action=clean(body.action);
     // Role norms are network-wide, so a department-restricted member cannot edit them.
-    if(scope?.isChain&&(scope.membershipRestricted||isHrSubsetScope(scope))){
+    if(scope?.membershipRestricted||isHrSubsetScope(scope)){
       return json({success:false,message:'Общие должности и нормы часов может менять только уполномоченный HR всей сети при выборе всех ресторанов.'},403);
     }
     if(action==='syncRoles')return syncRoles(state,env,userId,scope);
@@ -100,6 +101,6 @@ export async function onRequestPost({request,env}){
       VALUES(?1,?2,?3,?4,?5)
       ON CONFLICT(user_id,role_code) DO UPDATE SET daily_norm_minutes=excluded.daily_norm_minutes,shift_type=excluded.shift_type,updated_at=excluded.updated_at`)
       .bind(userId,roleCode,dailyNormMinutes,shiftType,now()).run();
-    return json({success:true,roleCode,dailyNormMinutes,shiftType,...await snapshot(env.DB,userId,scope)});
+    return json({success:true,canEditSharedRules:true,roleCode,dailyNormMinutes,shiftType,...await snapshot(env.DB,userId,scope)});
   }catch(e){console.error('[HR-ROLES-POST]',e);return json({success:false,message:e?.message||String(e)},e?.status||500)}
 }
