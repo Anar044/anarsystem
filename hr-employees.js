@@ -44,7 +44,7 @@
       if(role&&x.roleCode!==role)return false;
       if(status==='ACTIVE'&&isFired(x))return false;
       if(status==='FIRED'&&!isFired(x))return false;
-      if(deptFilter==='ASSIGNED'&&x.restaurant?.status!=='ASSIGNED')return false;
+      if(deptFilter==='ASSIGNED'&&!['ASSIGNED','ASSIGNED_MULTIPLE'].includes(x.restaurant?.status))return false;
       if(deptFilter==='NEEDS_REVIEW'&&x.restaurant?.ready!==false)return false;
       if(q&&!([fullName(x),x.code,x.roleName,x.departmentCode].join(' ').toLowerCase().includes(q)))return false;
       return true;
@@ -57,7 +57,7 @@
       <article class="hr-summary-card"><span>Активные сотрудники</span><strong>${Number(c.active||0)}</strong><small>Без даты увольнения</small></article>
       <article class="hr-summary-card"><span>Face ID связаны</span><strong>${Number(c.linkedToAttendance||0)}</strong><small>По связям с SenseFace</small></article>
       <article class="hr-summary-card"><span>Источник явок</span><strong class="hr-text-value">Не подключён</strong><small>Смотрите «Учёт времени / Face ID»</small></article>
-      ${isChain?`<article class="hr-summary-card"><span>Привязаны к ресторанам</span><strong>${Number(d.assigned||0)}</strong><small>Распознан код подразделения CHAIN</small></article>
+      ${isChain?`<article class="hr-summary-card"><span>Привязаны к ресторанам</span><strong>${Number(d.assigned||0)}</strong><small>В нескольких ресторанах: ${Number(d.multiple||0)}</small></article>
       <article class="hr-summary-card"><span>Нужна привязка</span><strong>${Number(d.unassigned||0)+Number(d.unknown||0)+Number(d.ambiguous||0)}</strong><small>Нет подразделения или код не совпадает с CHAIN</small></article>`:''}`;
   }
   function renderRoles(){
@@ -70,8 +70,9 @@
     const rows=filtered(),tbody=$('hrTable').querySelector('tbody'),manage=canManageAccess();
     tbody.innerHTML=rows.map(x=>{
       const fired=isFired(x),linked=Boolean(x.attendanceExternalId),dep=x.restaurant||{};
-      const departmentLabel=dep.status==='ASSIGNED'
-        ?`${esc(dep.restaurantName)} <span class="hr-sub">· ${esc(x.departmentCode||'')}</span>`
+      const mapped=Array.isArray(dep.restaurants)?dep.restaurants:[];
+      const departmentLabel=(dep.ready&&mapped.length)
+        ?mapped.map(r=>`<div style="white-space:nowrap"><span>${esc(r.name)}</span><span class="hr-sub"> · ${esc(r.code||r.id)}</span></div>`).join('')
         :`${esc(x.departmentCode||'—')}${dep.status==='UNASSIGNED'?'<div class="hr-sub">Не назначен ресторан</div>':dep.status==='UNKNOWN_DEPARTMENT'?'<div class="hr-sub">Код не найден в CHAIN</div>':dep.status==='AMBIGUOUS_DEPARTMENT'?'<div class="hr-sub">Неоднозначная привязка</div>':''}`;
       return`<tr>
         <td class="text-left"><div class="hr-name"><a href="/hr-employee.html?id=${encodeURIComponent(x.id)}" style="color:inherit;text-decoration:none">${esc(fullName(x))}</a></div><div class="hr-sub">ID: ${esc(x.id)}</div></td>
