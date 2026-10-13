@@ -600,6 +600,7 @@ jobs:
           node --test tests/hr-independent-rms-attendance.test.mjs
           node --test tests/hr-payroll-rms-hours.test.mjs
           node --test tests/hr-monthly-role-payroll.test.mjs
+          node --test tests/hr-rms-payroll-approvals.test.mjs
           node --test tests/hr-employee-directory-xml.test.mjs
           node --test tests/hr-member-employee-sync.test.mjs
           node --test tests/hr-employee-restaurant-status.test.mjs
