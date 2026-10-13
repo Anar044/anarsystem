@@ -12,6 +12,7 @@ export function hrAccessRule(path,method,action=''){
   if(path.endsWith('/api/hr/device-ingest'))return null;
   if(path.endsWith('/api/hr/employees'))return write?'hr.employees.manage':'hr.employees.view';
   if(path.endsWith('/api/hr/role-schedules'))return write?'hr.schedules.manage':'hr.schedules.view';
+  if(path.endsWith('/api/hr/monthly-role-norms'))return write?'hr.schedules.manage':'hr.schedules.view';
   if(path.endsWith('/api/hr/work-calendar'))return write?'hr.schedules.manage':'hr.schedules.view';
   if(path.endsWith('/api/hr/timeclock'))return write?'hr.attendance.manage':'hr.attendance.view';
   if(path.endsWith('/api/hr/timesheet'))return write?'hr.timesheet.manage':'hr.timesheet.view';

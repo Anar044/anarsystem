@@ -28,7 +28,7 @@
           <div class="hr-head">
             <div>
               <h1>Должности и нормы рабочего времени</h1>
-              <p>Должности синхронизируются из Smart Horeca. Для каждой должности задаётся норма рабочего дня и тип смены Face ID. У сотрудника можно переопределить только тип смены.</p>
+              <p>Должности синхронизируются из Smart Horeca. Для каждой должности задаются тип смены и норма рабочего дня Face ID. Дополнительно каждый месяц задаются рабочие дни и часы по каждому RMS для расчёта зарплаты. Офисные должности используют отдельную систему оклада.</p>
             </div>
             <div class="hr-actions">
               <span id="rsStatus" class="hr-status">Готово</span>
@@ -54,6 +54,32 @@
 
 
 
+          <section class="hr-card" id="rsMonthlyPayrollPanel">
+            <div class="hr-card-title-row">
+              <div>
+                <div class="hr-card-title">Месячный календарь и нормы Payroll</div>
+                <div class="hr-card-sub">Каждый месяц задаётся вручную, отдельно по ресторану и должности. Офисный оклад учитывается отдельно от ресторанной нормы часов.</div>
+              </div>
+              <span class="hr-muted">Нормы расчёта · CHAIN</span>
+            </div>
+            <div class="hr-attendance-rule-note"><strong>Ресторан:</strong> оклад за полный месяц / (норма дней × часы за день) × фактические часы данного RMS. Например, 400 ₼ / (26 × 10) × 220 = 338,46 ₼. <strong>Офис:</strong> фиксированный месячный оклад, без ресторанного пересчёта. Начисление по новой формуле пока только для проверки.</div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin:14px 0">
+              <label>Месяц <input id="rsPayrollMonth" type="month" required></label>
+              <label>Ресторан или офис <select id="rsPayrollRestaurant"></select></label>
+              <label>Должность <select id="rsPayrollRole"></select></label>
+              <label id="rsPayrollDaysWrap">Рабочих дней <input id="rsPayrollDays" type="number" min="1" max="31" step="1" value="26"></label>
+              <label id="rsPayrollHoursWrap">Часов в день <input id="rsPayrollHours" type="number" min=".25" max="24" step=".25" value="10"></label>
+              <button id="rsPayrollSave" type="button" class="hr-primary">Сохранить норму</button>
+            </div>
+            <div id="rsPayrollInfo" class="hr-muted" aria-live="polite"></div>
+            <div class="hr-table-scroll" style="margin-top:12px">
+              <table class="hr-attendance-rules-table">
+                <thead><tr><th class="text-left">Ресторан / офис</th><th class="text-left">Должность</th><th>Режим</th><th>Норма дней</th><th>Часов в день</th><th>Норма часов</th></tr></thead>
+                <tbody id="rsPayrollRows"></tbody>
+              </table>
+            </div>
+          </section>
+
           <section class="hr-card hr-next">
             <div class="hr-card-title">Как работает фактический учёт</div>
             <p>График свободный: система не считает опоздания и ранние уходы. Face ID группирует отметки внутри выбранного окна смены, берёт первую пробивку как приход и последнюю как уход. Норма рабочего дня берётся из должности.</p>
@@ -63,7 +89,7 @@
       </div>
     </main>
   </div>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="iiko-context.js?v=20261003-chain-3"></script><script src="app-shell.js?v=20261008-hr-clean-2"></script><script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script><script src="mobile-responsive.js?v=20261009-role-aware-v2"></script><script src="documents-nav.js?v=16"></script><script src="hr-role-schedules.js?v=20261008-clean-hr-1"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="auth-config.js"></script><script src="auth.js"></script><script src="iiko-context.js?v=20261003-chain-3"></script><script src="app-shell.js?v=20261008-hr-clean-2"></script><script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script><script src="mobile-responsive.js?v=20261009-role-aware-v2"></script><script src="documents-nav.js?v=16"></script><script src="hr-role-schedules.js?v=20261013-monthly-role-payroll-v1"></script>
 <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script>
 <script src="/sh-i18n.js?v=20261012-ui-i18n-v1"></script>
 </body>

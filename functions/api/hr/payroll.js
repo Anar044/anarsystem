@@ -3,6 +3,7 @@ import { approvalTarget,approvalDepartments } from './_lib/department-approvals.
 import { buildPayrollDepartmentSummary } from './_lib/payroll-department-summary.js';
 import { independentRestaurantAttendance } from './_lib/restaurant-attendance.js';
 import { summarizePayrollRmsHours } from './_lib/payroll-rms-hours.js';
+import { previewRmsRolePayroll } from './_lib/monthly-role-payroll.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope, filterAttendanceEventsByRestaurant } from './_lib/restaurant-scope.js';
 import { calculateCompensation, AZ_PAYROLL_RULE_PROFILE } from './_lib/az-payroll-rules.js';
 import { syncOvertimeAccrualPosting } from './_lib/payroll-accounting.js';
@@ -323,6 +324,26 @@ export async function onRequestGet({request,env}){
       rmsHours=summarizePayrollRmsHours(ledger,scope);
     }
 
+    let monthlyRolePreview=null;
+    if(scope?.isChain&&rmsHours){
+      const result=await env.DB.prepare(
+        `SELECT restaurant_id,role_code,payroll_mode,norm_days,daily_norm_minutes
+         FROM hr_role_monthly_payroll_norms WHERE user_id=?1 AND month=?2`
+      ).bind(userId,month).all().catch(error=>{
+        if(/no such table/i.test(String(error?.message||error)))return{results:[]};
+        throw error;
+      });
+      const allowedIds=new Set((scope.selectedDepartmentIds||[]).map(String));
+      const restricted=Boolean(scope.membershipRestricted)||
+        (scope.selectedDepartmentIds||[]).length<(scope.allowedDepartmentIds||[]).length;
+      const visibleNorms=(result.results||[]).filter(n=>allowedIds.has(String(n.restaurant_id))||
+        (!restricted&&n.restaurant_id==='NETWORK_OFFICE'));
+      monthlyRolePreview=previewRmsRolePayroll({
+        hourRows:rmsHours.employeeRows,employees:employeesR.results||[],norms:visibleNorms,
+        employeeTerms,roleTerms,month,scope
+      });
+    }
+
     const departmentPayroll=buildPayrollDepartmentSummary(rows,scope,departmentApprovals);
     const totals={
       monthlyFactualGross:round2(configured.reduce((a,r)=>a+Number(r.accrual?.monthlyFactualGross||0),0)),
@@ -337,6 +358,7 @@ export async function onRequestGet({request,env}){
       restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
       departmentPayroll,
       rmsHours,
+      monthlyRolePreview,
       payrollView:scope?.isChain?(aggregateView?'NETWORK_SUMMARY':'RESTAURANT_PAYROLL'):'RESTAURANT_PAYROLL',
       postingAllowed:!aggregateView&&payrollTimesheetApproved,
       ruleProfile:AZ_PAYROLL_RULE_PROFILE,calendar:{year:2026,workDays:norm.days,normHours:norm.hours,source:'ƏƏSMN 2026 istehsalat təqvimi'},
@@ -353,7 +375,7 @@ export async function onRequestGet({request,env}){
       },
       totals,rows,
       notes:[
-        ...(scope?.isChain?['ВНИМАНИЕ: старый расчёт зарплаты пока привязан к основному подразделению сотрудника. Ведомость часов по RMS ниже предназначена для сверки; не используйте старый расчёт для окончательных начислений сотрудникам, работавшим в нескольких RMS.']:[]),
+        ...(scope?.isChain?['Новая формула Payroll ресторана: месячная сумма / (норма дней должности × часы в день) × фактические часы RMS. Пока только расчётный предварительный просмотр: налоги, отсутствие явок, отпуска, утверждение и бухгалтерские проводки не проведены по этой формуле. Старые суммы Payroll не являются окончательными для сотрудников нескольких RMS.']:[]),
         ...(aggregateView?['Сводный Payroll CHAIN носит информационный характер: начисления и выплаты проводятся отдельно в каждом ресторане.']:[]),
         ...(departmentPayroll&&!departmentPayroll.reconciled?['Есть сотрудники без однозначной привязки к ресторану CHAIN: их суммы не включены в строки ресторанов, но присутствуют в общем итоге.']:[]),
         faceIdConnected?'Face ID участвует как источник фактического времени; базовый неполный месяц определяется также датами приёма/увольнения.':'Face ID не подключён: для неполного месяца используются даты фактического/официального приёма и увольнения и производственный календарь.',

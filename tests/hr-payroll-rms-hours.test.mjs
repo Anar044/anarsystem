@@ -62,7 +62,7 @@ test('Payroll shows RMS hours, explicitly blocks claims of allocated money',()=>
  assert.match(api,/rmsHours,/);
  assert.match(html,/hrpRmsHours/);
  assert.match(ui,/renderRmsHours/);
- assert.match(api,/старый расчёт зарплаты пока привязан к основному подразделению/);
+ assert.match(api,/Старые суммы Payroll не являются окончательными/);
  const lib=read('functions/api/hr/_lib/payroll-rms-hours.js');
  assert.doesNotMatch(lib,/syncOvertimeAccrualPosting|INSERT INTO hr_overtime|UPDATE hr_/);
 });

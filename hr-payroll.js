@@ -122,6 +122,40 @@ function renderScopeHeading(){
     ?'<strong>Общий Payroll CHAIN</strong><span>Сводка по '+restaurants.length+' ресторанам. Отдельные начисления и выплаты проводятся в конкретном ресторане.</span>'
     :'<strong>Payroll ресторана</strong><span>Начисления и табель относятся только к выбранному подразделению.</span>';
 }
+function renderMonthlyNormPreview(){
+  const box=$('hrpMonthlyNormPreview'),preview=state.payroll?.monthlyRolePreview;
+  if(!box)return;
+  box.hidden=state.payroll?.restaurantScope?.mode!=='CHAIN'||!preview;
+  if(box.hidden)return;
+  const current=$('hrpDepartmentFilter')?.value||'';
+  const selected=(state.payroll?.departmentPayroll?.departments||[])
+    .find(d=>String(d.code).toUpperCase()===current.toUpperCase());
+  const rows=(preview.rows||[]).filter(x=>!selected||String(x.restaurantId)===String(selected.id));
+  const office=selected?[]:(preview.officeRows||[]).map(x=>({...x,restaurantName:'Центральный офис'}));
+  const all=[...rows,...office];
+  const status=x=>({
+    PREVIEW_NOT_APPROVED:'Предварительно · ожидает утверждения',
+    PREVIEW_OFFICE:'Оклад · предварительно',
+    REVIEW_REQUIRED:'Проверить явки',
+    NORM_NOT_CONFIGURED:'Не задан календарь должности',
+    SALARY_NOT_CONFIGURED:'Нет суммы зарплаты'
+  })[x.status]||x.status||'—';
+  const html=all.map(x=>`<tr>
+    <td class="text-left">${esc(x.restaurantName||x.restaurantId)}</td>
+    <td class="text-left">${esc(x.employeeName||x.employeeId)}</td>
+    <td>${x.payrollMode==='RESTAURANT_HOURS'?Number(x.normDays):'—'}</td>
+    <td>${x.payrollMode==='RESTAURANT_HOURS'?Number((x.dailyNormMinutes/60).toFixed(2)):'—'}</td>
+    <td>${x.payrollMode==='OFFICE_FIXED'?'—':hours(x.acceptedMinutes||0)}</td>
+    <td>${x.payrollMode==='RESTAURANT_HOURS'?Number(x.equivalentDays).toLocaleString('ru-RU',{maximumFractionDigits:4}):'—'}</td>
+    <td><strong>${Number.isFinite(Number(x.totalGross))?money(x.totalGross):'—'}</strong></td>
+    <td>${esc(status(x))}</td></tr>`).join('');
+  const gross=r(all.reduce((sum,x)=>sum+Number(x.totalGross||0),0));
+  const attention=all.filter(x=>!['PREVIEW_NOT_APPROVED','PREVIEW_OFFICE'].includes(x.status)).length;
+  $('hrpMonthlyNormRows').innerHTML=html+`<tr class="hrp-network-total">
+    <td class="text-left"><strong>ИТОГО · предварительно</strong></td>
+    <td>${new Set(all.map(x=>x.employeeId)).size} сотрудников</td><td></td><td></td><td></td><td></td>
+    <td><strong>${money(gross)}</strong></td><td>${attention?'Требуют проверки: '+attention:'Без проведения выплат'}</td></tr>`;
+}
 function renderRmsHours(){
   const box=$('hrpRmsHours'),preview=state.payroll?.rmsHours||null;
   if(!box)return;
@@ -381,7 +415,7 @@ function renderTabs(){
   const explain=document.querySelector('.hrp-explain');if(explain)explain.hidden=settlements;
   document.querySelector('.hrp-filter-card')?.classList.toggle('settlement-mode',settlements);
 }
-function render(){renderFilters();renderScopeHeading();renderRmsHours();renderDepartmentPayroll();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
+function render(){renderFilters();renderScopeHeading();renderMonthlyNormPreview();renderRmsHours();renderDepartmentPayroll();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
 function onFilter(){renderSummary();renderTable();renderSettlements()}
 async function load(){
   if(busy)return;
