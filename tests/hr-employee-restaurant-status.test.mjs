@@ -9,7 +9,7 @@ const scope={isChain:true,selectedDepartmentIds:['id-a','id-b'],selectedRestaura
 ]};
 test('CHAIN resolves restaurant code 1 as a proper restaurant with display name',()=>{
   assert.deepEqual(employeeRestaurantStatus({department_code:'1'},scope),{
-    status:'ASSIGNED',departmentCode:'1',restaurantId:'id-a',restaurantName:'Restaurant A',ready:true
+    status:'ASSIGNED',departmentCode:'1',restaurantId:'id-a',restaurantName:'Restaurant A',restaurants:[{id:'id-a',code:'1',name:'Restaurant A'}],unmatchedDepartmentCodes:[],ready:true
   });
 });
 test('No department is visible but not implicitly assigned to a restaurant',()=>{
@@ -31,7 +31,7 @@ test('Ambiguous directory codes are flagged rather than guessed',()=>{
 test('Summary counts only unambiguously mapped employees',()=>{
   assert.deepEqual(employeeDepartmentSummary([
     {department_code:'1'},{department_code:'2'},{department_code:''},{department_code:'wrong'}
-  ],scope),{assigned:2,unassigned:1,unknown:1,ambiguous:0});
+  ],scope),{assigned:2,multiple:0,unassigned:1,unknown:1,ambiguous:0});
 });
 test('RMS does not reject historic employees lacking department codes',()=>{
   assert.equal(employeeRestaurantStatus({department_code:''},{isChain:false}).ready,true);
@@ -39,7 +39,7 @@ test('RMS does not reject historic employees lacking department codes',()=>{
 test('UI and API expose staff readiness only; never delete technical-looking names',()=>{
   const api=readFileSync(new URL('../functions/api/hr/employees.js',import.meta.url),'utf8');
   const ui=readFileSync(new URL('../hr-employees.js',import.meta.url),'utf8');
-  assert.match(api,/employeeRestaurantStatus\(r,scope\)/);
+  assert.match(api,/employeeRestaurantStatus\(item,scope\)/);
   assert.match(api,/departmentSummary:cache.departmentSummary/);
   assert.match(ui,/hrEmployeeScopeFilter/);
   assert.match(ui,/Нужна привязка/);
