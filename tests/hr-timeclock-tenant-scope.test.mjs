@@ -47,7 +47,39 @@ test('Server-side HR timeclock honors workspace owner and filters all data colle
   assert.match(source,/const subset=isTimeclockScopeRestricted\(scope\)/);
   assert.match(source,/selectedDeviceIds\.has\(String\(x\.device_id\)\)\&\&employeeIds\.has/);
   assert.match(source,/selectedDeviceIds\.has\(String\(x\.device_id\)\)\&\&\(!x\.iiko_employee_id/);
-  assert.match(source,/employeeAllowedForScope\(e,scope,d\)/);
+  assert.match(source,/employeeAllowedForScope\(memberEmployee,scope,d\)/);
   assert.match(source,/\.filter\(x=>employeeAllowedForScope\(x,scope,d\)\)/);
   assert.doesNotMatch(source,/const userId=a\.user\.id/);
+});
+
+test('TEST HR in three RMS can bind to Face ID at each registered restaurant',()=>{
+  const three=scope(['A','B','C'],['RMS1','RMS2','RMS3']);
+  const staff={iiko_employee_id:'test-hr',department_code:'RMS1',departmentCodes:['RMS1','RMS2','RMS3']};
+  for(const restaurantId of ['A','B','C']){
+    assert.equal(employeeAllowedForScope(staff,three,{restaurant_id:restaurantId}),true);
+  }
+  assert.equal(employeeAllowedForScope(staff,three,{restaurant_id:'D'}),false);
+});
+test('Limited RMS2 HR may bind multi-restaurant staff to RMS2 device only',()=>{
+  const limited=scope(['B'],['RMS2']);
+  const staff={iiko_employee_id:'test-hr',department_code:'RMS1',departmentCodes:['RMS1','RMS2','RMS3']};
+  assert.equal(employeeAllowedForScope(staff,limited,{restaurant_id:'B'}),true);
+  assert.equal(employeeAllowedForScope(staff,limited,{restaurant_id:'A'}),false);
+  assert.equal(employeeAllowedForScope({department_code:'RMS1',departmentCodes:['RMS1']},limited,{restaurant_id:'B'}),false);
+});
+test('Face ID code hydrates membership from HR D1 before binding or import',()=>{
+  const source=readFileSync(new URL('../functions/api/hr/timeclock.js',import.meta.url),'utf8');
+  assert.match(source,/CREATE TABLE IF NOT EXISTS hr_employee_departments/);
+  assert.match(source,/loadEmployeeMemberships\(env\.DB,userId\)/);
+  assert.match(source,/attachEmployeeMemberships\(bindings\.results\|\|\[\],memberships\)/);
+  assert.match(source,/employeeWithinMembershipScope\(e,scope\)/);
+});
+
+test('Face ID selector narrows employees to chosen restaurant on the device',()=>{
+  const source=readFileSync(new URL('../hr-timeclock.js',import.meta.url),'utf8');
+  assert.match(source,/function employeesForDevice\(deviceId\)/);
+  assert.match(source,/x\.departmentCodes\|\|\[x\.departmentCode\]/);
+  assert.match(source,/\$\('bindingDevice'\)\.onchange=renderEmployeeSelector/);
+  const page=readFileSync(new URL('../hr-timeclock.html',import.meta.url),'utf8');
+  assert.match(page,/multirms-faceid-v1/);
 });

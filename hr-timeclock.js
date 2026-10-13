@@ -31,7 +31,31 @@
     box.querySelectorAll('[data-revoke-device]').forEach(btn=>btn.onclick=()=>revokeDeviceToken(btn.dataset.revokeDevice));
   }
 
-  function renderSelectors(){const devices=data.devices||[],employees=(data.employees||[]).filter(x=>!x.deleted&&!x.fireDate);const d=$('bindingDevice'),e=$('bindingEmployee');d.innerHTML=devices.length?devices.map(x=>`<option value="${esc(x.id)}">${esc(x.name)} · ${esc(x.provider)}</option>`).join(''):'<option value="">Сначала добавьте устройство</option>';e.innerHTML=employees.length?employees.map(x=>`<option value="${esc(x.id)}">${esc(x.name||x.code)}${x.roleName?' · '+esc(x.roleName):''}</option>`).join(''):'<option value="">Сначала синхронизируйте сотрудников</option>';}
+  function employeesForDevice(deviceId){
+    const employees=(data.employees||[]).filter(x=>!x.deleted&&!x.fireDate);
+    if(data.restaurantScope?.mode!=='CHAIN')return employees;
+    const device=(data.devices||[]).find(d=>String(d.id)===String(deviceId));
+    const restaurant=(data.restaurantScope?.restaurants||[]).find(r=>String(r.id)===String(device?.restaurantId||''));
+    if(!restaurant?.code)return[];
+    const key=String(restaurant.code).trim().toLowerCase();
+    return employees.filter(x=>(x.departmentCodes||[x.departmentCode])
+      .some(code=>String(code||'').trim().toLowerCase()===key));
+  }
+  function renderEmployeeSelector(){
+    const d=$('bindingDevice'),e=$('bindingEmployee');
+    const previous=e.value,employees=employeesForDevice(d.value);
+    e.innerHTML=employees.length?employees.map(x=>`<option value="${esc(x.id)}">${esc(x.name||x.code)}${x.roleName?' · '+esc(x.roleName):''}</option>`).join('')
+      :'<option value="">Нет сотрудников, привязанных к ресторану устройства</option>';
+    if(employees.some(x=>String(x.id)===previous))e.value=previous;
+  }
+  function renderSelectors(){
+    const devices=data.devices||[],d=$('bindingDevice');
+    const previous=d.value;
+    d.innerHTML=devices.length?devices.map(x=>`<option value="${esc(x.id)}">${esc(x.name)} · ${esc(x.provider)}</option>`).join('')
+      :'<option value="">Сначала добавьте устройство</option>';
+    if(devices.some(x=>String(x.id)===previous))d.value=previous;
+    renderEmployeeSelector();
+  }
 
   function renderBindings(){const list=data.bindings||[];$('bindingCount').textContent=`${list.length} связей`;$('bindingRows').innerHTML=list.length?list.map(b=>`<tr><td class="text-left"><div class="hr-name">${esc(employeeName(b.employeeId))}</div></td><td>${esc(deviceName(b.deviceId))}</td><td><span class="hr-badge linked">${esc(b.externalEmployeeId)}</span>${b.externalLabel?`<div class="hr-sub">${esc(b.externalLabel)}</div>`:''}</td><td>${esc(b.provider)}</td><td><button class="hr-link-button" data-unlink-device="${esc(b.deviceId)}" data-unlink-employee="${esc(b.employeeId)}">Удалить связь</button></td></tr>`).join(''):'<tr><td colspan="5" class="hr-empty">Сотрудники ещё не связаны с устройствами</td></tr>';$('bindingRows').querySelectorAll('[data-unlink-device]').forEach(btn=>btn.onclick=()=>unlink(btn.dataset.unlinkDevice,btn.dataset.unlinkEmployee));}
 
@@ -91,7 +115,7 @@
       $('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error');
     }
   }
-  function bind(){$('tcRefresh').onclick=load;$('requestAttlog').onclick=requestAttendanceLog;$('deviceForm').onsubmit=saveDevice;$('bindingForm').onsubmit=link;$('copyDeviceToken').onclick=copyDeviceToken;$('closeDeviceToken').onclick=hideDeviceToken;$('deviceConnectionMode').onchange=()=>{$('deviceSerial').required=$('deviceConnectionMode').value==='ADMS_PUSH'}}
+  function bind(){$('tcRefresh').onclick=load;$('requestAttlog').onclick=requestAttendanceLog;$('deviceForm').onsubmit=saveDevice;$('bindingForm').onsubmit=link;$('bindingDevice').onchange=renderEmployeeSelector;$('copyDeviceToken').onclick=copyDeviceToken;$('closeDeviceToken').onclick=hideDeviceToken;$('deviceConnectionMode').onchange=()=>{$('deviceSerial').required=$('deviceConnectionMode').value==='ADMS_PUSH'}}
   async function init(){bind();await load()}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();

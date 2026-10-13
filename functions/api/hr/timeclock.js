@@ -1,5 +1,6 @@
 import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
-import { resolveHrRestaurantScope, filterEmployeesByScope, hrScopeKeys, isHrSubsetScope } from './_lib/restaurant-scope.js';
+import { resolveHrRestaurantScope, hrScopeKeys, isHrSubsetScope } from './_lib/restaurant-scope.js';
+import { employeeWithinMembershipScope,visibleEmployeeMembership,mergeEmployeeMembership } from './_lib/employee-department-membership.js';
 import { ensureZktecoAdmsTables, registerAdmsDevice, unregisterAdmsDevice, queueAdmsCommand } from './_lib/zkteco-adms.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
@@ -61,6 +62,10 @@ async function ensure(db){
       UNIQUE(user_id,device_id,external_employee_id)
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_bindings_employee ON hr_employee_device_bindings(user_id,iiko_employee_id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_departments (
+      user_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,department_code TEXT NOT NULL,synced_at TEXT NOT NULL,
+      PRIMARY KEY(user_id,iiko_employee_id,department_code)
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_attendance_events (
       user_id TEXT NOT NULL,
       event_id TEXT NOT NULL,
@@ -118,15 +123,32 @@ export function deviceAllowedForScope(row,scope){
 }
 export function employeeAllowedForScope(employee,scope,deviceRow=null){
   if(!employee)return false;
-  const code=clean(employee.department_code).toLowerCase();
+  const codes=mergeEmployeeMembership(employee.departmentCodes,employee.department_code);
+  const normalized=new Set(codes.map(c=>clean(c).toLowerCase()));
   if(isTimeclockScopeRestricted(scope)){
-    if(!code||!new Set(hrScopeKeys(scope).map(x=>clean(x).toLowerCase())).has(code))return false;
+    const permitted=new Set(hrScopeKeys(scope).map(x=>clean(x).toLowerCase()));
+    if(!codes.some(c=>permitted.has(clean(c).toLowerCase())))return false;
   }
   if(scope?.isChain&&deviceRow?.restaurant_id){
     const department=(scope.selectedRestaurants||[]).find(x=>clean(x.id).toLowerCase()===clean(deviceRow.restaurant_id).toLowerCase());
-    if(!department||!code||code!==clean(department.code).toLowerCase())return false;
+    if(!department||!normalized.has(clean(department.code).toLowerCase()))return false;
   }
   return true;
+}
+async function loadEmployeeMemberships(db,userId){
+  const rows=await db.prepare(`SELECT iiko_employee_id,department_code FROM hr_employee_departments WHERE user_id=?1`).bind(userId).all();
+  const memberships=new Map();
+  for(const row of rows.results||[]){
+    const id=clean(row.iiko_employee_id);
+    if(!memberships.has(id))memberships.set(id,[]);
+    memberships.get(id).push(row.department_code);
+  }
+  return memberships;
+}
+function attachEmployeeMemberships(employees,memberships){
+  return (employees||[]).map(e=>({
+    ...e,departmentCodes:mergeEmployeeMembership(memberships.get(clean(e.iiko_employee_id))||[],e.department_code)
+  }));
 }
 
 async function snapshot(db,userId,scope=null){
@@ -146,17 +168,28 @@ async function snapshot(db,userId,scope=null){
   const allDevices=devices.results||[],allEmployees=employees.results||[],allBindings=bindings.results||[],allEvents=events.results||[],ts=tokens.results||[],adms=admsRows.results||[],allAdmsRaw=admsRawRows.results||[],allAdmsRequests=admsRequestRows.results||[],allAdmsCommands=admsCommandRows.results||[];
   const subset=isTimeclockScopeRestricted(scope);
   const ds=subset?allDevices.filter(x=>deviceAllowedForScope(x,scope)):allDevices;
-  const es=filterEmployeesByScope(allEmployees,scope);
+  const memberships=await loadEmployeeMemberships(db,userId);
+  const es=attachEmployeeMemberships(allEmployees,memberships)
+    .filter(e=>employeeWithinMembershipScope(e,scope));
   const employeeIds=new Set(es.map(x=>String(x.iiko_employee_id)));
   const selectedDeviceIds=new Set(ds.map(x=>String(x.device_id)));
   const bs=subset?allBindings.filter(x=>selectedDeviceIds.has(String(x.device_id))&&employeeIds.has(String(x.iiko_employee_id))):allBindings;
   const ev=subset?allEvents.filter(x=>selectedDeviceIds.has(String(x.device_id))&&(!x.iiko_employee_id||employeeIds.has(String(x.iiko_employee_id)))):allEvents;
   const tokenMap=new Map(ts.map(x=>[String(x.device_id),x])),admsMap=new Map(adms.map(x=>[String(x.device_id),x])),nowMs=Date.now();
   return{
-    restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes,deviceScope:subset?'SCOPED_BY_RESTAURANT':'ALL'}:null,
+    restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes,restaurants:(scope.selectedRestaurants||[]).map(r=>({id:r.id,code:r.code,name:r.name})),deviceScope:subset?'SCOPED_BY_RESTAURANT':'ALL'}:null,
     adms:{basePath:'/iclock',directPush:true,offlineBuffering:'DEVICE_LOCAL_MEMORY'},
     devices:ds.map(x=>{const token=tokenMap.get(String(x.device_id)),zk=admsMap.get(String(x.device_id)),seen=zk?.last_seen_at?new Date(zk.last_seen_at).getTime():0;return{id:x.device_id,provider:x.provider,name:x.name,restaurantId:x.restaurant_id||'',location:x.location,connectionMode:x.connection_mode,timezone:x.timezone,active:Boolean(x.is_active),lastSyncAt:x.last_sync_at||'',tokenConfigured:Boolean(token),tokenLastUsedAt:token?.last_used_at||'',tokenRotatedAt:token?.rotated_at||'',serialNumber:zk?.serial_number||'',model:zk?.model||'',admsLastSeenAt:zk?.last_seen_at||'',admsLastEventAt:zk?.last_event_at||'',pushVersion:zk?.push_version||'',firmware:zk?.firmware||'',lastIp:zk?.last_ip||'',admsOnline:Boolean(seen&&nowMs-seen<5*60*1000)}}),
-    employees:es.map(x=>({id:x.iiko_employee_id,code:x.employee_code,name:x.display_name,firstName:x.first_name,lastName:x.last_name,roleName:x.role_name,departmentCode:x.department_code,deleted:Boolean(x.is_deleted),fireDate:x.fire_date||''})),
+    employees:es.map(x=>({
+      id:x.iiko_employee_id,code:x.employee_code,name:x.display_name,firstName:x.first_name,lastName:x.last_name,roleName:x.role_name,
+      departmentCode:(()=>{
+        const visible=visibleEmployeeMembership(x.departmentCodes,scope);
+        return visible.some(c=>c.toLowerCase()===clean(x.department_code).toLowerCase())
+          ?x.department_code:(visible[0]||'');
+      })(),
+      departmentCodes:visibleEmployeeMembership(x.departmentCodes,scope),
+      deleted:Boolean(x.is_deleted),fireDate:x.fire_date||''
+    })),
     bindings:bs.map(x=>({deviceId:x.device_id,employeeId:x.iiko_employee_id,provider:x.provider,externalEmployeeId:x.external_employee_id,externalLabel:x.external_label||''})),
     events:ev.map(x=>({id:x.event_id,deviceId:x.device_id,provider:x.provider,sourceUid:x.source_uid,externalEmployeeId:x.external_employee_id,employeeId:x.iiko_employee_id,employeeName:x.employee_name||'',employeeCode:x.employee_code||'',eventTime:x.event_time,eventType:x.event_type,importedAt:x.imported_at})),
     rawAdms:(subset?allAdmsRaw.filter(x=>selectedDeviceIds.has(String(x.device_id))):allAdmsRaw).map(x=>({id:x.raw_id,deviceId:x.device_id,serialNumber:x.serial_number,tableName:x.table_name,eventTime:x.event_time||'',externalEmployeeId:x.external_employee_id||'',status:x.event_status||'',verifyType:x.verify_type||'',workCode:x.work_code||'',rawLine:x.raw_line||'',receivedAt:x.received_at||''})),
@@ -252,7 +285,9 @@ export async function onRequestPost({request,env}){
       if(!deviceId||!employeeId||!externalId)return json({success:false,message:'Укажите устройство, сотрудника и ID сотрудника на устройстве'},400);
       const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
       const e=await env.DB.prepare(`SELECT iiko_employee_id,department_code FROM hr_employees WHERE user_id=?1 AND iiko_employee_id=?2 AND TRIM(employee_code)<>'' LIMIT 1`).bind(userId,employeeId).first();if(!e)return json({success:false,message:'Сотрудник не найден. Сначала синхронизируйте справочник.'},404);
-      if(!employeeAllowedForScope(e,scope,d))return json({success:false,message:'Сотрудник не относится к ресторану устройства.'},403);
+      const memberships=await loadEmployeeMemberships(env.DB,userId);
+      const memberEmployee=attachEmployeeMemberships([e],memberships)[0];
+      if(!employeeAllowedForScope(memberEmployee,scope,d))return json({success:false,message:'Сотрудник не относится к ресторану устройства.'},403);
       const t=now();
       await env.DB.prepare(`INSERT INTO hr_employee_device_bindings(user_id,device_id,iiko_employee_id,provider,external_employee_id,external_label,created_at,updated_at)
         VALUES(?1,?2,?3,?4,?5,?6,?7,?7)
@@ -264,7 +299,9 @@ export async function onRequestPost({request,env}){
       const deviceId=clean(b.deviceId),employeeId=clean(b.employeeId);if(!deviceId||!employeeId)return json({success:false,message:'Не указана связь'},400);
       const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
       const e=await env.DB.prepare(`SELECT iiko_employee_id,department_code FROM hr_employees WHERE user_id=?1 AND iiko_employee_id=?2 LIMIT 1`).bind(userId,employeeId).first();
-      if(!employeeAllowedForScope(e,scope,d))return json({success:false,message:'Связь с сотрудником другого ресторана недоступна.'},403);
+      const memberships=await loadEmployeeMemberships(env.DB,userId);
+      const memberEmployee=attachEmployeeMemberships(e?[e]:[],memberships)[0];
+      if(!employeeAllowedForScope(memberEmployee,scope,d))return json({success:false,message:'Связь с сотрудником другого ресторана недоступна.'},403);
       await env.DB.prepare(`DELETE FROM hr_employee_device_bindings WHERE user_id=?1 AND device_id=?2 AND iiko_employee_id=?3`).bind(userId,deviceId,employeeId).run();
       return json({success:true,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId,scope)});
     }
@@ -276,7 +313,8 @@ export async function onRequestPost({request,env}){
         FROM hr_employee_device_bindings b
         LEFT JOIN hr_employees e ON e.user_id=b.user_id AND e.iiko_employee_id=b.iiko_employee_id
         WHERE b.user_id=?1 AND b.device_id=?2`).bind(userId,deviceId).all();
-      const map=new Map((bindings.results||[])
+      const memberships=await loadEmployeeMemberships(env.DB,userId);
+      const map=new Map(attachEmployeeMemberships(bindings.results||[],memberships)
         .filter(x=>employeeAllowedForScope(x,scope,d))
         .map(x=>[String(x.external_employee_id),String(x.iiko_employee_id)]));
       let accepted=0,skipped=0;const t=now(),stm=[];
