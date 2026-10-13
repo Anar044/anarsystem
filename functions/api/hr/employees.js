@@ -5,6 +5,7 @@ import { resolveHrRestaurantScope,filterEmployeesByScope,isHrSubsetScope } from 
 import { parseEmployeeDirectory } from './_lib/employee-directory-xml.js';
 import { canStartEmployeeImport,employeeImportScope,targetEmployeeDepartment } from './_lib/employee-sync-scope.js';
 import { employeeRestaurantStatus,employeeDepartmentSummary } from './_lib/employee-restaurant-status.js';
+import { employeeMembershipCodes,mergeEmployeeMembership,visibleEmployeeMembership,employeeWithinMembershipScope } from './_lib/employee-department-membership.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -32,7 +33,15 @@ async function ensure(db){
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_device_bindings (
       user_id TEXT NOT NULL,device_id TEXT NOT NULL,iiko_employee_id TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'ZKTECO',external_employee_id TEXT NOT NULL,external_label TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,device_id,iiko_employee_id),UNIQUE(user_id,device_id,external_employee_id)
     )`),
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_bindings_employee ON hr_employee_device_bindings(user_id,iiko_employee_id)`)
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_bindings_employee ON hr_employee_device_bindings(user_id,iiko_employee_id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_departments (
+      user_id TEXT NOT NULL,
+      iiko_employee_id TEXT NOT NULL,
+      department_code TEXT NOT NULL,
+      synced_at TEXT NOT NULL,
+      PRIMARY KEY(user_id,iiko_employee_id,department_code)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_employee_departments_scope ON hr_employee_departments(user_id,department_code,iiko_employee_id)`)
   ]);
 }
 
@@ -53,7 +62,8 @@ async function syncEmployees(db,userId,employees,roleMap,importScope={limited:fa
     ?await db.prepare("SELECT iiko_employee_id,department_code FROM hr_employees WHERE user_id=?1").bind(userId).all()
     :{results:[]};
   const existing=new Map((oldRows.results||[]).map(r=>[String(r.iiko_employee_id),r.department_code||'']));
-  const syncedAt=now(),statements=[];let skippedProtected=0,skippedUnknown=0,imported=0;
+  const syncedAt=now(),statements=[],membershipStatements=[];
+  let skippedProtected=0,skippedUnknown=0,imported=0;
   for(const e of employees){
     let targetDepartment=e.preferredDepartmentCode||e.departmentCodes[0]||'';
     if(importScope.limited){
@@ -66,6 +76,20 @@ async function syncEmployees(db,userId,employees,roleMap,importScope={limited:fa
       targetDepartment=target.departmentCode;
     }
     imported++;
+    const memberships=employeeMembershipCodes(e);
+    const authorized=importScope.limited?new Set(importScope.allowedCodes.map(x=>String(x).trim().toUpperCase())):null;
+    const safeMemberships=authorized?memberships.filter(c=>authorized.has(String(c).trim().toUpperCase())):memberships;
+    // A scoped synchronization refreshes only allowed restaurant edges.
+    // The same employee's other restaurants must never be erased by this action.
+    if(importScope.limited){
+      for(const code of importScope.allowedCodes){
+        membershipStatements.push(db.prepare(`DELETE FROM hr_employee_departments WHERE user_id=?1 AND iiko_employee_id=?2 AND UPPER(department_code)=UPPER(?3)`).bind(userId,e.id,code));
+      }
+    }else membershipStatements.push(db.prepare(`DELETE FROM hr_employee_departments WHERE user_id=?1 AND iiko_employee_id=?2`).bind(userId,e.id));
+    for(const code of mergeEmployeeMembership(safeMemberships,targetDepartment)){
+      if(authorized&&!authorized.has(String(code).trim().toUpperCase()))continue;
+      membershipStatements.push(db.prepare(`INSERT OR REPLACE INTO hr_employee_departments(user_id,iiko_employee_id,department_code,synced_at) VALUES(?1,?2,?3,?4)`).bind(userId,e.id,code,syncedAt));
+    }
     const role=roleMap.get(e.mainRoleCode)||null;const roleCode=e.mainRoleCode||e.roleCodes[0]||'';const fullName=[e.lastName,e.firstName,e.middleName].filter(Boolean).join(' ')||e.displayName||e.code||e.id;
     statements.push(db.prepare(`INSERT INTO hr_employees(user_id,iiko_employee_id,employee_code,first_name,middle_name,last_name,display_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted,synced_at)
       VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
@@ -73,6 +97,7 @@ async function syncEmployees(db,userId,employees,roleMap,importScope={limited:fa
       .bind(userId,e.id,e.code,e.firstName,e.middleName,e.lastName,fullName,roleCode,role?.name||roleCode,targetDepartment,e.hireDate,e.fireDate,e.deleted?1:0,syncedAt));
   }
   for(let i=0;i<statements.length;i+=50)await db.batch(statements.slice(i,i+50));
+  for(let i=0;i<membershipStatements.length;i+=50)await db.batch(membershipStatements.slice(i,i+50));
   const rows=await db.prepare(`SELECT e.*,
       COALESCE((SELECT b.provider FROM hr_employee_device_bindings b WHERE b.user_id=e.user_id AND b.iiko_employee_id=e.iiko_employee_id ORDER BY b.updated_at DESC LIMIT 1),(SELECT l.provider FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_provider,
       COALESCE((SELECT b.external_employee_id FROM hr_employee_device_bindings b WHERE b.user_id=e.user_id AND b.iiko_employee_id=e.iiko_employee_id ORDER BY b.updated_at DESC LIMIT 1),(SELECT l.external_employee_id FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_external_id
@@ -96,7 +121,25 @@ async function cachedEmployees(db,userId,scope){
       COALESCE((SELECT b.external_employee_id FROM hr_employee_device_bindings b WHERE b.user_id=e.user_id AND b.iiko_employee_id=e.iiko_employee_id ORDER BY b.updated_at DESC LIMIT 1),
                (SELECT l.external_employee_id FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_external_id
     FROM hr_employees e WHERE e.user_id=?1 AND TRIM(e.employee_code)<>'' ORDER BY e.is_deleted ASC,e.last_name COLLATE NOCASE,e.first_name COLLATE NOCASE`).bind(userId).all();
-  const all=result.results||[],items=filterEmployeesByScope(all,scope).map(r=>({...dtoRow(r),restaurant:employeeRestaurantStatus(r,scope)}));
+  const all=result.results||[];
+  const membershipRows=await db.prepare(`SELECT iiko_employee_id,department_code FROM hr_employee_departments WHERE user_id=?1`).bind(userId).all();
+  const membershipByEmployee=new Map();
+  for(const x of membershipRows.results||[]){
+    const id=String(x.iiko_employee_id);
+    if(!membershipByEmployee.has(id))membershipByEmployee.set(id,[]);
+    membershipByEmployee.get(id).push(x.department_code);
+  }
+  const hydrated=all.map(r=>({
+    ...r,departmentCodes:mergeEmployeeMembership(membershipByEmployee.get(String(r.iiko_employee_id))||[],r.department_code)
+  }));
+  // Limit both visibility and the returned department list to the user's CHAIN scope.
+  // Department assignment alone never authorizes access to salary details.
+  const items=hydrated.filter(r=>employeeWithinMembershipScope(r,scope))
+    .map(r=>{
+      const departmentCodes=visibleEmployeeMembership(r.departmentCodes,scope);
+      const item={...dtoRow(r),departmentCodes};
+      return {...item,restaurant:employeeRestaurantStatus(item,scope)};
+    });
   const roles=[...new Map(items.filter(x=>x.roleCode).map(x=>[String(x.roleCode),{code:x.roleCode,name:x.roleName||x.roleCode,deleted:false}])).values()];
   const syncedAt=all.reduce((a,x)=>String(x.synced_at||'')>a?String(x.synced_at):a,'');
   return{items,roles,syncedAt,cachedTotal:all.length,
