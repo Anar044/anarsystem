@@ -21,7 +21,12 @@ export function normalizeRmsCorrections(ledger,corrections,employees,restaurants
       workDate:clean(c.work_date??c.workDate),shiftType:'DAY',firstIn:'',lastOut:'',
       markCount:0,openingDeviceId:'',closingDeviceId:'',independent:true
     };
-    unique.set(key,{...previous,workedMinutes:minutes,status:minutes>0?'WORK':'ABSENT',
+    const firstMs=Date.parse(previous.firstIn);
+    // A manual correction needs a real opening mark on this RMS. Never invent
+    // a complete paid shift for a person who has no device-origin evidence.
+    if(!Number.isFinite(firstMs)||!previous.markCount)continue;
+    const correctedOut=minutes>0?new Date(firstMs+minutes*60000).toISOString():'';
+    unique.set(key,{...previous,workedMinutes:minutes,lastOut:correctedOut,status:minutes>0?'WORK':'ABSENT',
       manualCorrection:true,correctionReason:clean(c.reason),correctionUpdatedAt:clean(c.updated_at??c.updatedAt)});
   }
   return [...unique.values()].sort((a,b)=>byKey(a.workDate,b.workDate)||byKey(a.restaurantId,b.restaurantId)||byKey(a.employeeId,b.employeeId));
