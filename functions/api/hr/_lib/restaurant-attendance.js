@@ -28,7 +28,7 @@ export function independentRestaurantAttendance(events,devices,employees,scope,r
     const closing=complete?clean(end.event_time??end.eventTime):'';
     const boundary=new Date(g.workDate+'T00:00:00Z').getTime()+ (g.shiftType==='NIGHT'?36:29)*3600000;
     const status=complete?'WORK':nowMs>=boundary?'INCOMPLETE':'SHIFT_IN_PROGRESS';
-    return{employeeId:g.employeeId,restaurantId:g.restaurantId,restaurantName:g.restaurantName,workDate:g.workDate,
+    return{employeeId:g.employeeId,employeeName:clean(byId.get(g.employeeId)?.name??byId.get(g.employeeId)?.display_name),restaurantId:g.restaurantId,restaurantName:g.restaurantName,workDate:g.workDate,
       shiftType:g.shiftType,firstIn:opening,lastOut:closing,workedMinutes:complete?Math.max(0,Math.round((end.time-first.time)/60000)):0,
       markCount:unique.length,status,openingDeviceId:first.deviceId,closingDeviceId:complete?end.deviceId:'',
       // Both devices always belong to the same RMS. Marks at other RMS never close this record.
