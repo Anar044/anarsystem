@@ -74,3 +74,12 @@ test('Face ID code hydrates membership from HR D1 before binding or import',()=>
   assert.match(source,/attachEmployeeMemberships\(bindings\.results\|\|\[\],memberships\)/);
   assert.match(source,/employeeWithinMembershipScope\(e,scope\)/);
 });
+
+test('Face ID selector narrows employees to chosen restaurant on the device',()=>{
+  const source=readFileSync(new URL('../hr-timeclock.js',import.meta.url),'utf8');
+  assert.match(source,/function employeesForDevice\(deviceId\)/);
+  assert.match(source,/x\.departmentCodes\|\|\[x\.departmentCode\]/);
+  assert.match(source,/\$\('bindingDevice'\)\.onchange=renderEmployeeSelector/);
+  const page=readFileSync(new URL('../hr-timeclock.html',import.meta.url),'utf8');
+  assert.match(page,/multirms-faceid-v1/);
+});
