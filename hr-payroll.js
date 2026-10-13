@@ -178,9 +178,9 @@ function renderRmsTaxAllocation(){
   if(box.hidden)return;
   const totals=tax.network||{},profile=source.taxProfile||{};
   $('hrpRmsTaxSummary').textContent=`${Number(totals.uniqueEmployees||0)} сотрудников · gross ${money(totals.gross)} · net ${money(totals.net)} · профиль ${profile.source||'не задан'}`;
-  const lines=tax.lines||[];
+  const lines=tax.lines||[],names=new Map((source.restaurants||[]).map(x=>[String(x.restaurantId),x.restaurantName]));
   $('hrpRmsTaxRows').innerHTML=lines.map(x=>`<tr>
-    <td class="text-left">${esc(x.restaurantId==='NETWORK_OFFICE'?'Центральный офис':x.restaurantId)}</td>
+    <td class="text-left">${esc(x.restaurantId==='NETWORK_OFFICE'?'Центральный офис':(names.get(String(x.restaurantId))||x.restaurantId))}</td>
     <td class="text-left">${esc(x.employeeName||x.employeeId)}</td>
     <td>${money(x.gross)}</td><td>${money(x.withheld)}</td>
     <td><strong>${money(x.net)}</strong></td><td>${money(x.employerCost)}</td></tr>`
@@ -538,7 +538,7 @@ async function updateRmsPayroll(evt){
     await rmsPayrollPost(body);
     const t=await token();
     state.rmsPayroll=await fetchJson('/api/hr/rms-payroll?month='+encodeURIComponent(month),t);
-    state.rmsPayrollError='';renderRmsApprovals();setStatus('Payroll RMS обновлён','ok');
+    state.rmsPayrollError='';renderRmsApprovals();renderRmsTaxAllocation();setStatus('Payroll RMS обновлён','ok');
   }catch(e){console.error(e);showError(e?.message||String(e));setStatus('Ошибка','error')}
   finally{busy=false;button.disabled=false}
 }
