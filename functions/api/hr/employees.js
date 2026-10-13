@@ -2,6 +2,7 @@ import { iikoText } from '../iiko/_lib/iiko-client.js';
 import { loadRequestIikoState, privateConnection, hasPrivateConnection } from '../iiko/_lib/user-state.js';
 import { resolveRestaurantScope } from '../iiko/_lib/restaurant-scope.js';
 import { resolveHrRestaurantScope,filterEmployeesByScope,isHrSubsetScope } from './_lib/restaurant-scope.js';
+import { parseEmployeeDirectory } from './_lib/employee-directory-xml.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -14,14 +15,6 @@ function bool(v){return /^true$/i.test(clean(v))}
 function dateOnly(v){const s=clean(v);const m=s.match(/^\d{4}-\d{2}-\d{2}/);return m?m[0]:''}
 function now(){return new Date().toISOString()}
 
-function parseEmployees(xml){
-  return blocks(xml,'employee').map(x=>({
-    id:tag(x,'id'),code:tag(x,'code'),displayName:tag(x,'name'),firstName:tag(x,'firstName'),middleName:tag(x,'middleName'),lastName:tag(x,'lastName'),
-    mainRoleCode:tag(x,'mainRoleCode'),roleCodes:tags(x,'roleCodes').filter(Boolean),hireDate:dateOnly(tag(x,'hireDate')),fireDate:dateOnly(tag(x,'fireDate')),
-    preferredDepartmentCode:tag(x,'preferredDepartmentCode'),departmentCodes:tags(x,'departmentCodes').filter(Boolean),deleted:bool(tag(x,'deleted')),
-    isEmployee:tag(x,'employee')===''?true:bool(tag(x,'employee'))
-  })).filter(x=>x.id&&x.isEmployee&&clean(x.code));
-}
 function parseRoles(xml){return blocks(xml,'role').map(x=>({id:tag(x,'id'),code:tag(x,'code'),name:tag(x,'name'),deleted:bool(tag(x,'deleted'))})).filter(x=>x.code)}
 
 async function ensure(db){
@@ -88,14 +81,16 @@ export async function onRequestGet({request,env}){
                  (SELECT l.external_employee_id FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_external_id
         FROM hr_employees e WHERE e.user_id=?1 AND TRIM(e.employee_code)<>'' ORDER BY e.is_deleted ASC,e.last_name COLLATE NOCASE,e.first_name COLLATE NOCASE`).bind(userId).all();
       const mapped=filterEmployeesByScope(stored.results||[],scope).map(r=>({
-        id:r.iiko_employee_id,code:r.employee_code,firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,
+        id:r.iiko_employee_id,code:r.employee_code,internalCode:String(r.employee_code||'').startsWith('SH-ID-'),firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,
         name:r.display_name,roleCode:r.role_code,roleName:r.role_name,departmentCode:r.department_code,hireDate:r.hire_date,fireDate:r.fire_date,
         deleted:Boolean(r.is_deleted),attendanceProvider:r.attendance_provider||'',attendanceExternalId:r.attendance_external_id||''
       }));
       const roles=[...new Map(mapped.filter(x=>x.roleCode).map(x=>[String(x.roleCode),{code:x.roleCode,name:x.roleName||x.roleCode,deleted:false}])).values()];
       const syncedAt=(stored.results||[]).reduce((max,x)=>String(x.synced_at||'')>max?String(x.synced_at):max,'');
       return json({success:true,source:'HR_WORKSPACE_CACHE',employeeSource:'workspace',attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',
-        syncedAt,items:mapped,roles,counts:{total:mapped.length,active:mapped.filter(x=>!x.deleted&&!x.fireDate).length,linkedToAttendance:mapped.filter(x=>x.attendanceExternalId).length},
+        syncedAt,items:mapped,roles,sync:{performed:false,reason:'MEMBER_CACHE_ONLY',cachedTotal:(stored.results||[]).length},
+        warning:!syncedAt?'Владелец рабочего пространства ещё не импортировал сотрудников из SH Server. Для участников доступен только просмотр уже синхронизированного HR-списка.':mapped.length===0&&stored.results?.length?'Сотрудники есть в HR, но не найдены в выбранном ресторане. Проверьте привязку к подразделению и права доступа.':'',
+        counts:{total:mapped.length,active:mapped.filter(x=>!x.deleted&&!x.fireDate).length,linkedToAttendance:mapped.filter(x=>x.attendanceExternalId).length},
         restaurantScope:{mode:scope?.mode||'RMS',departmentIds:scope?.selectedDepartmentIds||[],departmentCodes:scope?.selectedDepartmentCodes||[],applied:true}});
     }
     const subset=isHrSubsetScope(scope);
@@ -110,13 +105,16 @@ export async function onRequestGet({request,env}){
     }
     const rolesResult=await iikoText(connection,'/resto/api/employees/roles?revisionFrom=-1');
     if(!rolesResult.ok)throw new Error(`SH Roles HTTP ${rolesResult.status}: ${rolesResult.text.slice(0,500)}`);
-    let employees=[],employeeSource='all';
+    let employees=[],employeeSource='all',parseStats={sourceRecords:0,skippedMissingId:0,skippedNonEmployee:0,assignedInternalCodes:0};
+    const addStats=stats=>{for(const key of Object.keys(parseStats))parseStats[key]+=Number(stats?.[key]||0)};
     if(subset&&departmentCodes.length){
       const results=await Promise.all(departmentCodes.map(async code=>({code,result:await iikoText(connection,`/resto/api/employees/byDepartment/${encodeURIComponent(code)}`)})));
       const failed=results.filter(x=>!x.result.ok);
       if(failed.length===results.length)throw new Error(`SH Employees byDepartment: HTTP ${failed[0]?.result?.status||'—'} ${String(failed[0]?.result?.text||'').slice(0,500)}`);
       const byId=new Map();
-      for(const entry of results)if(entry.result.ok)for(const e of parseEmployees(entry.result.text)){
+      for(const entry of results)if(entry.result.ok){
+        const parsed=parseEmployeeDirectory(entry.result.text);addStats(parsed.stats);
+        for(const e of parsed.employees){
         const old=byId.get(e.id);
         if(old){
           if(!old.departmentCodes.includes(entry.code))old.departmentCodes.push(entry.code);
@@ -126,19 +124,22 @@ export async function onRequestGet({request,env}){
           if(!e.preferredDepartmentCode)e.preferredDepartmentCode=entry.code;
           byId.set(e.id,e);
         }
-      }
+      }}
       employees=[...byId.values()];
       employeeSource='byDepartment';
     }else{
       const employeesResult=await iikoText(connection,'/resto/api/employees?includeDeleted=true');
       if(!employeesResult.ok)throw new Error(`SH Employees HTTP ${employeesResult.status}: ${employeesResult.text.slice(0,500)}`);
-      employees=parseEmployees(employeesResult.text);
+      const parsed=parseEmployeeDirectory(employeesResult.text);employees=parsed.employees;addStats(parsed.stats);
     }
     const roles=parseRoles(rolesResult.text),roleMap=new Map(roles.map(r=>[r.code,r]));
     const synced=await syncEmployees(env.DB,userId,employees,roleMap);
-    const allItems=synced.rows.map(r=>({id:r.iiko_employee_id,code:r.employee_code,firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,name:r.display_name,roleCode:r.role_code,roleName:r.role_name,departmentCode:r.department_code,hireDate:r.hire_date,fireDate:r.fire_date,deleted:Boolean(r.is_deleted),attendanceProvider:r.attendance_provider||'',attendanceExternalId:r.attendance_external_id||''}));
+    const allItems=synced.rows.map(r=>({id:r.iiko_employee_id,code:r.employee_code,internalCode:String(r.employee_code||'').startsWith('SH-ID-'),firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,name:r.display_name,roleCode:r.role_code,roleName:r.role_name,departmentCode:r.department_code,hireDate:r.hire_date,fireDate:r.fire_date,deleted:Boolean(r.is_deleted),attendanceProvider:r.attendance_provider||'',attendanceExternalId:r.attendance_external_id||''}));
     const scopedIds=new Set(employees.map(x=>String(x.id)));
     const items=subset&&employeeSource==='byDepartment'?allItems.filter(x=>scopedIds.has(String(x.id))):filterEmployeesByScope(allItems,scope);
-    return json({success:true,source:'SH_EMPLOYEE_DIRECTORY',employeeSource,attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',syncedAt:synced.syncedAt,items,roles:roles.filter(r=>!r.deleted),counts:{total:items.length,active:items.filter(x=>!x.deleted&&!x.fireDate).length,linkedToAttendance:items.filter(x=>x.attendanceExternalId).length},restaurantScope:{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes,applied:subset}});
+    const unassigned=allItems.filter(x=>!clean(x.departmentCode)).length;
+    const warning=employees.length===0?'SH Server не вернул сотрудников. Проверьте источник и признак «Сотрудник» в его справочнике.':items.length===0?'Сотрудники импортированы, но не отображаются в выбранном подразделении CHAIN. Проверьте коды и привязку к ресторану.':unassigned>0?('Без подразделения: '+unassigned+' сотрудников. Они не будут участвовать в расчётах отдельного ресторана до привязки.') : '';
+    return json({success:true,source:'SH_EMPLOYEE_DIRECTORY',employeeSource,attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',syncedAt:synced.syncedAt,items,roles:roles.filter(r=>!r.deleted),warning,
+      sync:{performed:true,sourceRecords:parseStats.sourceRecords,imported:employees.length,visible:items.length,cachedTotal:allItems.length,unassignedDepartment:unassigned,assignedInternalCodes:parseStats.assignedInternalCodes,skippedNonEmployee:parseStats.skippedNonEmployee,skippedMissingId:parseStats.skippedMissingId},counts:{total:items.length,active:items.filter(x=>!x.deleted&&!x.fireDate).length,linkedToAttendance:items.filter(x=>x.attendanceExternalId).length},restaurantScope:{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes,applied:subset}});
   }catch(error){console.error('[HR-EMPLOYEES]',error);return json({success:false,message:error?.message||String(error)},500)}
 }

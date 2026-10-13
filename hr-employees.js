@@ -67,7 +67,7 @@
       const fired=isFired(x),linked=Boolean(x.attendanceExternalId);
       return`<tr>
         <td class="text-left"><div class="hr-name"><a href="/hr-employee.html?id=${encodeURIComponent(x.id)}" style="color:inherit;text-decoration:none">${esc(fullName(x))}</a></div><div class="hr-sub">ID: ${esc(x.id)}</div></td>
-        <td>${esc(x.code||'—')}</td>
+        <td>${esc(x.code||'—')}${x.internalCode?'<div class="hr-sub">Временный код HR</div>':''}</td>
         <td class="text-left"><b>${esc(x.roleName||x.roleCode||'—')}</b><div class="hr-sub">${esc(x.roleCode||'')}</div></td>
         <td>${esc(x.departmentCode||'—')}</td>
         <td>${esc(x.hireDate||'—')}</td>
@@ -77,10 +77,29 @@
         <td><a class="hr-link-button" style="display:inline-flex;text-decoration:none" href="/hr-employee.html?id=${encodeURIComponent(x.id)}">Открыть</a></td>
         ${accessCell(x)}
       </tr>`;
-    }).join('')||`<tr><td colspan="${manage?10:9}" class="hr-empty">Сотрудники не найдены</td></tr>`;
+    }).join('')||`<tr><td colspan="${manage?10:9}" class="hr-empty">${data.items?.length?'Нет совпадений с текущими фильтрами. Выберите «Все» в статусе сотрудников или очистите поиск.':'Сотрудники не найдены. Проверьте информацию об импорте над таблицей.'}</td></tr>`;
     $('hrRowCount').textContent=`${rows.length} сотрудников`;
   }
-  function render(){renderSummary();renderRoles();renderRows()}
+  function renderSyncInfo(){
+    const el=$('hrSyncInfo'),sync=data.sync||{};
+    if(!el)return;
+    const bits=[];
+    if(sync.performed){
+      bits.push('SH Server: '+Number(sync.sourceRecords||0)+' записей');
+      bits.push('Импорт HR: '+Number(sync.imported||0));
+      bits.push('В выбранном ресторане: '+Number(sync.visible||0));
+      if(sync.assignedInternalCodes)bits.push('Без табельного номера: '+Number(sync.assignedInternalCodes));
+      if(sync.unassignedDepartment)bits.push('Без подразделения: '+Number(sync.unassignedDepartment));
+      if(sync.skippedNonEmployee)bits.push('Не сотрудники: '+Number(sync.skippedNonEmployee));
+    }else if(sync.reason==='MEMBER_CACHE_ONLY'){
+      bits.push('Список HR обновлён из базы Smart Horeca; импорт с SH Server выполняет владелец рабочего пространства.');
+      if(data.syncedAt)bits.push('Последний импорт: '+String(data.syncedAt));
+    }
+    if(data.warning)bits.push(data.warning);
+    el.hidden=!bits.length;
+    el.textContent=bits.join(' · ');
+  }
+  function render(){renderSummary();renderRoles();renderRows();renderSyncInfo()}
 
   async function load(){
     if(busy)return;
@@ -101,7 +120,7 @@
         }catch(accessError){console.warn('Access directory unavailable',accessError)}
       }else accessData={members:[],roles:[]};
       render();
-      setStatus(`Синхронизировано · ${result.counts?.active||0} активных`,'ok');
+      setStatus(result.sync?.performed?`Импортировано: ${result.sync?.imported||0} · В списке: ${result.counts?.total||0}`:`Обновлено из HR · ${result.counts?.total||0} сотрудников`,'ok');
     }catch(e){
       console.error(e);error.hidden=false;error.textContent=e?.message||String(e);setStatus('Ошибка','error');
     }finally{busy=false;$('hrRefresh').disabled=false}
