@@ -7,7 +7,7 @@ export function summarizePayrollRmsHours(attendance,scope){
   const departments=(scope?.selectedRestaurants||[]).filter(r=>selected.has(clean(r.id)));
   const summary=departments.map(r=>({
     restaurantId:clean(r.id),restaurantName:clean(r.name)||clean(r.code)||clean(r.id),
-    employees:0,completeShifts:0,incompleteShifts:0,overlapShifts:0,recordedMinutes:0,reviewedMinutes:0
+    employees:0,completeShifts:0,incompleteShifts:0,overlapShifts:0,recordedMinutes:0,nonOverlappingMinutes:0
   }));
   const byRestaurant=new Map(summary.map(r=>[r.restaurantId,r]));
   const employeeRows=new Map(),shiftGroups=new Map();
@@ -18,7 +18,7 @@ export function summarizePayrollRmsHours(attendance,scope){
     if(!employeeRows.has(key))employeeRows.set(key,{
       employeeId:id,employeeName:clean(x.employeeName)||id,restaurantId,
       restaurantName:byRestaurant.get(restaurantId).restaurantName,
-      recordedMinutes:0,reviewedMinutes:0,completeShifts:0,incompleteShifts:0,overlapShifts:0
+      recordedMinutes:0,nonOverlappingMinutes:0,completeShifts:0,incompleteShifts:0,overlapShifts:0
     });
     if(!shiftGroups.has(id))shiftGroups.set(id,[]);
     shiftGroups.get(id).push(x);
@@ -48,12 +48,12 @@ export function summarizePayrollRmsHours(attendance,scope){
       line.completeShifts++;
       line.recordedMinutes+=Number(x.workedMinutes||0);
       if(collisions.has(x))line.overlapShifts++;
-      else line.reviewedMinutes+=Number(x.workedMinutes||0);
+      else line.nonOverlappingMinutes+=Number(x.workedMinutes||0);
     }else line.incompleteShifts++;
   }
   for(const line of employeeRows.values()){
     const total=byRestaurant.get(line.restaurantId);
-    for(const field of ['completeShifts','incompleteShifts','overlapShifts','recordedMinutes','reviewedMinutes'])total[field]+=line[field];
+    for(const field of ['completeShifts','incompleteShifts','overlapShifts','recordedMinutes','nonOverlappingMinutes'])total[field]+=line[field];
   }
   for(const line of summary)line.employees=employeesByRestaurant.get(line.restaurantId).size;
   const employees=[...new Set([...employeeRows.values()].map(x=>x.employeeId))];
@@ -64,7 +64,7 @@ export function summarizePayrollRmsHours(attendance,scope){
     network:{uniqueEmployees:employees.length,completeShifts:summary.reduce((a,x)=>a+x.completeShifts,0),
       incompleteShifts:summary.reduce((a,x)=>a+x.incompleteShifts,0),overlapShifts:summary.reduce((a,x)=>a+x.overlapShifts,0),
       recordedMinutes:summary.reduce((a,x)=>a+x.recordedMinutes,0),
-      reviewedMinutes:summary.reduce((a,x)=>a+x.reviewedMinutes,0)},
+      nonOverlappingMinutes:summary.reduce((a,x)=>a+x.nonOverlappingMinutes,0)},
     note:'Часы сверены по отдельным RMS; сумма зарплаты не рассчитана. Нужны ставка/оклад и утверждение табеля по каждому ресторану.'
   };
 }
