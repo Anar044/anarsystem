@@ -140,7 +140,7 @@ export async function onRequestGet({request,env}){
     const cache=await cachedEmployees(env.DB,userId,scope);
     return responseData(cache,scope,canStartEmployeeImport(state.access));
   }catch(error){console.error('[HR-EMPLOYEES-GET]',error);
-    return json({success:false,message:error?.message||String(error)},error?.status||500)}
+    return json({success:false,code:error?.code||undefined,message:error?.message||String(error)},error?.status||500)}
 }
 export async function onRequestPost({request,env}){
   try{
@@ -161,7 +161,7 @@ export async function onRequestPost({request,env}){
     if(importScope.limited){
       // Read only the signed-in manager's server-resolved departments. Never
       // import the full network on behalf of restaurant-restricted HR members.
-      if(!importScope.allowedCodes.length)throw httpError(403,'Не удалось определить разрешённые подразделения для синхронизации');
+      if(!importScope.allowedCodes.length)throw Object.assign(httpError(409,'Не удалось определить коды разрешённых подразделений SH Chain для синхронизации'),{code:'HR_DEPARTMENT_CODE_UNAVAILABLE'});
       const requests=await Promise.all(importScope.allowedCodes.map(async code=>({
         code,response:await iikoText(connection,`/resto/api/employees/byDepartment/${encodeURIComponent(code)}`)
       })));
@@ -202,5 +202,5 @@ export async function onRequestPost({request,env}){
       assignedInternalCodes:stats.assignedInternalCodes,skippedMissingId:stats.skippedMissingId,
       skippedNonEmployee:stats.skippedNonEmployee,warning});
   }catch(error){console.error('[HR-EMPLOYEES-SYNC]',error);
-    return json({success:false,message:error?.message||String(error)},error?.status||500)}
+    return json({success:false,code:error?.code||undefined,message:error?.message||String(error)},error?.status||500)}
 }
