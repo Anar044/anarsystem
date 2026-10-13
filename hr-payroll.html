@@ -139,7 +139,28 @@
         </div>
 
         <div id="hrpError" class="hr-error" hidden></div>
+        <div id="hrpScopeHeading" class="hrp-scope-heading" aria-live="polite"></div>
         <section id="hrpSummary" class="hr-summary-grid hrp-summary"></section>
+        <section id="hrpDepartmentPayroll" class="hr-card hrp-department-payroll" hidden>
+          <div class="hr-card-title-row">
+            <div>
+              <div class="hr-card-title">Payroll по ресторанам CHAIN</div>
+              <div class="hr-card-sub">Общая сводка без повторных начислений. Каждый ресторан утверждает табель и проводит выплаты отдельно.</div>
+            </div>
+            <span id="hrpDepartmentCount" class="hr-muted"></span>
+          </div>
+          <div id="hrpDepartmentWarning" class="hrp-department-warning" hidden></div>
+          <div class="hr-table-scroll">
+            <table class="hrp-department-table">
+              <thead><tr>
+                <th class="text-left">Ресторан</th><th>Сотрудники</th><th>Фактические начисления</th>
+                <th>Официальный Gross</th><th>Доп. часы</th><th>К выплате</th>
+                <th>Стоимость ресторану</th><th>Табель</th>
+              </tr></thead>
+              <tbody id="hrpDepartmentRows"></tbody>
+            </table>
+          </div>
+        </section>
 
         <section class="hrp-context">
           <div>
@@ -169,6 +190,7 @@
           </div>
           <div class="hrp-filters">
             <input id="hrpSearch" type="search" placeholder="ФИО или табельный №">
+            <select id="hrpDepartmentFilter" aria-label="Фильтр по ресторану" hidden></select>
             <select id="hrpRole"><option value="">Все должности</option></select>
             <select id="hrpState">
               <option value="">Все статусы</option>

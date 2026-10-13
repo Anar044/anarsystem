@@ -94,10 +94,11 @@ function employeeCell(m){return`<div class="hr-name">${esc(m.row.employeeName||'
 function reasonCell(m){return esc(m.reasons.join(' · ')||'—')}
 
 function selectedModels(){
-  const q=String($('hrpSearch')?.value||'').trim().toLowerCase(),role=$('hrpRole')?.value||'',st=$('hrpState')?.value||'';
+  const q=String($('hrpSearch')?.value||'').trim().toLowerCase(),role=$('hrpRole')?.value||'',st=$('hrpState')?.value||'',department=$('hrpDepartmentFilter')?.value||'';
   return state.models.filter(m=>{
     if(q&&!String(`${m.row.employeeName} ${m.row.employeeCode}`).toLowerCase().includes(q))return false;
     if(role&&String(m.row.roleCode||'')!==role)return false;
+    if(department&&String(m.row.departmentCode||'').trim().toUpperCase()!==department.toUpperCase())return false;
     if(st&&m.status!==st)return false;
     return true;
   });
@@ -107,6 +108,49 @@ function renderFilters(){
   const roles=[...new Map(state.models.filter(m=>m.row.roleCode).map(m=>[String(m.row.roleCode),m.row.roleName||m.row.roleCode])).entries()].sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'ru'));
   el.innerHTML='<option value="">Все должности</option>'+roles.map(([v,n])=>`<option value="${esc(v)}">${esc(n)}</option>`).join('');
   if(roles.some(([v])=>v===current))el.value=current;
+  const selector=$('hrpDepartmentFilter'),departments=state.payroll?.departmentPayroll?.departments||[];
+  const network=state.payroll?.payrollView==='NETWORK_SUMMARY';
+  selector.hidden=!network;
+  const previous=selector.value;
+  selector.innerHTML='<option value="">Все рестораны сети</option>'+departments.map(d=>`<option value="${esc(d.code)}">${esc(d.name)}</option>`).join('');
+  if(network&&departments.some(x=>String(x.code).toUpperCase()===previous.toUpperCase()))selector.value=previous;
+}
+function renderScopeHeading(){
+  const payroll=state.payroll||{},network=payroll.payrollView==='NETWORK_SUMMARY';
+  const restaurants=payroll.departmentPayroll?.departments||[];
+  $('hrpScopeHeading').innerHTML=network
+    ?'<strong>Общий Payroll CHAIN</strong><span>Сводка по '+restaurants.length+' ресторанам. Отдельные начисления и выплаты проводятся в конкретном ресторане.</span>'
+    :'<strong>Payroll ресторана</strong><span>Начисления и табель относятся только к выбранному подразделению.</span>';
+}
+function renderDepartmentPayroll(){
+  const panel=$('hrpDepartmentPayroll'),snap=state.payroll?.departmentPayroll||null;
+  const network=state.payroll?.payrollView==='NETWORK_SUMMARY';
+  panel.hidden=!network||!snap;
+  if(panel.hidden)return;
+  const departments=snap.departments||[],key=v=>String(v||'').trim().toUpperCase();
+  const modelRows=state.models||[];
+  const byDepartment=new Map();
+  for(const m of modelRows){const code=key(m.row.departmentCode);
+    if(!byDepartment.has(code))byDepartment.set(code,[]);
+    byDepartment.get(code).push(m);
+  }
+  const totalFor=(models,field)=>r(models.reduce((a,m)=>a+Number(m[field]||0),0));
+  $('hrpDepartmentCount').textContent=departments.length+' ресторанов';
+  $('hrpDepartmentWarning').hidden=Boolean(snap.reconciled);
+  $('hrpDepartmentWarning').textContent=snap.reconciled?'':'Внимание: '+Number(snap.unattributed?.employees||0)+' сотрудников без однозначной привязки к ресторану. Их суммы входят в общий итог, но не распределены между ресторанами.';
+  const lines=departments.map(d=>{
+    const all=byDepartment.get(key(d.code))||[],t=d.totals||{},status=d.approved?'Утверждён HR':d.status==='MANAGER_APPROVED'?'Утверждён менеджером':'Не утверждён HR';
+    return `<tr><td class="text-left"><strong>${esc(d.name)}</strong><small>${esc(d.code)}</small></td>
+      <td>${Number(t.employees||0)}</td><td>${money(t.factualBaseGross||0)}</td><td>${money(t.officialGross||0)}</td>
+      <td>${money(t.extraDayPay||0)}</td><td class="hrp-final">${money(totalFor(all,'finalPayable'))}</td>
+      <td>${money(totalFor(all,'employerCost'))}</td><td>${esc(status)}</td></tr>`;
+  });
+  const all=state.models||[],t=snap.network||{};
+  lines.push(`<tr class="hrp-network-total"><td class="text-left"><strong>ИТОГО ПО СЕТИ</strong></td>
+    <td>${Number(t.employees||0)}</td><td>${money(t.factualBaseGross||0)}</td><td>${money(t.officialGross||0)}</td>
+    <td>${money(t.extraDayPay||0)}</td><td class="hrp-final">${money(totalFor(all,'finalPayable'))}</td>
+    <td>${money(totalFor(all,'employerCost'))}</td><td>Сводка · только просмотр</td></tr>`);
+  $('hrpDepartmentRows').innerHTML=lines.join('');
 }
 function renderSummary(){
   const list=selectedModels(),sum=fn=>r(list.reduce((a,m)=>a+Number(fn(m)||0),0));
@@ -118,7 +162,7 @@ function renderSummary(){
     ['Доп. часы отдельно',money(extraPay),'Отдельное начисление и выплата'],
     ['К выплате',money(payable),'Основная + отдельная выплата доп. часов'],
     ['Стоимость ресторану',money(cost),'Начисления + взносы работодателя'],
-    ['Долг по доп. часам',money(state.settlements?.summary?.closingDebt||0),`Сотрудников с долгом: ${Number(state.settlements?.summary?.withDebt||0)}`],
+    ['Долг по доп. часам',money(settlementVisibleRows().reduce((a,x)=>a+Number(x.closingDebt||0),0)),`Сотрудников с долгом: ${settlementVisibleRows().filter(x=>Number(x.closingDebt||0)>0).length}`],
     ['Бухгалтерские проводки',`${Number(state.payroll?.summary?.accountingPosted||0)} / ${Number(state.payroll?.summary?.accountingPosted||0)+Number(state.payroll?.summary?.accountingPending||0)}`,Number(state.payroll?.summary?.accountingPending||0)?'Есть начисления без настроенных счетов':state.payroll?.timesheetApproval?.approved?'Начисления синхронизированы с журналом':'Новые проводки ожидают утверждения табеля HR']
   ].map(x=>`<article class="hr-summary-card"><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong><small>${esc(x[2])}</small></article>`).join('');
 }
@@ -209,18 +253,20 @@ function renderTable(){
 }
 function settlementMethod(v){return({CASH:'Наличные',BANK:'Банк',OTHER:'Другое'})[v]||v||'—'}
 function settlementVisibleRows(){
-  const q=String($('hrpSearch')?.value||'').trim().toLowerCase(),role=$('hrpRole')?.value||'';
+  const q=String($('hrpSearch')?.value||'').trim().toLowerCase(),role=$('hrpRole')?.value||'',department=$('hrpDepartmentFilter')?.value||'';
   return (state.settlements?.rows||[]).filter(x=>{
     const activity=Number(x.openingDebt||0)>0||Number(x.currentAccrued||0)>0||Number(x.currentPaid||0)>0||Number(x.closingDebt||0)>0;
     if(!activity)return false;
     if(q&&!String(`${x.name} ${x.code}`).toLowerCase().includes(q))return false;
     if(role&&String(x.roleCode||'')!==role)return false;
+    if(department&&String(x.departmentCode||'').trim().toUpperCase()!==department.toUpperCase())return false;
     return true;
   });
 }
 function renderSettlements(){
   const box=$('hrpSettlementSummary'),tbody=$('hrpSettlementRows');if(!box||!tbody)return;
-  const snap=state.settlements||{summary:{},rows:[],access:{}},sum=snap.summary||{},rows=settlementVisibleRows(),canSettle=Boolean(snap.access?.canSettlePayroll);
+  const snap=state.settlements||{summary:{},rows:[],access:{}},rows=settlementVisibleRows(),canSettle=Boolean(snap.access?.canSettlePayroll)&&state.payroll?.payrollView!=='NETWORK_SUMMARY';
+  const sum={openingDebt:r(rows.reduce((a,x)=>a+Number(x.openingDebt||0),0)),accrued:r(rows.reduce((a,x)=>a+Number(x.currentAccrued||0),0)),paid:r(rows.reduce((a,x)=>a+Number(x.currentPaid||0),0)),closingDebt:r(rows.reduce((a,x)=>a+Number(x.closingDebt||0),0)),withDebt:rows.filter(x=>Number(x.closingDebt||0)>0).length};
   $('hrpSettlementCount').textContent=`${rows.length} сотрудников с движением`;
   box.innerHTML=[
     ['Долг на начало',money(sum.openingDebt||0),'Перенесено из прошлых месяцев'],
@@ -303,7 +349,7 @@ function renderTabs(){
   const explain=document.querySelector('.hrp-explain');if(explain)explain.hidden=settlements;
   document.querySelector('.hrp-filter-card')?.classList.toggle('settlement-mode',settlements);
 }
-function render(){renderFilters();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
+function render(){renderFilters();renderScopeHeading();renderDepartmentPayroll();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
 function onFilter(){renderSummary();renderTable();renderSettlements()}
 async function load(){
   if(busy)return;
@@ -315,7 +361,7 @@ async function load(){
 }
 function bind(){
   $('hrpRefresh').onclick=load;$('hrpMonth').onchange=load;
-  $('hrpSearch').oninput=onFilter;$('hrpRole').onchange=onFilter;$('hrpState').onchange=onFilter;
+  $('hrpSearch').oninput=onFilter;$('hrpRole').onchange=onFilter;$('hrpState').onchange=onFilter;$('hrpDepartmentFilter').onchange=onFilter;
   document.querySelectorAll('.hrp-tab').forEach(b=>b.onclick=()=>{mode=b.dataset.mode||'OVERALL';renderTabs();renderTable();renderSettlements()});
   $('hrpSettlementRows')?.addEventListener('click',e=>{
     const pay=e.target.closest('.hrp-pay-debt');if(pay){openPayment(pay.dataset.employeeId);return}
