@@ -177,7 +177,7 @@ async function snapshot(db,userId,scope=null){
   const ev=subset?allEvents.filter(x=>selectedDeviceIds.has(String(x.device_id))&&(!x.iiko_employee_id||employeeIds.has(String(x.iiko_employee_id)))):allEvents;
   const tokenMap=new Map(ts.map(x=>[String(x.device_id),x])),admsMap=new Map(adms.map(x=>[String(x.device_id),x])),nowMs=Date.now();
   return{
-    restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes,deviceScope:subset?'SCOPED_BY_RESTAURANT':'ALL'}:null,
+    restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes,restaurants:(scope.selectedRestaurants||[]).map(r=>({id:r.id,code:r.code,name:r.name})),deviceScope:subset?'SCOPED_BY_RESTAURANT':'ALL'}:null,
     adms:{basePath:'/iclock',directPush:true,offlineBuffering:'DEVICE_LOCAL_MEMORY'},
     devices:ds.map(x=>{const token=tokenMap.get(String(x.device_id)),zk=admsMap.get(String(x.device_id)),seen=zk?.last_seen_at?new Date(zk.last_seen_at).getTime():0;return{id:x.device_id,provider:x.provider,name:x.name,restaurantId:x.restaurant_id||'',location:x.location,connectionMode:x.connection_mode,timezone:x.timezone,active:Boolean(x.is_active),lastSyncAt:x.last_sync_at||'',tokenConfigured:Boolean(token),tokenLastUsedAt:token?.last_used_at||'',tokenRotatedAt:token?.rotated_at||'',serialNumber:zk?.serial_number||'',model:zk?.model||'',admsLastSeenAt:zk?.last_seen_at||'',admsLastEventAt:zk?.last_event_at||'',pushVersion:zk?.push_version||'',firmware:zk?.firmware||'',lastIp:zk?.last_ip||'',admsOnline:Boolean(seen&&nowMs-seen<5*60*1000)}}),
     employees:es.map(x=>({
