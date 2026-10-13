@@ -166,6 +166,10 @@ export async function onRequestPost({request,env}){
         const minutes=Number(body.workedMinutes),reason=clean(body.reason);
         if(!Number.isInteger(minutes)||minutes<0||minutes>1440||reason.length<10)
           return json({success:false,message:'Укажите 0–1440 минут и причину исправления (не менее 10 символов)'},400);
+        const original=await loadDocument(env.DB,userId,scope,period);
+        if(!original.doc.attendance.some(x=>x.employeeId===employeeId&&x.restaurantId===restaurantId&&
+           x.workDate===workDate&&x.markCount>0))
+          return json({success:false,message:'Нельзя создать оплачиваемую явку без исходной отметки ZKTeco этого RMS. Требуется отдельная проверка HR.'},409);
         await env.DB.prepare(`INSERT INTO hr_rms_payroll_corrections(
           user_id,month,restaurant_id,iiko_employee_id,work_date,worked_minutes,reason,actor_id,updated_at)
           VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
