@@ -29,11 +29,12 @@ test('Mixed models represent biometric methods accurately without promising temp
   }
   assert.equal(zktecoModelProfile('unknown').fingerprint,false);
 });
-test('TEST HR is planned on F18, SenseFace 2A and 3A without duplicate identity',()=>{
+test('CHAIN staff roster is planned across every authorized device without duplicate identity',()=>{
   const previews=plannedDeviceRoster(devices,employees,scope);
-  assert.deepEqual(previews.map(x=>x.eligibleCount),[3,1,1]);
+  assert.deepEqual(previews.map(x=>x.eligibleCount),[3,3,3]);
   assert.ok(previews.every(x=>x.preview.some(e=>e.id==='test-hr')));
   assert.ok(previews.every(x=>x.preview.find(e=>e.id==='test-hr').suggestedId==='3'));
+  assert.ok(previews.every(x=>x.rosterMode==='CHAIN_ALL_DEVICES'));
   assert.ok(previews.every(x=>!x.provisioningEnabled&&!x.biometricSyncEnabled));
 });
 test('Service accounts and fired employees are not staged for device distribution',()=>{
@@ -47,6 +48,15 @@ test('A device outside authorized CHAIN scope produces no roster entries',()=>{
   assert.equal(previews[1].eligibleCount,0);
   assert.equal(previews[1].rosterStatus,'RESTAURANT_NOT_IN_SCOPE');
   assert.equal(previews[2].eligibleCount,0);
+});
+test('CHAIN member cannot view the full network roster from another restaurant',()=>{
+  const restricted={...scope,selectedDepartmentIds:['b'],selectedRestaurants:[scope.selectedRestaurants[1]],membershipRestricted:true};
+  const preview=plannedDeviceRoster(devices,employees,restricted);
+  assert.equal(preview[0].eligibleCount,0);
+  assert.equal(preview[0].rosterStatus,'RESTAURANT_NOT_IN_SCOPE');
+  assert.equal(preview[1].eligibleCount,1);
+  assert.equal(preview[1].rosterStatus,'MEMBER_VIEW_ONLY');
+  assert.equal(preview[2].eligibleCount,0);
 });
 test('PIN candidate never equals a generated internal code or duplicates another numeric code',()=>{
   const rows=[

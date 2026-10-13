@@ -33,6 +33,9 @@ export function plannedDeviceRoster(devices,employees,scope){
   const selected=new Set((scope?.selectedDepartmentIds||[]).map(clean));
   const network=scope?.isChain===true;
   const active=(employees||[]).filter(e=>!Number(e?.is_deleted??e?.deleted)&&!clean(e?.fire_date??e?.fireDate));
+  const restricted=Boolean(scope?.membershipRestricted)||
+    Boolean(network&&Array.isArray(scope?.allowedDepartmentIds)&&selected.size<scope.allowedDepartmentIds.length);
+  const knownDepartments=new Set(directory.map(r=>norm(r?.code)).filter(Boolean));
   return(devices||[]).map(d=>{
     const deviceId=clean(d?.device_id??d?.id),restaurantId=clean(d?.restaurant_id??d?.restaurantId);
     const restaurant=network?directory.find(r=>clean(r?.id)===restaurantId&&selected.has(restaurantId)):null;
@@ -40,7 +43,10 @@ export function plannedDeviceRoster(devices,employees,scope){
     const eligible=(!network||Boolean(targetCode))?active.filter(e=>{
       if(!network)return true;
       const codes=[...(e?.departmentCodes||[]),e?.department_code??e?.departmentCode].map(norm);
-      return codes.includes(targetCode);
+      // CHAIN roaming: centrally manage the same enrolled person on every
+      // authorized device. Only real staff with a known RMS assignment qualify.
+      // A department-only manager cannot obtain the full network directory.
+      return restricted?codes.includes(targetCode):codes.some(code=>knownDepartments.has(code));
     }):[];
     const model=zktecoModelProfile(d?.device_model??d?.model);
     const codeCounts=new Map();
@@ -64,7 +70,8 @@ export function plannedDeviceRoster(devices,employees,scope){
       model,mode:clean(d?.connection_mode??d?.connectionMode),
       online:d?.admsOnline===true,eligibleCount:people.length,
       preview:people.slice(0,12),additionalCount:Math.max(0,people.length-12),
-      rosterStatus:network&&!restaurant?'RESTAURANT_NOT_IN_SCOPE':'PREVIEW_ONLY',
+      rosterMode:network?'CHAIN_ALL_DEVICES':'RMS_ONLY',
+      rosterStatus:network&&!restaurant?'RESTAURANT_NOT_IN_SCOPE':restricted?'MEMBER_VIEW_ONLY':'PREVIEW_ONLY',
       provisioningEnabled:false,biometricSyncEnabled:false
     };
   });
