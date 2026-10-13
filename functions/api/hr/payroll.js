@@ -255,7 +255,7 @@ export async function onRequestGet({request,env}){
 
     // Snapshot only overtime accruals that changed. This gives the payment ledger
     // a stable monthly history without turning every Payroll GET into hundreds of writes.
-    if(payrollTimesheetApproved)try{
+    if(payrollTimesheetApproved&&!scope?.isChain)try{
       const existingR=await env.DB.prepare(`SELECT iiko_employee_id,amount,payable_minutes,extra_day_equivalent FROM hr_overtime_payroll_accruals WHERE user_id=?1 AND month=?2`).bind(userId,month).all();
       const existing=new Map((existingR.results||[]).map(x=>[String(x.iiko_employee_id),x]));
       const visibleIds=new Set(rows.map(x=>String(x.employeeId)));
@@ -276,7 +276,7 @@ export async function onRequestGet({request,env}){
     }
 
     let accountingPosted=0,accountingPending=0,accountingErrors=0;
-    if(payrollTimesheetApproved)for(const row of rows){
+    if(payrollTimesheetApproved&&!scope?.isChain)for(const row of rows){
       try{
         const result=await syncOvertimeAccrualPosting(env.DB,{
           userId,month,employeeId:String(row.employeeId),employeeName:row.employeeName||row.employeeCode||String(row.employeeId),
@@ -360,7 +360,7 @@ export async function onRequestGet({request,env}){
       rmsHours,
       monthlyRolePreview,
       payrollView:scope?.isChain?(aggregateView?'NETWORK_SUMMARY':'RESTAURANT_PAYROLL'):'RESTAURANT_PAYROLL',
-      postingAllowed:!aggregateView&&payrollTimesheetApproved,
+      postingAllowed:!scope?.isChain&&!aggregateView&&payrollTimesheetApproved,
       ruleProfile:AZ_PAYROLL_RULE_PROFILE,calendar:{year:2026,workDays:norm.days,normHours:norm.hours,source:'ƏƏSMN 2026 istehsalat təqvimi'},
       attendance:{mode:faceIdConnected?'FACE_ID':(correctionsByEmployee.size?'MANUAL':'NOT_CONNECTED'),activeDevices:activeDevices.length,label:faceIdConnected?'Face ID подключён':(correctionsByEmployee.size?'Факт введён вручную':'Face ID пока не подключён')},
       summary:{
@@ -375,6 +375,7 @@ export async function onRequestGet({request,env}){
       },
       totals,rows,
       notes:[
+        ...(scope?.isChain?['Старые автоматические начисления дополнительных часов и бухгалтерские проводки на основе основного подразделения отключены для CHAIN во избежание двойных начислений при переходе на отдельные RMS.']:[]),
         ...(scope?.isChain?['Новая формула Payroll ресторана: месячная сумма / (норма дней должности × часы в день) × фактические часы RMS. Пока только расчётный предварительный просмотр: налоги, отсутствие явок, отпуска, утверждение и бухгалтерские проводки не проведены по этой формуле. Старые суммы Payroll не являются окончательными для сотрудников нескольких RMS.']:[]),
         ...(aggregateView?['Сводный Payroll CHAIN носит информационный характер: начисления и выплаты проводятся отдельно в каждом ресторане.']:[]),
         ...(departmentPayroll&&!departmentPayroll.reconciled?['Есть сотрудники без однозначной привязки к ресторану CHAIN: их суммы не включены в строки ресторанов, но присутствуют в общем итоге.']:[]),
