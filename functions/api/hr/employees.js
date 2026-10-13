@@ -3,6 +3,7 @@ import { loadRequestIikoState, privateConnection, hasPrivateConnection } from '.
 import { resolveRestaurantScope } from '../iiko/_lib/restaurant-scope.js';
 import { resolveHrRestaurantScope,filterEmployeesByScope,isHrSubsetScope } from './_lib/restaurant-scope.js';
 import { parseEmployeeDirectory } from './_lib/employee-directory-xml.js';
+import { canStartEmployeeImport,employeeImportScope,targetEmployeeDepartment } from './_lib/employee-sync-scope.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -43,103 +44,163 @@ async function removeSystemAccounts(db,userId){
   ]);
 }
 
-async function syncEmployees(db,userId,employees,roleMap){
+async function syncEmployees(db,userId,employees,roleMap,importScope={limited:false,allowedCodes:[]}){
   await ensure(db);
-  await removeSystemAccounts(db,userId);
-  const syncedAt=now();const statements=[];
+  // A partial import must NEVER purge/update other restaurants' employee links.
+  if(!importScope.limited)await removeSystemAccounts(db,userId);
+  const oldRows=importScope.limited
+    ?await db.prepare("SELECT iiko_employee_id,department_code FROM hr_employees WHERE user_id=?1").bind(userId).all()
+    :{results:[]};
+  const existing=new Map((oldRows.results||[]).map(r=>[String(r.iiko_employee_id),r.department_code||'']));
+  const syncedAt=now(),statements=[];let skippedProtected=0,skippedUnknown=0,imported=0;
   for(const e of employees){
+    let targetDepartment=e.preferredDepartmentCode||e.departmentCodes[0]||'';
+    if(importScope.limited){
+      const target=targetEmployeeDepartment(e,existing.get(String(e.id)),importScope.allowedCodes);
+      if(!target.allowed){
+        if(target.reason==='EXISTING_OUTSIDE_SCOPE')skippedProtected++;
+        else skippedUnknown++;
+        continue;
+      }
+      targetDepartment=target.departmentCode;
+    }
+    imported++;
     const role=roleMap.get(e.mainRoleCode)||null;const roleCode=e.mainRoleCode||e.roleCodes[0]||'';const fullName=[e.lastName,e.firstName,e.middleName].filter(Boolean).join(' ')||e.displayName||e.code||e.id;
     statements.push(db.prepare(`INSERT INTO hr_employees(user_id,iiko_employee_id,employee_code,first_name,middle_name,last_name,display_name,role_code,role_name,department_code,hire_date,fire_date,is_deleted,synced_at)
       VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
       ON CONFLICT(user_id,iiko_employee_id) DO UPDATE SET employee_code=excluded.employee_code,first_name=excluded.first_name,middle_name=excluded.middle_name,last_name=excluded.last_name,display_name=excluded.display_name,role_code=excluded.role_code,role_name=excluded.role_name,department_code=excluded.department_code,hire_date=excluded.hire_date,fire_date=excluded.fire_date,is_deleted=excluded.is_deleted,synced_at=excluded.synced_at`)
-      .bind(userId,e.id,e.code,e.firstName,e.middleName,e.lastName,fullName,roleCode,role?.name||roleCode,e.preferredDepartmentCode||e.departmentCodes[0]||'',e.hireDate,e.fireDate,e.deleted?1:0,syncedAt));
+      .bind(userId,e.id,e.code,e.firstName,e.middleName,e.lastName,fullName,roleCode,role?.name||roleCode,targetDepartment,e.hireDate,e.fireDate,e.deleted?1:0,syncedAt));
   }
   for(let i=0;i<statements.length;i+=50)await db.batch(statements.slice(i,i+50));
   const rows=await db.prepare(`SELECT e.*,
       COALESCE((SELECT b.provider FROM hr_employee_device_bindings b WHERE b.user_id=e.user_id AND b.iiko_employee_id=e.iiko_employee_id ORDER BY b.updated_at DESC LIMIT 1),(SELECT l.provider FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_provider,
       COALESCE((SELECT b.external_employee_id FROM hr_employee_device_bindings b WHERE b.user_id=e.user_id AND b.iiko_employee_id=e.iiko_employee_id ORDER BY b.updated_at DESC LIMIT 1),(SELECT l.external_employee_id FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_external_id
     FROM hr_employees e WHERE e.user_id=?1 AND TRIM(e.employee_code)<>'' ORDER BY e.is_deleted ASC,e.last_name COLLATE NOCASE,e.first_name COLLATE NOCASE,e.display_name COLLATE NOCASE`).bind(userId).all();
-  return{syncedAt,rows:rows.results||[]};
+  return{syncedAt,rows:rows.results||[],imported,skippedProtected,skippedUnknown};
 }
 
+
+function dtoRow(r){
+  return{id:r.iiko_employee_id,code:r.employee_code,internalCode:String(r.employee_code||'').startsWith('SH-ID-'),
+    firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,
+    name:r.display_name,roleCode:r.role_code,roleName:r.role_name,departmentCode:r.department_code,
+    hireDate:r.hire_date,fireDate:r.fire_date,deleted:Boolean(r.is_deleted),
+    attendanceProvider:r.attendance_provider||'',attendanceExternalId:r.attendance_external_id||''};
+}
+async function cachedEmployees(db,userId,scope){
+  await ensure(db);
+  const result=await db.prepare(`SELECT e.*,
+      COALESCE((SELECT b.provider FROM hr_employee_device_bindings b WHERE b.user_id=e.user_id AND b.iiko_employee_id=e.iiko_employee_id ORDER BY b.updated_at DESC LIMIT 1),
+               (SELECT l.provider FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_provider,
+      COALESCE((SELECT b.external_employee_id FROM hr_employee_device_bindings b WHERE b.user_id=e.user_id AND b.iiko_employee_id=e.iiko_employee_id ORDER BY b.updated_at DESC LIMIT 1),
+               (SELECT l.external_employee_id FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_external_id
+    FROM hr_employees e WHERE e.user_id=?1 AND TRIM(e.employee_code)<>'' ORDER BY e.is_deleted ASC,e.last_name COLLATE NOCASE,e.first_name COLLATE NOCASE`).bind(userId).all();
+  const all=result.results||[],items=filterEmployeesByScope(all,scope).map(dtoRow);
+  const roles=[...new Map(items.filter(x=>x.roleCode).map(x=>[String(x.roleCode),{code:x.roleCode,name:x.roleName||x.roleCode,deleted:false}])).values()];
+  const syncedAt=all.reduce((a,x)=>String(x.synced_at||'')>a?String(x.synced_at):a,'');
+  return{items,roles,syncedAt,cachedTotal:all.length,
+    unassignedDepartment:all.filter(x=>!clean(x.department_code)).length};
+}
+function responseData(cache,scope,canSynchronize,meta={}){
+  const items=cache.items;
+  const warning=meta.warning||(!cache.syncedAt
+    ? canSynchronize
+      ? 'Сотрудники ещё не импортированы. Нажмите «Синхронизировать», чтобы загрузить их с SH Server.'
+      : 'Сотрудники ещё не импортированы. Запросите у администратора право «Изменение данных сотрудников» для синхронизации.'
+    : !items.length&&cache.cachedTotal
+      ? 'В HR есть сотрудники, но ни один не относится к выбранному ресторану. Проверьте привязку к подразделению.'
+      : '');
+  return json({success:true,source:meta.performed?'SH_EMPLOYEE_DIRECTORY':'HR_WORKSPACE_CACHE',
+    employeeSource:meta.performed?(meta.employeeSource||'all'):'workspace',attendanceSource:'EXTERNAL_DEVICE',
+    payrollEngine:'SMART_HORECA',canSynchronize,syncedAt:cache.syncedAt,
+    items,roles:cache.roles,
+    counts:{total:items.length,active:items.filter(x=>!x.deleted&&!x.fireDate).length,
+      linkedToAttendance:items.filter(x=>x.attendanceExternalId).length},
+    sync:{performed:Boolean(meta.performed),reason:meta.performed?'SERVER_IMPORT':'MEMBER_CACHE_ONLY',
+      cachedTotal:cache.cachedTotal,sourceRecords:meta.sourceRecords||0,
+      imported:meta.imported||0,visible:items.length,unassignedDepartment:cache.unassignedDepartment,
+      assignedInternalCodes:meta.assignedInternalCodes||0,skippedNonEmployee:meta.skippedNonEmployee||0,
+      skippedMissingId:meta.skippedMissingId||0,skippedProtected:meta.skippedProtected||0,
+      skippedUnknown:meta.skippedUnknown||0},
+    warning,
+    restaurantScope:scope?{mode:scope.mode||'RMS',departmentIds:scope.selectedDepartmentIds||[],
+      departmentCodes:scope.selectedDepartmentCodes||[],applied:Boolean(scope.membershipRestricted||isHrSubsetScope(scope))}:null});
+}
+function httpError(status,message){
+  const e=new Error(message);e.status=status;return e;
+}
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
 export async function onRequestGet({request,env}){
   try{
-    const state=await loadRequestIikoState(request,env);if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);if(!state.found||!hasPrivateConnection(state.state))return json({success:false,message:'Сначала подключите SH Server в настройках.'},409);
+    const state=await loadRequestIikoState(request,env);
+    if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
     if(!state.access?.allowed)return json({success:false,message:'Нет доступа к рабочему пространству'},403);
     const userId=state.storageUserId||state.user.id;
-    const connection=privateConnection(state.state);
     const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
-    if(!state.access?.isOwner){
-      // Do NOT let viewing a department trigger a shared network-wide sync.
-      // Imported SH employee records are updated only by the Workspace owner.
-      await ensure(env.DB);
-      const stored=await env.DB.prepare(`SELECT e.*,
-        COALESCE((SELECT b.provider FROM hr_employee_device_bindings b WHERE b.user_id=e.user_id AND b.iiko_employee_id=e.iiko_employee_id ORDER BY b.updated_at DESC LIMIT 1),
-                 (SELECT l.provider FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_provider,
-        COALESCE((SELECT b.external_employee_id FROM hr_employee_device_bindings b WHERE b.user_id=e.user_id AND b.iiko_employee_id=e.iiko_employee_id ORDER BY b.updated_at DESC LIMIT 1),
-                 (SELECT l.external_employee_id FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_external_id
-        FROM hr_employees e WHERE e.user_id=?1 AND TRIM(e.employee_code)<>'' ORDER BY e.is_deleted ASC,e.last_name COLLATE NOCASE,e.first_name COLLATE NOCASE`).bind(userId).all();
-      const mapped=filterEmployeesByScope(stored.results||[],scope).map(r=>({
-        id:r.iiko_employee_id,code:r.employee_code,internalCode:String(r.employee_code||'').startsWith('SH-ID-'),firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,
-        name:r.display_name,roleCode:r.role_code,roleName:r.role_name,departmentCode:r.department_code,hireDate:r.hire_date,fireDate:r.fire_date,
-        deleted:Boolean(r.is_deleted),attendanceProvider:r.attendance_provider||'',attendanceExternalId:r.attendance_external_id||''
-      }));
-      const roles=[...new Map(mapped.filter(x=>x.roleCode).map(x=>[String(x.roleCode),{code:x.roleCode,name:x.roleName||x.roleCode,deleted:false}])).values()];
-      const syncedAt=(stored.results||[]).reduce((max,x)=>String(x.synced_at||'')>max?String(x.synced_at):max,'');
-      return json({success:true,source:'HR_WORKSPACE_CACHE',employeeSource:'workspace',attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',
-        syncedAt,items:mapped,roles,sync:{performed:false,reason:'MEMBER_CACHE_ONLY',cachedTotal:(stored.results||[]).length},
-        warning:!syncedAt?'Владелец рабочего пространства ещё не импортировал сотрудников из SH Server. Для участников доступен только просмотр уже синхронизированного HR-списка.':mapped.length===0&&stored.results?.length?'Сотрудники есть в HR, но не найдены в выбранном ресторане. Проверьте привязку к подразделению и права доступа.':'',
-        counts:{total:mapped.length,active:mapped.filter(x=>!x.deleted&&!x.fireDate).length,linkedToAttendance:mapped.filter(x=>x.attendanceExternalId).length},
-        restaurantScope:{mode:scope?.mode||'RMS',departmentIds:scope?.selectedDepartmentIds||[],departmentCodes:scope?.selectedDepartmentCodes||[],applied:true}});
-    }
-    const subset=isHrSubsetScope(scope);
-    const departmentCodes=[...new Set((scope.selectedDepartmentCodes||[]).map(clean).filter(Boolean))];
-    if(subset&&!departmentCodes.length){
-      return json({
-        success:false,
-        code:'HR_DEPARTMENT_CODE_UNAVAILABLE',
-        message:'SH Chain не вернул код выбранного подразделения. Сотрудники не показаны, чтобы не смешивать персонал ресторанов.',
-        restaurantScope:{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:[]}
-      },409);
-    }
-    const rolesResult=await iikoText(connection,'/resto/api/employees/roles?revisionFrom=-1');
-    if(!rolesResult.ok)throw new Error(`SH Roles HTTP ${rolesResult.status}: ${rolesResult.text.slice(0,500)}`);
-    let employees=[],employeeSource='all',parseStats={sourceRecords:0,skippedMissingId:0,skippedNonEmployee:0,assignedInternalCodes:0};
-    const addStats=stats=>{for(const key of Object.keys(parseStats))parseStats[key]+=Number(stats?.[key]||0)};
-    if(subset&&departmentCodes.length){
-      const results=await Promise.all(departmentCodes.map(async code=>({code,result:await iikoText(connection,`/resto/api/employees/byDepartment/${encodeURIComponent(code)}`)})));
-      const failed=results.filter(x=>!x.result.ok);
-      if(failed.length===results.length)throw new Error(`SH Employees byDepartment: HTTP ${failed[0]?.result?.status||'—'} ${String(failed[0]?.result?.text||'').slice(0,500)}`);
+    const cache=await cachedEmployees(env.DB,userId,scope);
+    return responseData(cache,scope,canStartEmployeeImport(state.access));
+  }catch(error){console.error('[HR-EMPLOYEES-GET]',error);
+    return json({success:false,message:error?.message||String(error)},error?.status||500)}
+}
+export async function onRequestPost({request,env}){
+  try{
+    const state=await loadRequestIikoState(request,env);
+    if(!state?.user)return json({success:false,message:'Требуется авторизация'},401);
+    if(!state.access?.allowed||!canStartEmployeeImport(state.access))
+      return json({success:false,message:'Недостаточно прав для синхронизации сотрудников'},403);
+    if(!state.found||!hasPrivateConnection(state.state))
+      return json({success:false,message:'Сначала подключите SH Server в настройках.'},409);
+    const body=await request.json().catch(()=>({}));
+    if(clean(body.action).toUpperCase()!=='SYNC')return json({success:false,message:'Неизвестное действие'},400);
+    const userId=state.storageUserId||state.user.id;
+    const scope=await resolveHrRestaurantScope(request,env,userId,state.access);
+    const importScope=employeeImportScope(scope);
+    const connection=privateConnection(state.state);
+    let employees=[],employeeSource='all',stats={sourceRecords:0,skippedMissingId:0,skippedNonEmployee:0,assignedInternalCodes:0};
+    const addStats=p=>{for(const k of Object.keys(stats))stats[k]+=Number(p?.[k]||0)};
+    if(importScope.limited){
+      // Read only the signed-in manager's server-resolved departments. Never
+      // import the full network on behalf of restaurant-restricted HR members.
+      if(!importScope.allowedCodes.length)throw httpError(403,'Не удалось определить разрешённые подразделения для синхронизации');
+      const requests=await Promise.all(importScope.allowedCodes.map(async code=>({
+        code,response:await iikoText(connection,`/resto/api/employees/byDepartment/${encodeURIComponent(code)}`)
+      })));
+      const failed=requests.filter(x=>!x.response.ok);
+      if(failed.length)throw httpError(502,`Сотрудники SH по подразделению ${failed[0].code}: HTTP ${failed[0].response.status}. Импорт не выполнялся.`);
       const byId=new Map();
-      for(const entry of results)if(entry.result.ok){
-        const parsed=parseEmployeeDirectory(entry.result.text);addStats(parsed.stats);
+      for(const entry of requests){
+        const parsed=parseEmployeeDirectory(entry.response.text);addStats(parsed.stats);
         for(const e of parsed.employees){
-        const old=byId.get(e.id);
-        if(old){
-          if(!old.departmentCodes.includes(entry.code))old.departmentCodes.push(entry.code);
-          if(!old.preferredDepartmentCode)old.preferredDepartmentCode=entry.code;
-        }else{
-          if(!e.departmentCodes.includes(entry.code))e.departmentCodes.push(entry.code);
-          if(!e.preferredDepartmentCode)e.preferredDepartmentCode=entry.code;
-          byId.set(e.id,e);
+          const prev=byId.get(e.id);
+          if(prev){
+            if(!prev.departmentCodes.includes(entry.code))prev.departmentCodes.push(entry.code);
+          }else{
+            if(!e.departmentCodes.includes(entry.code))e.departmentCodes.push(entry.code);
+            byId.set(e.id,e);
+          }
         }
-      }}
+      }
       employees=[...byId.values()];
       employeeSource='byDepartment';
     }else{
-      const employeesResult=await iikoText(connection,'/resto/api/employees?includeDeleted=true');
-      if(!employeesResult.ok)throw new Error(`SH Employees HTTP ${employeesResult.status}: ${employeesResult.text.slice(0,500)}`);
-      const parsed=parseEmployeeDirectory(employeesResult.text);employees=parsed.employees;addStats(parsed.stats);
+      const all=await iikoText(connection,'/resto/api/employees?includeDeleted=true');
+      if(!all.ok)throw httpError(502,`SH Employees HTTP ${all.status}; импорт не выполнялся.`);
+      const parsed=parseEmployeeDirectory(all.text);addStats(parsed.stats);
+      employees=parsed.employees;
     }
-    const roles=parseRoles(rolesResult.text),roleMap=new Map(roles.map(r=>[r.code,r]));
-    const synced=await syncEmployees(env.DB,userId,employees,roleMap);
-    const allItems=synced.rows.map(r=>({id:r.iiko_employee_id,code:r.employee_code,internalCode:String(r.employee_code||'').startsWith('SH-ID-'),firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,name:r.display_name,roleCode:r.role_code,roleName:r.role_name,departmentCode:r.department_code,hireDate:r.hire_date,fireDate:r.fire_date,deleted:Boolean(r.is_deleted),attendanceProvider:r.attendance_provider||'',attendanceExternalId:r.attendance_external_id||''}));
-    const scopedIds=new Set(employees.map(x=>String(x.id)));
-    const items=subset&&employeeSource==='byDepartment'?allItems.filter(x=>scopedIds.has(String(x.id))):filterEmployeesByScope(allItems,scope);
-    const unassigned=allItems.filter(x=>!clean(x.departmentCode)).length;
-    const warning=employees.length===0?'SH Server не вернул сотрудников. Проверьте источник и признак «Сотрудник» в его справочнике.':items.length===0?'Сотрудники импортированы, но не отображаются в выбранном подразделении CHAIN. Проверьте коды и привязку к ресторану.':unassigned>0?('Без подразделения: '+unassigned+' сотрудников. Они не будут участвовать в расчётах отдельного ресторана до привязки.') : '';
-    return json({success:true,source:'SH_EMPLOYEE_DIRECTORY',employeeSource,attendanceSource:'EXTERNAL_DEVICE',payrollEngine:'SMART_HORECA',syncedAt:synced.syncedAt,items,roles:roles.filter(r=>!r.deleted),warning,
-      sync:{performed:true,sourceRecords:parseStats.sourceRecords,imported:employees.length,visible:items.length,cachedTotal:allItems.length,unassignedDepartment:unassigned,assignedInternalCodes:parseStats.assignedInternalCodes,skippedNonEmployee:parseStats.skippedNonEmployee,skippedMissingId:parseStats.skippedMissingId},counts:{total:items.length,active:items.filter(x=>!x.deleted&&!x.fireDate).length,linkedToAttendance:items.filter(x=>x.attendanceExternalId).length},restaurantScope:{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes,applied:subset}});
-  }catch(error){console.error('[HR-EMPLOYEES]',error);return json({success:false,message:error?.message||String(error)},500)}
+    if(!employees.length)throw httpError(409,'SH Server вернул 0 сотрудников. Ранее загруженные данные HR сохранены без изменений. Проверьте справочник сотрудников на сервере.');
+    const rolesResult=await iikoText(connection,'/resto/api/employees/roles?revisionFrom=-1');
+    const roleWarning=!rolesResult.ok?'Должности SH Server временно недоступны; сотрудники импортированы без обновления названий должностей.':'';
+    const roles=rolesResult.ok?parseRoles(rolesResult.text):[],roleMap=new Map(roles.map(r=>[r.code,r]));
+    const result=await syncEmployees(env.DB,userId,employees,roleMap,importScope);
+    const cache=await cachedEmployees(env.DB,userId,scope);
+    const warning=[roleWarning,result.skippedProtected
+      ?'Сотрудники с основной привязкой к чужому ресторану не перезаписаны: '+result.skippedProtected+'.'
+      :''].filter(Boolean).join(' ');
+    return responseData(cache,scope,true,{performed:true,employeeSource,sourceRecords:stats.sourceRecords,
+      imported:result.imported,skippedProtected:result.skippedProtected,skippedUnknown:result.skippedUnknown,
+      assignedInternalCodes:stats.assignedInternalCodes,skippedMissingId:stats.skippedMissingId,
+      skippedNonEmployee:stats.skippedNonEmployee,warning});
+  }catch(error){console.error('[HR-EMPLOYEES-SYNC]',error);
+    return json({success:false,message:error?.message||String(error)},error?.status||500)}
 }
