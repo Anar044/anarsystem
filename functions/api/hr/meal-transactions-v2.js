@@ -136,6 +136,13 @@ async function sync(request,env,state,month){
   // Unmatched OLAP rows can belong to other restaurants and must not be returned
   // to employees with department-scoped access.
   const restricted=scope?.membershipRestricted===true||isHrSubsetScope(scope);
+  // The TRANSACTIONS OLAP query does not include a verified department column.
+  // A department-only sync can attribute equal-name counteragents to the wrong
+  // restaurant. Central HR must sync the complete network, while members may
+  // safely read only their own employee rows from the shared cache.
+  if(scope?.isChain&&restricted){
+    throw Object.assign(new Error('Синхронизацию питания в CHAIN выполняет центральный HR при выборе всех ресторанов. Для своего ресторана доступен просмотр уже синхронизированных данных.'),{status:403});
+  }
   const connection=privateConnection(state.state),bounds=monthBounds(month),list=await employees(env.DB,userId,scope),lookup=employeeLookup(list),accounts=await mealAccounts(connection),meta=await getOlapFields(connection,'TRANSACTIONS',{force:true}),d=discover(meta),tx=await loadTransactions(connection,d,bounds);
   const spent=new Map(),repaid=new Map(),beforeSpent=new Map(),beforeRepaid=new Map(),matched=[],unmatched=[],rawKinds=new Map();
   let accountRows=0,kredRows=0;
