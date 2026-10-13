@@ -69,8 +69,16 @@ async function syncEmployees(db,userId,employees,roleMap,importScope={limited:fa
     if(importScope.limited){
       const target=targetEmployeeDepartment(e,existing.get(String(e.id)),importScope.allowedCodes);
       if(!target.allowed){
-        if(target.reason==='EXISTING_OUTSIDE_SCOPE')skippedProtected++;
-        else skippedUnknown++;
+        if(target.reason==='EXISTING_OUTSIDE_SCOPE'){
+          // The employee may work in this restaurant while their primary
+          // Payroll home remains another restaurant. Store only membership.
+          const allowed=new Set(importScope.allowedCodes.map(v=>String(v).trim().toUpperCase()));
+          const codes=employeeMembershipCodes(e).filter(v=>allowed.has(String(v).trim().toUpperCase()));
+          for(const code of codes)membershipStatements.push(
+            db.prepare(`INSERT OR REPLACE INTO hr_employee_departments(user_id,iiko_employee_id,department_code,synced_at) VALUES(?1,?2,?3,?4)`).bind(userId,e.id,code,syncedAt)
+          );
+          skippedProtected++;
+        }else skippedUnknown++;
         continue;
       }
       targetDepartment=target.departmentCode;
@@ -137,7 +145,10 @@ async function cachedEmployees(db,userId,scope){
   const items=hydrated.filter(r=>employeeWithinMembershipScope(r,scope))
     .map(r=>{
       const departmentCodes=visibleEmployeeMembership(r.departmentCodes,scope);
-      const item={...dtoRow(r),departmentCodes};
+      const primary=String(r.department_code||'');
+      const primaryVisible=!scope?.membershipRestricted&&!isHrSubsetScope(scope)||
+        departmentCodes.some(code=>code.toUpperCase()===primary.toUpperCase());
+      const item={...dtoRow(r),departmentCode:primaryVisible?primary:departmentCodes[0]||'',departmentCodes};
       return {...item,restaurant:employeeRestaurantStatus(item,scope)};
     });
   const roles=[...new Map(items.filter(x=>x.roleCode).map(x=>[String(x.roleCode),{code:x.roleCode,name:x.roleName||x.roleCode,deleted:false}])).values()];
@@ -240,7 +251,7 @@ export async function onRequestPost({request,env}){
     const result=await syncEmployees(env.DB,userId,employees,roleMap,importScope);
     const cache=await cachedEmployees(env.DB,userId,scope);
     const warning=[roleWarning,result.skippedProtected
-      ?'Сотрудники с основной привязкой к чужому ресторану не перезаписаны: '+result.skippedProtected+'.'
+      ?'Основное подразделение других ресторанов сохранено. Их дополнительные привязки обработаны отдельно: '+result.skippedProtected+'.'
       :''].filter(Boolean).join(' ');
     return responseData(cache,scope,true,{performed:true,employeeSource,sourceRecords:stats.sourceRecords,
       imported:result.imported,skippedProtected:result.skippedProtected,skippedUnknown:result.skippedUnknown,
