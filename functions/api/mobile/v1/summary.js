@@ -1,0 +1,106 @@
+import { mobileContext, response, errorResponse, MobileError } from "../_lib/context.js";
+import { onRequestPost as dashboardSummary } from "../../iiko/dashboard-summary.js";
+
+const clean = value => String(value ?? "").trim();
+function validDate(s) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) &&
+    !Number.isNaN(Date.parse(s + "T00:00:00Z")) &&
+    new Date(s + "T00:00:00Z").toISOString().slice(0, 10) === s;
+}
+function rowsOf(report) {
+  let rows = report?.rawResponse ?? report?.data ?? report ?? [];
+  if (typeof rows === "string") {
+    try { rows = JSON.parse(rows); } catch { rows = []; }
+  }
+  return Array.isArray(rows) ? rows : (Array.isArray(rows?.data) ? rows.data : []);
+}
+function numberFrom(row, field, fields) {
+  if (!field) return null;
+  const displayName = fields.find(f => f.name === field)?.title;
+  const raw = Object.prototype.hasOwnProperty.call(row, field)
+    ? row[field] : (displayName ? row[displayName] : undefined);
+  if (raw === undefined || raw === null || raw === "") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+function sumField(rows, field, fields) {
+  if (!field) return null;
+  let sum = 0, hasValue = false;
+  for (const row of rows) {
+    const value = numberFrom(row, field, fields);
+    if (value === null) continue;
+    sum += value;
+    hasValue = true;
+  }
+  return hasValue ? sum : null;
+}
+
+export function normalizeSummary(payload) {
+  if (!payload?.success || !payload.reports?.daily?.success) {
+    throw new MobileError("DASHBOARD_DATA_UNAVAILABLE", "Нет достоверных данных по продажам.", 502);
+  }
+  const fields = Array.isArray(payload.fields) ? payload.fields : [];
+  const rows = rowsOf(payload.reports.daily.report);
+  const revenue = sumField(rows, payload.revenueField, fields);
+  const checks = sumField(rows, payload.orderField, fields);
+  const profit = sumField(rows, payload.profitField, fields);
+  // Null distinguishes unavailable values from genuine zero.
+  const avgCheck = checks !== null && checks > 0 && revenue !== null
+    ? revenue / checks : null;
+  const dateField = payload.reports.daily.request?.groupByRowFields?.[0] || "OpenDate.Typed";
+  const daily = rows.map(row => {
+    const date = clean(row[dateField] ?? row[fields.find(f => f.name === dateField)?.title]).slice(0, 10);
+    return { date, revenue: numberFrom(row, payload.revenueField, fields) };
+  }).filter(r => validDate(r.date));
+  return {
+    success: true,
+    from: payload.from,
+    to: payload.to,
+    metrics: { revenue, checks, avgCheck, grossProfit: profit },
+    daily,
+    currency: "AZN",
+    source: "SH OLAP SALES",
+    updatedAt: new Date().toISOString(),
+    scope: {
+      selectedDepartmentIds: payload.departmentIds,
+      departmentScopeApplied: payload.meta?.departmentScopeApplied === true
+    }
+  };
+}
+
+export async function onRequestGet({ request, env }) {
+  try {
+    const url = new URL(request.url);
+    const from = clean(url.searchParams.get("from")), to = clean(url.searchParams.get("to") || from);
+    if (!validDate(from) || !validDate(to) || from > to) {
+      throw new MobileError("INVALID_PERIOD", "Укажите правильный период.", 400);
+    }
+    const days = (Date.parse(to + "T00:00:00Z") - Date.parse(from + "T00:00:00Z")) / 86400000;
+    if (days > 31) throw new MobileError("PERIOD_TOO_LONG", "Период ограничен 32 днями.", 400);
+    const ctx = await mobileContext(request, env, { connectionRequired: true });
+    // Reuse the existing authoritative server OLAP logic; credentials remain
+    // exclusively inside the Cloudflare Function.
+    const backendRequest = new Request(request.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...ctx.connection, from, to,
+        // Explicit IDs for *all* selections, including full CHAIN: never
+        // accidentally query unrelated departments if an OLAP account is broad.
+        departmentIds: ctx.selectedIds
+      })
+    });
+    const upstream = await dashboardSummary({ request: backendRequest });
+    if (!upstream.ok) {
+      throw new MobileError("OLAP_FAILED", "Не удалось получить отчёт SH OLAP.", 502);
+    }
+    const payload = await upstream.json();
+    const normalized = normalizeSummary(payload);
+    if (!normalized.scope.departmentScopeApplied) {
+      throw new MobileError("OLAP_SCOPE_UNVERIFIED", "Не удалось проверить область ресторанов.", 502);
+    }
+    return response(normalized);
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
