@@ -29,11 +29,12 @@ test('Mixed models represent biometric methods accurately without promising temp
   }
   assert.equal(zktecoModelProfile('unknown').fingerprint,false);
 });
-test('TEST HR is planned on F18, SenseFace 2A and 3A without duplicate identity',()=>{
+test('CHAIN staff roster is planned across every authorized device without duplicate identity',()=>{
   const previews=plannedDeviceRoster(devices,employees,scope);
-  assert.deepEqual(previews.map(x=>x.eligibleCount),[3,1,1]);
+  assert.deepEqual(previews.map(x=>x.eligibleCount),[3,3,3]);
   assert.ok(previews.every(x=>x.preview.some(e=>e.id==='test-hr')));
   assert.ok(previews.every(x=>x.preview.find(e=>e.id==='test-hr').suggestedId==='3'));
+  assert.ok(previews.every(x=>x.rosterMode==='CHAIN_ALL_DEVICES'));
   assert.ok(previews.every(x=>!x.provisioningEnabled&&!x.biometricSyncEnabled));
 });
 test('Service accounts and fired employees are not staged for device distribution',()=>{
