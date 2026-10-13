@@ -182,7 +182,12 @@ async function snapshot(db,userId,scope=null){
     devices:ds.map(x=>{const token=tokenMap.get(String(x.device_id)),zk=admsMap.get(String(x.device_id)),seen=zk?.last_seen_at?new Date(zk.last_seen_at).getTime():0;return{id:x.device_id,provider:x.provider,name:x.name,restaurantId:x.restaurant_id||'',location:x.location,connectionMode:x.connection_mode,timezone:x.timezone,active:Boolean(x.is_active),lastSyncAt:x.last_sync_at||'',tokenConfigured:Boolean(token),tokenLastUsedAt:token?.last_used_at||'',tokenRotatedAt:token?.rotated_at||'',serialNumber:zk?.serial_number||'',model:zk?.model||'',admsLastSeenAt:zk?.last_seen_at||'',admsLastEventAt:zk?.last_event_at||'',pushVersion:zk?.push_version||'',firmware:zk?.firmware||'',lastIp:zk?.last_ip||'',admsOnline:Boolean(seen&&nowMs-seen<5*60*1000)}}),
     employees:es.map(x=>({
       id:x.iiko_employee_id,code:x.employee_code,name:x.display_name,firstName:x.first_name,lastName:x.last_name,roleName:x.role_name,
-      departmentCode:x.department_code,departmentCodes:visibleEmployeeMembership(x.departmentCodes,scope),
+      departmentCode:(()=>{
+        const visible=visibleEmployeeMembership(x.departmentCodes,scope);
+        return visible.some(c=>c.toLowerCase()===clean(x.department_code).toLowerCase())
+          ?x.department_code:(visible[0]||'');
+      })(),
+      departmentCodes:visibleEmployeeMembership(x.departmentCodes,scope),
       deleted:Boolean(x.is_deleted),fireDate:x.fire_date||''
     })),
     bindings:bs.map(x=>({deviceId:x.device_id,employeeId:x.iiko_employee_id,provider:x.provider,externalEmployeeId:x.external_employee_id,externalLabel:x.external_label||''})),
