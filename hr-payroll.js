@@ -122,6 +122,38 @@ function renderScopeHeading(){
     ?'<strong>Общий Payroll CHAIN</strong><span>Сводка по '+restaurants.length+' ресторанам. Отдельные начисления и выплаты проводятся в конкретном ресторане.</span>'
     :'<strong>Payroll ресторана</strong><span>Начисления и табель относятся только к выбранному подразделению.</span>';
 }
+function renderRmsHours(){
+  const box=$('hrpRmsHours'),preview=state.payroll?.rmsHours||null;
+  if(!box)return;
+  box.hidden=state.payroll?.restaurantScope?.mode!=='CHAIN'||!preview;
+  if(box.hidden)return;
+  const current=$('hrpDepartmentFilter')?.value||'';
+  const deptMap=new Map((preview.departments||[]).map(d=>[String(d.restaurantId),d]));
+  const selectedDepartment=(state.payroll?.departmentPayroll?.departments||[])
+    .find(d=>String(d.code).toUpperCase()===current.toUpperCase());
+  const lines=(preview.employeeRows||[]).filter(e=>!current||!selectedDepartment||
+    String(e.restaurantId)===String(selectedDepartment.id));
+  const fmt=v=>hours(v||0);
+  $('hrpRmsHoursCount').textContent=lines.length+' строк · '+Number(preview.network?.uniqueEmployees||0)+' уникальных сотрудников в выбранной сети';
+  const html=lines.map(line=>
+    `<tr><td class="text-left"><strong>${esc(line.restaurantName||line.restaurantId)}</strong></td>
+       <td class="text-left">${esc(line.employeeName||line.employeeId)}</td>
+       <td>${Number(line.completeShifts||0)}</td>
+       <td>${esc(fmt(line.recordedMinutes))}</td>
+       <td>${esc(fmt(line.nonOverlappingMinutes))}</td>
+       <td>${Number(line.incompleteShifts||0)}</td>
+       <td>${Number(line.overlapShifts||0)}</td></tr>`
+  ).join('');
+  const deps=(preview.departments||[]).filter(d=>!selectedDepartment||String(d.restaurantId)===String(selectedDepartment.id));
+  const total=(name)=>deps.reduce((acc,d)=>acc+Number(d[name]||0),0);
+  $('hrpRmsHoursRows').innerHTML=html+ `<tr class="hrp-network-total">
+    <td class="text-left">Итого по выбранным RMS</td><td></td>
+    <td>${total('completeShifts')}</td>
+    <td>${esc(fmt(total('recordedMinutes')))}</td>
+    <td>${esc(fmt(total('nonOverlappingMinutes')))}</td>
+    <td>${total('incompleteShifts')}</td>
+    <td>${total('overlapShifts')}</td></tr>`;
+}
 function renderDepartmentPayroll(){
   const panel=$('hrpDepartmentPayroll'),snap=state.payroll?.departmentPayroll||null;
   const network=state.payroll?.payrollView==='NETWORK_SUMMARY';
@@ -349,7 +381,7 @@ function renderTabs(){
   const explain=document.querySelector('.hrp-explain');if(explain)explain.hidden=settlements;
   document.querySelector('.hrp-filter-card')?.classList.toggle('settlement-mode',settlements);
 }
-function render(){renderFilters();renderScopeHeading();renderDepartmentPayroll();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
+function render(){renderFilters();renderScopeHeading();renderRmsHours();renderDepartmentPayroll();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
 function onFilter(){renderSummary();renderTable();renderSettlements()}
 async function load(){
   if(busy)return;
