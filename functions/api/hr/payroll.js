@@ -1,6 +1,8 @@
 import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
 import { approvalTarget,approvalDepartments } from './_lib/department-approvals.js';
 import { buildPayrollDepartmentSummary } from './_lib/payroll-department-summary.js';
+import { independentRestaurantAttendance } from './_lib/restaurant-attendance.js';
+import { summarizePayrollRmsHours } from './_lib/payroll-rms-hours.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope, filterAttendanceEventsByRestaurant } from './_lib/restaurant-scope.js';
 import { calculateCompensation, AZ_PAYROLL_RULE_PROFILE } from './_lib/az-payroll-rules.js';
 import { syncOvertimeAccrualPosting } from './_lib/payroll-accounting.js';
@@ -287,6 +289,40 @@ export async function onRequestGet({request,env}){
       }
     }
 
+    // CHAIN allocation basis is intentionally separate from the legacy primary-
+    // department salary calculation: employees may work at multiple restaurants.
+    // Include roaming staff recorded on authorized restaurant devices, even if
+    // their primary HR/payroll department points at another RMS.
+    let rmsHours=null;
+    if(scope?.isChain){
+      const deviceIds=activeDevices.map(d=>String(d.device_id||'')).filter(Boolean);
+      const marks=[];
+      for(const ids of chunkList(deviceIds,20)){
+        const placeholders=ids.map(()=>'?').join(',');
+        const part=await env.DB.prepare(
+          `SELECT event_id,device_id,iiko_employee_id,event_time,event_type FROM hr_attendance_events
+           WHERE user_id=? AND device_id IN (${placeholders})
+             AND event_time>=? AND event_time<=?
+           ORDER BY iiko_employee_id,event_time`
+        ).bind(userId,...ids,`${isoDayShift(b.from,-1)}T00:00:00.000Z`,`${isoDayShift(b.to,1)}T23:59:59.999Z`).all();
+        marks.push(...(part.results||[]));
+      }
+      const shiftRules={};
+      for(const person of employeesR.results||[]){
+        if(Number(person.is_deleted))continue;
+        const id=String(person.iiko_employee_id||'');
+        const employeeRule=String(employeeAttendance.get(id)?.shift_type_override||'').toUpperCase();
+        const roleRule=String(roleAttendance.get(String(person.role_code||''))?.shift_type||'').toUpperCase();
+        shiftRules[id]=['DAY','NIGHT'].includes(employeeRule)?employeeRule:roleRule==='NIGHT'?'NIGHT':'DAY';
+      }
+      const eligible=(employeesR.results||[]).filter(e=>!Number(e.is_deleted)).map(e=>({
+        id:String(e.iiko_employee_id),name:e.display_name||e.employee_code||''
+      }));
+      const ledger=independentRestaurantAttendance(marks,allDevices,eligible,scope,shiftRules,Date.now())
+        .filter(x=>x.workDate>=b.from&&x.workDate<=b.to);
+      rmsHours=summarizePayrollRmsHours(ledger,scope);
+    }
+
     const departmentPayroll=buildPayrollDepartmentSummary(rows,scope,departmentApprovals);
     const totals={
       monthlyFactualGross:round2(configured.reduce((a,r)=>a+Number(r.accrual?.monthlyFactualGross||0),0)),
@@ -300,6 +336,7 @@ export async function onRequestGet({request,env}){
       success:true,engine:'MONTHLY_PAYROLL_V3_FREE_SHIFT',month,period:{from:b.from,to:b.to},currency:'AZN',timesheetApproval:{status:aggregateView?'AGGREGATE_VIEW':(approvedTimesheet?.status||'DRAFT'),approved:payrollTimesheetApproved,stale:timesheetApprovalStale,aggregateView,departmentApprovals},
       restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
       departmentPayroll,
+      rmsHours,
       payrollView:scope?.isChain?(aggregateView?'NETWORK_SUMMARY':'RESTAURANT_PAYROLL'):'RESTAURANT_PAYROLL',
       postingAllowed:!aggregateView&&payrollTimesheetApproved,
       ruleProfile:AZ_PAYROLL_RULE_PROFILE,calendar:{year:2026,workDays:norm.days,normHours:norm.hours,source:'ƏƏSMN 2026 istehsalat təqvimi'},
@@ -316,6 +353,7 @@ export async function onRequestGet({request,env}){
       },
       totals,rows,
       notes:[
+        ...(scope?.isChain?['ВНИМАНИЕ: старый расчёт зарплаты пока привязан к основному подразделению сотрудника. Ведомость часов по RMS ниже предназначена для сверки; не используйте старый расчёт для окончательных начислений сотрудникам, работавшим в нескольких RMS.']:[]),
         ...(aggregateView?['Сводный Payroll CHAIN носит информационный характер: начисления и выплаты проводятся отдельно в каждом ресторане.']:[]),
         ...(departmentPayroll&&!departmentPayroll.reconciled?['Есть сотрудники без однозначной привязки к ресторану CHAIN: их суммы не включены в строки ресторанов, но присутствуют в общем итоге.']:[]),
         faceIdConnected?'Face ID участвует как источник фактического времени; базовый неполный месяц определяется также датами приёма/увольнения.':'Face ID не подключён: для неполного месяца используются даты фактического/официального приёма и увольнения и производственный календарь.',
