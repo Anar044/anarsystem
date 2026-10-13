@@ -4,7 +4,7 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const money=v=>`${(Number(v)||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})} ₼`;
 const hours=v=>{if(v===null||v===undefined)return'—';const m=Math.max(0,Number(v)||0),h=Math.floor(m/60),r=Math.round(m%60);return r?`${h} ч ${String(r).padStart(2,'0')} мин`:`${h} ч`};
 const r=v=>Math.round((Number(v)||0)*100)/100,pct=v=>(Number(v)||0)/100;
-let mode='OVERALL',state={payroll:null,adjustments:null,tax:null,settlements:null,models:[]},busy=false,paymentBusy=false,paymentEmployeeId='';
+let mode='OVERALL',state={payroll:null,adjustments:null,tax:null,settlements:null,rmsPayroll:null,rmsPayrollError:'',models:[]},busy=false,paymentBusy=false,paymentEmployeeId='';
 
 function monthNow(){const d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0');return y===2026?`${y}-${m}`:'2026-10'}
 async function token(){const c=await window.SHAuth?.createClient?.();if(!c)throw new Error('Supabase Auth не готов');const{data,error}=await c.auth.getSession();const t=data?.session?.access_token;if(error||!t)throw new Error('Сессия пользователя не найдена');return t}
@@ -17,7 +17,21 @@ async function api(){
     fetchJson(`/api/hr/payroll-tax-settings?month=${encodeURIComponent(month)}`,t),
     fetchJson(`/api/hr/overtime-settlements?month=${encodeURIComponent(month)}`,t)
   ]);
-  return{payroll:p,adjustments:a,tax,settlements};
+  let rmsPayroll=null,rmsPayrollError='';
+  if(p.restaurantScope?.mode==='CHAIN'){
+    try{rmsPayroll=await fetchJson(`/api/hr/rms-payroll?month=${encodeURIComponent(month)}`,t)}
+    catch(error){rmsPayrollError=error?.message||String(error)}
+  }
+  return{payroll:p,adjustments:a,tax,settlements,rmsPayroll,rmsPayrollError};
+}
+async function rmsPayrollPost(body){
+  const t=await token(),res=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/hr/rms-payroll',{
+    method:'POST',headers:{Authorization:`Bearer ${t}`,Accept:'application/json','Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  },90000);
+  const j=await res.json().catch(()=>({success:false,message:'Некорректный ответ Payroll RMS'}));
+  if(!res.ok||!j.success)throw new Error(j.message||`HTTP ${res.status}`);
+  return j;
 }
 async function settlementPost(body){
   const t=await token(),res=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/hr/overtime-settlements',{method:'POST',headers:{Authorization:`Bearer ${t}`,Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify(body)},60000);
@@ -155,6 +169,85 @@ function renderMonthlyNormPreview(){
     <td class="text-left"><strong>ИТОГО · предварительно</strong></td>
     <td>${new Set(all.map(x=>x.employeeId)).size} сотрудников</td><td></td><td></td><td></td><td></td>
     <td><strong>${money(gross)}</strong></td><td>${attention?'Требуют проверки: '+attention:'Без проведения выплат'}</td></tr>`;
+}
+function renderRmsTaxAllocation(){
+  const box=$('hrpRmsTaxAllocation');
+  if(!box)return;
+  const source=state.rmsPayroll,tax=source?.taxAllocation;
+  box.hidden=!source||!tax;
+  if(box.hidden)return;
+  const totals=tax.network||{},profile=source.taxProfile||{};
+  $('hrpRmsTaxSummary').textContent=`${Number(totals.uniqueEmployees||0)} сотрудников · gross ${money(totals.gross)} · net ${money(totals.net)} · профиль ${profile.source||'не задан'}`;
+  const lines=tax.lines||[],names=new Map((source.restaurants||[]).map(x=>[String(x.restaurantId),x.restaurantName]));
+  $('hrpRmsTaxRows').innerHTML=lines.map(x=>`<tr>
+    <td class="text-left">${esc(x.restaurantId==='NETWORK_OFFICE'?'Центральный офис':(names.get(String(x.restaurantId))||x.restaurantId))}</td>
+    <td class="text-left">${esc(x.employeeName||x.employeeId)}</td>
+    <td>${money(x.gross)}</td><td>${money(x.withheld)}</td>
+    <td><strong>${money(x.net)}</strong></td><td>${money(x.employerCost)}</td></tr>`
+  ).join('')+`<tr class="hrp-network-total">
+    <td class="text-left">ИТОГО CHAIN</td><td>${Number(totals.uniqueEmployees||0)} сотрудников</td>
+    <td>${money(totals.gross)}</td><td>${money(totals.withheld)}</td>
+    <td><strong>${money(totals.net)}</strong></td><td>${money(totals.employerCost)}</td></tr>`;
+}
+function renderRmsApprovals(){
+  const panel=$('hrpRmsApproval'),source=state.rmsPayroll||null;
+  if(!panel)return;
+  panel.hidden=state.payroll?.restaurantScope?.mode!=='CHAIN';
+  if(panel.hidden)return;
+  const error=$('hrpRmsApprovalError');
+  error.hidden=!state.rmsPayrollError;
+  error.textContent=state.rmsPayrollError||'';
+  if(!source){
+    $('hrpRmsApprovalSummary').textContent='Новый Payroll недоступен';
+    $('hrpRmsApprovalRows').innerHTML='<tr><td colspan="7" class="hr-empty">Не удалось загрузить независимые документы RMS.</td></tr>';
+    $('hrpRmsApprovalAttendance').innerHTML='';
+    return;
+  }
+  const current=$('hrpDepartmentFilter')?.value||'';
+  const selected=(state.payroll?.departmentPayroll?.departments||[])
+    .find(d=>String(d.code).toUpperCase()===current.toUpperCase());
+  const rows=(source.restaurants||[]).filter(x=>!selected||String(x.restaurantId)===String(selected.id));
+  const ids=new Set(rows.map(x=>String(x.restaurantId)));
+  const approved=rows.filter(x=>x.approval?.status==='HR_APPROVED').length;
+  const unique=new Set(rows.flatMap(x=>x.rows||[]).map(x=>x.employeeId)).size;
+  $('hrpRmsApprovalSummary').textContent=`${approved} из ${rows.length} RMS утверждены · ${unique} уникальных сотрудников · начисления не проведены`;
+  const stateLabel=s=>({DRAFT:'Черновик',MANAGER_APPROVED:'Менеджер подтвердил',HR_APPROVED:'HR утвердил',STALE:'Данные изменились — пересчёт'})[s]||s||'Черновик';
+  $('hrpRmsApprovalRows').innerHTML=rows.map(x=>{
+    const status=x.approval?.status||'DRAFT',actions=[];
+    if(source.canManagerApprove&&source.closed&&x.ready&&x.attendanceDays>0&&status!=='HR_APPROVED')
+      actions.push(`<button type="button" class="hr-link-button" data-rms-action="MANAGER_APPROVE" data-rms-id="${esc(x.restaurantId)}">Менеджер ✓</button>`);
+    if(source.canHrApprove&&source.closed&&x.ready&&status==='MANAGER_APPROVED')
+      actions.push(`<button type="button" class="hr-link-button" data-rms-action="HR_APPROVE" data-rms-id="${esc(x.restaurantId)}">HR ✓</button>`);
+    if(source.canReopen&&['MANAGER_APPROVED','HR_APPROVED','STALE'].includes(status))
+      actions.push(`<button type="button" class="hr-link-button" data-rms-action="REOPEN" data-rms-id="${esc(x.restaurantId)}">Вернуть</button>`);
+    return `<tr>
+      <td class="text-left">${esc(x.restaurantName||x.restaurantCode||x.restaurantId)}</td>
+      <td>${new Set((x.rows||[]).map(e=>e.employeeId)).size}</td>
+      <td>${hours((x.rows||[]).reduce((a,e)=>a+Number(e.acceptedMinutes||0),0))}</td>
+      <td><strong>${money(x.gross)}</strong></td>
+      <td>${x.issueCount||0}</td>
+      <td>${esc(stateLabel(status))}</td>
+      <td>${actions.join(' ')||'<span class="hr-muted">Только просмотр / требуется проверка</span>'}</td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="7" class="hr-empty">Нет доступных RMS для утверждения</td></tr>';
+  const correctionKeys=new Set((source.corrections||[]).map(x=>
+    String(x.restaurant_id)+'|'+String(x.iiko_employee_id)+'|'+String(x.work_date)));
+  $('hrpRmsApprovalAttendance').innerHTML=(source.attendance||[]).filter(x=>ids.has(String(x.restaurantId)))
+    .map(x=>{
+      const date=String(x.workDate),id=String(x.employeeId),restaurant=String(x.restaurantId);
+      const corrected=correctionKeys.has(restaurant+'|'+id+'|'+date);
+      const status=x.manualCorrection?'Исправлено вручную':x.status==='WORK'?'Закрыта':x.status==='INCOMPLETE'?'Нет ухода':'Смена открыта';
+      const documentRow=rows.find(d=>String(d.restaurantId)===restaurant);
+      const editable=source.canManage&&documentRow?.approval?.status!=='HR_APPROVED';
+      return `<tr>
+        <td class="text-left">${esc(x.restaurantName||restaurant)}</td>
+        <td class="text-left">${esc(x.employeeName||id)}</td><td>${esc(date)}</td>
+        <td>${esc(x.firstIn||'—')}</td><td>${esc(x.lastOut||'—')}</td>
+        <td>${hours(x.workedMinutes||0)}</td><td>${esc(status)}</td>
+        <td>${editable?`<button class="hr-link-button" type="button" data-rms-action="SAVE_CORRECTION" data-rms-id="${esc(restaurant)}" data-rms-employee="${esc(id)}" data-rms-date="${esc(date)}" data-rms-minutes="${Number(x.workedMinutes||0)}">Исправить</button>
+          ${corrected?`<button class="hr-link-button" type="button" data-rms-action="REMOVE_CORRECTION" data-rms-id="${esc(restaurant)}" data-rms-employee="${esc(id)}" data-rms-date="${esc(date)}">Отмена</button>`:''}`:'—'}</td>
+      </tr>`;
+    }).join('')||'<tr><td colspan="8" class="hr-empty">Нет явок ZKTeco за выбранный месяц</td></tr>';
 }
 function renderRmsHours(){
   const box=$('hrpRmsHours'),preview=state.payroll?.rmsHours||null;
@@ -331,7 +424,7 @@ function settlementVisibleRows(){
 }
 function renderSettlements(){
   const box=$('hrpSettlementSummary'),tbody=$('hrpSettlementRows');if(!box||!tbody)return;
-  const snap=state.settlements||{summary:{},rows:[],access:{}},rows=settlementVisibleRows(),canSettle=Boolean(snap.access?.canSettlePayroll)&&state.payroll?.payrollView!=='NETWORK_SUMMARY';
+  const snap=state.settlements||{summary:{},rows:[],access:{}},rows=settlementVisibleRows(),canSettle=Boolean(snap.access?.canSettlePayroll)&&state.payroll?.restaurantScope?.mode!=='CHAIN'&&state.payroll?.payrollView!=='NETWORK_SUMMARY';
   const sum={openingDebt:r(rows.reduce((a,x)=>a+Number(x.openingDebt||0),0)),accrued:r(rows.reduce((a,x)=>a+Number(x.currentAccrued||0),0)),paid:r(rows.reduce((a,x)=>a+Number(x.currentPaid||0),0)),closingDebt:r(rows.reduce((a,x)=>a+Number(x.closingDebt||0),0)),withDebt:rows.filter(x=>Number(x.closingDebt||0)>0).length};
   $('hrpSettlementCount').textContent=`${rows.length} сотрудников с движением`;
   box.innerHTML=[
@@ -415,8 +508,8 @@ function renderTabs(){
   const explain=document.querySelector('.hrp-explain');if(explain)explain.hidden=settlements;
   document.querySelector('.hrp-filter-card')?.classList.toggle('settlement-mode',settlements);
 }
-function render(){renderFilters();renderScopeHeading();renderMonthlyNormPreview();renderRmsHours();renderDepartmentPayroll();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
-function onFilter(){renderSummary();renderTable();renderSettlements()}
+function render(){renderFilters();renderScopeHeading();renderRmsApprovals();renderRmsTaxAllocation();renderMonthlyNormPreview();renderRmsHours();renderDepartmentPayroll();renderSummary();renderContext();renderTabs();renderTable();renderSettlements()}
+function onFilter(){renderSummary();renderTable();renderSettlements();renderRmsApprovals();renderMonthlyNormPreview();renderRmsHours()}
 async function load(){
   if(busy)return;
   try{
@@ -424,6 +517,30 @@ async function load(){
     const d=await api();state={...d,models:buildModels(d.payroll,d.adjustments,d.tax)};render();setStatus('Готово','ok');
   }catch(e){console.error(e);showError(e?.message||String(e));setStatus('Ошибка','error')}
   finally{busy=false;$('hrpRefresh').disabled=false}
+}
+async function updateRmsPayroll(evt){
+  const button=evt.target.closest('[data-rms-action]');if(!button||busy)return;
+  const action=button.dataset.rmsAction,restaurantId=button.dataset.rmsId,month=$('hrpMonth').value;
+  const body={action,restaurantId,month};
+  if(action==='SAVE_CORRECTION'||action==='REMOVE_CORRECTION'){
+    body.employeeId=button.dataset.rmsEmployee;body.workDate=button.dataset.rmsDate;
+    if(action==='SAVE_CORRECTION'){
+      const raw=prompt('Фактически отработанные минуты в этом RMS за день:',button.dataset.rmsMinutes||'0');
+      if(raw===null)return;
+      body.workedMinutes=Number(raw);
+      const reason=prompt('Причина исправления явки (не менее 10 символов):');
+      if(reason===null)return;
+      body.reason=reason;
+    }else if(!confirm('Отменить эту ручную корректировку явки?'))return;
+  }else if(!confirm('Подтвердить действие '+action+' для выбранного RMS?'))return;
+  try{
+    busy=true;button.disabled=true;showError('');setStatus('Обновление Payroll RMS…','loading');
+    await rmsPayrollPost(body);
+    const t=await token();
+    state.rmsPayroll=await fetchJson('/api/hr/rms-payroll?month='+encodeURIComponent(month),t);
+    state.rmsPayrollError='';renderRmsApprovals();renderRmsTaxAllocation();setStatus('Payroll RMS обновлён','ok');
+  }catch(e){console.error(e);showError(e?.message||String(e));setStatus('Ошибка','error')}
+  finally{busy=false;button.disabled=false}
 }
 function bind(){
   $('hrpRefresh').onclick=load;$('hrpMonth').onchange=load;
@@ -436,6 +553,7 @@ function bind(){
   document.querySelectorAll('[data-payment-close]').forEach(x=>x.addEventListener('click',closePayment));
   $('hrpPaymentMethod').onchange=updatePaymentAccountSelector;
   $('hrpPaymentSave').onclick=savePayment;
+  $('hrpRmsApproval')?.addEventListener('click',updateRmsPayroll);
 }
 function init(){$('hrpMonth').value=monthNow();bind();load()}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();

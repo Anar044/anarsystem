@@ -50,7 +50,7 @@ test('Non-CHAIN RMS returns no CHAIN breakdown',()=>{
 test('CHAIN network view protects postings and separates restaurant subtotals',()=>{
   const file=(name)=>readFileSync(new URL('../'+name,import.meta.url),'utf8');
   const api=file('functions/api/hr/payroll.js'),ui=file('hr-payroll.js');
-  assert.match(api,/postingAllowed:!aggregateView&&payrollTimesheetApproved/);
+  assert.match(api,/postingAllowed:!scope\?\.isChain&&!aggregateView&&payrollTimesheetApproved/);
   assert.match(api,/departmentPayroll/);
   assert.match(ui,/payrollView==='NETWORK_SUMMARY'/);
   assert.match(ui,/renderDepartmentPayroll/);
