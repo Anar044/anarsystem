@@ -1,5 +1,6 @@
 import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
 import { approvalTarget,approvalDepartments } from './_lib/department-approvals.js';
+import { buildPayrollDepartmentSummary } from './_lib/payroll-department-summary.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope, filterAttendanceEventsByRestaurant } from './_lib/restaurant-scope.js';
 import { calculateCompensation, AZ_PAYROLL_RULE_PROFILE } from './_lib/az-payroll-rules.js';
 import { syncOvertimeAccrualPosting } from './_lib/payroll-accounting.js';
@@ -286,6 +287,7 @@ export async function onRequestGet({request,env}){
       }
     }
 
+    const departmentPayroll=buildPayrollDepartmentSummary(rows,scope,departmentApprovals);
     const totals={
       monthlyFactualGross:round2(configured.reduce((a,r)=>a+Number(r.accrual?.monthlyFactualGross||0),0)),
       factualBaseGross:round2(configured.reduce((a,r)=>a+Number(r.accrual?.factualBaseGross||0),0)),
@@ -297,6 +299,9 @@ export async function onRequestGet({request,env}){
     return json({
       success:true,engine:'MONTHLY_PAYROLL_V3_FREE_SHIFT',month,period:{from:b.from,to:b.to},currency:'AZN',timesheetApproval:{status:aggregateView?'AGGREGATE_VIEW':(approvedTimesheet?.status||'DRAFT'),approved:payrollTimesheetApproved,stale:timesheetApprovalStale,aggregateView,departmentApprovals},
       restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
+      departmentPayroll,
+      payrollView:scope?.isChain?(aggregateView?'NETWORK_SUMMARY':'RESTAURANT_PAYROLL'):'RESTAURANT_PAYROLL',
+      postingAllowed:!aggregateView&&payrollTimesheetApproved,
       ruleProfile:AZ_PAYROLL_RULE_PROFILE,calendar:{year:2026,workDays:norm.days,normHours:norm.hours,source:'ƏƏSMN 2026 istehsalat təqvimi'},
       attendance:{mode:faceIdConnected?'FACE_ID':(correctionsByEmployee.size?'MANUAL':'NOT_CONNECTED'),activeDevices:activeDevices.length,label:faceIdConnected?'Face ID подключён':(correctionsByEmployee.size?'Факт введён вручную':'Face ID пока не подключён')},
       summary:{
@@ -311,6 +316,8 @@ export async function onRequestGet({request,env}){
       },
       totals,rows,
       notes:[
+        ...(aggregateView?['Сводный Payroll CHAIN носит информационный характер: начисления и выплаты проводятся отдельно в каждом ресторане.']:[]),
+        ...(departmentPayroll&&!departmentPayroll.reconciled?['Есть сотрудники без однозначной привязки к ресторану CHAIN: их суммы не включены в строки ресторанов, но присутствуют в общем итоге.']:[]),
         faceIdConnected?'Face ID участвует как источник фактического времени; базовый неполный месяц определяется также датами приёма/увольнения.':'Face ID не подключён: для неполного месяца используются даты фактического/официального приёма и увольнения и производственный календарь.',
         'Неполный месяц: фактический месячный оклад / норма рабочих дней × расчётные рабочие дни.',
         'Дополнительный день: оплачиваемые подтверждённые HR часы / дневной норматив; сумма = фактический месячный оклад / норма рабочих дней × дополнительный день.',
