@@ -598,6 +598,7 @@ jobs:
           node --test tests/hr-chain-attendance-scope.test.mjs
           node --test tests/hr-employee-directory-xml.test.mjs
           node --test tests/hr-member-employee-sync.test.mjs
+          node --test tests/hr-employee-restaurant-status.test.mjs
           node --test tests/hr-department-approvals.test.mjs
           node --test tests/hr-department-snapshot.test.mjs
           node --test tests/hr-payroll-network-summary.test.mjs
