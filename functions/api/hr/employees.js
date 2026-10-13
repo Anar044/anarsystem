@@ -81,7 +81,7 @@ export async function onRequestGet({request,env}){
                  (SELECT l.external_employee_id FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_external_id
         FROM hr_employees e WHERE e.user_id=?1 AND TRIM(e.employee_code)<>'' ORDER BY e.is_deleted ASC,e.last_name COLLATE NOCASE,e.first_name COLLATE NOCASE`).bind(userId).all();
       const mapped=filterEmployeesByScope(stored.results||[],scope).map(r=>({
-        id:r.iiko_employee_id,code:r.employee_code,firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,
+        id:r.iiko_employee_id,code:r.employee_code,internalCode:String(r.employee_code||'').startsWith('SH-ID-'),firstName:r.first_name,middleName:r.middle_name,lastName:r.last_name,
         name:r.display_name,roleCode:r.role_code,roleName:r.role_name,departmentCode:r.department_code,hireDate:r.hire_date,fireDate:r.fire_date,
         deleted:Boolean(r.is_deleted),attendanceProvider:r.attendance_provider||'',attendanceExternalId:r.attendance_external_id||''
       }));
