@@ -35,9 +35,9 @@ test('plain and repeated department code XML variants are parsed',()=>{
 test('sync response identifies import, cache-only and reasons for empty scope',()=>{
   const api=readFileSync(new URL('../functions/api/hr/employees.js',import.meta.url),'utf8');
   const ui=readFileSync(new URL('../hr-employees.js',import.meta.url),'utf8');
-  assert.match(api,/parseEmployeeDirectory\(entry\.result\.text\)/);
-  assert.match(api,/parseEmployeeDirectory\(employeesResult\.text\)/);
+  assert.match(api,/parseEmployeeDirectory\(entry\.response\.text\)/);
+  assert.match(api,/parseEmployeeDirectory\(all\.text\)/);
   assert.match(api,/reason:'MEMBER_CACHE_ONLY'/);
-  assert.match(api,/sourceRecords:parseStats\.sourceRecords/);
+  assert.match(api,/sourceRecords:stats\.sourceRecords/);
   assert.match(ui,/hrSyncInfo/);
 });

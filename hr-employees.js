@@ -92,7 +92,9 @@
       if(sync.unassignedDepartment)bits.push('Без подразделения: '+Number(sync.unassignedDepartment));
       if(sync.skippedNonEmployee)bits.push('Не сотрудники: '+Number(sync.skippedNonEmployee));
     }else if(sync.reason==='MEMBER_CACHE_ONLY'){
-      bits.push('Список HR обновлён из базы Smart Horeca; импорт с SH Server выполняет владелец рабочего пространства.');
+      bits.push(data.canSynchronize
+        ? 'Показаны данные HR из базы Smart Horeca. Для получения актуальных сотрудников SH Server нажмите «Синхронизировать».'
+        : 'Показаны данные HR из базы Smart Horeca. Для импорта SH Server нужно право «Изменение данных сотрудников».');
       if(data.syncedAt)bits.push('Последний импорт: '+String(data.syncedAt));
     }
     if(data.warning)bits.push(data.warning);
@@ -101,13 +103,16 @@
   }
   function render(){renderSummary();renderRoles();renderRows();renderSyncInfo()}
 
-  async function load(){
+  async function load(importNow=false){
     if(busy)return;
-    const error=$('hrError');
+    const error=$('hrError'),doImport=Boolean(importNow&&data.canSynchronize);
     try{
-      busy=true;$('hrRefresh').disabled=true;error.hidden=true;setStatus('Синхронизация…','loading');
+      busy=true;$('hrRefresh').disabled=true;error.hidden=true;
+      setStatus(doImport?'Импорт с SH Server…':'Загрузка справочника…','loading');
       const t=await token();
-      const response=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/hr/employees',{headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}},60000);
+      const options={method:doImport?'POST':'GET',headers:{Authorization:`Bearer ${t}`,Accept:'application/json'}};
+      if(doImport){options.headers['Content-Type']='application/json';options.body=JSON.stringify({action:'SYNC'});}
+      const response=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/hr/employees',options,90000);
       const result=await response.json().catch(()=>({success:false,message:'Сервер вернул некорректный ответ'}));
       if(!response.ok||!result.success)throw new Error(result.message||`HTTP ${response.status}`);
       data=result;
@@ -120,13 +125,14 @@
         }catch(accessError){console.warn('Access directory unavailable',accessError)}
       }else accessData={members:[],roles:[]};
       render();
-      setStatus(result.sync?.performed?`Импортировано: ${result.sync?.imported||0} · В списке: ${result.counts?.total||0}`:`Обновлено из HR · ${result.counts?.total||0} сотрудников`,'ok');
+      setStatus(result.sync?.performed?`Импортировано: ${result.sync?.imported||0} · В списке: ${result.counts?.total||0}`:`Из HR: ${result.counts?.total||0} сотрудников`,'ok');
+      $('hrRefresh').textContent=result.canSynchronize?'Синхронизировать':'Обновить список';
     }catch(e){
       console.error(e);error.hidden=false;error.textContent=e?.message||String(e);setStatus('Ошибка','error');
     }finally{busy=false;$('hrRefresh').disabled=false}
   }
   function bind(){
-    $('hrRefresh').onclick=load;
+    $('hrRefresh').onclick=()=>load(Boolean(data.canSynchronize));
     $('hrSearch').addEventListener('input',renderRows);
     $('hrRoleFilter').addEventListener('change',renderRows);
     $('hrStatusFilter').addEventListener('change',renderRows);
