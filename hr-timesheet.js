@@ -200,7 +200,7 @@
         throw new Error('Выбор ресторанов изменился во время загрузки табеля. Обновите страницу.');
       }
     }
-    const result={...first,period:{from:range.from,to:range.to},factualDays:collect('factualDays'),officialDays:collect('officialDays'),
+    const result={...first,restaurantAttendancePreview:{mode:'PER_RMS_INDEPENDENT',appliedToPayroll:false,rows:segments.flatMap(x=>x.restaurantAttendancePreview?.rows||[])},period:{from:range.from,to:range.to},factualDays:collect('factualDays'),officialDays:collect('officialDays'),
       intervals:segments.flatMap(x=>x.intervals||[]),issues:segments.flatMap(x=>x.issues||[]),
       loadStrategy:'SEGMENT_FALLBACK',loadSegments:segments.length};
     const sumSection=section=>{
@@ -611,11 +611,32 @@
       </tr>`).join(''):'<tr><td colspan="9" class="hr-empty">Дополнительных часов за выбранный месяц нет.</td></tr>';
   }
 
+  function renderRestaurantLedger(){
+    const section=$('tsRestaurantLedger');
+    if(!section)return;
+    const journal=data.restaurantAttendancePreview||{};
+    const rows=journal.rows||[];
+    section.hidden=data.restaurantScope?.mode!=='CHAIN'||mode!=='FACTUAL';
+    if(section.hidden)return;
+    const employee=selectedEmployee(),q=searchText();
+    const filtered=rows.filter(x=>(!employee||String(x.employeeId)===employee)&&
+      (!q||String(x.employeeName+' '+x.restaurantName).toLowerCase().includes(q)));
+    $('tsRestaurantLedgerCount').textContent=filtered.length+' явок';
+    const label=x=>x.status==='WORK'?'Закрыта':x.status==='INCOMPLETE'?'Нет ухода':'Смена ещё открыта';
+    $('tsRestaurantLedgerRows').innerHTML=filtered.map(x=>
+      `<tr><td class="text-left">${esc(x.employeeName||x.employeeId)}</td>
+        <td>${esc(x.restaurantName||x.restaurantId)}</td><td>${esc(x.workDate)}</td>
+        <td>${esc(localDateTime(x.firstIn))}</td>
+        <td>${esc(localDateTime(x.lastOut))}</td>
+        <td>${x.status==='WORK'?esc(hoursLong(x.workedMinutes)):'—'}</td>
+        <td><span class="hr-badge ${x.status==='WORK'?'linked':x.status==='INCOMPLETE'?'fired':'pending'}">${esc(label(x))}</span></td></tr>`
+    ).join('')||'<tr><td colspan="7" class="hr-empty">Пробивок ZKTeco в выбранных ресторанах за период нет.</td></tr>';
+  }
   function renderMode(){
     const factual=mode==='FACTUAL';
     $('tsFactualTab').classList.toggle('active',factual);
     $('tsOfficialTab')?.classList.toggle('active',!factual);
-    renderSummary();renderMatrix();renderIntervals();renderIssues();renderOvertime();
+    renderSummary();renderRestaurantLedger();renderMatrix();renderIntervals();renderIssues();renderOvertime();
   }
   function render(){renderFilters();renderMode();renderApproval()}
 

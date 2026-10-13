@@ -1,6 +1,7 @@
 import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, filterEmployeesByScope, filterAttendanceEventsByRestaurant } from './_lib/restaurant-scope.js';
 import { singlePunchStatus } from './_lib/live-shift-status.js';
+import { independentRestaurantAttendance } from './_lib/restaurant-attendance.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -309,10 +310,48 @@ export async function onRequestGet({request,env}){
       restDays:officialDays.filter(x=>x.status==='REST').length,plannedMinutes:officialDays.reduce((s,x)=>s+x.plannedMinutes,0),holidayWorkDays:officialDays.filter(x=>x.status==='WORK_HOLIDAY').length
     };
 
+    // Read-only CHAIN reconciliation: retrieve marks from authorized restaurant
+    // devices, including roaming staff whose primary department is elsewhere.
+    // Do not merge these records into legacy approval / Payroll until they can
+    // be approved and posted per restaurant without double counting.
+    let restaurantAttendancePreview=[];
+    if(scope?.isChain){
+      const selectedDeviceIds=devices
+        .filter(d=>(scope.selectedDepartmentIds||[]).map(String).includes(String(d.restaurant_id||'')))
+        .map(d=>String(d.device_id)).filter(Boolean);
+      const extraEvents=[];
+      for(const ids of chunkList(selectedDeviceIds,25)){
+        const placeholders=ids.map(()=>'?').join(',');
+        const part=await env.DB.prepare(
+          `SELECT event_id,device_id,iiko_employee_id,event_time,event_type
+            FROM hr_attendance_events WHERE user_id=? AND device_id IN (${placeholders})
+            AND event_time>=? AND event_time<=? ORDER BY iiko_employee_id,event_time`
+        ).bind(userId,...ids,`${isoDayShift(from,-1)}T00:00:00.000Z`,`${isoDayShift(to,1)}T23:59:59.999Z`).all();
+        extraEvents.push(...(part.results||[]));
+      }
+      const allRuleRows=await env.DB.prepare(
+        `SELECT iiko_employee_id,shift_type_override FROM hr_employee_attendance_rules WHERE user_id=?1`
+      ).bind(userId).all();
+      const allOverrides=new Map((allRuleRows.results||[]).map(x=>[String(x.iiko_employee_id),x.shift_type_override]));
+      const allPeople=(employeeRows.results||[]).filter(x=>!Number(x.is_deleted)).map(x=>({
+        id:String(x.iiko_employee_id),name:x.display_name||x.employee_code||'',
+        roleCode:x.role_code||'',departmentCode:x.department_code||''
+      }));
+      const shiftByEmployee={};
+      for(const person of allPeople){
+        const override=String(allOverrides.get(person.id)||'').toUpperCase();
+        const role=String(roleAttendanceMap.get(person.roleCode)?.shift_type||'').toUpperCase();
+        shiftByEmployee[person.id]=override==='NIGHT'||override==='DAY'?override:role==='NIGHT'?'NIGHT':'DAY';
+      }
+      restaurantAttendancePreview=independentRestaurantAttendance(extraEvents,devices,allPeople,scope,shiftByEmployee,Date.now())
+        .filter(x=>x.workDate>=from&&x.workDate<=to);
+    }
+
     const [factualSnapshotHash,officialSnapshotHash]=await Promise.all([snapshotHash(factualDays,'FACTUAL'),snapshotHash(officialDays,'OFFICIAL')]);
 
     return json({
       success:true,period:{from,to},engine:'TIMESHEET_V4_FREE_SHIFT_PLUS_OFFICIAL_CALENDAR',restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes}:null,
+      restaurantAttendancePreview:{mode:'PER_RMS_INDEPENDENT',appliedToPayroll:false,rows:restaurantAttendancePreview},
       snapshotHashes:{FACTUAL:factualSnapshotHash,OFFICIAL:officialSnapshotHash},
       rules:{duplicateWindowSeconds:10,factualMode:'FREE_SCHEDULE_FIRST_LAST',dayShift:'05:00-04:59',nightShift:'12:00-11:59',lateness:false,earlyDeparture:false,incompleteStatus:'INCOMPLETE',inProgressStatus:'SHIFT_IN_PROGRESS',noMarksStatus:'FREE_NO_MARKS',officialScheduleRestStatus:'REST',leaveSource:'HR_EMPLOYEE_LEAVE'},
       summary:{factual:factualSummary,official:officialSummary,raw:{intervals:intervals.length,issues:issues.length}},
