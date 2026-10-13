@@ -1,6 +1,7 @@
 import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, hrScopeKeys, isHrSubsetScope } from './_lib/restaurant-scope.js';
 import { employeeWithinMembershipScope,visibleEmployeeMembership,mergeEmployeeMembership } from './_lib/employee-department-membership.js';
+import { zktecoModelProfile,plannedDeviceRoster } from './_lib/zkteco-network-roster.js';
 import { ensureZktecoAdmsTables, registerAdmsDevice, unregisterAdmsDevice, queueAdmsCommand } from './_lib/zkteco-adms.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
@@ -38,6 +39,7 @@ async function ensure(db){
       device_id TEXT NOT NULL,
       provider TEXT NOT NULL DEFAULT 'ZKTECO',
       name TEXT NOT NULL,
+      device_model TEXT NOT NULL DEFAULT '',
       restaurant_id TEXT NOT NULL DEFAULT '',
       location TEXT NOT NULL DEFAULT '',
       connection_mode TEXT NOT NULL DEFAULT 'LOCAL_CONNECTOR',
@@ -96,6 +98,7 @@ async function ensure(db){
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_device_tokens_hash ON hr_device_tokens(token_hash)`)
   ]);
   try{await db.prepare(`ALTER TABLE hr_devices ADD COLUMN restaurant_id TEXT NOT NULL DEFAULT ''`).run()}catch(_){}
+  try{await db.prepare(`ALTER TABLE hr_devices ADD COLUMN device_model TEXT NOT NULL DEFAULT ''`).run()}catch(_){}
   await ensureZktecoAdmsTables(db);
 }
 
@@ -176,10 +179,13 @@ async function snapshot(db,userId,scope=null){
   const bs=subset?allBindings.filter(x=>selectedDeviceIds.has(String(x.device_id))&&employeeIds.has(String(x.iiko_employee_id))):allBindings;
   const ev=subset?allEvents.filter(x=>selectedDeviceIds.has(String(x.device_id))&&(!x.iiko_employee_id||employeeIds.has(String(x.iiko_employee_id)))):allEvents;
   const tokenMap=new Map(ts.map(x=>[String(x.device_id),x])),admsMap=new Map(adms.map(x=>[String(x.device_id),x])),nowMs=Date.now();
+  const rosterDevices=ds.map(x=>({...x,device_model:x.device_model||admsMap.get(String(x.device_id))?.model||''}));
+  const roster=plannedDeviceRoster(rosterDevices,es,scope);
   return{
+    rosterPreview:roster,
     restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes,restaurants:(scope.selectedRestaurants||[]).map(r=>({id:r.id,code:r.code,name:r.name})),deviceScope:subset?'SCOPED_BY_RESTAURANT':'ALL'}:null,
     adms:{basePath:'/iclock',directPush:true,offlineBuffering:'DEVICE_LOCAL_MEMORY'},
-    devices:ds.map(x=>{const token=tokenMap.get(String(x.device_id)),zk=admsMap.get(String(x.device_id)),seen=zk?.last_seen_at?new Date(zk.last_seen_at).getTime():0;return{id:x.device_id,provider:x.provider,name:x.name,restaurantId:x.restaurant_id||'',location:x.location,connectionMode:x.connection_mode,timezone:x.timezone,active:Boolean(x.is_active),lastSyncAt:x.last_sync_at||'',tokenConfigured:Boolean(token),tokenLastUsedAt:token?.last_used_at||'',tokenRotatedAt:token?.rotated_at||'',serialNumber:zk?.serial_number||'',model:zk?.model||'',admsLastSeenAt:zk?.last_seen_at||'',admsLastEventAt:zk?.last_event_at||'',pushVersion:zk?.push_version||'',firmware:zk?.firmware||'',lastIp:zk?.last_ip||'',admsOnline:Boolean(seen&&nowMs-seen<5*60*1000)}}),
+    devices:ds.map(x=>{const token=tokenMap.get(String(x.device_id)),zk=admsMap.get(String(x.device_id)),seen=zk?.last_seen_at?new Date(zk.last_seen_at).getTime():0;return{id:x.device_id,provider:x.provider,name:x.name,restaurantId:x.restaurant_id||'',location:x.location,connectionMode:x.connection_mode,timezone:x.timezone,active:Boolean(x.is_active),lastSyncAt:x.last_sync_at||'',tokenConfigured:Boolean(token),tokenLastUsedAt:token?.last_used_at||'',tokenRotatedAt:token?.rotated_at||'',serialNumber:zk?.serial_number||'',model:x.device_model||zk?.model||'',admsLastSeenAt:zk?.last_seen_at||'',admsLastEventAt:zk?.last_event_at||'',pushVersion:zk?.push_version||'',firmware:zk?.firmware||'',lastIp:zk?.last_ip||'',admsOnline:Boolean(seen&&nowMs-seen<5*60*1000)}}),
     employees:es.map(x=>({
       id:x.iiko_employee_id,code:x.employee_code,name:x.display_name,firstName:x.first_name,lastName:x.last_name,roleName:x.role_name,
       departmentCode:(()=>{
@@ -214,6 +220,7 @@ export async function onRequestPost({request,env}){
     if(action==='saveDevice'){
       let id=clean(b.id)||uid('dev');const provider=(clean(b.provider)||'ZKTECO').toUpperCase(),name=clean(b.name),location=clean(b.location),mode=clean(b.connectionMode)||'ADMS_PUSH',timezone=clean(b.timezone)||'Asia/Baku',serialNumber=clean(b.serialNumber).toUpperCase(),model=clean(b.model)||'SenseFace 2A';
       if(!name)return json({success:false,message:'Укажите название устройства'},400);
+      if(provider==='ZKTECO'&&zktecoModelProfile(model).key==='UNKNOWN')return json({success:false,message:'Выберите поддерживаемую модель ZKTeco: F18, SenseFace 2A или SenseFace 3A.'},400);
       if(mode==='ADMS_PUSH'&&!serialNumber)return json({success:false,message:'Для прямого ZKTeco ADMS укажите серийный номер аппарата.'},400);
       if(mode==='ADMS_PUSH'&&serialNumber){
         const existingSn=await env.DB.prepare(`SELECT user_id,device_id FROM hr_zkteco_adms_devices WHERE serial_number=?1 LIMIT 1`).bind(serialNumber).first();
@@ -228,10 +235,10 @@ export async function onRequestPost({request,env}){
       const restaurantId=selectedRestaurants[0]||'';
       const existingDevice=clean(b.id)?await device(env.DB,userId,id):null;
       if(existingDevice&&!deviceAllowedForScope(existingDevice,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
-      const t=now();await env.DB.prepare(`INSERT INTO hr_devices(user_id,device_id,provider,name,restaurant_id,location,connection_mode,timezone,is_active,created_at,updated_at)
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,1,?9,?9)
-        ON CONFLICT(user_id,device_id) DO UPDATE SET provider=excluded.provider,name=excluded.name,restaurant_id=excluded.restaurant_id,location=excluded.location,connection_mode=excluded.connection_mode,timezone=excluded.timezone,updated_at=excluded.updated_at`)
-        .bind(userId,id,provider,name,restaurantId,location,mode,timezone,t).run();
+      const t=now();await env.DB.prepare(`INSERT INTO hr_devices(user_id,device_id,provider,name,device_model,restaurant_id,location,connection_mode,timezone,is_active,created_at,updated_at)
+        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,1,?10,?10)
+        ON CONFLICT(user_id,device_id) DO UPDATE SET provider=excluded.provider,name=excluded.name,device_model=excluded.device_model,restaurant_id=excluded.restaurant_id,location=excluded.location,connection_mode=excluded.connection_mode,timezone=excluded.timezone,updated_at=excluded.updated_at`)
+        .bind(userId,id,provider,name,model,restaurantId,location,mode,timezone,t).run();
       if(mode==='ADMS_PUSH')await registerAdmsDevice(env.DB,{userId,deviceId:id,serialNumber,model});
       else await unregisterAdmsDevice(env.DB,userId,id);
       return json({success:true,deviceId:id,ingestPath:'/api/hr/device-ingest',admsPath:'/iclock',...await snapshot(env.DB,userId,scope)});
