@@ -66,21 +66,24 @@
     $('rsPayrollSave').disabled=!monthly.canEdit||!restaurant.value||!role.value;
     renderMonthlyRuleInputs();
   }
-  function renderMonthlyRuleInputs(){
-    const id=$('rsPayrollRestaurant').value,role=$('rsPayrollRole').value;
-    const office=id==='NETWORK_OFFICE';
+  function updateMonthlyInfo(){
+    const office=$('rsPayrollRestaurant').value==='NETWORK_OFFICE';
     $('rsPayrollDaysWrap').hidden=office;$('rsPayrollHoursWrap').hidden=office;
-    const existing=(monthly.norms||[]).find(n=>n.restaurantId===id&&n.roleCode===role);
-    if(existing&&!office){
-      $('rsPayrollDays').value=String(existing.normDays||26);
-      $('rsPayrollHours').value=String((Number(existing.dailyNormMinutes||600)/60));
-    }else if(!existing&&!office){
-      $('rsPayrollDays').value='26';$('rsPayrollHours').value='10';
-    }
     const days=Number($('rsPayrollDays').value||0),hours=Number($('rsPayrollHours').value||0);
     $('rsPayrollInfo').textContent=office
-      ?'Офис: месячный оклад из условий оплаты, без пересчёта часов ресторана. Удержания, отпуск и налоги отдельно.'
-      :`Норма: ${days} дней × ${hours} ч = ${Number((days*hours).toFixed(2))} ч в месяц. Фактические часы каждого RMS превращаем в эквивалент дней по этой норме.`;
+      ?'Офис: месячный оклад из условий оплаты. Время ресторана не используется. Налоги и кадровые корректировки отдельно.'
+      :`Норма: ${days} дней × ${hours} ч = ${Number((days*hours).toFixed(2))} ч в месяц. Фактические часы RMS делим на норму часов рабочего дня.`;
+  }
+  function renderMonthlyRuleInputs(){
+    const id=$('rsPayrollRestaurant').value,role=$('rsPayrollRole').value;
+    const existing=(monthly.norms||[]).find(n=>n.restaurantId===id&&n.roleCode===role);
+    if(existing&&id!=='NETWORK_OFFICE'){
+      $('rsPayrollDays').value=String(existing.normDays||26);
+      $('rsPayrollHours').value=String(Number(existing.dailyNormMinutes||600)/60);
+    }else{
+      $('rsPayrollDays').value='26';$('rsPayrollHours').value='10';
+    }
+    updateMonthlyInfo();
   }
   function renderMonthlyRows(){
     const where=new Map((monthly.restaurants||[]).map(x=>[x.id,x.name]));
@@ -140,8 +143,8 @@
     $('rsPayrollMonth').onchange=reloadMonthly;
     $('rsPayrollRestaurant').onchange=renderMonthlyRuleInputs;
     $('rsPayrollRole').onchange=renderMonthlyRuleInputs;
-    $('rsPayrollDays').oninput=renderMonthlyRuleInputs;
-    $('rsPayrollHours').oninput=renderMonthlyRuleInputs;
+    $('rsPayrollDays').oninput=updateMonthlyInfo;
+    $('rsPayrollHours').oninput=updateMonthlyInfo;
     $('rsPayrollSave').onclick=saveMonthlyNorm;
   }
   async function init(){$('rsPayrollMonth').value=new Date().toISOString().slice(0,7);bind();await load()}
