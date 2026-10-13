@@ -39,21 +39,26 @@
     const q=String($('hrSearch')?.value||'').trim().toLowerCase();
     const role=$('hrRoleFilter')?.value||'';
     const status=$('hrStatusFilter')?.value||'';
+    const deptFilter=$('hrEmployeeScopeFilter')?.value||'';
     return (data.items||[]).filter(x=>{
       if(role&&x.roleCode!==role)return false;
       if(status==='ACTIVE'&&isFired(x))return false;
       if(status==='FIRED'&&!isFired(x))return false;
+      if(deptFilter==='ASSIGNED'&&x.restaurant?.status!=='ASSIGNED')return false;
+      if(deptFilter==='NEEDS_REVIEW'&&x.restaurant?.ready!==false)return false;
       if(q&&!([fullName(x),x.code,x.roleName,x.departmentCode].join(' ').toLowerCase().includes(q)))return false;
       return true;
     });
   }
   function renderSummary(){
-    const c=data.counts||{};
+    const c=data.counts||{},d=data.departmentSummary||{},isChain=data.restaurantScope?.mode==='CHAIN';
     $('hrSummary').innerHTML=`
       <article class="hr-summary-card"><span>Всего в справочнике</span><strong>${Number(c.total||0)}</strong><small>Синхронизировано из SH</small></article>
       <article class="hr-summary-card"><span>Активные сотрудники</span><strong>${Number(c.active||0)}</strong><small>Без даты увольнения</small></article>
       <article class="hr-summary-card"><span>Face ID связаны</span><strong>${Number(c.linkedToAttendance||0)}</strong><small>По связям с SenseFace</small></article>
-      <article class="hr-summary-card"><span>Источник явок</span><strong class="hr-text-value">Не подключён</strong><small>Смотрите «Учёт времени / Face ID»</small></article>`;
+      <article class="hr-summary-card"><span>Источник явок</span><strong class="hr-text-value">Не подключён</strong><small>Смотрите «Учёт времени / Face ID»</small></article>
+      ${isChain?`<article class="hr-summary-card"><span>Привязаны к ресторанам</span><strong>${Number(d.assigned||0)}</strong><small>Распознан код подразделения CHAIN</small></article>
+      <article class="hr-summary-card"><span>Нужна привязка</span><strong>${Number(d.unassigned||0)+Number(d.unknown||0)+Number(d.ambiguous||0)}</strong><small>Нет подразделения или код не совпадает с CHAIN</small></article>`:''}`;
   }
   function renderRoles(){
     const select=$('hrRoleFilter');if(!select)return;
@@ -64,12 +69,15 @@
   function renderRows(){
     const rows=filtered(),tbody=$('hrTable').querySelector('tbody'),manage=canManageAccess();
     tbody.innerHTML=rows.map(x=>{
-      const fired=isFired(x),linked=Boolean(x.attendanceExternalId);
+      const fired=isFired(x),linked=Boolean(x.attendanceExternalId),dep=x.restaurant||{};
+      const departmentLabel=dep.status==='ASSIGNED'
+        ?`${esc(dep.restaurantName)} <span class="hr-sub">· ${esc(x.departmentCode||'')}</span>`
+        :`${esc(x.departmentCode||'—')}${dep.status==='UNASSIGNED'?'<div class="hr-sub">Не назначен ресторан</div>':dep.status==='UNKNOWN_DEPARTMENT'?'<div class="hr-sub">Код не найден в CHAIN</div>':dep.status==='AMBIGUOUS_DEPARTMENT'?'<div class="hr-sub">Неоднозначная привязка</div>':''}`;
       return`<tr>
         <td class="text-left"><div class="hr-name"><a href="/hr-employee.html?id=${encodeURIComponent(x.id)}" style="color:inherit;text-decoration:none">${esc(fullName(x))}</a></div><div class="hr-sub">ID: ${esc(x.id)}</div></td>
         <td>${esc(x.code||'—')}${x.internalCode?'<div class="hr-sub">Временный код HR</div>':''}</td>
         <td class="text-left"><b>${esc(x.roleName||x.roleCode||'—')}</b><div class="hr-sub">${esc(x.roleCode||'')}</div></td>
-        <td>${esc(x.departmentCode||'—')}</td>
+        <td>${departmentLabel}</td>
         <td>${esc(x.hireDate||'—')}</td>
         <td>${esc(x.fireDate||'—')}</td>
         <td>${linked?`<span class="hr-badge linked">${esc(x.attendanceProvider||'DEVICE')} · ${esc(x.attendanceExternalId)}</span>`:'<span class="hr-badge pending">Не связан</span>'}</td>
@@ -101,7 +109,10 @@
     el.hidden=!bits.length;
     el.textContent=bits.join(' · ');
   }
-  function render(){renderSummary();renderRoles();renderRows();renderSyncInfo()}
+  function render(){renderSummary();renderRoles();renderRows();renderSyncInfo();
+    const field=$('hrEmployeeScopeField');
+    if(field)field.hidden=data.restaurantScope?.mode!=='CHAIN';
+  }
 
   async function load(importNow=false){
     if(busy)return;
@@ -136,6 +147,7 @@
     $('hrSearch').addEventListener('input',renderRows);
     $('hrRoleFilter').addEventListener('change',renderRows);
     $('hrStatusFilter').addEventListener('change',renderRows);
+    $('hrEmployeeScopeFilter').addEventListener('change',renderRows);
   }
   async function init(){
     await window.SHAccess?.load?.();

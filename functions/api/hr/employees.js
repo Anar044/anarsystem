@@ -4,6 +4,7 @@ import { resolveRestaurantScope } from '../iiko/_lib/restaurant-scope.js';
 import { resolveHrRestaurantScope,filterEmployeesByScope,isHrSubsetScope } from './_lib/restaurant-scope.js';
 import { parseEmployeeDirectory } from './_lib/employee-directory-xml.js';
 import { canStartEmployeeImport,employeeImportScope,targetEmployeeDepartment } from './_lib/employee-sync-scope.js';
+import { employeeRestaurantStatus,employeeDepartmentSummary } from './_lib/employee-restaurant-status.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -95,10 +96,11 @@ async function cachedEmployees(db,userId,scope){
       COALESCE((SELECT b.external_employee_id FROM hr_employee_device_bindings b WHERE b.user_id=e.user_id AND b.iiko_employee_id=e.iiko_employee_id ORDER BY b.updated_at DESC LIMIT 1),
                (SELECT l.external_employee_id FROM hr_employee_device_links l WHERE l.user_id=e.user_id AND l.iiko_employee_id=e.iiko_employee_id ORDER BY l.updated_at DESC LIMIT 1),'') AS attendance_external_id
     FROM hr_employees e WHERE e.user_id=?1 AND TRIM(e.employee_code)<>'' ORDER BY e.is_deleted ASC,e.last_name COLLATE NOCASE,e.first_name COLLATE NOCASE`).bind(userId).all();
-  const all=result.results||[],items=filterEmployeesByScope(all,scope).map(dtoRow);
+  const all=result.results||[],items=filterEmployeesByScope(all,scope).map(r=>({...dtoRow(r),restaurant:employeeRestaurantStatus(r,scope)}));
   const roles=[...new Map(items.filter(x=>x.roleCode).map(x=>[String(x.roleCode),{code:x.roleCode,name:x.roleName||x.roleCode,deleted:false}])).values()];
   const syncedAt=all.reduce((a,x)=>String(x.synced_at||'')>a?String(x.synced_at):a,'');
   return{items,roles,syncedAt,cachedTotal:all.length,
+    departmentSummary:employeeDepartmentSummary(items,scope),
     unassignedDepartment:all.filter(x=>!clean(x.department_code)).length};
 }
 function responseData(cache,scope,canSynchronize,meta={}){
@@ -113,7 +115,7 @@ function responseData(cache,scope,canSynchronize,meta={}){
   return json({success:true,source:meta.performed?'SH_EMPLOYEE_DIRECTORY':'HR_WORKSPACE_CACHE',
     employeeSource:meta.performed?(meta.employeeSource||'all'):'workspace',attendanceSource:'EXTERNAL_DEVICE',
     payrollEngine:'SMART_HORECA',canSynchronize,syncedAt:cache.syncedAt,
-    items,roles:cache.roles,
+    items,roles:cache.roles,departmentSummary:cache.departmentSummary,
     counts:{total:items.length,active:items.filter(x=>!x.deleted&&!x.fireDate).length,
       linkedToAttendance:items.filter(x=>x.attendanceExternalId).length},
     sync:{performed:Boolean(meta.performed),reason:meta.performed?'SERVER_IMPORT':'MEMBER_CACHE_ONLY',
