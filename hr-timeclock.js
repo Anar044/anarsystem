@@ -57,6 +57,31 @@
     renderEmployeeSelector();
   }
 
+  function renderRosterPreview(){
+    const box=$('tcRosterPreview');
+    if(!box)return;
+    const plans=data.rosterPreview||[];
+    box.innerHTML=plans.length?plans.map(plan=>{
+      const cap=plan.model||{},eligible=plan.preview||[];
+      const methods=cap.face?'Лицо и отпечаток':'Только отпечаток';
+      const rows=eligible.map(e=>
+        `<div style="padding:6px 0;border-bottom:1px solid rgba(128,149,173,.15);font-size:12px">
+          <strong>${esc(e.name||e.employeeCode||e.id)}</strong>
+          <span class="hr-muted"> · № ${esc(e.employeeCode||'—')} · ${e.suggestedId?'кандидат PIN '+esc(e.suggestedId):'нужен числовой PIN'}</span>
+        </div>`).join('');
+      return `<article class="hr-device-card">
+        <div style="width:100%">
+          <span>${esc(cap.name||'Модель не определена')} · ${esc(plan.restaurantName||'Без разрешённого RMS')}</span>
+          <strong>${esc(plan.name||plan.deviceId)} · ${Number(plan.eligibleCount||0)} сотрудников</strong>
+          <small>${esc(methods)} · ${esc(cap.connection||'Проверьте прошивку')}</small>
+          ${plan.rosterStatus==='RESTAURANT_NOT_IN_SCOPE'?'<small>Устройство не относится к выбранным ресторанам</small>':''}
+          <div style="margin-top:8px">${rows||'<small>Нет подходящих сотрудников в данном RMS</small>'}</div>
+          ${plan.additionalCount?`<small>Ещё ${Number(plan.additionalCount)} сотрудников</small>`:''}
+          <small style="margin-top:8px">План составлен · отправка ещё не выполнялась</small>
+        </div>
+      </article>`;
+    }).join(''):'<div class="hr-empty">Добавьте устройство, чтобы увидеть сотрудников, подготовленных для его RMS.</div>';
+  }
   function renderBindings(){const list=data.bindings||[];$('bindingCount').textContent=`${list.length} связей`;$('bindingRows').innerHTML=list.length?list.map(b=>`<tr><td class="text-left"><div class="hr-name">${esc(employeeName(b.employeeId))}</div></td><td>${esc(deviceName(b.deviceId))}</td><td><span class="hr-badge linked">${esc(b.externalEmployeeId)}</span>${b.externalLabel?`<div class="hr-sub">${esc(b.externalLabel)}</div>`:''}</td><td>${esc(b.provider)}</td><td><button class="hr-link-button" data-unlink-device="${esc(b.deviceId)}" data-unlink-employee="${esc(b.employeeId)}">Удалить связь</button></td></tr>`).join(''):'<tr><td colspan="5" class="hr-empty">Сотрудники ещё не связаны с устройствами</td></tr>';$('bindingRows').querySelectorAll('[data-unlink-device]').forEach(btn=>btn.onclick=()=>unlink(btn.dataset.unlinkDevice,btn.dataset.unlinkEmployee));}
 
   function renderEvents(){const list=data.events||[];$('eventCount').textContent=`${list.length} последних событий`;$('eventRows').innerHTML=list.length?list.map(x=>`<tr><td>${esc(localDate(x.eventTime))}</td><td class="text-left"><div class="hr-name">${esc(x.employeeName||'Не сопоставлен')}</div>${x.employeeCode?`<div class="hr-sub">№ ${esc(x.employeeCode)}</div>`:''}</td><td><span class="hr-badge active">Отметка</span></td><td>${esc(deviceName(x.deviceId))}</td><td>${esc(x.externalEmployeeId||'—')}</td><td>${x.employeeId?'<span class="hr-badge linked">Связан</span>':'<span class="hr-badge pending">Не сопоставлен</span>'}</td></tr>`).join(''):'<tr><td colspan="6" class="hr-empty">Журнал пока пуст. События появятся после подключения устройства.</td></tr>';}
@@ -65,7 +90,7 @@
 
   function renderRawAdms(){const list=data.rawAdms||[];$('rawAdmsCount').textContent=`${list.length} записей`;$('rawAdmsRows').innerHTML=list.length?list.map(x=>`<tr><td>${esc(localDate(x.receivedAt))}</td><td>${esc(x.tableName||'—')}</td><td>${esc(x.serialNumber||'—')}</td><td>${esc(x.externalEmployeeId||'—')}</td><td>${esc(x.eventTime?localDate(x.eventTime):'—')}</td><td>${esc(x.status||'—')}</td><td>${esc(x.verifyType||'—')}</td><td class="text-left"><code>${esc(x.rawLine||'')}</code></td></tr>`).join(''):'<tr><td colspan="8" class="hr-empty">RAW ADMS пока пуст. После первого подключения здесь увидим точный формат данных SenseFace 2A.</td></tr>';}
   function renderAdmsSetup(){$('admsServerHost').textContent=location.hostname;$('admsServerPort').textContent=location.protocol==='https:'?'443':(location.port||'80')}
-  function render(){renderSummary();renderDevices();renderDeleteButtons();renderSelectors();renderBindings();renderAdmsRequests();renderAdmsCommands();renderRawAdms();renderEvents();renderAdmsSetup()}
+  function render(){renderSummary();renderDevices();renderRosterPreview();renderDeleteButtons();renderSelectors();renderBindings();renderAdmsRequests();renderAdmsCommands();renderRawAdms();renderEvents();renderAdmsSetup()}
 
   function renderDeleteButtons(){
     document.querySelectorAll('#deviceList .hr-device-card').forEach((card,index)=>{

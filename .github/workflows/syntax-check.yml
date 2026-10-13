@@ -592,6 +592,7 @@ jobs:
           set -euo pipefail
           node --test tests/hr-punch-correction.test.mjs
           node --test tests/hr-timeclock-tenant-scope.test.mjs
+          node --test tests/hr-zkteco-network-roster.test.mjs
           node --test tests/hr-live-shift.test.mjs
           node --test tests/hr-timesheet-performance.test.mjs
           node --test tests/hr-access-rules-v2.test.mjs
