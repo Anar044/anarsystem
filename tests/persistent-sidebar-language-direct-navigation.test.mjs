@@ -32,6 +32,8 @@ test('other protected sections use the same persistent navigation',()=>{
     '/persistent-workspace.html?target=%2Fai-documents.html');
   assert.equal(resolve({page:'assets.html',path:'/assets'}),
     '/persistent-workspace.html?target=%2Fassets.html');
+  assert.equal(resolve({page:'index.html',path:'/dashboard'}),
+    '/persistent-workspace.html?target=%2Fdashboard.html');
 });
 test('never redirect the protected embedded child or legacy/auxiliary routes',()=>{
   assert.equal(resolve({embedded:true}),null);
