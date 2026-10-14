@@ -69,11 +69,14 @@
     try{if(window.self!==window.top)return null}catch(_){return null}
     if(!document.querySelector('.app-shell > .sidebar'))return null;
     const page=currentPage();
-    if(page==='index.html'||page==='settings.html'||page==='cash.html')return null;
-    // currentPage returns index.html for unknown/admin/auth routes. All other
-    // entries map to existing, permission-filtered links in the unified menu.
+    const path=location.pathname.replace(/\/+$/,'').toLowerCase();
+    // currentPage uses index.html as a fallback for both Dashboard and unknown
+    // admin/auth pages. Only the actual Dashboard is a workspace destination.
+    const isDashboard=path==='/dashboard'||path==='/dashboard.html';
+    if((page==='index.html'&&!isDashboard)||page==='settings.html'||page==='cash.html')return null;
+    // Permission filtering still happens only in the parent unified menu.
     const url=new URL('/persistent-workspace.html',location.origin);
-    url.searchParams.set('target','/'+page+location.search+location.hash);
+    url.searchParams.set('target','/'+(isDashboard?'dashboard.html':page)+location.search+location.hash);
     return url.pathname+url.search;
   }
   const workspaceEntry=persistentWorkspaceEntry();
