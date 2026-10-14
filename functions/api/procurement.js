@@ -467,6 +467,39 @@ function redactProcurementCosts(data){
   if(clone.analytics)clone.analytics={...clone.analytics,requisitionEstimate:null,orderedAmount:null,receivedAmount:null,estimatedSavings:null};
   return clone;
 }
+
+function canSeeProcurementPrices(access){
+  return hasPermission(access,"procurement.prices.view")||hasPermission(access,"sensitive.cost.view");
+}
+
+// Requesters send quantities only. Resolve estimated prices from trusted PO history,
+// never from a price submitted by a user without permission.
+async function resolveRequisitionPrices(db,serverScope,lines,canEditPrice,previousRows=[]){
+  const previous=new Map(previousRows.map(x=>[clean(x.product_id),x]));
+  const historic=new Map();
+  const ids=[...new Set(lines.map(x=>clean(x.productId)).filter(Boolean))];
+  for(let i=0;i<ids.length;i+=60){
+    const chunk=ids.slice(i,i+60);
+    const placeholders=chunk.map((_,j)=>"?"+(j+2)).join(",");
+    const matches=(await db.prepare(
+      "SELECT l.product_id,l.unit_price,l.package_size FROM procurement_order_lines l JOIN procurement_orders o ON o.id=l.order_id "+
+      "WHERE o.server_scope=?1 AND o.status<>'CANCELLED' AND l.product_id IN ("+placeholders+") "+
+      "ORDER BY o.created_at DESC LIMIT 2000"
+    ).bind(serverScope,...chunk).all()).results||[];
+    for(const x of matches){
+      const id=clean(x.product_id),unitPrice=n(x.unit_price),packageSize=n(x.package_size);
+      if(!historic.has(id)&&unitPrice>0&&packageSize>0)historic.set(id,unitPrice/packageSize);
+    }
+  }
+  return lines.map(line=>{
+    const old=previous.get(line.productId);
+    const priorUnit=old&&n(old.expected_price)>0&&n(old.package_size)>0?n(old.expected_price)/n(old.package_size):0;
+    const unitEstimate=priorUnit||historic.get(line.productId)||0;
+    const price=canEditPrice&&n(line.unitPrice)>0?n(line.unitPrice):money(unitEstimate*line.packageSize);
+    return {...line,unitPrice:money(price)};
+  });
+}
+
 function scopeData(scope){
   const ids=unique(scope?.selectedDepartmentIds||[]);
   const names=unique((scope?.selectedRestaurants||[]).map(x=>x?.name));
@@ -883,7 +916,7 @@ export async function onRequestGet({request,env}){
       orders:(data.orders||[]).map(o=>({...o,createdBy:actorLabel(o.createdById,o.createdBy),history:histories.get(o.id)||[]}))
     };
     // PR views never expose supplier costs, even to multi-role users.
-    if(view==="requests"||(!hasPermission(c.access,"procurement.prices.view")&&!hasPermission(c.access,"sensitive.cost.view")))data=redactProcurementCosts(data);
+    if(!canSeeProcurementPrices(c.access))data=redactProcurementCosts(data);
 
     return json({success:true,settings:view==="settings"?await settings(env.DB,c.serverScope):undefined,access:{permissions:c.access.permissions,scope:c.access.scope},scope:{mode:c.scope.mode,isChain:c.scope.isChain,selectedDepartmentIds:c.scope.selectedDepartmentIds,selectedRestaurants:c.scope.selectedRestaurants,fullSelection:isFullScope(c.scope)},...data});
   }catch(error){return json({success:false,message:error?.message||String(error),code:error?.code||""},error?.status||500)}
@@ -939,9 +972,9 @@ export async function onRequestPost({request,env}){
     }
 
     if(action==="create-requisition"){
-      const lines=normalizeLines(body?.lines,{allowZeroPrice:true}).map(x=>({...x,unitPrice:0})),warehouseId=clean(body?.warehouseId),warehouseName=clean(body?.warehouseName);
+      const lines=await resolveRequisitionPrices(db,c.serverScope,normalizeLines(body?.lines,{allowZeroPrice:true}),canSeeProcurementPrices(c.access)),warehouseId=clean(body?.warehouseId),warehouseName=clean(body?.warehouseName);
       if(!warehouseId)throw new Error("Выберите склад назначения.");
-      const total=money(lines.reduce((sum,x)=>sum+x.packageCount*x.unitPrice,0)),id=uid(),number=docNo("PR"),level=approvalLevel(total,s);
+      const total=money(lines.reduce((sum,x)=>sum+x.packageCount*x.unitPrice,0)),id=uid(),number=docNo("PR"),level=lines.some(x=>x.unitPrice<=0)?"OWNER":approvalLevel(total,s);
       const row={id,number,restaurant_ids_json:JSON.stringify(sd.ids),restaurant_names_json:JSON.stringify(sd.names)};
       const stmts=[db.prepare(`INSERT INTO procurement_requisitions(id,server_scope,number,status,source,created_at,updated_at,created_by,created_by_name,restaurant_ids_json,restaurant_names_json,warehouse_id,warehouse_name,needed_by,comment,total_estimate,required_approval_level) VALUES(?1,?2,?3,'DRAFT',?4,?5,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`).bind(id,c.serverScope,number,clean(body?.source||"MANUAL").toUpperCase(),stamp,userId,userName,row.restaurant_ids_json,row.restaurant_names_json,warehouseId,warehouseName,clean(body?.neededBy),clean(body?.comment),total,level)];
       for(const x of lines)stmts.push(db.prepare(`INSERT INTO procurement_requisition_lines(id,requisition_id,product_id,product_name,unit,quantity,package_size,package_count,container_id,package_name,vat_percent,expected_price,current_stock,min_stock,max_stock,store_id,store_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)`).bind(uid(),id,x.productId,x.productName,x.unit,x.quantity,x.packageSize,x.packageCount,x.containerId,x.packageName,x.vatPercent,x.unitPrice,x.currentStock,x.minStock,x.maxStock,x.storeId,x.storeName));
@@ -956,8 +989,9 @@ export async function onRequestPost({request,env}){
       if(r.status!==(isReview?"PENDING_APPROVAL":"DRAFT")){
         const e=new Error(isReview?"Изменить можно только заявку на согласовании.":"Изменять можно только черновик заявки.");e.status=409;throw e;
       }
-      const lines=normalizeLines(body?.lines,{allowZeroPrice:true}).map(x=>({...x,unitPrice:0})),warehouseId=clean(body?.warehouseId||r.warehouse_id),warehouseName=clean(body?.warehouseName||r.warehouse_name),total=0,level=approvalLevel(total,s);
-      const before={...r,lines:(await db.prepare("SELECT * FROM procurement_requisition_lines WHERE requisition_id=?1").bind(r.id).all()).results||[]};
+      const priorLines=(await db.prepare("SELECT * FROM procurement_requisition_lines WHERE requisition_id=?1").bind(r.id).all()).results||[];
+      const lines=await resolveRequisitionPrices(db,c.serverScope,normalizeLines(body?.lines,{allowZeroPrice:true}),canSeeProcurementPrices(c.access),priorLines),warehouseId=clean(body?.warehouseId||r.warehouse_id),warehouseName=clean(body?.warehouseName||r.warehouse_name),total=money(lines.reduce((sum,x)=>sum+x.packageCount*x.unitPrice,0)),level=lines.some(x=>x.unitPrice<=0)?"OWNER":approvalLevel(total,s);
+      const before={...r,lines:priorLines};
       const stmts=[db.prepare("DELETE FROM procurement_requisition_lines WHERE requisition_id=?1").bind(r.id),db.prepare(`UPDATE procurement_requisitions SET updated_at=?2,updated_by=?3,warehouse_id=?4,warehouse_name=?5,needed_by=?6,comment=?7,total_estimate=?8,required_approval_level=?9 WHERE id=?1`).bind(r.id,stamp,userId,warehouseId,warehouseName,clean(body?.neededBy),clean(body?.comment),total,level)];
       for(const x of lines)stmts.push(db.prepare(`INSERT INTO procurement_requisition_lines(id,requisition_id,product_id,product_name,unit,quantity,package_size,package_count,container_id,package_name,vat_percent,expected_price,current_stock,min_stock,max_stock,store_id,store_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)`).bind(uid(),r.id,x.productId,x.productName,x.unit,x.quantity,x.packageSize,x.packageCount,x.containerId,x.packageName,x.vatPercent,x.unitPrice,x.currentStock,x.minStock,x.maxStock,x.storeId,x.storeName));
       await db.batch(stmts);await log(c,isReview?"REVISE":"UPDATE","PURCHASE_REQUISITION",r,before,{id:r.id,number:r.number,status:r.status,warehouseId,warehouseName,totalEstimate:total,requiredApprovalLevel:level,lines});
