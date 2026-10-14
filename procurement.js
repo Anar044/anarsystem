@@ -669,7 +669,7 @@ function sourcingCard(r,index=0){
 function requestListItem(r){
   const effective=r.effectiveStatus||r.status,done=['COMPLETED','CLOSED','CANCELLED'].includes(effective);
   const lines=(r.lines||[]).length,total=canViewProcurementPrices()?(r.totalEstimate?money(r.totalEstimate):'Уточняется'):'Без цен';
-  return '<details class="proc-record '+(done?'done':'')+'" name="proc-pr-documents">'+
+  return '<details class="proc-record '+(done?'done':'')+'" name="proc-pr-documents" data-proc-doc-id="'+esc(r.id)+'">'+
     '<summary class="proc-record-summary">'+
       '<div class="proc-record-date"><strong>'+esc(dateTimeLabel(r.createdAt))+'</strong><span>дата и время</span></div>'+
       '<div class="proc-record-main"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+esc(r.createdBy||'—')+'</span></div>'+
@@ -685,7 +685,7 @@ function orderListItem(o,{receiving=false}={}){
   const effective=o.effectiveStatus||o.status,done=receiving?o.matchStatus==='MATCHED':['COMPLETED','CANCELLED'].includes(effective);
   const displayStatus=receiving?(o.matchStatus||'WAITING_GRN'):effective;
   const lines=(o.lines||[]).length,remainingLines=(o.lines||[]).filter(x=>num(x.remainingQty)>0.0005).length;
-  return '<details class="proc-record '+(done?'done':'')+'" name="'+(receiving?'proc-receiving-documents':'proc-po-documents')+'">'+
+  return '<details class="proc-record '+(done?'done':'')+'" name="'+(receiving?'proc-receiving-documents':'proc-po-documents')+'" data-proc-doc-id="'+esc(o.id)+'">'+
     '<summary class="proc-record-summary">'+
       '<div class="proc-record-date"><strong>'+esc(dateTimeLabel(o.createdAt))+'</strong><span>дата и время</span></div>'+
       '<div class="proc-record-main"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId||'Поставщик')+' · '+esc(o.createdBy||'Пользователь')+'</span></div>'+
@@ -704,7 +704,7 @@ function sourcingListItem(r,index=0){
   const rfqs=r.rfqs||[],quotes=r.quotes||[];
   const responseCount=rfqs.reduce((s,x)=>s+num(x.responseCount),0);
   const supplierCount=rfqs.reduce((s,x)=>s+(x.supplierIds||[]).length,0);
-  return '<details class="proc-record" name="proc-sourcing-documents">'+
+  return '<details class="proc-record" name="proc-sourcing-documents" data-proc-doc-id="'+esc(r.id)+'">'+
     '<summary class="proc-record-summary">'+
       '<div class="proc-record-date"><strong>'+esc(dateTimeLabel(r.createdAt))+'</strong><span>дата и время</span></div>'+
       '<div class="proc-record-main"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+esc(r.createdBy||'—')+'</span></div>'+
@@ -1076,7 +1076,7 @@ function openRfqModal(r){
   $('proc-rfq-save').onclick=async()=>{
     const selected=[...document.querySelectorAll('[data-rfq-supplier]:checked')].map(x=>{const id=key(x.dataset.rfqSupplier),s=state.refs.suppliers.find(v=>key(v.id)===id);return{id,name:s?.name||id}});
     if(!selected.length){toast('Выберите хотя бы одного поставщика.','error');return}
-    try{setBusy(true);await procPost('create-rfq',{requisitionId:r.id,deadline:$('proc-rfq-deadline').value,message:$('proc-rfq-message').value,suppliers:selected});closeModal();await reloadProc();toast('RFQ создан. Теперь его можно отправить поставщикам.')}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}
+    try{setBusy(true);await procPost('create-rfq',{requisitionId:r.id,deadline:$('proc-rfq-deadline').value,message:$('proc-rfq-message').value,suppliers:selected});closeModal();try{await refreshSourcingDocument(r.id);toast('RFQ создан. Документ остался открытым.')}catch(refreshError){toast('RFQ создан, но новые данные пока не загрузились: '+(refreshError.message||String(refreshError)),'error')}}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}
   };
 }
 async function copyRfq(r,rfq){
@@ -1098,7 +1098,7 @@ function openQuoteModal(r,rfqId=''){
   openModal('Предложение поставщика · '+r.number,'СРАВНЕНИЕ ПОСТАВЩИКОВ','<form id="proc-quote-form"><div class="proc-form-grid"><label class="proc-field"><span>Поставщик</span><select id="proc-quote-supplier">'+supplierHtml+'</select></label><label class="proc-field"><span>Срок доставки, дней</span><input id="proc-quote-days" type="number" min="0" step="1" value="1"></label><label class="proc-field"><span>Предложение действует до</span><input id="proc-quote-valid" type="date" value="'+addDays(today(),7)+'"></label><label class="proc-field wide"><span>Условия оплаты</span><input id="proc-quote-payment" placeholder="Например: 7 дней / предоплата / по факту"></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-quote-comment"></textarea></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Цены предложения</strong><span class="proc-history-note">Если есть история накладных этого поставщика, подставим последнюю цену.</span></div><div id="proc-quote-lines">'+(r.lines||[]).map(l=>quoteLineHtml(l,'')).join('')+'</div></div><div class="proc-modal-summary"><span>Итого предложение</span><strong id="proc-quote-total">0,00 ₼</strong></div><div class="proc-modal-actions"><button type="button" id="proc-quote-cancel" class="proc-btn ghost">Отмена</button><button class="proc-btn primary">Сохранить предложение</button></div></form>');
   const bind=()=>document.querySelectorAll('[data-quote-line] input,[data-quote-line] select').forEach(x=>{x.oninput=recalcQuote;x.onchange=recalcQuote});bind();recalcQuote();$('proc-quote-cancel').onclick=closeModal;
   $('proc-quote-supplier').onchange=e=>{const sid=e.target.value;document.querySelectorAll('[data-quote-line]').forEach((row,i)=>{const l=r.lines[i],h=historyPrice(l.productId,sid);if(h)row.querySelector('[data-f="price"]').value=h.price});recalcQuote()};
-  $('proc-quote-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const sid=key($('proc-quote-supplier').value),sup=state.refs.suppliers.find(x=>key(x.id)===sid);if(!sid)throw Error('Выберите поставщика.');const lines=[...document.querySelectorAll('[data-quote-line]')].map(row=>{const pid=row.dataset.productId;const packageSize=num(row.querySelector('[data-f="packageSize"]').value,1),packageCount=num(row.querySelector('[data-f="packageCount"]').value);return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId:key(row.querySelector('[data-f="containerId"]').value),packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),unitPrice:num(row.querySelector('[data-f="price"]').value)}});await procPost('add-quote',{requisitionId:r.id,rfqId:rfq?.id||'',supplierId:sid,supplierName:sup?.name||'',deliveryDays:num($('proc-quote-days').value),paymentTerms:$('proc-quote-payment').value,validUntil:$('proc-quote-valid').value,comment:$('proc-quote-comment').value,lines});closeModal();await reloadProc();toast('Предложение поставщика сохранено.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
+  $('proc-quote-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const sid=key($('proc-quote-supplier').value),sup=state.refs.suppliers.find(x=>key(x.id)===sid);if(!sid)throw Error('Выберите поставщика.');const lines=[...document.querySelectorAll('[data-quote-line]')].map(row=>{const pid=row.dataset.productId;const packageSize=num(row.querySelector('[data-f="packageSize"]').value,1),packageCount=num(row.querySelector('[data-f="packageCount"]').value);return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId:key(row.querySelector('[data-f="containerId"]').value),packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),unitPrice:num(row.querySelector('[data-f="price"]').value)}});await procPost('add-quote',{requisitionId:r.id,rfqId:rfq?.id||'',supplierId:sid,supplierName:sup?.name||'',deliveryDays:num($('proc-quote-days').value),paymentTerms:$('proc-quote-payment').value,validUntil:$('proc-quote-valid').value,comment:$('proc-quote-comment').value,lines});closeModal();try{await refreshSourcingDocument(r.id);toast('Предложение поставщика сохранено. Документ остался открытым.')}catch(refreshError){toast('Предложение сохранено, но новые данные пока не загрузились: '+(refreshError.message||String(refreshError)),'error')}}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
 }
 async function simpleAction(action,id,message){try{setBusy(true);await procPost(action,{id});await reloadProc();toast(message)}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
 function openSplitPoModal(r){
@@ -1546,7 +1546,65 @@ async function copyPo(o){
   const text=['Smart Horeca · Purchase Order',o.number,'Поставщик: '+(o.supplierName||o.supplierId),'Склад: '+(o.warehouseName||o.warehouseId),'',lines,'','Итого: '+money(o.totalAmount),'Комментарий: '+(o.comment||'—')].join('\n');
   try{await navigator.clipboard.writeText(text);toast('PO скопирован. Можно отправить поставщику в удобном канале.')}catch(e){toast('Не удалось скопировать PO: '+(e.message||e),'error')}
 }
-async function reloadProc(){await loadProcurement();renderAll()}
+// Replacing the document list after a successful API save must not reset the
+// user's expanded PR/PO, nested activity and RFQ panels, or reading position.
+function captureProcurementViewState(){
+  const containers=['proc-pr-list','proc-po-list'].map(id=>({id,root:$(id)})).filter(x=>x.root);
+  const views=containers.map(({id,root})=>{
+    const groups=[...root.querySelectorAll('details.proc-history-block')].map(x=>x.open);
+    const documents=[...root.querySelectorAll('details[data-proc-doc-id][open]')].map(doc=>{
+      const nested=[...doc.querySelectorAll('details')];
+      return{id:doc.dataset.procDocId,open:true,nestedOpen:nested.map((x,i)=>x.open?i:-1).filter(i=>i>=0),top:doc.getBoundingClientRect().top};
+    });
+    return{id,groups,documents,scrollTop:root.scrollTop};
+  });
+  return{views,scrollTop:document.scrollingElement?.scrollTop??window.scrollY};
+}
+function restoreProcurementViewState(saved){
+  if(!saved)return;
+  let anchor=null;
+  for(const view of saved.views||[]){
+    const root=$(view.id);if(!root)continue;
+    const groups=[...root.querySelectorAll('details.proc-history-block')];
+    view.groups.forEach((open,i)=>{if(groups[i])groups[i].open=open});
+    const docs=[...root.querySelectorAll('details[data-proc-doc-id]')];
+    for(const old of view.documents){
+      const doc=docs.find(x=>x.dataset.procDocId===old.id);
+      if(!doc)continue;
+      const parent=doc.closest('details.proc-history-block');if(parent)parent.open=true;
+      doc.open=true;
+      const nested=[...doc.querySelectorAll('details')];
+      old.nestedOpen.forEach(i=>{if(nested[i])nested[i].open=true});
+      if(!anchor)anchor={doc,top:old.top};
+    }
+    root.scrollTop=view.scrollTop;
+  }
+  if(Number.isFinite(saved.scrollTop))window.scrollTo(0,saved.scrollTop);
+  if(anchor&&anchor.top>-100&&anchor.top<window.innerHeight){
+    const delta=anchor.doc.getBoundingClientRect().top-anchor.top;
+    if(Math.abs(delta)>2)window.scrollBy(0,delta);
+  }
+}
+async function refreshSourcingDocument(requisitionId){
+  const saved=captureProcurementViewState();
+  await loadProcurement();
+  const root=$('proc-pr-list'),old=root&&[...root.querySelectorAll('details[data-proc-doc-id]')].find(x=>x.dataset.procDocId===requisitionId);
+  const updated=(state.data?.requisitions||[]).find(x=>x.id===requisitionId);
+  // Update only the changed PR: other expanded cards stay mounted in the DOM.
+  if(state.view==='sourcing'&&old&&updated){
+    const index=[...root.querySelectorAll('details[name="proc-sourcing-documents"]')].indexOf(old);
+    old.outerHTML=sourcingListItem(updated,Math.max(0,index));
+  }else{
+    renderAll();
+  }
+  restoreProcurementViewState(saved);
+}
+async function reloadProc(){
+  const saved=captureProcurementViewState();
+  await loadProcurement();
+  renderAll();
+  restoreProcurementViewState(saved);
+}
 async function loadAll(){
   try{
     setBusy(true);state.cacheWarnings=[];setStatus('Загружаем закупки…');
