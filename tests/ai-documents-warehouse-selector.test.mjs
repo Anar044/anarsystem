@@ -57,6 +57,9 @@ test('Invoice reference API refills verified warehouse names after fallback and 
   assert.match(references,/code:"INVOICE_WAREHOUSE_NAMES_UNAVAILABLE"/);
   assert.match(references,/departmentScopeApplied: subsetRequested/);
   assert.match(references,/INVOICE_REFERENCE_SCOPE_UNAVAILABLE/);
+  assert.match(references,/loadRequestIikoState\(request,env\)/);
+  assert.match(references,/resolveRestaurantScope\(\{state:accessState,request,requestedIds,strict:true\}\)/);
+  assert.match(references,/departmentIds\.length===1\|\|allowedIds\.length>departmentIds\.length/);
 });
 test('AI matching does not require a populated generic warehouse cache if CHAIN knows warehouses', () => {
   assert.match(matching,/requiredKeys:\["suppliers","products"\]/);
