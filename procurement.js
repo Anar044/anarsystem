@@ -369,7 +369,7 @@ function computeNeeds(){
     const recommended=(!localDisabled&&min!==null&&amount<min)?Math.max(0,target-amount):0;
     const h=historyPrice(r.productId),price=h?num(h.price):Math.max(0,num(r.unitCost));
     rows.push({
-      id,productId:key(r.productId),productName:r.productName||productName(r.productId),productNum:r.productNum||'',
+      id,productId:key(r.productId),productName:r.productName||productName(r.productId),productNum:r.productNum||'',productCode:r.productCode||'',
       groupName:r.categoryName||r.groupName||'',unit:r.unit||'',storeId:key(r.storeId),storeName:r.storeName||r.storeId,
       currentStock:amount,minStock:min,maxStock:max,recommendedQty:recommended,lastPrice:price,lastSupplier:h?.supplierName||'',
       estimated:recommended*price,normSource:hasLocal?'SMART_HORECA':(min!==null||max!==null?'SERVER':'NONE'),
@@ -403,7 +403,7 @@ function purchaseMatrixRows(){
     let p=products.get(row.productId);
     if(!p){
       p={
-        productId:row.productId,productName:row.productName,productNum:row.productNum,groupName:row.groupName,unit:row.unit,
+        productId:row.productId,productName:row.productName,productNum:row.productNum,productCode:row.productCode,groupName:row.groupName,unit:row.unit,
         byStore:new Map(),totalStock:0,lastPrice:row.lastPrice,lastSupplier:row.lastSupplier
       };
       products.set(row.productId,p);
@@ -439,7 +439,7 @@ function renderNeeds(){
 
   const table=$('proc-needs-table');
   const head=table.querySelector('thead');
-  head.innerHTML='<tr><th></th><th>Товар</th>'+
+  head.innerHTML='<tr><th></th><th>Код</th><th>Товар</th>'+
     stores.map(s=>'<th class="proc-store-col '+(s.id===targetStoreId?'target':'')+'">'+esc(s.name)+(s.id===targetStoreId?'<small>склад заказа</small>':'')+'</th>').join('')+
     '<th>Всего</th><th>Min / Max<br><small>'+esc(targetName)+'</small></th><th>Рекомендация</th><th>Последняя цена</th><th></th></tr>';
 
@@ -464,14 +464,14 @@ function renderNeeds(){
     const supplier=target?.lastSupplier||p.lastSupplier;
     return '<tr>'+
       '<td><input class="proc-need-check" type="checkbox" data-need="'+esc(selectedId)+'" '+(selectedId&&state.selectedNeeds.has(selectedId)?'checked':'')+' '+(!selectedId?'disabled':'')+'></td>'+
-      '<td><strong>'+esc(p.productName)+'</strong><small>'+esc([p.productNum,p.groupName].filter(Boolean).join(' · ')||p.productId)+'</small></td>'+
+      '<td class="proc-product-code">'+esc(p.productCode||p.productNum||'—')+'</td><td><strong>'+esc(p.productName)+'</strong><small>'+esc(p.groupName||'')+'</small></td>'+ 
       cells+
       '<td class="'+(p.totalStock<0?'proc-negative':Math.abs(p.totalStock)<=1e-12?'proc-low':'proc-good')+'"><strong>'+qty(p.totalStock)+'</strong><small>'+esc(p.unit)+'</small></td>'+
       '<td>'+minmax+'</td>'+
       '<td>'+recommendation+'</td>'+
       '<td>'+(price?money(price):'—')+(supplier?'<small>'+esc(supplier)+'</small>':'')+'</td>'+
       '<td>'+(selectedId?'<button class="proc-btn small '+(target?.autoRecommended?'primary':'ghost')+'" data-create-need="'+esc(selectedId)+'">'+(target?.autoRecommended?'Создать PR':'В PR')+'</button>':'—')+'</td></tr>';
-  }).join('')||'<tr><td colspan="'+(stores.length+7)+'" class="proc-empty">Товары по выбранному фильтру не найдены.</td></tr>';
+  }).join('')||'<tr><td colspan="'+(stores.length+8)+'" class="proc-empty">Товары по выбранному фильтру не найдены.</td></tr>';
   $('proc-create-selected').disabled=state.selectedNeeds.size===0;
 }
 function normRows(){
@@ -480,13 +480,13 @@ function normRows(){
     const id=normId(r.storeId,r.productId);
     map.set(id,{
       id,storeId:key(r.storeId),storeName:r.storeName||r.storeId,productId:key(r.productId),productName:r.productName||productName(r.productId),
-      productNum:r.productNum||'',groupName:r.categoryName||r.groupName||'',unit:r.unit||'',currentStock:num(r.amount),
+      productNum:r.productNum||'',productCode:r.productCode||'',groupName:r.categoryName||r.groupName||'',unit:r.unit||'',currentStock:num(r.amount),
       serverMin:r.minAmount===null||r.minAmount===undefined?null:num(r.minAmount),serverMax:r.maxAmount===null||r.maxAmount===undefined?null:num(r.maxAmount)
     });
   }
   for(const x of state.data?.stockNorms||[]){
     const id=normId(x.storeId,x.productId);
-    if(!map.has(id))map.set(id,{id,storeId:key(x.storeId),storeName:x.storeName||x.storeId,productId:key(x.productId),productName:x.productName||productName(x.productId),productNum:'',groupName:'',unit:x.unit||'',currentStock:0,serverMin:null,serverMax:null});
+    if(!map.has(id))map.set(id,{id,storeId:key(x.storeId),storeName:x.storeName||x.storeId,productId:key(x.productId),productName:x.productName||productName(x.productId),productNum:'',productCode:'',groupName:'',unit:x.unit||'',currentStock:0,serverMin:null,serverMax:null});
   }
   return [...map.values()].sort((a,b)=>a.storeName.localeCompare(b.storeName,'ru')||a.productName.localeCompare(b.productName,'ru'));
 }
@@ -517,14 +517,14 @@ function renderNorms(){
   tb.innerHTML=visible.map(row=>{
     const d=effectiveNormDraft(row),configured=!!d.persisted,min=d.minStock,target=d.targetStock,source=configured?'Smart Horeca':(row.serverMin!==null||row.serverMax!==null?'Server':'Не задано');
     return '<tr data-norm-row="'+esc(row.id)+'" data-store-id="'+esc(row.storeId)+'" data-store-name="'+esc(row.storeName)+'" data-product-id="'+esc(row.productId)+'" data-product-name="'+esc(row.productName)+'" data-unit="'+esc(row.unit)+'">'+
-      '<td><strong>'+esc(row.productName)+'</strong><small>'+esc([row.productNum,row.groupName].filter(Boolean).join(' · ')||row.productId)+'</small></td>'+
+      '<td class="proc-product-code">'+esc(row.productCode||row.productNum||'—')+'</td><td><strong>'+esc(row.productName)+'</strong><small>'+esc(row.groupName||'')+'</small></td>'+ 
       '<td>'+esc(row.storeName)+'</td><td class="'+(row.currentStock<0?'proc-negative':Math.abs(row.currentStock)<=1e-12?'proc-low':'')+'">'+qty(row.currentStock)+' '+esc(row.unit)+'</td>'+
       '<td><input class="proc-norm-input" data-norm-field="minStock" type="number" min="0" step="0.001" value="'+(min===null||min===undefined?'':esc(min))+'" placeholder="—"></td>'+
       '<td><input class="proc-norm-input" data-norm-field="targetStock" type="number" min="0" step="0.001" value="'+(target===null||target===undefined?'':esc(target))+'" placeholder="—"></td>'+
       '<td><input class="proc-norm-input lead" data-norm-field="leadDays" type="number" min="0" step="1" value="'+num(d.leadDays)+'"></td>'+
       '<td><label class="proc-switch"><input data-norm-field="enabled" type="checkbox" '+(d.enabled!==false?'checked':'')+'><span></span></label></td>'+
       '<td><span class="proc-status-badge '+(configured?'success':source==='Server'?'warn':'neutral')+'">'+esc(source)+'</span>'+(state.dirtyNorms.has(row.id)?'<small class="proc-dirty">изменено</small>':'')+'</td></tr>';
-  }).join('')||'<tr><td colspan="8" class="proc-empty">По выбранным фильтрам позиций нет.</td></tr>';
+  }).join('')||'<tr><td colspan="9" class="proc-empty">По выбранным фильтрам позиций нет.</td></tr>';
 }
 function updateNormDraftFromRow(row){
   const id=row.dataset.normRow,base=effectiveNormDraft(normRows().find(x=>x.id===id)||{id,storeId:row.dataset.storeId,storeName:row.dataset.storeName,productId:row.dataset.productId,productName:row.dataset.productName,unit:row.dataset.unit,serverMin:null,serverMax:null});
