@@ -29,5 +29,6 @@ jobs:
           node --experimental-default-type=module --check functions/api/mobile/v1/movements.js
           node --experimental-default-type=module --check functions/api/mobile/v1/pnl.js
           node --experimental-default-type=module --check functions/api/mobile/v1/assistant.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/alerts.js
       - name: Test summary normalization
         run: node --experimental-default-type=module --test tests/mobile-*.test.mjs
