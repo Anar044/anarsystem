@@ -255,7 +255,13 @@ jobs:
         run: |
           set -euo pipefail
           grep -q 'getUser' functions/api/ai-assistant.js
-          grep -q 'loadPrivateIikoState' functions/api/ai-assistant.js
+          # New AI architecture resolves an authenticated workspace via the
+          # dedicated context adapter. Verify that adapter checks permissions
+          # instead of requiring the obsolete direct state access in handler.
+          grep -q 'resolveAssistantIiko' functions/api/ai-assistant.js
+          grep -q 'loadRequestIikoState' functions/api/iiko/_lib/ai-assistant-context.js
+          grep -q 'assistant.use' functions/api/iiko/_lib/ai-assistant-context.js
+          grep -q 'hasPermission' functions/api/iiko/_lib/ai-assistant-context.js
           grep -q 'OPENAI_API_KEY' functions/api/ai-assistant.js
           grep -q 'assistantToolDefinitions' functions/api/ai-assistant.js
           grep -q 'readOnly: true' functions/api/ai-assistant.js
