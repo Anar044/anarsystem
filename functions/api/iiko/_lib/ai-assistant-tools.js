@@ -519,9 +519,12 @@ export async function executeAssistantTool(name, args, context) {
         return {error:"Не удалось определить склады выбранного ресторана. AI не будет смешивать закупки разных подразделений.",code:"CHAIN_SCOPE_STORE_UNAVAILABLE",departmentIds:selectedDepartmentIds};
       }
       const wantedStores=new Set(storeScope.storeIds.map(key));
-      loaded.documents=loaded.documents.filter(doc=>{
-        const stores=[doc.storeId,...(Array.isArray(doc.items)?doc.items.map(item=>item.storeId):[])].map(key).filter(Boolean);
-        return stores.some(id=>wantedStores.has(id));
+      loaded.documents=loaded.documents.flatMap(doc=>{
+        // One supplier invoice can have lines for multiple restaurants.
+        // Scope individual invoice items, not just the parent document.
+        const items=(Array.isArray(doc.items)?doc.items:[]).filter(item=>
+          wantedStores.has(key(item.storeId || doc.storeId)));
+        return items.length ? [{...doc,items}] : [];
       });
     }
     const supplierMap = new Map(refs.suppliers.map(x => [x.id, x.name]));
