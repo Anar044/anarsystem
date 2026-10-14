@@ -459,7 +459,11 @@ export async function executeAssistantTool(name, args, context) {
   const selectedDepartmentIds=Array.isArray(scope?.selectedDepartmentIds)?scope.selectedDepartmentIds:[];
   const allowedDepartmentIds=Array.isArray(scope?.allowedDepartmentIds)?scope.allowedDepartmentIds:[];
   const subsetChainScope=scope?.isChain===true && selectedDepartmentIds.length>0 && selectedDepartmentIds.length<allowedDepartmentIds.length;
-  const effectiveDepartmentIds=subsetChainScope?selectedDepartmentIds:[];
+  const enforceDepartmentScope =
+    (subsetChainScope || scope?.mobileStrict === true) &&
+    selectedDepartmentIds.length > 0;
+  const effectiveDepartmentIds =
+    enforceDepartmentScope ? selectedDepartmentIds : [];
 
   if (name === "list_smart_horeca_capabilities") {
     return {
@@ -496,7 +500,7 @@ export async function executeAssistantTool(name, args, context) {
     if (!productIds.size && matchedProducts[0]) productIds.add(matchedProducts[0].id);
 
     const loaded = await loadInvoices(connection, range.from, range.to);
-    if(subsetChainScope){
+    if(enforceDepartmentScope){
       const storeScope=await resolveStoreScope(connection,selectedDepartmentIds);
       if(!storeScope.resolved||!storeScope.storeIds.length){
         return {error:"Не удалось определить склады выбранного ресторана. AI не будет смешивать закупки разных подразделений.",code:"CHAIN_SCOPE_STORE_UNAVAILABLE",departmentIds:selectedDepartmentIds};
@@ -571,7 +575,7 @@ export async function executeAssistantTool(name, args, context) {
     const date = clean(args.timestamp) || (new Date().toISOString().slice(0, 10) + "T23:59:59");
     let result;
     try{
-      result = await supplierBalances(connection, date, effectiveDepartmentIds, subsetChainScope);
+      result = await supplierBalances(connection, date, effectiveDepartmentIds, enforceDepartmentScope);
     }catch(error){
       return {error:String(error?.message||error),code:"CHAIN_SCOPE_UNAVAILABLE_SUPPLIER_BALANCE",departmentIds:selectedDepartmentIds};
     }
