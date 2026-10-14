@@ -30,5 +30,9 @@ jobs:
           node --experimental-default-type=module --check functions/api/mobile/v1/pnl.js
           node --experimental-default-type=module --check functions/api/mobile/v1/assistant.js
           node --experimental-default-type=module --check functions/api/mobile/v1/alerts.js
+          node --experimental-default-type=module --check functions/api/iiko/_lib/operational-day.js
+          node --experimental-default-type=module --check functions/api/iiko/dashboard.js
+          node --experimental-default-type=module --check functions/api/iiko/dashboard-summary.js
+          node --experimental-default-type=module --check dashboard-optimized.js
       - name: Test summary normalization
-        run: node --experimental-default-type=module --test tests/mobile-*.test.mjs
+        run: node --experimental-default-type=module --test tests/mobile-*.test.mjs tests/operational-day.test.mjs
