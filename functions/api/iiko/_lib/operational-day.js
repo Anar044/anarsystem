@@ -69,9 +69,13 @@ export function planOperatingShifts(shifts, selectedDepartments, today) {
   const pickedIds = new Set();
   for (const dep of selected) {
     const all = groups[dep] || [];
-    if (!all.length) throw new OperatingDayError(
-      "OPERATING_SHIFT_NOT_FOUND",
-      "Для одного из выбранных ресторанов не найдены кассовые смены. Суммы не рассчитаны.");
+    if (!all.length) {
+      // An inactive restaurant must not block the whole CHAIN. The upstream
+      // shift listing succeeded for every date; this one has no sessions.
+      daysByDepartment.push({ departmentId:dep, operatingDates:[],
+        activeShiftCount:0, shiftCount:0, status:"NO_RECENT_SHIFTS" });
+      continue;
+    }
     const open = all.filter(s => ["OPEN", "OPENED"].includes(s.status));
     const anchorDate = (open.length ? open : all)
       .map(s => s.date).sort()[open.length ? 0 : all.length - 1];
@@ -87,6 +91,9 @@ export function planOperatingShifts(shifts, selectedDepartments, today) {
     });
   }
   const dateList = daysByDepartment.flatMap(d => d.operatingDates);
+  if (!dateList.length || !pickedIds.size) throw new OperatingDayError(
+    "OPERATING_SHIFT_NOT_FOUND",
+    "На выбранных ресторанах не найдены кассовые смены за проверенный период. Продажи не обнулены.");
   return {
     mode: "operational", requestedDate: today,
     from: dateList.sort()[0], to: today,
