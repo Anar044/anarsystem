@@ -44,6 +44,7 @@ jobs:
           node --test tests/ai-assistant-workspace-connection.test.mjs
           node --test tests/ai-documents-workspace-connection.test.mjs
           node --test tests/ai-documents-warehouse-selector.test.mjs
+          node --test tests/workspace-assets-audit.test.mjs
           node --test tests/platform-only-server-settings.test.mjs
           node --test tests/internal-orders-core.test.mjs
           node --test tests/internal-orders-store-scope.test.mjs
@@ -163,7 +164,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'getUser' functions/api/assets.js
+          grep -q 'loadRequestIikoState' functions/api/assets.js
           grep -q 'fixed_assets' functions/api/assets.js
           grep -q 'fixed_asset_events' functions/api/assets.js
           grep -q "action==='depreciation'" functions/api/assets.js

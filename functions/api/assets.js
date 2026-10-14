@@ -1,4 +1,6 @@
-import { getUser, loadPrivateIikoState } from './iiko/_lib/user-state.js';
+import { loadRequestIikoState, hasPrivateConnection } from './iiko/_lib/user-state.js';
+import { scopeStateForAssistant } from './iiko/_lib/ai-assistant-context.js';
+import { hasPermission } from './access/_lib/access-control.js';
 import { resolveRestaurantScope } from './iiko/_lib/restaurant-scope.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
@@ -69,16 +71,6 @@ function collectRestaurantIds(state){
   return [...new Set(values.map(v=>clean(v)).filter(Boolean))];
 }
 
-async function privateState(db,userId){
-  try{
-    const row=await db.prepare(`SELECT state_json FROM iiko_connections WHERE user_id=?1 LIMIT 1`).bind(userId).first();
-    if(!row?.state_json)return null;
-    const parsed=JSON.parse(row.state_json);
-    if(parsed?.marker==='SH_IKO_STATE_AES_GCM')return null;
-    return parsed;
-  }catch{return null}
-}
-
 function assetMath(asset,asOf=new Date().toISOString().slice(0,10)){
   const cost=Math.max(0,num(asset.purchase_cost));
   const salvage=Math.max(0,Math.min(cost,num(asset.salvage_value)));
@@ -121,13 +113,33 @@ function depreciationForPeriod(asset,from,to){
 
 function normalizeAsset(row){return{...row,...assetMath(row)}}
 
+function assetAccessError(message, status, code) {
+  const error=new Error(message);
+  error.status=status;
+  error.code=code;
+  return error;
+}
 async function authContext(request,env){
-  const auth=await getUser(request,env);
-  if(!auth)return null;
+  const stored=await loadRequestIikoState(request,env);
+  if(!stored)throw assetAccessError('Требуется авторизация.',401,'UNAUTHENTICATED');
+  if(stored.accessDenied||!stored.access?.allowed){
+    throw assetAccessError('Нет доступа к выбранной организации Smart Horeca.',403,stored.access?.reason||'WORKSPACE_ACCESS_DENIED');
+  }
+  const needsManage=request.method==='POST';
+  const permitted=needsManage
+    ?hasPermission(stored.access,'inventory.assets.manage')
+    :['inventory.assets.view','finance.view','reports.pnl'].some(permission=>hasPermission(stored.access,permission));
+  if(!permitted)throw assetAccessError('Нет прав для работы с основными средствами.',403,'ASSET_PERMISSION_DENIED');
+  if(!stored.found||!hasPrivateConnection(stored.state)){
+    throw assetAccessError('Подключение Smart Horeca Server для организации не найдено.',409,'ASSET_SERVER_NOT_CONFIGURED');
+  }
+  const state=scopeStateForAssistant(stored.state,stored.access);
+  const scope=resolveRestaurantScope({state,request,strict:true});
+  if(!scope.allowedDepartmentIds.length){
+    throw assetAccessError('Не найдены доступные подразделения организации.',403,'ASSET_DEPARTMENT_SCOPE_EMPTY');
+  }
   await ensureTables(env.DB);
-  const stored=await loadPrivateIikoState(env.DB,auth.user.id,env).catch(()=>null);
-  const scope=stored?.found?resolveRestaurantScope({state:stored.state,request,strict:true}):null;
-  return {...auth,scope};
+  return {...stored,scope};
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
@@ -148,7 +160,7 @@ export async function onRequestGet({request,env}){
       events=eventsResult.results||[];
     }
     return json({success:true,assets:(assetsResult.results||[]).map(normalizeAsset),events,restaurantScope:auth.scope?{mode:auth.scope.mode,departmentIds:selected}:null});
-  }catch(error){return json({success:false,message:error.message||String(error)},500)}
+  }catch(error){return json({success:false,code:error?.code||'ASSET_ERROR',message:error.message||String(error)},error?.status||500)}
 }
 
 export async function onRequestPost({request,env}){
@@ -245,5 +257,5 @@ export async function onRequestPost({request,env}){
     }
 
     return json({success:false,message:'Неизвестное действие'},400);
-  }catch(error){return json({success:false,message:error.message||String(error)},500)}
+  }catch(error){return json({success:false,code:error?.code||'ASSET_ERROR',message:error.message||String(error)},error?.status||500)}
 }
