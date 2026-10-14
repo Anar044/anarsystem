@@ -3,6 +3,7 @@ import { resolveHrRestaurantScope, hrScopeKeys, isHrSubsetScope } from './_lib/r
 import { employeeWithinMembershipScope,visibleEmployeeMembership,mergeEmployeeMembership } from './_lib/employee-department-membership.js';
 import { zktecoModelProfile,plannedDeviceRoster } from './_lib/zkteco-network-roster.js';
 import { ensureZktecoAdmsTables, registerAdmsDevice, unregisterAdmsDevice, correctAdmsDeviceSerial, queueAdmsCommand } from './_lib/zkteco-adms.js';
+import { ensurePilotTables, proposePilotPin, reservePilotPin, pilotCommand, PILOT_EMPLOYEE_NAME } from './_lib/zkteco-pilot.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -100,6 +101,7 @@ async function ensure(db){
   try{await db.prepare(`ALTER TABLE hr_devices ADD COLUMN restaurant_id TEXT NOT NULL DEFAULT ''`).run()}catch(_){}
   try{await db.prepare(`ALTER TABLE hr_devices ADD COLUMN device_model TEXT NOT NULL DEFAULT ''`).run()}catch(_){}
   await ensureZktecoAdmsTables(db);
+  await ensurePilotTables(db);
 }
 
 async function auth(request,env){
@@ -155,7 +157,7 @@ function attachEmployeeMemberships(employees,memberships){
 }
 
 async function snapshot(db,userId,scope=null){
-  const [devices,employees,bindings,events,tokens,admsRows,admsRawRows,admsRequestRows,admsCommandRows]=await Promise.all([
+  const [devices,employees,bindings,events,tokens,admsRows,admsRawRows,admsRequestRows,admsCommandRows,pilotRows]=await Promise.all([
     db.prepare(`SELECT * FROM hr_devices WHERE user_id=?1 ORDER BY is_active DESC,name COLLATE NOCASE`).bind(userId).all(),
     db.prepare(`SELECT * FROM hr_employees WHERE user_id=?1 AND TRIM(employee_code)<>'' ORDER BY is_deleted,last_name COLLATE NOCASE,first_name COLLATE NOCASE,display_name COLLATE NOCASE`).bind(userId).all(),
     db.prepare(`SELECT * FROM hr_employee_device_bindings WHERE user_id=?1 ORDER BY updated_at DESC`).bind(userId).all(),
@@ -166,7 +168,10 @@ async function snapshot(db,userId,scope=null){
     db.prepare(`SELECT device_id,serial_number,model,last_seen_at,last_event_at,push_version,firmware,last_ip,last_user_agent FROM hr_zkteco_adms_devices WHERE user_id=?1 AND enabled=1`).bind(userId).all(),
     db.prepare(`SELECT raw_id,device_id,serial_number,table_name,event_time,external_employee_id,event_status,verify_type,work_code,raw_line,received_at FROM hr_zkteco_adms_raw WHERE user_id=?1 ORDER BY received_at DESC LIMIT 200`).bind(userId).all(),
     db.prepare(`SELECT request_id,device_id,serial_number,endpoint,method,table_name,query_text,body_length,body_preview,received_at FROM hr_zkteco_adms_requests WHERE user_id=?1 ORDER BY received_at DESC LIMIT 100`).bind(userId).all(),
-    db.prepare(`SELECT command_id,device_id,serial_number,command_text,status,created_at,sent_at,acknowledged_at,return_code FROM hr_zkteco_adms_commands WHERE user_id=?1 ORDER BY created_at DESC LIMIT 30`).bind(userId).all()
+    db.prepare(`SELECT command_id,device_id,serial_number,command_text,status,created_at,sent_at,acknowledged_at,return_code FROM hr_zkteco_adms_commands WHERE user_id=?1 ORDER BY created_at DESC LIMIT 30`).bind(userId).all(),
+    db.prepare(`SELECT p.device_id,p.iiko_employee_id,p.pin,p.format,p.command_id,p.status,p.return_code,p.updated_at,e.display_name
+      FROM hr_zkteco_pilot_provisioning p LEFT JOIN hr_employees e ON e.user_id=p.user_id AND e.iiko_employee_id=p.iiko_employee_id
+      WHERE p.user_id=?1 ORDER BY p.updated_at DESC`).bind(userId).all()
   ]);
   const allDevices=devices.results||[],allEmployees=employees.results||[],allBindings=bindings.results||[],allEvents=events.results||[],ts=tokens.results||[],adms=admsRows.results||[],allAdmsRaw=admsRawRows.results||[],allAdmsRequests=admsRequestRows.results||[],allAdmsCommands=admsCommandRows.results||[];
   const subset=isTimeclockScopeRestricted(scope);
@@ -183,6 +188,17 @@ async function snapshot(db,userId,scope=null){
   const roster=plannedDeviceRoster(rosterDevices,es,scope);
   return{
     rosterPreview:roster,
+    pilotProvisioning:(pilotRows.results||[]).filter(x=>selectedDeviceIds.has(String(x.device_id)))
+      .map(x=>{
+        const cmd=allAdmsCommands.find(c=>String(c.device_id)===String(x.device_id)&&Number(c.command_id)===Number(x.command_id));
+        return{deviceId:x.device_id,employeeId:x.iiko_employee_id,employeeName:x.display_name||'',
+          pin:x.pin,format:x.format,commandId:Number(x.command_id),
+          status:x.status==='PENDING'&&cmd?.status==='SENT'?'SENT':x.status,
+          returnCode:x.return_code||'',updatedAt:x.updated_at};
+      }),
+    pilotAvailable:Boolean(scope?.isChain&&!isTimeclockScopeRestricted(scope)&&
+      (scope.selectedDepartmentIds||[]).length>0&&
+      (scope.selectedDepartmentIds||[]).length===(scope.allowedDepartmentIds||[]).length),
     restaurantScope:scope?{mode:scope.mode,departmentIds:scope.selectedDepartmentIds,departmentCodes:scope.selectedDepartmentCodes,restaurants:(scope.selectedRestaurants||[]).map(r=>({id:r.id,code:r.code,name:r.name})),deviceScope:subset?'SCOPED_BY_RESTAURANT':'ALL'}:null,
     adms:{basePath:'/iclock',directPush:true,offlineBuffering:'DEVICE_LOCAL_MEMORY'},
     devices:ds.map(x=>{const token=tokenMap.get(String(x.device_id)),zk=admsMap.get(String(x.device_id)),seen=zk?.last_seen_at?new Date(zk.last_seen_at).getTime():0;return{id:x.device_id,provider:x.provider,name:x.name,restaurantId:x.restaurant_id||'',location:x.location,connectionMode:x.connection_mode,timezone:x.timezone,active:Boolean(x.is_active),lastSyncAt:x.last_sync_at||'',tokenConfigured:Boolean(token),tokenLastUsedAt:token?.last_used_at||'',tokenRotatedAt:token?.rotated_at||'',serialNumber:zk?.serial_number||'',model:x.device_model||zk?.model||'',admsLastSeenAt:zk?.last_seen_at||'',admsLastEventAt:zk?.last_event_at||'',pushVersion:zk?.push_version||'',firmware:zk?.firmware||'',lastIp:zk?.last_ip||'',admsOnline:Boolean(seen&&nowMs-seen<5*60*1000)}}),
@@ -306,6 +322,79 @@ export async function onRequestPost({request,env}){
       const d=await device(env.DB,userId,deviceId);if(!d)return json({success:false,message:'Устройство не найдено'},404);if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому ресторану.'},403);
       await env.DB.prepare(`DELETE FROM hr_device_tokens WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId).run();
       return json({success:true,deviceId,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId,scope)});
+    }
+    if(action==='pilotPrepareTestHr'||action==='pilotProvisionTestHr'){
+      const preparing=action==='pilotPrepareTestHr';
+      const central=Boolean(scope?.isChain&&!isTimeclockScopeRestricted(scope)&&
+        (scope.selectedDepartmentIds||[]).length>0&&
+        (scope.selectedDepartmentIds||[]).length===(scope.allowedDepartmentIds||[]).length);
+      if(!central)return json({success:false,message:'Только центральный HR всей сети может отправлять тестового сотрудника на все устройства.'},403);
+      const ids=Array.isArray(b.deviceIds)?b.deviceIds.map(clean):[];
+      if(new Set(ids).size!==2||ids.length!==2)return json({success:false,message:'Для пилота выберите ровно два разных SenseFace.'},400);
+      if(!preparing&&b.confirmFreePin!==true)return json({success:false,message:'Подтвердите, что PIN свободен на обоих устройствах и разрешена отправка TEST HR.'},400);
+      const format=clean(b.format)||'USERINFO';
+      if(!['USERINFO','USER_AC_PUSH'].includes(format))return json({success:false,message:'Неподдерживаемый формат команды ADMS.'},400);
+      const selected=new Set((scope.selectedDepartmentIds||[]).map(String));
+      const devices=await env.DB.prepare(`SELECT d.device_id,d.name,d.device_model,d.restaurant_id,d.connection_mode,d.is_active,
+        z.serial_number,z.last_seen_at,z.enabled FROM hr_devices d
+        JOIN hr_zkteco_adms_devices z ON z.user_id=d.user_id AND z.device_id=d.device_id
+        WHERE d.user_id=?1 AND d.device_id IN (?2,?3)`).bind(userId,...ids).all();
+      const targets=devices.results||[];
+      if(targets.length!==2||targets.some(d=>!selected.has(String(d.restaurant_id))||!Number(d.is_active)||
+        !Number(d.enabled)||d.connection_mode!=='ADMS_PUSH'||!/^SenseFace\s+[23]A$/i.test(d.device_model||'')||
+        !Number.isFinite(Date.parse(d.last_seen_at||''))||
+        Date.now()-Date.parse(d.last_seen_at||'')>5*60*1000))
+        return json({success:false,message:'Нужно выбрать два активных SenseFace 2A/3A с ADMS Online и разрешёнными RMS.'},409);
+      const desired=new Set(targets.map(d=>String(d.device_model||'').toUpperCase().replace(/\s+/g,'')));
+      if(!desired.has('SENSEFACE2A')||!desired.has('SENSEFACE3A'))
+        return json({success:false,message:'Для этого пилота требуются SenseFace 2A и SenseFace 3A.'},409);
+      const test=await env.DB.prepare(`SELECT iiko_employee_id,employee_code,display_name,is_deleted,fire_date
+        FROM hr_employees WHERE user_id=?1 AND UPPER(TRIM(display_name))=?2`)
+        .bind(userId,PILOT_EMPLOYEE_NAME).all();
+      const staff=(test.results||[]).filter(e=>!Number(e.is_deleted)&&!clean(e.fire_date));
+      if(staff.length!==1)return json({success:false,message:'Нужен ровно один действующий сотрудник TEST HR в справочнике CHAIN.'},409);
+      const person=staff[0],personId=String(person.iiko_employee_id);
+      const proposedPin=await proposePilotPin(env.DB,userId,person);
+      if(preparing)return json({success:true,employee:person.display_name,pin:proposedPin,
+        devices:targets.map(d=>({id:d.device_id,name:d.name,model:d.device_model})),
+        message:'Проверьте, что такой PIN не принадлежит другому человеку на обоих устройствах.'});
+      if(clean(b.expectedPin)!==proposedPin)
+        return json({success:false,message:'PIN отличается от предварительного просмотра. Повторите подготовку отправки.'},409);
+      const pin=await reservePilotPin(env.DB,userId,person);
+      for(const d of targets){
+        const bnd=await env.DB.prepare(`SELECT iiko_employee_id,external_employee_id FROM hr_employee_device_bindings
+          WHERE user_id=?1 AND device_id=?2 AND (iiko_employee_id=?3 OR external_employee_id=?4)`)
+          .bind(userId,d.device_id,personId,pin).all();
+        if((bnd.results||[]).some(row=>String(row.iiko_employee_id)!==personId||String(row.external_employee_id)!==pin))
+          return json({success:false,message:'PIN '+pin+' конфликтует с существующей привязкой на '+d.name+'. Отправка отменена.'},409);
+      }
+      const jobs=[];
+      for(const d of targets){
+        const old=await env.DB.prepare(`SELECT p.*,c.status AS cmd_status FROM hr_zkteco_pilot_provisioning p
+          LEFT JOIN hr_zkteco_adms_commands c ON c.user_id=p.user_id AND c.device_id=p.device_id AND c.command_id=p.command_id
+          WHERE p.user_id=?1 AND p.device_id=?2 AND p.iiko_employee_id=?3`)
+          .bind(userId,d.device_id,personId).first();
+        if(old&&['PENDING','SENT','ACK_SUCCESS'].includes(old.status)&&old.pin===pin){
+          jobs.push({deviceId:d.device_id,commandId:old.command_id,status:old.status,reused:true});
+          continue;
+        }
+        if(format==='USER_AC_PUSH'&&(!old||old.status!=='ACK_FAILED')){
+          return json({success:false,message:'Альтернативная AC PUSH команда разрешена только после отказа первой команды на обоих устройствах.'},409);
+        }
+        const cmd=pilotCommand({pin,name:person.display_name,format});
+        const commandId=await queueAdmsCommand(env.DB,{...d,user_id:userId},cmd);
+        const t=now();
+        await env.DB.prepare(`INSERT INTO hr_zkteco_pilot_provisioning
+          (user_id,device_id,iiko_employee_id,pin,format,command_id,status,return_code,updated_at)
+          VALUES(?1,?2,?3,?4,?5,?6,'PENDING','',?7)
+          ON CONFLICT(user_id,device_id,iiko_employee_id) DO UPDATE
+          SET pin=excluded.pin,format=excluded.format,command_id=excluded.command_id,status='PENDING',return_code='',updated_at=excluded.updated_at`)
+          .bind(userId,d.device_id,personId,pin,format,commandId,t).run();
+        jobs.push({deviceId:d.device_id,commandId,status:'PENDING',reused:false});
+      }
+      return json({success:true,employee:person.display_name,pin,jobs,
+        message:'Карточка TEST HR поставлена в очередь на SenseFace 2A и 3A. Ждите ACK Return=0.',
+        ...await snapshot(env.DB,userId,scope)});
     }
     if(action==='requestAttendanceLog'){
       const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);

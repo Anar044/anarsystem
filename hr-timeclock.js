@@ -90,7 +90,40 @@
 
   function renderRawAdms(){const list=data.rawAdms||[];$('rawAdmsCount').textContent=`${list.length} записей`;$('rawAdmsRows').innerHTML=list.length?list.map(x=>`<tr><td>${esc(localDate(x.receivedAt))}</td><td>${esc(x.tableName||'—')}</td><td>${esc(x.serialNumber||'—')}</td><td>${esc(x.externalEmployeeId||'—')}</td><td>${esc(x.eventTime?localDate(x.eventTime):'—')}</td><td>${esc(x.status||'—')}</td><td>${esc(x.verifyType||'—')}</td><td class="text-left"><code>${esc(x.rawLine||'')}</code></td></tr>`).join(''):'<tr><td colspan="8" class="hr-empty">RAW ADMS пока пуст. После первого подключения здесь увидим точный формат данных SenseFace 2A.</td></tr>';}
   function renderAdmsSetup(){$('admsServerHost').textContent=location.hostname;$('admsServerPort').textContent=location.protocol==='https:'?'443':(location.port||'80')}
-  function render(){renderSummary();renderDevices();renderRosterPreview();renderDeleteButtons();renderSelectors();renderBindings();renderAdmsRequests();renderAdmsCommands();renderRawAdms();renderEvents();renderAdmsSetup()}
+  function pilotTargetDevices(){
+    const devices=data.devices||[];
+    return ['2A','3A'].map(model=>devices.find(d=>
+      d.connectionMode==='ADMS_PUSH'&&d.active&&d.admsOnline&&
+      String(d.model||'').toUpperCase().replace(/\s+/g,'')==='SENSEFACE'+model));
+  }
+  function renderPilot(){
+    const panel=$('tcPilotPanel');
+    if(!panel)return;
+    panel.hidden=!data.pilotAvailable;
+    if(panel.hidden)return;
+    const devices=pilotTargetDevices(),ready=devices.length===2&&devices.every(Boolean);
+    const jobs=data.pilotProvisioning||[];
+    const records=devices.filter(Boolean).map(d=>({device:d,job:jobs.find(x=>x.deviceId===d.id)}));
+    $('tcPilotSend').disabled=busy||!ready||records.every(x=>x.job?.status==='ACK_SUCCESS');
+    $('tcPilotSend').textContent=records.every(x=>x.job?.status==='ACK_SUCCESS')
+      ?'TEST HR подтверждён на обоих аппаратах':'Отправить TEST HR на оба аппарата';
+    $('tcPilotInfo').textContent=!ready
+      ?'Требуются одновременно ADMS Online: SenseFace 2A и SenseFace 3A. Проверьте соединение и обновите страницу.'
+      :'Нажмите кнопку для предварительного просмотра точного PIN и отдельного подтверждения отправки.';
+    const label={PENDING:'Ожидает отправки',SENT:'Команда отправлена, ожидает ACK',ACK_SUCCESS:'ACK Return=0 — подтверждено',
+      ACK_FAILED:'Аппарат отклонил команду',BINDING_CONFLICT:'Конфликт связей — нужна проверка'};
+    $('tcPilotStatuses').innerHTML=`<table><thead><tr><th>Устройство</th><th>PIN</th><th>Формат</th><th>Код команды</th><th>Статус</th></tr></thead><tbody>${records.map(({device,job})=>
+      `<tr><td>${esc(device.name)}</td><td>${esc(job?.pin||'—')}</td>
+      <td>${esc(job?.format||'—')}</td><td>${job?.commandId||'—'}</td>
+      <td>${esc(job?(label[job.status]||job.status)+(job.returnCode?' ('+job.returnCode+')':''):'Не отправляли')}</td></tr>`
+    ).join('')||'<tr><td colspan="5">Нет подключённых устройств пилота</td></tr>'}</tbody></table>`;
+    let alt=$('tcPilotAlternative');
+    if(!alt){alt=document.createElement('button');alt.type='button';alt.id='tcPilotAlternative';alt.className='hr-link-button';panel.appendChild(alt);alt.onclick=()=>pilotSend('USER_AC_PUSH')}
+    alt.textContent='Повторить отклонённую команду (AC PUSH)';
+    alt.hidden=!records.some(x=>x.job?.status==='ACK_FAILED');
+    alt.disabled=busy||!ready;
+  }
+  function render(){renderSummary();renderDevices();renderRosterPreview();renderPilot();renderDeleteButtons();renderSelectors();renderBindings();renderAdmsRequests();renderAdmsCommands();renderRawAdms();renderEvents();renderAdmsSetup()}
 
   function renderDeleteButtons(){
     document.querySelectorAll('#deviceList .hr-device-card').forEach((card,index)=>{
@@ -185,6 +218,29 @@
   async function copyDeviceToken(){if(!currentDeviceToken)return;try{await navigator.clipboard.writeText(currentDeviceToken);setStatus('Ключ скопирован','ok')}catch{const ta=document.createElement('textarea');ta.value=currentDeviceToken;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();setStatus('Ключ скопирован','ok')}}
 
   async function load(){if(busy)return;const err=$('tcError');try{busy=true;$('tcRefresh').disabled=true;err.hidden=true;setStatus('Загрузка…','loading');data=await api();render();setStatus('Готово','ok');}catch(e){console.error(e);err.hidden=false;err.textContent=e?.message||String(e);setStatus('Ошибка','error')}finally{busy=false;$('tcRefresh').disabled=false}}
+  async function pilotSend(format='USERINFO'){
+    if(busy)return;
+    const devices=pilotTargetDevices();
+    if(devices.length!==2||devices.some(x=>!x)){
+      $('tcError').hidden=false;$('tcError').textContent='Подключите одновременно 2A и 3A в режиме ADMS Online.';return;
+    }
+    const ids=devices.map(x=>x.id);
+    try{
+      busy=true;$('tcPilotSend').disabled=true;setStatus('Проверка TEST HR и единого PIN…','loading');
+      const preview=await api({action:'pilotPrepareTestHr',deviceIds:ids,format});
+      const agree=confirm(
+        'Отправить обычную карточку «'+preview.employee+'» с PIN '+preview.pin+
+        ' на оба аппарата SenseFace?\\n\\nПРОВЕРЬТЕ: этот PIN не должен принадлежать другому человеку на обоих аппаратах. При совпадении PIN команда обновления может изменить существующего пользователя. Биометрия не передаётся.'
+      );
+      if(!agree){setStatus('Пилот отменён','ok');return}
+      setStatus('Передаём TEST HR в очередь ADMS…','loading');
+      data=await api({action:'pilotProvisionTestHr',deviceIds:ids,format,expectedPin:String(preview.pin),confirmFreePin:true});
+      render();
+      setStatus('TEST HR в очереди ADMS · ожидаем ACK устройств','ok');
+    }catch(e){
+      $('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка пилота ZKTeco','error');
+    }finally{busy=false;renderPilot()}
+  }
   async function saveDevice(ev){ev.preventDefault();try{setStatus('Сохраняем…','loading');data=await api({action:'saveDevice',provider:$('deviceProvider').value,model:$('deviceModel').value,serialNumber:$('deviceSerial').value,name:$('deviceName').value,location:$('deviceLocation').value,timezone:$('deviceTimezone').value,connectionMode:$('deviceConnectionMode').value});$('deviceName').value='';$('deviceLocation').value='';$('deviceSerial').value='';render();setStatus('Устройство добавлено','ok')}catch(e){$('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error')}}
   async function rotateDeviceToken(deviceId){try{const d=(data.devices||[]).find(x=>x.id===deviceId);if(d?.tokenConfigured&&!confirm('Старый ключ перестанет работать сразу после перевыпуска. Продолжить?'))return;setStatus('Создаём ключ…','loading');const result=await api({action:'rotateDeviceToken',deviceId});data=result;render();showDeviceToken(deviceId,result.deviceToken);setStatus('Новый ключ создан','ok')}catch(e){$('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error')}}
   async function revokeDeviceToken(deviceId){if(!confirm('Отозвать ключ устройства? Connector сразу потеряет доступ к отправке событий.'))return;try{setStatus('Отзываем ключ…','loading');data=await api({action:'revokeDeviceToken',deviceId});hideDeviceToken();render();setStatus('Ключ отозван','ok')}catch(e){$('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error')}}
@@ -205,7 +261,7 @@
       $('tcError').hidden=false;$('tcError').textContent=e.message;setStatus('Ошибка','error');
     }
   }
-  function bind(){$('tcRefresh').onclick=load;$('requestAttlog').onclick=requestAttendanceLog;$('deviceForm').onsubmit=saveDevice;$('bindingForm').onsubmit=link;$('bindingDevice').onchange=renderEmployeeSelector;$('copyDeviceToken').onclick=copyDeviceToken;$('closeDeviceToken').onclick=hideDeviceToken;$('deviceConnectionMode').onchange=()=>{$('deviceSerial').required=$('deviceConnectionMode').value==='ADMS_PUSH'}}
+  function bind(){$('tcPilotSend').onclick=()=>pilotSend();$('tcRefresh').onclick=load;$('requestAttlog').onclick=requestAttendanceLog;$('deviceForm').onsubmit=saveDevice;$('bindingForm').onsubmit=link;$('bindingDevice').onchange=renderEmployeeSelector;$('copyDeviceToken').onclick=copyDeviceToken;$('closeDeviceToken').onclick=hideDeviceToken;$('deviceConnectionMode').onchange=()=>{$('deviceSerial').required=$('deviceConnectionMode').value==='ADMS_PUSH'}}
   async function init(){bind();await load()}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
