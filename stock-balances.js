@@ -87,7 +87,7 @@ function render(){
   tb.innerHTML=renderedRows.map((r,i)=>{
     const code=[r.productNum,r.productCode].filter(Boolean).join(' · ');
     return'<tr data-row="'+i+'">'+
-      '<td class="product-cell"><strong>'+esc(r.productName||r.productId)+'</strong><small>'+esc(code||r.productId)+'</small></td>'+
+      '<td class="product-code-cell">'+esc(code||'—')+'</td><td class="product-cell"><strong>'+esc(r.productName||r.productId)+'</strong></td>'+ 
       '<td>'+esc(r.categoryName||r.groupName||'—')+'</td>'+
       '<td>'+esc(storeLabel(r))+'</td>'+
       '<td>'+esc(unitLabel(r))+'</td>'+
@@ -97,7 +97,7 @@ function render(){
       '<td class="num">'+(r.minAmount===null||r.minAmount===undefined?'—':amount(r.minAmount))+'</td>'+
       '<td class="num">'+(r.maxAmount===null||r.maxAmount===undefined?'—':amount(r.maxAmount))+'</td>'+
       '<td>'+badge(r)+'</td></tr>';
-  }).join('')||'<tr><td colspan="10" class="sh-i18n-empty-state" style="text-align:center;padding:34px;color:#8192a4">По выбранным фильтрам данных нет.</td></tr>';
+  }).join('')||'<tr><td colspan="11" class="sh-i18n-empty-state" style="text-align:center;padding:34px;color:#8192a4">По выбранным фильтрам данных нет.</td></tr>';
 
   const shown=Math.min(visible.length,renderedRows.length);
   $('stock-result-meta').textContent=shown+' из '+visible.length+' позиций';

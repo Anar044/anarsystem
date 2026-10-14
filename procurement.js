@@ -299,6 +299,10 @@ async function reconcileLinkedReceipts(){
 }
 function unitFor(pid){const r=state.stockRows.find(x=>key(x.productId)===key(pid)&&x.unit);return r?.unit||''}
 function productName(pid){return state.productById.get(key(pid))?.name||state.stockRows.find(x=>key(x.productId)===key(pid))?.productName||pid}
+function canViewProcurementPrices(){
+  const permissions=state.data?.access?.permissions||[];
+  return Array.isArray(permissions)&&(permissions.includes('*')||permissions.includes('procurement.prices.view')||permissions.includes('sensitive.cost.view'));
+}
 function productLabel(pid,name){const id=key(pid);return String(name||productName(id)||id)+(id?' · …'+id.slice(-6):'')}
 function productRef(pid){return state.productById.get(key(pid))||null}
 function productPackagings(pid){
@@ -369,7 +373,7 @@ function computeNeeds(){
     const recommended=(!localDisabled&&min!==null&&amount<min)?Math.max(0,target-amount):0;
     const h=historyPrice(r.productId),price=h?num(h.price):Math.max(0,num(r.unitCost));
     rows.push({
-      id,productId:key(r.productId),productName:r.productName||productName(r.productId),productNum:r.productNum||'',
+      id,productId:key(r.productId),productName:r.productName||productName(r.productId),productNum:r.productNum||'',productCode:r.productCode||'',
       groupName:r.categoryName||r.groupName||'',unit:r.unit||'',storeId:key(r.storeId),storeName:r.storeName||r.storeId,
       currentStock:amount,minStock:min,maxStock:max,recommendedQty:recommended,lastPrice:price,lastSupplier:h?.supplierName||'',
       estimated:recommended*price,normSource:hasLocal?'SMART_HORECA':(min!==null||max!==null?'SERVER':'NONE'),
@@ -388,10 +392,10 @@ function renderAll(){computeNeeds();scopeLabel();renderKpis();renderNeeds();rend
 function renderKpis(){
   const d=state.data||{},a=d.analytics||{};
   $('proc-kpi-needs').textContent=state.needs.length.toLocaleString('ru-RU');
-  $('proc-kpi-needs-sum').textContent=money(state.needs.reduce((s,x)=>s+x.estimated,0))+' оценочно';
+  $('proc-kpi-needs-sum').textContent=canViewProcurementPrices()?money(state.needs.reduce((s,x)=>s+x.estimated,0))+' оценочно':'Количество без цен';
   $('proc-kpi-approvals').textContent=num(a.pendingApprovals).toLocaleString('ru-RU');
   $('proc-kpi-orders').textContent=num(a.activeOrders).toLocaleString('ru-RU');
-  $('proc-kpi-orders-sum').textContent=money((d.orders||[]).filter(x=>!['COMPLETED','CANCELLED'].includes(x.effectiveStatus)).reduce((s,x)=>s+num(x.totalAmount),0));
+  $('proc-kpi-orders-sum').textContent=canViewProcurementPrices()?money((d.orders||[]).filter(x=>!['COMPLETED','CANCELLED'].includes(x.effectiveStatus)).reduce((s,x)=>s+num(x.totalAmount),0)):'—';
   const completed=(d.orders||[]).filter(x=>x.effectiveStatus==='COMPLETED');
   $('proc-kpi-completed').textContent=completed.length.toLocaleString('ru-RU');
   $('proc-kpi-match').textContent=completed.filter(x=>x.matchStatus==='MATCHED').length+' совпали без расхождений';
@@ -403,7 +407,7 @@ function purchaseMatrixRows(){
     let p=products.get(row.productId);
     if(!p){
       p={
-        productId:row.productId,productName:row.productName,productNum:row.productNum,groupName:row.groupName,unit:row.unit,
+        productId:row.productId,productName:row.productName,productNum:row.productNum,productCode:row.productCode,groupName:row.groupName,unit:row.unit,
         byStore:new Map(),totalStock:0,lastPrice:row.lastPrice,lastSupplier:row.lastSupplier
       };
       products.set(row.productId,p);
@@ -425,7 +429,7 @@ function renderNeeds(){
   const matrix=purchaseMatrixRows();
   const visible=matrix.filter(p=>{
     const target=p.byStore.get(targetStoreId);
-    if(qv&&![p.productName,p.productNum,p.groupName].join(' ').toLowerCase().includes(qv))return false;
+    if(qv&&![p.productName,p.productNum,p.productCode,p.groupName].join(' ').toLowerCase().includes(qv))return false;
     if(!target)return filter==='all';
     if(filter==='recommended'&&!target.autoRecommended)return false;
     if(filter==='negative'&&!(target.currentStock<0))return false;
@@ -439,9 +443,9 @@ function renderNeeds(){
 
   const table=$('proc-needs-table');
   const head=table.querySelector('thead');
-  head.innerHTML='<tr><th></th><th>Товар</th>'+
+  head.innerHTML='<tr><th></th><th>Код</th><th>Товар</th>'+
     stores.map(s=>'<th class="proc-store-col '+(s.id===targetStoreId?'target':'')+'">'+esc(s.name)+(s.id===targetStoreId?'<small>склад заказа</small>':'')+'</th>').join('')+
-    '<th>Всего</th><th>Min / Max<br><small>'+esc(targetName)+'</small></th><th>Рекомендация</th><th>Последняя цена</th><th></th></tr>';
+    '<th>Всего</th><th>Min / Max<br><small>'+esc(targetName)+'</small></th><th>Рекомендация</th>'+(canViewProcurementPrices()?'<th>Последняя цена</th>':'')+'<th></th></tr>';
 
   const tb=table.querySelector('tbody');
   tb.innerHTML=visible.map(p=>{
@@ -464,14 +468,14 @@ function renderNeeds(){
     const supplier=target?.lastSupplier||p.lastSupplier;
     return '<tr>'+
       '<td><input class="proc-need-check" type="checkbox" data-need="'+esc(selectedId)+'" '+(selectedId&&state.selectedNeeds.has(selectedId)?'checked':'')+' '+(!selectedId?'disabled':'')+'></td>'+
-      '<td><strong>'+esc(p.productName)+'</strong><small>'+esc([p.productNum,p.groupName].filter(Boolean).join(' · ')||p.productId)+'</small></td>'+
+      '<td class="proc-product-code">'+esc(p.productCode||p.productNum||'—')+'</td><td><strong>'+esc(p.productName)+'</strong><small>'+esc(p.groupName||'')+'</small></td>'+ 
       cells+
       '<td class="'+(p.totalStock<0?'proc-negative':Math.abs(p.totalStock)<=1e-12?'proc-low':'proc-good')+'"><strong>'+qty(p.totalStock)+'</strong><small>'+esc(p.unit)+'</small></td>'+
       '<td>'+minmax+'</td>'+
       '<td>'+recommendation+'</td>'+
-      '<td>'+(price?money(price):'—')+(supplier?'<small>'+esc(supplier)+'</small>':'')+'</td>'+
+      (canViewProcurementPrices()?'<td>'+(price?money(price):'—')+(supplier?'<small>'+esc(supplier)+'</small>':'')+'</td>':'')+
       '<td>'+(selectedId?'<button class="proc-btn small '+(target?.autoRecommended?'primary':'ghost')+'" data-create-need="'+esc(selectedId)+'">'+(target?.autoRecommended?'Создать PR':'В PR')+'</button>':'—')+'</td></tr>';
-  }).join('')||'<tr><td colspan="'+(stores.length+7)+'" class="proc-empty">Товары по выбранному фильтру не найдены.</td></tr>';
+  }).join('')||'<tr><td colspan="'+(stores.length+8-(canViewProcurementPrices()?0:1))+'" class="proc-empty">Товары по выбранному фильтру не найдены.</td></tr>';
   $('proc-create-selected').disabled=state.selectedNeeds.size===0;
 }
 function normRows(){
@@ -480,13 +484,13 @@ function normRows(){
     const id=normId(r.storeId,r.productId);
     map.set(id,{
       id,storeId:key(r.storeId),storeName:r.storeName||r.storeId,productId:key(r.productId),productName:r.productName||productName(r.productId),
-      productNum:r.productNum||'',groupName:r.categoryName||r.groupName||'',unit:r.unit||'',currentStock:num(r.amount),
+      productNum:r.productNum||'',productCode:r.productCode||'',groupName:r.categoryName||r.groupName||'',unit:r.unit||'',currentStock:num(r.amount),
       serverMin:r.minAmount===null||r.minAmount===undefined?null:num(r.minAmount),serverMax:r.maxAmount===null||r.maxAmount===undefined?null:num(r.maxAmount)
     });
   }
   for(const x of state.data?.stockNorms||[]){
     const id=normId(x.storeId,x.productId);
-    if(!map.has(id))map.set(id,{id,storeId:key(x.storeId),storeName:x.storeName||x.storeId,productId:key(x.productId),productName:x.productName||productName(x.productId),productNum:'',groupName:'',unit:x.unit||'',currentStock:0,serverMin:null,serverMax:null});
+    if(!map.has(id))map.set(id,{id,storeId:key(x.storeId),storeName:x.storeName||x.storeId,productId:key(x.productId),productName:x.productName||productName(x.productId),productNum:'',productCode:'',groupName:'',unit:x.unit||'',currentStock:0,serverMin:null,serverMax:null});
   }
   return [...map.values()].sort((a,b)=>a.storeName.localeCompare(b.storeName,'ru')||a.productName.localeCompare(b.productName,'ru'));
 }
@@ -507,7 +511,7 @@ function renderNorms(){
   const visible=rows.filter(row=>{
     const d=effectiveNormDraft(row),configured=!!d.persisted;
     if(sid&&row.storeId!==sid)return false;
-    if(qv&&![row.productName,row.productNum,row.groupName,row.storeName].join(' ').toLowerCase().includes(qv))return false;
+    if(qv&&![row.productName,row.productNum,row.productCode,row.groupName,row.storeName].join(' ').toLowerCase().includes(qv))return false;
     if(filter==='configured'&&!configured)return false;if(filter==='unconfigured'&&configured)return false;
     if(filter==='negative'&&!(row.currentStock<0))return false;if(filter==='zero'&&Math.abs(row.currentStock)>1e-12)return false;
     return true;
@@ -517,14 +521,14 @@ function renderNorms(){
   tb.innerHTML=visible.map(row=>{
     const d=effectiveNormDraft(row),configured=!!d.persisted,min=d.minStock,target=d.targetStock,source=configured?'Smart Horeca':(row.serverMin!==null||row.serverMax!==null?'Server':'Не задано');
     return '<tr data-norm-row="'+esc(row.id)+'" data-store-id="'+esc(row.storeId)+'" data-store-name="'+esc(row.storeName)+'" data-product-id="'+esc(row.productId)+'" data-product-name="'+esc(row.productName)+'" data-unit="'+esc(row.unit)+'">'+
-      '<td><strong>'+esc(row.productName)+'</strong><small>'+esc([row.productNum,row.groupName].filter(Boolean).join(' · ')||row.productId)+'</small></td>'+
+      '<td class="proc-product-code">'+esc(row.productCode||row.productNum||'—')+'</td><td><strong>'+esc(row.productName)+'</strong><small>'+esc(row.groupName||'')+'</small></td>'+ 
       '<td>'+esc(row.storeName)+'</td><td class="'+(row.currentStock<0?'proc-negative':Math.abs(row.currentStock)<=1e-12?'proc-low':'')+'">'+qty(row.currentStock)+' '+esc(row.unit)+'</td>'+
       '<td><input class="proc-norm-input" data-norm-field="minStock" type="number" min="0" step="0.001" value="'+(min===null||min===undefined?'':esc(min))+'" placeholder="—"></td>'+
       '<td><input class="proc-norm-input" data-norm-field="targetStock" type="number" min="0" step="0.001" value="'+(target===null||target===undefined?'':esc(target))+'" placeholder="—"></td>'+
       '<td><input class="proc-norm-input lead" data-norm-field="leadDays" type="number" min="0" step="1" value="'+num(d.leadDays)+'"></td>'+
       '<td><label class="proc-switch"><input data-norm-field="enabled" type="checkbox" '+(d.enabled!==false?'checked':'')+'><span></span></label></td>'+
       '<td><span class="proc-status-badge '+(configured?'success':source==='Server'?'warn':'neutral')+'">'+esc(source)+'</span>'+(state.dirtyNorms.has(row.id)?'<small class="proc-dirty">изменено</small>':'')+'</td></tr>';
-  }).join('')||'<tr><td colspan="8" class="proc-empty">По выбранным фильтрам позиций нет.</td></tr>';
+  }).join('')||'<tr><td colspan="9" class="proc-empty">По выбранным фильтрам позиций нет.</td></tr>';
 }
 function updateNormDraftFromRow(row){
   const id=row.dataset.normRow,base=effectiveNormDraft(normRows().find(x=>x.id===id)||{id,storeId:row.dataset.storeId,storeName:row.dataset.storeName,productId:row.dataset.productId,productName:row.dataset.productName,unit:row.dataset.unit,serverMin:null,serverMax:null});
@@ -554,21 +558,28 @@ function requesterActions(r){
 function prLinesHtml(r,showPrices=true){
   return '<div class="proc-line-list">'+(r.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.quantity)+' '+esc(l.unit)+'</strong><span>фас. '+qty(l.packageSize||1)+' × '+qty(l.packageCount||l.quantity)+' · НДС '+num(l.vatPercent)+'%'+(showPrices?(l.expectedPrice?' · '+money(l.expectedPrice)+'/уп.':' · цена уточняется'):'')+'</span></div>').join('')+'</div>';
 }
+function historyHtml(doc){
+  const rows=doc?.history||[];
+  if(!rows.length)return '';
+  const labels={CREATE:'Создал',UPDATE:'Изменил',REVISE:'Изменил при согласовании',SUBMIT:'Отправил на согласование',APPROVE:'Согласовал',CANCEL:'Отменил',REJECT:'Отклонил',CLOSE:'Закрыл'};
+  return '<details class="proc-activity"><summary>История документа · '+rows.length+' событий</summary><div class="proc-activity-list">'+rows.map(x=>'<div><span>'+esc(dateTimeLabel(x.at))+'</span><strong>'+esc(x.actor||'Пользователь')+'</strong><span>'+esc(labels[x.action]||x.action)+'</span></div>').join('')+'</div></details>';
+}
 function prProgressHtml(r){
   const effective=r.effectiveStatus||r.status;
   if(!['PARTIALLY_ORDERED','ORDERED','PARTIALLY_FULFILLED','COMPLETED'].includes(effective))return '';
   return '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(r.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>'+((r.linkedOrders||[]).length)+' PO связано</span><span>'+num(r.completionPercent).toFixed(1)+'% выполнено</span></div></div>';
 }
 function requestCard(r){
-  const effective=r.effectiveStatus||r.status,done=['COMPLETED','CLOSED','CANCELLED'].includes(effective);
+  const effective=r.effectiveStatus||r.status,done=['COMPLETED','CLOSED','CANCELLED'].includes(effective),seePrices=canViewProcurementPrices();
   return '<article class="proc-doc-card '+(done?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+dateTimeLabel(r.createdAt)+' · '+esc(r.createdBy||'')+'</span></div><span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span></div>'+
-    prProgressHtml(r)+prLinesHtml(r,true)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
-    '<div class="proc-doc-footer"><strong>'+(r.totalEstimate?money(r.totalEstimate):'Сумма уточняется')+'</strong><div class="proc-actions">'+requesterActions(r)+'</div></div></article>';
+    prProgressHtml(r)+prLinesHtml(r,seePrices)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
+    '<div class="proc-doc-footer"><strong>'+(seePrices?(r.totalEstimate?money(r.totalEstimate):'Цена уточняется'):'Заявка без цен')+'</strong><div class="proc-actions">'+requesterActions(r)+'</div></div>'+historyHtml(r)+'</article>';
 }
 function approvalCard(r){
-  return '<article class="proc-doc-card"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+new Date(r.createdAt).toLocaleDateString('ru-RU')+' · '+esc(r.createdBy||'')+'</span></div><span class="proc-status-badge warn">Нужно: '+esc(approvalName(r.requiredApprovalLevel))+'</span></div>'+
-    prLinesHtml(r,true)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
-    '<div class="proc-doc-footer"><strong>'+(r.totalEstimate?money(r.totalEstimate):'Сумма уточняется')+'</strong><div class="proc-actions"><button class="proc-btn small primary" data-pr-approve="'+r.id+'">Согласовать</button><button class="proc-btn small danger" data-pr-cancel="'+r.id+'">Отклонить</button></div></div></article>';
+  const seePrices=canViewProcurementPrices();
+  return '<article class="proc-doc-card"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+dateTimeLabel(r.createdAt)+' · '+esc(r.createdBy||'')+'</span></div><span class="proc-status-badge warn">На согласовании</span></div>'+
+    prLinesHtml(r,seePrices)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
+    '<div class="proc-doc-footer"><strong>'+(seePrices?(r.totalEstimate?money(r.totalEstimate):'Цена уточняется'):'Проверка количества')+'</strong><div class="proc-actions"><button class="proc-btn small secondary" data-pr-review="'+r.id+'">Изменить заявку</button><button class="proc-btn small primary" data-pr-approve="'+r.id+'">Согласовать</button><button class="proc-btn small danger" data-pr-cancel="'+r.id+'">Отклонить</button></div></div>'+historyHtml(r)+'</article>';
 }
 function quoteLineByProduct(quote,productId){
   return (quote?.lines||[]).find(x=>key(x.productId)===key(productId))||null;
@@ -579,7 +590,7 @@ function quoteComparisonHtml(r){
 
   const bestPriceByProduct=new Map();
   for(const line of lines){
-    const prices=quotes.map(qt=>num(quoteLineByProduct(qt,line.productId)?.unitPrice,0)).filter(x=>x>0);
+    const prices=quotes.map(qt=>{const l=quoteLineByProduct(qt,line.productId);return l?num(l.unitPrice)/Math.max(0.001,num(l.packageSize,1)):0}).filter(x=>x>0);
     if(prices.length)bestPriceByProduct.set(key(line.productId),Math.min(...prices));
   }
 
@@ -604,7 +615,7 @@ function quoteComparisonHtml(r){
       quotes.map(qt=>{
         const ql=quoteLineByProduct(qt,line.productId);
         if(!ql)return '<td class="quote-price-cell missing"><span>Поставщик эту позицию не предложил</span></td>';
-        const price=num(ql.unitPrice),packSize=num(ql.packageSize||line.packageSize||1,1)||1,packCount=num(ql.packageCount, num(ql.quantity||line.quantity)/packSize),lineTotal=num(ql.total||packCount*price),basePrice=packSize>0?price/packSize:price,isBest=best>0&&Math.abs(price-best)<0.0001;
+        const price=num(ql.unitPrice),packSize=num(ql.packageSize||line.packageSize||1,1)||1,packCount=num(ql.packageCount, num(ql.quantity||line.quantity)/packSize),lineTotal=num(ql.total||packCount*price),basePrice=packSize>0?price/packSize:price,isBest=best>0&&Math.abs(basePrice-best)<0.0001;
         return '<td class="quote-price-cell '+(isBest?'best':'')+'">'+
           '<div class="quote-detail"><span>Цена за упаковку</span><strong>'+money(price)+'</strong></div>'+
           '<div class="quote-detail"><span>Фасовка</span><b>'+qty(packSize)+' '+esc(ql.unit||line.unit||'')+'</b></div>'+
@@ -620,7 +631,8 @@ function quoteComparisonHtml(r){
   const totals='<tr class="quote-total-row"><td><strong>Итого предложение</strong></td>'+
     quotes.map(qt=>'<td><strong>'+money(qt.totalAmount)+'</strong>'+(r.status==='APPROVED'?'<button class="proc-btn small primary quote-po-btn" data-po-create="'+r.id+'" data-quote="'+qt.id+'">Создать PO</button>':'')+'</td>').join('')+'</tr>';
 
-  return quoteCards+'<div class="proc-quote-compare-wrap"><table class="proc-quote-compare">'+head+'<tbody>'+bodyRows+totals+'</tbody></table></div>'+
+  return quoteCards+'<div class="proc-quote-compare-wrap"><table class="proc-quote-compare">'+head+'<tbody>'+bodyRows+totals+'</tbody></table></div>'+ 
+    (r.status==='APPROVED'?'<div class="proc-split-entry"><div><strong>Заказы по лучшим ценам</strong><small>Можно распределить один товар между несколькими поставщиками и создать отдельный PO для каждого.</small></div><button class="proc-btn primary" data-po-split="'+r.id+'">Распределить товары и создать PO</button></div>':'')+
     '<div class="proc-quote-legend"><span><i class="best-dot"></i> зелёным отмечена минимальная цена по конкретному товару</span><span>Все цены показаны с детализацией по упаковке и базовой единице</span></div>';
 }
 function rfqStatusLabel(s){
@@ -651,18 +663,18 @@ function sourcingCard(r,index=0){
     '<section class="proc-sourcing-section"><div class="proc-section-title"><b>1</b><div><strong>Потребность</strong><span>Что нужно купить</span></div><em>'+(r.lines||[]).length+' позиций</em></div>'+prLinesHtml(r,false)+'</section>'+
     '<section class="proc-sourcing-section"><div class="proc-section-title"><b>2</b><div><strong>RFQ · запрос цен</strong><span>Кому отправили и кто ответил</span></div><button class="proc-btn small secondary" data-rfq-create="'+r.id+'">+ Создать RFQ</button></div>'+rfqListHtml(r)+'</section>'+
     '<section class="proc-sourcing-section quotes"><div class="proc-section-title"><b>3</b><div><strong>Предложения поставщиков</strong><span>Цены, условия и сравнение</span></div><button class="proc-btn small ghost" data-pr-quote="'+r.id+'" '+(activeRfq?'data-rfq="'+activeRfq.id+'"':'')+'>+ Внести предложение</button></div>'+quoteComparisonHtml(r)+'</section>'+
-    '<div class="proc-document-footer"><div><span>Оценка PR</span><strong>'+(r.totalEstimate?money(r.totalEstimate):'—')+'</strong></div><div><span>Заказы PO</span><strong>'+((r.linkedOrders||[]).length?r.linkedOrders.length:'ещё нет')+'</strong></div><em>Конец '+esc(r.number)+'</em></div>'+
+    '<div class="proc-document-footer"><div><span>Заявка PR</span><strong>'+(r.lines||[]).length+' позиций</strong></div><div><span>Заказы PO</span><strong>'+((r.linkedOrders||[]).length?r.linkedOrders.length:'ещё нет')+'</strong></div><em>Конец '+esc(r.number)+'</em></div>'+historyHtml(r)+
   '</article>';
 }
 function requestListItem(r){
   const effective=r.effectiveStatus||r.status,done=['COMPLETED','CLOSED','CANCELLED'].includes(effective);
-  const lines=(r.lines||[]).length,total=r.totalEstimate?money(r.totalEstimate):'Сумма уточняется';
+  const lines=(r.lines||[]).length,total=canViewProcurementPrices()?(r.totalEstimate?money(r.totalEstimate):'Уточняется'):'Без цен';
   return '<details class="proc-record '+(done?'done':'')+'" name="proc-pr-documents">'+
     '<summary class="proc-record-summary">'+
       '<div class="proc-record-date"><strong>'+esc(dateTimeLabel(r.createdAt))+'</strong><span>дата и время</span></div>'+
       '<div class="proc-record-main"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+esc(r.createdBy||'—')+'</span></div>'+
       '<div class="proc-record-metric"><strong>'+lines+'</strong><span>позиций</span></div>'+
-      '<div class="proc-record-metric amount"><strong>'+esc(total)+'</strong><span>оценка</span></div>'+
+      '<div class="proc-record-metric amount"><strong>'+esc(total)+'</strong><span>'+(canViewProcurementPrices()?'оценка':'PR')+'</span></div>'+
       '<span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span>'+
       '<span class="proc-record-open">Открыть <i>›</i></span>'+
     '</summary>'+
@@ -676,7 +688,7 @@ function orderListItem(o,{receiving=false}={}){
   return '<details class="proc-record '+(done?'done':'')+'" name="'+(receiving?'proc-receiving-documents':'proc-po-documents')+'">'+
     '<summary class="proc-record-summary">'+
       '<div class="proc-record-date"><strong>'+esc(dateTimeLabel(o.createdAt))+'</strong><span>дата и время</span></div>'+
-      '<div class="proc-record-main"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId||'Поставщик')+' · '+esc(o.warehouseName||'Склад')+'</span></div>'+
+      '<div class="proc-record-main"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId||'Поставщик')+' · '+esc(o.createdBy||'Пользователь')+'</span></div>'+
       '<div class="proc-record-metric"><strong>'+lines+'</strong><span>позиций</span></div>'+
       (receiving
         ?'<div class="proc-record-metric amount"><strong>'+remainingLines+'</strong><span>поз. к приёмке · '+esc(matchLabel(o.matchStatus))+'</span></div>'
@@ -684,7 +696,7 @@ function orderListItem(o,{receiving=false}={}){
       '<span class="proc-status-badge '+(receiving?threeWayTone(displayStatus):statusTone(displayStatus))+'">'+esc(receiving?matchLabel(displayStatus):statusLabel(displayStatus))+'</span>'+
       '<span class="proc-record-open">Открыть <i>›</i></span>'+
     '</summary>'+
-    '<div class="proc-record-body">'+orderCard(o,{receiving})+'</div>'+
+    '<div class="proc-record-body">'+orderCard(o,{receiving})+historyHtml(o)+'</div>'+
   '</details>';
 }
 function sourcingListItem(r,index=0){
@@ -709,7 +721,7 @@ function renderRequisitions(){
   const head=document.querySelector('[data-panel="requisitions"] .proc-panel-head');
   if(view==='approvals'){
     if(head)head.querySelector('h2').textContent='Согласование заявок';
-    if(head)head.querySelector('p').textContent='Здесь нет предложений поставщиков — только потребность, сумма и решение.';
+    if(head)head.querySelector('p').textContent='Проверка количества и состава заявки, оценка стоимости при наличии права просмотра цен, решение.';
     const rows=all.filter(r=>r.status==='PENDING_APPROVAL');
     box.innerHTML=rows.map(approvalCard).join('')||'<div class="proc-empty">Нет заявок, ожидающих согласования.</div>';
     return;
@@ -853,7 +865,7 @@ async function manageVarianceResolution(o,receiptId,verify=false){
 }
 function orderCard(o,{receiving=false}={}){
   const lines=(o.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.orderedQty)+' '+esc(l.unit)+(receiving?'':' × '+money(l.unitPrice))+'</strong><span>по GRN '+qty(l.receivedQty)+' · осталось '+qty(l.remainingQty)+'</span></div>').join('');
-  return '<article class="proc-doc-card '+(o.effectiveStatus==='COMPLETED'?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId)+' · '+esc(o.warehouseName||'Склад')+' · '+dateTimeLabel(o.createdAt)+'</span></div><span class="proc-status-badge '+statusTone(o.effectiveStatus)+'">'+esc(receiving&&o.effectiveStatus==='COMPLETED'?'Физически принято':statusLabel(o.effectiveStatus))+'</span></div>'+
+  return '<article class="proc-doc-card '+(o.effectiveStatus==='COMPLETED'?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId)+' · '+esc(o.warehouseName||'Склад')+' · '+dateTimeLabel(o.createdAt)+' · Создал: '+esc(o.createdBy||'Пользователь')+'</span></div><span class="proc-status-badge '+statusTone(o.effectiveStatus)+'">'+esc(receiving&&o.effectiveStatus==='COMPLETED'?'Физически принято':statusLabel(o.effectiveStatus))+'</span></div>'+
     '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(o.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>По GRN принято '+qty(o.receivedQty)+' из '+qty(o.orderedQty)+'</span><span>'+num(o.completionPercent).toFixed(1)+'%</span></div></div>'+
     '<div class="proc-line-list">'+lines+'</div>'+
     threeWayPanelHtml(o)+
@@ -976,38 +988,41 @@ function vatOptions(selected=0){
   return [0,2,8,18].map(v=>'<option value="'+v+'" '+(num(selected)===v?'selected':'')+'>'+v+'%</option>').join('');
 }
 function prLineHtml(line={}){
-  const pid=key(line.productId),name=line.productName||productName(pid),unit=line.unit||unitFor(pid),price=num(line.expectedPrice??line.unitPrice);
+  const pid=key(line.productId),name=line.productName||productName(pid),unit=line.unit||unitFor(pid),canCost=canViewProcurementPrices(),price=canCost?num(line.expectedPrice??line.unitPrice):0;
   const quantity=num(line.quantity??line.recommendedQty??line.manualQty??1),packageSize=num(line.packageSize,1)||1,packageCount=num(line.packageCount,quantity/packageSize)||1,vat=num(line.vatPercent,0);
-  return '<div class="proc-edit-row proc-pack-row" data-pr-line data-product-id="'+esc(pid)+'">'+
+  return '<div class="proc-edit-row proc-pack-row '+(canCost?'':'proc-pr-no-prices')+'" data-pr-line data-product-id="'+esc(pid)+'">'+
     '<div class="proc-field"><span>Товар</span><input data-f="product" list="proc-products-list" value="'+esc(productLabel(pid,name))+'" placeholder="Начните вводить название"></div>'+
     '<div class="proc-field proc-package-field"><span>Фасовка</span><select data-f="packageChoice">'+packagingChoiceHtml(pid,{containerId:line.containerId,packageSize,packageName:line.packageName})+'</select><input data-f="packageSize" type="number" min="0.001" step="0.001" value="'+packageSize+'"></div>'+
     '<div class="proc-field"><span>Упаковок</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+packageCount+'"></div>'+
     '<div class="proc-field"><span>Итого '+esc(unit||'ед.')+'</span><input data-f="quantity" type="number" value="'+(packageSize*packageCount).toFixed(3).replace(/\.000$/,'')+'" readonly></div>'+
-    '<div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div>'+
-    '<div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0" step="0.01" value="'+price+'"></div>'+
-    '<strong class="line-total">'+money(packageCount*price)+'</strong><button class="remove" type="button">×</button>'+
+    (canCost?'<div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div>':'')+
+    (canCost?'<div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0" step="0.01" value="'+price+'"></div>':'')+
+    (canCost?'<strong class="line-total">'+money(packageCount*price)+'</strong>':'')+'<button class="remove" type="button">×</button>'+
     '<input data-f="containerId" type="hidden" value="'+esc(line.containerId||'')+'"><input data-f="packageName" type="hidden" value="'+esc(line.packageName||'')+'">'+
     '<input data-f="unit" type="hidden" value="'+esc(unit)+'"><input data-f="currentStock" type="hidden" value="'+num(line.currentStock)+'"><input data-f="minStock" type="hidden" value="'+(line.minStock??'')+'"><input data-f="maxStock" type="hidden" value="'+(line.maxStock??'')+'"><input data-f="storeId" type="hidden" value="'+esc(line.storeId||'')+'"><input data-f="storeName" type="hidden" value="'+esc(line.storeName||'')+'"></div>';
 }
+
 function bindEditRows(root){
   root.querySelectorAll('[data-pr-line]').forEach(row=>{
     row.querySelector('.remove').onclick=()=>{row.remove();recalcPrModal()};
     row.querySelector('[data-f="product"]').onchange=e=>{const pid=resolveProductLabel(e.target.value);row.dataset.productId=pid;if(pid)row.querySelector('[data-f="unit"]').value=unitFor(pid);row.querySelector('[data-f="containerId"]').value='';row.querySelector('[data-f="packageName"]').value='';syncPackagingRow(row);recalcPrModal()};
     row.querySelector('[data-f="packageChoice"]').onchange=()=>{applyPackagingChoice(row);recalcPrModal()};
-    ['packageSize','packageCount','price'].forEach(name=>row.querySelector('[data-f="'+name+'"]').oninput=recalcPrModal);
-    row.querySelector('[data-f="vatPercent"]').onchange=recalcPrModal;
+    ['packageSize','packageCount','price'].forEach(name=>{const el=row.querySelector('[data-f="'+name+'"]');if(el)el.oninput=recalcPrModal});
+    const vat=row.querySelector('[data-f="vatPercent"]');if(vat)vat.onchange=recalcPrModal;
     applyPackagingChoice(row);
   });
 }
+
 function recalcPrModal(){
   let total=0;
   document.querySelectorAll('#proc-pr-lines [data-pr-line]').forEach(row=>{
-    const pack=num(row.querySelector('[data-f="packageSize"]').value,1),count=num(row.querySelector('[data-f="packageCount"]').value),price=num(row.querySelector('[data-f="price"]').value);
+    const pack=num(row.querySelector('[data-f="packageSize"]').value,1),count=num(row.querySelector('[data-f="packageCount"]').value),price=num(row.querySelector('[data-f="price"]')?.value);
     row.querySelector('[data-f="quantity"]').value=(pack*count).toFixed(3).replace(/\.000$/,'');
-    total+=count*price;row.querySelector('.line-total').textContent=money(count*price);
+    total+=count*price;const display=row.querySelector('.line-total');if(display)display.textContent=money(count*price);
   });
   if($('proc-pr-total'))$('proc-pr-total').textContent=money(total);
 }
+
 function collectPrLines(){
   return [...document.querySelectorAll('#proc-pr-lines [data-pr-line]')].map(row=>{
     const label=row.querySelector('[data-f="product"]').value,pid=key(row.dataset.productId||resolveProductLabel(label));if(!pid)throw Error('Выберите номенклатуру из списка.');
@@ -1016,17 +1031,34 @@ function collectPrLines(){
     if(packs.length&&!containerId)throw Error(productName(pid)+': выберите фасовку из iiko.');
     if(!(packageSize>0))throw Error(productName(pid)+': фасовка не определена в iiko.');
     if(!(packageCount>0))throw Error(productName(pid)+': укажите количество упаковок.');
-    return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value||unitFor(pid),quantity:packageSize*packageCount,packageSize,packageCount,containerId,packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),expectedPrice:num(row.querySelector('[data-f="price"]').value),currentStock:num(row.querySelector('[data-f="currentStock"]').value),minStock:row.querySelector('[data-f="minStock"]').value===''?null:num(row.querySelector('[data-f="minStock"]').value),maxStock:row.querySelector('[data-f="maxStock"]').value===''?null:num(row.querySelector('[data-f="maxStock"]').value),storeId:row.querySelector('[data-f="storeId"]').value,storeName:row.querySelector('[data-f="storeName"]').value};
+    return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value||unitFor(pid),quantity:packageSize*packageCount,packageSize,packageCount,containerId,packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]')?.value),expectedPrice:num(row.querySelector('[data-f="price"]')?.value),currentStock:num(row.querySelector('[data-f="currentStock"]').value),minStock:row.querySelector('[data-f="minStock"]').value===''?null:num(row.querySelector('[data-f="minStock"]').value),maxStock:row.querySelector('[data-f="maxStock"]').value===''?null:num(row.querySelector('[data-f="maxStock"]').value),storeId:row.querySelector('[data-f="storeId"]').value,storeName:row.querySelector('[data-f="storeName"]').value};
   });
 }
+
 function openPrModal(seed=[],existing=null){
-  const lines=(existing?.lines?.length?existing.lines:seed.length?seed:[{productId:'',productName:'',quantity:1,packageSize:1,packageCount:1,vatPercent:0,expectedPrice:0}]).map(x=>{const quantity=num(x.quantity??x.recommendedQty??x.manualQty??1);const packageSize=num(x.packageSize,1)||1;return{...x,quantity,packageSize,packageCount:num(x.packageCount,quantity/packageSize)||1,vatPercent:num(x.vatPercent,0),expectedPrice:x.expectedPrice??x.lastPrice,currentStock:x.currentStock,minStock:x.minStock,maxStock:x.maxStock,storeId:x.storeId,storeName:x.storeName}});
+  const review=existing?.status==='PENDING_APPROVAL';
+  const lines=(existing?.lines?.length?existing.lines:seed.length?seed:[{productId:'',productName:'',quantity:1,packageSize:1,packageCount:1}]).map(x=>{const quantity=num(x.quantity??x.recommendedQty??x.manualQty??1);const packageSize=num(x.packageSize,1)||1;return{...x,quantity,packageSize,packageCount:num(x.packageCount,quantity/packageSize)||1}});
   const source=existing?.source||(seed.length&&seed.every(x=>x.autoRecommended)?'AUTO_MINMAX':'MANUAL');
   const sameStore=lines.length&&lines.every(x=>key(x.storeId)===key(lines[0].storeId))?lines[0].storeId:'',warehouse=existing?.warehouseId||sameStore||state.refs.warehouses[0]?.id||'',lead=num(state.data?.settings?.defaultLeadDays,2);
-  openModal(existing?'Изменить заявку '+existing.number:'Новая заявка на закупку','PURCHASE REQUISITION','<form id="proc-pr-form"><datalist id="proc-products-list">'+productOptions()+'</datalist><datalist id="proc-pack-sizes"><option value="0.1"></option><option value="0.25"></option><option value="0.5"></option><option value="1"></option><option value="2"></option><option value="2.5"></option><option value="5"></option><option value="10"></option></datalist><div class="proc-form-grid"><label class="proc-field"><span>Склад назначения</span><select id="proc-pr-warehouse">'+warehouseOptions(warehouse)+'</select></label><label class="proc-field"><span>Нужно к дате</span><input id="proc-pr-needed" type="date" value="'+esc(existing?.neededBy||addDays(today(),lead))+'"></label><label class="proc-field"><span>Источник</span><input value="'+esc(source)+'" disabled></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-pr-comment" placeholder="Причина, проект, пожелания закупщику…">'+esc(existing?.comment||'')+'</textarea></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Позиции заявки</strong><button id="proc-pr-add-line" type="button" class="proc-btn small ghost">＋ Добавить</button></div><div id="proc-pr-lines">'+lines.map(prLineHtml).join('')+'</div></div><div class="proc-modal-summary"><span>Оценочная сумма заявки</span><strong id="proc-pr-total">0,00 ₼</strong></div><div class="proc-modal-actions"><button type="button" class="proc-btn ghost" id="proc-pr-cancel">Отмена</button><button class="proc-btn primary" type="submit">'+(existing?'Сохранить изменения':'Создать PR')+'</button></div></form>');
-  bindEditRows($('proc-pr-lines'));recalcPrModal();$('proc-pr-cancel').onclick=closeModal;$('proc-pr-add-line').onclick=()=>{$('proc-pr-lines').insertAdjacentHTML('beforeend',prLineHtml({quantity:1,packageSize:1,packageCount:1,vatPercent:0}));bindEditRows($('proc-pr-lines'));recalcPrModal()};
-  $('proc-pr-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const wid=key($('proc-pr-warehouse').value),w=state.refs.warehouses.find(x=>key(x.id)===wid);if(!wid)throw Error('Выберите склад назначения.');const payload={id:existing?.id,warehouseId:wid,warehouseName:w?.name||'',neededBy:$('proc-pr-needed').value,comment:$('proc-pr-comment').value,source,lines:collectPrLines()};await procPost(existing?'update-requisition':'create-requisition',payload);closeModal();await reloadProc();toast(existing?'Заявка обновлена.':'Заявка создана.');goProcurementView('requests')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
+  openModal(existing?'Изменить заявку '+existing.number:'Новая заявка на закупку',review?'СОГЛАСОВАНИЕ · РЕДАКТИРОВАНИЕ':'PURCHASE REQUISITION',
+    '<form id="proc-pr-form"><datalist id="proc-products-list">'+productOptions()+'</datalist><div class="proc-form-grid"><label class="proc-field"><span>Склад назначения</span><select id="proc-pr-warehouse">'+warehouseOptions(warehouse)+'</select></label><label class="proc-field"><span>Нужно к дате</span><input id="proc-pr-needed" type="date" value="'+esc(existing?.neededBy||addDays(today(),lead))+'"></label><label class="proc-field"><span>Источник</span><input value="'+esc(source)+'" disabled></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-pr-comment" placeholder="Причина, проект, пожелания закупщику…">'+esc(existing?.comment||'')+'</textarea></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Позиции заявки</strong><button id="proc-pr-add-line" type="button" class="proc-btn small ghost">＋ Добавить</button></div><div id="proc-pr-lines">'+lines.map(prLineHtml).join('')+'</div></div>'+(canViewProcurementPrices()?'<div class="proc-modal-summary"><span>Оценочная сумма заявки</span><strong id="proc-pr-total">0,00 ₼</strong></div>':'')+'<div class="proc-modal-actions"><button type="button" class="proc-btn ghost" id="proc-pr-cancel">Отмена</button><button class="proc-btn primary" type="submit">'+(existing?'Сохранить изменения':'Создать PR')+'</button></div></form>');
+  bindEditRows($('proc-pr-lines'));recalcPrModal();$('proc-pr-cancel').onclick=closeModal;
+  $('proc-pr-add-line').onclick=()=>{$('proc-pr-lines').insertAdjacentHTML('beforeend',prLineHtml({quantity:1,packageSize:1,packageCount:1}));bindEditRows($('proc-pr-lines'));recalcPrModal()};
+  $('proc-pr-form').onsubmit=async e=>{
+    e.preventDefault();
+    try{
+      setBusy(true);
+      const wid=key($('proc-pr-warehouse').value),w=state.refs.warehouses.find(x=>key(x.id)===wid);
+      if(!wid)throw Error('Выберите склад назначения.');
+      const payload={id:existing?.id,warehouseId:wid,warehouseName:w?.name||'',neededBy:$('proc-pr-needed').value,comment:$('proc-pr-comment').value,source,lines:collectPrLines()};
+      await procPost(review?'revise-requisition':existing?'update-requisition':'create-requisition',payload);
+      closeModal();
+      if(review){await reloadProc();toast('Изменения сохранены. Теперь можно согласовать заявку.')}
+      else{toast(existing?'Заявка обновлена.':'Заявка создана.');goProcurementView('requests')}
+    }catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}
+  };
 }
+
 function quoteLineHtml(l,supplierId){
   const h=historyPrice(l.productId,supplierId),price=h?num(h.price):num(l.expectedPrice);
   const packageSize=num(l.packageSize,1)||1,packageCount=num(l.packageCount,num(l.quantity)/packageSize)||1,vat=num(l.vatPercent,0);
@@ -1069,6 +1101,89 @@ function openQuoteModal(r,rfqId=''){
   $('proc-quote-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const sid=key($('proc-quote-supplier').value),sup=state.refs.suppliers.find(x=>key(x.id)===sid);if(!sid)throw Error('Выберите поставщика.');const lines=[...document.querySelectorAll('[data-quote-line]')].map(row=>{const pid=row.dataset.productId;const packageSize=num(row.querySelector('[data-f="packageSize"]').value,1),packageCount=num(row.querySelector('[data-f="packageCount"]').value);return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId:key(row.querySelector('[data-f="containerId"]').value),packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),unitPrice:num(row.querySelector('[data-f="price"]').value)}});await procPost('add-quote',{requisitionId:r.id,rfqId:rfq?.id||'',supplierId:sid,supplierName:sup?.name||'',deliveryDays:num($('proc-quote-days').value),paymentTerms:$('proc-quote-payment').value,validUntil:$('proc-quote-valid').value,comment:$('proc-quote-comment').value,lines});closeModal();await reloadProc();toast('Предложение поставщика сохранено.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
 }
 async function simpleAction(action,id,message){try{setBusy(true);await procPost(action,{id});await reloadProc();toast(message)}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
+function openSplitPoModal(r){
+  const newest=[...(r.quotes||[])].sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
+  const offers=[...new Map(newest.reverse().map(x=>[key(x.supplierId),x])).values()];
+  const needed=(r.lines||[]).map(line=>{
+    const progress=(r.lineProgress||[]).find(x=>key(x.productId)===key(line.productId));
+    const remaining=Math.max(0,Math.round((num(line.quantity)-num(progress?.orderedQty))*1000)/1000);
+    const available=offers.map(quote=>({quote,line:quoteLineByProduct(quote,line.productId)})).filter(x=>num(x.line?.unitPrice)>0);
+    return{line,remaining,available};
+  }).filter(x=>x.remaining>0.0005);
+  if(!needed.length){toast('Все позиции этой заявки уже распределены по PO.','error');return}
+  const notQuoted=needed.filter(x=>!x.available.length);
+  const purchasable=needed.filter(x=>x.available.length);
+  if(!purchasable.length){toast('По оставшимся товарам нет предложений поставщиков.','error');return}
+  const html=purchasable.map(item=>{
+    const {line,remaining,available}=item;
+    const cheapest=[...available].sort((a,b)=>num(a.line.unitPrice)/num(a.line.packageSize,1)-num(b.line.unitPrice)/num(b.line.packageSize,1))[0];
+    return '<section class="proc-split-product" data-split-product="'+esc(line.productId)+'" data-remaining="'+remaining+'">'+
+      '<header><strong>'+esc(line.productName||line.productId)+'</strong><span>Осталось распределить: '+qty(remaining)+' '+esc(line.unit)+'</span></header>'+
+      available.map(({quote, line:offer})=>{
+        const pack=num(offer.packageSize,1)||1,unitPrice=num(offer.unitPrice),isBest=quote.id===cheapest.quote.id;
+        return '<label class="proc-split-option"><span><strong>'+esc(quote.supplierName||quote.supplierId)+'</strong><small>'+money(unitPrice/pack)+' / '+esc(line.unit||'ед.')+' · фасовка '+qty(pack)+(isBest?' · лучшая цена':'')+'</small></span>'+
+          '<input type="number" data-split-qty data-product-id="'+esc(line.productId)+'" data-quote-id="'+esc(quote.id)+'" data-price="'+unitPrice+'" data-pack="'+pack+'" min="0" max="'+remaining+'" step="0.001" value="'+(isBest?qty(Math.floor((remaining+0.000001)/pack)*pack).replace(/\s/g,'').replace(',','.'):'0')+'" aria-label="Количество для '+esc(quote.supplierName||quote.supplierId)+'">'+
+          '<span class="proc-split-money">—</span></label>';
+      }).join('')+
+      '<footer class="proc-split-summary"></footer></section>';
+  }).join('');
+  openModal('Распределение PR · '+r.number,'PO · ВЫБОР ПОСТАВЩИКОВ',
+    '<p class="proc-split-help">Укажите количество в базовой единице (кг, шт. и т.д.). Можно распределить 1000 кг между 2–3 поставщиками. Для каждого поставщика будет создан отдельный PO по его предложенной цене.</p>'+
+    (notQuoted.length?'<p class="proc-split-help">Без предложений (остаются в PR): '+esc(notQuoted.map(x=>x.line.productName||x.line.productId).join(', '))+'</p>':'')+
+    '<div id="proc-split-products">'+html+'</div><div class="proc-split-bottom"><strong id="proc-split-total">Итого: 0,00 ₼</strong><span id="proc-split-message"></span></div>'+
+    '<div class="proc-modal-actions"><button class="proc-btn ghost" id="proc-split-auto" type="button">Авто: минимальные цены</button><button class="proc-btn ghost" id="proc-split-cancel" type="button">Отмена</button><button class="proc-btn primary" id="proc-split-save" type="button">Создать PO по распределению</button></div>');
+  const recalc=()=>{
+    let total=0,valid=true,any=false;
+    document.querySelectorAll('[data-split-product]').forEach(row=>{
+      const max=num(row.dataset.remaining),inputs=[...row.querySelectorAll('[data-split-qty]')];
+      let assigned=0;
+      inputs.forEach(input=>{
+        const value=num(input.value),cost=value/num(input.dataset.pack,1)*num(input.dataset.price);
+        if(!Number.isFinite(value)||value<0||value>max+0.0005||value>0&&Math.abs(Math.round(value/num(input.dataset.pack,1)*1000)/1000*num(input.dataset.pack,1)-value)>0.0005)valid=false;
+        if(value>0.0005)any=true;
+        assigned+=value;total+=cost;
+        input.closest('.proc-split-option').querySelector('.proc-split-money').textContent=money(cost);
+      });
+      if(assigned>max+0.0005)valid=false;
+      const summary=row.querySelector('.proc-split-summary');
+      summary.textContent='Распределено: '+qty(assigned)+' / '+qty(max)+' · не заказано: '+qty(Math.max(0,max-assigned));
+      summary.classList.toggle('invalid',assigned>max+0.0005);
+    });
+    $('proc-split-total').textContent='Итого PO: '+money(total);
+    $('proc-split-message').textContent=valid?'Можно создать несколько PO одновременно.':'Проверьте остаток PR и кратность фасовке поставщика.';
+    $('proc-split-save').disabled=!valid||!any;
+  };
+  document.querySelectorAll('[data-split-qty]').forEach(x=>x.oninput=recalc);
+  $('proc-split-auto').onclick=()=>{
+    document.querySelectorAll('[data-split-product]').forEach(row=>{
+      const inputs=[...row.querySelectorAll('[data-split-qty]')];
+      const best=[...inputs].sort((a,b)=>num(a.dataset.price)/num(a.dataset.pack,1)-num(b.dataset.price)/num(b.dataset.pack,1))[0];
+      const pack=num(best?.dataset.pack,1)||1,possible=Math.floor((num(row.dataset.remaining)+0.000001)/pack)*pack;
+      inputs.forEach(input=>input.value=input===best?Math.round(possible*1000)/1000:'0');
+    });recalc();
+  };
+  $('proc-split-cancel').onclick=closeModal;
+  $('proc-split-save').onclick=async()=>{
+    try{
+      const byQuote=new Map();
+      for(const input of document.querySelectorAll('[data-split-qty]')){
+        const value=num(input.value);
+        if(value<=0)continue;
+        const id=input.dataset.quoteId;
+        if(!byQuote.has(id))byQuote.set(id,{quoteId:id,lines:[]});
+        byQuote.get(id).lines.push({productId:input.dataset.productId,quantity:value});
+      }
+      if(!byQuote.size)throw Error('Укажите количество хотя бы одного товара.');
+      setBusy(true);
+      const result=await procPost('create-orders-split',{requisitionId:r.id,allocations:[...byQuote.values()]});
+      closeModal();
+      toast('Создано PO: '+(result.orders||[]).map(x=>x.number).join(', '));
+      goProcurementView('orders');
+    }catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}
+  };
+  recalc();
+}
+
 async function createPoFromQuote(reqId,quoteId){
   try{
     setBusy(true);
@@ -1443,9 +1558,9 @@ async function loadAll(){
     renderAll();applyProcurementView();
     document.documentElement.style.visibility='visible';
 
-    const view=state.view||currentProcurementView(),canCost=window.SHAccess?.can?.('procurement.prices.view')||window.SHAccess?.can?.('sensitive.cost.view')||false;
+    const view=state.view||currentProcurementView(),canCost=canViewProcurementPrices();
     const tasks=[];
-    if(['catalog','sourcing','suppliers','receiving','norms'].includes(view))tasks.push(['Справочники',loadReferences]);
+    if(['catalog','requests','approvals','sourcing','suppliers','receiving','norms'].includes(view))tasks.push(['Справочники',loadReferences]);
     if(['catalog','norms'].includes(view))tasks.push(['Остатки',loadStocks]);
     if(canCost&&['catalog','sourcing','orders','receiving'].includes(view))tasks.push(['Накладные / история цен',loadHistory]);
     if(canCost&&['sourcing','suppliers','analytics'].includes(view))tasks.push(['Баланс поставщиков',loadSupplierBalances]);
@@ -1517,9 +1632,9 @@ function bind(){
     const row=state.purchaseRows.find(x=>x.id===b.dataset.createNeed);if(row)openPrModal([row]);
   });
   $('proc-pr-list').addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prClose||b.dataset.prQuote||b.dataset.poCreate||b.dataset.rfqCreate||b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose||b.dataset.rfqLink;if(!id)return;
+    const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prReview||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prClose||b.dataset.prQuote||b.dataset.poCreate||b.dataset.poSplit||b.dataset.rfqCreate||b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose||b.dataset.rfqLink;if(!id)return;
     const r=(state.data?.requisitions||[]).find(x=>x.id===id)||(state.data?.requisitions||[]).find(x=>(x.rfqs||[]).some(q=>q.id===id));
-    if(b.dataset.prEdit&&r)return openPrModal([],r);
+    if((b.dataset.prEdit||b.dataset.prReview)&&r)return openPrModal([],r);
     if(b.dataset.rfqCreate&&r)return openRfqModal(r);
     if((b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose||b.dataset.rfqLink)&&r){
       const rfq=(r.rfqs||[]).find(x=>x.id===id);if(!rfq)return;
@@ -1531,9 +1646,10 @@ function bind(){
     if(b.dataset.prQuote&&r)return openQuoteModal(r,b.dataset.rfq||'');
     if(b.dataset.prClose&&r){const reason=prompt('Причина ручного закрытия '+r.number+':');if(reason?.trim())return procPost('close-requisition',{id:r.id,reason:reason.trim()}).then(()=>reloadProc()).then(()=>toast('Заявка закрыта.')).catch(e=>toast(e.message||String(e),'error'));return}
     if(b.dataset.poCreate)return createPoFromQuote(b.dataset.poCreate,b.dataset.quote);
+    if(b.dataset.poSplit&&r)return openSplitPoModal(r);
     if(b.dataset.prSubmit)return simpleAction('submit-requisition',id,'Заявка отправлена на согласование.');
     if(b.dataset.prApprove)return simpleAction('approve-requisition',id,'Заявка согласована.');
-    if(b.dataset.prCancel&&confirm('Отменить заявку '+(r?.number||'')+'?'))return simpleAction('cancel-requisition',id,'Заявка отменена.');
+    if(b.dataset.prCancel&&confirm((state.view==='approvals'?'Отклонить':'Отменить')+' заявку '+(r?.number||'')+'?'))return simpleAction(state.view==='approvals'?'reject-requisition':'cancel-requisition',id,state.view==='approvals'?'Заявка отклонена.':'Заявка отменена.');
   });
   $('proc-po-list').addEventListener('click',e=>{
     const b=e.target.closest('button');if(!b)return;const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poInvoice||b.dataset.poLink||b.dataset.poCopy||b.dataset.poCancel||b.dataset.poReview;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
