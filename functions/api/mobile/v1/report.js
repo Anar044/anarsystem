@@ -7,13 +7,33 @@ const FIELDSETS = {
   cash: { group: ["CashRegisterName","CashRegister.Name","CashRegister","CashDeskName","TerminalName","CashierName","Cashier.Name"], secondary: ["DishName","Dish.Name","DishFullName","Dish"], measures: ["DishDiscountSumInt","DishSumInt"] },
   dishes: { group: ["DishName","Dish.Name","DishFullName","Dish"], measures: ["DishDiscountSumInt","DishSumInt"] },
   categories: { group: ["DishCategory","DishCategory.Name","DishCategoryName","CategoryName"], measures: ["DishDiscountSumInt","DishSumInt"] },
-  discounts: { group: ["DiscountName","Discount.Name","DiscountCardType.Name"], measures: ["DiscountSum","DiscountSumInt","DiscountAmount"] },
-  foodCost: { group: ["DishName","Dish.Name","DishCategory","DishCategory.Name"], measures: ["ProductCostBase.Cost","ProductCostBase.Sum","ProductCostBase.CostSum"] }
+  discounts: { group: [
+    "DiscountName","Discount.Name","DiscountCardType.Name",
+    "DiscountCardType","DiscountType.Name","DiscountType",
+    "DiscountCard.Name","DiscountCardTypeName"
+  ], measures: [
+    "DiscountSum","DiscountSumInt","DiscountAmount","DiscountAmountInt",
+    "DiscountSumWithoutTax","DiscountAmountWithoutTax"
+  ] },
+  foodCost: { group: [
+    "DishName","Dish.Name","DishFullName","Dish",
+    "DishCategory","DishCategory.Name","DishCategoryName"
+  ], measures: [
+    "ProductCostBase.Cost","ProductCostBase.Sum","ProductCostBase.CostSum",
+    "ProductCostBase.CostAmount","ProductCostBase.IngredientCost"
+  ] }
 };
 const norm = v => clean(v).toLowerCase().replace(/[\s._()-]+/g,"");
-const find = (fields, candidates) => {
+// Match the exact technical field first, then the documented display title.
+// Never substitute a different financial measure because the name "looks
+// close" (e.g. net sales instead of discount amount).
+export const findOlapField = (fields, candidates) => {
   for (const c of candidates) {
-    const v = fields.find(f => norm(f.name)===norm(c));
+    const v = fields.find(f => norm(f.name) === norm(c));
+    if (v) return v.name;
+  }
+  for (const c of candidates) {
+    const v = fields.find(f => norm(f.title) === norm(c));
     if (v) return v.name;
   }
   return null;
@@ -52,12 +72,16 @@ export async function onRequestGet({request,env}) {
     const ctx=await mobileContext(request,env,{connectionRequired:true});
     const meta=await getOlapFields(ctx.connection,"SALES");
     const fields=meta.fields||[];
-    const group=find(fields,spec.group);
-    const secondary=spec.secondary ? find(fields,spec.secondary) : null;
-    const measure=find(fields,spec.measures);
-    const dep=find(fields,["Department.Id","DepartmentId","Department.ID"]);
+    const group=findOlapField(fields,spec.group);
+    const secondary=spec.secondary ? findOlapField(fields,spec.secondary) : null;
+    const measure=findOlapField(fields,spec.measures);
+    const dep=findOlapField(fields,["Department.Id","DepartmentId","Department.ID"]);
     if (!group || !measure) throw new MobileError("REPORT_FIELDS_UNAVAILABLE",
-      "В SH OLAP отсутствуют поля для выбранного отчёта.",409);
+      kind === "discounts"
+        ? "На этом SH Server не найдены отдельные OLAP-поля типа скидки или суммы скидки. Такой отчёт нельзя заменить суммой продаж."
+        : kind === "foodCost"
+        ? "SH OLAP не передал поле себестоимости. Продажи нельзя выдавать за себестоимость."
+        : "В SH OLAP отсутствуют поля для выбранного отчёта.",409);
     if (!dep) throw new MobileError("OLAP_SCOPE_UNAVAILABLE",
       "SH OLAP не позволяет ограничить отчёт выбранными ресторанами.",409);
     const filters={
