@@ -1122,7 +1122,7 @@ function openSplitPoModal(r){
       available.map(({quote, line:offer})=>{
         const pack=num(offer.packageSize,1)||1,unitPrice=num(offer.unitPrice),isBest=quote.id===cheapest.quote.id;
         return '<label class="proc-split-option"><span><strong>'+esc(quote.supplierName||quote.supplierId)+'</strong><small>'+money(unitPrice/pack)+' / '+esc(line.unit||'ед.')+' · фасовка '+qty(pack)+(isBest?' · лучшая цена':'')+'</small></span>'+
-          '<input type="number" data-split-qty data-product-id="'+esc(line.productId)+'" data-quote-id="'+esc(quote.id)+'" data-price="'+unitPrice+'" data-pack="'+pack+'" min="0" max="'+remaining+'" step="0.001" value="'+(isBest?remaining:0)+'" aria-label="Количество для '+esc(quote.supplierName||quote.supplierId)+'">'+
+          '<input type="number" data-split-qty data-product-id="'+esc(line.productId)+'" data-quote-id="'+esc(quote.id)+'" data-price="'+unitPrice+'" data-pack="'+pack+'" min="0" max="'+remaining+'" step="0.001" value="'+(isBest?qty(Math.floor((remaining+0.000001)/pack)*pack).replace(/\s/g,'').replace(',','.'):'0')+'" aria-label="Количество для '+esc(quote.supplierName||quote.supplierId)+'">'+
           '<span class="proc-split-money">—</span></label>';
       }).join('')+
       '<footer class="proc-split-summary"></footer></section>';
@@ -1139,7 +1139,7 @@ function openSplitPoModal(r){
       let assigned=0;
       inputs.forEach(input=>{
         const value=num(input.value),cost=value/num(input.dataset.pack,1)*num(input.dataset.price);
-        if(!Number.isFinite(value)||value<0||value>max+0.0005)valid=false;
+        if(!Number.isFinite(value)||value<0||value>max+0.0005||value>0&&Math.abs(Math.round(value/num(input.dataset.pack,1)*1000)/1000*num(input.dataset.pack,1)-value)>0.0005)valid=false;
         if(value>0.0005)any=true;
         assigned+=value;total+=cost;
         input.closest('.proc-split-option').querySelector('.proc-split-money').textContent=money(cost);
@@ -1150,7 +1150,7 @@ function openSplitPoModal(r){
       summary.classList.toggle('invalid',assigned>max+0.0005);
     });
     $('proc-split-total').textContent='Итого PO: '+money(total);
-    $('proc-split-message').textContent=valid?'Можно создать несколько PO одновременно.':'Количество превышает остаток заявки.';
+    $('proc-split-message').textContent=valid?'Можно создать несколько PO одновременно.':'Проверьте остаток PR и кратность фасовке поставщика.';
     $('proc-split-save').disabled=!valid||!any;
   };
   document.querySelectorAll('[data-split-qty]').forEach(x=>x.oninput=recalc);
@@ -1158,7 +1158,8 @@ function openSplitPoModal(r){
     document.querySelectorAll('[data-split-product]').forEach(row=>{
       const inputs=[...row.querySelectorAll('[data-split-qty]')];
       const best=[...inputs].sort((a,b)=>num(a.dataset.price)/num(a.dataset.pack,1)-num(b.dataset.price)/num(b.dataset.pack,1))[0];
-      inputs.forEach(input=>input.value=input===best?row.dataset.remaining:'0');
+      const pack=num(best?.dataset.pack,1)||1,possible=Math.floor((num(row.dataset.remaining)+0.000001)/pack)*pack;
+      inputs.forEach(input=>input.value=input===best?Math.round(possible*1000)/1000:'0');
     });recalc();
   };
   $('proc-split-cancel').onclick=closeModal;
