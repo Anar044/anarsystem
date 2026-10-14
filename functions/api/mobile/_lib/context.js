@@ -30,7 +30,11 @@ export function errorResponse(error) {
   return response({
     success: false,
     code: error?.code || (status >= 500 ? "MOBILE_SERVER_ERROR" : "ACCESS_DENIED"),
-    message: status >= 500 ? "Не удалось загрузить данные Smart Horeca." : error.message
+    // Explicit MobileError messages are authored and safe to display, even on
+    // a 502. Never show raw upstream secrets, URLs, HTML or stack traces.
+    message: error instanceof MobileError ? error.message :
+      status >= 500 ? "Не удалось загрузить данные Smart Horeca." :
+      String(error?.message || "Неизвестная ошибка.")
   }, status);
 }
 
