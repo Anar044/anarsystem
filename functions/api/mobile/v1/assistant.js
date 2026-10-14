@@ -2,7 +2,7 @@ import { mobileContext, response, errorResponse, MobileError } from "../_lib/con
 import { onRequestPost as sourcePost, onRequestGet as sourceGet } from "../../ai-assistant.js";
 import { clean } from "../_lib/query-helpers.js";
 
-function scopedRequest(request, ctx, { method = "GET", body } = {}) {
+export function scopedRequest(request, ctx, { method = "GET", body } = {}) {
   const headers = new Headers(request.headers);
   // The assistant's existing restaurant scope resolver reads this fixed cookie;
   // derive it from the server-validated mobile selection, not from the client.
