@@ -39,6 +39,7 @@ jobs:
           node --test tests/access-outage.test.mjs
           node --test tests/mobile-navigation-access.test.mjs
           node --test tests/sidebar-navigation-persistence.test.mjs
+          node --test tests/persistent-sidebar-language-direct-navigation.test.mjs
           node --test tests/platform-organizations-access.test.mjs
           node --test tests/platform-server-provision.test.mjs
           node --test tests/ai-assistant-workspace-connection.test.mjs
