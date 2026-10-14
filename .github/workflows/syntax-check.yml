@@ -163,7 +163,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'getUser' functions/api/assets.js
+          grep -q 'loadRequestIikoState' functions/api/assets.js
           grep -q 'fixed_assets' functions/api/assets.js
           grep -q 'fixed_asset_events' functions/api/assets.js
           grep -q "action==='depreciation'" functions/api/assets.js
