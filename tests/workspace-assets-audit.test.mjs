@@ -47,7 +47,7 @@ function harness(path,session={user:{id:'staff'},access,storageUserId:'platform-
     console
   };
   const code=source(path).replace(/^import .*;\s*$/gm,'').replace(/^export /gm,'');
-  runInNewContext(code+'\nglobalThis.target={onRequestGet,onRequestPost:typeof onRequestPost==='function'?onRequestPost:null};',ctx);
+  runInNewContext(code+"\nglobalThis.target={onRequestGet,onRequestPost:typeof onRequestPost==='function'?onRequestPost:null};",ctx);
   return{...ctx.target,env:{DB},calls};
 }
 const req=(method='GET',selected='r2')=>new Request('https://smarthoreca.pages.dev/api/assets',{
