@@ -392,10 +392,10 @@ function renderAll(){computeNeeds();scopeLabel();renderKpis();renderNeeds();rend
 function renderKpis(){
   const d=state.data||{},a=d.analytics||{};
   $('proc-kpi-needs').textContent=state.needs.length.toLocaleString('ru-RU');
-  $('proc-kpi-needs-sum').textContent=money(state.needs.reduce((s,x)=>s+x.estimated,0))+' оценочно';
+  $('proc-kpi-needs-sum').textContent=canViewProcurementPrices()?money(state.needs.reduce((s,x)=>s+x.estimated,0))+' оценочно':'Количество без цен';
   $('proc-kpi-approvals').textContent=num(a.pendingApprovals).toLocaleString('ru-RU');
   $('proc-kpi-orders').textContent=num(a.activeOrders).toLocaleString('ru-RU');
-  $('proc-kpi-orders-sum').textContent=money((d.orders||[]).filter(x=>!['COMPLETED','CANCELLED'].includes(x.effectiveStatus)).reduce((s,x)=>s+num(x.totalAmount),0));
+  $('proc-kpi-orders-sum').textContent=canViewProcurementPrices()?money((d.orders||[]).filter(x=>!['COMPLETED','CANCELLED'].includes(x.effectiveStatus)).reduce((s,x)=>s+num(x.totalAmount),0)):'—';
   const completed=(d.orders||[]).filter(x=>x.effectiveStatus==='COMPLETED');
   $('proc-kpi-completed').textContent=completed.length.toLocaleString('ru-RU');
   $('proc-kpi-match').textContent=completed.filter(x=>x.matchStatus==='MATCHED').length+' совпали без расхождений';
@@ -445,7 +445,7 @@ function renderNeeds(){
   const head=table.querySelector('thead');
   head.innerHTML='<tr><th></th><th>Код</th><th>Товар</th>'+
     stores.map(s=>'<th class="proc-store-col '+(s.id===targetStoreId?'target':'')+'">'+esc(s.name)+(s.id===targetStoreId?'<small>склад заказа</small>':'')+'</th>').join('')+
-    '<th>Всего</th><th>Min / Max<br><small>'+esc(targetName)+'</small></th><th>Рекомендация</th><th>Последняя цена</th><th></th></tr>';
+    '<th>Всего</th><th>Min / Max<br><small>'+esc(targetName)+'</small></th><th>Рекомендация</th>'+(canViewProcurementPrices()?'<th>Последняя цена</th>':'')+'<th></th></tr>';
 
   const tb=table.querySelector('tbody');
   tb.innerHTML=visible.map(p=>{
@@ -473,9 +473,9 @@ function renderNeeds(){
       '<td class="'+(p.totalStock<0?'proc-negative':Math.abs(p.totalStock)<=1e-12?'proc-low':'proc-good')+'"><strong>'+qty(p.totalStock)+'</strong><small>'+esc(p.unit)+'</small></td>'+
       '<td>'+minmax+'</td>'+
       '<td>'+recommendation+'</td>'+
-      '<td>'+(price?money(price):'—')+(supplier?'<small>'+esc(supplier)+'</small>':'')+'</td>'+
+      (canViewProcurementPrices()?'<td>'+(price?money(price):'—')+(supplier?'<small>'+esc(supplier)+'</small>':'')+'</td>':'')+
       '<td>'+(selectedId?'<button class="proc-btn small '+(target?.autoRecommended?'primary':'ghost')+'" data-create-need="'+esc(selectedId)+'">'+(target?.autoRecommended?'Создать PR':'В PR')+'</button>':'—')+'</td></tr>';
-  }).join('')||'<tr><td colspan="'+(stores.length+8)+'" class="proc-empty">Товары по выбранному фильтру не найдены.</td></tr>';
+  }).join('')||'<tr><td colspan="'+(stores.length+8-(canViewProcurementPrices()?0:1))+'" class="proc-empty">Товары по выбранному фильтру не найдены.</td></tr>';
   $('proc-create-selected').disabled=state.selectedNeeds.size===0;
 }
 function normRows(){
@@ -570,15 +570,16 @@ function prProgressHtml(r){
   return '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(r.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>'+((r.linkedOrders||[]).length)+' PO связано</span><span>'+num(r.completionPercent).toFixed(1)+'% выполнено</span></div></div>';
 }
 function requestCard(r){
-  const effective=r.effectiveStatus||r.status,done=['COMPLETED','CLOSED','CANCELLED'].includes(effective);
+  const effective=r.effectiveStatus||r.status,done=['COMPLETED','CLOSED','CANCELLED'].includes(effective),seePrices=canViewProcurementPrices();
   return '<article class="proc-doc-card '+(done?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+dateTimeLabel(r.createdAt)+' · '+esc(r.createdBy||'')+'</span></div><span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span></div>'+
-    prProgressHtml(r)+prLinesHtml(r,false)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
-    '<div class="proc-doc-footer"><strong>Заявка без цен</strong><div class="proc-actions">'+requesterActions(r)+'</div></div>'+historyHtml(r)+'</article>';
+    prProgressHtml(r)+prLinesHtml(r,seePrices)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
+    '<div class="proc-doc-footer"><strong>'+(seePrices?(r.totalEstimate?money(r.totalEstimate):'Цена уточняется'):'Заявка без цен')+'</strong><div class="proc-actions">'+requesterActions(r)+'</div></div>'+historyHtml(r)+'</article>';
 }
 function approvalCard(r){
+  const seePrices=canViewProcurementPrices();
   return '<article class="proc-doc-card"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+dateTimeLabel(r.createdAt)+' · '+esc(r.createdBy||'')+'</span></div><span class="proc-status-badge warn">На согласовании</span></div>'+
-    prLinesHtml(r,false)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
-    '<div class="proc-doc-footer"><strong>Согласование количества</strong><div class="proc-actions"><button class="proc-btn small secondary" data-pr-review="'+r.id+'">Изменить заявку</button><button class="proc-btn small primary" data-pr-approve="'+r.id+'">Согласовать</button><button class="proc-btn small danger" data-pr-cancel="'+r.id+'">Отклонить</button></div></div>'+historyHtml(r)+'</article>';
+    prLinesHtml(r,seePrices)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
+    '<div class="proc-doc-footer"><strong>'+(seePrices?(r.totalEstimate?money(r.totalEstimate):'Цена уточняется'):'Проверка количества')+'</strong><div class="proc-actions"><button class="proc-btn small secondary" data-pr-review="'+r.id+'">Изменить заявку</button><button class="proc-btn small primary" data-pr-approve="'+r.id+'">Согласовать</button><button class="proc-btn small danger" data-pr-cancel="'+r.id+'">Отклонить</button></div></div>'+historyHtml(r)+'</article>';
 }
 function quoteLineByProduct(quote,productId){
   return (quote?.lines||[]).find(x=>key(x.productId)===key(productId))||null;
@@ -667,13 +668,13 @@ function sourcingCard(r,index=0){
 }
 function requestListItem(r){
   const effective=r.effectiveStatus||r.status,done=['COMPLETED','CLOSED','CANCELLED'].includes(effective);
-  const lines=(r.lines||[]).length,total='Без цен';
+  const lines=(r.lines||[]).length,total=canViewProcurementPrices()?(r.totalEstimate?money(r.totalEstimate):'Уточняется'):'Без цен';
   return '<details class="proc-record '+(done?'done':'')+'" name="proc-pr-documents">'+
     '<summary class="proc-record-summary">'+
       '<div class="proc-record-date"><strong>'+esc(dateTimeLabel(r.createdAt))+'</strong><span>дата и время</span></div>'+
       '<div class="proc-record-main"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+esc(r.createdBy||'—')+'</span></div>'+
       '<div class="proc-record-metric"><strong>'+lines+'</strong><span>позиций</span></div>'+
-      '<div class="proc-record-metric amount"><strong>'+esc(total)+'</strong><span>PR</span></div>'+
+      '<div class="proc-record-metric amount"><strong>'+esc(total)+'</strong><span>'+(canViewProcurementPrices()?'оценка':'PR')+'</span></div>'+
       '<span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span>'+
       '<span class="proc-record-open">Открыть <i>›</i></span>'+
     '</summary>'+
@@ -720,7 +721,7 @@ function renderRequisitions(){
   const head=document.querySelector('[data-panel="requisitions"] .proc-panel-head');
   if(view==='approvals'){
     if(head)head.querySelector('h2').textContent='Согласование заявок';
-    if(head)head.querySelector('p').textContent='Здесь нет предложений поставщиков — только потребность, сумма и решение.';
+    if(head)head.querySelector('p').textContent='Проверка количества и состава заявки, оценка стоимости при наличии права просмотра цен, решение.';
     const rows=all.filter(r=>r.status==='PENDING_APPROVAL');
     box.innerHTML=rows.map(approvalCard).join('')||'<div class="proc-empty">Нет заявок, ожидающих согласования.</div>';
     return;
@@ -1556,7 +1557,7 @@ async function loadAll(){
     renderAll();applyProcurementView();
     document.documentElement.style.visibility='visible';
 
-    const view=state.view||currentProcurementView(),canCost=window.SHAccess?.can?.('procurement.prices.view')||window.SHAccess?.can?.('sensitive.cost.view')||false;
+    const view=state.view||currentProcurementView(),canCost=canViewProcurementPrices();
     const tasks=[];
     if(['catalog','requests','approvals','sourcing','suppliers','receiving','norms'].includes(view))tasks.push(['Справочники',loadReferences]);
     if(['catalog','norms'].includes(view))tasks.push(['Остатки',loadStocks]);
