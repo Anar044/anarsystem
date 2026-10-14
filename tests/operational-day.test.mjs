@@ -36,6 +36,16 @@ test("multiple registers on one business day are deduplicated by shift ID", () =
   assert.equal(plan.shiftCount,2);
 });
 
+test("inactive restaurant in CHAIN does not block active restaurant", () => {
+  const plan = planOperatingShifts([
+    s("active","r1","2026-10-13","OPEN")
+  ],["r1","r2"],"2026-10-14");
+  assert.deepEqual(plan.shiftIds,["active"]);
+  const inactive = plan.departments.find(d => d.departmentId==="r2");
+  assert.equal(inactive.status,"NO_RECENT_SHIFTS");
+  assert.equal(inactive.shiftCount,0);
+});
+
 test("no source shifts is not misrepresented as zero revenue", () => {
   assert.throws(()=>planOperatingShifts([],["r1"],"2026-10-14"),
     e=>e.code==="OPERATING_SHIFT_NOT_FOUND");
