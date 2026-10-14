@@ -46,10 +46,27 @@ export async function authenticatedUser(request, env) {
   return auth;
 }
 
-export function visibleMobileOwnerWorkspaces(workspaces) {
+// Platform-managed organizations use synthetic owner_user_id='platform-org:<id>'.
+// Their actual SYSADMIN is a verified ADMIN-role member, not the D1 owner.
+// Do not confuse an administrator of a workspace with a platform administrator:
+// neither email nor PLATFORM_ADMIN_USER_IDS are accepted as membership evidence.
+export async function hasAssignedOrganizationAdminRole(db, memberId, ownerUserId) {
+  const member = clean(memberId), owner = clean(ownerUserId);
+  if (!member || !owner) return false;
+  const result = await db.prepare(`SELECT 1 AS authorized
+    FROM sh_access_member_roles mr
+    JOIN sh_access_roles role
+      ON role.id=mr.role_id AND role.owner_user_id=mr.owner_user_id
+    WHERE mr.member_id=?1 AND mr.owner_user_id=?2
+      AND role.code='ADMIN' AND role.is_system=1
+    LIMIT 1`).bind(member, owner).first();
+  return result?.authorized === 1 || result?.authorized === true;
+}
+
+export function visibleMobileOwnerWorkspaces(workspaces, authorizedAdmins = new Set()) {
   return (workspaces || [])
     .filter(w => w && typeof w === "object"
-      && w.isOwner === true
+      && (w.isOwner === true || authorizedAdmins.has(clean(w.id)))
       && clean(w.memberStatus).toUpperCase() === "ACTIVE"
       && clean(w.status).toUpperCase() === "ACTIVE"
       && Boolean(clean(w.id)))
@@ -57,16 +74,26 @@ export function visibleMobileOwnerWorkspaces(workspaces) {
       id: clean(w.id),
       name: clean(w.name || w.title || "Рабочее пространство"),
       status: "ACTIVE",
-      isOwner: true
+      isOwner: w.isOwner === true,
+      mobileEligible: true
     }));
 }
 
 export async function listMobileWorkspaces(request, env) {
   const auth = await authenticatedUser(request, env);
   const workspaces = await listUserWorkspaces(env.DB, auth.user);
+  const admins = new Set();
+  for (const w of workspaces) {
+    if (w.isOwner === true) continue;
+    if (clean(w.memberStatus).toUpperCase() !== "ACTIVE"
+        || clean(w.status).toUpperCase() !== "ACTIVE") continue;
+    if (await hasAssignedOrganizationAdminRole(env.DB, w.memberId, w.ownerUserId)) {
+      admins.add(clean(w.id));
+    }
+  }
   return {
     user: { id: auth.user.id, email: auth.user.email || "" },
-    workspaces: visibleMobileOwnerWorkspaces(workspaces)
+    workspaces: visibleMobileOwnerWorkspaces(workspaces, admins)
   };
 }
 
@@ -85,10 +112,14 @@ export async function mobileContext(request, env, { connectionRequired = false }
   if (!access?.allowed || clean(access.workspace?.id) !== workspaceId) {
     throw new MobileError("WORKSPACE_FORBIDDEN", "Нет доступа к выбранной организации.", 403);
   }
-  // Owner-only product for v1; a separate role must be designed before
-  // permitting an employee or viewer to use the mobile app.
-  if (!access.isOwner) {
-    throw new MobileError("OWNER_ONLY", "Приложение доступно владельцу организации.", 403);
+  // Approved owner/SYSADMIN only. Platform organizations use synthetic D1
+  // owners; their actual designated SYSADMIN is assigned the system ADMIN role.
+  // Require explicit server-side membership proof; never infer from email or
+  // browser role labels. Membership & workspace status were verified above.
+  const mobileEligible = access.isOwner === true ||
+    await hasAssignedOrganizationAdminRole(env.DB, access.memberId, access.ownerUserId);
+  if (!mobileEligible) {
+    throw new MobileError("OWNER_ONLY", "Для этого аккаунта не назначен доступ владельца или SYSADMIN организации.", 403);
   }
 
   const stored = await loadPrivateIikoState(
