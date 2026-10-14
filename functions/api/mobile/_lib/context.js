@@ -46,18 +46,27 @@ export async function authenticatedUser(request, env) {
   return auth;
 }
 
+export function visibleMobileOwnerWorkspaces(workspaces) {
+  return (workspaces || [])
+    .filter(w => w && typeof w === "object"
+      && w.isOwner === true
+      && clean(w.memberStatus).toUpperCase() === "ACTIVE"
+      && clean(w.status).toUpperCase() === "ACTIVE"
+      && Boolean(clean(w.id)))
+    .map(w => ({
+      id: clean(w.id),
+      name: clean(w.name || w.title || "Рабочее пространство"),
+      status: "ACTIVE",
+      isOwner: true
+    }));
+}
+
 export async function listMobileWorkspaces(request, env) {
   const auth = await authenticatedUser(request, env);
   const workspaces = await listUserWorkspaces(env.DB, auth.user);
   return {
     user: { id: auth.user.id, email: auth.user.email || "" },
-    workspaces: (workspaces || []).filter(w => w && typeof w === "object")
-      .map(w => ({
-        id: clean(w.id),
-        name: clean(w.name || w.title || "Рабочее пространство"),
-        status: clean(w.status || "ACTIVE"),
-        isOwner: Boolean(w.isOwner)
-      }))
+    workspaces: visibleMobileOwnerWorkspaces(workspaces)
   };
 }
 
