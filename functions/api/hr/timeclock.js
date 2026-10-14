@@ -3,7 +3,7 @@ import { resolveHrRestaurantScope, hrScopeKeys, isHrSubsetScope } from './_lib/r
 import { employeeWithinMembershipScope,visibleEmployeeMembership,mergeEmployeeMembership } from './_lib/employee-department-membership.js';
 import { zktecoModelProfile,plannedDeviceRoster } from './_lib/zkteco-network-roster.js';
 import { ensureZktecoAdmsTables, registerAdmsDevice, unregisterAdmsDevice, correctAdmsDeviceSerial, queueAdmsCommand } from './_lib/zkteco-adms.js';
-import { ensurePilotTables, reservePilotPin, pilotCommand, PILOT_EMPLOYEE_NAME } from './_lib/zkteco-pilot.js';
+import { ensurePilotTables, proposePilotPin, reservePilotPin, pilotCommand, PILOT_EMPLOYEE_NAME } from './_lib/zkteco-pilot.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -319,14 +319,15 @@ export async function onRequestPost({request,env}){
       await env.DB.prepare(`DELETE FROM hr_device_tokens WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId).run();
       return json({success:true,deviceId,ingestPath:'/api/hr/device-ingest',...await snapshot(env.DB,userId,scope)});
     }
-    if(action==='pilotProvisionTestHr'){
+    if(action==='pilotPrepareTestHr'||action==='pilotProvisionTestHr'){
+      const preparing=action==='pilotPrepareTestHr';
       const central=Boolean(scope?.isChain&&!isTimeclockScopeRestricted(scope)&&
         (scope.selectedDepartmentIds||[]).length>0&&
         (scope.selectedDepartmentIds||[]).length===(scope.allowedDepartmentIds||[]).length);
       if(!central)return json({success:false,message:'Только центральный HR всей сети может отправлять тестового сотрудника на все устройства.'},403);
       const ids=Array.isArray(b.deviceIds)?b.deviceIds.map(clean):[];
       if(new Set(ids).size!==2||ids.length!==2)return json({success:false,message:'Для пилота выберите ровно два разных SenseFace.'},400);
-      if(b.confirmFreePin!==true)return json({success:false,message:'Подтвердите, что PIN свободен на обоих устройствах и разрешена отправка TEST HR.'},400);
+      if(!preparing&&b.confirmFreePin!==true)return json({success:false,message:'Подтвердите, что PIN свободен на обоих устройствах и разрешена отправка TEST HR.'},400);
       const format=clean(b.format)||'USERINFO';
       if(!['USERINFO','USER_AC_PUSH'].includes(format))return json({success:false,message:'Неподдерживаемый формат команды ADMS.'},400);
       const selected=new Set((scope.selectedDepartmentIds||[]).map(String));
@@ -337,6 +338,7 @@ export async function onRequestPost({request,env}){
       const targets=devices.results||[];
       if(targets.length!==2||targets.some(d=>!selected.has(String(d.restaurant_id))||!Number(d.is_active)||
         !Number(d.enabled)||d.connection_mode!=='ADMS_PUSH'||!/^SenseFace\s+[23]A$/i.test(d.device_model||'')||
+        !Number.isFinite(Date.parse(d.last_seen_at||''))||
         Date.now()-Date.parse(d.last_seen_at||'')>5*60*1000))
         return json({success:false,message:'Нужно выбрать два активных SenseFace 2A/3A с ADMS Online и разрешёнными RMS.'},409);
       const desired=new Set(targets.map(d=>String(d.device_model||'').toUpperCase().replace(/\s+/g,'')));
@@ -348,6 +350,12 @@ export async function onRequestPost({request,env}){
       const staff=(test.results||[]).filter(e=>!Number(e.is_deleted)&&!clean(e.fire_date));
       if(staff.length!==1)return json({success:false,message:'Нужен ровно один действующий сотрудник TEST HR в справочнике CHAIN.'},409);
       const person=staff[0],personId=String(person.iiko_employee_id);
+      const proposedPin=await proposePilotPin(env.DB,userId,person);
+      if(preparing)return json({success:true,employee:person.display_name,pin:proposedPin,
+        devices:targets.map(d=>({id:d.device_id,name:d.name,model:d.device_model})),
+        message:'Проверьте, что такой PIN не принадлежит другому человеку на обоих устройствах.'});
+      if(clean(b.expectedPin)!==proposedPin)
+        return json({success:false,message:'PIN отличается от предварительного просмотра. Повторите подготовку отправки.'},409);
       const pin=await reservePilotPin(env.DB,userId,person);
       for(const d of targets){
         const bnd=await env.DB.prepare(`SELECT iiko_employee_id,external_employee_id FROM hr_employee_device_bindings
