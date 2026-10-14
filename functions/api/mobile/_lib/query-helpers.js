@@ -5,8 +5,12 @@ export function mobilePeriod(request, maxDays = 31) {
   const url = new URL(request.url);
   const from = clean(url.searchParams.get("from"));
   const to = clean(url.searchParams.get("to") || from);
-  const valid = value => /^\d{4}-\d{2}-\d{2}$/.test(value)
-    && new Date(value + "T00:00:00Z").toISOString().slice(0, 10) === value;
+  const valid = value => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const time = Date.parse(value + "T00:00:00Z");
+    return Number.isFinite(time)
+      && new Date(time).toISOString().slice(0,10) === value;
+  };
   if (!valid(from) || !valid(to) || from > to) {
     throw new MobileError("INVALID_PERIOD", "Укажите правильный период.", 400);
   }
