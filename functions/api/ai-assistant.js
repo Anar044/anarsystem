@@ -1,10 +1,5 @@
-import {
-  getUser,
-  loadPrivateIikoState,
-  privateConnection,
-  hasPrivateConnection
-} from "./iiko/_lib/user-state.js";
-import { resolveRestaurantScope } from "./iiko/_lib/restaurant-scope.js";
+import { getUser } from "./iiko/_lib/user-state.js";
+import { resolveAssistantIiko, assistantToolAuthorized } from "./iiko/_lib/ai-assistant-context.js";
 import {
   assistantToolDefinitions,
   executeAssistantTool
@@ -265,25 +260,6 @@ async function listConversations(db, userId, scopeKey="") {
     .bind(userId,scopeKey).all();
   return rows.results || [];
 }
-async function resolveIiko(env, userId, request=null, requestedIds=null) {
-  const stored = await loadPrivateIikoState(env.DB, userId, env);
-  if (!stored?.found || !hasPrivateConnection(stored.state)) {
-    return { connected: false, connection: null, state:null, scope:null };
-  }
-  const scope=resolveRestaurantScope({state:stored.state,request,strict:true});
-  const bodyIds=[...new Set((Array.isArray(requestedIds)?requestedIds:[]).map(String).filter(Boolean))];
-  if(bodyIds.length){
-    const selected=new Set(scope.selectedDepartmentIds||[]);
-    const outside=bodyIds.filter(id=>!selected.has(id));
-    if(outside.length){
-      const error=new Error("AI запрос содержит ресторан вне текущего выбора Smart Horeca.");
-      error.status=403;
-      error.code="CHAIN_SCOPE_SELECTION_FORBIDDEN";
-      throw error;
-    }
-  }
-  return { connected: true, connection: privateConnection(stored.state), state:stored.state, scope };
-}
 function outputText(response) {
   if (clean(response?.output_text)) return clean(response.output_text);
   const parts = [];
@@ -379,7 +355,7 @@ function compactToolTrace(call, result) {
   if (result?.error) trace.error = String(result.error).slice(0, 300);
   return trace;
 }
-async function runAssistant(env, connection, history, scope=null) {
+async function runAssistant(env, connection, history, scope=null, access=null) {
   const model = clean(env.OPENAI_ASSISTANT_MODEL) || DEFAULT_MODEL;
   const base = {
     model,
@@ -414,7 +390,9 @@ async function runAssistant(env, connection, history, scope=null) {
       let result;
       try {
         if (!connection && call.name !== "list_smart_horeca_capabilities") {
-          result = { error: "iiko не подключён в SmartHoreca. Откройте Настройки и подключите iiko Server." };
+          result = { error: "Для выбранной организации не настроен Smart Horeca Server. Подключение выполняет администратор платформы.", code: "SH_SERVER_NOT_CONFIGURED" };
+        } else if (!assistantToolAuthorized(access, call.name)) {
+          result = { error: "Нет прав для использования этого источника данных Smart Horeca.", code: "ASSISTANT_TOOL_FORBIDDEN" };
         } else {
           result = await executeAssistantTool(call.name, safeToolArgs(call.arguments), { env, connection, scope });
         }
@@ -472,7 +450,7 @@ export async function onRequestGet({ request, env }) {
     const action = clean(url.searchParams.get("action") || "status");
 
     if (action === "status") {
-      const iiko = await resolveIiko(env, auth.user.id);
+      const iiko = await resolveAssistantIiko(env, request);
       return json({
         success: true,
         configured: Boolean(clean(env.OPENAI_API_KEY)),
@@ -482,14 +460,14 @@ export async function onRequestGet({ request, env }) {
       });
     }
     if (action === "conversations") {
-      const iiko=await resolveIiko(env,auth.user.id,request);
+      const iiko=await resolveAssistantIiko(env,request);
       const scopeKey=conversationScopeKey(iiko);
       return json({ success: true, conversations: await listConversations(env.DB, auth.user.id, scopeKey), restaurantScope:iiko.scope?{mode:iiko.scope.mode,selectedDepartmentIds:iiko.scope.selectedDepartmentIds}:null });
     }
     if (action === "messages") {
       const conversationId = clean(url.searchParams.get("conversationId"));
       if (!conversationId) return json({ success: false, message: "conversationId обязателен." }, 400);
-      const iiko=await resolveIiko(env,auth.user.id,request);
+      const iiko=await resolveAssistantIiko(env,request);
       const scopeKey=conversationScopeKey(iiko);
       const conversation = await conversationById(env.DB, auth.user.id, conversationId, scopeKey);
       if (!conversation) return json({ success: false, message: "Чат не найден." }, 404);
@@ -501,7 +479,7 @@ export async function onRequestGet({ request, env }) {
     }
     return json({ success: false, message: "Неизвестное действие." }, 400);
   } catch (error) {
-    return json({ success: false, message: error?.message || "Ошибка AI Ассистента." }, 500);
+    return json({ success: false, code: error?.code || "AI_ASSISTANT_ERROR", message: error?.message || "Ошибка AI Ассистента." }, error?.status || 500);
   }
 }
 
@@ -512,7 +490,7 @@ export async function onRequestPost({ request, env }) {
     await ensureTables(env.DB);
     const body = await request.json().catch(() => ({}));
     const action = clean(body.action || "message");
-    const iiko=await resolveIiko(env,auth.user.id,request,Array.isArray(body.departmentIds)?body.departmentIds:null);
+    const iiko=await resolveAssistantIiko(env,request,Array.isArray(body.departmentIds)?body.departmentIds:null);
     const scopeKey=conversationScopeKey(iiko);
 
     if (action === "newConversation") {
@@ -557,7 +535,7 @@ export async function onRequestPost({ request, env }) {
     }
 
     const history = await recentMessages(env.DB, auth.user.id, conversationId, MAX_HISTORY_MESSAGES);
-    const answer = await runAssistant(env, iiko.connection, history, iiko.scope);
+    const answer = await runAssistant(env, iiko.connection, history, iiko.scope, iiko.access);
     const meta = {
       model: answer.model,
       responseId: answer.responseId,
@@ -584,6 +562,6 @@ export async function onRequestPost({ request, env }) {
     });
   } catch (error) {
     console.error("[AI ASSISTANT]", error);
-    return json({ success: false, message: error?.message || "Ошибка AI Ассистента." }, 500);
+    return json({ success: false, code: error?.code || "AI_ASSISTANT_ERROR", message: error?.message || "Ошибка AI Ассистента." }, error?.status || 500);
   }
 }
