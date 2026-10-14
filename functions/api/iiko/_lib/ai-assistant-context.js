@@ -1,5 +1,5 @@
 import { loadRequestIikoState, privateConnection, hasPrivateConnection } from "./user-state.js";
-import { resolveRestaurantScope, restaurantDirectory } from "./restaurant-scope.js";
+import { resolveRestaurantScope, restaurantDirectory, allowedDepartmentIds } from "./restaurant-scope.js";
 import { hasPermission } from "../../access/_lib/access-control.js";
 
 const clean = value => String(value ?? "").trim();
@@ -32,7 +32,11 @@ export async function resolveAssistantIiko(env, request, requestedIds = null) {
   // The private connection retains the original credentials, while restaurant
   // selection is calculated only from departments this member can see.
   const state = scopeStateForAssistant(stored.state, stored.access);
-  const scope = resolveRestaurantScope({ state, request, strict: true });
+  const scopedSelection = resolveRestaurantScope({ state, request, strict: true });
+  // The AI tool layer must compare member selection against the FULL server
+  // directory. Otherwise an employee restricted to one restaurant appears to
+  // have selected "all" and the OLAP Department filter is incorrectly omitted.
+  const scope = { ...scopedSelection, allowedDepartmentIds: allowedDepartmentIds(stored.state) };
   const bodyIds = unique(Array.isArray(requestedIds) ? requestedIds : []);
   const selected = new Set(scope.selectedDepartmentIds || []);
   const outside = bodyIds.filter(departmentId => !selected.has(departmentId));
