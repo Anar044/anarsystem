@@ -88,7 +88,7 @@ function shiftDepartmentId(item) {
     return "";
 }
 
-async function getShiftsForDateAndStatus(connection, date, status) {
+export async function getShiftsForDateAndStatus(connection, date, status) {
     const requestedDate = isoDate(date);
     const dateParam = encodeURIComponent(requestedDate);
     const statusParam = encodeURIComponent(status);
