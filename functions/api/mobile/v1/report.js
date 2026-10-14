@@ -4,7 +4,7 @@ import { getOlapFields, iikoJson } from "../../iiko/_lib/iiko-client.js";
 
 const FIELDSETS = {
   sales: { group: ["OpenDate.Typed","OpenDate"], measures: ["DishDiscountSumInt","DishSumInt"] },
-  cash: { group: ["CashRegisterName","CashRegister.Name","CashRegister","CashDeskName","TerminalName","CashierName","Cashier.Name"], measures: ["DishDiscountSumInt","DishSumInt"] },
+  cash: { group: ["CashRegisterName","CashRegister.Name","CashRegister","CashDeskName","TerminalName","CashierName","Cashier.Name"], secondary: ["DishName","Dish.Name","DishFullName","Dish"], measures: ["DishDiscountSumInt","DishSumInt"] },
   dishes: { group: ["DishName","Dish.Name","DishFullName","Dish"], measures: ["DishDiscountSumInt","DishSumInt"] },
   categories: { group: ["DishCategory","DishCategory.Name","DishCategoryName","CategoryName"], measures: ["DishDiscountSumInt","DishSumInt"] },
   discounts: { group: ["DiscountName","Discount.Name","DiscountCardType.Name"], measures: ["DiscountSum","DiscountSumInt","DiscountAmount"] },
@@ -23,16 +23,20 @@ const value = (row, field, fields) => {
   return row?.[field] ?? (title ? row?.[title] : null);
 };
 
-export function mobileOlapRows(payload, groupField, measureField, fields, selectedIds, kind) {
+export function mobileOlapRows(payload, groupField, measureField, fields, selectedIds, kind, secondaryField = null) {
   const rows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : null;
   if (!rows) throw new MobileError("OLAP_BAD_RESPONSE", "Не удалось прочитать отчёт SH OLAP.", 502);
-  const normalized = rows.map(row => ({
-    label: clean(value(row, groupField, fields)) || "—",
-    value: safeNumber(value(row, measureField, fields))
-  })).filter(row=>row.value!==null);
+  const normalized = rows.map(row => {
+    const group = clean(value(row, groupField, fields)) || "—";
+    const secondary = secondaryField ? clean(value(row, secondaryField, fields)) : "";
+    return {
+      label: secondary || group, group,
+      value: safeNumber(value(row, measureField, fields))
+    };
+  }).filter(row=>row.value!==null);
   return {
     success: true, kind, currency: "AZN", selectedDepartmentIds: selectedIds,
-    groupField, measureField, count: normalized.length,
+    groupField, secondaryField, measureField, count: normalized.length,
     rows: normalized.slice(0,500), truncated: normalized.length>500,
     source:"SH OLAP SALES"
   };
@@ -48,6 +52,7 @@ export async function onRequestGet({request,env}) {
     const meta=await getOlapFields(ctx.connection,"SALES");
     const fields=meta.fields||[];
     const group=find(fields,spec.group);
+    const secondary=spec.secondary ? find(fields,spec.secondary) : null;
     const measure=find(fields,spec.measures);
     const dep=find(fields,["Department.Id","DepartmentId","Department.ID"]);
     if (!group || !measure) throw new MobileError("REPORT_FIELDS_UNAVAILABLE",
@@ -62,7 +67,7 @@ export async function onRequestGet({request,env}) {
       OrderDeleted:{filterType:"IncludeValues",values:["NOT_DELETED"]}
     };
     const olapRequest={reportType:"SALES",buildSummary:true,
-      groupByRowFields:[group],groupByColFields:[],
+      groupByRowFields:secondary ? [group, secondary] : [group],groupByColFields:[],
       aggregateFields:[measure],filters};
     const upstream=await iikoJson(ctx.connection,"/resto/api/v2/reports/olap",{
       method:"POST",headers:{"Content-Type":"application/json"},
@@ -70,7 +75,7 @@ export async function onRequestGet({request,env}) {
     if(!upstream.ok) throw new MobileError("REPORT_SOURCE_FAILED",
       "SH OLAP не вернул выбранный отчёт.",502);
     return response({
-      ...mobileOlapRows(upstream.payload,group,measure,fields,ctx.selectedIds,kind),
+      ...mobileOlapRows(upstream.payload,group,measure,fields,ctx.selectedIds,kind,secondary),
       from,to,updatedAt:new Date().toISOString()
     });
   }catch(error){return errorResponse(error);}
