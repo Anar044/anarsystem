@@ -37,6 +37,7 @@ export function mobileOlapRows(payload, groupField, measureField, fields, select
   return {
     success: true, kind, currency: "AZN", selectedDepartmentIds: selectedIds,
     groupField, secondaryField, measureField, count: normalized.length,
+    totalValue: normalized.reduce((sum, row) => sum + row.value, 0),
     rows: normalized.slice(0,500), truncated: normalized.length>500,
     source:"SH OLAP SALES"
   };
