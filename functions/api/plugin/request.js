@@ -101,7 +101,7 @@ export async function onRequestPost(context) {
 
     // The VPS is a separate service. An HTML error page from its reverse
     // proxy is not a valid plugin response and must never be reported as data.
-    const origin = String(context.env?.PLUGIN_VPS_API_URL || VPS_API).replace(/\\/+$/, "");
+    const origin = String(context.env?.PLUGIN_VPS_API_URL || VPS_API).replace(/[/]+$/, "");
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 26000);
     let response;
