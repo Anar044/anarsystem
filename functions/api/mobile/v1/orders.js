@@ -25,7 +25,7 @@ export function normalizeMobileOrders(payload, selectedIds) {
 
 export async function onRequestGet({request,env}) {
   try {
-    const {from,to} = mobilePeriod(request, 8);
+    const {from,to} = mobilePeriod(request, 32);
     const ctx = await mobileContext(request,env,{connectionRequired:true});
     const body = {...ctx.connection, from, to, departmentIds:ctx.selectedIds};
     const internal = new Request(request.url, {method:"POST",
