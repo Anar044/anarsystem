@@ -59,6 +59,8 @@ export async function onRequestGet({request,env}){
     const countRow=await env.DB.prepare(`SELECT COUNT(*) AS total FROM audit_log WHERE ${sqlWhere}`).bind(...args).first();
     const rows=await env.DB.prepare(`SELECT * FROM audit_log WHERE ${sqlWhere} ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(...args,limit,offset).all();
     const actors=await env.DB.prepare(`SELECT user_id,MAX(actor_name) actor_name,MAX(actor_email) actor_email,MAX(created_at) last_at FROM audit_log WHERE ${restricted?where.slice(0,2).join(" AND "):"server_scope=?"} GROUP BY user_id ORDER BY actor_name`).bind(...(restricted?args.slice(0,1+scope.selectedDepartmentIds.length):[serverScope])).all();
+    const canViewPrices=hasPermission(stored.access,"procurement.prices.view")||hasPermission(stored.access,"sensitive.cost.view");
+    const protectedProcurementTypes=new Set(["PURCHASE_REQUISITION","PURCHASE_ORDER","SUPPLIER_QUOTE","SUPPLIER_PROFILE","SUPPLIER_CONTRACT","PURCHASE_RECEIPT","GOODS_RECEIPT"]);
     const eventRows=(rows.results||[]).map(r=>({
       id:r.id,createdAt:r.created_at,userId:r.user_id,actorEmail:r.actor_email||"",actorName:r.actor_name||r.actor_email||r.user_id,
       action:r.action,entityType:r.entity_type,entityId:r.entity_id||"",entityLabel:r.entity_label||"",documentNumber:r.document_number||"",
@@ -66,7 +68,14 @@ export async function onRequestGet({request,env}){
       sourcePath:r.source_path||"",before:parseJson(r.before_json,null),after:parseJson(r.after_json,null),
       changes:parseJson(r.changes_json,[]),metadata:parseJson(r.metadata_json,{})
     }));
-    return json({success:true,total:Number(countRow?.total||0),limit,offset,events:eventRows,actors:actors.results||[]});
+    // Audit snapshots contain line prices and totals. Do not disclose them
+    // to users with audit.view but without an explicit cost-view permission.
+    const safeEvents=canViewPrices?eventRows:eventRows.map(event=>
+      protectedProcurementTypes.has(event.entityType)
+        ? {...event,before:null,after:null,changes:[],metadata:{}}
+        : event
+    );
+    return json({success:true,total:Number(countRow?.total||0),limit,offset,events:safeEvents,actors:actors.results||[]});
   }catch(error){
     return json({success:false,code:error?.code||"AUDIT_ERROR",message:error?.message||"Ошибка загрузки журнала действий."},error?.status||500);
   }
