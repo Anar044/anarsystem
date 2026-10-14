@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { resolveRestaurantScope, restaurantDirectory } from '../functions/api/iiko/_lib/restaurant-scope.js';
+import { resolveRestaurantScope, restaurantDirectory, allowedDepartmentIds } from '../functions/api/iiko/_lib/restaurant-scope.js';
 
 const read = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
 const source = read('functions/api/iiko/_lib/ai-assistant-context.js');
@@ -41,7 +41,7 @@ function harness(stored = { found: true, state: savedState, access: admin }) {
     },
     privateConnection: state => state.connection,
     hasPrivateConnection: state => Boolean(state?.connection?.ip && state?.connection?.password),
-    restaurantDirectory, resolveRestaurantScope,
+    restaurantDirectory, resolveRestaurantScope, allowedDepartmentIds,
     hasPermission: (access, permission) => Boolean(access?.permissions?.includes('*') || access?.permissions?.includes(permission))
   };
   const executable = source.replace(/^import .*;\s*$/gm, '').replace(/^export /gm, '');
@@ -74,7 +74,10 @@ test('Organization admin connects to the 4 restaurants via workspace storage, no
 test('SELECTED member gets only their restaurant, groups, and sale places', async () => {
   const h = harness({ found: true, state: savedState, access: member });
   const result = await h.resolveAssistantIiko({}, request('sh_selected_departments=r2'), ['r2']);
-  assert.deepEqual(Array.from(result.scope.allowedDepartmentIds), ['r2']);
+  assert.deepEqual(Array.from(result.scope.selectedDepartmentIds), ['r2']);
+  assert.deepEqual(Array.from(result.scope.allowedDepartmentIds), ['r1', 'r2', 'r3', 'r4']);
+  assert.ok(result.scope.selectedDepartmentIds.length < result.scope.allowedDepartmentIds.length,
+    'CHAIN OLAP must enforce Department filtering for one-restaurant employees');
   assert.deepEqual(Array.from(result.scope.selectedGroupIds), ['group-r2']);
   assert.deepEqual(Array.from(result.scope.selectedPointOfSaleIds), ['pos-r2']);
   assert.equal(result.connection.password, savedState.connection.password);
