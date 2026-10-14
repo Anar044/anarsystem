@@ -2,7 +2,7 @@ import { clean, iikoJson } from "./_lib/iiko-client.js";
 import { getIikoSuppliers } from "./_lib/iiko-suppliers.js";
 import { syncAiReferences } from "./references.js";
 import { loadCachedReferenceMaps } from "./_lib/reference-cache.js";
-import { resolveStoreScope } from "./_lib/store-scope.js";
+import { resolveStoreScope, namedScopedWarehouses } from "./_lib/store-scope.js";
 
 function corsHeaders() {
   return {
@@ -265,8 +265,8 @@ export async function onRequestPost({ request, env }) {
       if(!storeScope.resolved||!storeScope.storeIds.length){
         return json({success:false,code:"INVOICE_REFERENCE_SCOPE_UNAVAILABLE",message:"Не удалось определить склады выбранного подразделения.",meta:{departmentIds,storeScope:storeScope?.diagnostics||null}},409);
       }
-      const wanted=new Set(storeScope.storeIds.map(warehouseKey));
-      warehouseMap=new Map([...warehouseMap.entries()].filter(([id])=>wanted.has(warehouseKey(id))));
+      // Recover names from verified CHAIN hierarchy even when the D1 catalog is incomplete.
+      warehouseMap=namedScopedWarehouses(storeScope,warehouseMap);
     }
     let balanceWarehouseResult = { map: new Map(), status: 0, ok: false, rawPreview: "", payload: null };
     let accountWarehouseResult = { exact: new Map(), explicitStores: new Map(), status: 0, ok: false };
@@ -300,10 +300,24 @@ export async function onRequestPost({ request, env }) {
     }
 
     if(subsetRequested&&storeScope?.storeIds?.length){
-      const wanted=new Set(storeScope.storeIds.map(warehouseKey));
-      warehouseMap=new Map([...warehouseMap.entries()].filter(([id])=>wanted.has(warehouseKey(id))));
+      // Recover names from verified CHAIN hierarchy even when the D1 catalog is incomplete.
+      warehouseMap=namedScopedWarehouses(storeScope,warehouseMap);
     }
 
+    if(!warehouseMap.size){
+      return json({
+        success:false,
+        code:"INVOICE_WAREHOUSE_NAMES_UNAVAILABLE",
+        message:"Не удалось получить названия складов выбранного ресторана. Проверьте доступ сервера к справочнику складов CHAIN.",
+        meta:{
+          departmentIds,
+          storeScopeResolved:storeScope?.resolved===true,
+          storeIdsFound:storeScope?.storeIds?.length||0,
+          balanceStatus:balanceWarehouseResult.status,
+          accountsStatus:accountWarehouseResult.status
+        }
+      },409);
+    }
     return json({
       success: true,
       suppliers,
