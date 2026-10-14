@@ -355,7 +355,7 @@ function compactToolTrace(call, result) {
   if (result?.error) trace.error = String(result.error).slice(0, 300);
   return trace;
 }
-async function runAssistant(env, connection, history, scope=null, access=null) {
+async function runAssistant(env, connection, history, scope=null, access=null, mobile=false) {
   const model = clean(env.OPENAI_ASSISTANT_MODEL) || DEFAULT_MODEL;
   const base = {
     model,
@@ -363,7 +363,7 @@ async function runAssistant(env, connection, history, scope=null, access=null) {
     tools: assistantToolDefinitions,
     tool_choice: "auto",
     parallel_tool_calls: true,
-    reasoning: { effort: "medium" },
+    reasoning: { effort: mobile ? "low" : "medium" },
     text: {
       format: {
         type: "json_schema",
@@ -372,7 +372,7 @@ async function runAssistant(env, connection, history, scope=null, access=null) {
         schema: ASSISTANT_RESPONSE_SCHEMA
       }
     },
-    max_output_tokens: 6000
+    max_output_tokens: mobile ? 4000 : 6000
   };
 
   let response = await openAiResponse(env, {
@@ -381,12 +381,14 @@ async function runAssistant(env, connection, history, scope=null, access=null) {
   });
 
   const traces = [];
-  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+  for (let round = 0; round < (mobile ? Math.min(4, MAX_TOOL_ROUNDS) : MAX_TOOL_ROUNDS); round++) {
     const calls = functionCalls(response);
     if (!calls.length) break;
 
-    const outputs = [];
-    for (const call of calls) {
+    // The exposed tools are read-only. Dispatch independent model-requested
+    // lookups concurrently while preserving their original response order.
+    // Authorization and CHAIN scope are still checked for every tool call.
+    const outcomes = await Promise.all(calls.map(async (call) => {
       let result;
       try {
         if (!connection && call.name !== "list_smart_horeca_capabilities") {
@@ -399,13 +401,16 @@ async function runAssistant(env, connection, history, scope=null, access=null) {
       } catch (error) {
         result = { error: String(error?.message || error).slice(0, 1200) };
       }
+      return { call, result };
+    }));
+    const outputs = outcomes.map(({ call, result }) => {
       traces.push(compactToolTrace(call, result));
-      outputs.push({
+      return {
         type: "function_call_output",
         call_id: call.call_id,
         output: JSON.stringify(result)
-      });
-    }
+      };
+    });
 
     response = await openAiResponse(env, {
       ...base,
@@ -535,7 +540,8 @@ export async function onRequestPost({ request, env }) {
     }
 
     const history = await recentMessages(env.DB, auth.user.id, conversationId, MAX_HISTORY_MESSAGES);
-    const answer = await runAssistant(env, iiko.connection, history, iiko.scope, iiko.access);
+    const isMobileOwner = request.headers.get("X-SH-Mobile-Strict-Scope") === "1";
+    const answer = await runAssistant(env, iiko.connection, history, iiko.scope, iiko.access, isMobileOwner);
     const meta = {
       model: answer.model,
       responseId: answer.responseId,
