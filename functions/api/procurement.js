@@ -618,6 +618,22 @@ function invoiceVariance(grnLines,invoiceLines){
   }
   return items;
 }
+// Enforce remaining PR quantity inside the D1 batch transaction. If the PR is
+// already exhausted, the NOT NULL guard rolls back the entire PO batch.
+function guardedOrderLineInsert(db,orderId,requisitionId,x,requestedQty){
+  return db.prepare(`INSERT INTO procurement_order_lines
+    (id,order_id,product_id,product_name,unit,ordered_qty,confirmed_qty,package_size,package_count,container_id,package_name,vat_percent,unit_price)
+    VALUES(?1,?2,
+      CASE WHEN (
+        SELECT COALESCE(SUM(l.ordered_qty),0)
+        FROM procurement_order_lines l
+        JOIN procurement_orders o ON o.id=l.order_id
+        WHERE o.requisition_id=?13 AND o.status<>'CANCELLED' AND l.product_id=?3
+      ) + ?6 <= ?14 + 0.0005 THEN ?3 ELSE NULL END,
+      ?4,?5,?6,?6,?7,?8,?9,?10,?11,?12)`)
+    .bind(uid(),orderId,x.productId,x.productName,x.unit,x.quantity,x.packageSize,x.packageCount,x.containerId,x.packageName,x.vatPercent,x.unitPrice,requisitionId,requestedQty);
+}
+
 async function reqRow(db,scope,id,serverScope){
   const row=await db.prepare("SELECT * FROM procurement_requisitions WHERE id=?1 AND server_scope=?2 LIMIT 1").bind(id,serverScope).first();
   if(!row){const e=new Error("Заявка не найдена.");e.status=404;throw e}
@@ -1198,7 +1214,7 @@ export async function onRequestPost({request,env}){
         const id=uid(),number=docNo("PO"),total=money(lines.reduce((sum,x)=>sum+x.packageCount*x.unitPrice,0));
         const row={id,number,restaurant_ids_json:r.restaurant_ids_json,restaurant_names_json:r.restaurant_names_json};
         stmts.push(db.prepare("INSERT INTO procurement_orders(id,server_scope,number,requisition_id,quote_id,supplier_id,supplier_name,warehouse_id,warehouse_name,status,created_at,updated_at,created_by,created_by_name,comment,restaurant_ids_json,restaurant_names_json,total_amount) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'APPROVED',?10,?10,?11,?12,?13,?14,?15,?16)").bind(id,c.serverScope,number,r.id,quote.id,supplierId,quote.supplier_name,r.warehouse_id,r.warehouse_name,stamp,userId,userName,clean(body?.comment),r.restaurant_ids_json,r.restaurant_names_json,total));
-        for(const x of lines)stmts.push(db.prepare("INSERT INTO procurement_order_lines(id,order_id,product_id,product_name,unit,ordered_qty,confirmed_qty,package_size,package_count,container_id,package_name,vat_percent,unit_price) VALUES(?1,?2,?3,?4,?5,?6,?6,?7,?8,?9,?10,?11,?12)").bind(uid(),id,x.productId,x.productName,x.unit,x.quantity,x.packageSize,x.packageCount,x.containerId,x.packageName,x.vatPercent,x.unitPrice));
+        for(const x of lines)stmts.push(guardedOrderLineInsert(db,id,r.id,x,n(reqBy.get(x.productId)?.quantity)));
         stmts.push(db.prepare("UPDATE procurement_quotes SET status='SELECTED' WHERE id=?1").bind(quote.id));
         orders.push({id,number,quoteId:quote.id,supplierId,supplierName:quote.supplier_name,totalAmount:total,lines,row});
       }
@@ -1218,7 +1234,7 @@ export async function onRequestPost({request,env}){
       for(const x of lines){const req=reqBy.get(x.productId);if(!req)throw new Error("В PO есть позиция, которой нет в PR.");const remaining=q(n(req.quantity)-n(already.get(x.productId)));if(x.quantity>remaining+0.0005)throw new Error(`${req.product_name}: количество PO превышает остаток заявки (${remaining}).`)}
       const id=uid(),number=docNo("PO"),total=money(lines.reduce((sum,x)=>sum+x.packageCount*x.unitPrice,0)),row={id,number,restaurant_ids_json:r.restaurant_ids_json,restaurant_names_json:r.restaurant_names_json};
       const stmts=[db.prepare(`INSERT INTO procurement_orders(id,server_scope,number,requisition_id,quote_id,supplier_id,supplier_name,warehouse_id,warehouse_name,status,created_at,updated_at,created_by,created_by_name,comment,restaurant_ids_json,restaurant_names_json,total_amount) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'APPROVED',?10,?10,?11,?12,?13,?14,?15,?16)`).bind(id,c.serverScope,number,r.id,clean(quote?.id),supplierId,supplierName,r.warehouse_id,r.warehouse_name,stamp,userId,userName,clean(body?.comment),r.restaurant_ids_json,r.restaurant_names_json,total)];
-      for(const x of lines)stmts.push(db.prepare(`INSERT INTO procurement_order_lines(id,order_id,product_id,product_name,unit,ordered_qty,confirmed_qty,package_size,package_count,container_id,package_name,vat_percent,unit_price) VALUES(?1,?2,?3,?4,?5,?6,?6,?7,?8,?9,?10,?11,?12)`).bind(uid(),id,x.productId,x.productName||reqBy.get(x.productId)?.product_name||"",x.unit||reqBy.get(x.productId)?.unit||"",x.quantity,x.packageSize,x.packageCount,x.containerId,x.packageName,x.vatPercent,x.unitPrice));
+      for(const x of lines)stmts.push(guardedOrderLineInsert(db,id,r.id,{...x,productName:x.productName||reqBy.get(x.productId)?.product_name||"",unit:x.unit||reqBy.get(x.productId)?.unit||""},n(reqBy.get(x.productId)?.quantity)));
       if(quote)stmts.push(db.prepare("UPDATE procurement_quotes SET status='SELECTED' WHERE id=?1").bind(quote.id));
       await db.batch(stmts);await log(c,"CREATE","PURCHASE_ORDER",row,null,{id,number,requisitionId:r.id,supplierId,supplierName,totalAmount:total,lines});
       return json({success:true,id,number,status:"APPROVED"},201);
