@@ -79,6 +79,20 @@ export function visibleMobileOwnerWorkspaces(workspaces, authorizedAdmins = new 
     }));
 }
 
+// Explain a failure without revealing any other user's memberships or
+// identifying other tenants. This status is derived only from this user's
+// authenticated memberships in the currently bound D1 environment.
+export function mobileWorkspaceAccessStatus(workspaces, visible) {
+  if (visible.length) return "READY";
+  if (!workspaces.length) return "NO_MEMBERSHIPS_IN_THIS_ENVIRONMENT";
+  if (!workspaces.some(w =>
+    clean(w.memberStatus).toUpperCase() === "ACTIVE" &&
+    clean(w.status).toUpperCase() === "ACTIVE")) {
+    return "NO_ACTIVE_MEMBERSHIPS";
+  }
+  return "OWNER_OR_SYSADMIN_ROLE_REQUIRED";
+}
+
 export async function listMobileWorkspaces(request, env) {
   const auth = await authenticatedUser(request, env);
   const workspaces = await listUserWorkspaces(env.DB, auth.user);
@@ -91,9 +105,11 @@ export async function listMobileWorkspaces(request, env) {
       admins.add(clean(w.id));
     }
   }
+  const visible = visibleMobileOwnerWorkspaces(workspaces, admins);
   return {
     user: { id: auth.user.id, email: auth.user.email || "" },
-    workspaces: visibleMobileOwnerWorkspaces(workspaces, admins)
+    workspaces: visible,
+    accessStatus: mobileWorkspaceAccessStatus(workspaces, visible)
   };
 }
 
