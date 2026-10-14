@@ -5,6 +5,22 @@ import {
   operatingToday
 } from "../functions/api/iiko/_lib/operational-day.js";
 
+import { buildRequest } from "../functions/api/iiko/dashboard.js";
+
+test("all website dashboard OLAP queries retain shift ID and department filters", () => {
+  const result = buildRequest({
+    rows:["OpenDate.Typed"],measures:["DishDiscountSumInt"],
+    from:"2026-10-13",to:"2026-10-14",departmentIds:["r1","r2"],
+    filters:{"Session.ID":{filterType:"IncludeValues",values:["s-1","s-2"]}}
+  });
+  assert.deepEqual(result.filters["Session.ID"],{
+    filterType:"IncludeValues",values:["s-1","s-2"]});
+  assert.deepEqual(result.filters["Department.Id"],{
+    filterType:"IncludeValues",values:["r1","r2"]});
+  assert.equal(result.filters["OpenDate.Typed"].from,"2026-10-13");
+  assert.equal(result.filters["OpenDate.Typed"].to,"2026-10-14");
+});
+
 const s = (id, dep, date, status) => ({
   id, departmentId: dep, businessDate: date, status
 });
