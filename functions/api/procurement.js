@@ -426,6 +426,7 @@ const PROCUREMENT_ACTION_PERMISSIONS={
   "cancel-requisition":"procurement.request.create",
   "approve-requisition":"procurement.approve",
   "revise-requisition":"procurement.approve",
+  "reject-requisition":"procurement.approve",
   "create-rfq":"procurement.sourcing",
   "send-rfq":"procurement.sourcing",
   "close-rfq":"procurement.sourcing",
@@ -974,11 +975,15 @@ export async function onRequestPost({request,env}){
       return json({success:true,id:r.id,status:"CLOSED"});
     }
 
-    if(["submit-requisition","approve-requisition","cancel-requisition"].includes(action)){
+    if(["submit-requisition","approve-requisition","cancel-requisition","reject-requisition"].includes(action)){
       const r=await reqRow(db,c.scope,clean(body?.id),c.serverScope),before={status:r.status};
       let next=r.status,extra={};
       if(action==="submit-requisition"){if(r.status!=="DRAFT"){const e=new Error("На согласование можно отправить только черновик.");e.status=409;throw e}next="PENDING_APPROVAL"}
       if(action==="approve-requisition"){if(r.status!=="PENDING_APPROVAL"){const e=new Error("Согласовать можно только заявку на согласовании.");e.status=409;throw e}next="APPROVED";extra={approved_by:userId,approved_by_name:userName,approved_at:stamp}}
+      if(action==="reject-requisition"){
+        if(r.status!=="PENDING_APPROVAL"){const e=new Error("Отклонить можно только заявку на согласовании.");e.status=409;throw e}
+        next="CANCELLED";
+      }
       if(action==="cancel-requisition"){
         const cnt=await db.prepare("SELECT COUNT(*) c FROM procurement_orders WHERE requisition_id=?1 AND status<>'CANCELLED'").bind(r.id).first();
         if(n(cnt?.c)>0){const e=new Error("По заявке уже есть активный заказ поставщику.");e.status=409;throw e}next="CANCELLED"
