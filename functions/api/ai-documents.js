@@ -6,7 +6,7 @@ import { getIikoSuppliers } from "./iiko/_lib/iiko-suppliers.js";
 import { loadCachedReferenceMaps } from "./iiko/_lib/reference-cache.js";
 import { aiProviderStatus, processPurchaseDocument } from "./iiko/_lib/ai-document-providers.js";
 import { resolveRestaurantScope } from "./iiko/_lib/restaurant-scope.js";
-import { resolveStoreScope } from "./iiko/_lib/store-scope.js";
+import { resolveStoreScope, namedScopedWarehouses } from "./iiko/_lib/store-scope.js";
 
 function cors(){return{
   "Access-Control-Allow-Origin":"*",
@@ -179,7 +179,7 @@ async function referenceData(env,connection,scope=null){
   const refs=await loadCachedReferenceMaps(env,auth.serverUrl,[],{
     ttlMs:6*60*60*1000,
     allowStale:true,
-    requiredKeys:["suppliers","warehouses","products"]
+    requiredKeys:["suppliers","products"]
   });
   if(!refs){
     const error=new Error("Справочники Smart Horeca ещё не готовы. Обновите страницу AI Документы и повторите сопоставление.");
@@ -206,8 +206,16 @@ async function referenceData(env,connection,scope=null){
       error.code="AI_DOCUMENT_STORE_SCOPE_UNAVAILABLE";
       throw error;
     }
-    const allowed=new Set((storeScope.storeIds||[]).map(key).filter(Boolean));
-    warehouses=warehouses.filter(x=>allowed.has(key(x.id)));
+    // Warehouse names may exist in the CHAIN corporation tree even when
+    // cached reference rows are empty or older than the selected restaurant.
+    const names=namedScopedWarehouses(storeScope,new Map(warehouses.map(x=>[key(x.id),x.name])));
+    warehouses=[...names].map(([id,name])=>({id,name}));
+    if(!warehouses.length){
+      const error=new Error("Склады выбранного ресторана не удалось определить по справочнику Smart Horeca.");
+      error.status=409;
+      error.code="AI_DOCUMENT_WAREHOUSES_UNAVAILABLE";
+      throw error;
+    }
   }
   return {suppliers,products,warehouses,storeScope,referenceCacheHit:refs.cacheHit===true,referenceCacheStale:refs.stale===true};
 }

@@ -2,7 +2,10 @@ import { clean, iikoJson } from "./_lib/iiko-client.js";
 import { getIikoSuppliers } from "./_lib/iiko-suppliers.js";
 import { syncAiReferences } from "./references.js";
 import { loadCachedReferenceMaps } from "./_lib/reference-cache.js";
-import { resolveStoreScope } from "./_lib/store-scope.js";
+import { resolveStoreScope, namedScopedWarehouses } from "./_lib/store-scope.js";
+import { loadRequestIikoState } from "./_lib/user-state.js";
+import { scopeStateForAssistant } from "./_lib/ai-assistant-context.js";
+import { resolveRestaurantScope } from "./_lib/restaurant-scope.js";
 
 function corsHeaders() {
   return {
@@ -256,17 +259,28 @@ export async function onRequestPost({ request, env }) {
     }
 
     let warehouseMap = new Map(maps.warehouses?.entries?.() || []);
-    const departmentIds=Array.isArray(body.departmentIds)?body.departmentIds.map(String).filter(Boolean):[];
-    const allowedIds=Array.isArray(body?.chainScope?.allowedDepartmentIds)?body.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
-    const subsetRequested=String(body?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
+    // Resolve the authorized workspace rather than trusting the browser's
+    // chainScope. A staff member granted one of four restaurants must still
+    // see only that restaurant's warehouses.
+    const stored=await loadRequestIikoState(request,env);
+    if(!stored?.access?.allowed||!stored?.state){
+      return json({success:false,code:"INVOICE_REFERENCE_ACCESS_DENIED",message:"Нет доступа к выбранной организации Smart Horeca."},403);
+    }
+    const accessState=scopeStateForAssistant(stored.state,stored.access);
+    const requestedIds=Array.isArray(body.departmentIds)&&body.departmentIds.length?body.departmentIds:null;
+    const restaurantScope=resolveRestaurantScope({state:accessState,request,requestedIds,strict:true});
+    const departmentIds=restaurantScope.selectedDepartmentIds;
+    const allowedIds=restaurantScope.allowedDepartmentIds;
+    const subsetRequested=restaurantScope.isChain&&departmentIds.length>0&&
+      (departmentIds.length===1||allowedIds.length>departmentIds.length);
     let storeScope=null;
     if(subsetRequested){
       storeScope=await resolveStoreScope(connection,departmentIds);
       if(!storeScope.resolved||!storeScope.storeIds.length){
         return json({success:false,code:"INVOICE_REFERENCE_SCOPE_UNAVAILABLE",message:"Не удалось определить склады выбранного подразделения.",meta:{departmentIds,storeScope:storeScope?.diagnostics||null}},409);
       }
-      const wanted=new Set(storeScope.storeIds.map(warehouseKey));
-      warehouseMap=new Map([...warehouseMap.entries()].filter(([id])=>wanted.has(warehouseKey(id))));
+      // Recover names from verified CHAIN hierarchy even when the D1 catalog is incomplete.
+      warehouseMap=namedScopedWarehouses(storeScope,warehouseMap);
     }
     let balanceWarehouseResult = { map: new Map(), status: 0, ok: false, rawPreview: "", payload: null };
     let accountWarehouseResult = { exact: new Map(), explicitStores: new Map(), status: 0, ok: false };
@@ -300,10 +314,24 @@ export async function onRequestPost({ request, env }) {
     }
 
     if(subsetRequested&&storeScope?.storeIds?.length){
-      const wanted=new Set(storeScope.storeIds.map(warehouseKey));
-      warehouseMap=new Map([...warehouseMap.entries()].filter(([id])=>wanted.has(warehouseKey(id))));
+      // Recover names from verified CHAIN hierarchy even when the D1 catalog is incomplete.
+      warehouseMap=namedScopedWarehouses(storeScope,warehouseMap);
     }
 
+    if(!warehouseMap.size){
+      return json({
+        success:false,
+        code:"INVOICE_WAREHOUSE_NAMES_UNAVAILABLE",
+        message:"Не удалось получить названия складов выбранного ресторана. Проверьте доступ сервера к справочнику складов CHAIN.",
+        meta:{
+          departmentIds,
+          storeScopeResolved:storeScope?.resolved===true,
+          storeIdsFound:storeScope?.storeIds?.length||0,
+          balanceStatus:balanceWarehouseResult.status,
+          accountsStatus:accountWarehouseResult.status
+        }
+      },409);
+    }
     return json({
       success: true,
       suppliers,
@@ -377,8 +405,8 @@ export async function onRequestPost({ request, env }) {
     });
   } catch (error) {
     return json(
-      { success: false, message: error?.message || "Ошибка загрузки справочников для накладной" },
-      502
+      { success: false, code:error?.code||"INVOICE_REFERENCE_ERROR", message: error?.message || "Ошибка загрузки справочников для накладной" },
+      error?.status||502
     );
   }
 }

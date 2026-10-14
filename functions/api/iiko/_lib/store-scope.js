@@ -203,3 +203,26 @@ export async function resolveStoreScope(connection,departmentIds=[]){
   scopeCache.set(cacheKey,{value,expiresAt:Date.now()+SCOPE_CACHE_TTL_MS});
   return value;
 }
+
+// Preserve only verified warehouses belonging to the selected departments.
+// Reference caches can be incomplete even when CHAIN's corporation hierarchy
+// already supplies the real warehouse ID and display name.
+export function namedScopedWarehouses(storeScope, catalog = new Map()) {
+  const allowed = new Set(uniq(storeScope?.storeIds || []));
+  const out = new Map();
+  if (!allowed.size) return out;
+  const entries = catalog instanceof Map ? catalog.entries() : Object.entries(catalog || {});
+  for (const [id, name] of entries) {
+    const normalizedId = key(id);
+    const label = clean(name);
+    if (allowed.has(normalizedId) && label) out.set(normalizedId, label);
+  }
+  for (const warehouse of storeScope?.stores || []) {
+    const normalizedId = key(warehouse?.id);
+    const label = clean(warehouse?.name);
+    if (allowed.has(normalizedId) && label && !out.has(normalizedId)) {
+      out.set(normalizedId, label);
+    }
+  }
+  return out;
+}
