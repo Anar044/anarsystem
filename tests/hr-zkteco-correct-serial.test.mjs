@@ -69,6 +69,11 @@ test('Timeclock UI edits the serial without deleting devices and explains indepe
   assert.match(api,/action==='correctDeviceSerial'/);
   assert.match(api,/deviceAllowedForScope\(d,scope\)/);
   assert.match(api,/correctAdmsDeviceSerial\(env.DB/);
+  assert.match(api,/action==='reassignDeviceRestaurant'/);
+  assert.match(api,/COUNT\(\*\) AS count FROM hr_attendance_events/);
+  assert.match(api,/COUNT\(\*\) AS count FROM hr_zkteco_adms_raw/);
+  assert.match(api,/!isTimeclockScopeRestricted\(scope\)/);
+  assert.match(ui,/data-reassign-rms/);
   assert.match(ui,/data-correct-serial/);
   assert.match(ui,/action:'correctDeviceSerial'/);
   assert.match(page,/Явки по каждому RMS независимы/);
