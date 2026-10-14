@@ -1,0 +1,34 @@
+name: Owner Mobile API Checks
+
+on:
+  push:
+    branches:
+      - 'feature/owner-mobile-*'
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate JavaScript
+        run: |
+          node --experimental-default-type=module --check functions/api/mobile/_lib/context.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/workspaces.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/bootstrap.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/summary.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/shifts.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/shift.js
+          node --experimental-default-type=module --check functions/api/mobile/_lib/query-helpers.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/inventory.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/orders.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/report.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/movements.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/pnl.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/assistant.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/alerts.js
+      - name: Test summary normalization
+        run: node --experimental-default-type=module --test tests/mobile-*.test.mjs
