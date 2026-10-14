@@ -41,6 +41,7 @@ jobs:
           node --test tests/sidebar-navigation-persistence.test.mjs
           node --test tests/platform-organizations-access.test.mjs
           node --test tests/platform-server-provision.test.mjs
+          node --test tests/ai-assistant-workspace-connection.test.mjs
           node --test tests/platform-only-server-settings.test.mjs
           node --test tests/internal-orders-core.test.mjs
           node --test tests/internal-orders-store-scope.test.mjs
@@ -255,7 +256,8 @@ jobs:
         run: |
           set -euo pipefail
           grep -q 'getUser' functions/api/ai-assistant.js
-          grep -q 'loadPrivateIikoState' functions/api/ai-assistant.js
+          grep -q 'loadRequestIikoState' functions/api/iiko/_lib/ai-assistant-context.js
+          grep -q 'resolveAssistantIiko' functions/api/ai-assistant.js
           grep -q 'OPENAI_API_KEY' functions/api/ai-assistant.js
           grep -q 'assistantToolDefinitions' functions/api/ai-assistant.js
           grep -q 'readOnly: true' functions/api/ai-assistant.js
