@@ -99,30 +99,47 @@ export async function onRequestPost(context) {
       }, 400);
     }
 
-    const response = await fetch(`${VPS_API}/api/plugin/request`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
+    // The VPS is a separate service. An HTML error page from its reverse
+    // proxy is not a valid plugin response and must never be reported as data.
+    const origin = String(context.env?.PLUGIN_VPS_API_URL || VPS_API).replace(/\\/+$/, "");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 26000);
+    let response;
+    try {
+      response = await fetch(`${origin}/api/plugin/request`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
 
     const text = await response.text();
-
     let data;
     try {
       data = JSON.parse(text);
     } catch {
       return jsonResponse({
         success: false,
-        error: "VPS returned invalid JSON",
-        status: response.status,
+        code: "VPS_NON_JSON",
+        error: `VPS вернул не JSON (HTTP ${response.status}). Проверьте AnarSystem API и обратный прокси VPS.`,
+        upstreamStatus: response.status,
         contentType: response.headers.get("content-type") || "",
-        raw: text.slice(0, 500)
+        retryable: response.status >= 500
       }, 502);
     }
-
+    if (!data || typeof data !== "object") {
+      return jsonResponse({
+        success: false,
+        code: "VPS_INVALID_PAYLOAD",
+        error: "VPS вернул неожиданный формат ответа."
+      }, 502);
+    }
     return jsonResponse(data, response.status);
   } catch (error) {
     return jsonResponse({
