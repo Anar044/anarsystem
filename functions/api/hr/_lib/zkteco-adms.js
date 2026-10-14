@@ -1,3 +1,4 @@
+import { pilotCommandAcknowledged } from './zkteco-pilot.js';
 function clean(v,max=1000){return String(v??"").trim().slice(0,max)}
 function now(){return new Date().toISOString()}
 function normalizeSn(v){return clean(v,120).toUpperCase()}
@@ -351,6 +352,11 @@ async function acknowledgeAdmsCommand(db,row,commandId,returnCode=""){
   if(!commandId)return;
   await db.prepare(`UPDATE hr_zkteco_adms_commands SET status='ACK',acknowledged_at=?4,return_code=?5
     WHERE user_id=?1 AND device_id=?2 AND command_id=?3`).bind(row.user_id,row.device_id,commandId,now(),clean(returnCode,80)).run();
+  // Device acknowledgment, not queue insertion, makes an employee binding
+  // active. Never mark an unverified command as provisioned.
+  try{await pilotCommandAcknowledged(db,{
+    userId:row.user_id,deviceId:row.device_id,commandId,returnCode
+  })}catch(error){console.error('[ZK-PILOT-ACK]',error)}
 }
 export async function handleRegistry({request,env}){
   try{
