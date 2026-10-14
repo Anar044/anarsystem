@@ -58,6 +58,29 @@
     update();
   };
   function currentPage(){const p=location.pathname.toLowerCase();if(p.endsWith('/ai-assistant')||p.endsWith('/ai-assistant.html'))return'ai-assistant.html';if(p.endsWith('/assets')||p.endsWith('/assets.html'))return'assets.html';if(p.endsWith('/ai-documents')||p.endsWith('/ai-documents.html'))return'ai-documents.html';if(p.endsWith('/nakladnye')||p.endsWith('/nakladnye.html'))return'nakladnye.html';if(p.endsWith('/rashodnye-nakladnye')||p.endsWith('/rashodnye-nakladnye.html'))return'rashodnye-nakladnye.html';if(p.endsWith('/akty-spisaniya')||p.endsWith('/akty-spisaniya.html'))return'akty-spisaniya.html';if(p.endsWith('/vnutrennie-peremescheniya')||p.endsWith('/vnutrennie-peremescheniya.html'))return'vnutrennie-peremescheniya.html';if(p.endsWith('/nomenclature')||p.endsWith('/nomenclature.html'))return'nomenclature.html';if(p.endsWith('/stock-balances')||p.endsWith('/stock-balances.html'))return'stock-balances.html';if(p.endsWith('/stock-movements')||p.endsWith('/stock-movements.html'))return'stock-movements.html';if(p.endsWith('/internal-orders')||p.endsWith('/internal-orders.html'))return'internal-orders.html';if(p.endsWith('/procurement')||p.endsWith('/procurement.html'))return'procurement.html';if(p.endsWith('/abc-xyz')||p.endsWith('/abc-xyz.html'))return'abc-xyz.html';if(p.endsWith('/menu-engineering')||p.endsWith('/menu-engineering.html'))return'menu-engineering.html';if(p.endsWith('/waiter-performance')||p.endsWith('/waiter-performance.html'))return'waiter-performance.html';if(p.endsWith('/pnl')||p.endsWith('/pnl.html'))return'pnl.html';if(p.endsWith('/reports')||p.endsWith('/reports.html'))return'reports.html';if(p.endsWith('/supplier-balances')||p.endsWith('/supplier-balances.html'))return'supplier-balances.html';if(p.endsWith('/food-cost')||p.endsWith('/food-cost.html'))return'food-cost.html';if(p.endsWith('/labor-cost')||p.endsWith('/labor-cost.html'))return'labor-cost.html';if(p.endsWith('/site-users')||p.endsWith('/site-users.html'))return'site-users.html';if(p.endsWith('/hr-employees')||p.endsWith('/hr-employees.html')||p.endsWith('/hr-employee')||p.endsWith('/hr-employee.html'))return'hr-employees.html';if(p.endsWith('/hr-role-schedules')||p.endsWith('/hr-role-schedules.html'))return'hr-role-schedules.html';if(p.endsWith('/hr-compensation')||p.endsWith('/hr-compensation.html'))return'hr-compensation.html';if(p.endsWith('/hr-payroll-adjustments')||p.endsWith('/hr-payroll-adjustments.html'))return'hr-payroll-adjustments.html';if(p.endsWith('/hr-payroll-accounting')||p.endsWith('/hr-payroll-accounting.html'))return'hr-payroll-accounting.html';if(p.endsWith('/hr-payroll')||p.endsWith('/hr-payroll.html'))return'hr-payroll.html';if(p.endsWith('/hr-timeclock')||p.endsWith('/hr-timeclock.html'))return'hr-timeclock.html';if(p.endsWith('/hr-timesheet')||p.endsWith('/hr-timesheet.html'))return'hr-timesheet.html';if(p.endsWith('/hr-calendar')||p.endsWith('/hr-calendar.html'))return'hr-calendar.html';if(p.endsWith('/cash')||p.endsWith('/cash.html')||p.endsWith('/cash/index.html'))return'cash.html';if(p.endsWith('/cash-shifts')||p.endsWith('/cash-shifts.html'))return'cash-shifts.html';if(p.endsWith('/settings')||p.endsWith('/settings.html'))return'settings.html';if(p.endsWith('/qr-menu')||p.endsWith('/qr-menu.html'))return'qr-menu.html';if(p.endsWith('/audit-log')||p.endsWith('/audit-log.html'))return'audit-log.html';if(p.endsWith('/finance')||p.endsWith('/finance.html'))return'finance.html';return'index.html'}
+  // Standalone links (including deep HR links and clean Cloudflare URLs) must
+  // enter the same persistent navigation as the Dashboard. Otherwise each
+  // document rebuilds the menu and the workspace-only language selector is lost.
+  // Never redirect embedded content, legacy hostnames, auth pages or settings.
+  function persistentWorkspaceEntry(){
+    const host=String(location.hostname||'').toLowerCase();
+    if(host!=='smarthoreca.pages.dev'&&!host.endsWith('.smarthoreca.pages.dev'))return null;
+    if(root.classList.contains('sh-pilot-embedded')||isAuthPage())return null;
+    try{if(window.self!==window.top)return null}catch(_){return null}
+    if(!document.querySelector('.app-shell > .sidebar'))return null;
+    const page=currentPage();
+    if(page==='index.html'||page==='settings.html'||page==='cash.html')return null;
+    // currentPage returns index.html for unknown/admin/auth routes. All other
+    // entries map to existing, permission-filtered links in the unified menu.
+    const url=new URL('/persistent-workspace.html',location.origin);
+    url.searchParams.set('target','/'+page+location.search+location.hash);
+    return url.pathname+url.search;
+  }
+  const workspaceEntry=persistentWorkspaceEntry();
+  if(workspaceEntry){
+    location.replace(workspaceEntry);
+    return;
+  }
   const CANONICAL=['/index.html','/ai-assistant.html','/procurement.html','/finance.html','/reports.html','/abc-xyz.html','/pnl.html','/supplier-balances.html','/cash','/cash-shifts.html','/qr-menu.html','/audit-log.html'];
   // Preserve the navigation tree within the current browser tab. The full
   // page may reload, but its expanded groups and scroll position must not jump.
