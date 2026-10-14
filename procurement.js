@@ -658,7 +658,7 @@ function sourcingCard(r,index=0){
     '<section class="proc-sourcing-section"><div class="proc-section-title"><b>1</b><div><strong>Потребность</strong><span>Что нужно купить</span></div><em>'+(r.lines||[]).length+' позиций</em></div>'+prLinesHtml(r,false)+'</section>'+
     '<section class="proc-sourcing-section"><div class="proc-section-title"><b>2</b><div><strong>RFQ · запрос цен</strong><span>Кому отправили и кто ответил</span></div><button class="proc-btn small secondary" data-rfq-create="'+r.id+'">+ Создать RFQ</button></div>'+rfqListHtml(r)+'</section>'+
     '<section class="proc-sourcing-section quotes"><div class="proc-section-title"><b>3</b><div><strong>Предложения поставщиков</strong><span>Цены, условия и сравнение</span></div><button class="proc-btn small ghost" data-pr-quote="'+r.id+'" '+(activeRfq?'data-rfq="'+activeRfq.id+'"':'')+'>+ Внести предложение</button></div>'+quoteComparisonHtml(r)+'</section>'+
-    '<div class="proc-document-footer"><div><span>Оценка PR</span><strong>'+(r.totalEstimate?money(r.totalEstimate):'—')+'</strong></div><div><span>Заказы PO</span><strong>'+((r.linkedOrders||[]).length?r.linkedOrders.length:'ещё нет')+'</strong></div><em>Конец '+esc(r.number)+'</em></div>'+
+    '<div class="proc-document-footer"><div><span>Заявка PR</span><strong>'+(r.lines||[]).length+' позиций</strong></div><div><span>Заказы PO</span><strong>'+((r.linkedOrders||[]).length?r.linkedOrders.length:'ещё нет')+'</strong></div><em>Конец '+esc(r.number)+'</em></div>'+historyHtml(r)+
   '</article>';
 }
 function requestListItem(r){
@@ -1095,8 +1095,10 @@ function openSplitPoModal(r){
     return{line,remaining,available};
   }).filter(x=>x.remaining>0.0005);
   if(!needed.length){toast('Все позиции этой заявки уже распределены по PO.','error');return}
-  if(needed.some(x=>!x.available.length)){toast('Не по всем оставшимся товарам получены предложения поставщиков.','error');return}
-  const html=needed.map(item=>{
+  const notQuoted=needed.filter(x=>!x.available.length);
+  const purchasable=needed.filter(x=>x.available.length);
+  if(!purchasable.length){toast('По оставшимся товарам нет предложений поставщиков.','error');return}
+  const html=purchasable.map(item=>{
     const {line,remaining,available}=item;
     const cheapest=[...available].sort((a,b)=>num(a.line.unitPrice)/num(a.line.packageSize,1)-num(b.line.unitPrice)/num(b.line.packageSize,1))[0];
     return '<section class="proc-split-product" data-split-product="'+esc(line.productId)+'" data-remaining="'+remaining+'">'+
@@ -1111,6 +1113,7 @@ function openSplitPoModal(r){
   }).join('');
   openModal('Распределение PR · '+r.number,'PO · ВЫБОР ПОСТАВЩИКОВ',
     '<p class="proc-split-help">Укажите количество в базовой единице (кг, шт. и т.д.). Можно распределить 1000 кг между 2–3 поставщиками. Для каждого поставщика будет создан отдельный PO по его предложенной цене.</p>'+
+    (notQuoted.length?'<p class="proc-split-help">Без предложений (остаются в PR): '+esc(notQuoted.map(x=>x.line.productName||x.line.productId).join(', '))+'</p>':'')+
     '<div id="proc-split-products">'+html+'</div><div class="proc-split-bottom"><strong id="proc-split-total">Итого: 0,00 ₼</strong><span id="proc-split-message"></span></div>'+
     '<div class="proc-modal-actions"><button class="proc-btn ghost" id="proc-split-auto" type="button">Авто: минимальные цены</button><button class="proc-btn ghost" id="proc-split-cancel" type="button">Отмена</button><button class="proc-btn primary" id="proc-split-save" type="button">Создать PO по распределению</button></div>');
   const recalc=()=>{
@@ -1540,7 +1543,7 @@ async function loadAll(){
 
     const view=state.view||currentProcurementView(),canCost=window.SHAccess?.can?.('procurement.prices.view')||window.SHAccess?.can?.('sensitive.cost.view')||false;
     const tasks=[];
-    if(['catalog','approvals','sourcing','suppliers','receiving','norms'].includes(view))tasks.push(['Справочники',loadReferences]);
+    if(['catalog','requests','approvals','sourcing','suppliers','receiving','norms'].includes(view))tasks.push(['Справочники',loadReferences]);
     if(['catalog','norms'].includes(view))tasks.push(['Остатки',loadStocks]);
     if(canCost&&['catalog','sourcing','orders','receiving'].includes(view))tasks.push(['Накладные / история цен',loadHistory]);
     if(canCost&&['sourcing','suppliers','analytics'].includes(view))tasks.push(['Баланс поставщиков',loadSupplierBalances]);
