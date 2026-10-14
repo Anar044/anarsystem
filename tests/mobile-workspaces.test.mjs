@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   visibleMobileOwnerWorkspaces,
-  hasAssignedOrganizationAdminRole
+  hasAssignedOrganizationAdminRole,
+  mobileWorkspaceAccessStatus
 } from '../functions/api/mobile/_lib/context.js';
 
 test('active direct owners are visible without a system ADMIN grant', () => {
@@ -78,4 +79,21 @@ test('system ADMIN role check uses member and synthetic owner together', async (
     ['approved-member', 'platform-org:B'],
     ['ordinary-member', 'platform-org:A']
   ]);
+});
+
+test('diagnoses preview D1 with no memberships without granting access', () => {
+  assert.equal(mobileWorkspaceAccessStatus([], []),
+    'NO_MEMBERSHIPS_IN_THIS_ENVIRONMENT');
+  const staff = [{
+    id: 'staff-workspace', status: 'ACTIVE', memberStatus: 'ACTIVE',
+    isOwner: false
+  }];
+  assert.equal(mobileWorkspaceAccessStatus(staff, []),
+    'OWNER_OR_SYSADMIN_ROLE_REQUIRED');
+  assert.equal(mobileWorkspaceAccessStatus([{
+    id: 'suspended', status: 'SUSPENDED', memberStatus: 'ACTIVE'
+  }], []), 'NO_ACTIVE_MEMBERSHIPS');
+  assert.equal(mobileWorkspaceAccessStatus(staff, [{
+    id: 'approved', mobileEligible: true
+  }]), 'READY');
 });
