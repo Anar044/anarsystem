@@ -976,16 +976,14 @@ function vatOptions(selected=0){
   return [0,2,8,18].map(v=>'<option value="'+v+'" '+(num(selected)===v?'selected':'')+'>'+v+'%</option>').join('');
 }
 function prLineHtml(line={}){
-  const pid=key(line.productId),name=line.productName||productName(pid),unit=line.unit||unitFor(pid),price=num(line.expectedPrice??line.unitPrice);
-  const quantity=num(line.quantity??line.recommendedQty??line.manualQty??1),packageSize=num(line.packageSize,1)||1,packageCount=num(line.packageCount,quantity/packageSize)||1,vat=num(line.vatPercent,0);
-  return '<div class="proc-edit-row proc-pack-row" data-pr-line data-product-id="'+esc(pid)+'">'+
+  const pid=key(line.productId),name=line.productName||productName(pid),unit=line.unit||unitFor(pid);
+  const quantity=num(line.quantity??line.recommendedQty??line.manualQty??1),packageSize=num(line.packageSize,1)||1,packageCount=num(line.packageCount,quantity/packageSize)||1;
+  return '<div class="proc-edit-row proc-pack-row proc-pr-no-prices" data-pr-line data-product-id="'+esc(pid)+'">'+
     '<div class="proc-field"><span>Товар</span><input data-f="product" list="proc-products-list" value="'+esc(productLabel(pid,name))+'" placeholder="Начните вводить название"></div>'+
     '<div class="proc-field proc-package-field"><span>Фасовка</span><select data-f="packageChoice">'+packagingChoiceHtml(pid,{containerId:line.containerId,packageSize,packageName:line.packageName})+'</select><input data-f="packageSize" type="number" min="0.001" step="0.001" value="'+packageSize+'"></div>'+
     '<div class="proc-field"><span>Упаковок</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+packageCount+'"></div>'+
     '<div class="proc-field"><span>Итого '+esc(unit||'ед.')+'</span><input data-f="quantity" type="number" value="'+(packageSize*packageCount).toFixed(3).replace(/\.000$/,'')+'" readonly></div>'+
-    '<div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div>'+
-    '<div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0" step="0.01" value="'+price+'"></div>'+
-    '<strong class="line-total">'+money(packageCount*price)+'</strong><button class="remove" type="button">×</button>'+
+    '<button class="remove" type="button" aria-label="Удалить позицию">×</button>'+
     '<input data-f="containerId" type="hidden" value="'+esc(line.containerId||'')+'"><input data-f="packageName" type="hidden" value="'+esc(line.packageName||'')+'">'+
     '<input data-f="unit" type="hidden" value="'+esc(unit)+'"><input data-f="currentStock" type="hidden" value="'+num(line.currentStock)+'"><input data-f="minStock" type="hidden" value="'+(line.minStock??'')+'"><input data-f="maxStock" type="hidden" value="'+(line.maxStock??'')+'"><input data-f="storeId" type="hidden" value="'+esc(line.storeId||'')+'"><input data-f="storeName" type="hidden" value="'+esc(line.storeName||'')+'"></div>';
 }
@@ -994,19 +992,15 @@ function bindEditRows(root){
     row.querySelector('.remove').onclick=()=>{row.remove();recalcPrModal()};
     row.querySelector('[data-f="product"]').onchange=e=>{const pid=resolveProductLabel(e.target.value);row.dataset.productId=pid;if(pid)row.querySelector('[data-f="unit"]').value=unitFor(pid);row.querySelector('[data-f="containerId"]').value='';row.querySelector('[data-f="packageName"]').value='';syncPackagingRow(row);recalcPrModal()};
     row.querySelector('[data-f="packageChoice"]').onchange=()=>{applyPackagingChoice(row);recalcPrModal()};
-    ['packageSize','packageCount','price'].forEach(name=>row.querySelector('[data-f="'+name+'"]').oninput=recalcPrModal);
-    row.querySelector('[data-f="vatPercent"]').onchange=recalcPrModal;
+    ['packageSize','packageCount'].forEach(name=>row.querySelector('[data-f="'+name+'"]').oninput=recalcPrModal);
     applyPackagingChoice(row);
   });
 }
 function recalcPrModal(){
-  let total=0;
   document.querySelectorAll('#proc-pr-lines [data-pr-line]').forEach(row=>{
-    const pack=num(row.querySelector('[data-f="packageSize"]').value,1),count=num(row.querySelector('[data-f="packageCount"]').value),price=num(row.querySelector('[data-f="price"]').value);
+    const pack=num(row.querySelector('[data-f="packageSize"]').value,1),count=num(row.querySelector('[data-f="packageCount"]').value);
     row.querySelector('[data-f="quantity"]').value=(pack*count).toFixed(3).replace(/\.000$/,'');
-    total+=count*price;row.querySelector('.line-total').textContent=money(count*price);
   });
-  if($('proc-pr-total'))$('proc-pr-total').textContent=money(total);
 }
 function collectPrLines(){
   return [...document.querySelectorAll('#proc-pr-lines [data-pr-line]')].map(row=>{
@@ -1016,16 +1010,31 @@ function collectPrLines(){
     if(packs.length&&!containerId)throw Error(productName(pid)+': выберите фасовку из iiko.');
     if(!(packageSize>0))throw Error(productName(pid)+': фасовка не определена в iiko.');
     if(!(packageCount>0))throw Error(productName(pid)+': укажите количество упаковок.');
-    return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value||unitFor(pid),quantity:packageSize*packageCount,packageSize,packageCount,containerId,packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),expectedPrice:num(row.querySelector('[data-f="price"]').value),currentStock:num(row.querySelector('[data-f="currentStock"]').value),minStock:row.querySelector('[data-f="minStock"]').value===''?null:num(row.querySelector('[data-f="minStock"]').value),maxStock:row.querySelector('[data-f="maxStock"]').value===''?null:num(row.querySelector('[data-f="maxStock"]').value),storeId:row.querySelector('[data-f="storeId"]').value,storeName:row.querySelector('[data-f="storeName"]').value};
+    return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value||unitFor(pid),quantity:packageSize*packageCount,packageSize,packageCount,containerId,packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:0,expectedPrice:0,currentStock:num(row.querySelector('[data-f="currentStock"]').value),minStock:row.querySelector('[data-f="minStock"]').value===''?null:num(row.querySelector('[data-f="minStock"]').value),maxStock:row.querySelector('[data-f="maxStock"]').value===''?null:num(row.querySelector('[data-f="maxStock"]').value),storeId:row.querySelector('[data-f="storeId"]').value,storeName:row.querySelector('[data-f="storeName"]').value};
   });
 }
 function openPrModal(seed=[],existing=null){
-  const lines=(existing?.lines?.length?existing.lines:seed.length?seed:[{productId:'',productName:'',quantity:1,packageSize:1,packageCount:1,vatPercent:0,expectedPrice:0}]).map(x=>{const quantity=num(x.quantity??x.recommendedQty??x.manualQty??1);const packageSize=num(x.packageSize,1)||1;return{...x,quantity,packageSize,packageCount:num(x.packageCount,quantity/packageSize)||1,vatPercent:num(x.vatPercent,0),expectedPrice:x.expectedPrice??x.lastPrice,currentStock:x.currentStock,minStock:x.minStock,maxStock:x.maxStock,storeId:x.storeId,storeName:x.storeName}});
+  const review=existing?.status==='PENDING_APPROVAL';
+  const lines=(existing?.lines?.length?existing.lines:seed.length?seed:[{productId:'',productName:'',quantity:1,packageSize:1,packageCount:1}]).map(x=>{const quantity=num(x.quantity??x.recommendedQty??x.manualQty??1);const packageSize=num(x.packageSize,1)||1;return{...x,quantity,packageSize,packageCount:num(x.packageCount,quantity/packageSize)||1}});
   const source=existing?.source||(seed.length&&seed.every(x=>x.autoRecommended)?'AUTO_MINMAX':'MANUAL');
   const sameStore=lines.length&&lines.every(x=>key(x.storeId)===key(lines[0].storeId))?lines[0].storeId:'',warehouse=existing?.warehouseId||sameStore||state.refs.warehouses[0]?.id||'',lead=num(state.data?.settings?.defaultLeadDays,2);
-  openModal(existing?'Изменить заявку '+existing.number:'Новая заявка на закупку','PURCHASE REQUISITION','<form id="proc-pr-form"><datalist id="proc-products-list">'+productOptions()+'</datalist><datalist id="proc-pack-sizes"><option value="0.1"></option><option value="0.25"></option><option value="0.5"></option><option value="1"></option><option value="2"></option><option value="2.5"></option><option value="5"></option><option value="10"></option></datalist><div class="proc-form-grid"><label class="proc-field"><span>Склад назначения</span><select id="proc-pr-warehouse">'+warehouseOptions(warehouse)+'</select></label><label class="proc-field"><span>Нужно к дате</span><input id="proc-pr-needed" type="date" value="'+esc(existing?.neededBy||addDays(today(),lead))+'"></label><label class="proc-field"><span>Источник</span><input value="'+esc(source)+'" disabled></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-pr-comment" placeholder="Причина, проект, пожелания закупщику…">'+esc(existing?.comment||'')+'</textarea></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Позиции заявки</strong><button id="proc-pr-add-line" type="button" class="proc-btn small ghost">＋ Добавить</button></div><div id="proc-pr-lines">'+lines.map(prLineHtml).join('')+'</div></div><div class="proc-modal-summary"><span>Оценочная сумма заявки</span><strong id="proc-pr-total">0,00 ₼</strong></div><div class="proc-modal-actions"><button type="button" class="proc-btn ghost" id="proc-pr-cancel">Отмена</button><button class="proc-btn primary" type="submit">'+(existing?'Сохранить изменения':'Создать PR')+'</button></div></form>');
-  bindEditRows($('proc-pr-lines'));recalcPrModal();$('proc-pr-cancel').onclick=closeModal;$('proc-pr-add-line').onclick=()=>{$('proc-pr-lines').insertAdjacentHTML('beforeend',prLineHtml({quantity:1,packageSize:1,packageCount:1,vatPercent:0}));bindEditRows($('proc-pr-lines'));recalcPrModal()};
-  $('proc-pr-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const wid=key($('proc-pr-warehouse').value),w=state.refs.warehouses.find(x=>key(x.id)===wid);if(!wid)throw Error('Выберите склад назначения.');const payload={id:existing?.id,warehouseId:wid,warehouseName:w?.name||'',neededBy:$('proc-pr-needed').value,comment:$('proc-pr-comment').value,source,lines:collectPrLines()};await procPost(existing?'update-requisition':'create-requisition',payload);closeModal();await reloadProc();toast(existing?'Заявка обновлена.':'Заявка создана.');goProcurementView('requests')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
+  openModal(existing?'Изменить заявку '+existing.number:'Новая заявка на закупку',review?'СОГЛАСОВАНИЕ · РЕДАКТИРОВАНИЕ':'PURCHASE REQUISITION',
+    '<form id="proc-pr-form"><datalist id="proc-products-list">'+productOptions()+'</datalist><div class="proc-form-grid"><label class="proc-field"><span>Склад назначения</span><select id="proc-pr-warehouse">'+warehouseOptions(warehouse)+'</select></label><label class="proc-field"><span>Нужно к дате</span><input id="proc-pr-needed" type="date" value="'+esc(existing?.neededBy||addDays(today(),lead))+'"></label><label class="proc-field"><span>Источник</span><input value="'+esc(source)+'" disabled></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-pr-comment" placeholder="Причина, проект, пожелания закупщику…">'+esc(existing?.comment||'')+'</textarea></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Позиции заявки · без цен</strong><button id="proc-pr-add-line" type="button" class="proc-btn small ghost">＋ Добавить</button></div><div id="proc-pr-lines">'+lines.map(prLineHtml).join('')+'</div></div><div class="proc-modal-actions"><button type="button" class="proc-btn ghost" id="proc-pr-cancel">Отмена</button><button class="proc-btn primary" type="submit">'+(existing?'Сохранить изменения':'Создать PR')+'</button></div></form>');
+  bindEditRows($('proc-pr-lines'));recalcPrModal();$('proc-pr-cancel').onclick=closeModal;
+  $('proc-pr-add-line').onclick=()=>{$('proc-pr-lines').insertAdjacentHTML('beforeend',prLineHtml({quantity:1,packageSize:1,packageCount:1}));bindEditRows($('proc-pr-lines'));recalcPrModal()};
+  $('proc-pr-form').onsubmit=async e=>{
+    e.preventDefault();
+    try{
+      setBusy(true);
+      const wid=key($('proc-pr-warehouse').value),w=state.refs.warehouses.find(x=>key(x.id)===wid);
+      if(!wid)throw Error('Выберите склад назначения.');
+      const payload={id:existing?.id,warehouseId:wid,warehouseName:w?.name||'',neededBy:$('proc-pr-needed').value,comment:$('proc-pr-comment').value,source,lines:collectPrLines()};
+      await procPost(review?'revise-requisition':existing?'update-requisition':'create-requisition',payload);
+      closeModal();
+      if(review){await reloadProc();toast('Изменения сохранены. Теперь можно согласовать заявку.')}
+      else{toast(existing?'Заявка обновлена.':'Заявка создана.');goProcurementView('requests')}
+    }catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}
+  };
 }
 function quoteLineHtml(l,supplierId){
   const h=historyPrice(l.productId,supplierId),price=h?num(h.price):num(l.expectedPrice);
