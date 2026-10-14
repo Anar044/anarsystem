@@ -9,6 +9,7 @@ export function scopedRequest(request, ctx, { method = "GET", body } = {}) {
   headers.set("Cookie", "sh_selected_departments=" +
     encodeURIComponent(ctx.selectedIds.join(",")));
   headers.set("X-SH-Workspace-Id", ctx.access.workspace.id);
+  headers.set("X-SH-Mobile-Strict-Scope", "1");
   if (method === "POST") headers.set("Content-Type", "application/json");
   return new Request(request.url, {
     method, headers, ...(method === "POST" ? { body: JSON.stringify(body) } : {})
