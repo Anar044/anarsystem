@@ -585,7 +585,7 @@ function quoteComparisonHtml(r){
 
   const bestPriceByProduct=new Map();
   for(const line of lines){
-    const prices=quotes.map(qt=>num(quoteLineByProduct(qt,line.productId)?.unitPrice,0)).filter(x=>x>0);
+    const prices=quotes.map(qt=>{const l=quoteLineByProduct(qt,line.productId);return l?num(l.unitPrice)/Math.max(0.001,num(l.packageSize,1)):0}).filter(x=>x>0);
     if(prices.length)bestPriceByProduct.set(key(line.productId),Math.min(...prices));
   }
 
@@ -610,7 +610,7 @@ function quoteComparisonHtml(r){
       quotes.map(qt=>{
         const ql=quoteLineByProduct(qt,line.productId);
         if(!ql)return '<td class="quote-price-cell missing"><span>Поставщик эту позицию не предложил</span></td>';
-        const price=num(ql.unitPrice),packSize=num(ql.packageSize||line.packageSize||1,1)||1,packCount=num(ql.packageCount, num(ql.quantity||line.quantity)/packSize),lineTotal=num(ql.total||packCount*price),basePrice=packSize>0?price/packSize:price,isBest=best>0&&Math.abs(price-best)<0.0001;
+        const price=num(ql.unitPrice),packSize=num(ql.packageSize||line.packageSize||1,1)||1,packCount=num(ql.packageCount, num(ql.quantity||line.quantity)/packSize),lineTotal=num(ql.total||packCount*price),basePrice=packSize>0?price/packSize:price,isBest=best>0&&Math.abs(basePrice-best)<0.0001;
         return '<td class="quote-price-cell '+(isBest?'best':'')+'">'+
           '<div class="quote-detail"><span>Цена за упаковку</span><strong>'+money(price)+'</strong></div>'+
           '<div class="quote-detail"><span>Фасовка</span><b>'+qty(packSize)+' '+esc(ql.unit||line.unit||'')+'</b></div>'+
@@ -626,7 +626,8 @@ function quoteComparisonHtml(r){
   const totals='<tr class="quote-total-row"><td><strong>Итого предложение</strong></td>'+
     quotes.map(qt=>'<td><strong>'+money(qt.totalAmount)+'</strong>'+(r.status==='APPROVED'?'<button class="proc-btn small primary quote-po-btn" data-po-create="'+r.id+'" data-quote="'+qt.id+'">Создать PO</button>':'')+'</td>').join('')+'</tr>';
 
-  return quoteCards+'<div class="proc-quote-compare-wrap"><table class="proc-quote-compare">'+head+'<tbody>'+bodyRows+totals+'</tbody></table></div>'+
+  return quoteCards+'<div class="proc-quote-compare-wrap"><table class="proc-quote-compare">'+head+'<tbody>'+bodyRows+totals+'</tbody></table></div>'+ 
+    (r.status==='APPROVED'?'<div class="proc-split-entry"><div><strong>Заказы по лучшим ценам</strong><small>Можно распределить один товар между несколькими поставщиками и создать отдельный PO для каждого.</small></div><button class="proc-btn primary" data-po-split="'+r.id+'">Распределить товары и создать PO</button></div>':'')+
     '<div class="proc-quote-legend"><span><i class="best-dot"></i> зелёным отмечена минимальная цена по конкретному товару</span><span>Все цены показаны с детализацией по упаковке и базовой единице</span></div>';
 }
 function rfqStatusLabel(s){
@@ -1084,6 +1085,85 @@ function openQuoteModal(r,rfqId=''){
   $('proc-quote-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const sid=key($('proc-quote-supplier').value),sup=state.refs.suppliers.find(x=>key(x.id)===sid);if(!sid)throw Error('Выберите поставщика.');const lines=[...document.querySelectorAll('[data-quote-line]')].map(row=>{const pid=row.dataset.productId;const packageSize=num(row.querySelector('[data-f="packageSize"]').value,1),packageCount=num(row.querySelector('[data-f="packageCount"]').value);return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId:key(row.querySelector('[data-f="containerId"]').value),packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),unitPrice:num(row.querySelector('[data-f="price"]').value)}});await procPost('add-quote',{requisitionId:r.id,rfqId:rfq?.id||'',supplierId:sid,supplierName:sup?.name||'',deliveryDays:num($('proc-quote-days').value),paymentTerms:$('proc-quote-payment').value,validUntil:$('proc-quote-valid').value,comment:$('proc-quote-comment').value,lines});closeModal();await reloadProc();toast('Предложение поставщика сохранено.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
 }
 async function simpleAction(action,id,message){try{setBusy(true);await procPost(action,{id});await reloadProc();toast(message)}catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}}
+function openSplitPoModal(r){
+  const newest=[...(r.quotes||[])].sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
+  const offers=[...new Map(newest.reverse().map(x=>[key(x.supplierId),x])).values()];
+  const needed=(r.lines||[]).map(line=>{
+    const progress=(r.lineProgress||[]).find(x=>key(x.productId)===key(line.productId));
+    const remaining=Math.max(0,Math.round((num(line.quantity)-num(progress?.orderedQty))*1000)/1000);
+    const available=offers.map(quote=>({quote,line:quoteLineByProduct(quote,line.productId)})).filter(x=>num(x.line?.unitPrice)>0);
+    return{line,remaining,available};
+  }).filter(x=>x.remaining>0.0005);
+  if(!needed.length){toast('Все позиции этой заявки уже распределены по PO.','error');return}
+  if(needed.some(x=>!x.available.length)){toast('Не по всем оставшимся товарам получены предложения поставщиков.','error');return}
+  const html=needed.map(item=>{
+    const {line,remaining,available}=item;
+    const cheapest=[...available].sort((a,b)=>num(a.line.unitPrice)/num(a.line.packageSize,1)-num(b.line.unitPrice)/num(b.line.packageSize,1))[0];
+    return '<section class="proc-split-product" data-split-product="'+esc(line.productId)+'" data-remaining="'+remaining+'">'+
+      '<header><strong>'+esc(line.productName||line.productId)+'</strong><span>Осталось распределить: '+qty(remaining)+' '+esc(line.unit)+'</span></header>'+
+      available.map(({quote, line:offer})=>{
+        const pack=num(offer.packageSize,1)||1,unitPrice=num(offer.unitPrice),isBest=quote.id===cheapest.quote.id;
+        return '<label class="proc-split-option"><span><strong>'+esc(quote.supplierName||quote.supplierId)+'</strong><small>'+money(unitPrice/pack)+' / '+esc(line.unit||'ед.')+' · фасовка '+qty(pack)+(isBest?' · лучшая цена':'')+'</small></span>'+
+          '<input type="number" data-split-qty data-product-id="'+esc(line.productId)+'" data-quote-id="'+esc(quote.id)+'" data-price="'+unitPrice+'" data-pack="'+pack+'" min="0" max="'+remaining+'" step="0.001" value="'+(isBest?remaining:0)+'" aria-label="Количество для '+esc(quote.supplierName||quote.supplierId)+'">'+
+          '<span class="proc-split-money">—</span></label>';
+      }).join('')+
+      '<footer class="proc-split-summary"></footer></section>';
+  }).join('');
+  openModal('Распределение PR · '+r.number,'PO · ВЫБОР ПОСТАВЩИКОВ',
+    '<p class="proc-split-help">Укажите количество в базовой единице (кг, шт. и т.д.). Можно распределить 1000 кг между 2–3 поставщиками. Для каждого поставщика будет создан отдельный PO по его предложенной цене.</p>'+
+    '<div id="proc-split-products">'+html+'</div><div class="proc-split-bottom"><strong id="proc-split-total">Итого: 0,00 ₼</strong><span id="proc-split-message"></span></div>'+
+    '<div class="proc-modal-actions"><button class="proc-btn ghost" id="proc-split-auto" type="button">Авто: минимальные цены</button><button class="proc-btn ghost" id="proc-split-cancel" type="button">Отмена</button><button class="proc-btn primary" id="proc-split-save" type="button">Создать PO по распределению</button></div>');
+  const recalc=()=>{
+    let total=0,valid=true,any=false;
+    document.querySelectorAll('[data-split-product]').forEach(row=>{
+      const max=num(row.dataset.remaining),inputs=[...row.querySelectorAll('[data-split-qty]')];
+      let assigned=0;
+      inputs.forEach(input=>{
+        const value=num(input.value),cost=value/num(input.dataset.pack,1)*num(input.dataset.price);
+        if(!Number.isFinite(value)||value<0||value>max+0.0005)valid=false;
+        if(value>0.0005)any=true;
+        assigned+=value;total+=cost;
+        input.closest('.proc-split-option').querySelector('.proc-split-money').textContent=money(cost);
+      });
+      if(assigned>max+0.0005)valid=false;
+      const summary=row.querySelector('.proc-split-summary');
+      summary.textContent='Распределено: '+qty(assigned)+' / '+qty(max)+' · не заказано: '+qty(Math.max(0,max-assigned));
+      summary.classList.toggle('invalid',assigned>max+0.0005);
+    });
+    $('proc-split-total').textContent='Итого PO: '+money(total);
+    $('proc-split-message').textContent=valid?'Можно создать несколько PO одновременно.':'Количество превышает остаток заявки.';
+    $('proc-split-save').disabled=!valid||!any;
+  };
+  document.querySelectorAll('[data-split-qty]').forEach(x=>x.oninput=recalc);
+  $('proc-split-auto').onclick=()=>{
+    document.querySelectorAll('[data-split-product]').forEach(row=>{
+      const inputs=[...row.querySelectorAll('[data-split-qty]')];
+      const best=[...inputs].sort((a,b)=>num(a.dataset.price)/num(a.dataset.pack,1)-num(b.dataset.price)/num(b.dataset.pack,1))[0];
+      inputs.forEach(input=>input.value=input===best?row.dataset.remaining:'0');
+    });recalc();
+  };
+  $('proc-split-cancel').onclick=closeModal;
+  $('proc-split-save').onclick=async()=>{
+    try{
+      const byQuote=new Map();
+      for(const input of document.querySelectorAll('[data-split-qty]')){
+        const value=num(input.value);
+        if(value<=0)continue;
+        const id=input.dataset.quoteId;
+        if(!byQuote.has(id))byQuote.set(id,{quoteId:id,lines:[]});
+        byQuote.get(id).lines.push({productId:input.dataset.productId,quantity:value});
+      }
+      if(!byQuote.size)throw Error('Укажите количество хотя бы одного товара.');
+      setBusy(true);
+      const result=await procPost('create-orders-split',{requisitionId:r.id,allocations:[...byQuote.values()]});
+      closeModal();
+      toast('Создано PO: '+(result.orders||[]).map(x=>x.number).join(', '));
+      goProcurementView('orders');
+    }catch(e){toast(e.message||String(e),'error')}finally{setBusy(false)}
+  };
+  recalc();
+}
+
 async function createPoFromQuote(reqId,quoteId){
   try{
     setBusy(true);
@@ -1532,7 +1612,7 @@ function bind(){
     const row=state.purchaseRows.find(x=>x.id===b.dataset.createNeed);if(row)openPrModal([row]);
   });
   $('proc-pr-list').addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prReview||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prClose||b.dataset.prQuote||b.dataset.poCreate||b.dataset.rfqCreate||b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose||b.dataset.rfqLink;if(!id)return;
+    const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prReview||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prClose||b.dataset.prQuote||b.dataset.poCreate||b.dataset.poSplit||b.dataset.rfqCreate||b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose||b.dataset.rfqLink;if(!id)return;
     const r=(state.data?.requisitions||[]).find(x=>x.id===id)||(state.data?.requisitions||[]).find(x=>(x.rfqs||[]).some(q=>q.id===id));
     if((b.dataset.prEdit||b.dataset.prReview)&&r)return openPrModal([],r);
     if(b.dataset.rfqCreate&&r)return openRfqModal(r);
@@ -1546,6 +1626,7 @@ function bind(){
     if(b.dataset.prQuote&&r)return openQuoteModal(r,b.dataset.rfq||'');
     if(b.dataset.prClose&&r){const reason=prompt('Причина ручного закрытия '+r.number+':');if(reason?.trim())return procPost('close-requisition',{id:r.id,reason:reason.trim()}).then(()=>reloadProc()).then(()=>toast('Заявка закрыта.')).catch(e=>toast(e.message||String(e),'error'));return}
     if(b.dataset.poCreate)return createPoFromQuote(b.dataset.poCreate,b.dataset.quote);
+    if(b.dataset.poSplit&&r)return openSplitPoModal(r);
     if(b.dataset.prSubmit)return simpleAction('submit-requisition',id,'Заявка отправлена на согласование.');
     if(b.dataset.prApprove)return simpleAction('approve-requisition',id,'Заявка согласована.');
     if(b.dataset.prCancel&&confirm('Отменить заявку '+(r?.number||'')+'?'))return simpleAction('cancel-requisition',id,'Заявка отменена.');
