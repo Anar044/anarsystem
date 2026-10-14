@@ -105,6 +105,15 @@
         edit.onclick=()=>correctDeviceSerial(d.id);
         actions.appendChild(edit);
       }
+      if(data.restaurantScope?.mode==='CHAIN'&&data.restaurantScope?.deviceScope==='ALL'&&
+         !actions.querySelector('[data-reassign-rms]')){
+        const reassign=document.createElement('button');
+        reassign.type='button';reassign.className='hr-link-button';
+        reassign.dataset.reassignRms=d.id;reassign.textContent='Изменить RMS';
+        reassign.title='Переназначить RMS до появления первых отметок';
+        reassign.onclick=()=>reassignDeviceRestaurant(d.id);
+        actions.appendChild(reassign);
+      }
       if(actions.querySelector('[data-delete-device]'))return;
       const btn=document.createElement('button');
       btn.type='button';btn.className='hr-link-button danger';btn.dataset.deleteDevice=d.id;btn.textContent='Удалить';
@@ -131,6 +140,32 @@
     }catch(e){
       $('tcError').hidden=false;$('tcError').textContent=e.message;
       setStatus('Ошибка исправления SN','error');
+    }
+  }
+  async function reassignDeviceRestaurant(deviceId){
+    const d=(data.devices||[]).find(x=>String(x.id)===String(deviceId));
+    const restaurants=data.restaurantScope?.restaurants||[];
+    if(!d||!restaurants.length)return;
+    const choices=restaurants.map((x,i)=>(i+1)+'. '+x.name+' ('+x.code+')').join('\n');
+    const old=restaurants.find(x=>String(x.id)===String(d.restaurantId));
+    const input=prompt('Выберите номер RMS для '+d.name+'. Переназначение возможно только ДО первых отметок:\n'+choices,
+      String(Math.max(1,restaurants.findIndex(x=>String(x.id)===String(d.restaurantId))+1)));
+    if(input===null)return;
+    const index=Number(input)-1;
+    if(!Number.isInteger(index)||index<0||index>=restaurants.length){
+      $('tcError').hidden=false;$('tcError').textContent='Выберите номер RMS из списка.';return;
+    }
+    const next=restaurants[index];
+    if(String(next.id)===String(d.restaurantId))return;
+    if(!confirm('Перенести '+d.name+' из «'+(old?.name||d.restaurantId)+'» в «'+next.name+'»? Если есть прежние отметки, сервер запретит перенос.'))return;
+    try{
+      setStatus('Меняем подразделение устройства…','loading');
+      data=await api({action:'reassignDeviceRestaurant',deviceId,restaurantId:next.id});
+      render();$('tcError').hidden=true;
+      setStatus('Новый RMS устройства сохранён','ok');
+    }catch(e){
+      $('tcError').hidden=false;$('tcError').textContent=e.message;
+      setStatus('Ошибка смены RMS','error');
     }
   }
   async function deleteDevice(deviceId){
