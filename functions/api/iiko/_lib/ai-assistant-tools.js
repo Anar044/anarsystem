@@ -454,16 +454,29 @@ export const assistantToolDefinitions = [
   }
 ];
 
-export async function executeAssistantTool(name, args, context) {
-  const { env, connection, scope } = context;
-  const selectedDepartmentIds=Array.isArray(scope?.selectedDepartmentIds)?scope.selectedDepartmentIds:[];
-  const allowedDepartmentIds=Array.isArray(scope?.allowedDepartmentIds)?scope.allowedDepartmentIds:[];
-  const subsetChainScope=scope?.isChain===true && selectedDepartmentIds.length>0 && selectedDepartmentIds.length<allowedDepartmentIds.length;
+export function assistantToolDepartmentScope(scope) {
+  const selectedDepartmentIds =
+    Array.isArray(scope?.selectedDepartmentIds) ? scope.selectedDepartmentIds : [];
+  const allowedDepartmentIds =
+    Array.isArray(scope?.allowedDepartmentIds) ? scope.allowedDepartmentIds : [];
+  const subsetChainScope = scope?.isChain === true &&
+    selectedDepartmentIds.length > 0 &&
+    selectedDepartmentIds.length < allowedDepartmentIds.length;
   const enforceDepartmentScope =
     (subsetChainScope || scope?.mobileStrict === true) &&
     selectedDepartmentIds.length > 0;
-  const effectiveDepartmentIds =
-    enforceDepartmentScope ? selectedDepartmentIds : [];
+  return {
+    selectedDepartmentIds, subsetChainScope, enforceDepartmentScope,
+    effectiveDepartmentIds:
+      enforceDepartmentScope ? selectedDepartmentIds : []
+  };
+}
+
+export async function executeAssistantTool(name, args, context) {
+  const { env, connection, scope } = context;
+  const {
+    selectedDepartmentIds, enforceDepartmentScope, effectiveDepartmentIds
+  } = assistantToolDepartmentScope(scope);
 
   if (name === "list_smart_horeca_capabilities") {
     return {
