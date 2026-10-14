@@ -1,4 +1,4 @@
-import { getUser } from "../iiko/_lib/user-state.js";
+import { loadRequestIikoState } from "../iiko/_lib/user-state.js";
 
 const SENSITIVE_KEY = /(password|passwd|secret|token|authorization|api.?key|private.?key|credential|cookie)/i;
 const MAX_JSON = 180000;
@@ -69,6 +69,13 @@ export async function serverScopeFromConnection(connection){
   const port=clean(c.port);
   return host?await sha256(`${host.toLowerCase()}:${port}`):"";
 }
+// Audit logs are tenant-scoped. Two organizations using the same physical
+// Smart Horeca Server must never share activity history.
+export async function auditScopeFromConnection(connection,workspaceStorageId){
+  const serverScope=await serverScopeFromConnection(connection);
+  const workspace=clean(workspaceStorageId);
+  return serverScope&&workspace?await sha256(`${serverScope}|workspace:${workspace}`):"";
+}
 export async function ensureAuditTable(db){
   if(!db)throw new Error("D1 binding DB не настроен.");
   await db.prepare(`CREATE TABLE IF NOT EXISTS audit_log (
@@ -98,9 +105,9 @@ export async function ensureAuditTable(db){
 export async function logAuditEvent({request,env,connection,action,entityType,entityId="",entityLabel="",documentNumber="",before=null,after=null,restaurantIds=[],restaurantNames=[],metadata={}}){
   try{
     if(!env?.DB||!request)return {logged:false,reason:"NO_DB_OR_REQUEST"};
-    const auth=await getUser(request,env);
-    if(!auth)return {logged:false,reason:"NO_AUTH"};
-    const scope=await serverScopeFromConnection(connection);
+    const stored=await loadRequestIikoState(request,env);
+    if(!stored?.access?.allowed||!stored?.user)return {logged:false,reason:"NO_WORKSPACE_ACCESS"};
+    const scope=await auditScopeFromConnection(connection,stored.storageUserId);
     if(!scope)return {logged:false,reason:"NO_SERVER_SCOPE"};
     await ensureAuditTable(env.DB);
     const changes=diffValues(safeValue(before),safeValue(after));
@@ -110,7 +117,7 @@ export async function logAuditEvent({request,env,connection,action,entityType,en
       restaurant_ids_json,restaurant_names_json,source_path,before_json,after_json,changes_json,metadata_json
     ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)`)
       .bind(
-        id,now,scope,String(auth.user.id),clean(auth.user.email),actorName(auth.user),clean(action),clean(entityType),
+        id,now,scope,String(stored.user.id),clean(stored.user.email),actorName(stored.user),clean(action),clean(entityType),
         clean(entityId),clean(entityLabel),clean(documentNumber),
         stableJson(restaurantIds),stableJson(restaurantNames),new URL(request.url).pathname,
         stableJson(before),stableJson(after),stableJson(changes),stableJson(metadata)
