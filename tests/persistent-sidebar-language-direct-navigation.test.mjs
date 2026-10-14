@@ -54,7 +54,7 @@ test('language controls remain in the same persistent menu and are pinned for lo
   assert.match(load('sh-i18n.js'),/sidebar\.appendChild\(wrap\)/);
 });
 test('video regression pages use a cache-busted sidebar script',()=>{
-  for (const path of ['hr-timeclock.html','hr-payroll-accounting.html','hr-payroll.html']){
+  for (const path of ['hr-timeclock.html','hr-payroll-accounting.html','hr-payroll.html','dashboard.html']){
     assert.match(load(path),/app-shell\.js\?v=20261014-persistent-entry1/);
   }
   assert.match(html,/app-shell\.js\?v=20261014-persistent-entry1/);
