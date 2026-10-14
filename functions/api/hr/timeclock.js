@@ -2,7 +2,7 @@ import { loadRequestIikoState } from '../iiko/_lib/user-state.js';
 import { resolveHrRestaurantScope, hrScopeKeys, isHrSubsetScope } from './_lib/restaurant-scope.js';
 import { employeeWithinMembershipScope,visibleEmployeeMembership,mergeEmployeeMembership } from './_lib/employee-department-membership.js';
 import { zktecoModelProfile,plannedDeviceRoster } from './_lib/zkteco-network-roster.js';
-import { ensureZktecoAdmsTables, registerAdmsDevice, unregisterAdmsDevice, queueAdmsCommand } from './_lib/zkteco-adms.js';
+import { ensureZktecoAdmsTables, registerAdmsDevice, unregisterAdmsDevice, correctAdmsDeviceSerial, queueAdmsCommand } from './_lib/zkteco-adms.js';
 
 function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization'}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...cors()}})}
@@ -242,6 +242,18 @@ export async function onRequestPost({request,env}){
       if(mode==='ADMS_PUSH')await registerAdmsDevice(env.DB,{userId,deviceId:id,serialNumber,model});
       else await unregisterAdmsDevice(env.DB,userId,id);
       return json({success:true,deviceId:id,ingestPath:'/api/hr/device-ingest',admsPath:'/iclock',...await snapshot(env.DB,userId,scope)});
+    }
+    if(action==='correctDeviceSerial'){
+      const deviceId=clean(b.deviceId),serialNumber=clean(b.serialNumber);
+      if(!deviceId)return json({success:false,message:'Укажите зарегистрированное устройство.'},400);
+      const d=await device(env.DB,userId,deviceId);
+      if(!d)return json({success:false,message:'Устройство не найдено.'},404);
+      if(!deviceAllowedForScope(d,scope))return json({success:false,message:'Устройство относится к другому RMS.'},403);
+      if(clean(d.connection_mode)!=='ADMS_PUSH')return json({success:false,message:'Исправление SN доступно только для устройств ADMS PUSH.'},409);
+      const result=await correctAdmsDeviceSerial(env.DB,{userId,deviceId,serialNumber});
+      return json({success:true,deviceId,serialCorrection:result,
+        message:result.changed?'SN исправлен. Дождитесь подключения SenseFace и нажмите «Обновить».':'SN уже совпадает.',
+        ...await snapshot(env.DB,userId,scope)});
     }
     if(action==='deleteDevice'){
       const deviceId=clean(b.deviceId);if(!deviceId)return json({success:false,message:'Не указано устройство'},400);
