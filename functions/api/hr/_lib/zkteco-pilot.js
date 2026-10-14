@@ -26,7 +26,7 @@ export async function ensurePilotTables(db){
     )`)
   ]);
 }
-export async function reservePilotPin(db,userId,employee){
+export async function proposePilotPin(db,userId,employee){
   const id=clean(employee.iiko_employee_id),code=clean(employee.employee_code);
   if(!id)throw new Error('Отсутствует ID сотрудника');
   const existing=await db.prepare(`SELECT pin FROM hr_zkteco_employee_pins
@@ -57,8 +57,16 @@ export async function reservePilotPin(db,userId,employee){
     for(let n=900001;n<1000000;n++)if(canUse(String(n))){pin=String(n);break}
   }
   if(!pin)throw new Error('Не найден свободный PIN ZKTeco; нужна ручная проверка');
-  await db.prepare(`INSERT INTO hr_zkteco_employee_pins(user_id,iiko_employee_id,pin,created_at)
+  return pin;
+}
+export async function reservePilotPin(db,userId,employee){
+  const id=clean(employee.iiko_employee_id);
+  const pin=await proposePilotPin(db,userId,employee);
+  await db.prepare(`INSERT OR IGNORE INTO hr_zkteco_employee_pins(user_id,iiko_employee_id,pin,created_at)
     VALUES(?1,?2,?3,?4)`).bind(userId,id,pin,new Date().toISOString()).run();
+  const committed=await db.prepare(`SELECT pin FROM hr_zkteco_employee_pins
+    WHERE user_id=?1 AND iiko_employee_id=?2`).bind(userId,id).first();
+  if(!committed||committed.pin!==pin)throw new Error('PIN изменился во время сохранения; обновите предпросмотр');
   return pin;
 }
 export async function pilotCommandAcknowledged(db,{userId,deviceId,commandId,returnCode}){
