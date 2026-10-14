@@ -189,9 +189,13 @@ async function snapshot(db,userId,scope=null){
   return{
     rosterPreview:roster,
     pilotProvisioning:(pilotRows.results||[]).filter(x=>selectedDeviceIds.has(String(x.device_id)))
-      .map(x=>({deviceId:x.device_id,employeeId:x.iiko_employee_id,employeeName:x.display_name||'',
-        pin:x.pin,format:x.format,commandId:Number(x.command_id),status:x.status,
-        returnCode:x.return_code||'',updatedAt:x.updated_at})),
+      .map(x=>{
+        const cmd=allAdmsCommands.find(c=>String(c.device_id)===String(x.device_id)&&Number(c.command_id)===Number(x.command_id));
+        return{deviceId:x.device_id,employeeId:x.iiko_employee_id,employeeName:x.display_name||'',
+          pin:x.pin,format:x.format,commandId:Number(x.command_id),
+          status:x.status==='PENDING'&&cmd?.status==='SENT'?'SENT':x.status,
+          returnCode:x.return_code||'',updatedAt:x.updated_at};
+      }),
     pilotAvailable:Boolean(scope?.isChain&&!isTimeclockScopeRestricted(scope)&&
       (scope.selectedDepartmentIds||[]).length>0&&
       (scope.selectedDepartmentIds||[]).length===(scope.allowedDepartmentIds||[]).length),
