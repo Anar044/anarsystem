@@ -19,8 +19,8 @@
 
   function renderDevices(){
     const box=$('deviceList'),list=data.devices||[];
-    box.innerHTML=list.length?list.map(d=>{const adms=d.connectionMode==='ADMS_PUSH';return`<article class="hr-device-card">
-      <div><span>${esc(d.model||d.provider)}</span><strong>${esc(d.name)}</strong><small>${esc(d.location||'Место не указано')} · ${esc(d.timezone||'Asia/Baku')}</small>${d.serialNumber?`<small>SN: ${esc(d.serialNumber)}</small>`:''}</div>
+    box.innerHTML=list.length?list.map(d=>{const adms=d.connectionMode==='ADMS_PUSH',restaurant=(data.restaurantScope?.restaurants||[]).find(x=>String(x.id)===String(d.restaurantId));return`<article class="hr-device-card">
+      <div><span>${esc(d.model||d.provider)}</span><strong>${esc(d.name)}</strong><small>${esc(d.location||'Место не указано')} · ${esc(d.timezone||'Asia/Baku')}</small>${d.serialNumber?`<small>SN: ${esc(d.serialNumber)}</small>`:''}<small>RMS: ${esc(restaurant?.name||d.restaurantId||'Не назначен')}</small></div>
       <div class="hr-device-meta">
         <div class="hr-device-badges"><span class="hr-badge ${d.active?'active':'fired'}">${d.active?'Активно':'Отключено'}</span>${adms?`<span class="hr-badge ${d.admsOnline?'linked':'pending'}">${d.admsOnline?'ADMS Online':'ADMS Offline'}</span>`:`<span class="hr-badge ${d.tokenConfigured?'linked':'pending'}">${d.tokenConfigured?'Connector готов':'Нет ключа'}</span>`}</div>
         ${adms?`<small>${d.admsLastSeenAt?'Последний контакт: '+esc(localDate(d.admsLastSeenAt)):'Аппарат ещё не подключался'}</small><small>${d.admsLastEventAt?'Последняя отметка: '+esc(localDate(d.admsLastEventAt)):'ATTLOG ещё не получен'}</small>${d.lastIp?`<small>Последний IP: ${esc(d.lastIp)}</small>`:''}${d.pushVersion?`<small>Push: ${esc(d.pushVersion)}${d.firmware?' · FW '+esc(d.firmware):''}</small>`:''}`:`<small>${d.lastSyncAt?'Последняя синхронизация: '+esc(localDate(d.lastSyncAt)):'События ещё не загружались'}</small>`}
@@ -97,11 +97,76 @@
       const d=(data.devices||[])[index];if(!d)return;
       let actions=card.querySelector('.hr-device-actions');
       if(!actions){actions=document.createElement('div');actions.className='hr-device-actions';card.querySelector('.hr-device-meta')?.appendChild(actions)}
+      if(d.connectionMode==='ADMS_PUSH'&&!actions.querySelector('[data-correct-serial]')){
+        const edit=document.createElement('button');
+        edit.type='button';edit.className='hr-link-button';
+        edit.dataset.correctSerial=d.id;edit.textContent='Исправить SN';
+        edit.title='Исправить серийный номер по экрану Device Info, сохранив устройство и журнал';
+        edit.onclick=()=>correctDeviceSerial(d.id);
+        actions.appendChild(edit);
+      }
+      if(data.restaurantScope?.mode==='CHAIN'&&data.restaurantScope?.deviceScope==='ALL'&&
+         !actions.querySelector('[data-reassign-rms]')){
+        const reassign=document.createElement('button');
+        reassign.type='button';reassign.className='hr-link-button';
+        reassign.dataset.reassignRms=d.id;reassign.textContent='Изменить RMS';
+        reassign.title='Переназначить RMS до появления первых отметок';
+        reassign.onclick=()=>reassignDeviceRestaurant(d.id);
+        actions.appendChild(reassign);
+      }
       if(actions.querySelector('[data-delete-device]'))return;
       const btn=document.createElement('button');
       btn.type='button';btn.className='hr-link-button danger';btn.dataset.deleteDevice=d.id;btn.textContent='Удалить';
       btn.onclick=()=>deleteDevice(d.id);actions.appendChild(btn);
     });
+  }
+  async function correctDeviceSerial(deviceId){
+    const device=(data.devices||[]).find(x=>String(x.id)===String(deviceId));
+    if(!device||device.connectionMode!=='ADMS_PUSH')return;
+    const input=prompt('Введите точный серийный номер SN из меню Device Info аппарата (включая буквенный префикс, если он есть):',device.serialNumber||'');
+    if(input===null)return;
+    const next=String(input).trim().toUpperCase();
+    if(!/^[A-Z0-9-]{6,64}$/.test(next)){
+      $('tcError').hidden=false;$('tcError').textContent='Укажите полный SN: латинские буквы, цифры и дефисы (6–64 символа).';return;
+    }
+    if(next===String(device.serialNumber||'').toUpperCase())return;
+    if(!confirm('Перепривязать ADMS с SN '+device.serialNumber+' на '+next+'? Карточка аппарата и сохранённые явки останутся. Проверьте SN именно в Device Info.'))return;
+    try{
+      setStatus('Исправляем серийный номер…','loading');
+      const response=await api({action:'correctDeviceSerial',deviceId,serialNumber:next});
+      data=response;render();
+      $('tcError').hidden=true;
+      setStatus('SN исправлен · ожидаем контакт ADMS','ok');
+    }catch(e){
+      $('tcError').hidden=false;$('tcError').textContent=e.message;
+      setStatus('Ошибка исправления SN','error');
+    }
+  }
+  async function reassignDeviceRestaurant(deviceId){
+    const d=(data.devices||[]).find(x=>String(x.id)===String(deviceId));
+    const restaurants=data.restaurantScope?.restaurants||[];
+    if(!d||!restaurants.length)return;
+    const choices=restaurants.map((x,i)=>(i+1)+'. '+x.name+' ('+x.code+')').join('\n');
+    const old=restaurants.find(x=>String(x.id)===String(d.restaurantId));
+    const input=prompt('Выберите номер RMS для '+d.name+'. Переназначение возможно только ДО первых отметок:\n'+choices,
+      String(Math.max(1,restaurants.findIndex(x=>String(x.id)===String(d.restaurantId))+1)));
+    if(input===null)return;
+    const index=Number(input)-1;
+    if(!Number.isInteger(index)||index<0||index>=restaurants.length){
+      $('tcError').hidden=false;$('tcError').textContent='Выберите номер RMS из списка.';return;
+    }
+    const next=restaurants[index];
+    if(String(next.id)===String(d.restaurantId))return;
+    if(!confirm('Перенести '+d.name+' из «'+(old?.name||d.restaurantId)+'» в «'+next.name+'»? Если есть прежние отметки, сервер запретит перенос.'))return;
+    try{
+      setStatus('Меняем подразделение устройства…','loading');
+      data=await api({action:'reassignDeviceRestaurant',deviceId,restaurantId:next.id});
+      render();$('tcError').hidden=true;
+      setStatus('Новый RMS устройства сохранён','ok');
+    }catch(e){
+      $('tcError').hidden=false;$('tcError').textContent=e.message;
+      setStatus('Ошибка смены RMS','error');
+    }
   }
   async function deleteDevice(deviceId){
     const d=(data.devices||[]).find(x=>String(x.id)===String(deviceId));

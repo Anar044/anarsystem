@@ -105,6 +105,37 @@ export async function registerAdmsDevice(db,{userId,deviceId,serialNumber,model=
     .bind(userId,deviceId,sn,clean(model,120)||"SenseFace 2A",t).run();
   return sn;
 }
+// Repair an incorrectly registered ADMS SN without deleting the logical
+// device, attendance, employee bindings or diagnostic history. The actual SN
+// must be verified in the terminal's Device Info screen before calling this.
+export async function correctAdmsDeviceSerial(db,{userId,deviceId,serialNumber}){
+  await ensureZktecoAdmsTables(db);
+  const sn=normalizeSn(serialNumber);
+  if(!/^[A-Z0-9-]{6,64}$/.test(sn)){
+    const e=new Error("Введите серийный номер из Device Info (6–64 латинских букв, цифр или дефисов).");e.status=400;throw e;
+  }
+  const current=await db.prepare(`SELECT serial_number FROM hr_zkteco_adms_devices
+    WHERE user_id=?1 AND device_id=?2 AND enabled=1 LIMIT 1`).bind(userId,deviceId).first();
+  if(!current){const e=new Error("Устройство ADMS не зарегистрировано.");e.status=404;throw e}
+  const previousSerial=normalizeSn(current.serial_number);
+  if(previousSerial===sn)return{changed:false,previousSerial,serialNumber:sn};
+  const conflict=await db.prepare(`SELECT user_id,device_id FROM hr_zkteco_adms_devices
+    WHERE serial_number=?1 LIMIT 1`).bind(sn).first();
+  if(conflict&&(String(conflict.user_id)!==String(userId)||String(conflict.device_id)!==String(deviceId))){
+    const e=new Error("Этот серийный номер уже зарегистрирован за другим устройством.");e.status=409;throw e;
+  }
+  const t=now();
+  await db.batch([
+    db.prepare(`UPDATE hr_zkteco_adms_devices
+      SET serial_number=?3,last_seen_at='',push_version='',firmware='',last_ip='',last_user_agent='',updated_at=?4
+      WHERE user_id=?1 AND device_id=?2 AND serial_number=?5`)
+      .bind(userId,deviceId,sn,t,previousSerial),
+    db.prepare(`UPDATE hr_zkteco_adms_commands SET status='SUPERSEDED'
+      WHERE user_id=?1 AND device_id=?2 AND status IN ('PENDING','SENT')`)
+      .bind(userId,deviceId)
+  ]);
+  return{changed:true,previousSerial,serialNumber:sn};
+}
 export async function unregisterAdmsDevice(db,userId,deviceId){
   await ensureZktecoAdmsTables(db);
   await db.prepare(`DELETE FROM hr_zkteco_adms_devices WHERE user_id=?1 AND device_id=?2`).bind(userId,deviceId).run();

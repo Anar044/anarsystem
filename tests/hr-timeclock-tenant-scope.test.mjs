@@ -81,5 +81,5 @@ test('Face ID selector narrows employees to chosen restaurant on the device',()=
   assert.match(source,/x\.departmentCodes\|\|\[x\.departmentCode\]/);
   assert.match(source,/\$\('bindingDevice'\)\.onchange=renderEmployeeSelector/);
   const page=readFileSync(new URL('../hr-timeclock.html',import.meta.url),'utf8');
-  assert.match(page,/chain-all-devices-preview-v2/);
+  assert.match(page,/zk-edit-serial-v1/);
 });
