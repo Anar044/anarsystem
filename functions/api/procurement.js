@@ -1120,6 +1120,54 @@ export async function onRequestPost({request,env}){
       return json({success:true,id,totalAmount:total},existingQuote?200:201);
     }
 
+    if(action==="create-orders-split"){
+      const r=await reqRow(db,c.scope,clean(body?.requisitionId),c.serverScope);
+      if(r.status!=="APPROVED")throw Object.assign(new Error("PO можно создавать только по согласованной PR."),{status:409});
+      const groups=Array.isArray(body?.allocations)?body.allocations:[];
+      if(!groups.length)throw new Error("Распределите хотя бы один товар между поставщиками.");
+      if(groups.length>40)throw new Error("Слишком много поставщиков в одной операции.");
+      const reqRows=(await db.prepare("SELECT * FROM procurement_requisition_lines WHERE requisition_id=?1").bind(r.id).all()).results||[];
+      const reqBy=new Map(reqRows.map(x=>[clean(x.product_id),x]));
+      const old=(await db.prepare("SELECT l.product_id,SUM(l.ordered_qty) qty FROM procurement_order_lines l JOIN procurement_orders o ON o.id=l.order_id WHERE o.requisition_id=?1 AND o.status<>'CANCELLED' GROUP BY l.product_id").bind(r.id).all()).results||[];
+      const used=new Map(old.map(x=>[clean(x.product_id),n(x.qty)]));
+      const newUsed=new Map(),usedSuppliers=new Set(),orders=[],stmts=[];
+      for(const group of groups){
+        const quoteId=clean(group?.quoteId);
+        const quote=await db.prepare("SELECT * FROM procurement_quotes WHERE id=?1 AND server_scope=?2 AND requisition_id=?3 LIMIT 1").bind(quoteId,c.serverScope,r.id).first();
+        if(!quote)throw new Error("Предложение поставщика не найдено для этой PR.");
+        const supplierId=clean(quote.supplier_id);
+        if(usedSuppliers.has(supplierId))throw new Error("Каждый поставщик должен быть указан один раз.");
+        usedSuppliers.add(supplierId);
+        const quoted=new Map(parse(quote.lines_json,[]).map(x=>[clean(x.productId),x]));
+        const requested=Array.isArray(group?.lines)?group.lines:[];
+        if(!requested.length)throw new Error("Добавьте позиции для поставщика "+quote.supplier_name+".");
+        const lines=[],seen=new Set();
+        for(const item of requested){
+          const productId=clean(item?.productId),req=reqBy.get(productId),offer=quoted.get(productId);
+          if(!req||!offer)throw new Error("Товар отсутствует в согласованной заявке или предложении поставщика.");
+          if(seen.has(productId))throw new Error("Один товар у поставщика указан повторно.");
+          seen.add(productId);
+          const quantity=q(item?.quantity),packageSize=q(offer.packageSize||1),packageCount=q(quantity/packageSize);
+          if(!(quantity>0)||!(packageSize>0)||Math.abs(packageCount*packageSize-quantity)>0.0005)throw new Error(req.product_name+": количество должно соответствовать фасовке поставщика ("+packageSize+").");
+          const unitPrice=money(offer.unitPrice);
+          if(!(unitPrice>0))throw new Error(req.product_name+": поставщик не указал цену.");
+          newUsed.set(productId,q(n(newUsed.get(productId))+quantity));
+          const remaining=q(n(req.quantity)-n(used.get(productId)));
+          if(n(newUsed.get(productId))>remaining+0.0005)throw new Error(req.product_name+": распределено больше остатка PR ("+remaining+").");
+          lines.push({productId,productName:req.product_name,unit:req.unit,quantity,packageSize,packageCount,containerId:clean(offer.containerId),packageName:clean(offer.packageName),vatPercent:n(offer.vatPercent),unitPrice});
+        }
+        const id=uid(),number=docNo("PO"),total=money(lines.reduce((sum,x)=>sum+x.packageCount*x.unitPrice,0));
+        const row={id,number,restaurant_ids_json:r.restaurant_ids_json,restaurant_names_json:r.restaurant_names_json};
+        stmts.push(db.prepare("INSERT INTO procurement_orders(id,server_scope,number,requisition_id,quote_id,supplier_id,supplier_name,warehouse_id,warehouse_name,status,created_at,updated_at,created_by,created_by_name,comment,restaurant_ids_json,restaurant_names_json,total_amount) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'APPROVED',?10,?10,?11,?12,?13,?14,?15,?16)").bind(id,c.serverScope,number,r.id,quote.id,supplierId,quote.supplier_name,r.warehouse_id,r.warehouse_name,stamp,userId,userName,clean(body?.comment),r.restaurant_ids_json,r.restaurant_names_json,total));
+        for(const x of lines)stmts.push(db.prepare("INSERT INTO procurement_order_lines(id,order_id,product_id,product_name,unit,ordered_qty,confirmed_qty,package_size,package_count,container_id,package_name,vat_percent,unit_price) VALUES(?1,?2,?3,?4,?5,?6,?6,?7,?8,?9,?10,?11,?12)").bind(uid(),id,x.productId,x.productName,x.unit,x.quantity,x.packageSize,x.packageCount,x.containerId,x.packageName,x.vatPercent,x.unitPrice));
+        stmts.push(db.prepare("UPDATE procurement_quotes SET status='SELECTED' WHERE id=?1").bind(quote.id));
+        orders.push({id,number,quoteId:quote.id,supplierId,supplierName:quote.supplier_name,totalAmount:total,lines,row});
+      }
+      await db.batch(stmts);
+      for(const o of orders)await log(c,"CREATE","PURCHASE_ORDER",o.row,null,{id:o.id,number:o.number,requisitionId:r.id,supplierId:o.supplierId,supplierName:o.supplierName,totalAmount:o.totalAmount,lines:o.lines});
+      return json({success:true,orders:orders.map(({id,number,supplierId,supplierName,totalAmount})=>({id,number,supplierId,supplierName,totalAmount}))},201);
+    }
+
     if(action==="create-order"){
       const r=await reqRow(db,c.scope,clean(body?.requisitionId),c.serverScope);
       if(r.status!=="APPROVED"){const e=new Error("PO можно создать только из согласованной заявки.");e.status=409;throw e}
