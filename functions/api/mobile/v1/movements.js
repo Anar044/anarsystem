@@ -32,7 +32,7 @@ export function scopedMovements(payload, selectedStoreIds, selectedIds) {
 }
 export async function onRequestGet({request,env}) {
  try{
-  const {from,to}=mobilePeriod(request,8);
+  const {from,to}=mobilePeriod(request,32);
   const ctx=await mobileContext(request,env,{connectionRequired:true});
   const scope=await resolveStoreScope(ctx.connection,ctx.selectedIds);
   if(!scope.resolved||!scope.storeIds?.length)throw new MobileError(
