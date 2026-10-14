@@ -131,6 +131,24 @@
       outline:2px solid #42d392;outline-offset:2px;
     }
     @media (min-width:761px){
+      /* The sidebar scrolls through dozens of authorized modules. Pin the
+         language picker to the visible bottom instead of placing it AFTER the
+         long scrollable navigation where it disappears offscreen. */
+      body.sh-workspace-page .app-shell>.sidebar{
+        padding-bottom:72px!important;
+      }
+      body.sh-workspace-page .sidebar>.sh-language-picker{
+        position:fixed!important;bottom:0!important;left:0!important;
+        width:248px!important;max-width:248px!important;min-height:56px;
+        box-sizing:border-box!important;margin:0!important;padding:10px 12px!important;
+        z-index:160!important;border-right:1px solid #263341;
+      }
+      body.sh-workspace-page.sh-sidebar-collapsed .app-shell>.sidebar{
+        padding-bottom:72px!important;
+      }
+      body.sh-workspace-page.sh-sidebar-collapsed .sidebar>.sh-language-picker{
+        width:70px!important;max-width:70px!important;
+      }
       body.sh-workspace-page.sh-sidebar-collapsed .sidebar .sh-language-picker{
         width:100%;justify-content:center;padding:8px 0 0;margin:8px 0 2px;
       }
@@ -167,7 +185,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/auth-config.js"></script>
   <script src="/auth.js?v=20261012-nav-stable1"></script>
-  <script src="/app-shell.js?v=20261012-workspace-pilot2"></script>
+  <script src="/app-shell.js?v=20261014-persistent-entry1"></script>
   <script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
   <script src="/documents-nav.js?v=20261012-nav-stable1"></script>
   <script src="/persistent-workspace.js?v=20261012-workspace-pilot2"></script>
