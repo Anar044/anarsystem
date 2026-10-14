@@ -56,6 +56,8 @@ export function normalizeSummary(payload) {
     success: true,
     from: payload.from,
     to: payload.to,
+    mode: payload.mode || "calendar",
+    operatingDay: payload.operatingDay || null,
     metrics: { revenue, checks, avgCheck, grossProfit: profit },
     daily,
     currency: "AZN",
@@ -77,6 +79,8 @@ export async function onRequestGet({ request, env }) {
     }
     const days = (Date.parse(to + "T00:00:00Z") - Date.parse(from + "T00:00:00Z")) / 86400000;
     if (days > 31) throw new MobileError("PERIOD_TOO_LONG", "Период ограничен 32 днями.", 400);
+    const mode = url.searchParams.get("mode") === "operational"
+      ? "operational" : "calendar";
     const ctx = await mobileContext(request, env, { connectionRequired: true });
     // Reuse the existing authoritative server OLAP logic; credentials remain
     // exclusively inside the Cloudflare Function.
@@ -84,17 +88,20 @@ export async function onRequestGet({ request, env }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ...ctx.connection, from, to,
+        ...ctx.connection, from, to, mode,
         // Explicit IDs for *all* selections, including full CHAIN: never
         // accidentally query unrelated departments if an OLAP account is broad.
         departmentIds: ctx.selectedIds
       })
     });
     const upstream = await dashboardSummary({ request: backendRequest });
-    if (!upstream.ok) {
-      throw new MobileError("OLAP_FAILED", "Не удалось получить отчёт SH OLAP.", 502);
+    const payload = await upstream.json().catch(() => null);
+    if (!upstream.ok || !payload?.success) {
+      const code = String(payload?.code || "OLAP_FAILED");
+      const message = typeof payload?.message === "string"
+        ? payload.message : "Не удалось получить отчёт SH OLAP.";
+      throw new MobileError(code, message, upstream.status === 409 ? 409 : 502);
     }
-    const payload = await upstream.json();
     const normalized = normalizeSummary(payload);
     if (!normalized.scope.departmentScopeApplied) {
       throw new MobileError("OLAP_SCOPE_UNVERIFIED", "Не удалось проверить область ресторанов.", 502);
