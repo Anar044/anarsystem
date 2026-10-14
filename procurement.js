@@ -669,7 +669,7 @@ function requestListItem(r){
       '<div class="proc-record-date"><strong>'+esc(dateTimeLabel(r.createdAt))+'</strong><span>дата и время</span></div>'+
       '<div class="proc-record-main"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+esc(r.createdBy||'—')+'</span></div>'+
       '<div class="proc-record-metric"><strong>'+lines+'</strong><span>позиций</span></div>'+
-      '<div class="proc-record-metric amount"><strong>'+esc(total)+'</strong><span>оценка</span></div>'+
+      '<div class="proc-record-metric amount"><strong>'+esc(total)+'</strong><span>PR</span></div>'+
       '<span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span>'+
       '<span class="proc-record-open">Открыть <i>›</i></span>'+
     '</summary>'+
@@ -1629,7 +1629,7 @@ function bind(){
     if(b.dataset.poSplit&&r)return openSplitPoModal(r);
     if(b.dataset.prSubmit)return simpleAction('submit-requisition',id,'Заявка отправлена на согласование.');
     if(b.dataset.prApprove)return simpleAction('approve-requisition',id,'Заявка согласована.');
-    if(b.dataset.prCancel&&confirm('Отменить заявку '+(r?.number||'')+'?'))return simpleAction('cancel-requisition',id,'Заявка отменена.');
+    if(b.dataset.prCancel&&confirm((state.view==='approvals'?'Отклонить':'Отменить')+' заявку '+(r?.number||'')+'?'))return simpleAction(state.view==='approvals'?'reject-requisition':'cancel-requisition',id,state.view==='approvals'?'Заявка отклонена.':'Заявка отменена.');
   });
   $('proc-po-list').addEventListener('click',e=>{
     const b=e.target.closest('button');if(!b)return;const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poInvoice||b.dataset.poLink||b.dataset.poCopy||b.dataset.poCancel||b.dataset.poReview;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
