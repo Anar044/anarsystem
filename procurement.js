@@ -425,7 +425,7 @@ function renderNeeds(){
   const matrix=purchaseMatrixRows();
   const visible=matrix.filter(p=>{
     const target=p.byStore.get(targetStoreId);
-    if(qv&&![p.productName,p.productNum,p.groupName].join(' ').toLowerCase().includes(qv))return false;
+    if(qv&&![p.productName,p.productNum,p.productCode,p.groupName].join(' ').toLowerCase().includes(qv))return false;
     if(!target)return filter==='all';
     if(filter==='recommended'&&!target.autoRecommended)return false;
     if(filter==='negative'&&!(target.currentStock<0))return false;
@@ -507,7 +507,7 @@ function renderNorms(){
   const visible=rows.filter(row=>{
     const d=effectiveNormDraft(row),configured=!!d.persisted;
     if(sid&&row.storeId!==sid)return false;
-    if(qv&&![row.productName,row.productNum,row.groupName,row.storeName].join(' ').toLowerCase().includes(qv))return false;
+    if(qv&&![row.productName,row.productNum,row.productCode,row.groupName,row.storeName].join(' ').toLowerCase().includes(qv))return false;
     if(filter==='configured'&&!configured)return false;if(filter==='unconfigured'&&configured)return false;
     if(filter==='negative'&&!(row.currentStock<0))return false;if(filter==='zero'&&Math.abs(row.currentStock)>1e-12)return false;
     return true;
@@ -683,7 +683,7 @@ function orderListItem(o,{receiving=false}={}){
   return '<details class="proc-record '+(done?'done':'')+'" name="'+(receiving?'proc-receiving-documents':'proc-po-documents')+'">'+
     '<summary class="proc-record-summary">'+
       '<div class="proc-record-date"><strong>'+esc(dateTimeLabel(o.createdAt))+'</strong><span>дата и время</span></div>'+
-      '<div class="proc-record-main"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId||'Поставщик')+' · '+esc(o.warehouseName||'Склад')+'</span></div>'+
+      '<div class="proc-record-main"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId||'Поставщик')+' · '+esc(o.createdBy||'Пользователь')+'</span></div>'+
       '<div class="proc-record-metric"><strong>'+lines+'</strong><span>позиций</span></div>'+
       (receiving
         ?'<div class="proc-record-metric amount"><strong>'+remainingLines+'</strong><span>поз. к приёмке · '+esc(matchLabel(o.matchStatus))+'</span></div>'
@@ -860,7 +860,7 @@ async function manageVarianceResolution(o,receiptId,verify=false){
 }
 function orderCard(o,{receiving=false}={}){
   const lines=(o.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.orderedQty)+' '+esc(l.unit)+(receiving?'':' × '+money(l.unitPrice))+'</strong><span>по GRN '+qty(l.receivedQty)+' · осталось '+qty(l.remainingQty)+'</span></div>').join('');
-  return '<article class="proc-doc-card '+(o.effectiveStatus==='COMPLETED'?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId)+' · '+esc(o.warehouseName||'Склад')+' · '+dateTimeLabel(o.createdAt)+'</span></div><span class="proc-status-badge '+statusTone(o.effectiveStatus)+'">'+esc(receiving&&o.effectiveStatus==='COMPLETED'?'Физически принято':statusLabel(o.effectiveStatus))+'</span></div>'+
+  return '<article class="proc-doc-card '+(o.effectiveStatus==='COMPLETED'?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId)+' · '+esc(o.warehouseName||'Склад')+' · '+dateTimeLabel(o.createdAt)+' · Создал: '+esc(o.createdBy||'Пользователь')+'</span></div><span class="proc-status-badge '+statusTone(o.effectiveStatus)+'">'+esc(receiving&&o.effectiveStatus==='COMPLETED'?'Физически принято':statusLabel(o.effectiveStatus))+'</span></div>'+
     '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(o.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>По GRN принято '+qty(o.receivedQty)+' из '+qty(o.orderedQty)+'</span><span>'+num(o.completionPercent).toFixed(1)+'%</span></div></div>'+
     '<div class="proc-line-list">'+lines+'</div>'+
     threeWayPanelHtml(o)+
