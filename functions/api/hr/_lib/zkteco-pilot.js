@@ -99,12 +99,8 @@ export async function pilotCommandAcknowledged(db,{userId,deviceId,commandId,ret
       VALUES(?1,?2,?3,'ZKTECO',?4,'Pilot: ZKTeco provisioned user',?5,?5)
       ON CONFLICT(user_id,device_id,iiko_employee_id) DO UPDATE SET updated_at=excluded.updated_at`)
       .bind(userId,deviceId,job.iiko_employee_id,job.pin,t).run();
-    // A previously unmatched punch can now be attributed using its original
-    // device and PIN; event date and RMS remain unchanged.
-    await db.prepare(`UPDATE hr_attendance_events SET iiko_employee_id=?3
-      WHERE user_id=?1 AND device_id=?2 AND external_employee_id=?4
-      AND (iiko_employee_id IS NULL OR iiko_employee_id='')`)
-      .bind(userId,deviceId,job.iiko_employee_id,job.pin).run();
+    // Do not relabel old unmatched punches: that PIN may have belonged to
+    // another person before this enrollment. HR must audit old events manually.
   }
   return{status:state,pin:job.pin};
 }
