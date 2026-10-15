@@ -1,5 +1,6 @@
 import { mobileContext, response, errorResponse, MobileError } from "../_lib/context.js";
-import { onRequestPost as sourceShifts } from "../../iiko/cash-shifts.js";
+import { getShiftsForDateAndStatus } from "../../iiko/cash-shifts.js";
+import { planOperatingShifts, operatingToday } from "../../iiko/_lib/operational-day.js";
 
 const str = v => String(v ?? "").trim();
 export const departmentId = item => {
@@ -70,8 +71,8 @@ export function normalizeShifts(payload, selectedIds) {
         "Не удалось проверить принадлежность кассовой смены ресторану.", 502);
     if (!id) throw new MobileError("SHIFTS_NO_ID",
         "SH Server не передал номер кассовой смены.", 502);
-    const rawStatus = str(first(shift, ["status", "sessionStatus", "state",
-      "_requestedStatus"])).toUpperCase();
+    const rawStatus = str(first(shift, ["_requestedStatus", "status", "state",
+      "sessionStatus"])).toUpperCase();
     const status = rawStatus.includes("CLOSE") ? "CLOSED" :
       rawStatus.includes("OPEN") ? "OPEN" : "UNKNOWN";
     out.push({
@@ -83,7 +84,8 @@ export function normalizeShifts(payload, selectedIds) {
       closedAt: first(shift, ["closeDate", "closedAt", "closeTime", "endTime"]),
       cashierName: first(shift, ["cashierName", "cashier", "employeeName"]),
       cashRegisterName: first(shift, ["cashRegisterName", "terminalName",
-        "cashDeskName", "pointOfSaleName", "cashRegister"]),
+        "cashDeskName", "pointOfSaleName", "cashRegister",
+        "pointOfSale", "cashRegNumber"]),
       revenue: amount(first(shift, ["revenue", "salesSum", "salesAmount"])),
       checks: amount(first(shift, ["checksCount", "ordersCount", "checkCount"]))
     });
@@ -91,39 +93,73 @@ export function normalizeShifts(payload, selectedIds) {
   return out;
 }
 
+// Authenticated mobile history uses exactly the restaurant-scoped cash-shift
+// list reader that was validated for the operational dashboard. A raw unscoped
+// list cannot be safely assigned to CHAIN restaurants.
+export async function loadScopedCashHistory(connection, selectedIds, from, to,
+    {operational = false} = {}) {
+  const start = new Date(from + "T12:00:00Z");
+  const end = new Date(to + "T12:00:00Z");
+  const tasks = [...new Set(selectedIds)].flatMap(departmentId =>
+    ["OPEN", "CLOSED"].map(status => ({departmentId,status})));
+  const found = new Map();
+  let cursor = 0;
+  await Promise.all(Array.from({length:Math.min(4,tasks.length)},async ()=>{
+    while(cursor<tasks.length){
+      const {departmentId,status}=tasks[cursor++];
+      const response=await getShiftsForDateAndStatus(connection,start,status,{
+        departmentId,toDate:end});
+      if(!response.ok)throw new MobileError("SHIFTS_UPSTREAM_FAILED",
+        "SH Server не подтвердил кассовые смены ресторана: " +
+        String(response.text||response.status||"Ошибка сервера").slice(0,100),502);
+      for(const shift of response.shifts){
+        const id=shiftId(shift), dept=departmentIdOfShift(shift);
+        if(!id||dept!==departmentId||shift._scopedDepartmentId!==departmentId)
+          throw new MobileError("SHIFTS_SCOPE_UNVERIFIED",
+            "Не подтверждена принадлежность кассовой смены ресторану.",409);
+        const previous=found.get(id);
+        if(previous){
+          if(previous.departmentId!==dept||previous._dateKey!==shift._dateKey||
+              previous._requestedStatus!==status)
+            throw new MobileError("SHIFTS_AMBIGUOUS",
+              "Смена повторилась в разных ресторанах, датах или статусах.",409);
+          continue;
+        }
+        found.set(id,shift);
+      }
+    }
+  }));
+  let rows=[...found.values()];
+  if(operational && rows.length){
+    const operating=planOperatingShifts(rows,selectedIds,to);
+    const included=new Set(operating.shiftIds);
+    rows=rows.filter(s=>included.has(shiftId(s)));
+  }
+  return rows.sort((a,b)=>String(b.openDate||b._dateKey||"")
+    .localeCompare(String(a.openDate||a._dateKey||"")));
+}
+const departmentIdOfShift = shift => departmentId(shift);
+
 export async function onRequestGet({ request, env }) {
   try {
     const { from, to } = period(request);
     const ctx = await mobileContext(request, env, { connectionRequired: true });
-    const body = {
-      ...ctx.connection, from, to,
-      departmentIds: ctx.selectedIds,
-      chainScope: {
-        mode: "CHAIN",
-        allowedDepartmentIds: ctx.availableIds
-      }
-    };
-    const backendRequest = new Request(request.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
-    const upstream = await sourceShifts({ request: backendRequest });
-    if (!upstream.ok) {
-      throw new MobileError("SHIFTS_UPSTREAM_FAILED", "Ошибка загрузки кассовых смен.", 502);
-    }
-    const payload = await upstream.json().catch(() => null);
-    const shifts = normalizeShifts(payload, ctx.selectedIds);
-    const names = Object.fromEntries(ctx.restaurants.map(r => [r.id, r.name]));
+    const mode = new URL(request.url).searchParams.get("mode");
+    const operational = mode === "operational";
+    if(operational && to !== operatingToday())throw new MobileError(
+      "SHIFTS_OPERATING_DATE_INVALID",
+      "Текущие операционные смены доступны только для «Сегодня».",400);
+    const raw=await loadScopedCashHistory(ctx.connection,ctx.selectedIds,
+      from,to,{operational});
+    const shifts=normalizeShifts({success:true,shifts:raw,errors:[]},
+      ctx.selectedIds);
+    const names=Object.fromEntries(ctx.restaurants.map(r=>[r.id,r.name]));
     return response({
-      success: true, from, to,
-      count: shifts.length, shifts,
-      restaurants: ctx.selectedIds.map(id => ({ id, name: names[id] || id })),
-      currency: "AZN",
-      source: "SH Cash Shifts",
-      updatedAt: new Date().toISOString()
+      success:true,from,to,mode:operational?"operational":"calendar",
+      count:shifts.length,shifts,
+      restaurants:ctx.selectedIds.map(id=>({id,name:names[id]||id})),
+      currency:"AZN",source:"SH Cash Shifts (department scoped)",
+      updatedAt:new Date().toISOString()
     });
-  } catch (error) {
-    return errorResponse(error);
-  }
+  }catch(error){return errorResponse(error);}
 }
