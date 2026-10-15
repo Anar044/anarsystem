@@ -61,3 +61,14 @@ test("all unreachable cash registers produce an error, not false zero revenue",(
    [{status:"rejected",reason:new Error("timeout")}],["r1"]),
    e=>e.code==="CASH_ALL_UNAVAILABLE");
 });
+
+test('selected CHAIN department without POS online has unknown network totals',()=>{
+ const info=cashFeedSnapshot([{name:'POS1',departmentId:'RMS1'}],[
+   {status:'fulfilled',value:{name:'POS1',departmentId:'RMS1',
+     orders:[{status:'CLOSED',amount:243}]}}
+ ],['RMS1','RMS2']);
+ assert.equal(info.partial,true);
+ assert.deepEqual(info.missingDepartmentIds,['RMS2']);
+ assert.equal(info.totals,null);
+ assert.equal(info.registers[0].orders[0].amount,243);
+});
