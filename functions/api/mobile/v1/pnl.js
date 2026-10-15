@@ -33,18 +33,15 @@ export async function onRequestGet({request,env}){
  try{
   const {from,to}=mobilePeriod(request,32);
   const ctx=await mobileContext(request,env,{connectionRequired:true});
-  // Legacy P&L omits restaurant filters for all selected departments.
-  // The owner mobile module must not expose server-wide postings without
-  // first verifying full accounting scope with an isolated CHAIN test.
-  if(ctx.selectedIds.length >= ctx.availableIds.length)
-    throw new MobileError("PNL_FULL_CHAIN_REVIEW",
-      "Сводный P&L по всем ресторанам ожидает проверку фильтра TRANSACTIONS.",409);
+  // Require explicit SALES + TRANSACTIONS scope for *every* mobile request,
+  // including "all restaurants". A missing field produces a clear 409.
   const directory=restaurantDirectory(ctx.state);
   const selected=directory.filter(d=>ctx.selectedIds.includes(d.id));
   const hdrs=new Headers(request.headers);
   hdrs.set("Content-Type","application/json");
   const internal=new Request(request.url,{method:"POST",headers:hdrs,
     body:JSON.stringify({...ctx.connection,from,to,departmentIds:ctx.selectedIds,
+      requireVerifiedDepartmentScope:true,
       chainScope:{mode:"CHAIN",allowedDepartmentIds:ctx.availableIds,
         selectedDepartmentCodes:selected.map(x=>x.code).filter(Boolean),
         selectedDepartmentNames:selected.map(x=>x.name).filter(Boolean)}
