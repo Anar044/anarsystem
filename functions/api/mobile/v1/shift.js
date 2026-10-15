@@ -1,6 +1,7 @@
 import { mobileContext, response, errorResponse, MobileError } from "../_lib/context.js";
 import { onRequestPost as sourceDetail } from "../../iiko/cash-shift-detail.js";
-import { departmentId } from "./shifts.js";
+import { departmentId, shiftId } from "./shifts.js";
+import { getShiftsForDateAndStatus } from "../../iiko/cash-shifts.js";
 
 const text = v => v === null || v === undefined || v === "" ? null : String(v);
 const first = (object, fields) => {
@@ -58,27 +59,51 @@ export function normalizeShiftDetail(payload, selectedIds) {
 
 export async function onRequestGet({ request, env }) {
   try {
-    const id = (new URL(request.url).searchParams.get("id") || "").trim();
-    if (!id || id.length > 200) {
-      throw new MobileError("INVALID_SHIFT_ID", "Выберите кассовую смену.", 400);
-    }
-    const ctx = await mobileContext(request, env, { connectionRequired: true });
-    const backendRequest = new Request(request.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...ctx.connection, sessionId: id,
-        departmentIds: ctx.selectedIds,
-        chainScope: { mode: "CHAIN", allowedDepartmentIds: ctx.availableIds }
-      })
+    const url=new URL(request.url);
+    const id=(url.searchParams.get("id")||"").trim();
+    const dep=(url.searchParams.get("departmentId")||"").trim();
+    const day=(url.searchParams.get("date")||"").trim();
+    if(!id || id.length>200 || !dep ||
+        !/^\\d{4}-\\d{2}-\\d{2}$/.test(day) ||
+        new Date(day+"T00:00:00Z").toISOString().slice(0,10)!==day)
+      throw new MobileError("INVALID_SHIFT_REF",
+        "Выберите кассовую смену из списка для просмотра.",400);
+    const ctx=await mobileContext(request,env,{connectionRequired:true});
+    if(!ctx.selectedIds.includes(dep))throw new MobileError(
+      "SHIFT_FORBIDDEN","Нет доступа к этому ресторану.",403);
+    // Verify that the session really belongs to the requested restaurant.
+    // A byId DTO may contain no departmentId, so never trust the supplied
+    // departmentId alone or authorize using byId without this scoped lookup.
+    const from=new Date(day+"T12:00:00Z");
+    const responses=await Promise.all(["OPEN","CLOSED"].map(status=>
+      getShiftsForDateAndStatus(ctx.connection,from,status,{
+        departmentId:dep,toDate:from})));
+    if(responses.some(x=>!x.ok))throw new MobileError(
+      "SHIFT_SCOPE_SOURCE_FAILED",
+      "SH Server не подтвердил принадлежность кассовой смены ресторану.",502);
+    const matching=responses.flatMap(x=>x.shifts)
+      .filter(x=>shiftId(x)===id);
+    if(matching.length!==1 || matching[0].departmentId!==dep ||
+       matching[0]._dateKey!==day)throw new MobileError(
+        "SHIFT_NOT_IN_RESTAURANT",
+        "Смена не найдена в выбранном ресторане за указанную дату.",404);
+    const internal=new Request(request.url,{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      // Scoped ownership was verified above. The read-only byId endpoint
+      // cannot filter by department; do not invoke its legacy CHAIN guard.
+      body:JSON.stringify({...ctx.connection,sessionId:id})
     });
-    const upstream = await sourceDetail({ request: backendRequest });
-    if (!upstream.ok) {
-      throw new MobileError("SHIFT_UPSTREAM_FAILED", "Сервер не вернул детали смены.", 502);
-    }
-    const payload = await upstream.json().catch(() => null);
-    return response(normalizeShiftDetail(payload, ctx.selectedIds));
-  } catch (error) {
-    return errorResponse(error);
-  }
+    const upstream=await sourceDetail({request:internal});
+    if(!upstream.ok)throw new MobileError("SHIFT_UPSTREAM_FAILED",
+      "Сервер не вернул детали смены.",502);
+    const payload=await upstream.json().catch(()=>null);
+    const raw=payload?.shift;
+    if(!raw || (shiftId(raw) && shiftId(raw)!==id) ||
+       (departmentId(raw) && departmentId(raw)!==dep))
+      throw new MobileError("SHIFT_DETAIL_SCOPE_MISMATCH",
+        "Получены сведения другой кассовой смены или ресторана.",409);
+    return response(normalizeShiftDetail({
+      ...payload, shift:{...raw,departmentId:dep}
+    },ctx.selectedIds));
+  }catch(error){return errorResponse(error);}
 }
