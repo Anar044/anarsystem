@@ -57,6 +57,19 @@ export function normalizeShiftDetail(payload, selectedIds) {
   };
 }
 
+export function verifyScopedShiftMembership(responses,id,dep,day) {
+  if(responses.some(x=>!x.ok))throw new MobileError(
+    "SHIFT_SCOPE_SOURCE_FAILED",
+    "SH Server не подтвердил принадлежность кассовой смены ресторану.",502);
+  const matches=responses.flatMap(x=>x.shifts)
+    .filter(x=>shiftId(x)===id);
+  if(matches.length!==1||matches[0].departmentId!==dep||
+     matches[0]._dateKey!==day||matches[0]._scopedDepartmentId!==dep)
+    throw new MobileError("SHIFT_NOT_IN_RESTAURANT",
+      "Смена не найдена в выбранном ресторане за указанную дату.",404);
+  return matches[0];
+}
+
 export async function onRequestGet({ request, env }) {
   try {
     const url=new URL(request.url);
@@ -78,15 +91,7 @@ export async function onRequestGet({ request, env }) {
     const responses=await Promise.all(["OPEN","CLOSED"].map(status=>
       getShiftsForDateAndStatus(ctx.connection,from,status,{
         departmentId:dep,toDate:from})));
-    if(responses.some(x=>!x.ok))throw new MobileError(
-      "SHIFT_SCOPE_SOURCE_FAILED",
-      "SH Server не подтвердил принадлежность кассовой смены ресторану.",502);
-    const matching=responses.flatMap(x=>x.shifts)
-      .filter(x=>shiftId(x)===id);
-    if(matching.length!==1 || matching[0].departmentId!==dep ||
-       matching[0]._dateKey!==day)throw new MobileError(
-        "SHIFT_NOT_IN_RESTAURANT",
-        "Смена не найдена в выбранном ресторане за указанную дату.",404);
+    verifyScopedShiftMembership(responses,id,dep,day);
     const internal=new Request(request.url,{
       method:"POST",headers:{"Content-Type":"application/json"},
       // Scoped ownership was verified above. The read-only byId endpoint
