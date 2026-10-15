@@ -24,9 +24,16 @@ export function scopedMovements(payload, selectedStoreIds, selectedIds) {
     unit:clean(m.unit),quantity:safeNumber(m.signedAmount??m.amount),
     value:safeNumber(m.value)
   }));
+  // A failure in one document type must not disguise all other verified
+  // warehouse movements as empty. Label any partial result explicitly.
+  const sourceStatus=payload.sourceStatus||{};
+  const missingSources=Object.entries(sourceStatus)
+    .filter(([,status])=>status?.ok!==true).map(([kind])=>kind);
+  const complete=Object.keys(sourceStatus).length>0&&missingSources.length===0;
   return {
     success:true,rows:rows.slice(0,500), count:rows.length,
     truncated:rows.length>500, currency:"AZN",
+    partial:!complete, missingSources,
     selectedDepartmentIds:selectedIds, source:"SH STOCK MOVEMENTS"
   };
 }
@@ -44,8 +51,10 @@ export async function onRequestGet({request,env}) {
   const source=await sourceMovements({request:internal});
   if(!source.ok)throw new MobileError("MOVEMENTS_SOURCE_FAILED","SH Server не вернул движения товаров.",502);
   const payload=await source.json().catch(()=>null);
-  if(Object.values(payload?.sourceStatus||{}).some(s=>s?.ok===false))
-    throw new MobileError("MOVEMENTS_PARTIAL","SH Server вернул неполные документы.",502);
+  const statuses=Object.values(payload?.sourceStatus||{});
+  if(!statuses.length || statuses.every(s=>s?.ok!==true))
+    throw new MobileError("MOVEMENTS_SOURCE_UNAVAILABLE",
+      "SH Server не подтвердил ни один источник складских документов.",502);
   return response({...scopedMovements(payload,scope.storeIds,ctx.selectedIds),from,to});
  }catch(e){return errorResponse(e);}
 }
