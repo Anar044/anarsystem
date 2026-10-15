@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { receiptFields, normalizeReceiptRows } from "../functions/api/mobile/v1/receipt.js";
+import { receiptFields, normalizeReceiptRows, buildReceiptOlapRequest, selectReceiptRows } from "../functions/api/mobile/v1/receipt.js";
 
 const fields=[
   {name:"OrderNum",title:"Номер заказа"},
@@ -47,4 +47,33 @@ test("receipt breakdown never relies on a mere number without shift identity",()
     number:"12",date:"2026-10-15",departmentId:"A",
     shiftId:"",orderId:""
   },fields),e=>e.code==="RECEIPT_IDENTITY_UNAVAILABLE");
+});
+
+test("receipt query uses verified restaurant, shift and date; not fragile order-number OLAP filter",()=>{
+  const meta=receiptFields(fields);
+  const q=buildReceiptOlapRequest(meta,ref);
+  assert.equal(q.filters.OrderNum,undefined);
+  assert.deepEqual(q.filters["Department.Id"].values,["A"]);
+  assert.deepEqual(q.filters["Session.ID"].values,["shift-a"]);
+  assert.equal(q.filters["OpenDate.Typed"].from,"2026-10-15");
+  assert.ok(q.groupByRowFields.includes("OrderNum"));
+  assert.ok(q.groupByRowFields.includes("DishName"));
+  assert.deepEqual(q.aggregateFields,["DishDiscountSumInt","DishAmountInt"]);
+  assert.deepEqual(buildReceiptOlapRequest(meta,ref,{quantity:false}).aggregateFields,
+    ["DishDiscountSumInt"]);
+});
+
+test("server isolates receipt number only after verifying every returned restaurant and shift",()=>{
+  const meta=receiptFields(fields);
+  const rows=[
+    {OrderNum:12,"Department.Id":"A","Session.ID":"shift-a",DishName:"Tea",DishDiscountSumInt:5},
+    {OrderNum:13,"Department.Id":"A","Session.ID":"shift-a",DishName:"Coffee",DishDiscountSumInt:8}
+  ];
+  const wanted=selectReceiptRows(rows,meta,ref,fields);
+  assert.equal(wanted.length,1);
+  assert.equal(wanted[0].DishName,"Tea");
+  assert.throws(()=>selectReceiptRows([...rows,{...rows[1],
+    "Department.Id":"B"}],meta,ref,fields),e=>e.code==="RECEIPT_SCOPE_MISMATCH");
+  assert.throws(()=>selectReceiptRows([...rows,{...rows[1],
+    "Session.ID":"shift-b"}],meta,ref,fields),e=>e.code==="RECEIPT_SCOPE_MISMATCH");
 });
