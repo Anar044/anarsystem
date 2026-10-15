@@ -18,3 +18,12 @@ test('never guesses a discount measure from net sales, or cost from profit', () 
     {name:'ProductCostBase.Profit',title:'Валовая прибыль'}
   ],['DiscountSumInt','DiscountAmount','ProductCostBase.Cost']),null);
 });
+
+test("cost metadata matches only an exact true cost field title",()=>{
+  const fields=[
+    {name:"ProductCostBase.Profit",title:"Прибыль"},
+    {name:"CostDocumentTotal",title:"Себестоимость"}
+  ];
+  assert.equal(findOlapField(fields,["Себестоимость"]),"CostDocumentTotal");
+  assert.equal(findOlapField(fields,["Себестоимость единицы"]),null);
+});
