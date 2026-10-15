@@ -25,6 +25,7 @@ jobs:
           node --experimental-default-type=module --check functions/api/mobile/_lib/query-helpers.js
           node --experimental-default-type=module --check functions/api/mobile/v1/inventory.js
           node --experimental-default-type=module --check functions/api/mobile/v1/orders.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/receipt.js
           node --experimental-default-type=module --check functions/api/mobile/v1/report.js
           node --experimental-default-type=module --check functions/api/mobile/v1/movements.js
           node --experimental-default-type=module --check functions/api/mobile/v1/pnl.js
