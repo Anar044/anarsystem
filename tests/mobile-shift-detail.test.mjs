@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeShiftDetail } from '../functions/api/mobile/v1/shift.js';
+import { normalizeShiftDetail, verifyScopedShiftMembership } from '../functions/api/mobile/v1/shift.js';
 
 const payload = {
   success: true,
@@ -34,4 +34,22 @@ test('do not fabricate payments when upstream payments unavailable', () => {
   }, ['restaurant-a']);
   assert.equal(result.operations.length, 0);
   assert.equal(result.paymentsLoaded, false);
+});
+
+test('membership must come from matching restaurant-scoped shift listing',()=>{
+ const scoped=[{ok:true,shifts:[{
+   _sessionId:'test-id',_dateKey:'2026-10-14',
+   departmentId:'restaurant-a',_scopedDepartmentId:'restaurant-a'
+ }]},{ok:true,shifts:[]}];
+ assert.equal(verifyScopedShiftMembership(scoped,'test-id',
+   'restaurant-a','2026-10-14').departmentId,'restaurant-a');
+ assert.throws(()=>verifyScopedShiftMembership(scoped,'test-id',
+   'restaurant-b','2026-10-14'),e=>e.code==='SHIFT_NOT_IN_RESTAURANT');
+ assert.throws(()=>verifyScopedShiftMembership(scoped,'test-id',
+   'restaurant-a','2026-10-15'),e=>e.code==='SHIFT_NOT_IN_RESTAURANT');
+ assert.throws(()=>verifyScopedShiftMembership([{
+   ok:true,shifts:[{_sessionId:'test-id',_dateKey:'2026-10-14',
+     departmentId:'restaurant-a'}]
+ }],'test-id','restaurant-a','2026-10-14'),
+ e=>e.code==='SHIFT_NOT_IN_RESTAURANT');
 });
