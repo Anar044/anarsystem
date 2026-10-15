@@ -120,11 +120,17 @@ export function cashFeedSnapshot(plugins, settled, selectedIds) {
     throw new MobileError("CASH_ALL_UNAVAILABLE",
       "Не удалось получить заказы ни от одной кассы.",502);
   const registers=settled.filter(r=>r.status==="fulfilled").map(r=>r.value);
+  const represented=new Set(plugins.map(p=>p.departmentId));
+  const missingDepartmentIds=selectedIds.filter(id=>!represented.has(id));
+  // One restaurant may have no online POS plugin, even though its SH OLAP
+  // sales are valid. Never label online-only POS amounts as CHAIN totals.
+  const partial=failed.length>0 || missingDepartmentIds.length>0;
   const all=registers.flatMap(r=>r.orders);
   return {success:true,source:"SH POS Plugin",
-    registers,totals:failed.length?null:totals(all),
-    count:registers.length,partial:failed.length>0,
-    unavailableRegisters:failed,expectedRegisterCount:plugins.length,
+    registers,totals:partial?null:totals(all),
+    count:registers.length,partial,
+    unavailableRegisters:failed,missingDepartmentIds,
+    expectedRegisterCount:plugins.length,
     currency:"AZN",selectedDepartmentIds:selectedIds,
     updatedAt:new Date().toISOString()};
 }
