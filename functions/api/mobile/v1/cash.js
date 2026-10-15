@@ -110,7 +110,7 @@ const totals = orders => {
 };
 async function fetchJson(url, options = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 22000);
+  const timeout = setTimeout(() => controller.abort(), 14000);
   try {
     const result = await fetch(url, {...options, signal: controller.signal,
       headers: {"Accept": "application/json", ...(options.headers || {})}});
@@ -150,14 +150,20 @@ export async function onRequestGet({request, env}) {
       const orders = normalizePosOrders(data);
       return {...plugin, orders, totals: totals(orders)};
     }));
-    // Never mistake an unreachable register for an empty register.
-    const failed = result.filter(r => r.status === "rejected").length;
-    if (failed) throw new MobileError("CASH_PARTIAL_DATA",
-      "Не все кассы ответили. Итоговые суммы временно недоступны.", 502);
-    const registers = result.map(r => r.value);
+    // Keep responding POS registers visible, but never present partial sums
+    // or counts as the complete CHAIN result. No cached/demo substitutions.
+    const failed = result.map((r,i) => r.status === "rejected" ? {
+      name: plugins[i].name, departmentId: plugins[i].departmentId,
+      online: false, status: "UNAVAILABLE"
+    } : null).filter(Boolean);
+    if (failed.length === result.length && result.length) throw new MobileError(
+      "CASH_ALL_UNAVAILABLE", "Не удалось получить заказы ни от одной кассы.",502);
+    const registers = result.filter(r=>r.status==="fulfilled").map(r=>r.value);
     const all = registers.flatMap(r => r.orders);
     return response({success: true, source: "SH POS Plugin",
-      registers, totals: totals(all), count: registers.length,
+      registers, totals: failed.length ? null : totals(all),
+      count: registers.length, partial:failed.length>0,
+      unavailableRegisters:failed, expectedRegisterCount:plugins.length,
       currency: "AZN", selectedDepartmentIds: ctx.selectedIds,
       updatedAt: new Date().toISOString()});
   } catch (error) { return errorResponse(error); }
