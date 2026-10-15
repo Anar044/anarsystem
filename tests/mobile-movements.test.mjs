@@ -16,3 +16,23 @@ test("movements exclude other restaurants and cross restaurant transfers",()=>{
 test("no verified stores means no movements are exposed",()=>{
  assert.throws(()=>scopedMovements(sample,[],["dept1"]),/Склады/);
 });
+
+test("partial movement feed preserves scoped rows and lists missing sources",()=>{
+  const result=scopedMovements({
+    ...sample,
+    sourceStatus:{
+      incoming:{ok:true}, outgoing:{ok:false},
+      writeoff:{ok:true},transfer:{ok:true},inventory:{ok:false}
+    }
+  },["A"],["dept1"]);
+  assert.equal(result.rows.length,1);
+  assert.equal(result.partial,true);
+  assert.deepEqual(result.missingSources,["outgoing","inventory"]);
+  assert.equal(result.totalValue,undefined);
+});
+test("all successful movement sources are flagged as complete",()=>{
+  const x=scopedMovements({...sample,sourceStatus:{
+    incoming:{ok:true},outgoing:{ok:true}
+  }},["A"],["dept1"]);
+  assert.equal(x.partial,false);
+});
