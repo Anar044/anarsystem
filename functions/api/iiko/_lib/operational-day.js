@@ -61,8 +61,8 @@ export function planOperatingShifts(shifts, selectedDepartments, today) {
     idKeys.add(key);
     (groups[dep] ||= []).push({
       id, date: shiftBusinessDate(row),
-      status: clean(row.status || row.sessionStatus || row.state ||
-        row._requestedStatus).toUpperCase()
+      status: clean(row._requestedStatus || row.status || row.sessionStatus ||
+        row.sessionStaus || row.state).toUpperCase()
     });
   }
   const daysByDepartment = [];
@@ -125,25 +125,54 @@ export function resolveOlapCashShiftField(fields) {
 export async function getCurrentOperatingShifts(connection, departmentIds, opts = {}) {
   const today = opts.today || operatingToday();
   const lookback = Math.min(7, Math.max(1, opts.lookbackDays || 3));
-  const tasks = [];
-  for (let day = -lookback; day <= 0; day++) {
-    const date = new Date(addDays(today, day) + "T12:00:00Z");
-    for (const status of ["OPEN", "CLOSED"]) tasks.push({date,status});
-  }
-  // Bounded concurrency: iiko Server can throttle repeated requests.
+  const selected = [...new Set((departmentIds || []).map(clean).filter(Boolean))];
+  if (!selected.length) throw new OperatingDayError(
+    "OPERATING_SCOPE_REQUIRED", "Для операционного дня выберите рестораны.");
+  const from = new Date(addDays(today, -lookback) + "T12:00:00Z");
+  const to = new Date(today + "T12:00:00Z");
+  // The iiko cash-shift DTO often has no departmentId. Fetching an unscoped
+  // list and later guessing the restaurant from selection is unsafe in CHAIN.
+  // Request each restaurant explicitly using the documented departmentId
+  // filter. One date-range query per status avoids 8*N day-by-day calls.
+  const tasks = selected.flatMap(departmentId =>
+    ["OPEN", "CLOSED"].map(status => ({ departmentId, status })));
   const result = [];
+  const seen = new Map();
   let cursor = 0;
   await Promise.all(Array.from({length:Math.min(4,tasks.length)}, async () => {
     while (cursor < tasks.length) {
       const task = tasks[cursor++];
-      const reply = await getShiftsForDateAndStatus(
-        connection, task.date, task.status);
+      const reply = await getShiftsForDateAndStatus(connection, from,
+        task.status, { departmentId:task.departmentId, toDate:to });
       if (!reply.ok) throw new OperatingDayError("OPERATING_SHIFT_SOURCE_FAILED",
-        "SH Server не вернул кассовые смены для операционного дня.", 502);
-      result.push(...reply.shifts);
+        "SH Server не подтвердил список кассовых смен с фильтром ресторана: " +
+        String(reply.text || "ошибка сервера").slice(0,160), 502);
+      for (const shift of reply.shifts) {
+        const id = shiftId(shift), dep = shiftDepartment(shift);
+        const date = shiftBusinessDate(shift);
+        if (!id || !date || dep !== task.departmentId ||
+            clean(shift._scopedDepartmentId) !== task.departmentId) {
+          throw new OperatingDayError("OPERATING_SHIFT_SCOPE_UNVERIFIED",
+            "SH Server не подтвердил принадлежность кассовой смены ресторану.");
+        }
+        const previous = seen.get(id);
+        if (previous) {
+          // A session cannot simultaneously belong to two departments or
+          // appear as OPEN and CLOSED. If either happens, the upstream filter
+          // was ignored or its response is inconsistent: fail closed.
+          if (previous.departmentId !== dep || previous.date !== date ||
+              previous.status !== task.status) {
+            throw new OperatingDayError("OPERATING_SHIFT_FILTER_AMBIGUOUS",
+              "SH Server вернул одну кассовую смену в разных ресторанах, датах или статусах.");
+          }
+          continue;
+        }
+        seen.set(id, {departmentId:dep,date,status:task.status});
+        result.push(shift);
+      }
     }
   }));
-  const plan = planOperatingShifts(result, departmentIds, today);
+  const plan = planOperatingShifts(result, selected, today);
   if (plan.from > plan.to) throw new OperatingDayError(
     "OPERATING_SHIFT_DATE_INVALID", "Дата кассовой смены недопустима.");
   return plan;
