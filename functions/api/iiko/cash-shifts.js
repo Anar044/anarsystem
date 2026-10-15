@@ -88,7 +88,75 @@ function shiftDepartmentId(item) {
     return "";
 }
 
-export async function getShiftsForDateAndStatus(connection, date, status) {
+// iiko's standard CashShiftSessionDto does not necessarily contain
+// departmentId, but /cashshifts/list supports an authoritative departmentId
+// filter. Only label a missing department when it came from that scoped query;
+// do not guess from the user's CHAIN selection on an unscoped response.
+export function normalizeDepartmentCashShifts(payload, from, to, status, departmentId) {
+    const list = extractList(payload);
+    const validEnvelope = Array.isArray(payload) ||
+        ["items", "sessions", "cashShifts", "cashSessions", "data", "rows"]
+            .some(key => Array.isArray(payload?.[key]));
+    if (!validEnvelope || payload?.success === false || payload?.result === "ERROR" ||
+        payload?.error || payload?.errorCode) {
+        throw new Error("SH Server не вернул список кассовых смен в ожидаемом формате.");
+    }
+    const fromDay = isoDate(from), toDay = isoDate(to);
+    const result = [];
+    for (const row of list) {
+        const normalized = normalizeShift(row, "", status);
+        if (!normalized) continue;
+        const explicitDepartment = shiftDepartmentId(row);
+        if (explicitDepartment && explicitDepartment !== departmentId) {
+            throw new Error("SH Server вернул чужую кассовую смену несмотря на фильтр departmentId.");
+        }
+        const opened = normalized._dateKey;
+        if (!normalized._sessionId || !opened || opened < fromDay || opened > toDay) {
+            throw new Error("SH Server не подтвердил идентификатор или дату кассовой смены.");
+        }
+        if (status === "OPEN" && (row.closeDate || row.closedAt || row.closeTime)) {
+            throw new Error("SH Server вернул закрытую смену при фильтре OPEN.");
+        }
+        result.push({
+            ...normalized,
+            departmentId: explicitDepartment || departmentId,
+            _scopedDepartmentId: departmentId,
+            _departmentScopeSource: "cashshifts.departmentId"
+        });
+    }
+    return result;
+}
+
+export async function getShiftsForDateAndStatus(connection, date, status, options = {}) {
+    const departmentId = String(options?.departmentId || "").trim();
+    if (departmentId) {
+        // For operating-day calculations use one bounded date range per
+        // restaurant and status instead of one unscoped request per day.
+        const to = options.toDate instanceof Date ? options.toDate : date;
+        const fromParam = encodeURIComponent(isoDate(date));
+        const toParam = encodeURIComponent(isoDate(to));
+        const departmentParam = encodeURIComponent(departmentId);
+        const statusParam = encodeURIComponent(status);
+        const scoped = await iikoJson(connection,
+            `/resto/api/v2/cashshifts/list?openDateFrom=${fromParam}&openDateTo=${toParam}&status=${statusParam}&departmentId=${departmentParam}`);
+        try {
+            if (!scoped.ok) throw new Error("HTTP " + scoped.status);
+            const shifts = normalizeDepartmentCashShifts(scoped.payload, date, to, status, departmentId);
+            return {
+                ok: true, status: scoped.status, shifts,
+                format: "GET openDateFrom/openDateTo + status + departmentId",
+                authCacheHit: scoped.auth?.cacheHit === true
+            };
+        } catch (e) {
+            return {
+                ok: false, status: scoped.status,
+                text: String(e?.message || "Не подтверждён фильтр кассовых смен."),
+                shifts: [], formatsTried: ["GET scoped cashshifts/list"],
+                authCacheHit: scoped.auth?.cacheHit === true
+            };
+        }
+    }
+
     const requestedDate = isoDate(date);
     const dateParam = encodeURIComponent(requestedDate);
     const statusParam = encodeURIComponent(status);
