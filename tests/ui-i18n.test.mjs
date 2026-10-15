@@ -164,7 +164,9 @@ test('Dashboard hides developer-only OLAP request counts but keeps loading and e
   assert.ok(src.includes('dashboardNotice()'));
   assert.ok(src.includes('dashboardNotice("Загружаем данные…")'));
   assert.ok(src.includes('dashboardNotice("🔴 OLAP: "+e.message,true)'));
-  assert.ok(src.includes('showDisconnected(false)'));
+  // Missing SH connection must remain visible, not be silently suppressed.
+  assert.ok(src.includes('showDisconnected()'));
+  assert.ok(!src.includes('showDisconnected(false)'));
   assert.ok(src.includes('dashboardNotice("Нет подключения к SH OLAP",true)'));
 });
 test('Dashboard status helper hides success and preserves localized errors',()=>{
