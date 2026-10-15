@@ -1,6 +1,7 @@
 import { mobileContext, response, errorResponse, MobileError } from "../_lib/context.js";
 import { mobilePeriod, clean, safeNumber } from "../_lib/query-helpers.js";
 import { getOlapFields, iikoJson } from "../../iiko/_lib/iiko-client.js";
+import { getCurrentOperatingShifts, resolveOlapCashShiftField, operatingToday } from "../../iiko/_lib/operational-day.js";
 
 const FIELDSETS = {
   sales: { group: ["OpenDate.Typed","OpenDate"], measures: ["DishDiscountSumInt","DishSumInt"] },
@@ -20,7 +21,8 @@ const FIELDSETS = {
     "DishCategory","DishCategory.Name","DishCategoryName"
   ], measures: [
     "ProductCostBase.Cost","ProductCostBase.Sum","ProductCostBase.CostSum",
-    "ProductCostBase.CostAmount","ProductCostBase.IngredientCost"
+    "ProductCostBase.CostAmount","ProductCostBase.IngredientCost",
+    "Себестоимость", "Себестоимость блюд", "Себестоимость без НДС"
   ] }
 };
 const norm = v => clean(v).toLowerCase().replace(/[\s._()-]+/g,"");
@@ -69,6 +71,10 @@ export async function onRequestGet({request,env}) {
     const spec=FIELDSETS[kind];
     if(!spec) throw new MobileError("UNKNOWN_REPORT", "Неизвестный мобильный отчёт.",400);
     const {from,to}=mobilePeriod(request,32);
+    const mode=clean(new URL(request.url).searchParams.get("mode"))==="operational"?"operational":"calendar";
+    if(mode==="operational"&&(from!==to||to!==operatingToday()))
+      throw new MobileError("OPERATING_DATE_INVALID",
+        "Операционный день доступен только для периода «Сегодня».",400);
     const ctx=await mobileContext(request,env,{connectionRequired:true});
     const meta=await getOlapFields(ctx.connection,"SALES");
     const fields=meta.fields||[];
@@ -84,12 +90,25 @@ export async function onRequestGet({request,env}) {
         : "В SH OLAP отсутствуют поля для выбранного отчёта.",409);
     if (!dep) throw new MobileError("OLAP_SCOPE_UNAVAILABLE",
       "SH OLAP не позволяет ограничить отчёт выбранными ресторанами.",409);
+    let operating=null, effectiveFrom=from, effectiveTo=to;
+    let shiftField=null;
+    if(mode==="operational"){
+      operating=await getCurrentOperatingShifts(ctx.connection,ctx.selectedIds);
+      shiftField=resolveOlapCashShiftField(fields);
+      if(!shiftField)throw new MobileError("OLAP_SHIFT_FIELD_UNAVAILABLE",
+        "SH OLAP не предоставляет идентификатор кассовой смены для точного отчёта.",409);
+      effectiveFrom=operating.from;
+      effectiveTo=operating.to;
+    }
     const filters={
       "OpenDate.Typed":{filterType:"DateRange",periodType:"CUSTOM",
-        from,to,includeLow:true,includeHigh:true},
+        from:effectiveFrom,to:effectiveTo,includeLow:true,includeHigh:true},
       [dep]:{filterType:"IncludeValues",values:ctx.selectedIds},
       DeletedWithWriteoff:{filterType:"IncludeValues",values:["NOT_DELETED"]},
       OrderDeleted:{filterType:"IncludeValues",values:["NOT_DELETED"]}
+    };
+    if(operating) filters[shiftField]={
+      filterType:"IncludeValues", values:operating.shiftIds
     };
     const olapRequest={reportType:"SALES",buildSummary:true,
       groupByRowFields:secondary ? [group, secondary] : [group],groupByColFields:[],
@@ -97,11 +116,17 @@ export async function onRequestGet({request,env}) {
     const upstream=await iikoJson(ctx.connection,"/resto/api/v2/reports/olap",{
       method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify(olapRequest),timeoutMs:60000});
-    if(!upstream.ok) throw new MobileError("REPORT_SOURCE_FAILED",
+    if(!upstream.ok || upstream.payload?.success===false ||
+       upstream.payload?.error===true || upstream.payload?.errorCode ||
+       upstream.payload?.errorMessage) throw new MobileError("REPORT_SOURCE_FAILED",
       "SH OLAP не вернул выбранный отчёт.",502);
     return response({
       ...mobileOlapRows(upstream.payload,group,measure,fields,ctx.selectedIds,kind,secondary),
-      from,to,updatedAt:new Date().toISOString()
+      from:effectiveFrom,to:effectiveTo,mode,
+      operatingDay:operating ? {from:operating.from,to:operating.to,
+        activeShiftCount:operating.activeShiftCount,
+        shiftCount:operating.shiftCount} : null,
+      updatedAt:new Date().toISOString()
     });
   }catch(error){return errorResponse(error);}
 }
