@@ -65,6 +65,30 @@ export function mobileOlapRows(payload, groupField, measureField, fields, select
   };
 }
 
+// Keep report period/filter semantics testable without live credentials.
+export function buildMobileReportFilters({from,to,departmentField,selectedIds,
+  operating=null,shiftField=null}) {
+  if(!departmentField || !Array.isArray(selectedIds) || !selectedIds.length)
+    throw new MobileError("OLAP_SCOPE_UNAVAILABLE",
+      "Не подтверждены рестораны мобильного отчёта.",409);
+  if(operating && (!shiftField || !Array.isArray(operating.shiftIds) ||
+      !operating.shiftIds.length)) throw new MobileError(
+      "OLAP_SHIFT_FIELD_UNAVAILABLE",
+      "SH OLAP не позволяет подтвердить кассовые смены.",409);
+  const result={
+    "OpenDate.Typed":{filterType:"DateRange",periodType:"CUSTOM",
+      from:operating?.from||from,to:operating?.to||to,
+      includeLow:true,includeHigh:true},
+    [departmentField]:{filterType:"IncludeValues",values:[...new Set(selectedIds)]},
+    DeletedWithWriteoff:{filterType:"IncludeValues",values:["NOT_DELETED"]},
+    OrderDeleted:{filterType:"IncludeValues",values:["NOT_DELETED"]}
+  };
+  if(operating) result[shiftField]={
+    filterType:"IncludeValues",values:operating.shiftIds
+  };
+  return result;
+}
+
 export async function onRequestGet({request,env}) {
   try {
     const kind=clean(new URL(request.url).searchParams.get("kind")||"sales");
@@ -100,16 +124,8 @@ export async function onRequestGet({request,env}) {
       effectiveFrom=operating.from;
       effectiveTo=operating.to;
     }
-    const filters={
-      "OpenDate.Typed":{filterType:"DateRange",periodType:"CUSTOM",
-        from:effectiveFrom,to:effectiveTo,includeLow:true,includeHigh:true},
-      [dep]:{filterType:"IncludeValues",values:ctx.selectedIds},
-      DeletedWithWriteoff:{filterType:"IncludeValues",values:["NOT_DELETED"]},
-      OrderDeleted:{filterType:"IncludeValues",values:["NOT_DELETED"]}
-    };
-    if(operating) filters[shiftField]={
-      filterType:"IncludeValues", values:operating.shiftIds
-    };
+    const filters=buildMobileReportFilters({from,to,departmentField:dep,
+      selectedIds:ctx.selectedIds,operating,shiftField});
     const olapRequest={reportType:"SALES",buildSummary:true,
       groupByRowFields:secondary ? [group, secondary] : [group],groupByColFields:[],
       aggregateFields:[measure],filters};
