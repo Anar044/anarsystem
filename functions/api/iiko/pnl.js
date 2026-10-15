@@ -106,7 +106,11 @@ export async function onRequestPost({request,env}){
     // instead of failing the whole P&L, but expose an explicit scope warning.
     const allowedIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
     const subsetRequested=String(b?.chainScope?.mode||'').toUpperCase()==='CHAIN'&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
-    const scopedDepartmentIds=subsetRequested?departmentIds:[];
+    // Mobile Owner requires an explicit department filter even when every
+    // authorized CHAIN restaurant is selected. Website legacy behaviour
+    // remains unchanged unless this strict option is explicitly requested.
+    const strictDepartmentScope=b?.requireVerifiedDepartmentScope===true;
+    const scopedDepartmentIds=(subsetRequested||strictDepartmentScope)?departmentIds:[];
     if(scopedDepartmentIds.length&&!salesDepartment)throw Error('В OLAP SALES не найден Department.Id для фильтра выбранного ресторана.');
     const departmentCodes=Array.isArray(b?.chainScope?.selectedDepartmentCodes)?b.chainScope.selectedDepartmentCodes.map(String).filter(Boolean):[];
     const departmentNames=Array.isArray(b?.chainScope?.selectedDepartmentNames)?b.chainScope.selectedDepartmentNames.map(String).filter(Boolean):[];
@@ -116,7 +120,7 @@ export async function onRequestPost({request,env}){
       if(depNorm.includes('code')||depNorm.includes(norm('код')))transactionDepartmentValues=departmentCodes.length?departmentCodes:scopedDepartmentIds;
       else if(depNorm.includes('name')||depNorm===norm('Department')||depNorm===norm('Подразделение'))transactionDepartmentValues=departmentNames.length?departmentNames:scopedDepartmentIds;
     }
-    if(subsetRequested&&(!transactionDepartment||!transactionDepartmentValues.length)){
+    if((subsetRequested||strictDepartmentScope)&&(!transactionDepartment||!transactionDepartmentValues.length)){
       return json({success:false,code:'PNL_TRANSACTION_SCOPE_UNAVAILABLE',message:'SH TRANSACTIONS не отдаёт подходящее поле подразделения для безопасного P&L выбранного ресторана.',meta:{departmentIds,departmentCodes,departmentNames,transactionDepartment}},409);
     }
     const transactionDepartmentScopeApplied=transactionDepartmentValues.length>0&&!!transactionDepartment;
