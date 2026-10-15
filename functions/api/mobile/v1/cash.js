@@ -108,6 +108,26 @@ const totals = orders => {
   return {...out, expectedSum: out.amountComplete
     ? out.closedSum + out.openSum : null};
 };
+export function cashFeedSnapshot(plugins, settled, selectedIds) {
+  // The caller must supply only verified, authorized plugins.
+  if(plugins.length!==settled.length)throw new MobileError(
+    "CASH_SNAPSHOT_INVALID","Неверное количество ответов касс.",502);
+  const failed=settled.map((r,i)=>r.status==="rejected"?{
+    name:plugins[i].name,departmentId:plugins[i].departmentId,
+    online:false,status:"UNAVAILABLE"
+  }:null).filter(Boolean);
+  if(failed.length===settled.length&&settled.length)
+    throw new MobileError("CASH_ALL_UNAVAILABLE",
+      "Не удалось получить заказы ни от одной кассы.",502);
+  const registers=settled.filter(r=>r.status==="fulfilled").map(r=>r.value);
+  const all=registers.flatMap(r=>r.orders);
+  return {success:true,source:"SH POS Plugin",
+    registers,totals:failed.length?null:totals(all),
+    count:registers.length,partial:failed.length>0,
+    unavailableRegisters:failed,expectedRegisterCount:plugins.length,
+    currency:"AZN",selectedDepartmentIds:selectedIds,
+    updatedAt:new Date().toISOString()};
+}
 async function fetchJson(url, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 14000);
@@ -150,21 +170,6 @@ export async function onRequestGet({request, env}) {
       const orders = normalizePosOrders(data);
       return {...plugin, orders, totals: totals(orders)};
     }));
-    // Keep responding POS registers visible, but never present partial sums
-    // or counts as the complete CHAIN result. No cached/demo substitutions.
-    const failed = result.map((r,i) => r.status === "rejected" ? {
-      name: plugins[i].name, departmentId: plugins[i].departmentId,
-      online: false, status: "UNAVAILABLE"
-    } : null).filter(Boolean);
-    if (failed.length === result.length && result.length) throw new MobileError(
-      "CASH_ALL_UNAVAILABLE", "Не удалось получить заказы ни от одной кассы.",502);
-    const registers = result.filter(r=>r.status==="fulfilled").map(r=>r.value);
-    const all = registers.flatMap(r => r.orders);
-    return response({success: true, source: "SH POS Plugin",
-      registers, totals: failed.length ? null : totals(all),
-      count: registers.length, partial:failed.length>0,
-      unavailableRegisters:failed, expectedRegisterCount:plugins.length,
-      currency: "AZN", selectedDepartmentIds: ctx.selectedIds,
-      updatedAt: new Date().toISOString()});
+    return response(cashFeedSnapshot(plugins,result,ctx.selectedIds));
   } catch (error) { return errorResponse(error); }
 }
