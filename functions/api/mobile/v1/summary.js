@@ -55,8 +55,17 @@ export function normalizeSummary(payload) {
   const revenue = sumField(rows, payload.revenueField, fields);
   const checks = sumField(rows, payload.orderField, fields);
   const profit = sumField(rows, payload.profitField, fields);
-  const discounts = sumField(rows, payload.discountField, fields);
-  const surcharges = sumField(rows, payload.surchargeField, fields);
+  // The standalone discounts report groups by discount type and register.
+  // Using its identical dimensions, measure and filters avoids displaying
+  // a small, unrelated date-aggregate value on Dashboard.
+  const discountSource = payload.reports.discountReport;
+  const surchargeSource = payload.reports.surchargeReport;
+  const discounts = discountSource?.success
+    ?sumField(rowsOf(discountSource.report),payload.discountField,fields)
+    :null;
+  const surcharges = surchargeSource?.success
+    ?sumField(rowsOf(surchargeSource.report),payload.surchargeField,fields)
+    :null;
   // ProductCostBase.Cost in a date-grouped OLAP result can be a unit cost,
   // not the aggregated cost of goods (e.g. 2.58 vs 93,509 AZN).
   // On iiko SALES, ProductCostBase.Profit is the gross contribution after
@@ -84,6 +93,7 @@ export function normalizeSummary(payload) {
     operatingDay: payload.operatingDay || null,
     metrics: { revenue, checks, avgCheck, grossProfit: profit,
       discounts, surcharges, costOfGoods },
+    adjustmentsSource: "SH_OLAP_SALES_REPORT_MATCHED",
     costOfGoodsSource: costOfGoods === null ? "UNAVAILABLE" :
       "SALES_REVENUE_MINUS_PRODUCT_COST_GROSS_PROFIT",
     daily,

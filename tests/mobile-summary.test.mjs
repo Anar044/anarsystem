@@ -20,12 +20,20 @@ test('normalizes financial aggregates without assuming unavailable values are ze
     discountField: 'DiscountSumInt',
     surchargeField: 'IncreaseSumInt',
     costField: 'ProductCostBase.Cost',
-    reports: { daily: { success: true, request: {
-      groupByRowFields: ['OpenDate.Typed']
-    }, report: { data: [
-      { 'OpenDate.Typed': '2026-10-01', DishDiscountSumInt: 120, UniqOrderId: 4, DiscountSumInt: 8, IncreaseSumInt: 3, 'ProductCostBase.Cost': 42 },
-      { 'OpenDate.Typed': '2026-10-02', DishDiscountSumInt: 80, UniqOrderId: 2, DiscountSumInt: 2, IncreaseSumInt: 1, 'ProductCostBase.Cost': 28 }
-    ] } } },
+    reports: {
+      daily: { success: true, request: {
+        groupByRowFields: ['OpenDate.Typed']
+      }, report: { data: [
+        { 'OpenDate.Typed': '2026-10-01', DishDiscountSumInt: 120, UniqOrderId: 4, DiscountSumInt: 0.5, IncreaseSumInt: 0, 'ProductCostBase.Cost': 42 },
+        { 'OpenDate.Typed': '2026-10-02', DishDiscountSumInt: 80, UniqOrderId: 2, DiscountSumInt: 0.4, IncreaseSumInt: 0, 'ProductCostBase.Cost': 28 }
+      ] } },
+      discountReport: {success:true,report:{data:[
+        {DiscountSumInt:8},{DiscountSumInt:2}
+      ]}},
+      surchargeReport: {success:true,report:{data:[
+        {IncreaseSumInt:3},{IncreaseSumInt:1}
+      ]}}
+    },
     meta: { departmentScopeApplied: true }
   });
   assert.equal(actual.metrics.revenue, 200);
@@ -38,4 +46,21 @@ test('normalizes financial aggregates without assuming unavailable values are ze
   assert.equal(actual.daily.length, 2);
   assert.deepEqual(actual.daily.map(row=>row.date),["2026-10-02","2026-10-01"]);
   assert.equal(actual.scope.departmentScopeApplied, true);
+});
+
+test('dashboard never substitutes date-grouped discount for missing type/register report',()=>{
+  const obj={
+    success:true,from:'2026-10-01',to:'2026-10-01',departmentIds:['r1'],
+    fields:[{name:'OpenDate.Typed',title:'Date'},
+      {name:'DiscountSumInt',title:'Discounts'},
+      {name:'DishDiscountSumInt',title:'Revenue'}],
+    revenueField:'DishDiscountSumInt',discountField:'DiscountSumInt',
+    reports:{daily:{success:true,request:{groupByRowFields:['OpenDate.Typed']},
+      report:{data:[{'OpenDate.Typed':'2026-10-01',
+        DiscountSumInt:0.95,DishDiscountSumInt:100}]}}},
+    meta:{departmentScopeApplied:true}
+  };
+  const value=normalizeSummary(obj);
+  assert.equal(value.metrics.discounts,null);
+  assert.equal(value.metrics.revenue,100);
 });

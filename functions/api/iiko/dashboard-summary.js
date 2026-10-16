@@ -1,5 +1,7 @@
 import { clean, getOlapFields, iikoJson } from "./_lib/iiko-client.js";
 import { getCurrentOperatingShifts, resolveOlapCashShiftField } from "./_lib/operational-day.js";
+import { FIELDSETS,findOlapGroupField,findOlapMeasureField,
+  findCashRegisterNameField } from "../mobile/v1/report.js";
 
 function corsHeaders(){return{"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type"};}
 function jsonResponse(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store",...corsHeaders()}});}
@@ -23,7 +25,7 @@ export function findCostAggregateField(fields){
   });
   return semantic?.name||null;
 }
-async function query(connection,{dateField,revenueField,orderField,profitField,discountField,surchargeField,costField,departmentField,from,to,departmentIds,shiftField,shiftIds}){const filters={};filters["OpenDate.Typed"]={filterType:"DateRange",periodType:"CUSTOM",from,to,includeLow:true,includeHigh:true};if(departmentIds.length&&departmentField)filters[departmentField]={filterType:"IncludeValues",values:[...new Set(departmentIds)]};if(shiftField&&shiftIds?.length)filters[shiftField]={filterType:"IncludeValues",values:shiftIds};filters.DeletedWithWriteoff={filterType:"IncludeValues",values:["NOT_DELETED"]};filters.OrderDeleted={filterType:"IncludeValues",values:["NOT_DELETED"]};const aggregateFields=[...new Set([revenueField,orderField,profitField,discountField,surchargeField,costField].filter(Boolean))];const req={reportType:"SALES",buildSummary:true,groupByRowFields:[dateField],groupByColFields:[],aggregateFields,filters};const r=await iikoJson(connection,"/resto/api/v2/reports/olap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(req)});if(!r.ok || r.payload?.success===false || r.payload?.error===true ||
+async function query(connection,{dateField,revenueField,orderField,profitField,discountField,surchargeField,costField,departmentField,from,to,departmentIds,shiftField,shiftIds,rowFields=null}){const filters={};filters["OpenDate.Typed"]={filterType:"DateRange",periodType:"CUSTOM",from,to,includeLow:true,includeHigh:true};if(departmentIds.length&&departmentField)filters[departmentField]={filterType:"IncludeValues",values:[...new Set(departmentIds)]};if(shiftField&&shiftIds?.length)filters[shiftField]={filterType:"IncludeValues",values:shiftIds};filters.DeletedWithWriteoff={filterType:"IncludeValues",values:["NOT_DELETED"]};filters.OrderDeleted={filterType:"IncludeValues",values:["NOT_DELETED"]};const aggregateFields=[...new Set([revenueField,orderField,profitField,discountField,surchargeField,costField].filter(Boolean))];const req={reportType:"SALES",buildSummary:true,groupByRowFields:rowFields||[dateField],groupByColFields:[],aggregateFields,filters};const r=await iikoJson(connection,"/resto/api/v2/reports/olap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(req)});if(!r.ok || r.payload?.success===false || r.payload?.error===true ||
     r.payload?.errorCode || r.payload?.errorMessage ||
     !(Array.isArray(r.payload)||Array.isArray(r.payload?.data))){
     const reason=String(r.payload?.message||r.payload?.errorMessage||
@@ -33,7 +35,7 @@ async function query(connection,{dateField,revenueField,orderField,profitField,d
   }
   return{success:true,request:req,report:r.payload,authCacheHit:r.auth?.cacheHit===true};}
 export function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()});}
-export async function onRequestPost(context){try{const b=await context.request.json();const connection={ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??"")};if(!connection.ip||!connection.port||!connection.login||!connection.password)return jsonResponse({success:false,message:"Заполните IP, порт, логин и пароль iiko"},400);const from=clean(b.from).slice(0,10),to=clean(b.to||b.from).slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to))return jsonResponse({success:false,message:"Укажите корректный период"},400);const fieldResult=await getOlapFields(connection,"SALES");const fields=fieldResult.fields;const dateField=fieldName(fields,["OpenDate.Typed","OpenDate"]),revenueField=fieldName(fields,["DishDiscountSumInt","DishSumInt","Sales"]),orderField=fieldName(fields,["UniqOrderId","UniqOrderId.Id"]),profitField=fieldName(fields,["ProductCostBase.Profit","Profit"]),discountCandidate=supportedAggregateField(fields,["DiscountSumInt","DiscountSum","DiscountAmountInt","DiscountAmount","DiscountSumWithoutTax","DiscountAmountWithoutTax"]),surchargeCandidate=supportedAggregateField(fields,["IncreaseSumInt","IncreaseSum","IncreaseAmountInt","IncreaseAmount","SurchargeSumInt","SurchargeSum","ExtraChargeSum"]),costCandidate=findCostAggregateField(fields),canAggregate=name=>!!name&&fields.find(f=>f.name===name)?.aggregationAllowed!==false,discountField=canAggregate(discountCandidate)?discountCandidate:null,surchargeField=canAggregate(surchargeCandidate)?surchargeCandidate:null,costField=canAggregate(costCandidate)?costCandidate:null,departmentField=fieldName(fields,["Department.Id","DepartmentId","Department.ID"]);if(!dateField||!revenueField)throw new Error("Не найдены необходимые OLAP-поля");const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(clean).filter(Boolean))]:[];if(departmentIds.length&&!departmentField)throw new Error("Не найдено OLAP-поле Department.Id — нельзя безопасно ограничить Dashboard выбранным рестораном");const mode=clean(b.mode).toLowerCase()==="operational"?"operational":"calendar";
+export async function onRequestPost(context){try{const b=await context.request.json();const connection={ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??"")};if(!connection.ip||!connection.port||!connection.login||!connection.password)return jsonResponse({success:false,message:"Заполните IP, порт, логин и пароль iiko"},400);const from=clean(b.from).slice(0,10),to=clean(b.to||b.from).slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to))return jsonResponse({success:false,message:"Укажите корректный период"},400);const fieldResult=await getOlapFields(connection,"SALES");const fields=fieldResult.fields;const dateField=fieldName(fields,["OpenDate.Typed","OpenDate"]),revenueField=fieldName(fields,["DishDiscountSumInt","DishSumInt","Sales"]),orderField=fieldName(fields,["UniqOrderId","UniqOrderId.Id"]),profitField=fieldName(fields,["ProductCostBase.Profit","Profit"]),discountCandidate=findOlapMeasureField(fields,FIELDSETS.discounts.measures),surchargeCandidate=findOlapMeasureField(fields,FIELDSETS.surcharges.measures),costCandidate=findCostAggregateField(fields),canAggregate=name=>!!name&&fields.find(f=>f.name===name)?.aggregationAllowed!==false,discountField=canAggregate(discountCandidate)?discountCandidate:null,surchargeField=canAggregate(surchargeCandidate)?surchargeCandidate:null,costField=canAggregate(costCandidate)?costCandidate:null,departmentField=fieldName(fields,["Department.Id","DepartmentId","Department.ID"]);if(!dateField||!revenueField)throw new Error("Не найдены необходимые OLAP-поля");const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(clean).filter(Boolean))]:[];if(departmentIds.length&&!departmentField)throw new Error("Не найдено OLAP-поле Department.Id — нельзя безопасно ограничить Dashboard выбранным рестораном");const mode=clean(b.mode).toLowerCase()==="operational"?"operational":"calendar";
 if(mode==="operational"&&!departmentIds.length)return jsonResponse({
   success:false,code:"OPERATING_SCOPE_REQUIRED",message:"Выберите рестораны для расчёта по кассовым сменам."
 },409);
@@ -53,10 +55,34 @@ if(mode==="operational"){
 // ProductCostBase.Cost grouped only by date is a unit-price-like measure
 // on some iiko builds; it is not the total cost of goods. The owner mobile
 // API derives true COGS from the same period's revenue minus gross profit.
-const daily=await query(connection,{dateField,revenueField,orderField,profitField,discountField,surchargeField,costField:null,
-  departmentField,from:effectiveFrom,to:effectiveTo,departmentIds,shiftField,
-  shiftIds:operating?.shiftIds});return jsonResponse({success:true,from:effectiveFrom,to:effectiveTo,departmentIds,fields,
-  revenueField,orderField,profitField,discountField,surchargeField,costField,departmentField,reports:{daily},
+// Use the exact same OLAP dimensions and measure as the standalone
+// "Скидки и наценки" report. A date-grouped DiscountSumInt column
+// is not guaranteed to be the register/type total on all iiko versions.
+const adjustmentQuery=(spec,amountField)=>{
+  if(!amountField)return Promise.resolve(null);
+  const typeField=findOlapGroupField(fields,spec.group);
+  const registerField=findCashRegisterNameField(fields);
+  const groupField=typeField||registerField||departmentField;
+  const secondaryField=typeField&&registerField&&typeField!==registerField
+    ?registerField:null;
+  if(!groupField)return Promise.resolve(null);
+  return query(connection,{dateField,revenueField:null,orderField:null,
+    profitField:null,discountField:amountField,surchargeField:null,
+    costField:null,departmentField,from:effectiveFrom,to:effectiveTo,
+    departmentIds,shiftField,shiftIds:operating?.shiftIds,
+    rowFields:secondaryField?[groupField,secondaryField]:[groupField]});
+};
+const [daily,discountReport,surchargeReport]=await Promise.all([
+  query(connection,{dateField,revenueField,orderField,profitField,
+    discountField:null,surchargeField:null,costField:null,
+    departmentField,from:effectiveFrom,to:effectiveTo,departmentIds,
+    shiftField,shiftIds:operating?.shiftIds}),
+  adjustmentQuery(FIELDSETS.discounts,discountField),
+  adjustmentQuery(FIELDSETS.surcharges,surchargeField)
+]);
+return jsonResponse({success:true,from:effectiveFrom,to:effectiveTo,departmentIds,fields,
+  revenueField,orderField,profitField,discountField,surchargeField,costField,departmentField,
+  reports:{daily,discountReport,surchargeReport},
   mode,operatingDay:operating?{
     from:operating.from,to:operating.to,activeShiftCount:operating.activeShiftCount,
     shiftCount:operating.shiftCount,departments:operating.departments,

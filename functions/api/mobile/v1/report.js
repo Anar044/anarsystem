@@ -3,7 +3,7 @@ import { mobilePeriod, clean, safeNumber } from "../_lib/query-helpers.js";
 import { getOlapFields, iikoJson } from "../../iiko/_lib/iiko-client.js";
 import { getCurrentOperatingShifts, resolveOlapCashShiftField, operatingToday } from "../../iiko/_lib/operational-day.js";
 
-const FIELDSETS = {
+export const FIELDSETS = {
   sales: { group: ["OpenDate.Typed","OpenDate"], measures: ["DishDiscountSumInt","DishSumInt"] },
   cash: { group: ["CashRegisterName","CashRegister.Name","CashRegister","CashDeskName","TerminalName"], secondary: ["PayTypes","PayType","PaymentType.Name","PaymentType","PayType.Name","PaymentMethod.Name","PaymentMethod","TenderType","PaymentTypeName","PayTypeName"], measures: ["DishDiscountSumInt","DishSumInt"] },
   dishes: { group: ["DishName","Dish.Name","DishFullName","Dish"], measures: ["DishDiscountSumInt","DishSumInt"] },
