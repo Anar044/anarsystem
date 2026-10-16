@@ -164,6 +164,8 @@ export async function onRequestGet({request,env}) {
         "Нет доступа к ресторану этого чека.",403);
     const fields=(await getOlapFields(ctx.connection,"SALES")).fields||[];
     const meta=receiptFields(fields);
+    if(meta.table && fields.find(f=>f.name===meta.table)?.groupingAllowed===false)meta.table=null;
+    if(meta.waiter && fields.find(f=>f.name===meta.waiter)?.groupingAllowed===false)meta.waiter=null;
     const keys=[meta.number,meta.department,meta.dish,
       ...(requested.shiftId?[meta.session]:[]),
       ...(requested.orderId?[meta.orderId]:[])];
