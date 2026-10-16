@@ -5,7 +5,7 @@ import { getCurrentOperatingShifts, resolveOlapCashShiftField, operatingToday } 
 
 const FIELDSETS = {
   sales: { group: ["OpenDate.Typed","OpenDate"], measures: ["DishDiscountSumInt","DishSumInt"] },
-  cash: { group: ["CashRegisterName","CashRegister.Name","CashRegister","CashDeskName","TerminalName","CashierName","Cashier.Name"], secondary: ["PayTypes","PayType","PaymentType.Name","PaymentType","PayType.Name","PaymentMethod.Name","PaymentMethod","TenderType","PaymentTypeName","PayTypeName"], measures: ["DishDiscountSumInt","DishSumInt"] },
+  cash: { group: ["CashRegisterName","CashRegister.Name","CashRegister","CashDeskName","TerminalName"], secondary: ["PayTypes","PayType","PaymentType.Name","PaymentType","PayType.Name","PaymentMethod.Name","PaymentMethod","TenderType","PaymentTypeName","PayTypeName"], measures: ["DishDiscountSumInt","DishSumInt"] },
   dishes: { group: ["DishName","Dish.Name","DishFullName","Dish"], measures: ["DishDiscountSumInt","DishSumInt"] },
   categories: { group: ["DishCategory","DishCategory.Name","DishCategoryName","CategoryName"], measures: ["DishDiscountSumInt","DishSumInt"] },
   discounts: { group: [
