@@ -67,7 +67,7 @@ export function mobileOlapRows(payload, groupField, measureField, fields, select
     const group = clean(value(row, groupField, fields)) || "—";
     const secondary = secondaryField ? clean(value(row, secondaryField, fields)) : "";
     return {
-      label: secondary || group, group,
+      label: secondaryField ? (secondary || "Не указан") : group, group,
       value: safeNumber(value(row, measureField, fields))
     };
   }).filter(row=>row.value!==null);
