@@ -284,6 +284,11 @@ function outputText(response) {
 function functionCalls(response) {
   return (response?.output || []).filter(item => item?.type === "function_call" && item?.name && item?.call_id);
 }
+export function assistantNeedsCompletion(response) {
+  return !outputText(response) &&
+    (response?.status === "incomplete" ||
+      (response?.output || []).some(item => item?.type === "reasoning"));
+}
 async function openAiResponse(env, payload) {
   const apiKey = clean(env.OPENAI_API_KEY);
   if (!apiKey) throw new Error("OPENAI_API_KEY не настроен.");
@@ -386,7 +391,9 @@ async function runAssistant(env, connection, history, scope=null, access=null, m
         schema: ASSISTANT_RESPONSE_SCHEMA
       }
     },
-    max_output_tokens: mobile ? 4000 : 6000
+    // Medium reasoning may consume the whole 4000-token mobile budget,
+    // leaving no visible text. Reserve space to synthesize the final report.
+    max_output_tokens: mobile ? 6000 : 6000
   };
 
   let response = await openAiResponse(env, {
@@ -429,12 +436,41 @@ async function runAssistant(env, connection, history, scope=null, access=null, m
     response = await openAiResponse(env, {
       ...base,
       previous_response_id: response.id,
-      input: outputs
+      input: outputs,
+      // Bound extra tool iterations and the resulting latency. After the
+      // third round the model must summarize the verified tool outputs.
+      ...(mobile && round >= 2 ? {tool_choice: "none"} : {})
+    });
+  }
+
+  // A completed OpenAI HTTP call does not guarantee an answer: models can
+  // use their entire output budget for reasoning and return incomplete.
+  // One controlled continuation is permitted, never an unbounded loop.
+  if (assistantNeedsCompletion(response) && response?.id &&
+      functionCalls(response).length === 0) {
+    response = await openAiResponse(env, {
+      ...base,
+      previous_response_id: response.id,
+      tool_choice: "none",
+      input: [{role:"user",content:
+        "Заверши ответ на предыдущий аналитический вопрос по уже " +
+        "полученным данным. Не вызывай инструменты и не придумывай числа. " +
+        "Верни краткий, полный JSON-ответ в заданной схеме."}]
     });
   }
 
   const rawText = outputText(response);
-  if (!rawText) throw new Error("AI не вернул ответ.");
+  if (!rawText) {
+    const code = response?.incomplete_details?.reason ||
+      (functionCalls(response).length ? "tool_rounds_exhausted" : "no_text");
+    const err = new Error(
+      "AI не смог завершить ответ. Попробуйте повторить вопрос, " +
+      "выбрав меньше ресторанов или более короткий период.");
+    err.code = "AI_RESPONSE_INCOMPLETE";
+    err.reason = code;
+    err.status = 502;
+    throw err;
+  }
   const structured = parseAssistantPayload(rawText);
   if (!structured.text && !structured.report && !structured.chart) throw new Error("AI вернул пустой ответ.");
   return {
