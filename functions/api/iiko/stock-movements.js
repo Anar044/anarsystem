@@ -9,7 +9,24 @@ function json(data,status=200){return new Response(JSON.stringify(data),{status,
 function clean(v){return String(v??"").trim()}
 function key(v){return clean(v).replace(/^\{+|\}+$/g,"").toLowerCase()}
 function num(v){if(v===null||v===undefined||v==="")return null;const n=Number(String(v).replace(/\s/g,"").replace(",","."));return Number.isFinite(n)?n:null}
-function list(v){if(Array.isArray(v))return v;if(Array.isArray(v?.items))return v.items;if(Array.isArray(v?.data))return v.data;if(Array.isArray(v?.response))return v.response;if(Array.isArray(v?.results))return v.results;if(Array.isArray(v?.documents))return v.documents;return[]}
+function list(v){
+  if(Array.isArray(v))return v;
+  if(!v||typeof v!=="object")return[];
+  for(const key of ["items","data","response","results","documents"]){
+    if(Array.isArray(v[key]))return v[key];
+    if(v[key]&&typeof v[key]==="object"){
+      const nested=list(v[key]);
+      if(nested.length||Object.keys(v[key]).length===0)return nested;
+    }
+  }
+  return[];
+}
+function hasListShape(v){
+  if(Array.isArray(v))return true;
+  if(!v||typeof v!=="object")return false;
+  return ["items","data","response","results","documents"].some(k=>
+    Array.isArray(v[k])||(v[k]&&typeof v[k]==="object"&&hasListShape(v[k])));
+}
 function localName(name){return String(name||"").split(":").pop().toLowerCase()}
 function xmlDecode(s){return String(s??"").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&")}
 function xmlTag(block,names){
@@ -227,19 +244,38 @@ function normalizeV2Docs(payload,type){
 }
 async function loadV2(connection,type,from,to){
   const candidates=type==="inventory"
-    ?["/resto/api/v2/documents/inventory","/resto/api/v2/documents/inventoryDocument"]
+    ?["/resto/api/v2/documents/inventory","/resto/api/v2/documents/inventoryDocument",
+      "/resto/api/v2/documents/incomingInventory"]
     :[type==="transfer"?"/resto/api/v2/documents/internalTransfer":"/resto/api/v2/documents/writeoff"];
+  const ranges=[
+    {dateFrom:from,dateTo:to},
+    {dateFrom:from+"T00:00:00",dateTo:to+"T23:59:59"},
+    {from,to}
+  ];
   const attempts=[];
+  let validEmpty=false;
   for(const endpoint of candidates){
-    const q=new URLSearchParams({dateFrom:from,dateTo:to});
-    let r;
-    try{r=await iikoJson(connection,endpoint+"?"+q.toString(),{timeoutMs:15000})}
-    catch(error){attempts.push({path:endpoint,status:0,count:0,error:String(error?.message||error)});continue}
-    const docs=r.ok?normalizeV2Docs(r.payload,type):[];
-    attempts.push({path:endpoint,status:r.status,count:docs.length});
-    if(r.ok)return{ok:true,docs,attempts};
+    for(const range of ranges){
+      const q=new URLSearchParams(range);
+      let r;
+      try{r=await iikoJson(connection,endpoint+"?"+q.toString(),{timeoutMs:12000})}
+      catch(error){
+        attempts.push({path:endpoint,status:0,count:0,range,
+          error:String(error?.message||error)});
+        continue;
+      }
+      const valid=r.ok&&r.payload?.success!==false&&!r.payload?.errorCode&&
+        !r.payload?.errorMessage&&hasListShape(r.payload);
+      const docs=valid?normalizeV2Docs(r.payload,type):[];
+      attempts.push({path:endpoint,status:r.status,count:docs.length,range,
+        validResponse:valid});
+      if(docs.length)return{ok:true,docs,attempts};
+      if(valid)validEmpty=true;
+    }
   }
-  return{ok:false,docs:[],attempts};
+  // A valid empty response is different from a failed source. We tried the
+  // supported date encodings and every known endpoint before declaring empty.
+  return{ok:validEmpty,docs:[],attempts};
 }
 
 async function nativeDepartmentStores(connection,departmentIds,from,to){
