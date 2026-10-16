@@ -38,3 +38,14 @@ test("unknown order amounts remain unavailable rather than becoming zero",()=>{
  assert.equal(out.discountAmount,null);
  assert.equal(out.surchargeAmount,null);
 });
+
+test("numeric fields wrapped by POS objects and currency text remain readable",()=>{
+ const out=normalizePosOrderDetail({data:{
+  Revenue:{Value:"25,00 AZN"},
+  Items:[{Name:"Кофе",Amount:{Value:"2"},Price:"3,50 AZN"}]
+ }},{orderNum:"8"});
+ assert.equal(out.amount,25);
+ assert.equal(out.items[0].quantity,2);
+ assert.equal(out.items[0].price,3.5);
+ assert.equal(out.items[0].amount,7);
+});

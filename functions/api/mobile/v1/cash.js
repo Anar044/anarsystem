@@ -6,8 +6,12 @@ import { mobileContext, response, errorResponse, MobileError } from "../_lib/con
 const VPS_API = "http://68-233-120-197.nip.io";
 const str = value => String(value ?? "").trim();
 const number = value => {
-  if (value === null || value === undefined || value === "") return null;
-  const n = Number(String(value).replace(/\\s/g, "").replace(",", "."));
+  const raw = first(value);
+  if (raw === null || raw === undefined || raw === "") return null;
+  const cleaned = String(raw).replace(/\s/g, "").replace(",", ".")
+    .replace(/[^0-9+\-.]/g, "");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
 };
 const unwrap = value => {
@@ -15,6 +19,28 @@ const unwrap = value => {
     try { return JSON.parse(value); } catch { return value; }
   }
   return value;
+};
+const first = value => {
+  const root = unwrap(value);
+  if (root === null || root === undefined || root === "") return null;
+  if (Array.isArray(root)) {
+    for (const item of root) {
+      const result = first(item);
+      if (result !== null && result !== "") return result;
+    }
+    return null;
+  }
+  if (typeof root === "object") {
+    for (const key of ["name","Name","value","Value","sum","Sum",
+      "amount","Amount","typeName","TypeName","type","Type"]) {
+      if (root[key] !== undefined && root[key] !== null && root[key] !== "") {
+        const result = first(root[key]);
+        if (result !== null && result !== "") return result;
+      }
+    }
+    return null;
+  }
+  return root;
 };
 const collection = value => {
   const root = unwrap(value);

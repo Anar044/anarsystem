@@ -11,8 +11,22 @@ const unwrap = value => {
   return current;
 };
 const number = value => {
-  if (value === null || value === undefined || value === "") return null;
-  const parsed = Number(String(value).replace(/\s/g, "").replace(",", "."));
+  let raw = value;
+  if (Array.isArray(raw)) raw = raw.find(item => item !== null && item !== undefined);
+  if (raw && typeof raw === "object") {
+    for (const key of ["value","Value","sum","Sum","amount","Amount",
+      "price","Price","number","Number"]) {
+      if (raw[key] !== undefined && raw[key] !== null && raw[key] !== "") {
+        return number(raw[key]);
+      }
+    }
+    return null;
+  }
+  if (raw === null || raw === undefined || raw === "") return null;
+  const cleaned = String(raw).replace(/\s/g, "").replace(",", ".")
+    .replace(/[^0-9+\-.]/g, "");
+  if (!cleaned) return null;
+  const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : null;
 };
 const scalar = value => {
