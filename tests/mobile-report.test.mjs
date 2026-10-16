@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mobileOlapRows, buildMobileReportFilters } from "../functions/api/mobile/v1/report.js";
+import { mobileOlapRows, buildMobileReportFilters, findOlapGroupField, findOlapMeasureField } from "../functions/api/mobile/v1/report.js";
 const fields=[{name:"DishName",title:"Dish"},{name:"DishDiscountSumInt",title:"Net"}];
 test("OLAP fields are normalized and compact",()=>{
  const x=mobileOlapRows({data:[{DishName:"Pizza",DishDiscountSumInt:22.5}]},
@@ -50,4 +50,17 @@ test("Historical reports remain calendar and unsupported shift dimensions fail c
     departmentField:"Department.Id",selectedIds:["r1"],
     operating:{from:"2026-10-14",to:"2026-10-15",shiftIds:["s1"]}
   }),e=>e.code==="OLAP_SHIFT_FIELD_UNAVAILABLE");
+});
+
+test("report field resolution skips non-groupable or non-aggregatable preferred fields",()=>{
+ const fields=[
+  {name:"PayTypes",title:"Payment types",groupingAllowed:false},
+  {name:"PaymentType.Name",title:"Payment type",groupingAllowed:true},
+  {name:"DiscountSumInt",title:"Discount",aggregationAllowed:false},
+  {name:"DiscountSum",title:"Discount sum",aggregationAllowed:true}
+ ];
+ assert.equal(findOlapGroupField(fields,["PayTypes","PaymentType.Name"]),
+  "PaymentType.Name");
+ assert.equal(findOlapMeasureField(fields,["DiscountSumInt","DiscountSum"]),
+  "DiscountSum");
 });
