@@ -43,6 +43,7 @@ jobs:
           node --test tests/platform-organizations-access.test.mjs
           node --test tests/platform-server-provision.test.mjs
           node --test tests/ai-assistant-workspace-connection.test.mjs
+          node --test tests/ai-schema-cache.test.mjs
           node --test tests/ai-documents-workspace-connection.test.mjs
           node --test tests/ai-documents-warehouse-selector.test.mjs
           node --test tests/workspace-assets-audit.test.mjs
