@@ -35,6 +35,17 @@ function sumField(rows, field, fields) {
   return hasValue ? sum : null;
 }
 
+export function verifiedCostOfGoods({revenue,profit,revenueField,profitField}) {
+  // Do not subtract arbitrary "Profit" from unverified revenue aliases.
+  const exactRevenue = ["DishDiscountSumInt","DishSumInt"].includes(revenueField);
+  if (!exactRevenue || profitField !== "ProductCostBase.Profit" ||
+      !Number.isFinite(revenue) || !Number.isFinite(profit)) return null;
+  const result = Number((revenue - profit).toFixed(4));
+  // Different currencies/scope or incompatible aggregators must fail closed,
+  // rather than showing a negative or a suspiciously small "cost".
+  return result >= -0.001 ? Math.max(0,result) : null;
+}
+
 export function normalizeSummary(payload) {
   if (!payload?.success || !payload.reports?.daily?.success) {
     throw new MobileError("DASHBOARD_DATA_UNAVAILABLE", "Нет достоверных данных по продажам.", 502);
@@ -46,7 +57,16 @@ export function normalizeSummary(payload) {
   const profit = sumField(rows, payload.profitField, fields);
   const discounts = sumField(rows, payload.discountField, fields);
   const surcharges = sumField(rows, payload.surchargeField, fields);
-  const costOfGoods = sumField(rows, payload.costField, fields);
+  // ProductCostBase.Cost in a date-grouped OLAP result can be a unit cost,
+  // not the aggregated cost of goods (e.g. 2.58 vs 93,509 AZN).
+  // On iiko SALES, ProductCostBase.Profit is the gross contribution after
+  // recipe cost. Both measures are sourced from the SAME rows, scope and
+  // period; subtracting yields the report-equivalent cost of goods.
+  // Never sum the cost-price field or invent a zero on missing metrics.
+  const costOfGoods = verifiedCostOfGoods({
+    revenue, profit, revenueField: payload.revenueField,
+    profitField: payload.profitField
+  });
   // Null distinguishes unavailable values from genuine zero.
   const avgCheck = checks !== null && checks > 0 && revenue !== null
     ? revenue / checks : null;
@@ -64,6 +84,8 @@ export function normalizeSummary(payload) {
     operatingDay: payload.operatingDay || null,
     metrics: { revenue, checks, avgCheck, grossProfit: profit,
       discounts, surcharges, costOfGoods },
+    costOfGoodsSource: costOfGoods === null ? "UNAVAILABLE" :
+      "SALES_REVENUE_MINUS_PRODUCT_COST_GROSS_PROFIT",
     daily,
     currency: "AZN",
     source: "SH OLAP SALES",
