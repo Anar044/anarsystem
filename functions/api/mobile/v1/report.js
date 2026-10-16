@@ -5,7 +5,7 @@ import { getCurrentOperatingShifts, resolveOlapCashShiftField, operatingToday } 
 
 const FIELDSETS = {
   sales: { group: ["OpenDate.Typed","OpenDate"], measures: ["DishDiscountSumInt","DishSumInt"] },
-  cash: { group: ["CashRegisterName","CashRegister.Name","CashRegister","CashDeskName","TerminalName","CashierName","Cashier.Name"], secondary: ["DishName","Dish.Name","DishFullName","Dish"], measures: ["DishDiscountSumInt","DishSumInt"] },
+  cash: { group: ["CashRegisterName","CashRegister.Name","CashRegister","CashDeskName","TerminalName","CashierName","Cashier.Name"], secondary: ["PayTypes","PayType","PaymentType.Name","PaymentType","PayType.Name","PaymentMethod.Name","PaymentMethod","TenderType","PaymentTypeName","PayTypeName"], measures: ["DishDiscountSumInt","DishSumInt"] },
   dishes: { group: ["DishName","Dish.Name","DishFullName","Dish"], measures: ["DishDiscountSumInt","DishSumInt"] },
   categories: { group: ["DishCategory","DishCategory.Name","DishCategoryName","CategoryName"], measures: ["DishDiscountSumInt","DishSumInt"] },
   discounts: { group: [
@@ -16,6 +16,7 @@ const FIELDSETS = {
     "DiscountSum","DiscountSumInt","DiscountAmount","DiscountAmountInt",
     "DiscountSumWithoutTax","DiscountAmountWithoutTax"
   ] },
+  surcharges: { group: ["IncreaseName","Increase.Name","IncreaseType.Name","SurchargeName","Surcharge.Name","ExtraCharge.Name","IncreaseType","Increase","SurchargeType"], measures: ["IncreaseSumInt","IncreaseSum","IncreaseAmountInt","IncreaseAmount","SurchargeSumInt","SurchargeSum","ExtraChargeSum","ExtraChargeAmount"] },
   foodCost: { group: [
     "DishName","Dish.Name","DishFullName","Dish",
     "DishCategory","DishCategory.Name","DishCategoryName"
@@ -106,12 +107,14 @@ export async function onRequestGet({request,env}) {
     const secondary=spec.secondary ? findOlapField(fields,spec.secondary) : null;
     const measure=findOlapField(fields,spec.measures);
     const dep=findOlapField(fields,["Department.Id","DepartmentId","Department.ID"]);
-    if (!group || !measure) throw new MobileError("REPORT_FIELDS_UNAVAILABLE",
+    if (kind !== "discounts" && (!group || !measure)) throw new MobileError("REPORT_FIELDS_UNAVAILABLE",
       kind === "discounts"
         ? "На этом SH Server не найдены отдельные OLAP-поля типа скидки или суммы скидки. Такой отчёт нельзя заменить суммой продаж."
         : kind === "foodCost"
         ? "SH OLAP не передал поле себестоимости. Продажи нельзя выдавать за себестоимость."
         : "В SH OLAP отсутствуют поля для выбранного отчёта.",409);
+    if (kind === "cash" && !secondary) throw new MobileError("PAYMENT_FIELDS_UNAVAILABLE",
+      "SH OLAP не передал поле типа оплаты. Отчёт по кассам без разбивки по способам оплаты не будет показан.",409);
     if (!dep) throw new MobileError("OLAP_SCOPE_UNAVAILABLE",
       "SH OLAP не позволяет ограничить отчёт выбранными ресторанами.",409);
     let operating=null, effectiveFrom=from, effectiveTo=to;
@@ -126,6 +129,63 @@ export async function onRequestGet({request,env}) {
     }
     const filters=buildMobileReportFilters({from,to,departmentField:dep,
       selectedIds:ctx.selectedIds,operating,shiftField});
+    if(kind==="discounts"){
+      const runAmount=async(set,reportKind)=>{
+        const amountField=findOlapField(fields,set.measures);
+        const typeField=findOlapField(fields,set.group);
+        const groupField=typeField||dep;
+        if(!amountField||!groupField)return {
+          available:false,rows:[],totalValue:null,
+          reason:reportKind==="discounts"
+            ?"SH OLAP не передал отдельное поле суммы скидки."
+            :"SH OLAP не передал отдельное поле суммы надбавки.",
+          byRestaurant:false
+        };
+        const requestBody={reportType:"SALES",buildSummary:true,
+          groupByRowFields:[groupField],groupByColFields:[],
+          aggregateFields:[amountField],filters};
+        const source=await iikoJson(ctx.connection,"/resto/api/v2/reports/olap",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify(requestBody),timeoutMs:60000});
+        if(!source.ok||source.payload?.success===false||
+          source.payload?.error===true||source.payload?.errorCode||
+          source.payload?.errorMessage||
+          !(Array.isArray(source.payload?.data)||Array.isArray(source.payload)))
+          return {available:false,rows:[],totalValue:null,
+            reason:"SH OLAP не вернул данные для этой части отчёта.",
+            byRestaurant:!typeField};
+        const mapped=mobileOlapRows(source.payload,groupField,amountField,
+          fields,ctx.selectedIds,reportKind);
+        return {...mapped,available:true,byRestaurant:!typeField,
+          groupField,measureField:amountField};
+      };
+      const [discounts,surcharges]=await Promise.all([
+        runAmount(FIELDSETS.discounts,"discounts"),
+        runAmount(FIELDSETS.surcharges,"surcharges")
+      ]);
+      if(!discounts.available&&!surcharges.available)
+        throw new MobileError("REPORT_FIELDS_UNAVAILABLE",
+          "На этом SH Server не найдены подтверждённые поля скидок и надбавок. Продажи нельзя подставлять вместо этих сумм.",409);
+      return response({
+        success:true,kind:"discounts",currency:"AZN",
+        discounts:discounts.rows||[],surcharges:surcharges.rows||[],
+        discountTotal:discounts.available?discounts.totalValue:null,
+        surchargeTotal:surcharges.available?surcharges.totalValue:null,
+        discountAvailable:discounts.available,
+        surchargeAvailable:surcharges.available,
+        discountByRestaurant:discounts.byRestaurant===true,
+        surchargeByRestaurant:surcharges.byRestaurant===true,
+        discountUnavailableReason:discounts.available?null:discounts.reason,
+        surchargeUnavailableReason:surcharges.available?null:surcharges.reason,
+        partial:!discounts.available||!surcharges.available,
+        from:effectiveFrom,to:effectiveTo,mode,
+        operatingDay:operating?{from:operating.from,to:operating.to,
+          activeShiftCount:operating.activeShiftCount,
+          shiftCount:operating.shiftCount}:null,
+        selectedDepartmentIds:ctx.selectedIds,
+        source:"SH OLAP SALES",updatedAt:new Date().toISOString()
+      });
+    }
     const olapRequest={reportType:"SALES",buildSummary:true,
       groupByRowFields:secondary ? [group, secondary] : [group],groupByColFields:[],
       aggregateFields:[measure],filters};
