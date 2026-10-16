@@ -44,6 +44,9 @@ export function normalizeSummary(payload) {
   const revenue = sumField(rows, payload.revenueField, fields);
   const checks = sumField(rows, payload.orderField, fields);
   const profit = sumField(rows, payload.profitField, fields);
+  const discounts = sumField(rows, payload.discountField, fields);
+  const surcharges = sumField(rows, payload.surchargeField, fields);
+  const costOfGoods = sumField(rows, payload.costField, fields);
   // Null distinguishes unavailable values from genuine zero.
   const avgCheck = checks !== null && checks > 0 && revenue !== null
     ? revenue / checks : null;
@@ -58,7 +61,8 @@ export function normalizeSummary(payload) {
     to: payload.to,
     mode: payload.mode || "calendar",
     operatingDay: payload.operatingDay || null,
-    metrics: { revenue, checks, avgCheck, grossProfit: profit },
+    metrics: { revenue, checks, avgCheck, grossProfit: profit,
+      discounts, surcharges, costOfGoods },
     daily,
     currency: "AZN",
     source: "SH OLAP SALES",
