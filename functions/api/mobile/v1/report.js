@@ -219,7 +219,10 @@ export async function onRequestGet({request,env}) {
             ...(registerName?{registerName}:{}),
             ...(secondaryField?{discountType:row.group}:{})};
         });
-        const totalValue=rows.reduce((sum,row)=>sum+row.value,0);
+        // mobileOlapRows reports the total across all source rows, even
+        // when only the first 500 rows are displayed in the app.
+        // Never base network-wide total on the truncated display list.
+        const totalValue=mapped.totalValue;
         return {...mapped,rows,totalValue,available:true,
           byRestaurant:!typeField&&!registerField,byRegister:!!registerField,
           groupField,secondaryField,registerField,measureField:amountField};
