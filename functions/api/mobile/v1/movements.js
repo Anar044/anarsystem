@@ -17,12 +17,21 @@ export function scopedMovements(payload, selectedStoreIds, selectedIds) {
     const refs = [m.storeId,m.fromStoreId,m.toStoreId].map(key).filter(Boolean);
     return refs.length>0 && refs.every(id=>stores.has(id));
   }).map(m=>({
-    id:clean(m.id), type:clean(m.type),date:clean(m.date),
-    documentNumber:clean(m.documentNumber),
-    productId:clean(m.productId), productName:clean(m.productName),
+    id:clean(m.id),type:clean(m.type),label:clean(m.label),
+    date:clean(m.date),documentId:clean(m.documentId),
+    documentNumber:clean(m.documentNumber),status:clean(m.status),
+    comment:clean(m.comment),
+    productId:clean(m.productId),productName:clean(m.productName),
     storeId:clean(m.storeId),storeName:clean(m.storeName),
-    unit:clean(m.unit),quantity:safeNumber(m.signedAmount??m.amount),
-    value:safeNumber(m.value)
+    fromStoreId:clean(m.fromStoreId),fromStoreName:clean(m.fromStoreName),
+    toStoreId:clean(m.toStoreId),toStoreName:clean(m.toStoreName),
+    unit:clean(m.unit),
+    quantity:m.type==="inventory"&&(m.signedAmount===null||m.signedAmount===undefined)
+      ?null:safeNumber(m.signedAmount??m.amount),
+    value:safeNumber(m.value),
+    actualAmount:safeNumber(m.actualAmount),
+    accountingAmount:safeNumber(m.accountingAmount),
+    differenceAmount:safeNumber(m.differenceAmount)
   }));
   // A failure in one document type must not disguise all other verified
   // warehouse movements as empty. Label any partial result explicitly.
@@ -30,11 +39,24 @@ export function scopedMovements(payload, selectedStoreIds, selectedIds) {
   const missingSources=Object.entries(sourceStatus)
     .filter(([,status])=>status?.ok!==true).map(([kind])=>kind);
   const complete=Object.keys(sourceStatus).length>0&&missingSources.length===0;
+  const summary={};
+  for(const [type,status] of Object.entries(sourceStatus)){
+    const typed=rows.filter(row=>row.type===type);
+    summary[type]=status?.ok!==true||typed.some(row=>row.value===null)
+      ?null:typed.reduce((sum,row)=>sum+row.value,0);
+  }
   return {
-    success:true,rows:rows.slice(0,500), count:rows.length,
-    truncated:rows.length>500, currency:"AZN",
-    partial:!complete, missingSources,
-    selectedDepartmentIds:selectedIds, source:"SH STOCK MOVEMENTS"
+    success:true,rows:rows.slice(0,500),count:rows.length,
+    truncated:rows.length>500,currency:"AZN",
+    partial:!complete,missingSources,
+    sourceStatus:Object.fromEntries(Object.entries(sourceStatus).map(([type,status])=>[
+      type,{ok:status?.ok===true,count:Number(status?.count||0),
+        attempts:Array.isArray(status?.attempts)?status.attempts.map(a=>({
+          path:clean(a.path),status:a.status,count:a.count,
+          range:a.range||undefined,validResponse:a.validResponse
+        })):[]}
+    ])),
+    summary,selectedDepartmentIds:selectedIds,source:"SH STOCK MOVEMENTS"
   };
 }
 export async function onRequestGet({request,env}) {
