@@ -4,7 +4,8 @@ import { normalizeMobileOrders } from "../functions/api/mobile/v1/orders.js";
 
 const valid={success:true,from:"2026-10-13",to:"2026-10-13",
   orders:[{number:"23",date:"2026-10-13",
-    departmentId:"A",shiftId:"shift-1",amount:11}],
+    departmentId:"A",shiftId:"shift-1",amount:11,
+    table:"12",discountAmount:2,surchargeAmount:1}],
   meta:{departmentScopeApplied:true,departmentIds:["A"]}};
 
 test("mobile receipts preserve unique restaurant and shift identity",()=>{
@@ -14,6 +15,9 @@ test("mobile receipts preserve unique restaurant and shift identity",()=>{
   assert.equal(out.orders[0].departmentId,"A");
   assert.equal(out.orders[0].shiftId,"shift-1");
   assert.equal(out.orders[0].detailsAvailable,true);
+  assert.equal(out.orders[0].table,"12");
+  assert.equal(out.orders[0].discountAmount,2);
+  assert.equal(out.orders[0].surchargeAmount,1);
 });
 test("missing restaurant scope blocks all receipt rows",()=>{
   assert.throws(()=>normalizeMobileOrders({...valid,
