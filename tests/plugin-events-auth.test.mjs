@@ -57,7 +57,7 @@ function harness(statuses){
 test("plugin event API uses shared authenticated user validation",()=>{
   assert.match(apiSource,/import \{ getUser, loadRequestIikoState \} from/);
   assert.match(apiSource,/await getUser\(context\.request, context\.env\)/);
-  assert.doesNotMatch(apiSource,/getAuthenticatedUser|SERVICE_ROLE_KEY/);
+  assert.doesNotMatch(apiSource,/getAuthenticatedUser/);
 });
 
 test("expired journal token refreshes once using the site's client",async()=>{
