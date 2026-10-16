@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { scopedRequest } from "../functions/api/mobile/v1/assistant.js";
+import { parseCookies } from "../functions/api/iiko/_lib/restaurant-scope.js";
 import { assistantToolDepartmentScope } from "../functions/api/iiko/_lib/ai-assistant-tools.js";
 
 test("assistant receives server-validated CHAIN selection, never forged cookie",async()=>{
@@ -15,8 +16,10 @@ test("assistant receives server-validated CHAIN selection, never forged cookie",
  });
  assert.equal(scoped.headers.get("X-SH-Workspace-Id"),"own-workspace");
  assert.equal(scoped.headers.get("X-SH-Mobile-Strict-Scope"),"1");
- assert.equal(decodeURIComponent(scoped.headers.get("Cookie").split("=")[1]),
-   "restaurant1,restaurant2");
+ const cookies=parseCookies(scoped);
+ assert.equal(cookies.sh_workspace_id,"own-workspace");
+ assert.equal(cookies.sh_selected_departments,"restaurant1,restaurant2");
+ assert.equal(cookies.sh_workspace_id.includes("foreign"),false);
 });
 
 test("mobile AI does not omit Department filter when all CHAIN restaurants selected",()=>{
