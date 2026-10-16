@@ -1,4 +1,5 @@
 import { mobileContext, response, errorResponse, MobileError } from "../_lib/context.js";
+import { loadPosSnapshots, savePosSnapshots } from "../_lib/cash-snapshots.js";
 
 // Uses the SAME read-only realtime POS plugin feed as /cash/index.html.
 // Every plugin is verified against the authenticated workspace's selected
@@ -159,37 +160,48 @@ const totals = orders => {
   return {...out, expectedSum: out.amountComplete
     ? out.closedSum + out.openSum : null};
 };
-export function cashFeedSnapshot(plugins, settled, selectedIds) {
-  // The caller must supply only verified, authorized plugins.
+export function cashFeedSnapshot(plugins,settled,selectedIds,history=[],{
+  feedAvailable=true,seenAt=new Date().toISOString()
+}={}) {
+  // The caller must supply only verified, authorized plugins/snapshots.
   if(plugins.length!==settled.length)throw new MobileError(
     "CASH_SNAPSHOT_INVALID","Неверное количество ответов касс.",502);
-  const failed=settled.map((r,i)=>r.status==="rejected"?{
-    name:plugins[i].name,departmentId:plugins[i].departmentId,
-    online:false,status:"UNAVAILABLE"
-  }:null).filter(Boolean);
-  if(failed.length===settled.length&&settled.length)
+  const selected=new Set(selectedIds.map(str));
+  const online=settled.flatMap((result,i)=>result.status==="fulfilled"
+    ?[{...result.value,online:true,status:"ONLINE",snapshot:false,
+      lastSeenAt:seenAt}]:[]);
+  const liveIds=new Set(online.map(r=>r.id));
+  const validSnapshots=(history||[]).filter(item =>
+    item?.id && selected.has(str(item.departmentId)));
+  const offline=validSnapshots.filter(item=>!liveIds.has(item.id))
+    .map(item=>({...item,online:false,status:"OFFLINE",snapshot:true}));
+  const offlineIds=new Set(offline.map(r=>r.id));
+  const failures=settled.flatMap((result,i)=>result.status==="rejected" &&
+    !offlineIds.has(plugins[i].id) ? [{
+      id:plugins[i].id,name:plugins[i].name,
+      departmentId:plugins[i].departmentId,online:false,status:"UNAVAILABLE"
+    }]:[]);
+  if(!online.length&&!offline.length&&settled.length)
     throw new MobileError("CASH_ALL_UNAVAILABLE",
       "Не удалось получить заказы ни от одной кассы.",502);
-  const registers=settled.filter(r=>r.status==="fulfilled").map(r=>r.value);
-  const represented=new Set(plugins.map(p=>p.departmentId));
+  const represented=new Set([...plugins,...offline].map(p=>p.departmentId));
   const missingDepartmentIds=selectedIds.filter(id=>!represented.has(id));
-  // One restaurant may have no online POS plugin, even though its SH OLAP
-  // sales are valid. Never label online-only POS amounts as CHAIN totals.
-  const partial=failed.length>0 || missingDepartmentIds.length>0;
-  const all=registers.flatMap(r=>r.orders);
-  const availableTotals=registers.length?totals(all):null;
-  // Full-chain totals remain unavailable whenever even one restaurant or
-  // register cannot be verified. Expose independently labeled observed
-  // subtotals for POS registers that actually responded.
-  return {success:true,source:"SH POS Plugin",
-    registers,totals:partial?null:availableTotals,
-    availableTotals,
-    totalsCoverage:partial?"ONLINE_REGISTERS_ONLY":"ALL_SELECTED_RESTAURANTS",
-    count:registers.length,partial,
-    unavailableRegisters:failed,missingDepartmentIds,
+  const partial=!feedAvailable||failures.length>0||
+    missingDepartmentIds.length>0||offline.length>0;
+  const availableTotals=online.length
+    ?totals(online.flatMap(r=>r.orders)):null;
+  // Never aggregate last-seen offline snapshots into live totals.
+  return {
+    success:true,source:"SH POS Plugin",
+    registers:[...online,...offline],totals:partial?null:availableTotals,
+    availableTotals,totalsCoverage:partial?"ONLINE_REGISTERS_ONLY":"ALL_SELECTED_RESTAURANTS",
+    count:online.length,onlineCount:online.length,offlineCount:offline.length,
+    partial,feedAvailable,
+    unavailableRegisters:failures,missingDepartmentIds,
     expectedRegisterCount:plugins.length,
     currency:"AZN",selectedDepartmentIds:selectedIds,
-    updatedAt:new Date().toISOString()};
+    updatedAt:seenAt
+  };
 }
 async function fetchJson(url, options = {}) {
   const controller = new AbortController();
@@ -209,33 +221,46 @@ async function fetchJson(url, options = {}) {
     clearTimeout(timeout);
   }
 }
-export async function onRequestGet({request, env}) {
+export async function onRequestGet({request,env}) {
   try {
-    const ctx = await mobileContext(request, env, {connectionRequired: true});
-    const conn = ctx.connection;
-    const url = new URL(VPS_API + "/api/plugin/data");
-    url.searchParams.set("departmentIds", ctx.selectedIds.join(","));
-    if (conn.ip && conn.port) {
-      url.searchParams.set("serverUrl", `http://${conn.ip}:${conn.port}`);
+    const ctx=await mobileContext(request,env,{connectionRequired:true});
+    const workspaceId=str(ctx.access.workspace.id);
+    const historical=await loadPosSnapshots(env.DB,workspaceId,ctx.selectedIds)
+      .catch(()=>[]);
+    const conn=ctx.connection;
+    const url=new URL(VPS_API+"/api/plugin/data");
+    url.searchParams.set("departmentIds",ctx.selectedIds.join(","));
+    if(conn.ip&&conn.port)
+      url.searchParams.set("serverUrl",`http://${conn.ip}:${conn.port}`);
+    let plugins=[],feedAvailable=true;
+    try {
+      plugins=authorizedCashPlugins(await fetchJson(url),ctx.selectedIds);
+    } catch (e) {
+      if(!historical.length) throw e;
+      feedAvailable=false;
     }
-    const plugins = authorizedCashPlugins(await fetchJson(url), ctx.selectedIds);
-    if (plugins.length > 12) throw new MobileError("CASH_TOO_MANY",
-      "Слишком много одновременно подключённых касс.", 409);
-    const result = await Promise.allSettled(plugins.map(async plugin => {
-      const data = await fetchJson(VPS_API + "/api/plugin/request", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({action: "get_orders",
-          pluginId: plugin.id, departmentIds: [plugin.departmentId],
-          ...(conn.ip && conn.port
-            ? {serverUrl: `http://${conn.ip}:${conn.port}`} : {})})
+    if(plugins.length>12)throw new MobileError("CASH_TOO_MANY",
+      "Слишком много одновременно подключённых касс.",409);
+    const result=await Promise.allSettled(plugins.map(async plugin=>{
+      const data=await fetchJson(VPS_API+"/api/plugin/request",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({action:"get_orders",
+          pluginId:plugin.id,departmentIds:[plugin.departmentId],
+          ...(conn.ip&&conn.port
+            ?{serverUrl:`http://${conn.ip}:${conn.port}`}:{})})
       });
-      const orders = normalizePosOrders(data).map(order => ({
-        ...order, pluginId: plugin.id, departmentId: plugin.departmentId,
-        registerName: plugin.name
+      const orders=normalizePosOrders(data).map(order=>({
+        ...order,pluginId:plugin.id,departmentId:plugin.departmentId,
+        registerName:plugin.name
       }));
-      return {...plugin, orders, totals: totals(orders)};
+      return {...plugin,orders,totals:totals(orders)};
     }));
-    return response(cashFeedSnapshot(plugins,result,ctx.selectedIds));
-  } catch (error) { return errorResponse(error); }
+    const seenAt=new Date().toISOString();
+    const online=result.flatMap(entry=>
+      entry.status==="fulfilled"?[entry.value]:[]);
+    if(online.length) await savePosSnapshots(env.DB,workspaceId,online,seenAt)
+      .catch(()=>{}); // Do not hide real-time data if snapshot storage is down.
+    return response(cashFeedSnapshot(plugins,result,ctx.selectedIds,
+      historical,{feedAvailable,seenAt}));
+  } catch(error) { return errorResponse(error); }
 }
