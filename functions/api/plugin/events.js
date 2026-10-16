@@ -15,11 +15,11 @@ function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8", ...corsHeaders() }
-// Use the same validated Supabase session as the other Smart Horeca APIs.
-// Do not independently select an arbitrary service-role key to verify users.
-
-on();
+  });
 }
+
+// Verify sessions through the shared Smart Horeca authentication helper.
+// Database service credentials are for event storage only.
 
 async function readEvents(env, request, scope) {
   const url = env?.SUPABASE_URL || env?.SUPABASE_PROJECT_URL;
