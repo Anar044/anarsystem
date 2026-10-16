@@ -132,7 +132,7 @@ export function normalizePosOrderDetail(payload, requested = {}) {
 }
 async function fetchJson(url, options = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 14000);
+  const timeout = setTimeout(() => controller.abort(), 9500);
   try {
     const upstream = await fetch(url, {...options, signal:controller.signal,
       headers:{Accept:"application/json",...(options.headers||{})}});
@@ -204,25 +204,27 @@ export async function onRequestGet({request,env}) {
       RequestDetail:requested.orderNum,requestDetail:requested.orderNum,
       orderNum:requested.orderNum,orderNumber:requested.orderNum
     };
-    let best = null;
-    let lastError = null;
-    for (const action of ["Order","get_order"]) {
-      try {
+    // Both actions only READ one verified POS order. Dispatch together:
+    // an older plugin may support either name, and serial 14s attempts made
+    // an order appear to hang for ~28 seconds on mobile.
+    const results = await Promise.allSettled(
+      ["Order","get_order"].map(async action => {
         const raw = await requestOrder(origin,{...body,action});
-        const details = normalizePosOrderDetail(raw, {
+        return normalizePosOrderDetail(raw,{
           ...requested,registerName:plugin.name
         });
-        if (details.itemsAvailable) return response(details);
-        if (!best) best = details;
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    if (best) return response(best);
+      })
+    );
+    const candidates=results.filter(x=>x.status==="fulfilled")
+      .map(x=>x.value);
+    const withItems=candidates.find(x=>x.itemsAvailable);
+    if (withItems) return response(withItems);
+    if (candidates.length) return response(candidates[0]);
+    const failed=results.find(x=>x.status==="rejected")?.reason;
     throw new MobileError("CASH_ORDER_DETAILS_UNAVAILABLE",
-      lastError instanceof MobileError
-        ? lastError.message
-        : "Не удалось загрузить полную информацию о заказе.",502);
+      failed instanceof MobileError
+        ? failed.message
+        : "Касса не вернула детали заказа за 9,5 секунды. Попробуйте ещё раз.",502);
   } catch (error) {
     return errorResponse(error);
   }
