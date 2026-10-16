@@ -36,3 +36,39 @@ test("all successful movement sources are flagged as complete",()=>{
   }},["A"],["dept1"]);
   assert.equal(x.partial,false);
 });
+
+test("movement totals are scoped and unknown inventory difference stays unknown",()=>{
+ const result=scopedMovements({
+  success:true,
+  movements:[
+   {id:"in-1",type:"incoming",label:"Приход",storeId:"A",storeName:"Main",
+    productId:"p1",productName:"Coffee",amount:10,signedAmount:10,value:100},
+   {id:"inv-1",type:"inventory",label:"Инвентаризация",storeId:"A",
+    productId:"p2",productName:"Sugar",amount:3,signedAmount:null,value:15}
+  ],
+  sourceStatus:{
+   incoming:{ok:true,count:1,attempts:[]},
+   outgoing:{ok:true,count:0,attempts:[]},
+   writeoff:{ok:false,count:0,attempts:[]},
+   transfer:{ok:true,count:0,attempts:[]},
+   inventory:{ok:true,count:1,attempts:[]}
+  }
+ },["A"],["dept1"]);
+ assert.equal(result.summary.incoming,100);
+ assert.equal(result.summary.writeoff,null);
+ assert.equal(result.rows.find(r=>r.type==="inventory").quantity,null);
+ assert.equal(result.sourceStatus.writeoff.ok,false);
+ assert.deepEqual(result.missingSources,["writeoff"]);
+});
+test("same-chain transfer includes from/to warehouse names",()=>{
+ const result=scopedMovements({
+  success:true,movements:[{
+   id:"tr",type:"transfer",storeId:"",fromStoreId:"A",fromStoreName:"Main",
+   toStoreId:"B",toStoreName:"Bar",productId:"p",productName:"Milk",
+   amount:2,value:16
+  }],sourceStatus:{transfer:{ok:true,count:1,attempts:[]}}
+ },["A","B"],["dept1"]);
+ assert.equal(result.rows.length,1);
+ assert.equal(result.rows[0].fromStoreName,"Main");
+ assert.equal(result.rows[0].toStoreName,"Bar");
+});
