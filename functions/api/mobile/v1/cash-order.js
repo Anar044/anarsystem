@@ -92,14 +92,14 @@ export function normalizePosOrderDetail(payload, requested = {}) {
     departmentId: clean(requested.departmentId),
     pluginId: clean(requested.pluginId),
     registerName: clean(requested.registerName),
-    table: scalar(pick(root, ["tables","table","orderTables","tableName"])) ??
-      clean(requested.table) || null,
-    floor: scalar(pick(root, ["floor","hall","restaurantSectionName","floorName",
-      "restaurantSection"])) ?? clean(requested.floor) || null,
-    waiter: scalar(pick(root, ["waiter","waiterName","employeeName"])) ??
-      clean(requested.waiter) || null,
-    cashier: scalar(pick(root, ["cashier","cashierName","cashierFullName"])) ??
-      clean(requested.cashier) || null,
+    table: (scalar(pick(root, ["tables","table","orderTables","tableName"])) ??
+      clean(requested.table)) || null,
+    floor: (scalar(pick(root, ["floor","hall","restaurantSectionName","floorName",
+      "restaurantSection"])) ?? clean(requested.floor)) || null,
+    waiter: (scalar(pick(root, ["waiter","waiterName","employeeName"])) ??
+      clean(requested.waiter)) || null,
+    cashier: (scalar(pick(root, ["cashier","cashierName","cashierFullName"])) ??
+      clean(requested.cashier)) || null,
     openedAt: clean(pick(root, ["openTime","orderOpenDate","openedAt","deliveryOpenTime"]) ??
       requested.openedAt) || null,
     billAt: clean(pick(root, ["billTime","orderBillTime","billAt"]) ??
