@@ -321,6 +321,40 @@ function compactForAi(value, depth = 0) {
   return out;
 }
 
+// Add a trusted human-readable name beside a dish ID only when that ID
+// exists in the iiko nomenclature. Unknown IDs are never guessed.
+export function resolveOlapDishNames(report, groupedFields, knownProducts) {
+  const relevant = (groupedFields || []).filter(field =>
+    /^(dish|dishid|dish\.id|dish\.name|dishname|product|productid|product\.id)$/i.test(String(field)));
+  if (!relevant.length) return {report, resolved:0, unresolved:0};
+  const products = knownProducts instanceof Map ? knownProducts : new Map();
+  let resolved = 0, unresolved = 0;
+  const scan = value => {
+    if (Array.isArray(value)) return value.map(scan);
+    if (value && typeof value === "object") {
+      const out = {...value};
+      for (const field of relevant) {
+        const id = out[field];
+        if (typeof id !== "string" ||
+          !/^[{]?[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}[}]?$/i.test(id)) continue;
+        const name = products.get(key(id));
+        if (name) {
+          out[field + ".DisplayName"] = name;
+          resolved++;
+        } else {
+          unresolved++;
+        }
+      }
+      for (const [field,v] of Object.entries(out)) {
+        if (v && typeof v === "object") out[field] = scan(v);
+      }
+      return out;
+    }
+    return value;
+  };
+  return {report:scan(report),resolved,unresolved};
+}
+
 function olapFieldRows(raw) {
   const out = [];
   const seen = new Set();
@@ -684,7 +718,54 @@ export async function executeAssistantTool(name, args, context) {
     if (!result.ok) {
       return { success: false, status: result.status, message: result.text.slice(0, 1200), request };
     }
-    return { success: true, request, departmentIds:selectedDepartmentIds, effectiveDepartmentIds, departmentScopeApplied:effectiveDepartmentIds.length>0, report: compactForAi(result.payload) };
+    let report = compactForAi(result.payload);
+    const dishFields = [...rows,...columns].filter(field =>
+      /^(dish|dishid|dish\.id|dish\.name|dishname|product|productid|product\.id)$/i.test(field));
+    let dishNameResolution = null;
+    if (dishFields.length) {
+      try {
+        // Resolve only IDs observed in OLAP, and only against iiko's own
+        // nomenclature. A metadata-only OLAP result requires no lookup.
+        const ids = new Set();
+        const walk = (value, depth = 0) => {
+          if (depth > 5 || ids.size > 150) return;
+          if (Array.isArray(value)) { value.forEach(v => walk(v,depth+1)); return; }
+          if (!value || typeof value !== "object") return;
+          for (const field of dishFields) {
+            const candidate=value[field];
+            if (typeof candidate === "string" &&
+              /^[{]?[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}[}]?$/i.test(candidate))
+              ids.add(key(candidate));
+          }
+          for (const child of Object.values(value)) {
+            if (child && typeof child === "object") walk(child,depth+1);
+          }
+        };
+        walk(report);
+        if (ids.size) {
+          const auth = await getIikoAuth(connection);
+          const synced = await syncReferences(env,auth.serverUrl,auth.token);
+          const known = new Map(
+            [...(synced.maps?.products?.entries?.()||[])]
+              .map(([id,name])=>[key(id),clean(name)])
+              .filter(([id,name])=>ids.has(id)&&name)
+          );
+          const enriched = resolveOlapDishNames(report,dishFields,known);
+          report = enriched.report;
+          dishNameResolution = {
+            found:enriched.resolved,unresolved:enriched.unresolved,
+            source:"iiko nomenclature",
+            note:"Dish ID is retained; DisplayName is appended only when verified."
+          };
+        }
+      } catch (_) {
+        dishNameResolution = {found:0,
+          note:"Справочник блюд недоступен, идентификаторы не были переименованы."};
+      }
+    }
+    return { success: true, request, departmentIds:selectedDepartmentIds,
+      effectiveDepartmentIds, departmentScopeApplied:effectiveDepartmentIds.length>0,
+      ...(dishNameResolution ? {dishNameResolution}:{}), report };
   }
 
   throw new Error(`Неизвестный инструмент AI: ${name}`);

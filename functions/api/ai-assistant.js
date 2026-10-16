@@ -316,6 +316,8 @@ function instructions(model, connected) {
 - другие источники по мере появления инструментов.
 
 Правила:
+0. Старайся дать полезный конечный результат с проверенными цифрами, а не отправлять пользователя переделывать запрос. Для простого "топ-5 блюд" без периода по умолчанию используй сегодня и выручку, явно называя принятое допущение. Выбирай человекочитаемые названия блюд в OLAP. Если доступны только ID — смотри DisplayName, сопоставленный со справочником iiko; не утверждай, что названий вообще нет, не проверив справочник. Если имена недоступны, всё равно покажи проверяемые суммы и ID с указанием ограничения.
+0a. Отвечай по существу: для запроса "топ-5" представь 5 позиций или объясни, сколько вернул источник; для сравнений покажи основные суммы и различия. Не придумывай пропущенные данные.
 1. Никогда не придумывай цифры, поставщиков, цены, товары или результаты. Для вопросов о данных ресторана обязательно используй инструмент.
 2. Если нужный источник пока не подключён как AI-инструмент, прямо скажи это и укажи, какой раздел SmartHoreca доступен пользователю вручную.
 3. При неоднозначном названии товара сначала найди похожие позиции и учитывай несколько подходящих товаров, если запрос пользователя подразумевает категорию (например "помидоры").
@@ -365,13 +367,17 @@ function compactToolTrace(call, result) {
 }
 async function runAssistant(env, connection, history, scope=null, access=null, mobile=false) {
   const model = clean(env.OPENAI_ASSISTANT_MODEL) || DEFAULT_MODEL;
+  const prompt = clean(history?.at(-1)?.content);
+  const analyticQuestion = /топ|top|срав|анализ|analiz|отч[её]т|report|показател|по тип|динамик/i.test(prompt);
   const base = {
     model,
     instructions: instructions(model, Boolean(connection)),
     tools: assistantToolDefinitions,
     tool_choice: "auto",
     parallel_tool_calls: true,
-    reasoning: { effort: mobile ? "low" : "medium" },
+    // Simple conversational questions remain fast, data analysis gets more
+    // reasoning budget instead of always using the lowest mobile effort.
+    reasoning: { effort: mobile && !analyticQuestion ? "low" : "medium" },
     text: {
       format: {
         type: "json_schema",
