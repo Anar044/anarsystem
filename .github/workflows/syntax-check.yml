@@ -31,6 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          node --test tests/plugin-events-auth.test.mjs
           node --test tests/access-navigation-visibility.test.mjs
           node --test tests/default-workspace-entry.test.mjs
           node --test tests/ui-i18n.test.mjs
