@@ -41,6 +41,16 @@ export const findOlapField = (fields, candidates) => {
   }
   return null;
 };
+export const findOlapGroupField = (fields,candidates) => {
+  const field=findOlapField(fields,candidates);
+  return field && fields.find(f=>f.name===field)?.groupingAllowed===false
+    ?null:field;
+};
+export const findOlapMeasureField = (fields,candidates) => {
+  const field=findOlapField(fields,candidates);
+  return field && fields.find(f=>f.name===field)?.aggregationAllowed===false
+    ?null:field;
+};
 const value = (row, field, fields) => {
   const title = fields.find(f=>f.name===field)?.title;
   return row?.[field] ?? (title ? row?.[title] : null);
@@ -103,9 +113,9 @@ export async function onRequestGet({request,env}) {
     const ctx=await mobileContext(request,env,{connectionRequired:true});
     const meta=await getOlapFields(ctx.connection,"SALES");
     const fields=meta.fields||[];
-    const group=findOlapField(fields,spec.group);
-    const secondary=spec.secondary ? findOlapField(fields,spec.secondary) : null;
-    const measure=findOlapField(fields,spec.measures);
+    const group=findOlapGroupField(fields,spec.group);
+    const secondary=spec.secondary ? findOlapGroupField(fields,spec.secondary) : null;
+    const measure=findOlapMeasureField(fields,spec.measures);
     const dep=findOlapField(fields,["Department.Id","DepartmentId","Department.ID"]);
     if (kind !== "discounts" && (!group || !measure)) throw new MobileError("REPORT_FIELDS_UNAVAILABLE",
       kind === "discounts"
@@ -131,8 +141,8 @@ export async function onRequestGet({request,env}) {
       selectedIds:ctx.selectedIds,operating,shiftField});
     if(kind==="discounts"){
       const runAmount=async(set,reportKind)=>{
-        const amountField=findOlapField(fields,set.measures);
-        const typeField=findOlapField(fields,set.group);
+        const amountField=findOlapMeasureField(fields,set.measures);
+        const typeField=findOlapGroupField(fields,set.group);
         const groupField=typeField||dep;
         if(!amountField||!groupField)return {
           available:false,rows:[],totalValue:null,
