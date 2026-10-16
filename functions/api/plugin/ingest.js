@@ -1,4 +1,5 @@
 import { verifyPluginIngress } from "./_lib/ingest-auth.js";
+import { dispatchOwnerPosPush } from "./_lib/dispatch-owner-push.js";
 // ANAR plugin ingest endpoint. Supports both Supabase secret and legacy service_role keys.
 
 function corsHeaders() {
@@ -104,6 +105,12 @@ export async function onRequestPost(context) {
 
     const identity=await verifyPluginIngress(context.request,context.env,{pluginId:envelope.pluginId,departmentId:envelope.departmentId});
     const storage = await persistEvent(envelope, context.env);
+    // FCM dispatch is best-effort and MUST NOT delay or fail the validated
+    // plugin ingestion. Deduplication is enforced independently in D1.
+    if (storage.stored && typeof context.waitUntil === "function") {
+      context.waitUntil(dispatchOwnerPosPush(context.env,envelope)
+        .catch(()=>{}));
+    }
     return jsonResponse({
       success: storage.stored,
       accepted: storage.stored,
