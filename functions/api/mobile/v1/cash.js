@@ -177,8 +177,14 @@ export function cashFeedSnapshot(plugins, settled, selectedIds) {
   // sales are valid. Never label online-only POS amounts as CHAIN totals.
   const partial=failed.length>0 || missingDepartmentIds.length>0;
   const all=registers.flatMap(r=>r.orders);
+  const availableTotals=registers.length?totals(all):null;
+  // Full-chain totals remain unavailable whenever even one restaurant or
+  // register cannot be verified. Expose independently labeled observed
+  // subtotals for POS registers that actually responded.
   return {success:true,source:"SH POS Plugin",
-    registers,totals:partial?null:totals(all),
+    registers,totals:partial?null:availableTotals,
+    availableTotals,
+    totalsCoverage:partial?"ONLINE_REGISTERS_ONLY":"ALL_SELECTED_RESTAURANTS",
     count:registers.length,partial,
     unavailableRegisters:failed,missingDepartmentIds,
     expectedRegisterCount:plugins.length,
@@ -187,7 +193,7 @@ export function cashFeedSnapshot(plugins, settled, selectedIds) {
 }
 async function fetchJson(url, options = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 14000);
+  const timeout = setTimeout(() => controller.abort(), 9500);
   try {
     const result = await fetch(url, {...options, signal: controller.signal,
       headers: {"Accept": "application/json", ...(options.headers || {})}});

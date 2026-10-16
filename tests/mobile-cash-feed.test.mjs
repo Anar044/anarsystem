@@ -78,3 +78,19 @@ test('selected CHAIN department without POS online has unknown network totals',(
  assert.equal(info.totals,null);
  assert.equal(info.registers[0].orders[0].amount,243);
 });
+
+test("partial POS data exposes honest available-register subtotals",()=>{
+ const plugins=[{id:"one",name:"POS 1",departmentId:"r1"}];
+ const settled=[{status:"fulfilled",value:{
+   ...plugins[0],
+   orders:[{status:"CLOSED",amount:100},{status:"OPEN",amount:30}],
+   totals:{closedSum:100,openSum:30}
+ }}];
+ const snapshot=cashFeedSnapshot(plugins,settled,["r1","r2"]);
+ assert.equal(snapshot.partial,true);
+ assert.equal(snapshot.totals,null);
+ assert.equal(snapshot.availableTotals.closedSum,100);
+ assert.equal(snapshot.availableTotals.openSum,30);
+ assert.equal(snapshot.availableTotals.totalOrders,2);
+ assert.equal(snapshot.totalsCoverage,"ONLINE_REGISTERS_ONLY");
+});
