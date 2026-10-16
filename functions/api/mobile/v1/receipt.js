@@ -17,7 +17,10 @@ export const receiptFields=fields=>{
     orderId:field(["Order.Id","OrderId","Order.Guid","OrderUUID"]),
     dish:field(["DishName","Dish.Name","DishFullName","Dish"]),
     qty:field(["DishAmountInt","DishAmount","Dish.Count"]),
-    value:field(["DishDiscountSumInt","DishSumInt"])
+    value:field(["DishDiscountSumInt","DishSumInt"]),
+    payment:field(["PayTypes","PayType","PaymentType.Name","PaymentType","PayType.Name","PaymentMethod.Name","PaymentMethod","TenderType","PaymentTypeName","PayTypeName"]),
+    table:field(["TableName","Table.Name","Table","TableNumber","TableNum","Table.Number"]),
+    waiter:field(["WaiterName","Waiter.Name","EmployeeName","Waiter"])
   };
 };
 const cell=(row,field,fields)=>{
@@ -56,6 +59,8 @@ export function normalizeReceiptRows(rows,meta,requested,fields) {
     });
   }
   return {positions,total:positions.length,
+    table:rows.length&&meta.table?clean(cell(rows[0],meta.table,fields))||null:null,
+    waiter:rows.length&&meta.waiter?clean(cell(rows[0],meta.waiter,fields))||null:null,
     itemsTotal:positions.length && positions.every(p=>p.amount!==null)
       ?positions.reduce((sum,p)=>sum+p.amount,0):null};
 }
@@ -67,7 +72,9 @@ export function normalizeReceiptRows(rows,meta,requested,fields) {
 export function buildReceiptOlapRequest(meta, requested, {quantity=true}={}) {
   const dimensions=[meta.number,meta.department,meta.dish,
     ...(requested.shiftId?[meta.session]:[]),
-    ...(requested.orderId?[meta.orderId]:[])];
+    ...(requested.orderId?[meta.orderId]:[]),
+    ...(meta.table?[meta.table]:[]),
+    ...(meta.waiter?[meta.waiter]:[])];
   if(dimensions.some(x=>!x) || !meta.value ||
       !(requested.shiftId&&meta.session || requested.orderId&&meta.orderId))
     throw new MobileError("RECEIPT_FIELDS_UNAVAILABLE",
@@ -90,6 +97,29 @@ export function buildReceiptOlapRequest(meta, requested, {quantity=true}={}) {
     aggregateFields:[meta.value,...(quantity&&meta.qty?[meta.qty]:[])],
     filters
   };
+}
+
+export function buildReceiptPaymentRequest(meta,requested) {
+  if(!meta.payment||!meta.value||!meta.number||!meta.department||
+      !(requested.shiftId&&meta.session||requested.orderId&&meta.orderId))
+    return null;
+  const dimensions=[meta.number,meta.department,
+    ...(requested.shiftId?[meta.session]:[]),
+    ...(requested.orderId?[meta.orderId]:[]),meta.payment];
+  const filters={
+    "OpenDate.Typed":{filterType:"DateRange",periodType:"CUSTOM",
+      from:requested.date,to:requested.date,includeLow:true,includeHigh:true},
+    [meta.department]:{filterType:"IncludeValues",values:[requested.departmentId]},
+    DeletedWithWriteoff:{filterType:"IncludeValues",values:["NOT_DELETED"]},
+    OrderDeleted:{filterType:"IncludeValues",values:["NOT_DELETED"]}
+  };
+  if(requested.shiftId)filters[meta.session]={
+    filterType:"IncludeValues",values:[requested.shiftId]};
+  if(requested.orderId)filters[meta.orderId]={
+    filterType:"IncludeValues",values:[requested.orderId]};
+  return {reportType:"SALES",buildSummary:false,
+    groupByRowFields:[...new Set(dimensions)],groupByColFields:[],
+    aggregateFields:[meta.value],filters};
 }
 
 // Fail closed if the scoped iiko response includes a foreign department,
@@ -172,12 +202,41 @@ export async function onRequestGet({request,env}) {
     if(!normalized.positions.length)throw new MobileError(
       "RECEIPT_ITEMS_NOT_FOUND",
       "SH OLAP не нашёл позиции указанного чека.",404);
+    let payments=[],paymentsAvailable=false;
+    let paymentNote="SH OLAP не предоставил отдельную разбивку по способам оплаты.";
+    const paymentFieldMeta=fields.find(f=>f.name===meta.payment);
+    const paymentRequest=paymentFieldMeta?.groupingAllowed===false
+      ?null:buildReceiptPaymentRequest(meta,requested);
+    if(paymentRequest){
+      try{
+        const payReply=await iikoJson(ctx.connection,"/resto/api/v2/reports/olap",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify(paymentRequest),timeoutMs:60000});
+        const payRows=reportRows(payReply);
+        if(payRows){
+          const scoped=selectReceiptRows(payRows,meta,requested,fields);
+          const sums=new Map();
+          for(const row of scoped){
+            const name=clean(cell(row,meta.payment,fields));
+            const amount=safeNumber(cell(row,meta.value,fields));
+            if(!name||amount===null)continue;
+            sums.set(name,(sums.get(name)||0)+amount);
+          }
+          if(sums.size){
+            payments=[...sums.entries()].map(([name,amount])=>({name,amount}));
+            paymentsAvailable=true;
+            paymentNote="Разбивка получена из SH OLAP.";
+          }
+        }
+      }catch(_){
+        // Receipt items remain useful; unavailable payment breakdown stays explicit.
+      }
+    }
     return response({
       success:true,number:requested.number,date:requested.date,
       departmentId:requested.departmentId,currency:"AZN",
       ...normalized,source:"SH SALES OLAP",
-      paymentsAvailable:false,
-      paymentNote:"Способы оплаты не подтверждены отдельным источником.",
+      paymentsAvailable,payments,paymentNote,
       updatedAt:new Date().toISOString()
     });
   }catch(error){return errorResponse(error);}
