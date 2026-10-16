@@ -167,7 +167,11 @@ export async function iikoFetch(connection, path, options = {}) {
   }
 
   let result = await execute(false);
-  if (retryAuth && (result.response.status === 401 || result.response.status === 403)) {
+  // Only 401 proves an unauthenticated request. iiko can return HTTP 403
+  // when REST_API(2000) licensed connections are exhausted. Re-authenticating
+  // on 403 creates another iiko session and may worsen that shortage.
+  // Preserve the original 403 status/body for callers to handle explicitly.
+  if (retryAuth && result.response.status === 401) {
     result = await execute(true);
   }
   return result;
