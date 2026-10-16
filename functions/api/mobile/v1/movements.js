@@ -50,7 +50,9 @@ export function scopedMovements(payload, selectedStoreIds, selectedIds) {
     truncated:rows.length>500,currency:"AZN",
     partial:!complete,missingSources,
     sourceStatus:Object.fromEntries(Object.entries(sourceStatus).map(([type,status])=>[
-      type,{ok:status?.ok===true,count:Number(status?.count||0),
+      type,{ok:status?.ok===true,
+        count:rows.filter(row=>row.type===type).length,
+        sourceDocumentCount:Number(status?.count||0),
         attempts:Array.isArray(status?.attempts)?status.attempts.map(a=>({
           path:clean(a.path),status:a.status,count:a.count,
           range:a.range||undefined,validResponse:a.validResponse
