@@ -1,4 +1,4 @@
-import { loadRequestIikoState } from "../iiko/_lib/user-state.js";
+import { getUser, loadRequestIikoState } from "../iiko/_lib/user-state.js";
 import { resolveRestaurantScope } from "../iiko/_lib/restaurant-scope.js";
 // Authenticated read endpoint for the plugin event monitor.
 // The browser sends the Supabase access token; the server uses the service key only for the database read.
@@ -15,22 +15,10 @@ function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8", ...corsHeaders() }
-  });
-}
+// Use the same validated Supabase session as the other Smart Horeca APIs.
+// Do not independently select an arbitrary service-role key to verify users.
 
-async function getAuthenticatedUser(env, accessToken) {
-  const url = env?.SUPABASE_URL || env?.SUPABASE_PROJECT_URL;
-  const key = env?.SUPABASE_PUBLISHABLE_KEY || env?.SUPABASE_ANON_KEY || env?.SUPABASE_SERVICE_ROLE_KEY || env?.SUPABASE_SERVICE_KEY;
-  if (!url || !key || !accessToken) return null;
-
-  const response = await fetch(`${url.replace(/\/$/, "")}/auth/v1/user`, {
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${accessToken}`
-    }
-  });
-  if (!response.ok) return null;
-  return response.json();
+on();
 }
 
 async function readEvents(env, request, scope) {
@@ -80,8 +68,8 @@ export async function onRequestGet(context) {
     const match = authHeader.match(/^Bearer\s+(.+)$/i);
     if (!match) return jsonResponse({ success: false, error: "Authentication required" }, 401);
 
-    const user = await getAuthenticatedUser(context.env, match[1]);
-    if (!user?.id) return jsonResponse({ success: false, error: "Invalid or expired session" }, 401);
+    const auth = await getUser(context.request, context.env);
+    if (!auth?.user?.id) return jsonResponse({ success: false, error: "Invalid or expired session" }, 401);
 
     const stored=await loadRequestIikoState(context.request,context.env);
     if(!stored?.found||!stored?.state)return jsonResponse({success:false,error:"Подключение SH Server не найдено."},409);
