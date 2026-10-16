@@ -148,6 +148,10 @@ export async function getIikoAuth(connection, options = {}) {
   return authenticate(connection, options.force === true);
 }
 
+export function isIikoLicenseSeatExhausted(body) {
+  return /(?:REST_API\s*\(\s*2000\s*\)|license enhancement is required|no connections available for module)/i.test(String(body ?? ""));
+}
+
 export async function iikoFetch(connection, path, options = {}) {
   const {
     method = "GET",
@@ -167,7 +171,10 @@ export async function iikoFetch(connection, path, options = {}) {
   }
 
   let result = await execute(false);
-  if (retryAuth && (result.response.status === 401 || result.response.status === 403)) {
+  // REST_API(2000) exhaustion is a licence-seat problem, NOT invalid auth.
+  // Blindly authenticating again on its HTTP 403 response creates extra
+  // sessions and may make the shortage worse.
+  if (retryAuth && result.response.status === 401) {
     result = await execute(true);
   }
   return result;
