@@ -42,14 +42,18 @@ export const findOlapField = (fields, candidates) => {
   return null;
 };
 export const findOlapGroupField = (fields,candidates) => {
-  const field=findOlapField(fields,candidates);
-  return field && fields.find(f=>f.name===field)?.groupingAllowed===false
-    ?null:field;
+  for(const candidate of candidates){
+    const field=findOlapField(fields,[candidate]);
+    if(field&&fields.find(f=>f.name===field)?.groupingAllowed!==false)return field;
+  }
+  return null;
 };
 export const findOlapMeasureField = (fields,candidates) => {
-  const field=findOlapField(fields,candidates);
-  return field && fields.find(f=>f.name===field)?.aggregationAllowed===false
-    ?null:field;
+  for(const candidate of candidates){
+    const field=findOlapField(fields,[candidate]);
+    if(field&&fields.find(f=>f.name===field)?.aggregationAllowed!==false)return field;
+  }
+  return null;
 };
 const value = (row, field, fields) => {
   const title = fields.find(f=>f.name===field)?.title;
