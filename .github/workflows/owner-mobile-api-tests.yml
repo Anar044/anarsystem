@@ -19,6 +19,7 @@ jobs:
           node --experimental-default-type=module --check functions/api/mobile/_lib/context.js
           node --experimental-default-type=module --check functions/api/mobile/_lib/cash-snapshots.js
           node --experimental-default-type=module --check functions/api/mobile/v1/cash.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/cash-order-history.js
           node --experimental-default-type=module --check functions/api/mobile/v1/workspaces.js
           node --experimental-default-type=module --check functions/api/mobile/v1/bootstrap.js
           node --experimental-default-type=module --check functions/api/mobile/v1/summary.js
