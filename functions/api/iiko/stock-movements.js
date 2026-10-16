@@ -249,8 +249,7 @@ async function loadV2(connection,type,from,to){
     :[type==="transfer"?"/resto/api/v2/documents/internalTransfer":"/resto/api/v2/documents/writeoff"];
   const ranges=[
     {dateFrom:from,dateTo:to},
-    {dateFrom:from+"T00:00:00",dateTo:to+"T23:59:59"},
-    {from,to}
+    {dateFrom:from+"T00:00:00",dateTo:to+"T23:59:59"}
   ];
   const attempts=[];
   let validEmpty=false;
@@ -266,7 +265,10 @@ async function loadV2(connection,type,from,to){
       }
       const valid=r.ok&&r.payload?.success!==false&&!r.payload?.errorCode&&
         !r.payload?.errorMessage&&hasListShape(r.payload);
-      const docs=valid?normalizeV2Docs(r.payload,type):[];
+      const docs=valid?normalizeV2Docs(r.payload,type).filter(d=>{
+        const date=dateOnly(d.date);
+        return /^\\d{4}-\\d{2}-\\d{2}$/.test(date)&&date>=from&&date<=to;
+      }):[];
       attempts.push({path:endpoint,status:r.status,count:docs.length,range,
         validResponse:valid});
       if(docs.length)return{ok:true,docs,attempts};
