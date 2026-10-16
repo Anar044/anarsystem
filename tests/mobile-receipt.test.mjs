@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { receiptFields, normalizeReceiptRows, buildReceiptOlapRequest, selectReceiptRows } from "../functions/api/mobile/v1/receipt.js";
+import { receiptFields, normalizeReceiptRows, buildReceiptOlapRequest, buildReceiptPaymentRequest, selectReceiptRows } from "../functions/api/mobile/v1/receipt.js";
 
 const fields=[
   {name:"OrderNum",title:"Номер заказа"},
@@ -9,7 +9,10 @@ const fields=[
   {name:"Session.ID",title:"Смена"},
   {name:"DishName",title:"Блюдо"},
   {name:"DishAmountInt",title:"Количество"},
-  {name:"DishDiscountSumInt",title:"Сумма со скидкой"}
+  {name:"DishDiscountSumInt",title:"Сумма со скидкой"},
+  {name:"PayTypes",title:"Способ оплаты"},
+  {name:"TableName",title:"Стол"},
+  {name:"WaiterName",title:"Официант"}
 ];
 const ref={number:"12",date:"2026-10-15",departmentId:"A",
   shiftId:"shift-a",orderId:""};
@@ -17,15 +20,17 @@ test("receipts read real dish amounts only for unique shift and restaurant",()=>
   const meta=receiptFields(fields);
   const payload=[
     {OrderNum:"12","Department.Id":"A","Session.ID":"shift-a",
-      DishName:"Americano",DishAmountInt:1,DishDiscountSumInt:5},
+      DishName:"Americano",DishAmountInt:1,DishDiscountSumInt:5,PayTypes:"Cash",TableName:"12",WaiterName:"Ali"},
     {OrderNum:"12","Department.Id":"A","Session.ID":"shift-a",
-      DishName:"Tea",DishAmountInt:2,DishDiscountSumInt:7}
+      DishName:"Tea",DishAmountInt:2,DishDiscountSumInt:7,PayTypes:"Cash",TableName:"12",WaiterName:"Ali"}
   ];
   const out=normalizeReceiptRows(payload,meta,ref,fields);
   assert.equal(out.total,2);
   assert.equal(out.itemsTotal,12);
   assert.deepEqual(out.positions.map(x=>x.name),["Americano","Tea"]);
   assert.equal(out.positions[1].quantity,2);
+  assert.equal(out.table,"12");
+  assert.equal(out.waiter,"Ali");
 });
 test("receipt details fail closed for another restaurant or session",()=>{
   const meta=receiptFields(fields);
@@ -76,4 +81,15 @@ test("server isolates receipt number only after verifying every returned restaur
     "Department.Id":"B"}],meta,ref,fields),e=>e.code==="RECEIPT_SCOPE_MISMATCH");
   assert.throws(()=>selectReceiptRows([...rows,{...rows[1],
     "Session.ID":"shift-b"}],meta,ref,fields),e=>e.code==="RECEIPT_SCOPE_MISMATCH");
+});
+
+test("receipt payment query is scoped to the same restaurant, date and shift",()=>{
+  const meta=receiptFields(fields);
+  const q=buildReceiptPaymentRequest(meta,ref);
+  assert.ok(q.groupByRowFields.includes("PayTypes"));
+  assert.ok(q.groupByRowFields.includes("OrderNum"));
+  assert.deepEqual(q.filters["Department.Id"].values,["A"]);
+  assert.deepEqual(q.filters["Session.ID"].values,["shift-a"]);
+  assert.equal(q.filters["OpenDate.Typed"].from,"2026-10-15");
+  assert.deepEqual(q.aggregateFields,["DishDiscountSumInt"]);
 });
