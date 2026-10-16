@@ -165,8 +165,12 @@ function safeJson(value, fallback = null) {
 }
 function nowIso() { return new Date().toISOString(); }
 
+const ASSISTANT_SCHEMA_READY = new WeakMap();
 async function ensureTables(db) {
   if (!db) throw new Error("D1 binding DB не настроен.");
+  const cached = ASSISTANT_SCHEMA_READY.get(db);
+  if (cached) return cached;
+  const initialize = (async () => {
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS ai_assistant_conversations (
       id TEXT PRIMARY KEY,
@@ -192,6 +196,10 @@ async function ensureTables(db) {
   ]);
   try{await db.prepare("ALTER TABLE ai_assistant_conversations ADD COLUMN scope_key TEXT NOT NULL DEFAULT ''").run()}catch(_){}
   try{await db.prepare("CREATE INDEX IF NOT EXISTS idx_ai_assistant_conversations_user_scope ON ai_assistant_conversations(user_id, scope_key, updated_at DESC)").run()}catch(_){}
+  })();
+  ASSISTANT_SCHEMA_READY.set(db, initialize);
+  try { return await initialize; }
+  catch(error) { ASSISTANT_SCHEMA_READY.delete(db); throw error; }
 }
 function conversationScopeKey(iiko){
   const scope=iiko?.scope;

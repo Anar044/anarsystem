@@ -6,7 +6,13 @@ export function scopedRequest(request, ctx, { method = "GET", body } = {}) {
   const headers = new Headers(request.headers);
   // The assistant's existing restaurant scope resolver reads this fixed cookie;
   // derive it from the server-validated mobile selection, not from the client.
-  headers.set("Cookie", "sh_selected_departments=" +
+  // The web AI resolver reads sh_workspace_id from a cookie, whereas mobile
+  // authentication uses the X-SH-Workspace-Id header. Both cookie values
+  // MUST come from mobileContext's verified workspace and department scope.
+  // Never forward an arbitrary mobile-provided Cookie header.
+  headers.set("Cookie", "sh_workspace_id=" +
+    encodeURIComponent(ctx.access.workspace.id) +
+    "; sh_selected_departments=" +
     encodeURIComponent(ctx.selectedIds.join(",")));
   headers.set("X-SH-Workspace-Id", ctx.access.workspace.id);
   headers.set("X-SH-Mobile-Strict-Scope", "1");
@@ -26,9 +32,19 @@ export async function onRequestGet({ request, env }) {
     }
     const sourceRequest = scopedRequest(request,ctx);
     const result = await sourceGet({request:sourceRequest,env});
-    if (!result.ok) throw new MobileError("AI_SOURCE_FAILED","AI Assistant недоступен.",result.status===403?403:502);
-    const data = await result.json();
-    if (!data?.success) throw new MobileError("AI_UNAVAILABLE", "AI Assistant не вернул данные.",502);
+    const data = await result.json().catch(() => null);
+    if (!result.ok || !data?.success) {
+      const status = [400,401,403,404,409,429,502,503,504]
+        .includes(result.status) ? result.status : 502;
+      throw new MobileError(
+        clean(data?.code) || "AI_SOURCE_FAILED",
+        clean(data?.message) ||
+          (result.status===503
+            ? "AI Assistant временно недоступен (503)."
+            : "AI Assistant не ответил на запрос."),
+        status
+      );
+    }
     return response(data);
   }catch(error){return errorResponse(error);}
 }
@@ -52,8 +68,10 @@ export async function onRequestPost({request,env}) {
     const result = await sourcePost({request:sourceRequest,env});
     if (!result.ok) {
       const failure = await result.json().catch(()=>({}));
-      throw new MobileError(failure.code||"AI_SOURCE_FAILED",
-        clean(failure.message)||"AI Assistant недоступен.",result.status===403?403:502);
+      const status = [400,401,403,404,409,429,502,503,504]
+        .includes(result.status) ? result.status : 502;
+      throw new MobileError(clean(failure.code)||"AI_SOURCE_FAILED",
+        clean(failure.message)||"AI Assistant недоступен.",status);
     }
     const payload=await result.json();
     if(!payload?.success) throw new MobileError("AI_UNAVAILABLE","AI Assistant не ответил.",502);
