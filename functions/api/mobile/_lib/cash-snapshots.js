@@ -29,7 +29,9 @@ export function savedPosRegister(register,lastSeenAt=new Date().toISOString()) {
     groupName:clean(register?.groupName),
     online:false, status:"OFFLINE",
     lastSeenAt, totals:register?.totals||null,
-    orders:orders.slice(0,MAX_SAVED_ORDERS),
+    orders:[...orders].sort((a,b)=>
+      clean(b?.openedAt).localeCompare(clean(a?.openedAt)))
+      .slice(0,MAX_SAVED_ORDERS),
     savedOrderCount:orders.length,
     ordersTruncated:orders.length>MAX_SAVED_ORDERS,
     snapshot:true

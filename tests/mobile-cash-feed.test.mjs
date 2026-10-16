@@ -94,3 +94,41 @@ test("partial POS data exposes honest available-register subtotals",()=>{
  assert.equal(snapshot.availableTotals.totalOrders,2);
  assert.equal(snapshot.totalsCoverage,"ONLINE_REGISTERS_ONLY");
 });
+
+test("offline POS snapshot remains listed but does not inflate online totals",()=>{
+ const now="2026-10-16T17:00:00.000Z";
+ const live=[{id:"online",departmentId:"r1",name:"Online",
+  orders:[{status:"CLOSED",amount:90}]}];
+ const snapshots=[{id:"offline",departmentId:"r2",name:"Old POS",online:false,
+  lastSeenAt:"2026-10-16T15:00:00.000Z",orders:[
+    {number:"44",status:"CLOSED",amount:500}
+  ],totals:{closedSum:500,expectedSum:500,totalOrders:1}}];
+ const output=cashFeedSnapshot(live,[{status:"fulfilled",value:{
+  ...live[0],totals:{closedSum:90,openSum:0,expectedSum:90,totalOrders:1}
+ }}],["r1","r2"],snapshots,{seenAt:now});
+ assert.equal(output.onlineCount,1);
+ assert.equal(output.offlineCount,1);
+ assert.equal(output.registers.length,2);
+ assert.equal(output.registers[1].online,false);
+ assert.equal(output.registers[1].lastSeenAt,"2026-10-16T15:00:00.000Z");
+ assert.equal(output.availableTotals.closedSum,90);
+ assert.equal(output.totals,null);
+ assert.equal(output.partial,true);
+});
+test("offline only is not presented as zero current revenue",()=>{
+ const old=[{id:"old",departmentId:"r1",name:"Old",
+  lastSeenAt:"2026-10-16T12:00:00Z",
+  totals:{closedSum:300},orders:[]}];
+ const result=cashFeedSnapshot([],[],["r1"],old,{feedAvailable:false});
+ assert.equal(result.onlineCount,0);
+ assert.equal(result.offlineCount,1);
+ assert.equal(result.totals,null);
+ assert.equal(result.availableTotals,null);
+ assert.equal(result.registers[0].totals.closedSum,300);
+});
+test("historical snapshots for unselected restaurants never reach response",()=>{
+ const old=[{id:"foreign",departmentId:"r3",totals:{closedSum:999}}];
+ const result=cashFeedSnapshot([],[],["r1"],old,{feedAvailable:false});
+ assert.equal(result.registers.length,0);
+ assert.equal(result.totals,null);
+});

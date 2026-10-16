@@ -50,7 +50,10 @@ if(mode==="operational"){
   },409);
   effectiveFrom=operating.from;effectiveTo=operating.to;
 }
-const daily=await query(connection,{dateField,revenueField,orderField,profitField,discountField,surchargeField,costField,
+// ProductCostBase.Cost grouped only by date is a unit-price-like measure
+// on some iiko builds; it is not the total cost of goods. The owner mobile
+// API derives true COGS from the same period's revenue minus gross profit.
+const daily=await query(connection,{dateField,revenueField,orderField,profitField,discountField,surchargeField,costField:null,
   departmentField,from:effectiveFrom,to:effectiveTo,departmentIds,shiftField,
   shiftIds:operating?.shiftIds});return jsonResponse({success:true,from:effectiveFrom,to:effectiveTo,departmentIds,fields,
   revenueField,orderField,profitField,discountField,surchargeField,costField,departmentField,reports:{daily},
