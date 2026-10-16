@@ -33,6 +33,8 @@ export function normalizeMobileOrders(payload, selectedIds) {
       orderId:clean(o.orderId),
       table:clean(o.table),waiter:clean(o.waiter),
       status:clean(o.status),amount:safeNumber(o.amount),
+      discountAmount:safeNumber(o.discountAmount),
+      surchargeAmount:safeNumber(o.surchargeAmount),
       detailsAvailable:!!(o.shiftId||o.orderId)
     })),
     count:payload.orders.length,truncated:payload.orders.length>500,
@@ -53,9 +55,11 @@ export async function onRequestGet({request,env}) {
     const revenue=field(["DishDiscountSumInt","DishSumInt"]);
     const shift=resolveOlapCashShiftField(fields);
     const orderId=field(["Order.Id","OrderId","Order.Guid","OrderUUID"]);
-    const table=field(["TableName","Table.Name","Table"]);
+    const table=field(["TableName","Table.Name","Table","TableNumber","TableNum","Table.Number","Table.Name.Number"]);
     const waiter=field(["WaiterName","Waiter.Name","EmployeeName","Waiter"]);
     const status=field(["OrderStatus","Order.Status"]);
+    const discount=field(["DiscountSumInt","DiscountSum","DiscountAmountInt","DiscountAmount","DiscountSumWithoutTax","DiscountAmountWithoutTax"]);
+    const surcharge=field(["IncreaseSumInt","IncreaseSum","IncreaseAmountInt","IncreaseAmount","SurchargeSumInt","SurchargeSum","ExtraChargeSum","ExtraChargeAmount"]);
     if(!order||!date||!department||!revenue)
       throw new MobileError("CHECK_FIELDS_UNAVAILABLE",
         "SH OLAP не передал необходимые поля заказа, суммы или ресторана.",409);
@@ -92,7 +96,7 @@ export async function onRequestGet({request,env}) {
       method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({reportType:"SALES",buildSummary:false,
         groupByRowFields:grouping,groupByColFields:[],
-        aggregateFields:[revenue],filters}),timeoutMs:60000
+        aggregateFields:[...new Set([revenue,discount,surcharge].filter(Boolean))],filters}),timeoutMs:60000
     });
     const rows=Array.isArray(upstream.payload?.data)?upstream.payload.data:
       Array.isArray(upstream.payload)?upstream.payload:null;
@@ -106,7 +110,9 @@ export async function onRequestGet({request,env}) {
       orderId:grouping.includes(orderId)?clean(cell(row,orderId,fields)):"",
       table:clean(cell(row,table,fields)),waiter:clean(cell(row,waiter,fields)),
       status:clean(cell(row,status,fields)),
-      amount:safeNumber(cell(row,revenue,fields))
+      amount:safeNumber(cell(row,revenue,fields)),
+      discountAmount:discount?safeNumber(cell(row,discount,fields)):null,
+      surchargeAmount:surcharge?safeNumber(cell(row,surcharge,fields)):null
     })).filter(o=>o.number);
     if(orders.some(o=>!allowed.has(o.departmentId) || !o.date))
       throw new MobileError("CHECKS_SCOPE_UNVERIFIED",
