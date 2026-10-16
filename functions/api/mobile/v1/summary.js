@@ -54,7 +54,8 @@ export function normalizeSummary(payload) {
   const daily = rows.map(row => {
     const date = clean(row[dateField] ?? row[fields.find(f => f.name === dateField)?.title]).slice(0, 10);
     return { date, revenue: numberFrom(row, payload.revenueField, fields) };
-  }).filter(r => validDate(r.date));
+  }).filter(r => validDate(r.date))
+    .sort((a, b) => b.date.localeCompare(a.date));
   return {
     success: true,
     from: payload.from,

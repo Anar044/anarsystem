@@ -12,11 +12,17 @@ const FIELDSETS = {
     "DiscountName","Discount.Name","DiscountCardType.Name",
     "DiscountCardType","DiscountType.Name","DiscountType",
     "DiscountCard.Name","DiscountCardTypeName"
+  ], register: [
+    "CashRegisterName","CashRegister.Name","CashRegisterDisplayName",
+    "CashDeskName","TerminalName","RegisterName","Название кассы","Имя кассы"
   ], measures: [
     "DiscountSum","DiscountSumInt","DiscountAmount","DiscountAmountInt",
     "DiscountSumWithoutTax","DiscountAmountWithoutTax"
   ] },
-  surcharges: { group: ["IncreaseName","Increase.Name","IncreaseType.Name","SurchargeName","Surcharge.Name","ExtraCharge.Name","IncreaseType","Increase","SurchargeType"], measures: ["IncreaseSumInt","IncreaseSum","IncreaseAmountInt","IncreaseAmount","SurchargeSumInt","SurchargeSum","ExtraChargeSum","ExtraChargeAmount"] },
+  surcharges: { group: ["IncreaseName","Increase.Name","IncreaseType.Name","SurchargeName","Surcharge.Name","ExtraCharge.Name","IncreaseType","Increase","SurchargeType"], register: [
+    "CashRegisterName","CashRegister.Name","CashRegisterDisplayName",
+    "CashDeskName","TerminalName","RegisterName","Название кассы","Имя кассы"
+  ], measures: ["IncreaseSumInt","IncreaseSum","IncreaseAmountInt","IncreaseAmount","SurchargeSumInt","SurchargeSum","ExtraChargeSum","ExtraChargeAmount"] },
   foodCost: { group: [
     "DishName","Dish.Name","DishFullName","Dish",
     "DishCategory","DishCategory.Name","DishCategoryName"
@@ -55,6 +61,32 @@ export const findOlapMeasureField = (fields,candidates) => {
   }
   return null;
 };
+export function findCashRegisterNameField(fields) {
+  const candidates = [
+    "CashRegisterName","CashRegister.Name","CashRegisterDisplayName",
+    "CashDeskName","TerminalName","RegisterName","Название кассы","Имя кассы"
+  ];
+  for (const candidate of candidates) {
+    const field = findOlapField(fields, [candidate]);
+    const meta = fields.find(f => f.name === field);
+    if (field && meta?.groupingAllowed !== false &&
+        !/(?:id|guid|uuid|identifier|идентификатор|код)$/i.test(
+          `${field} ${meta?.title || ""}`.replace(/[\\s._()-]+/g, ""))) {
+      return field;
+    }
+  }
+  return fields.find(field => {
+    if (field?.groupingAllowed === false) return false;
+    const name = norm(field?.name || "");
+    const title = norm(field?.title || "");
+    const combined = name + " " + title;
+    const register = /cashregister|cashdesk|terminal|register|касс/.test(combined);
+    const named = /name|назв|имя|наимен/.test(combined);
+    const idLike = /(?:id|guid|uuid|identifier)$/.test(name) ||
+      /идентификатор|код/.test(title);
+    return register && named && !idLike;
+  })?.name || null;
+}
 const value = (row, field, fields) => {
   const title = fields.find(f=>f.name===field)?.title;
   return row?.[field] ?? (title ? row?.[title] : null);
@@ -147,17 +179,20 @@ export async function onRequestGet({request,env}) {
       const runAmount=async(set,reportKind)=>{
         const amountField=findOlapMeasureField(fields,set.measures);
         const typeField=findOlapGroupField(fields,set.group);
-        const groupField=typeField||dep;
+        const registerField=findCashRegisterNameField(fields);
+        const groupField=typeField||registerField||dep;
+        const secondaryField=typeField&&registerField&&typeField!==registerField
+          ?registerField:null;
         if(!amountField||!groupField)return {
           available:false,rows:[],totalValue:null,
           reason:reportKind==="discounts"
             ?"SH OLAP не передал отдельное поле суммы скидки."
             :"SH OLAP не передал отдельное поле суммы надбавки.",
-          byRestaurant:false
+          byRestaurant:false,byRegister:false
         };
         const requestBody={reportType:"SALES",buildSummary:true,
-          groupByRowFields:[groupField],groupByColFields:[],
-          aggregateFields:[amountField],filters};
+          groupByRowFields:secondaryField?[groupField,secondaryField]:[groupField],
+          groupByColFields:[],aggregateFields:[amountField],filters};
         const source=await iikoJson(ctx.connection,"/resto/api/v2/reports/olap",{
           method:"POST",headers:{"Content-Type":"application/json"},
           body:JSON.stringify(requestBody),timeoutMs:60000});
@@ -167,11 +202,27 @@ export async function onRequestGet({request,env}) {
           !(Array.isArray(source.payload?.data)||Array.isArray(source.payload)))
           return {available:false,rows:[],totalValue:null,
             reason:"SH OLAP не вернул данные для этой части отчёта.",
-            byRestaurant:!typeField};
+            byRestaurant:!typeField&&!registerField,byRegister:!!registerField};
         const mapped=mobileOlapRows(source.payload,groupField,amountField,
-          fields,ctx.selectedIds,reportKind);
-        return {...mapped,available:true,byRestaurant:!typeField,
-          groupField,measureField:amountField};
+          fields,ctx.selectedIds,reportKind,secondaryField);
+        const restaurantNames=new Map((ctx.restaurants||[]).map(r=>[
+          clean(r.id),clean(r.name||r.id)]));
+        const rows=(mapped.rows||[]).filter(row=>row.value!==0).map(row=>{
+          let label=row.label;
+          if(!secondaryField&&groupField===dep){
+            label=restaurantNames.get(label)||label||"Не указан";
+          }
+          const registerName=registerField
+            ?(secondaryField?row.label:(groupField===registerField?row.label:null))
+            :null;
+          return {...row,label,
+            ...(registerName?{registerName}:{}),
+            ...(secondaryField?{discountType:row.group}:{})};
+        });
+        const totalValue=rows.reduce((sum,row)=>sum+row.value,0);
+        return {...mapped,rows,totalValue,available:true,
+          byRestaurant:!typeField&&!registerField,byRegister:!!registerField,
+          groupField,secondaryField,registerField,measureField:amountField};
       };
       const [discounts,surcharges]=await Promise.all([
         runAmount(FIELDSETS.discounts,"discounts"),
@@ -189,6 +240,8 @@ export async function onRequestGet({request,env}) {
         surchargeAvailable:surcharges.available,
         discountByRestaurant:discounts.byRestaurant===true,
         surchargeByRestaurant:surcharges.byRestaurant===true,
+        discountByRegister:discounts.byRegister===true,
+        surchargeByRegister:surcharges.byRegister===true,
         discountUnavailableReason:discounts.available?null:discounts.reason,
         surchargeUnavailableReason:surcharges.available?null:surcharges.reason,
         partial:!discounts.available||!surcharges.available,

@@ -35,5 +35,6 @@ test('normalizes financial aggregates without assuming unavailable values are ze
   assert.equal(actual.metrics.surcharges, 4);
   assert.equal(actual.metrics.costOfGoods, 70);
   assert.equal(actual.daily.length, 2);
+  assert.deepEqual(actual.daily.map(row=>row.date),["2026-10-02","2026-10-01"]);
   assert.equal(actual.scope.departmentScopeApplied, true);
 });

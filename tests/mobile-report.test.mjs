@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mobileOlapRows, buildMobileReportFilters, findOlapGroupField, findOlapMeasureField } from "../functions/api/mobile/v1/report.js";
+import { mobileOlapRows, buildMobileReportFilters, findOlapGroupField, findOlapMeasureField, findCashRegisterNameField } from "../functions/api/mobile/v1/report.js";
 const fields=[{name:"DishName",title:"Dish"},{name:"DishDiscountSumInt",title:"Net"}];
 test("OLAP fields are normalized and compact",()=>{
  const x=mobileOlapRows({data:[{DishName:"Pizza",DishDiscountSumInt:22.5}]},
@@ -63,4 +63,16 @@ test("report field resolution skips non-groupable or non-aggregatable preferred 
   "PaymentType.Name");
  assert.equal(findOlapMeasureField(fields,["DiscountSumInt","DiscountSum"]),
   "DiscountSum");
+});
+
+
+test("discount reports resolve a display cash-register name instead of a register ID",()=>{
+ const fields=[
+  {name:"CashRegister.Id",title:"Cash register ID",groupingAllowed:true},
+  {name:"CashRegisterName",title:"Cash register name",groupingAllowed:true}
+ ];
+ assert.equal(findCashRegisterNameField(fields),"CashRegisterName");
+ assert.equal(findCashRegisterNameField([
+  {name:"CashRegister.Id",title:"Cash register ID",groupingAllowed:true}
+ ]),null);
 });

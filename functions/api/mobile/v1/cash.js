@@ -63,22 +63,47 @@ export function normalizePosOrders(payload) {
   for (const group of root.terminalsGroups) {
     for (const section of (Array.isArray(group?.restaurantSections)
       ? group.restaurantSections : [])) {
-      for (const row of [
-        ...(Array.isArray(section.orders) ? section.orders : []),
-        ...(Array.isArray(section.deliveries) ? section.deliveries : []),
+      const hall = str(section?.restaurantSectionName ?? section?.name);
+      const entries = [
+        ...(Array.isArray(section.orders)
+          ? section.orders.map(row => ({row, source:"order"})) : []),
+        ...(Array.isArray(section.deliveries)
+          ? section.deliveries.map(row => ({row, source:"delivery"})) : []),
         ...(Array.isArray(section.reserves)
-          ? section.reserves.map(v => v?.reserveOrder).filter(Boolean) : [])
-      ]) {
+          ? section.reserves.map(v => v?.reserveOrder)
+            .filter(Boolean).map(row => ({row, source:"reserve"})) : [])
+      ];
+      for (const entry of entries) {
+        const row = entry.row;
         const id = str(row?.orderNum ?? row?.number);
         if (!id) continue;
         const rawAmount = number(row.orderExpectedRevenue ??
           row.revenue ?? row.resultSum ?? row.orderSum);
+        const rawPayments = row.payments ?? row.Payments ??
+          row.paymentItems ?? row.PaymentItems;
+        const payments = Array.isArray(rawPayments) ? rawPayments.map(p => ({
+          name: str(p?.name ?? p?.Name ?? p?.typeName ?? p?.TypeName ??
+            p?.paymentTypeName ?? p?.PaymentTypeName ?? p?.type ?? p?.Type),
+          amount: number(p?.value ?? p?.Value ?? p?.sum ?? p?.Sum ??
+            p?.amount ?? p?.Amount)
+        })).filter(p => p.name) : [];
         rows.push({
           number: id, status: status(row), amount: rawAmount,
           table: str(row.orderTables ?? row.tables),
-          floor: str(row.floor ?? row.restaurantSectionName ?? section.restaurantSectionName),
-          waiter: str(row.waiter),
-          openedAt: str(row.orderOpenDate ?? row.openTime ?? row.deliveryOpenTime)
+          floor: str(row.floor ?? row.restaurantSectionName ??
+            row.__sectionName ?? hall),
+          waiter: str(row.waiter ?? row.waiterName),
+          cashier: str(row.cashier ?? row.cashierName),
+          openedAt: str(row.orderOpenDate ?? row.openTime ?? row.deliveryOpenTime),
+          billAt: str(row.orderBillTime ?? row.billTime ??
+            row.orderBillDate ?? row.billDate),
+          closedAt: str(row.orderCloseTime ?? row.closeTime ??
+            row.deliveryDeliveryCloseTime),
+          discountAmount: number(row.discountAmount ?? row.discountSum ??
+            row.DiscountSum ?? row.orderDiscountSum),
+          surchargeAmount: number(row.surchargeAmount ?? row.increaseSum ??
+            row.IncreaseSum ?? row.orderSurchargeSum),
+          payments, source: entry.source
         });
       }
     }
@@ -173,7 +198,10 @@ export async function onRequestGet({request, env}) {
           ...(conn.ip && conn.port
             ? {serverUrl: `http://${conn.ip}:${conn.port}`} : {})})
       });
-      const orders = normalizePosOrders(data);
+      const orders = normalizePosOrders(data).map(order => ({
+        ...order, pluginId: plugin.id, departmentId: plugin.departmentId,
+        registerName: plugin.name
+      }));
       return {...plugin, orders, totals: totals(orders)};
     }));
     return response(cashFeedSnapshot(plugins,result,ctx.selectedIds));

@@ -24,10 +24,12 @@ test('POS orders normalize from terminal sections including closed and open', ()
     restaurantSectionName:'zal',
     orders:[{
       orderNum:'1',orderStatus:'closed',
-      orderExpectedRevenue:12,orderTables:'1'
+      orderExpectedRevenue:12,orderTables:'1',
+      orderOpenDate:'2026-10-16T10:00:00',
+      orderCloseTime:'2026-10-16T10:30:00'
     },{
       orderNum:'3',orderStatus:'open',
-      orderExpectedRevenue:12
+      orderExpectedRevenue:12,orderOpenDate:'2026-10-16T11:00:00'
     }],
     deliveries:[],
     reserves:[]
@@ -36,7 +38,11 @@ test('POS orders normalize from terminal sections including closed and open', ()
   assert.equal(result.length,2);
   assert.equal(result[0].amount,12);
   assert.equal(result[0].status,'CLOSED');
+  assert.equal(result[0].floor,'zal');
+  assert.equal(result[0].openedAt,'2026-10-16T10:00:00');
+  assert.equal(result[0].closedAt,'2026-10-16T10:30:00');
   assert.equal(result[1].status,'OPEN');
+  assert.equal(result[1].floor,'zal');
 });
 test('malformed VPS JSON is rejected, not interpreted as empty registers',()=>{
   assert.throws(()=>normalizePosOrders({status:'ok'}),
