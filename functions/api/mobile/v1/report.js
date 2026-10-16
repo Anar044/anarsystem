@@ -71,7 +71,7 @@ export function findCashRegisterNameField(fields) {
     const meta = fields.find(f => f.name === field);
     if (field && meta?.groupingAllowed !== false &&
         !/(?:id|guid|uuid|identifier|идентификатор|код)$/i.test(
-          `${field} ${meta?.title || ""}`.replace(/[\\s._()-]+/g, ""))) {
+          `${field} ${meta?.title || ""}`.replace(/[\s._()-]+/g, ""))) {
       return field;
     }
   }
