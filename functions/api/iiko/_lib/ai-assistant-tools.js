@@ -119,7 +119,7 @@ async function references(env, connection, access) {
   const auth = await getIikoAuth(connection);
   // The same server URL can host different businesses/credentials. AI must
   // never read a dictionary cached under another workspace or login.
-  const dictionaryScope=JSON.stringify(["ai-v2",workspaceId,storageId,auth.serverUrl,clean(connection.login)]);
+  const dictionaryScope=JSON.stringify(["ai-v2",workspaceId,storageId,auth.serverUrl,clean(connection.login),String(connection.password||"")]);
   const [synced, suppliersResult] = await Promise.all([
     syncReferences(env, auth.serverUrl, auth.token, [], dictionaryScope),
     getIikoSuppliers(connection)
