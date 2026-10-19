@@ -243,6 +243,14 @@ function aiCancelledError(){
   const error=new Error("Формирование отчёта остановлено.");
   error.code="AI_REQUEST_CANCELLED";error.status=409;return error;
 }
+async function markCancelledUserPrompt(db,userId,scopeKey,requestId){
+  if(!requestId)return;
+  await db.prepare(`UPDATE ai_assistant_messages
+    SET meta_json=json_set(COALESCE(meta_json,'{}'),'$.cancelled',json('true'))
+    WHERE user_id=?1 AND role='user' AND json_extract(meta_json,'$.requestId')=?2
+      AND conversation_id IN(SELECT id FROM ai_assistant_conversations WHERE user_id=?1 AND scope_key=?3)`)
+    .bind(userId,requestId,scopeKey).run();
+}
 async function checkAiCancelled(db,userId,scopeKey,requestId,signal){
   if(signal?.aborted)throw aiCancelledError();
   if(!requestId)return;
@@ -404,7 +412,7 @@ function instructions(model, connected) {
 Модель: ${model}.`;
 }
 function inputFromHistory(history) {
-  return history.map(message => ({
+  return history.filter(message=>message.meta?.cancelled!==true).map(message => ({
     role: message.role === "assistant" ? "assistant" : "user",
     content: message.content
   }));
@@ -578,6 +586,7 @@ export async function onRequestPost({ request, env }) {
       await env.DB.prepare(`INSERT INTO ai_assistant_cancelled_requests(request_id,user_id,scope_key)
         VALUES(?1,?2,?3) ON CONFLICT(request_id) DO NOTHING`).bind(requestId,auth.user.id,scopeKey).run();
       // Retain recent cancellation tombstones to prevent replays, purge older records.
+      await markCancelledUserPrompt(env.DB,auth.user.id,scopeKey,requestId);
       await env.DB.prepare("DELETE FROM ai_assistant_cancelled_requests WHERE created_at < datetime('now','-1 day')").run();
       return json({success:true,cancelled:true});
     }
@@ -609,7 +618,13 @@ export async function onRequestPost({ request, env }) {
 
     const requestId=validateAiRequestId(body.requestId);
     if(body.requestId&&!requestId)return json({success:false,message:"Неверный ID запроса."},400);
-    const guard=()=>checkAiCancelled(env.DB,auth.user.id,scopeKey,requestId,request.signal);
+    const guard=async()=>{
+      try{await checkAiCancelled(env.DB,auth.user.id,scopeKey,requestId,request.signal);}
+      catch(error){
+        if(error?.code==="AI_REQUEST_CANCELLED")await markCancelledUserPrompt(env.DB,auth.user.id,scopeKey,requestId);
+        throw error;
+      }
+    };
     await guard();
     let conversationId = clean(body.conversationId);
     let conversation = conversationId ? await conversationById(env.DB, auth.user.id, conversationId, scopeKey) : null;
@@ -619,7 +634,8 @@ export async function onRequestPost({ request, env }) {
     }
 
     const existing = await recentMessages(env.DB, auth.user.id, conversationId, 1);
-    await saveMessage(env.DB, auth.user.id, conversationId, "user", text);
+    await saveMessage(env.DB, auth.user.id, conversationId, "user", text, requestId?{requestId}:null);
+    await guard();
     if (!existing.length || conversation.title === "Новый чат") {
       await touchConversation(env.DB, auth.user.id, conversationId, text.slice(0, 70));
     } else {
