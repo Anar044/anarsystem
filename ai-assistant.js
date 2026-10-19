@@ -42,13 +42,15 @@ function chartCard(chart){
   let visual='';
   if(type==='horizontal_bar'){
     const labels=[...new Set(series.flatMap(s=>s.data.map(p=>String(p?.label??''))))];
-    const max=Math.max(1,...series.flatMap(s=>s.data.map(p=>Math.abs(chartNumber(p?.value)))));
+    const values=series.flatMap(s=>s.data.map(p=>chartNumber(p?.value)));
+    const lo=Math.min(0,...values),hi=Math.max(0,...values),span=Math.max(1,hi-lo),zero=-lo/span*100;
     visual='<div class="sha-hbar">'+labels.map(label=>{
       const bars=series.map((s,i)=>{
         const point=s.data.find(p=>String(p?.label??'')===label);
         const value=chartNumber(point?.value);
-        const width=Math.max(1,Math.abs(value)/max*100);
-        return '<div class="sha-hbar-line"><div class="sha-hbar-track"><span class="sha-hbar-fill s'+(i%6)+'" style="width:'+width.toFixed(2)+'%"></span></div><strong>'+esc(chartValue(value))+'</strong></div>';
+        const end=(value-lo)/span*100,left=Math.min(zero,end),width=Math.abs(end-zero);
+        const zeroLine=lo<0?'<i class="sha-hbar-zero" style="left:'+zero.toFixed(2)+'%"></i>':'';
+        return '<div class="sha-hbar-line"><div class="sha-hbar-track">'+zeroLine+'<span class="sha-hbar-fill s'+(i%6)+'" style="left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%"></span></div><strong>'+esc(chartValue(value))+'</strong></div>';
       }).join('');
       return '<div class="sha-hbar-row"><div class="sha-hbar-label">'+esc(label)+'</div><div class="sha-hbar-bars">'+bars+'</div></div>';
     }).join('')+'</div>';
