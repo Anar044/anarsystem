@@ -23,13 +23,15 @@ test("same user in different organizations and servers has isolated conversation
   const a=await key(make());
   const b=await key(make({access:{workspace:{id:"orgB-ws"},storageUserId:"platform-org:B"}}));
   const c=await key(make({connection:{ip:"another-host"}}));
+  const rotated=await key(make({connection:{password:"other-password"}}));
   const d=await key(make({scope:{isChain:true,mode:"CHAIN",selectedDepartmentIds:["rest2"]}}));
   const equivalent=await key(make({scope:{isChain:true,mode:"CHAIN",selectedDepartmentIds:["rest2","rest1","rest1"]}}));
   const equivalentReverse=await key(make({scope:{isChain:true,mode:"CHAIN",selectedDepartmentIds:["rest1","rest2"]}}));
   assert.match(a,/^ai-v2:[0-9a-f]{64}$/);
-  assert.equal(new Set([a,b,c,d]).size,4);
+  assert.equal(new Set([a,b,c,d,rotated]).size,5);
   assert.equal(equivalent,equivalentReverse);
   assert.ok(!a.includes("secret"));
+  assert.ok(!rotated.includes("other-password"));
 });
 
 test("tenant key fails closed without verified workspace, connection or CHAIN selection",async()=>{
@@ -63,6 +65,8 @@ test("Stop flag is scoped by request UUID, user ID and workspace scope",async()=
   await assert.rejects(()=>checkAiCancelled(db,"userB","scopeB",id,{aborted:true}),e=>e.code==="AI_REQUEST_CANCELLED");
   assert.match(route,/action === "cancelRequest"/);
   assert.match(route,/await guard\(\);\s*await saveMessage/);
+  assert.match(route,/markCancelledUserPrompt/);
+  assert.match(route,/history\.filter\(message=>message\.meta\?\.cancelled!==true\)/);
   assert.match(route,/openAiResponse\(env, \{/);
 });
 
