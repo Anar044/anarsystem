@@ -32,7 +32,7 @@ export function classifyPosAlert(event, data = {}) {
     if(confirmed) return {kind:"DISCOUNT_APPLIED",title:"Применена скидка"};
     return null; // surcharge or ambiguous adjustment: NOT a discount
   }
-  if(/discountadded|applydiscount|addeddiscount|discountapplied/.test(type))
+  if(/addingdiscount|discountadded|applydiscount|addeddiscount|discountapplied/.test(type))
     return {kind:"DISCOUNT_APPLIED",title:"Применена скидка"};
   return null;
 }
@@ -49,10 +49,14 @@ export function posAlertDetails(envelope){
     "number","Number"]) ?? first(envelope,["orderNum","OrderNum",
     "orderNumber","OrderNumber"]));
   const dish=clean(first(data,["dishName","DishName","productName","ProductName","itemName","ItemName"]));
+  const discountName=clean(first(data,["name","Name","discountName",
+    "DiscountName"]));
   const restaurant=clean(envelope?.departmentName)||"Ресторан";
   const description=[
     restaurant,
     order ? "заказ №"+order : null,
+    alert.kind==="DISCOUNT_APPLIED" || alert.kind==="DISCOUNT_REMOVED"
+      ? (discountName || null) : null,
     alert.kind==="ITEM_REMOVED" && dish ? dish : null
   ].filter(Boolean).join(" · ");
   const sourceTime=first(envelope,["timestamp","receivedAt","ReceivedAt",
