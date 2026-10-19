@@ -33,7 +33,7 @@ function chartValue(value){
 }
 function chartCard(chart){
   if(!chart||typeof chart!=='object')return'';
-  const type=['bar','horizontal_bar','line','pie'].includes(chart.type)?chart.type:'bar';
+  const type=['bar','horizontal_bar','line','pie','donut','area'].includes(chart.type)?chart.type:'bar';
   const series=Array.isArray(chart.series)?chart.series.filter(s=>Array.isArray(s?.data)&&s.data.length):[];
   if(!series.length)return'';
   const notes=Array.isArray(chart.notes)?chart.notes:[];
@@ -52,8 +52,10 @@ function chartCard(chart){
       }).join('');
       return '<div class="sha-hbar-row"><div class="sha-hbar-label">'+esc(label)+'</div><div class="sha-hbar-bars">'+bars+'</div></div>';
     }).join('')+'</div>';
-  }else if(type==='pie'){
-    const data=series[0].data.slice(0,12);
+  }else if(type==='pie'||type==='donut'){
+    const points=series[0].data.filter(p=>chartNumber(p?.value)>0);
+    const data=points.length>10?[...points.slice(0,9),{label:'Остальные',value:points.slice(9).reduce((n,p)=>n+chartNumber(p.value),0)}]:points;
+    if(!data.length)return'';
     const total=data.reduce((sum,p)=>sum+Math.max(0,chartNumber(p?.value)),0)||1;
     let cursor=0;
     const stops=data.map((p,i)=>{
@@ -62,7 +64,7 @@ function chartCard(chart){
       cursor+=value/total*100;
       return 'var(--chart-s'+(i%6)+') '+start.toFixed(3)+'% '+cursor.toFixed(3)+'%';
     }).join(',');
-    visual='<div class="sha-pie-layout"><div class="sha-pie" style="background:conic-gradient('+stops+')"></div><div class="sha-pie-list">'+data.map((p,i)=>{
+    visual='<div class="sha-pie-layout"><div class="sha-pie'+(type==='donut'?' is-donut':'')+'" style="background:conic-gradient('+stops+')"></div><div class="sha-pie-list">'+data.map((p,i)=>{
       const value=Math.max(0,chartNumber(p?.value));
       const pct=value/total*100;
       return '<div><span><i class="sha-chart-dot s'+(i%6)+'"></i>'+esc(p?.label??'')+'</span><strong>'+esc(chartValue(value))+' · '+pct.toFixed(1)+'%</strong></div>';
@@ -70,20 +72,20 @@ function chartCard(chart){
   }else{
     const labels=[...new Set(series.flatMap(s=>s.data.map(p=>String(p?.label??''))))];
     const values=series.flatMap(s=>s.data.map(p=>chartNumber(p?.value)));
-    const max=Math.max(1,...values.map(v=>Math.abs(v)));
+    const low=Math.min(0,...values),high=Math.max(0,...values),span=Math.max(1,high-low);
     const width=Math.max(620,labels.length*84);
     const height=280,padL=52,padR=20,padT=24,padB=58;
     const plotW=width-padL-padR,plotH=height-padT-padB;
-    const y=v=>padT+plotH-(Math.max(0,v)/max*plotH);
+    const y=v=>padT+plotH-(v-low)/span*plotH;
     const x=i=>labels.length<=1?padL+plotW/2:padL+(i/(labels.length-1))*plotW;
     const grid=[0,.25,.5,.75,1].map(t=>{
       const gy=padT+plotH-(t*plotH);
-      const val=max*t;
+      const val=low+span*t;
       return '<line x1="'+padL+'" y1="'+gy+'" x2="'+(width-padR)+'" y2="'+gy+'" class="sha-chart-grid"></line><text x="'+(padL-8)+'" y="'+(gy+4)+'" class="sha-chart-axis-label" text-anchor="end">'+esc(chartValue(val))+'</text>';
     }).join('');
     const xlabels=labels.map((label,i)=>'<text x="'+x(i)+'" y="'+(height-22)+'" class="sha-chart-axis-label" text-anchor="middle">'+esc(label.length>16?label.slice(0,15)+'…':label)+'</text>').join('');
 
-    if(type==='line'){
+    if(type==='line'||type==='area'){
       const lines=series.map((s,si)=>{
         const points=labels.map((label,i)=>{
           const p=s.data.find(item=>String(item?.label??'')===label);
@@ -95,7 +97,8 @@ function chartCard(chart){
           const value=chartNumber(point?.value);
           return '<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" class="sha-chart-point s'+(si%6)+'"><title>'+esc(labels[i]+': '+chartValue(value))+'</title></circle>';
         }).join('');
-        return '<polyline points="'+poly+'" class="sha-chart-line s'+(si%6)+'"></polyline>'+dots;
+        const area=type==='area'?'<polygon points="'+x(0)+','+y(0)+' '+poly+' '+x(labels.length-1)+','+y(0)+'" class="sha-chart-area s'+(si%6)+'"></polygon>':'';
+        return area+'<polyline points="'+poly+'" class="sha-chart-line s'+(si%6)+'"></polyline>'+dots;
       }).join('');
       visual='<div class="sha-chart-scroll"><svg class="sha-chart-svg" viewBox="0 0 '+width+' '+height+'" role="img">'+grid+xlabels+lines+'</svg></div>';
     }else{
@@ -104,10 +107,10 @@ function chartCard(chart){
       const barW=Math.max(7,Math.min(34,(groupW-18)/Math.max(1,series.length)-gap));
       const bars=labels.map((label,li)=>series.map((s,si)=>{
         const point=s.data.find(p=>String(p?.label??'')===label);
-        const value=Math.max(0,chartNumber(point?.value));
-        const h=value/max*plotH;
+        const value=chartNumber(point?.value);
+        const h=Math.abs(y(value)-y(0));
         const gx=padL+li*groupW+(groupW-(series.length*(barW+gap)-gap))/2+si*(barW+gap);
-        return '<rect x="'+gx.toFixed(2)+'" y="'+(padT+plotH-h).toFixed(2)+'" width="'+barW.toFixed(2)+'" height="'+h.toFixed(2)+'" rx="4" class="sha-chart-bar s'+(si%6)+'"><title>'+esc(label+': '+chartValue(value))+'</title></rect>';
+        return '<rect x="'+gx.toFixed(2)+'" y="'+Math.min(y(0),y(value)).toFixed(2)+'" width="'+barW.toFixed(2)+'" height="'+h.toFixed(2)+'" rx="4" class="sha-chart-bar s'+(si%6)+'"><title>'+esc(label+': '+chartValue(value))+'</title></rect>';
       }).join('')).join('');
       const bxlabels=labels.map((label,i)=>'<text x="'+(padL+i*groupW+groupW/2)+'" y="'+(height-22)+'" class="sha-chart-axis-label" text-anchor="middle">'+esc(label.length>14?label.slice(0,13)+'…':label)+'</text>').join('');
       visual='<div class="sha-chart-scroll"><svg class="sha-chart-svg" viewBox="0 0 '+width+' '+height+'" role="img">'+grid+bxlabels+bars+'</svg></div>';
@@ -336,7 +339,38 @@ async function exportReportToExcel(report){
   setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
 
-function reportCard(report,chart=null,messageIndex=-1){
+function inferredReportCharts(report){
+  const cols=Array.isArray(report?.columns)?report.columns:[];
+  const rows=Array.isArray(report?.rows)?report.rows:[];
+  if(cols.length<2||rows.length<2)return[];
+  const metric=cols.map((c,i)=>({...c,index:i})).filter(c=>c.index>0&&c.align==='right').pop();
+  if(!metric)return[];
+  const data=[],seen=new Set();
+  for(const row of rows){
+    if(!Array.isArray(row))continue;
+    const label=String(row[0]??'').trim(),value=excelNumeric(row[metric.index]);
+    if(!label||value===null||/^(итого|всего|total)$/i.test(label))continue;
+    if(seen.has(label))return[];
+    seen.add(label);data.push({label,value});
+  }
+  if(data.length<2)return[];
+  const shown=data.slice(0,12);
+  const labelCol=String(cols[0]?.label||'').toLowerCase();
+  const isTime=/дат|день|недел|месяц|период|date|day|week|month/.test(labelCol)||shown.every(p=>/^\\d{4}-\\d{2}(-\\d{2})?$/.test(p.label));
+  const common={subtitle:'На основе отображённых строк · '+String(metric.label||''),xLabel:String(cols[0]?.label||''),yLabel:String(metric.label||''),notes:['График построен только по строкам этого отчёта.']};
+  const charts=[{...common,type:isTime?'line':'horizontal_bar',title:isTime?'Динамика показателя':'Сравнение показателей',series:[{name:String(metric.label||'Значение'),data:shown}]}];
+  const metricText=String(metric.label||'').toLowerCase();
+  if(!isTime&&data.length>=3&&data.length<=8&&shown.every(p=>p.value>=0)&&shown.some(p=>p.value>0)&&!/процент|%|средн|цена|себестоим|маржа|наценк|остаток|average|price/.test(metricText)){
+    charts.push({...common,type:'donut',title:'Структура показателя',subtitle:'Доли только среди отображённых строк отчёта',series:[{name:String(metric.label||'Значение'),data:shown}]});
+  }
+  return charts;
+}
+function messageCharts(meta){
+  const charts=(Array.isArray(meta?.charts)?meta.charts:[]).filter(c=>c&&Array.isArray(c.series)&&c.series.length);
+  if(meta?.chart&&Array.isArray(meta.chart.series)&&meta.chart.series.length&&!charts.some(c=>c.title===meta.chart.title&&c.type===meta.chart.type))charts.push(meta.chart);
+  return charts.length?charts.slice(0,3):inferredReportCharts(meta?.report);
+}
+function reportCard(report,charts=[],messageIndex=-1){
   if(!report||typeof report!=='object')return'';
   const columns=Array.isArray(report.columns)?report.columns:[];
   const rows=Array.isArray(report.rows)?report.rows:[];
@@ -383,11 +417,12 @@ function reportCard(report,chart=null,messageIndex=-1){
     (report.subtitle?'<p>'+esc(report.subtitle)+'</p>':'')+'</div>'+
     '<div class="sha-report-head-actions">'+
       (report.periodLabel?'<span class="sha-report-period">'+esc(report.periodLabel)+'</span>':'')+
-      (messageIndex>=0?'<button type="button" class="sha-report-excel" data-export-report-index="'+messageIndex+'" title="Выгрузить отчёт в Excel">▦ Excel</button>':'')+
+      (messageIndex>=0&&columns.length?'<button type="button" class="sha-report-excel" data-export-report-index="'+messageIndex+'" title="Выгрузить таблицу в Excel">▦ Excel</button>':'')+
+      (messageIndex>=0?'<button type="button" class="sha-report-excel sha-report-pdf" data-export-pdf-index="'+messageIndex+'" title="Скачать PDF с графиками и таблицей">⬇ PDF</button>':'')+
     '</div>'+
     '</div>'+
     (kpis.length?'<div class="sha-report-kpis">'+kpis.map(item=>'<div class="sha-report-kpi"><span>'+esc(item?.label||'')+'</span><strong>'+esc(item?.value||'')+'</strong></div>').join('')+'</div>':'')+
-    (chart?'<div class="sha-report-chart-slot">'+chartCard(chart)+'</div>':'')+
+    (charts.length?'<div class="sha-report-chart-slot sha-report-chart-grid">'+charts.map(chartCard).join('')+'</div>':'')+
     table+
     (notes.length?'<div class="sha-report-notes">'+notes.map(note=>'<div>'+esc(note)+'</div>').join('')+'</div>':'')+
     '</section>';
@@ -398,8 +433,8 @@ function msg(m,index=-1){
   const ai=m.role==='assistant';
   const speak=ai&&index>=0?'<button class="sha-speak" type="button" data-speak-index="'+index+'" title="Озвучить ответ">🔊 Озвучить</button>':'';
   const hasReport=ai&&m.meta?.report;
-  const hasChart=ai&&m.meta?.chart;
-  const structured=hasReport?reportCard(m.meta.report,hasChart?m.meta.chart:null,index):(hasChart?chartCard(m.meta.chart):'');
+  const charts=ai?messageCharts(m.meta):[];
+  const structured=hasReport?reportCard(m.meta.report,charts,index):(charts.length?'<div class="sha-chart-only"><div class="sha-report-head-actions"><button type="button" class="sha-report-excel sha-report-pdf" data-export-pdf-index="'+index+'">⬇ PDF</button></div><div class="sha-report-chart-grid">'+charts.map(chartCard).join('')+'</div></div>':'');
   const text=esc(m.content).replace(/\n/g,'<br>');
   return '<article class="sha-message '+(ai?'assistant':'user')+'"><div class="sha-avatar">'+(ai?'AI':'Вы')+'</div><div class="sha-bubble '+(structured?'has-report':'')+'">'+
     (text?'<div class="sha-text">'+text+'</div>':'')+
@@ -520,6 +555,18 @@ function bind(){$('newChatBtn').onclick=()=>newChat().catch(e=>note(e.message,'e
     exportReportToExcel(report)
       .then(()=>note('Excel-файл сформирован.','ok'))
       .catch(error=>note(error.message||String(error),'error'));
+    return;
+  }
+  const pdfButton=e.target.closest?.('[data-export-pdf-index]');
+  if(pdfButton){
+    const index=Number(pdfButton.dataset.exportPdfIndex);
+    const message=currentMessages[index];
+    if(!window.SHAIExportPDF?.download){note('Модуль PDF не загрузился. Обновите страницу.','error');return}
+    pdfButton.disabled=true;
+    Promise.resolve(window.SHAIExportPDF.download({report:message?.meta?.report||null,charts:messageCharts(message?.meta),summary:message?.content||''}))
+      .then(()=>note('PDF-отчёт сформирован.','ok'))
+      .catch(error=>note(error.message||String(error),'error'))
+      .finally(()=>{pdfButton.disabled=false});
     return;
   }
   const button=e.target.closest?.('[data-speak-index]');
