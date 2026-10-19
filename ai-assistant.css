@@ -317,3 +317,8 @@ html[data-theme="light"] .sha-report-pdf{border-color:#b5c3f7;background:#edf1ff
 .sha-report-chart-grid{grid-template-columns:minmax(0,1fr)}
 .sha-report-chart-slot{padding:10px}
 }
+
+/* AI cancellation: Stop replaces Send while a request is pending. */
+.sha-send.sha-stop{background:#b93845;color:#fff;box-shadow:0 0 0 1px #d95b67 inset}
+.sha-send.sha-stop:hover{background:#cb4654}
+.sha-send.sha-stop:focus-visible{outline:2px solid #ffb4bc;outline-offset:2px}
