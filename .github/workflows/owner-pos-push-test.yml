@@ -1,0 +1,15 @@
+name: Owner POS Push Test
+on:
+  push:
+    branches: [feature/pilot-pos-owner-push-production-rms2-20261019]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test tests/mobile-push-events.test.mjs
+      - run: node --check functions/api/plugin/ingest.js
