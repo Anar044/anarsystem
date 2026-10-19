@@ -14,7 +14,7 @@ const context={
   money:(v)=>String(v)
 };
 const {historyText,historySummary}=vm.runInNewContext(
-  \`(function(){\${helper}; return {historyText,historySummary};})()\`,context);
+  '(function(){'+helper+';return {historyText,historySummary};})()',context);
 
 test('legacy POS exact event labels in browser',()=>{
   const names=[
