@@ -54,7 +54,7 @@ async function fetchSource(url,{timeoutMs=9000}={}){
  * customer-facing label; retain rawType only for diagnostics.
  */
 function eventName(type,data){
-  const key=clean(type).toLowerCase().replace(/[\\s_-]/g,"");
+  const key=clean(type).toLowerCase().replace(/[\s_-]/g,"");
   const known={
     neworder:["ORDER_OPENED","Заказ открыт"],
     deletionofnotprinteditem:["ITEM_REMOVED","Удалено нераспечатанное блюдо"],
@@ -144,7 +144,7 @@ const writeOffData=(root,data)=>{
     "writeOffReason","WriteOffReason"]));
   const comment=textScalar(value(root,data,["reasonComment","ReasonComment",
     "writeOffComment","WriteOffComment"]));
-  const noWriteOff=/^(без списания|безсписания|without\\s*write.?off|no\\s*write.?off|не списывать|none)$/i;
+  const noWriteOff=/^(без списания|безсписания|without\s*write.?off|no\s*write.?off|не списывать|none)$/i;
   let writeOffStatus="UNKNOWN";
   if(writeOffFlag===true||writeOffFlag==="true"||writeOffFlag===1)
     writeOffStatus="WITH_WRITE_OFF";
@@ -220,7 +220,7 @@ export function normalizePosAuditEvents(payload,requestedOrderNum){
       ["orderInBillTooLong","OrderInBillTooLong",
       "totalMinutesBetweenBillAndClose","TotalMinutesBetweenBillAndClose"])):null;
     const isPrintedDeletion=clean(rawType).toLowerCase()
-      .replace(/[\\s_-]/g,"").includes("deletionofprinteditem");
+      .replace(/[\s_-]/g,"").includes("deletionofprinteditem");
     return [{
       id:eventId,occurredAt,kind,label,rawType,
       ...(productName?{itemName:clean(productName)}:{}),
