@@ -53,7 +53,7 @@ test('printed item writeoff reason and discount names are not rendered as dishes
 });
 test('browser audit cache is keyed by cash and order, not by current payment status',()=>{
   assert.match(cash,/historyCache: new Map/);
-  assert.match(cash,/const cacheKey=pluginId\+':'\+orderId/);
+  assert.match(cash,/cacheKey=pluginId\+':'\+orderId/);
   assert.match(cash,/if\(events\.length\)/);
   assert.match(cash,/Сервер временно вернул пустую историю/);
   assert.match(cash,/state\.plugins\.find\(x=>String\(x\?\.pluginId\|\|''\)===String\(state\.pluginId\)\)/);
