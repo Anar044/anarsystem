@@ -1,0 +1,18 @@
+name: Owner Push Order Link Contract
+on:
+  push:
+    branches: [feature/owner-push-order-deeplink-data-20261019]
+  pull_request:
+    paths:
+      - 'functions/api/mobile/_lib/fcm.js'
+      - 'tests/mobile-push-order-link.test.mjs'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/mobile-push-order-link.test.mjs
+      - run: node --check functions/api/mobile/_lib/fcm.js
