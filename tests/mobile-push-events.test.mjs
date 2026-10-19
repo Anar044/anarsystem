@@ -39,3 +39,44 @@ test("device key is deterministic without exposing the FCM token",async()=>{
  assert.equal(a.length,64);
  assert.ok(!a.includes(token));
 });
+
+
+test("real VPS order-history shape classifies verified 10% discount for order 45",()=>{
+ const payload={
+   pluginEventType:"AddDiscountSurchargeItem",
+   eventId:"discount-order45-1",
+   receivedAt:"2026-10-19T15:26:00+04:00",
+   departmentId:"restaurant-1",departmentName:"Тестовый ресторан",
+   pluginId:"pos-1",orderNum:"45",
+   data:{isDiscount:true,discountName:"Endirim 10%",employeeName:"TEST HR"}
+ };
+ const result=posAlertDetails(payload);
+ assert.equal(result.kind,"DISCOUNT_APPLIED");
+ assert.equal(result.eventId,"discount-order45-1");
+ assert.equal(result.orderNum,"45");
+ assert.equal(result.occurredAt,"2026-10-19T15:26:00+04:00");
+ assert.ok(result.body.includes("заказ №45"));
+});
+
+test("existing ingest envelope retains compatibility with confirmed discount",()=>{
+ const result=posAlertDetails({
+   event:"AddDiscountSurchargeItem",timestamp:"2026-10-19T15:26:00Z",
+   eventId:"evt-2",departmentId:"rest-1",pluginId:"plug-1",
+   data:{isDiscount:"True",orderNumber:"45"}
+ });
+ assert.equal(result.kind,"DISCOUNT_APPLIED");
+ assert.equal(result.eventId,"evt-2");
+ assert.equal(result.orderNum,"45");
+});
+
+test("discount changes without explicit confirmation never trigger applied alert",()=>{
+ for(const value of [false,"false",null,"unknown",0]){
+   assert.equal(classifyPosAlert("AddDiscountSurchargeItem",
+      value===null?{}:{isDiscount:value}),null);
+ }
+ assert.equal(classifyPosAlert("DiscountChanged",{}),null);
+ assert.equal(posAlertDetails({
+   eventType:"AddDiscountSurchargeItem",data:{isDiscount:false},
+   receivedAt:"2026-10-19T15:26:00Z"
+ }),null);
+});
