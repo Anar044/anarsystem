@@ -227,11 +227,24 @@ export async function ensureTables(db) {
   try { return await initialize; }
   catch(error) { ASSISTANT_SCHEMA_READY.delete(db); throw error; }
 }
-function conversationScopeKey(iiko){
-  const scope=iiko?.scope;
-  if(!scope?.isChain)return "";
-  const ids=[...new Set((scope.selectedDepartmentIds||[]).map(String).filter(Boolean))].sort();
-  return `CHAIN:${ids.join(",")}`;
+// v2 tenant key always includes verified workspace, server identity and selection.
+// Never open v1 conversations: they lacked server identity and might belong to another tenant.
+async function conversationScopeKey(iiko){
+  const workspaceId=clean(iiko?.access?.workspace?.id);
+  const storageId=clean(iiko?.access?.storageUserId);
+  const connection=iiko?.connection;
+  if(!iiko?.connected || !workspaceId || !storageId || !connection?.ip || !connection?.port || !connection?.login){
+    const error=new Error("AI доступен только после выбора организации и подключения её Smart Horeca Server.");
+    error.status=403;error.code="ASSISTANT_WORKSPACE_NOT_VERIFIED";throw error;
+  }
+  const ids=[...new Set((iiko.scope?.selectedDepartmentIds||[]).map(String).filter(Boolean))].sort();
+  if(iiko.scope?.isChain && !ids.length){
+    const error=new Error("Не удалось определить разрешённые рестораны выбранной сети.");
+    error.status=403;error.code="ASSISTANT_DEPARTMENT_SCOPE_EMPTY";throw error;
+  }
+  const identity=JSON.stringify(["ai-v2",workspaceId,storageId,clean(connection.ip).toLowerCase(),clean(connection.port),clean(connection.login),iiko.scope?.mode||"RMS",ids]);
+  const hash=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(identity));
+  return "ai-v2:"+[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 async function conversationById(db, userId, conversationId, scopeKey="") {
   return db.prepare(`SELECT id,title,created_at,updated_at
@@ -497,14 +510,14 @@ export async function onRequestGet({ request, env }) {
     }
     if (action === "conversations") {
       const iiko=await resolveAssistantIiko(env,request);
-      const scopeKey=conversationScopeKey(iiko);
+      const scopeKey=await conversationScopeKey(iiko);
       return json({ success: true, conversations: await listConversations(env.DB, auth.user.id, scopeKey), restaurantScope:iiko.scope?{mode:iiko.scope.mode,selectedDepartmentIds:iiko.scope.selectedDepartmentIds}:null });
     }
     if (action === "messages") {
       const conversationId = clean(url.searchParams.get("conversationId"));
       if (!conversationId) return json({ success: false, message: "conversationId обязателен." }, 400);
       const iiko=await resolveAssistantIiko(env,request);
-      const scopeKey=conversationScopeKey(iiko);
+      const scopeKey=await conversationScopeKey(iiko);
       const conversation = await conversationById(env.DB, auth.user.id, conversationId, scopeKey);
       if (!conversation) return json({ success: false, message: "Чат не найден." }, 404);
       return json({
@@ -527,7 +540,7 @@ export async function onRequestPost({ request, env }) {
     const body = await request.json().catch(() => ({}));
     const action = clean(body.action || "message");
     const iiko=await resolveAssistantIiko(env,request,Array.isArray(body.departmentIds)?body.departmentIds:null);
-    const scopeKey=conversationScopeKey(iiko);
+    const scopeKey=await conversationScopeKey(iiko);
 
     if (action === "newConversation") {
       const conversation = await createConversation(env.DB, auth.user.id, scopeKey, body.title || "Новый чат");
