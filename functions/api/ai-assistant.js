@@ -271,7 +271,7 @@ async function conversationScopeKey(iiko){
     const error=new Error("Не удалось определить разрешённые рестораны выбранной сети.");
     error.status=403;error.code="ASSISTANT_DEPARTMENT_SCOPE_EMPTY";throw error;
   }
-  const identity=JSON.stringify(["ai-v2",workspaceId,storageId,clean(connection.ip).toLowerCase(),clean(connection.port),clean(connection.login),iiko.scope?.mode||"RMS",ids]);
+  const identity=JSON.stringify(["ai-v2",workspaceId,storageId,clean(connection.ip).toLowerCase(),clean(connection.port),clean(connection.login),String(connection.password||""),iiko.scope?.mode||"RMS",ids]);
   const hash=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(identity));
   return "ai-v2:"+[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("");
 }
