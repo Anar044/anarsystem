@@ -25,18 +25,29 @@ export function classifyPosAlert(event, data = {}) {
     return {kind:"ITEM_REMOVED",title:"Удалено блюдо"};
   if(/adddiscountsurchargeitem|adddiscountsurcharge/.test(type)){
     const flag=first(d,["isDiscount","IsDiscount"]);
-    if(flag===true || flag==="true") return {kind:"DISCOUNT_APPLIED",title:"Применена скидка"};
+    // VPS/iikoFront can encode JSON booleans as text; never treat
+    // an absent or ambiguous discount flag as a discount.
+    const confirmed = flag===true || (typeof flag==="string" &&
+      flag.trim().toLowerCase()==="true");
+    if(confirmed) return {kind:"DISCOUNT_APPLIED",title:"Применена скидка"};
     return null; // surcharge or ambiguous adjustment: NOT a discount
   }
   if(/discountadded|applydiscount|addeddiscount|discountapplied/.test(type))
     return {kind:"DISCOUNT_APPLIED",title:"Применена скидка"};
   return null;
 }
+// Accept the raw VPS order-history envelope as well as the existing
+// /api/plugin/ingest envelope. History viewing alone does not invoke push:
+// the server still needs an independently verified incoming event feed.
 export function posAlertDetails(envelope){
-  const data=object(envelope?.data);
-  const alert=classifyPosAlert(envelope?.event,data);
+  const data=object(envelope?.data ?? envelope?.Data);
+  const sourceType=first(envelope,["event","pluginEventType","eventType",
+    "type","Type"]);
+  const alert=classifyPosAlert(sourceType,data);
   if(!alert)return null;
-  const order=clean(first(data,["orderNum","OrderNum","orderNumber","OrderNumber","number","Number"]));
+  const order=clean(first(data,["orderNum","OrderNum","orderNumber","OrderNumber",
+    "number","Number"]) ?? first(envelope,["orderNum","OrderNum",
+    "orderNumber","OrderNumber"]));
   const dish=clean(first(data,["dishName","DishName","productName","ProductName","itemName","ItemName"]));
   const restaurant=clean(envelope?.departmentName)||"Ресторан";
   const description=[
@@ -44,8 +55,11 @@ export function posAlertDetails(envelope){
     order ? "заказ №"+order : null,
     alert.kind==="ITEM_REMOVED" && dish ? dish : null
   ].filter(Boolean).join(" · ");
+  const sourceTime=first(envelope,["timestamp","receivedAt","ReceivedAt",
+    "occurredAt","OccurredAt","dateTime","DateTime"]);
   return {...alert,departmentId:clean(envelope?.departmentId),
     pluginId:clean(envelope?.pluginId),orderNum:order,title:alert.title,
     body:description.slice(0,180),
-    eventId:clean(envelope?.eventId),occurredAt:clean(envelope?.timestamp)};
+    eventId:clean(first(envelope,["eventId","EventId","id","Id"])),
+    occurredAt:clean(sourceTime)};
 }
