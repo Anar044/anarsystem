@@ -1,7 +1,7 @@
 (()=>{
 'use strict';
 const $=id=>document.getElementById(id);function boundedFetch(url,opt={},timeoutMs=120000){return (window.SH_IikoContext?.fetchWithTimeout||fetch)(url,opt,timeoutMs)}
-let conversations=[],currentId='',busy=false,currentMessages=[];
+let conversations=[],currentId='',busy=false,currentMessages=[],activeAiRequest=null;
 let mediaRecorder=null,mediaStream=null,audioChunks=[],recordStarted=0,recordTicker=null,recordStopTimer=null,currentAudio=null,currentAudioUrl='';
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 // Brand only assistant-authored content; keep original user questions and technical API keys intact.
@@ -18,7 +18,7 @@ const escBrand=s=>esc(brandVisibleText(s));
 
 async function token(){const c=await window.SHAuth?.createClient?.();if(!c)throw Error('Supabase Auth не готов');const r=await c.auth.getSession();const t=r.data?.session?.access_token;if(r.error||!t)throw Error('Сессия пользователя не найдена');return t}
 async function get(q){const t=await token(),r=await boundedFetch('/api/ai-assistant'+q,{headers:{Authorization:'Bearer '+t},cache:'no-store'},60000),j=await r.json().catch(()=>({}));if(!r.ok||!j.success)throw Error(j.message||('HTTP '+r.status));return j}
-async function post(body){
+async function post(body,{signal=null}={}){
   const t=await token();
   let payload={...body};
   if(body?.action==='message'&&window.SH_IikoContext?.getBinding){
@@ -27,7 +27,12 @@ async function post(body){
       payload.departmentIds=Array.isArray(binding?.departmentIds)?binding.departmentIds:[];
     }catch(_){}
   }
-  const r=await boundedFetch('/api/ai-assistant',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+t},body:JSON.stringify(payload)},120000);
+  if(signal?.aborted)throw new DOMException('Запрос остановлен.','AbortError');
+  const requestOptions={method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+t},body:JSON.stringify(payload)};
+  // SH_IikoContext.fetchWithTimeout uses its own signal, so the AI request
+  // uses native fetch when an external AbortController is provided.
+  const r=signal?await fetch('/api/ai-assistant',{...requestOptions,signal})
+    :await boundedFetch('/api/ai-assistant',requestOptions,120000);
   const j=await r.json().catch(()=>({}));
   if(!r.ok||!j.success){const e=Error(j.message||('HTTP '+r.status));e.code=j.code||'';throw e}
   return j
@@ -560,9 +565,65 @@ async function toggleVoice(){
   if(mediaRecorder?.state==='recording'){stopVoice();return}
   try{await startVoice()}catch(e){cleanupRecording();note(e.message||String(e),'error')}
 }
-async function send(options={}){if(busy)return;const i=$('messageInput'),text=i.value.trim();if(!text)return;busy=true;$('sendBtn').disabled=true;$('micBtn').disabled=true;note('Получаю данные и собираю ответ…');i.value='';size();$('welcome').hidden=true;$('messages').insertAdjacentHTML('beforeend',msg({role:'user',content:text}));thinking();try{const j=await post({action:'message',conversationId:currentId||null,message:text});currentId=j.conversationId;await loadChats();await select(currentId);note('');if(options?.speakReply&&j.answer)await speakText(brandVisibleText(j.answer))}catch(e){document.getElementById('shaThinking')?.remove();note(e.message,'error');if(e.code==='OPENAI_NOT_CONFIGURED')state('OpenAI не настроен','warn')}finally{busy=false;$('sendBtn').disabled=false;$('micBtn').disabled=false;i.focus()}}
+function setAiRequestUi(running){
+  const button=$('sendBtn');
+  button.disabled=false;
+  button.textContent=running?'■ Стоп':'Отправить';
+  button.title=running?'Остановить формирование AI-отчёта':'Отправить запрос';
+  button.classList.toggle('sha-stop',running);
+  $('micBtn').disabled=running;
+}
+function stopGeneration(timedOut=false){
+  const request=activeAiRequest;
+  if(!request||request.cancelled)return;
+  request.cancelled=true;
+  request.timedOut=timedOut;
+  request.controller.abort();
+  document.getElementById('shaThinking')?.remove();
+  note(timedOut?'AI не ответил вовремя. Запрос отменяется.':'Останавливаю AI-запрос…');
+  // Separate authenticated request ensures cancellation can be observed server-side
+  // even when the browser disconnect does not terminate a Worker.
+  post({action:'cancelRequest',requestId:request.id}).catch(()=>{});
+}
+async function send(options={}){
+  if(busy)return;
+  const i=$('messageInput'),text=i.value.trim();
+  if(!text)return;
+  const request={id:crypto.randomUUID(),controller:new AbortController(),cancelled:false,timedOut:false};
+  activeAiRequest=request;
+  busy=true;
+  setAiRequestUi(true);
+  note('Получаю данные и собираю ответ…');
+  i.value='';size();$('welcome').hidden=true;
+  $('messages').insertAdjacentHTML('beforeend',msg({role:'user',content:text}));
+  thinking();
+  const timeout=setTimeout(()=>{if(activeAiRequest===request)stopGeneration(true)},120000);
+  try{
+    const j=await post({action:'message',requestId:request.id,conversationId:currentId||null,message:text},{signal:request.controller.signal});
+    if(request.cancelled)return;
+    currentId=j.conversationId;
+    await loadChats();
+    if(request.cancelled)return;
+    await select(currentId);
+    if(request.cancelled)return;
+    note('');
+    if(options?.speakReply&&j.answer)await speakText(brandVisibleText(j.answer));
+  }catch(e){
+    document.getElementById('shaThinking')?.remove();
+    if(request.cancelled||e?.name==='AbortError'){
+      note(request.timedOut?'Превышено время ожидания AI. Запрос отменён.':'Формирование отчёта остановлено.');
+    }else{
+      note(e.message||String(e),'error');
+      if(e.code==='OPENAI_NOT_CONFIGURED')state('OpenAI не настроен','warn');
+    }
+  }finally{
+    clearTimeout(timeout);
+    if(activeAiRequest===request){activeAiRequest=null;busy=false;setAiRequestUi(false);}
+    i.focus();
+  }
+}
 async function del(){if(!currentId||!confirm('Удалить этот AI-диалог?'))return;await post({action:'deleteConversation',conversationId:currentId});currentId='';$('deleteChatBtn').hidden=true;$('chatTitle').textContent='AI Smart Horeca Assistent';renderMessages([]);await loadChats()}
-function bind(){$('newChatBtn').onclick=()=>newChat().catch(e=>note(e.message,'error'));$('deleteChatBtn').onclick=()=>del().catch(e=>note(e.message,'error'));$('sendBtn').onclick=()=>send();$('micBtn').onclick=toggleVoice;$('messageInput').oninput=size;$('messageInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};$('messages').addEventListener('click',e=>{
+function bind(){$('newChatBtn').onclick=()=>newChat().catch(e=>note(e.message,'error'));$('deleteChatBtn').onclick=()=>del().catch(e=>note(e.message,'error'));$('sendBtn').onclick=()=>busy?stopGeneration():send();$('micBtn').onclick=toggleVoice;$('messageInput').oninput=size;$('messageInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};$('messages').addEventListener('click',e=>{
   const exportButton=e.target.closest?.('[data-export-report-index]');
   if(exportButton){
     const index=Number(exportButton.dataset.exportReportIndex);

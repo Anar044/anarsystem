@@ -91,6 +91,6 @@ test("PDF white-labels previously saved report, notes, chart and filename",async
 
 test("client cache versions are bumped to take effect immediately",()=>{
   const html=read("ai-assistant.html");
-  assert.match(html,/ai-assistant\.js\?v=9/);
+  assert.match(html,/ai-assistant\.js\?v=10/);
   assert.match(html,/ai-report-pdf\.js\?v=2/);
 });

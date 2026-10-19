@@ -218,7 +218,13 @@ export async function ensureTables(db) {
       created_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_assistant_messages_conversation
-      ON ai_assistant_messages(conversation_id, created_at ASC)`)
+      ON ai_assistant_messages(conversation_id, created_at ASC)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS ai_assistant_cancelled_requests (
+      request_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      scope_key TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`)
   ]);
   try{await db.prepare("ALTER TABLE ai_assistant_conversations ADD COLUMN scope_key TEXT NOT NULL DEFAULT ''").run()}catch(_){}
   try{await db.prepare("CREATE INDEX IF NOT EXISTS idx_ai_assistant_conversations_user_scope ON ai_assistant_conversations(user_id, scope_key, updated_at DESC)").run()}catch(_){}
@@ -227,11 +233,47 @@ export async function ensureTables(db) {
   try { return await initialize; }
   catch(error) { ASSISTANT_SCHEMA_READY.delete(db); throw error; }
 }
-function conversationScopeKey(iiko){
-  const scope=iiko?.scope;
-  if(!scope?.isChain)return "";
-  const ids=[...new Set((scope.selectedDepartmentIds||[]).map(String).filter(Boolean))].sort();
-  return `CHAIN:${ids.join(",")}`;
+// v2 tenant key always includes verified workspace, server identity and selection.
+// Never open v1 conversations: they lacked server identity and might belong to another tenant.
+function validateAiRequestId(value){
+  const valueText=clean(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(valueText)?valueText:"";
+}
+function aiCancelledError(){
+  const error=new Error("Формирование отчёта остановлено.");
+  error.code="AI_REQUEST_CANCELLED";error.status=409;return error;
+}
+async function markCancelledUserPrompt(db,userId,scopeKey,requestId){
+  if(!requestId)return;
+  await db.prepare(`UPDATE ai_assistant_messages
+    SET meta_json=json_set(COALESCE(meta_json,'{}'),'$.cancelled',json('true'))
+    WHERE user_id=?1 AND role='user' AND json_extract(meta_json,'$.requestId')=?2
+      AND conversation_id IN(SELECT id FROM ai_assistant_conversations WHERE user_id=?1 AND scope_key=?3)`)
+    .bind(userId,requestId,scopeKey).run();
+}
+async function checkAiCancelled(db,userId,scopeKey,requestId,signal){
+  if(signal?.aborted)throw aiCancelledError();
+  if(!requestId)return;
+  const row=await db.prepare(`SELECT request_id FROM ai_assistant_cancelled_requests WHERE request_id=?1 AND user_id=?2 AND scope_key=?3 LIMIT 1`)
+    .bind(requestId,userId,scopeKey).first();
+  if(row||signal?.aborted)throw aiCancelledError();
+}
+async function conversationScopeKey(iiko){
+  const workspaceId=clean(iiko?.access?.workspace?.id);
+  const storageId=clean(iiko?.access?.storageUserId);
+  const connection=iiko?.connection;
+  if(!iiko?.connected || !workspaceId || !storageId || !connection?.ip || !connection?.port || !connection?.login){
+    const error=new Error("AI доступен только после выбора организации и подключения её Smart Horeca Server.");
+    error.status=403;error.code="ASSISTANT_WORKSPACE_NOT_VERIFIED";throw error;
+  }
+  const ids=[...new Set((iiko.scope?.selectedDepartmentIds||[]).map(String).filter(Boolean))].sort();
+  if(iiko.scope?.isChain && !ids.length){
+    const error=new Error("Не удалось определить разрешённые рестораны выбранной сети.");
+    error.status=403;error.code="ASSISTANT_DEPARTMENT_SCOPE_EMPTY";throw error;
+  }
+  const identity=JSON.stringify(["ai-v2",workspaceId,storageId,clean(connection.ip).toLowerCase(),clean(connection.port),clean(connection.login),String(connection.password||""),iiko.scope?.mode||"RMS",ids]);
+  const hash=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(identity));
+  return "ai-v2:"+[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 async function conversationById(db, userId, conversationId, scopeKey="") {
   return db.prepare(`SELECT id,title,created_at,updated_at
@@ -310,7 +352,7 @@ function outputText(response) {
 function functionCalls(response) {
   return (response?.output || []).filter(item => item?.type === "function_call" && item?.name && item?.call_id);
 }
-async function openAiResponse(env, payload) {
+async function openAiResponse(env, payload, signal=null) {
   const apiKey = clean(env.OPENAI_API_KEY);
   if (!apiKey) throw new Error("OPENAI_API_KEY не настроен.");
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -319,7 +361,8 @@ async function openAiResponse(env, payload) {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    ...(signal?{signal}:{})
   });
   const data = await response.json().catch(() => null);
   if (!response.ok) {
@@ -369,7 +412,7 @@ function instructions(model, connected) {
 Модель: ${model}.`;
 }
 function inputFromHistory(history) {
-  return history.map(message => ({
+  return history.filter(message=>message.meta?.cancelled!==true).map(message => ({
     role: message.role === "assistant" ? "assistant" : "user",
     content: message.content
   }));
@@ -390,7 +433,7 @@ function compactToolTrace(call, result) {
   if (result?.error) trace.error = String(result.error).slice(0, 300);
   return trace;
 }
-async function runAssistant(env, connection, history, scope=null, access=null) {
+async function runAssistant(env, connection, history, scope=null, access=null, guard=async()=>{}, signal=null) {
   const model = clean(env.OPENAI_ASSISTANT_MODEL) || DEFAULT_MODEL;
   const base = {
     model,
@@ -410,18 +453,22 @@ async function runAssistant(env, connection, history, scope=null, access=null) {
     max_output_tokens: 6000
   };
 
+  await guard();
   let response = await openAiResponse(env, {
     ...base,
     input: inputFromHistory(history)
-  });
+  },signal);
+  await guard();
 
   const traces = [];
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    await guard();
     const calls = functionCalls(response);
     if (!calls.length) break;
 
     const outputs = [];
     for (const call of calls) {
+      await guard();
       let result;
       try {
         if (!connection && call.name !== "list_smart_horeca_capabilities") {
@@ -429,11 +476,12 @@ async function runAssistant(env, connection, history, scope=null, access=null) {
         } else if (!assistantToolAuthorized(access, call.name)) {
           result = { error: "Нет прав для использования этого источника данных Smart Horeca.", code: "ASSISTANT_TOOL_FORBIDDEN" };
         } else {
-          result = await executeAssistantTool(call.name, safeToolArgs(call.arguments), { env, connection, scope });
+          result = await executeAssistantTool(call.name, safeToolArgs(call.arguments), { env, connection, scope, access });
         }
       } catch (error) {
         result = { error: String(error?.message || error).slice(0, 1200) };
       }
+      await guard();
       traces.push(compactToolTrace(call, result));
       outputs.push({
         type: "function_call_output",
@@ -442,13 +490,16 @@ async function runAssistant(env, connection, history, scope=null, access=null) {
       });
     }
 
+    await guard();
     response = await openAiResponse(env, {
       ...base,
       previous_response_id: response.id,
       input: outputs
-    });
+    },signal);
+    await guard();
   }
 
+  await guard();
   const rawText = outputText(response);
   if (!rawText) throw new Error("AI не вернул ответ.");
   const structured = brandPresentation(parseAssistantPayload(rawText));
@@ -497,14 +548,14 @@ export async function onRequestGet({ request, env }) {
     }
     if (action === "conversations") {
       const iiko=await resolveAssistantIiko(env,request);
-      const scopeKey=conversationScopeKey(iiko);
+      const scopeKey=await conversationScopeKey(iiko);
       return json({ success: true, conversations: await listConversations(env.DB, auth.user.id, scopeKey), restaurantScope:iiko.scope?{mode:iiko.scope.mode,selectedDepartmentIds:iiko.scope.selectedDepartmentIds}:null });
     }
     if (action === "messages") {
       const conversationId = clean(url.searchParams.get("conversationId"));
       if (!conversationId) return json({ success: false, message: "conversationId обязателен." }, 400);
       const iiko=await resolveAssistantIiko(env,request);
-      const scopeKey=conversationScopeKey(iiko);
+      const scopeKey=await conversationScopeKey(iiko);
       const conversation = await conversationById(env.DB, auth.user.id, conversationId, scopeKey);
       if (!conversation) return json({ success: false, message: "Чат не найден." }, 404);
       return json({
@@ -527,8 +578,18 @@ export async function onRequestPost({ request, env }) {
     const body = await request.json().catch(() => ({}));
     const action = clean(body.action || "message");
     const iiko=await resolveAssistantIiko(env,request,Array.isArray(body.departmentIds)?body.departmentIds:null);
-    const scopeKey=conversationScopeKey(iiko);
+    const scopeKey=await conversationScopeKey(iiko);
 
+    if (action === "cancelRequest") {
+      const requestId=validateAiRequestId(body.requestId);
+      if(!requestId)return json({success:false,message:"Неверный ID запроса."},400);
+      await env.DB.prepare(`INSERT INTO ai_assistant_cancelled_requests(request_id,user_id,scope_key)
+        VALUES(?1,?2,?3) ON CONFLICT(request_id) DO NOTHING`).bind(requestId,auth.user.id,scopeKey).run();
+      // Retain recent cancellation tombstones to prevent replays, purge older records.
+      await markCancelledUserPrompt(env.DB,auth.user.id,scopeKey,requestId);
+      await env.DB.prepare("DELETE FROM ai_assistant_cancelled_requests WHERE created_at < datetime('now','-1 day')").run();
+      return json({success:true,cancelled:true});
+    }
     if (action === "newConversation") {
       const conversation = await createConversation(env.DB, auth.user.id, scopeKey, body.title || "Новый чат");
       return json({ success: true, conversation });
@@ -555,6 +616,16 @@ export async function onRequestPost({ request, env }) {
       message: "OPENAI_API_KEY не настроен для AI Ассистента."
     }, 503);
 
+    const requestId=validateAiRequestId(body.requestId);
+    if(body.requestId&&!requestId)return json({success:false,message:"Неверный ID запроса."},400);
+    const guard=async()=>{
+      try{await checkAiCancelled(env.DB,auth.user.id,scopeKey,requestId,request.signal);}
+      catch(error){
+        if(error?.code==="AI_REQUEST_CANCELLED")await markCancelledUserPrompt(env.DB,auth.user.id,scopeKey,requestId);
+        throw error;
+      }
+    };
+    await guard();
     let conversationId = clean(body.conversationId);
     let conversation = conversationId ? await conversationById(env.DB, auth.user.id, conversationId, scopeKey) : null;
     if (!conversation) {
@@ -563,7 +634,8 @@ export async function onRequestPost({ request, env }) {
     }
 
     const existing = await recentMessages(env.DB, auth.user.id, conversationId, 1);
-    await saveMessage(env.DB, auth.user.id, conversationId, "user", text);
+    await saveMessage(env.DB, auth.user.id, conversationId, "user", text, requestId?{requestId}:null);
+    await guard();
     if (!existing.length || conversation.title === "Новый чат") {
       await touchConversation(env.DB, auth.user.id, conversationId, text.slice(0, 70));
     } else {
@@ -571,7 +643,7 @@ export async function onRequestPost({ request, env }) {
     }
 
     const history = await recentMessages(env.DB, auth.user.id, conversationId, MAX_HISTORY_MESSAGES);
-    const answer = await runAssistant(env, iiko.connection, history, iiko.scope, iiko.access);
+    const answer = await runAssistant(env, iiko.connection, history, iiko.scope, iiko.access, guard, request.signal);
     const meta = {
       model: answer.model,
       responseId: answer.responseId,
@@ -588,6 +660,7 @@ export async function onRequestPost({ request, env }) {
       } : null,
       readOnly: true
     };
+    await guard();
     await saveMessage(env.DB, auth.user.id, conversationId, "assistant", answer.text, meta);
     await touchConversation(env.DB, auth.user.id, conversationId);
 

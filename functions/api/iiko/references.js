@@ -261,7 +261,7 @@ async function syncAiReferences(env,serverUrl,token){
   };
 }
 
-async function syncReferences(env,serverUrl,token,neededSupplierIds=[]){await ensure(env.DB);const scope=await sha1(serverUrl.toLowerCase());const refs={};refs.suppliers=await loadRef(serverUrl,token,["/resto/api/suppliers?revisionFrom=-1","/resto/api/v2/entities/contractors","/resto/api/suppliers","/resto/api/corporation/suppliers"],parseSupplierList);const missing=[...new Set(neededSupplierIds.map(cleanId).filter(Boolean))].filter(id=>!refs.suppliers.rows.some(x=>cleanId(x.id)===id));if(missing.length){const extra=await resolveMissingSuppliers(serverUrl,token,missing.map(id=>({id})));refs.suppliers.rows.push(...extra);}
+async function syncReferences(env,serverUrl,token,neededSupplierIds=[],cacheScope=null){await ensure(env.DB);const scope=await sha1(String(cacheScope||serverUrl).toLowerCase());const refs={};refs.suppliers=await loadRef(serverUrl,token,["/resto/api/suppliers?revisionFrom=-1","/resto/api/v2/entities/contractors","/resto/api/suppliers","/resto/api/corporation/suppliers"],parseSupplierList);const missing=[...new Set(neededSupplierIds.map(cleanId).filter(Boolean))].filter(id=>!refs.suppliers.rows.some(x=>cleanId(x.id)===id));if(missing.length){const extra=await resolveMissingSuppliers(serverUrl,token,missing.map(id=>({id})));refs.suppliers.rows.push(...extra);}
 refs.warehouses=await loadWarehouses(serverUrl,token);
 if(refs.warehouses.rows.length<=1){
   const balanceWarehouses=await loadWarehousesFromBalances(serverUrl,token);

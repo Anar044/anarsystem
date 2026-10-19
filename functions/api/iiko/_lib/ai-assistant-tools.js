@@ -113,10 +113,15 @@ function similarity(query, value) {
 function mapRows(map) {
   return [...(map?.entries?.() || [])].map(([id, name]) => ({ id: key(id), name: clean(name) }));
 }
-async function references(env, connection) {
+async function references(env, connection, access) {
+  const workspaceId=clean(access?.workspace?.id),storageId=clean(access?.storageUserId);
+  if(!workspaceId||!storageId)throw Error("AI: организация не подтверждена, справочники недоступны.");
   const auth = await getIikoAuth(connection);
+  // The same server URL can host different businesses/credentials. AI must
+  // never read a dictionary cached under another workspace or login.
+  const dictionaryScope=JSON.stringify(["ai-v2",workspaceId,storageId,auth.serverUrl,clean(connection.login),String(connection.password||"")]);
   const [synced, suppliersResult] = await Promise.all([
-    syncReferences(env, auth.serverUrl, auth.token),
+    syncReferences(env, auth.serverUrl, auth.token, [], dictionaryScope),
     getIikoSuppliers(connection)
   ]);
   const maps = synced.maps || {};
@@ -279,7 +284,13 @@ async function supplierBalances(connection, timestamp, departmentIds=[], strictS
   const balanceRows=deepList(balancesResult.payload).filter(row=>row&&typeof row==="object"&&(row.counteragent!=null||row.counteragentId!=null));
   const detectedDepartmentIds=[...new Set(balanceRows.map(aiBalanceDepartmentId).filter(Boolean))];
   const wantedDepartments=new Set(departmentIds);
-  const scopedBalanceRows=departmentIds.length&&detectedDepartmentIds.length?balanceRows.filter(row=>wantedDepartments.has(aiBalanceDepartmentId(row))):balanceRows;
+  // A department query parameter is not evidence that the server actually
+  // applied the filter. Without department IDs on every returned balance row
+  // there is no safe way to prove that sums belong only to the selected RMS.
+  if(strictSubset&&balanceRows.some(row=>!aiBalanceDepartmentId(row))){
+    throw Object.assign(new Error("Сервер не подтвердил подразделения в балансе поставщиков. AI блокирует смешивание данных."),{code:"CHAIN_BALANCE_SCOPE_UNVERIFIED"});
+  }
+  const scopedBalanceRows=strictSubset?balanceRows.filter(row=>wantedDepartments.has(aiBalanceDepartmentId(row))):balanceRows;
   const sums = new Map();
   for (const row of scopedBalanceRows) {
     if (!row || typeof row !== "object") continue;
@@ -293,7 +304,7 @@ async function supplierBalances(connection, timestamp, departmentIds=[], strictS
     if (type === "ACCOUNTS_PAYABLE") target.debt += amount;
     else if (type === "CURRENT_ASSET" || type === "OTHER_CURRENT_ASSET") target.advance += amount;
   }
-  const rows = [...new Set([...suppliers.keys(), ...sums.keys()])].map(id => {
+  const rows = [...new Set(strictSubset?[...sums.keys()]:[...suppliers.keys(), ...sums.keys()])].map(id => {
     const amount = sums.get(id) || { advance: 0, debt: 0 };
     return {
       supplierId: id,
@@ -455,11 +466,17 @@ export const assistantToolDefinitions = [
 ];
 
 export async function executeAssistantTool(name, args, context) {
-  const { env, connection, scope } = context;
+  const { env, connection, scope, access } = context;
   const selectedDepartmentIds=Array.isArray(scope?.selectedDepartmentIds)?scope.selectedDepartmentIds:[];
   const allowedDepartmentIds=Array.isArray(scope?.allowedDepartmentIds)?scope.allowedDepartmentIds:[];
   const subsetChainScope=scope?.isChain===true && selectedDepartmentIds.length>0 && selectedDepartmentIds.length<allowedDepartmentIds.length;
   const effectiveDepartmentIds=subsetChainScope?selectedDepartmentIds:[];
+  if(!access?.allowed||!clean(access?.workspace?.id)||!clean(access?.storageUserId)||!connection?.ip||!connection?.login){
+    return {error:"Организация или её Smart Horeca Server не подтверждены.",code:"ASSISTANT_TENANT_UNVERIFIED"};
+  }
+  if(scope?.isChain&&(!selectedDepartmentIds.length||!allowedDepartmentIds.length)){
+    return {error:"Не удалось определить разрешённые рестораны.",code:"ASSISTANT_CHAIN_SCOPE_UNVERIFIED"};
+  }
 
   if (name === "list_smart_horeca_capabilities") {
     return {
@@ -479,13 +496,13 @@ export async function executeAssistantTool(name, args, context) {
   }
 
   if (name === "search_products") {
-    const refs = await references(env, connection);
+    const refs = await references(env, connection, access);
     const matches = matchProducts(refs.products, args.query, args.limit);
     return { query: args.query, count: matches.length, products: matches };
   }
 
   if (name === "analyze_purchase_prices") {
-    const refs = await references(env, connection);
+    const refs = await references(env, connection, access);
     const range = {
       ...defaultRange(365),
       from: isoDate(args.from) || defaultRange(365).from,
@@ -502,10 +519,15 @@ export async function executeAssistantTool(name, args, context) {
         return {error:"Не удалось определить склады выбранного ресторана. AI не будет смешивать закупки разных подразделений.",code:"CHAIN_SCOPE_STORE_UNAVAILABLE",departmentIds:selectedDepartmentIds};
       }
       const wantedStores=new Set(storeScope.storeIds.map(key));
-      loaded.documents=loaded.documents.filter(doc=>{
-        const stores=[doc.storeId,...(Array.isArray(doc.items)?doc.items.map(item=>item.storeId):[])].map(key).filter(Boolean);
-        return stores.some(id=>wantedStores.has(id));
-      });
+      loaded.documents=loaded.documents.map(doc=>{
+        // Multi-store invoices can carry items for several restaurants.
+        // A document-level match is insufficient: filter every item.
+        const items=(doc.items||[]).filter(item=>{
+          const store=key(item.storeId||doc.storeId);
+          return store&&wantedStores.has(store);
+        });
+        return {...doc,items};
+      }).filter(doc=>doc.items.length);
     }
     const supplierMap = new Map(refs.suppliers.map(x => [x.id, x.name]));
     const productMap = new Map(refs.products.map(x => [x.id, x.name]));
@@ -573,7 +595,7 @@ export async function executeAssistantTool(name, args, context) {
     try{
       result = await supplierBalances(connection, date, effectiveDepartmentIds, subsetChainScope);
     }catch(error){
-      return {error:String(error?.message||error),code:"CHAIN_SCOPE_UNAVAILABLE_SUPPLIER_BALANCE",departmentIds:selectedDepartmentIds};
+      return {error:String(error?.message||error),code:error?.code||"CHAIN_SCOPE_UNAVAILABLE_SUPPLIER_BALANCE",departmentIds:selectedDepartmentIds};
     }
     const query = clean(args.supplier_query);
     const rows = query

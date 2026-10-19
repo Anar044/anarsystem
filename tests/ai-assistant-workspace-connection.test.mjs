@@ -21,7 +21,7 @@ const savedState = {
     restaurantSections: [] }
 };
 const admin = {
-  allowed: true, isOwner: false, userId: 'login-user-id', storageUserId: 'platform-org:org1',
+  allowed: true, isOwner: false, userId: 'login-user-id', storageUserId: 'platform-org:org1', workspace: { id: 'workspace-org1' },
   scope: { mode: 'ALL', departmentIds: [], departmentCodes: [] },
   permissions: ['*']
 };
