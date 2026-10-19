@@ -304,7 +304,7 @@ async function supplierBalances(connection, timestamp, departmentIds=[], strictS
     if (type === "ACCOUNTS_PAYABLE") target.debt += amount;
     else if (type === "CURRENT_ASSET" || type === "OTHER_CURRENT_ASSET") target.advance += amount;
   }
-  const rows = [...new Set([...suppliers.keys(), ...sums.keys()])].map(id => {
+  const rows = [...new Set(strictSubset?[...sums.keys()]:[...suppliers.keys(), ...sums.keys()])].map(id => {
     const amount = sums.get(id) || { advance: 0, debt: 0 };
     return {
       supplierId: id,
