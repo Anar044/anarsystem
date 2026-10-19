@@ -39,13 +39,7 @@ async function bearerToken(account){
 export function configuredFcm(env){
  return Boolean(clean(env?.FCM_SERVICE_ACCOUNT_JSON));
 }
-export async function sendFcmAlert(env,deviceToken,alert){
- const raw=clean(env?.FCM_SERVICE_ACCOUNT_JSON);
- if(!raw)throw Error("FCM_NOT_CONFIGURED");
- let account;try{account=JSON.parse(raw)}catch{throw Error("FCM_SERVICE_ACCOUNT_INVALID")}
- if(!account?.client_email||!account?.private_key||!account?.project_id)
-   throw Error("FCM_SERVICE_ACCOUNT_INCOMPLETE");
- const bearer=await bearerToken(account);
+export function ownerFcmPayload(deviceToken,alert) {
  const payload={message:{
    token:deviceToken,
    notification:{title:"Smart Horeca • "+alert.title,body:alert.body},
@@ -60,6 +54,17 @@ export async function sendFcmAlert(env,deviceToken,alert){
      pluginId:alert.pluginId,
      ...(alert.orderNum?{orderNum:alert.orderNum}:{})}
  }};
+
+ return payload;
+}
+export async function sendFcmAlert(env,deviceToken,alert){
+ const raw=clean(env?.FCM_SERVICE_ACCOUNT_JSON);
+ if(!raw)throw Error("FCM_NOT_CONFIGURED");
+ let account;try{account=JSON.parse(raw)}catch{throw Error("FCM_SERVICE_ACCOUNT_INVALID")}
+ if(!account?.client_email||!account?.private_key||!account?.project_id)
+   throw Error("FCM_SERVICE_ACCOUNT_INCOMPLETE");
+ const bearer=await bearerToken(account);
+ const payload=ownerFcmPayload(deviceToken,alert);
  const resp=await fetch("https://fcm.googleapis.com/v1/projects/"+
    encodeURIComponent(account.project_id)+"/messages:send",{
    method:"POST",headers:{"Authorization":"Bearer "+bearer,
