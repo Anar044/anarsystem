@@ -1,6 +1,6 @@
 (() => {
   const $ = id => document.getElementById(id);
-  const state = { plugins: [], pluginId: '', orders: [], filter: 'all', search: '', busy: false, timer: null, detailCache: new Map(), paymentLoading: new Set(), iikoBinding: { departmentIds: [], serverUrl: '' } };
+  const state = { plugins: [], pluginId: '', orders: [], filter: 'all', search: '', busy: false, timer: null, detailCache: new Map(), paymentLoading: new Set(), historyCache: new Map(), activeOrder: null, iikoBinding: { departmentIds: [], serverUrl: '' } };
   const esc = v => String(v ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const unwrap = v => { if (typeof v === 'string') { try { return JSON.parse(v); } catch { return v; } } return v; };
   const first = v => { if (v == null || v === '') return null; if (Array.isArray(v)) { for (const x of v) { const r=first(x); if(r!=null&&r!=='') return r; } return null; } if(typeof v!=='object') return v; for(const k of ['name','Name','title','Title','value','Value','sum','Sum','amount','Amount','typeName','TypeName','type','Type']) if(v[k]!=null&&v[k]!=='') return v[k]; return null; };
@@ -68,7 +68,8 @@
     let list=Array.isArray(data)?data:(data?.plugins||data?.data||data?.items||[]);
     if(!Array.isArray(list))list=[];
     state.plugins=list.map(x=>x?.data?{...x,...x.data}:x).filter(Boolean);
-    const p=state.plugins.find(x=>x?.pluginId)||state.plugins[0];
+    const p=state.plugins.find(x=>String(x?.pluginId||'')===String(state.pluginId))
+      ||state.plugins.find(x=>x?.pluginId)||state.plugins[0];
     state.pluginId=p?.pluginId||'';
     $('cash-name').textContent=p?.pluginName||p?.groupName||'Касса';
     $('cash-subtitle').textContent=p?'Заказы, выручка и оплаты непосредственно от подключённой кассы.':'Подключённая касса не найдена.';
@@ -99,12 +100,171 @@
   function detailValue(label,value){return `<div class="detail"><span>${label}</span><strong>${esc(value||'—')}</strong></div>`;}
   function renderItems(d){const items=d?.Items??d?.items??[];if(!Array.isArray(items)||!items.length)return '<div class="modal-empty">Состав заказа отсутствует.</div>';return `<div class="items-table-wrap"><table class="items-table"><thead><tr><th>Блюдо</th><th>Кол-во</th><th>Цена</th><th>Сумма</th><th>Статус</th></tr></thead><tbody>${items.map(i=>{const q=num(i.Amount??i.amount),p=num(i.Price??i.price),sum=num(i.ResultSum??i.resultSum??i.Cost??i.cost);const shown=Number.isFinite(sum)?sum:(Number.isFinite(q)&&Number.isFinite(p)?q*p:NaN);return `<tr><td><strong>${esc(i.Name??i.name??'—')}</strong>${i.Size?`<small>${esc(i.Size)}</small>`:''}${Array.isArray(i.Modifiers)&&i.Modifiers.length?`<div class="item-modifiers">${i.Modifiers.map(m=>`+ ${esc(m.Name??m.name)} × ${esc(m.Amount??m.amount??1)}`).join('<br>')}</div>`:''}</td><td>${Number.isFinite(q)?q:'—'}</td><td>${money(p)}</td><td class="item-total">${money(shown)}</td><td>${esc(i.Status??i.status??'—')}</td></tr>`}).join('')}</tbody></table></div>`;}
   function eventType(ev){return String(ev?.pluginEventType??ev?.eventType??ev?.type??ev?.Type??ev?.event??ev?.Event??'').trim();}
-  function historyText(ev){const raw=eventType(ev);const t=raw.toLowerCase();const c=t.replace(/[\s_-]/g,'');if(/cancelguestbill|cancellationofguestbill|guestbillcancel/.test(c))return'Счёт отменён';if(/ordercancelled|cancelorder|cancelledorder/.test(c))return'Заказ отменён';if(/deletionofprinteditem|deleteprinteditem|deletedprinteditem|deletingsurcharge|removingsurcharge|removesurcharge|removediscount|deletingdiscount|removingdiscount/.test(c)){if(/discount|скид/.test(c))return'Удалена скидка';if(/surcharge|increase|надбав/.test(c))return'Удалена надбавка';return'Удалено блюдо';}if(/adddiscountsurchargeitem|adddiscountsurcharge/.test(c)){const d=ev?.data??ev?.Data??{};const blob=JSON.stringify(d).toLowerCase();if(d?.isDiscount===true||d?.IsDiscount===true||/discount|скид/.test(blob))return'Применена скидка';return'Применена надбавка';}if(/neworder|ordercreated/.test(c))return'Заказ создан';if(/orderguestsbill|guestbill|orderbill/.test(c))return'Выставлен счёт';if(/closingorder|closedorder|orderclosed|closeorder/.test(c))return'Заказ закрыт';if(/payment|pay/.test(c))return'Оплата заказа';if(/tablechanged|ordertablechanged/.test(c))return'Изменён стол';if(/waiterchanged|orderwaiterchanged/.test(c))return'Изменён официант';if(/add.*item|item.*add|addeditem/.test(c))return'Добавлено блюдо';if(/remove.*item|item.*remove|delete.*item/.test(c))return'Удалено блюдо';if(/discount/.test(c))return'Применена скидка';if(/surcharge|increase/.test(c))return'Применена надбавка';if(/update|change|edit/.test(c))return'Заказ обновлён';return raw||'Событие';}
-  function historySummary(ev){const d=ev?.data||ev?.Data||{};const type=eventType(ev).toLowerCase().replace(/[\s_-]/g,'');const parts=[];const add=(label,v)=>{if(v!==undefined&&v!==null&&v!=='')parts.push(`<span><b>${label}</b>${esc(v)}</span>`)};const value=(...keys)=>{for(const k of keys){const v=d?.[k]??ev?.[k];if(v!==undefined&&v!==null&&v!=='')return v;}return null;};const nested=(obj,keys)=>{if(!obj||typeof obj!=='object')return null;for(const k of keys){if(obj[k]!==undefined&&obj[k]!==null&&obj[k]!=='')return obj[k];}return null;};const itemObject=value('product','Product','item','Item','dish','Dish','printedItem','PrintedItem','deletedItem','DeletedItem','discountSurchargeItem','DiscountSurchargeItem');const itemName=value('productName','ProductName','itemName','ItemName','dishName','DishName','name','Name')||nested(itemObject,['name','Name','title','Title']);const qtyRaw=value('quantity','Quantity','qty','Qty','count','Count','itemAmount','ItemAmount','productAmount','ProductAmount','value','Value')||nested(itemObject,['quantity','Quantity','qty','Qty','amount','Amount','count','Count']);const qty=num(qtyRaw);const itemSumRaw=value('itemSum','ItemSum','productSum','ProductSum','dishSum','DishSum','resultSum','ResultSum','lineSum','LineSum','totalSum','TotalSum','cost','Cost','sum','Sum','amountSum','AmountSum')||nested(itemObject,['resultSum','ResultSum','sum','Sum','totalSum','TotalSum','cost','Cost','price','Price']);const itemPriceRaw=value('itemPrice','ItemPrice','productPrice','ProductPrice','dishPrice','DishPrice','price','Price')||nested(itemObject,['price','Price']);const itemSum=num(itemSumRaw);const itemPrice=num(itemPriceRaw);const isItemEvent=/item|printeditem|dish|discount|surcharge|increase/.test(type);add('Стол',value('orderTables','OrderTables','table','Table','tables','Tables'));add('Официант',value('waiter','Waiter'));add('Статус',value('orderStatus','OrderStatus'));if(isItemEvent){add('Блюдо',itemName);if(Number.isFinite(qty))add('Кол-во',qty);if(Number.isFinite(itemPrice))add('Цена',money(itemPrice));if(Number.isFinite(itemSum))add('Сумма',money(itemSum));}else{const rev=value('revenue','Revenue');if(rev!==null)add('Сумма',money(rev));if(itemName)add('Блюдо',itemName);if(Number.isFinite(qty))add('Кол-во',qty);}return parts.join('')||'<span><b>Информация</b>Событие заказа</span>';}
+  function historyText(ev){
+    const raw=eventType(ev);
+    const c=raw.toLowerCase().replace(/[\s_-]/g,'');
+    const names={
+      neworder:'Заказ открыт',
+      deletionofnotprinteditem:'Удалено нераспечатанное блюдо',
+      deletionofprinteditem:'Удалено распечатанное блюдо',
+      addingdiscount:'Добавлена скидка',
+      removingdiscount:'Удалена скидка',
+      addingsurcharge:'Добавлена надбавка',
+      removingsurcharge:'Удалена надбавка',
+      orderguestbill:'Распечатан пречек',
+      cancellationofguestbill:'Отменён пречек',
+      orderinthestatusofthebillforalongtime:'Заказ долго находится в статусе «Пречек»',
+      theperiodbetweenguestbillandcheckistoolong:'Долгое ожидание после пречека',
+      closingorder:'Заказ закрыт',
+      voidreceipt:'Чек сторнирован (возврат)',
+      deletinganorder:'Заказ удалён',
+      deleteanemptyorder:'Пустой заказ удалён',
+      paymenttypechanged:'Изменён тип оплаты',
+      changepaymenttype:'Изменён тип оплаты',
+      ordertablehasbeenchanged:'Изменён стол',
+      orderswaiterhaschanged:'Изменён официант'
+    };
+    if(Object.hasOwn(names,c))return names[c];
+    if(/cancelguestbill|guestbillcancel|cancelprecheck/.test(c))return 'Отменён пречек';
+    if(/printprecheck|guestbillprinted|precheckprinted|guestbill/.test(c))
+      return 'Распечатан пречек';
+    if(/deletionofnotprinteditem|deletenotprinteditem/.test(c))
+      return 'Удалено нераспечатанное блюдо';
+    if(/deletionofprinteditem|deleteprinteditem/.test(c))
+      return 'Удалено распечатанное блюдо';
+    if(/removingsurcharge|deletingsurcharge/.test(c))return 'Удалена надбавка';
+    if(/removingdiscount|deleteddiscount/.test(c))return 'Удалена скидка';
+    if(/adddiscountsurcharge/.test(c)){
+      const data=ev?.data??ev?.Data??{};
+      if(data?.isDiscount===true)return 'Добавлена скидка';
+      if(data?.isDiscount===false)return 'Добавлена надбавка';
+      return 'Изменено условие расчёта';
+    }
+    if(/closingorder|closedorder/.test(c))return 'Заказ закрыт';
+    if(/voidreceipt|storno|refund/.test(c))return 'Чек сторнирован (возврат)';
+    if(/payment.*chang|chang.*payment/.test(c))return 'Изменён тип оплаты';
+    if(/payment|pay/.test(c))return 'Оплата заказа';
+    if(/add.*item|item.*add/.test(c))return 'Добавлено блюдо';
+    if(/remove.*item|item.*remove|delete.*item/.test(c))return 'Удалено блюдо';
+    if(/tablechanged/.test(c))return 'Изменён стол';
+    if(/waiterchanged/.test(c))return 'Изменён официант';
+    if(/neworder|ordercreated/.test(c))return 'Заказ открыт';
+    return 'Другое событие заказа';
+  }
+
+  function historySummary(ev){
+    const d=ev?.data||ev?.Data||{};
+    const type=eventType(ev).toLowerCase().replace(/[\s_-]/g,'');
+    const parts=[];
+    const add=(label,value)=>{
+      if(value!==undefined&&value!==null&&value!=='')
+        parts.push('<span><b>'+esc(label)+'</b>'+esc(value)+'</span>');
+    };
+    const value=(...keys)=>{
+      for(const key of keys){
+        const found=d?.[key]??ev?.[key];
+        if(found!==undefined&&found!==null&&found!=='')return found;
+      }
+      return null;
+    };
+    const itemEvent=/deletion.*item|delete.*item|remove.*item|add.*item/.test(type);
+    const adjustment=/discount|surcharge|increase/.test(type);
+    const nested=value('product','Product','item','Item','dish','Dish');
+    const productName=value('productName','ProductName','itemName','ItemName',
+      'dishName','DishName')||(nested&&typeof nested==='object'?
+      nested.name??nested.Name??null:null);
+    add('Стол',value('orderTables','OrderTables','table','Table','tables','Tables'));
+    add('Официант',value('waiter','Waiter'));
+    if(itemEvent){
+      add('Блюдо',productName);
+      const qty=num(value('quantity','Quantity','qty','Qty'));
+      if(Number.isFinite(qty))add('Кол-во',qty);
+      const sum=num(value('sum','Sum','itemSum','ItemSum','resultSum','ResultSum'));
+      if(Number.isFinite(sum))add('Сумма',money(sum));
+    }
+    if(adjustment){
+      add(/surcharge|increase/.test(type)?'Надбавка':'Скидка',
+        value('name','Name','discountName','DiscountName','surchargeName'));
+      const percent=num(value('valuePercent','ValuePercent','percent','Percent'));
+      if(Number.isFinite(percent))add('Процент',percent+'%');
+    }
+    if(type.includes('deletionofprinteditem')){
+      const flag=value('withWriteOff','WithWriteOff','isWriteOff','IsWriteOff','writeOff','WriteOff');
+      const reason=value('reasonWriteOff','ReasonWriteOff','writeOffReason');
+      const reasonText=String(reason??'').trim();
+      const noWriteOff=/^(без списания|without\s*write.?off|no\s*write.?off|none)$/i.test(reasonText);
+      const state=flag===true||flag==='true'||flag===1||
+        (flag==null&&reasonText&&!noWriteOff)
+        ?'Со списанием'
+        :flag===false||flag==='false'||flag===0||noWriteOff
+        ?'Без списания':'Касса не передала тип списания';
+      add('Списание',state);
+      add('Причина',reason);
+      add('Комментарий',value('reasonComment','ReasonComment','writeOffComment'));
+    }
+    if(/orderinthestatusofthebillforalongtime|theperiodbetweenguestbillandcheckistoolong/.test(type)){
+      const minutes=value('orderInBillTooLong','OrderInBillTooLong',
+        'totalMinutesBetweenBillAndClose','TotalMinutesBetweenBillAndClose');
+      if(minutes!==null)add('Ожидание',minutes+' мин');
+    }
+    if(/payment|pay/.test(type)){
+      add('Оплата',value('paymentTypeName','PaymentTypeName',
+        'paymentName','PaymentName','paymentType','PaymentType'));
+    }
+    if(!itemEvent&&!adjustment){
+      const revenue=value('revenue','Revenue');
+      if(revenue!==null)add('Сумма',money(revenue));
+    }
+    return parts.join('')||'<span><b>Информация</b>Подтверждённое событие кассы</span>';
+  }
   function renderHistory(events){if(!Array.isArray(events)||!events.length)return '<div class="modal-empty">История событий пока недоступна.</div>';const sorted=[...events].sort((a,b)=>new Date(a?.receivedAt??a?.ReceivedAt??0)-new Date(b?.receivedAt??b?.ReceivedAt??0));return `<div class="history-list">${sorted.map(e=>`<div class="history-row"><div class="history-dot"></div><div class="history-main"><div class="history-top"><strong>${esc(historyText(e))}</strong><time>${esc(dt(e?.receivedAt??e?.ReceivedAt))}</time></div><div class="history-info">${historySummary(e)}</div></div></div>`).join('')}</div>`;}
-  async function loadHistory(n){const box=$('order-history');box.innerHTML='<div class="modal-loading">Загружаем историю…</div>';try{const q=await bindingQuery();const token=await accessToken();const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)(`/api/plugin/order-history?orderNum=${encodeURIComponent(n)}${state.pluginId?`&pluginId=${encodeURIComponent(state.pluginId)}`:''}${q?`&${q}`:''}`,{headers:{Authorization:`Bearer ${token}`},cache:'no-store'},30000);const d=unwrap(await r.json());const events=d?.events??d?.data?.events??d?.history??d?.data??d;box.innerHTML=renderHistory(Array.isArray(events)?events:[]);}catch(e){box.innerHTML=`<div class="modal-empty">Не удалось загрузить историю: ${esc(e.message)}</div>`;}}
-  async function openOrder(n){const modal=$('order-modal');modal.classList.remove('hidden');modal.setAttribute('aria-hidden','false');$('order-modal-title').textContent=`Заказ #${n}`;$('order-modal-subtitle').textContent='Загрузка полной информации…';$('order-details').innerHTML='<div class="modal-loading">Загружаем заказ…</div>';$('order-items').innerHTML='';$('order-history').innerHTML='<div class="modal-loading">Загружаем историю…</div>';try{let d=state.detailCache.get(String(n));if(!d){const payload=await requestDetail(n);d=detailRoot(payload);if(d)state.detailCache.set(String(n),d);}if(!d)throw Error('Детализация заказа не получена');const row=state.orders.find(x=>x.num===String(n))?.row;if(row)row.__detail=d;const revenue=d.Revenue??d.revenue??amount(row);const payments=paymentParts({Payments:d.Payments??d.payments});$('order-modal-subtitle').textContent=`${statusText(row||d)} · ${money(revenue)}`;$('order-details').innerHTML=[detailValue('Стол',d.Tables??d.tables??table(row)),detailValue('Зал',d.Floor??d.floor??floor(row)),detailValue('Официант',d.Waiter??d.waiter??waiter(row)),detailValue('Кассир',d.Cashier??d.cashier??cashier(row)),detailValue('Открыт',dt(d.OpenTime??d.openTime??openTime(row))),detailValue('Пробит',dt(d.BillTime??d.billTime)),detailValue('Закрыт',dt(d.CloseTime??d.closeTime??closeTime(row))),detailValue('Оплата',payments.length?payments.map(p=>`${p.name}${Number.isFinite(p.amount)?` · ${money(p.amount)}`:''}`).join(', '):'—')].join('');$('order-items').innerHTML=renderItems(d);loadHistory(n);}catch(e){$('order-details').innerHTML=`<div class="modal-empty">${esc(e.message||e)}</div>`;$('order-items').innerHTML='';loadHistory(n);}}
-  function closeModal(){$('order-modal').classList.add('hidden');$('order-modal').setAttribute('aria-hidden','true');}
+  async function loadHistory(n){
+    const box=$('order-history'),pluginId=state.pluginId;
+    const orderId=String(n),cacheKey=pluginId+':'+orderId;
+    const cached=state.historyCache.get(cacheKey)||[];
+    const active=()=>state.activeOrder===orderId && state.pluginId===pluginId;
+    box.innerHTML=cached.length?renderHistory(cached):
+      '<div class="modal-loading">Загружаем историю…</div>';
+    try{
+      const q=await bindingQuery();
+      const token=await accessToken();
+      const url='/api/plugin/order-history?orderNum='+encodeURIComponent(orderId)+
+        (pluginId?'&pluginId='+encodeURIComponent(pluginId):'')+
+        (q?'&'+q:'');
+      const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)(
+        url,{headers:{Authorization:'Bearer '+token},cache:'no-store'},30000);
+      const d=unwrap(await r.json());
+      if(!r.ok||d?.success===false)throw Error(d?.error||'HTTP '+r.status);
+      const source=d?.events??d?.data?.events??d?.history??d?.data??d;
+      const events=Array.isArray(source)?source:[];
+      if(!active())return;
+      if(events.length){
+        // Keep source timestamps/UUIDs intact and preserve previously
+        // confirmed audit lines when a POS update temporarily returns less.
+        const merged=new Map();
+        for(const e of [...cached,...events]){
+          const id=String(e?.uuid??e?.id??e?.eventId??'')||
+            JSON.stringify([eventType(e),e?.receivedAt,e?.data]);
+          if(!merged.has(id))merged.set(id,e);
+        }
+        const all=[...merged.values()];
+        state.historyCache.set(cacheKey,all);
+        box.innerHTML=renderHistory(all);
+      }else if(cached.length){
+        box.innerHTML='<div class="modal-empty">Сервер временно вернул пустую историю. '+
+          'Ниже — ранее подтверждённые события этой кассы.</div>'+renderHistory(cached);
+      }else box.innerHTML=renderHistory([]);
+    }catch(e){
+      if(!active())return;
+      box.innerHTML=(cached.length
+        ?'<div class="modal-empty">Не удалось обновить историю. '+
+          'Показаны ранее подтверждённые события.</div>'+renderHistory(cached)
+        :'<div class="modal-empty">Не удалось загрузить историю: '+
+          esc(e.message)+'</div>');
+    }
+  }
+  async function openOrder(n){state.activeOrder=String(n);const modal=$('order-modal');modal.classList.remove('hidden');modal.setAttribute('aria-hidden','false');$('order-modal-title').textContent=`Заказ #${n}`;$('order-modal-subtitle').textContent='Загрузка полной информации…';$('order-details').innerHTML='<div class="modal-loading">Загружаем заказ…</div>';$('order-items').innerHTML='';$('order-history').innerHTML='<div class="modal-loading">Загружаем историю…</div>';try{let d=state.detailCache.get(String(n));if(!d){const payload=await requestDetail(n);d=detailRoot(payload);if(d)state.detailCache.set(String(n),d);}if(!d)throw Error('Детализация заказа не получена');const row=state.orders.find(x=>x.num===String(n))?.row;if(row)row.__detail=d;const revenue=d.Revenue??d.revenue??amount(row);const payments=paymentParts({Payments:d.Payments??d.payments});$('order-modal-subtitle').textContent=`${statusText(row||d)} · ${money(revenue)}`;$('order-details').innerHTML=[detailValue('Стол',d.Tables??d.tables??table(row)),detailValue('Зал',d.Floor??d.floor??floor(row)),detailValue('Официант',d.Waiter??d.waiter??waiter(row)),detailValue('Кассир',d.Cashier??d.cashier??cashier(row)),detailValue('Открыт',dt(d.OpenTime??d.openTime??openTime(row))),detailValue('Пробит',dt(d.BillTime??d.billTime)),detailValue('Закрыт',dt(d.CloseTime??d.closeTime??closeTime(row))),detailValue('Оплата',payments.length?payments.map(p=>`${p.name}${Number.isFinite(p.amount)?` · ${money(p.amount)}`:''}`).join(', '):'—')].join('');$('order-items').innerHTML=renderItems(d);loadHistory(n);}catch(e){$('order-details').innerHTML=`<div class="modal-empty">${esc(e.message||e)}</div>`;$('order-items').innerHTML='';loadHistory(n);}}
+  function closeModal(){state.activeOrder=null;$('order-modal').classList.add('hidden');$('order-modal').setAttribute('aria-hidden','true');}
   function render(){renderKpis();renderPayments();renderStatus();renderOrders();}
   $('refresh')?.addEventListener('click',loadOrders);$('search')?.addEventListener('input',e=>{state.search=e.target.value;renderOrders();});$('filters')?.addEventListener('click',e=>{const b=e.target.closest('[data-filter]');if(!b)return;state.filter=b.dataset.filter;document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x===b));renderOrders();});$('orders')?.addEventListener('click',e=>{const tr=e.target.closest('tr[data-num]');if(tr)openOrder(tr.dataset.num);});document.querySelectorAll('[data-close-modal]').forEach(x=>x.addEventListener('click',closeModal));document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
   function syncPolling(){
