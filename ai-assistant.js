@@ -356,7 +356,7 @@ function inferredReportCharts(report){
   if(data.length<2)return[];
   const shown=data.slice(0,12);
   const labelCol=String(cols[0]?.label||'').toLowerCase();
-  const isTime=/дат|день|недел|месяц|период|date|day|week|month/.test(labelCol)||shown.every(p=>/^\\d{4}-\\d{2}(-\\d{2})?$/.test(p.label));
+  const isTime=/дат|день|недел|месяц|период|date|day|week|month/.test(labelCol)||shown.every(p=>/^\d{4}-\d{2}(-\d{2})?$/.test(p.label));
   const common={subtitle:'На основе отображённых строк · '+String(metric.label||''),xLabel:String(cols[0]?.label||''),yLabel:String(metric.label||''),notes:['График построен только по строкам этого отчёта.']};
   const charts=[{...common,type:isTime?'line':'horizontal_bar',title:isTime?'Динамика показателя':'Сравнение показателей',series:[{name:String(metric.label||'Значение'),data:shown}]}];
   const metricText=String(metric.label||'').toLowerCase();
