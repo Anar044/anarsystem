@@ -1,0 +1,19 @@
+name: Owner POS Order History Fix
+on:
+  push:
+    branches:
+      - fix/owner-audit-order-history-20261019
+  pull_request:
+    paths:
+      - functions/api/mobile/v1/cash-order-history.js
+      - tests/mobile-cash-order-history.test.mjs
+jobs:
+  audit-events:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check functions/api/mobile/v1/cash-order-history.js
+      - run: node --test tests/mobile-cash-order-history.test.mjs

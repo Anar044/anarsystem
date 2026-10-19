@@ -47,32 +47,74 @@ async function fetchSource(url,{timeoutMs=9000}={}){
     return payload;
   }finally{clearTimeout(timer);}
 }
-function eventName(type, data){
+
+/**
+ * Actual legacy POS plugin wire names are documented in
+ * EnumPluginEventType.cs.  Never render unknown English identifiers as the
+ * customer-facing label; retain rawType only for diagnostics.
+ */
+function eventName(type,data){
   const key=clean(type).toLowerCase().replace(/[\s_-]/g,"");
+  const known={
+    neworder:["ORDER_OPENED","Заказ открыт"],
+    deletionofnotprinteditem:["ITEM_REMOVED","Удалено нераспечатанное блюдо"],
+    deletionofprinteditem:["ITEM_REMOVED","Удалено распечатанное блюдо"],
+    addingdiscount:["DISCOUNT_APPLIED","Добавлена скидка"],
+    removingdiscount:["DISCOUNT_REMOVED","Удалена скидка"],
+    addingsurcharge:["SURCHARGE_APPLIED","Добавлена надбавка"],
+    removingsurcharge:["SURCHARGE_REMOVED","Удалена надбавка"],
+    orderguestbill:["PRECHECK_PRINTED","Распечатан пречек"],
+    cancellationofguestbill:["PRECHECK_CANCELLED","Отменён пречек"],
+    closingorder:["ORDER_CLOSED","Заказ закрыт"],
+    voidreceipt:["RECEIPT_STORNO","Чек сторнирован (возврат)"],
+    deletinganorder:["ORDER_CANCELLED","Заказ удалён"],
+    deleteanemptyorder:["ORDER_CANCELLED","Пустой заказ удалён"],
+    orderinthestatusofthebillforalongtime:
+      ["PRECHECK_OVERDUE","Заказ долго находится в статусе «Пречек»"],
+    theperiodbetweenguestbillandcheckistoolong:
+      ["PRECHECK_OVERDUE","Долгое ожидание после пречека"],
+    ordertablehasbeenchanged:["TABLE_CHANGED","Изменён стол"],
+    orderswaiterhaschanged:["WAITER_CHANGED","Изменён официант"],
+    paymenttypechanged:["PAYMENT_CHANGED","Изменён тип оплаты"],
+    changepaymenttype:["PAYMENT_CHANGED","Изменён тип оплаты"],
+    changeoftypeofpayment:["PAYMENT_CHANGED","Изменён тип оплаты"],
+    paymentchanged:["PAYMENT_CHANGED","Изменена оплата"],
+  };
+  if(Object.prototype.hasOwnProperty.call(known,key)){
+    const [kind,label]=known[key];
+    return {kind,label};
+  }
+  // Compatibility with older POS plugin builds using variant event names.
   if(/printprecheck|precheckprinted|printguestbill|guestbillprinted|billprinted/.test(key))
     return {kind:"PRECHECK_PRINTED",label:"Распечатан пречек"};
-  if(/cancelguestbill|guestbillcancel/.test(key))
-    return {kind:"PRECHECK_CANCELLED",label:"Счёт отменён"};
+  if(/cancelguestbill|guestbillcancel|cancelprecheck|precheckcancel/.test(key))
+    return {kind:"PRECHECK_CANCELLED",label:"Отменён пречек"};
   if(/cancelorder|ordercancelled|cancelledorder/.test(key))
     return {kind:"ORDER_CANCELLED",label:"Заказ отменён"};
   if(/deletionofprinteditem|deleteprinteditem|deletedprinteditem/.test(key))
-    return {kind:"ITEM_REMOVED",label:"Удалено блюдо"};
+    return {kind:"ITEM_REMOVED",label:"Удалено распечатанное блюдо"};
+  if(/deletionofnotprinteditem|deletenotprinteditem/.test(key))
+    return {kind:"ITEM_REMOVED",label:"Удалено нераспечатанное блюдо"};
   if(/deletingsurcharge|removingsurcharge|removesurcharge/.test(key))
     return {kind:"SURCHARGE_REMOVED",label:"Удалена надбавка"};
   if(/removediscount|deletingdiscount|removingdiscount/.test(key))
     return {kind:"DISCOUNT_REMOVED",label:"Удалена скидка"};
   if(/adddiscountsurchargeitem|adddiscountsurcharge/.test(key)){
     const isDiscount=first(data,["isDiscount","IsDiscount"]);
-    if(isDiscount===true)return {kind:"DISCOUNT_APPLIED",label:"Применена скидка"};
-    if(isDiscount===false)return {kind:"SURCHARGE_APPLIED",label:"Применена надбавка"};
-    return {kind:"PRICE_ADJUSTMENT",label:"Изменено условие оплаты"};
+    if(isDiscount===true)return {kind:"DISCOUNT_APPLIED",label:"Добавлена скидка"};
+    if(isDiscount===false)return {kind:"SURCHARGE_APPLIED",label:"Добавлена надбавка"};
+    return {kind:"PRICE_ADJUSTMENT",label:"Изменено условие расчёта"};
   }
   if(/neworder|ordercreated/.test(key))
     return {kind:"ORDER_OPENED",label:"Заказ открыт"};
   if(/closingorder|closedorder|orderclosed|closeorder/.test(key))
     return {kind:"ORDER_CLOSED",label:"Заказ закрыт"};
   if(/orderguestsbill|guestbill|orderbill/.test(key))
-    return {kind:"BILL_CREATED",label:"Сформирован счёт"};
+    return {kind:"PRECHECK_PRINTED",label:"Распечатан пречек"};
+  if(/storno|voidreceipt|receiptrefund|refund/.test(key))
+    return {kind:"RECEIPT_STORNO",label:"Чек сторнирован (возврат)"};
+  if(/payment.*chang|chang.*payment/.test(key))
+    return {kind:"PAYMENT_CHANGED",label:"Изменён тип оплаты"};
   if(/payment|pay/.test(key))
     return {kind:"PAYMENT",label:"Оплата заказа"};
   if(/add.*item|item.*add|addeditem/.test(key))
@@ -80,61 +122,117 @@ function eventName(type, data){
   if(/remove.*item|item.*remove|delete.*item/.test(key))
     return {kind:"ITEM_REMOVED",label:"Удалено блюдо"};
   if(/discount/.test(key))
-    return {kind:"DISCOUNT_APPLIED",label:"Изменена скидка"};
+    return {kind:"DISCOUNT_APPLIED",label:"Операция со скидкой"};
   if(/surcharge|increase/.test(key))
-    return {kind:"SURCHARGE_APPLIED",label:"Изменена надбавка"};
+    return {kind:"SURCHARGE_APPLIED",label:"Операция с надбавкой"};
   if(/tablechanged/.test(key))return {kind:"TABLE_CHANGED",label:"Изменён стол"};
   if(/waiterchanged/.test(key))return {kind:"WAITER_CHANGED",label:"Изменён официант"};
-  return {kind:"OTHER",label:clean(type)||"Событие заказа"};
+  return {kind:"OTHER",label:"Другое событие заказа"};
 }
 const value=(root,data,keys)=>first(data,keys)??first(root,keys);
+const textScalar=v=>{
+  if(v&&typeof v==="object")
+    return clean(first(v,["name","Name","title","Title","label","Label"]));
+  return clean(v);
+};
+const writeOffData=(root,data)=>{
+  const writeOffFlag=value(root,data,[
+    "withWriteOff","WithWriteOff","isWriteOff","IsWriteOff",
+    "isWrittenOff","IsWrittenOff","writeOff","WriteOff",
+  ]);
+  const reason=textScalar(value(root,data,["reasonWriteOff","ReasonWriteOff",
+    "writeOffReason","WriteOffReason"]));
+  const comment=textScalar(value(root,data,["reasonComment","ReasonComment",
+    "writeOffComment","WriteOffComment"]));
+  const noWriteOff=/^(без списания|безсписания|without\s*write.?off|no\s*write.?off|не списывать|none)$/i;
+  let writeOffStatus="UNKNOWN";
+  if(writeOffFlag===true||writeOffFlag==="true"||writeOffFlag===1)
+    writeOffStatus="WITH_WRITE_OFF";
+  else if(writeOffFlag===false||writeOffFlag==="false"||writeOffFlag===0)
+    writeOffStatus="WITHOUT_WRITE_OFF";
+  else if(reason&&noWriteOff.test(reason))
+    writeOffStatus="WITHOUT_WRITE_OFF";
+  else if(reason)
+    writeOffStatus="WITH_WRITE_OFF";
+  return {
+    writeOffStatus,
+    writeOffLabel:writeOffStatus==="WITH_WRITE_OFF"?"Со списанием":
+      writeOffStatus==="WITHOUT_WRITE_OFF"?"Без списания":
+      "Касса не передала тип списания",
+    ...(reason?{writeOffReason:reason}:{}),
+    ...(comment?{writeOffComment:comment}:{}),
+  };
+};
+
 export function normalizePosAuditEvents(payload,requestedOrderNum){
   const root=object(payload);
   const raw=Array.isArray(payload)?payload:
     first(root,["events","history","data"]) ?? [];
   const events=Array.isArray(raw)?raw:
     (Array.isArray(raw?.events)?raw.events:[]);
-  const wanted=clean(requestedOrderNum);
+  const wanted=clean(requestedOrderNum).replace(/^#/,"");
   const seen=new Set();
-  return events.slice(0,1000).flatMap((event,index)=>{
+  return events.slice(0,2000).flatMap((event,index)=>{
     if(!event||typeof event!=="object")return [];
-    const orderNum=clean(first(event,["orderNum","OrderNum","orderNumber","OrderNumber"]));
-    if(orderNum&&orderNum!==wanted)return [];
-    const occurredAt=clean(first(event,["receivedAt","ReceivedAt","occurredAt",
-      "OccurredAt","timestamp","Timestamp","dateTime","DateTime"]));
-    // An audit line without a source timestamp cannot be placed in history.
-    if(!occurredAt||!Number.isFinite(Date.parse(occurredAt)))return [];
     const data=object(first(event,["data","Data","details","Details"]));
+    const orderNum=clean(value(event,data,
+      ["orderNum","OrderNum","orderNumber","OrderNumber"])).replace(/^#/,"");
     const rawType=clean(first(event,["pluginEventType","eventType","type",
       "Type","event","Event"]));
-    const eventId=clean(first(event,["id","Id","eventId","EventId"]))||
-      `${rawType}:${occurredAt}:${index}`;
+    const {kind,label}=eventName(rawType,data);
+    // A return may open a new linked transaction. Only explicitly linked
+    // refund/storno events can be associated with the original order number.
+    const originalNum=kind==="RECEIPT_STORNO"?
+      clean(value(event,data,["originalOrderNum","OriginalOrderNum",
+        "sourceOrderNum","SourceOrderNum"])).replace(/^#/,""):"";
+    if(orderNum && orderNum!==wanted && originalNum!==wanted)return [];
+    const occurredAt=clean(first(event,["receivedAt","ReceivedAt","occurredAt",
+      "OccurredAt","timestamp","Timestamp","dateTime","DateTime"]) ??
+      first(data,["updateTime","UpdateTime"]));
+    // A missing source timestamp must never be replaced with a guessed time.
+    if(!occurredAt||!Number.isFinite(Date.parse(occurredAt)))return [];
+    const eventId=clean(first(event,["uuid","Uuid","UUID","id","Id",
+      "eventId","EventId"]))||`${rawType}:${occurredAt}:${index}`;
     if(seen.has(eventId))return [];
     seen.add(eventId);
-    const {kind,label}=eventName(rawType,data);
-    const item=value(event,data,["product","Product","item","Item","dish","Dish",
-      "printedItem","PrintedItem","deletedItem","DeletedItem"]);
-    const name=first(data,["productName","ProductName","itemName","ItemName",
-      "dishName","DishName","name","Name"]) ??
-      first(object(item),["name","Name","title","Title"]);
-    const quantity=numeric(value(event,data,["quantity","Quantity","qty","Qty",
+    const isItem=kind==="ITEM_ADDED"||kind==="ITEM_REMOVED";
+    const product=value(event,data,["product","Product","item","Item",
+      "dish","Dish","printedItem","PrintedItem","deletedItem","DeletedItem"]);
+    const productName=isItem?(first(data,["productName","ProductName",
+      "itemName","ItemName","dishName","DishName"]) ??
+      first(object(product),["name","Name","title","Title"])):null;
+    const qty=numeric(value(event,data,["quantity","Quantity","qty","Qty",
       "count","Count","itemAmount","ItemAmount"]));
     const amount=numeric(value(event,data,["resultSum","ResultSum","itemSum",
       "ItemSum","lineSum","LineSum","totalSum","TotalSum","sum","Sum"]));
-    const payment=first(data,["paymentTypeName","PaymentTypeName","paymentName",
-      "PaymentName","paymentType","PaymentType"]);
+    const payment=value(event,data,["paymentTypeName","PaymentTypeName",
+      "paymentName","PaymentName","paymentType","PaymentType"]);
     const person=value(event,data,["userName","UserName","waiter","Waiter",
       "cashier","Cashier"]);
+    const adjustment=kind==="DISCOUNT_APPLIED"||kind==="DISCOUNT_REMOVED"||
+      kind==="SURCHARGE_APPLIED"||kind==="SURCHARGE_REMOVED";
+    const adjustmentName=adjustment?textScalar(value(event,data,
+      ["name","Name","discountName","DiscountName",
+       "surchargeName","SurchargeName"])):"";
+    const percent=adjustment?numeric(value(event,data,
+      ["valuePercent","ValuePercent","percent","Percent"])):null;
+    const billMinutes=kind==="PRECHECK_OVERDUE"?numeric(value(event,data,
+      ["orderInBillTooLong","OrderInBillTooLong",
+      "totalMinutesBetweenBillAndClose","TotalMinutesBetweenBillAndClose"])):null;
+    const isPrintedDeletion=clean(rawType).toLowerCase()
+      .replace(/[\s_-]/g,"").includes("deletionofprinteditem");
     return [{
       id:eventId,occurredAt,kind,label,rawType,
-      ...(name?{itemName:clean(name)}:{}),
-      ...(quantity!==null?{quantity}:{}),
+      ...(productName?{itemName:clean(productName)}:{}),
+      ...(isItem&&qty!==null?{quantity:qty}:{}),
       ...(amount!==null?{amount}:{}),
-      ...(payment?{paymentType:clean(
-        typeof payment==="object"
-          ?first(payment,["name","Name","title","Title"]):payment)}:{}),
-      ...(person?{employee:clean(
-        typeof person==="object"?first(person,["name","Name"]):person)}:{})
+      ...(payment?{paymentType:textScalar(payment)}:{}),
+      ...(person?{employee:textScalar(person)}:{}),
+      ...(adjustmentName?{adjustmentName}:{}),
+      ...(percent!==null?{percent}:{}),
+      ...(billMinutes!==null?{billMinutes}:{}),
+      ...(isPrintedDeletion?writeOffData(event,data):{}),
+      ...(orderNum&&orderNum!==wanted?{linkedOrderNum:orderNum}:{}),
     }];
   }).sort((a,b)=>Date.parse(a.occurredAt)-Date.parse(b.occurredAt));
 }
