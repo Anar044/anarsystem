@@ -53,7 +53,11 @@ export async function sendFcmAlert(env,deviceToken,alert){
      priority:"HIGH",
      notification:{channel_id:"sh_owner_pos_alerts",sound:"default"}
    },
+   // These fields are used only to navigate to the existing read-only
+   // cash order endpoint. The app rechecks server-side workspace/restaurant
+   // access before reading any order. Never put secrets in FCM data.
    data:{kind:alert.kind,departmentId:alert.departmentId,
+     pluginId:alert.pluginId,
      ...(alert.orderNum?{orderNum:alert.orderNum}:{})}
  }};
  const resp=await fetch("https://fcm.googleapis.com/v1/projects/"+
