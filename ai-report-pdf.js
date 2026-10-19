@@ -3,7 +3,10 @@
 'use strict';
 const PALETTE=['#169B72','#347AC3','#D59B2D','#815CB6','#D85F6A','#1C9CAA'];
 const ink='#172F42',muted='#597184',line='#DBE7EB',green='#087451';
-const str=v=>String(v??'').replace(/\u20BC/g,' AZN');
+// Clean generated and previously saved reports at export time.
+const str=v=>String(v??'')
+  .replace(/\biiko(?:chain|front|office|server|rms|cloud)?\b/gi,'Smart Horeca')
+  .replace(/\u20BC/g,' AZN');
 const num=v=>{const n=Number(v);return Number.isFinite(n)?n:0};
 const fmt=v=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(num(v));
 const color=i=>PALETTE[i%PALETTE.length];
