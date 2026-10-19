@@ -80,3 +80,22 @@ test("discount changes without explicit confirmation never trigger applied alert
    receivedAt:"2026-10-19T15:26:00Z"
  }),null);
 });
+
+// iikoFront plugin EnumPluginEventType uses the exact wire types
+// addingDiscount, removingDiscount, addingSurcharge and removingSurcharge.
+test("real plugin discount events never confuse a surcharge for a discount", () => {
+ const discount={pluginEventType:"addingDiscount",uuid:"f169ca36-322b-4438-8c89-71f6e72a9620",
+  departmentId:"c44d9d6f-2990-40ea-b072-2f61b3f5dcea",
+  departmentName:"Ресторан",pluginId:"pos-1",
+  data:{name:"Endirim 10%",orderNum:45,valuePercent:10,waiter:"TEST HR"}};
+ const applied=posAlertDetails(discount);
+ assert.equal(applied.kind,"DISCOUNT_APPLIED");
+ assert.equal(applied.orderNum,"45");
+ assert.ok(applied.body.includes("Endirim 10%"));
+ const removed=posAlertDetails({...discount,pluginEventType:"removingDiscount"});
+ assert.equal(removed.kind,"DISCOUNT_REMOVED");
+ assert.equal(classifyPosAlert("addingSurcharge",discount.data),null);
+ assert.equal(classifyPosAlert("removingSurcharge",discount.data),null);
+ assert.equal(classifyPosAlert("addingDiscount",{}).kind,"DISCOUNT_APPLIED");
+ assert.equal(classifyPosAlert("removingDiscount",{}).kind,"DISCOUNT_REMOVED");
+});
