@@ -259,8 +259,9 @@ html[data-theme="light"] .sha-report-table .sha-report-child-row:hover td{backgr
 .sha-hbar-label{color:var(--sha-text);font-size:10px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sha-hbar-bars{display:grid;gap:5px}
 .sha-hbar-line{display:grid;grid-template-columns:minmax(0,1fr) 72px;gap:8px;align-items:center}
-.sha-hbar-track{height:11px;border-radius:999px;background:rgba(127,127,127,.12);overflow:hidden}
-.sha-hbar-fill{display:block;height:100%;border-radius:999px}
+.sha-hbar-track{position:relative;height:11px;border-radius:999px;background:rgba(127,127,127,.12);overflow:hidden}
+.sha-hbar-zero{position:absolute;top:0;bottom:0;width:1px;background:var(--sha-muted);z-index:2}
+.sha-hbar-fill{display:block;position:absolute;top:0;height:100%;border-radius:999px}
 .sha-hbar-fill.s0{background:var(--chart-s0)}.sha-hbar-fill.s1{background:var(--chart-s1)}.sha-hbar-fill.s2{background:var(--chart-s2)}.sha-hbar-fill.s3{background:var(--chart-s3)}.sha-hbar-fill.s4{background:var(--chart-s4)}.sha-hbar-fill.s5{background:var(--chart-s5)}
 .sha-hbar-line strong{color:var(--sha-text);font-size:10px;text-align:right;font-variant-numeric:tabular-nums}
 .sha-pie-layout{display:grid;grid-template-columns:190px minmax(0,1fr);gap:24px;align-items:center;padding:8px 10px 12px}
