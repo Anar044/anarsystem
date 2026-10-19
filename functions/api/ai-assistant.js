@@ -116,6 +116,30 @@ const ASSISTANT_RESPONSE_SCHEMA = {
   additionalProperties: false
 };
 
+// White-label all AI-authored presentation strings, never integration identifiers or tool arguments.
+function brandVisibleText(value) {
+  return String(value ?? "").replace(/\biiko(?:chain|front|office|server|rms|cloud)?\b/gi, "Smart Horeca");
+}
+function brandPresentation(value) {
+  if (typeof value === "string") return brandVisibleText(value);
+  if (Array.isArray(value)) return value.map(brandPresentation);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, brandPresentation(item)]));
+  }
+  return value;
+}
+function brandSavedAssistantMessage(message) {
+  if (message.role !== "assistant") return message; // Never change the user's original question.
+  const meta = message.meta;
+  return {
+    ...message,
+    content: brandVisibleText(message.content),
+    meta: meta && typeof meta === "object"
+      ? {...meta, report: brandPresentation(meta.report), chart: brandPresentation(meta.chart), charts: brandPresentation(meta.charts)}
+      : meta
+  };
+}
+
 function parseAssistantPayload(text) {
   const raw = clean(text);
   if (!raw) return { kind: "text", text: "", report: null, chart: null, charts: [] };
@@ -323,7 +347,7 @@ function instructions(model, connected) {
 3. При неоднозначном названии товара сначала найди похожие позиции и учитывай несколько подходящих товаров, если запрос пользователя подразумевает категорию (например "помидоры").
 4. Для закупочных цен показывай период, поставщика, товар и динамику цены. Не называй "текущей ценой" цену, если это лишь последняя цена в найденной накладной.
 5. Для сравнений объясняй, на каких данных основан вывод.
-6. Не выполняй запись/изменение данных в iiko. Все инструменты этой версии только читают данные.
+6. Не выполняй запись/изменение данных в системе учёта. Все инструменты этой версии только читают данные.
 7. Для обычного вопроса верни kind="text", краткий текст, report=null, chart=null, charts=[].
 8. Для запросов на отчёты и аналитику руководителя, когда есть числовые данные, по умолчанию верни report с KPI и визуализациями: kind="report_with_chart", chart=null, charts с 1–3 уместными графиками. Не требуй отдельной просьбы нарисовать график.
 9. Для явной просьбы только о графиках допускается kind="chart", report=null, chart=null и charts с графиками.
@@ -339,7 +363,8 @@ function instructions(model, connected) {
 19. Никогда не дублируй большую таблицу в text: text должен быть коротким вводным/итоговым комментарием.
 20. Если результат большой, в report.rows оставь наиболее полезные строки, а ограничение объясни в notes.
 21. Не раскрывай технические пароли, токены или внутренние секреты.
-22. Подключение к iiko сейчас: ${connected ? "есть" : "нет"}.
+22. Подключение к источнику данных сейчас: ${connected ? "есть" : "нет"}.
+23. Smart Horeca — единственный бренд, который должен видеть владелец. Никогда не используй название внешней учётной платформы "iiko", "iikoChain", "iikoFront" и их варианты в пользовательском ответе: text, report.title/subtitle/periodLabel, KPI, columns, rows, notes, chart и charts. Пиши "Smart Horeca", "OLAP", "данные продаж" или "данные системы" по смыслу. Внутренние названия функций и параметры API не меняй.
 
 Модель: ${model}.`;
 }
@@ -426,7 +451,7 @@ async function runAssistant(env, connection, history, scope=null, access=null) {
 
   const rawText = outputText(response);
   if (!rawText) throw new Error("AI не вернул ответ.");
-  const structured = parseAssistantPayload(rawText);
+  const structured = brandPresentation(parseAssistantPayload(rawText));
   if (!structured.text && !structured.report && !structured.chart && !structured.charts.length) throw new Error("AI вернул пустой ответ.");
   return {
     text: structured.text || structured.report?.title || structured.chart?.title || structured.charts[0]?.title || "Отчёт сформирован.",
@@ -485,7 +510,7 @@ export async function onRequestGet({ request, env }) {
       return json({
         success: true,
         conversation,
-        messages: await recentMessages(env.DB, auth.user.id, conversationId, 30)
+        messages: (await recentMessages(env.DB, auth.user.id, conversationId, 30)).map(brandSavedAssistantMessage)
       });
     }
     return json({ success: false, message: "Неизвестное действие." }, 400);
