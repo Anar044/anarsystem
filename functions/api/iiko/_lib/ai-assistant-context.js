@@ -24,6 +24,11 @@ export async function resolveAssistantIiko(env, request, requestedIds = null) {
   if (!hasPermission(stored.access, "assistant.use")) {
     throw forbidden("Нет права на использование AI Smart Horeca Assistant.", "ASSISTANT_ACCESS_DENIED");
   }
+  // A valid membership alone is not enough. A workspace and its private server
+  // must be resolved before any assistant data source or conversation is used.
+  if (!clean(stored.access.workspace?.id) || !clean(stored.access.storageUserId)) {
+    throw forbidden("Не удалось подтвердить организацию и её сервер.", "ASSISTANT_TENANT_UNVERIFIED");
+  }
 
   if (!stored.found || !hasPrivateConnection(stored.state)) {
     return { connected: false, connection: null, state: null, scope: null, access: stored.access };
@@ -37,6 +42,9 @@ export async function resolveAssistantIiko(env, request, requestedIds = null) {
   // directory. Otherwise an employee restricted to one restaurant appears to
   // have selected "all" and the OLAP Department filter is incorrectly omitted.
   const scope = { ...scopedSelection, allowedDepartmentIds: allowedDepartmentIds(stored.state) };
+  if (scope.isChain && (!scope.selectedDepartmentIds?.length || !scope.allowedDepartmentIds?.length)) {
+    throw forbidden("Нельзя определить разрешённые подразделения сети.", "ASSISTANT_SCOPE_EMPTY");
+  }
   const bodyIds = unique(Array.isArray(requestedIds) ? requestedIds : []);
   const selected = new Set(scope.selectedDepartmentIds || []);
   const outside = bodyIds.filter(departmentId => !selected.has(departmentId));
