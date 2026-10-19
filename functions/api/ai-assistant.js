@@ -10,6 +10,43 @@ const MAX_HISTORY_MESSAGES = 16;
 const MAX_TOOL_ROUNDS = 6;
 
 
+const CHART_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    type: { type: "string", enum: ["bar", "horizontal_bar", "line", "pie", "donut", "area"] },
+    title: { type: "string" },
+    subtitle: { type: "string" },
+    xLabel: { type: "string" },
+    yLabel: { type: "string" },
+    series: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          data: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string" },
+                value: { type: "number" }
+              },
+              required: ["label", "value"],
+              additionalProperties: false
+            }
+          }
+        },
+        required: ["name", "data"],
+        additionalProperties: false
+      }
+    },
+    notes: { type: "array", items: { type: "string" } }
+  },
+  required: ["type", "title", "subtitle", "xLabel", "yLabel", "series", "notes"],
+  additionalProperties: false
+};
+
 const ASSISTANT_RESPONSE_SCHEMA = {
   type: "object",
   properties: {
@@ -70,62 +107,24 @@ const ASSISTANT_RESPONSE_SCHEMA = {
       ]
     },
     chart: {
-      anyOf: [
-        { type: "null" },
-        {
-          type: "object",
-          properties: {
-            type: { type: "string", enum: ["bar", "horizontal_bar", "line", "pie"] },
-            title: { type: "string" },
-            subtitle: { type: "string" },
-            xLabel: { type: "string" },
-            yLabel: { type: "string" },
-            series: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  name: { type: "string" },
-                  data: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        label: { type: "string" },
-                        value: { type: "number" }
-                      },
-                      required: ["label", "value"],
-                      additionalProperties: false
-                    }
-                  }
-                },
-                required: ["name", "data"],
-                additionalProperties: false
-              }
-            },
-            notes: {
-              type: "array",
-              items: { type: "string" }
-            }
-          },
-          required: ["type", "title", "subtitle", "xLabel", "yLabel", "series", "notes"],
-          additionalProperties: false
-        }
-      ]
-    }
+      anyOf: [{ type: "null" }, CHART_RESPONSE_SCHEMA]
+    },
+    charts: { type: "array", items: CHART_RESPONSE_SCHEMA }
+
   },
-  required: ["kind", "text", "report", "chart"],
+  required: ["kind", "text", "report", "chart", "charts"],
   additionalProperties: false
 };
 
 function parseAssistantPayload(text) {
   const raw = clean(text);
-  if (!raw) return { kind: "text", text: "", report: null, chart: null };
+  if (!raw) return { kind: "text", text: "", report: null, chart: null, charts: [] };
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") throw new Error("invalid payload");
     const hasReport = !!parsed.report;
-    const hasChart = !!parsed.chart;
+    const charts = (Array.isArray(parsed.charts) ? parsed.charts : []).filter(item => item && typeof item === "object").slice(0, 3);
+    const hasChart = !!parsed.chart || charts.length > 0;
     let kind = "text";
     if (hasReport && hasChart) kind = "report_with_chart";
     else if (hasReport) kind = "report";
@@ -134,10 +133,11 @@ function parseAssistantPayload(text) {
       kind,
       text: clean(parsed.text),
       report: hasReport ? parsed.report : null,
-      chart: hasChart ? parsed.chart : null
+      chart: parsed.chart || null,
+      charts
     };
   } catch (_) {
-    return { kind: "text", text: raw, report: null, chart: null };
+    return { kind: "text", text: raw, report: null, chart: null, charts: [] };
   }
 }
 
@@ -324,18 +324,18 @@ function instructions(model, connected) {
 4. Для закупочных цен показывай период, поставщика, товар и динамику цены. Не называй "текущей ценой" цену, если это лишь последняя цена в найденной накладной.
 5. Для сравнений объясняй, на каких данных основан вывод.
 6. Не выполняй запись/изменение данных в iiko. Все инструменты этой версии только читают данные.
-7. Для обычного вопроса верни kind="text", краткий текст в text, report=null и chart=null.
-8. Если пользователь просит обычный табличный отчёт, сводку или таблицу — верни kind="report", заполни report и поставь chart=null.
-9. Если пользователь прямо просит "график", "диаграмму", "визуально", "покажи динамику графиком" — верни kind="chart", report=null и заполни chart.
-10. Если пользователь просит одновременно отчёт/таблицу и график — верни kind="report_with_chart" и заполни и report, и chart.
-11. Для сравнений категорий используй bar или horizontal_bar. Для динамики во времени используй line. Для долей/структуры используй pie только когда доли действительно уместны.
-12. В chart.series.data значение value всегда должно быть числом без валютного символа и без форматирования тысяч. label — человекочитаемая подпись.
-13. Не придумывай точки графика: все значения chart должны прямо следовать из данных инструментов.
+7. Для обычного вопроса верни kind="text", краткий текст, report=null, chart=null, charts=[].
+8. Для запросов на отчёты и аналитику руководителя, когда есть числовые данные, по умолчанию верни report с KPI и визуализациями: kind="report_with_chart", chart=null, charts с 1–3 уместными графиками. Не требуй отдельной просьбы нарисовать график.
+9. Для явной просьбы только о графиках допускается kind="chart", report=null, chart=null и charts с графиками.
+10. Для пустых, чисто текстовых или недостаточных данных не создавай графики: charts=[] и chart=null; объясни ограничение.
+11. Типы: horizontal_bar/bar для сравнения категорий, line/area для динамики, donut/pie для долей только при неотрицательных значениях и корректной полной базе. Не рисуй круговые диаграммы для отрицательных значений или несопоставимых показателей.
+12. charts — до трёх разных, НЕ повторяющих друг друга визуализаций; chart оставляй null (поле chart сохранено для старых клиентов). Не выводи лишние графики ради количества.
+13. Каждая цифра графика обязана напрямую следовать из фактических данных инструмента и быть числом без валюты или форматирования. Не создавай прогнозы и не смешивай разные периоды и валюты без явной маркировки.
 14. В report.columns укажи понятные человеку названия колонок и align: числовые значения обычно right, текст left.
 15. В report.rows каждая строка должна содержать столько строковых значений, сколько columns. Не вставляй Markdown в cells.
 16. report.totals используй для итоговой строки; если итоги неуместны — верни пустой массив.
 17. report.kpis используй только для ключевых показателей, которые действительно следуют из данных инструмента.
-18. report.notes и chart.notes — короткие пояснения об источнике, периоде, методике или ограничениях.
+18. report.notes и charts[].notes — короткие пояснения об источнике, периоде, методике или ограничениях.
 19. Никогда не дублируй большую таблицу в text: text должен быть коротким вводным/итоговым комментарием.
 20. Если результат большой, в report.rows оставь наиболее полезные строки, а ограничение объясни в notes.
 21. Не раскрывай технические пароли, токены или внутренние секреты.
@@ -427,12 +427,13 @@ async function runAssistant(env, connection, history, scope=null, access=null) {
   const rawText = outputText(response);
   if (!rawText) throw new Error("AI не вернул ответ.");
   const structured = parseAssistantPayload(rawText);
-  if (!structured.text && !structured.report && !structured.chart) throw new Error("AI вернул пустой ответ.");
+  if (!structured.text && !structured.report && !structured.chart && !structured.charts.length) throw new Error("AI вернул пустой ответ.");
   return {
-    text: structured.text || structured.report?.title || structured.chart?.title || "Отчёт сформирован.",
+    text: structured.text || structured.report?.title || structured.chart?.title || structured.charts[0]?.title || "Отчёт сформирован.",
     kind: structured.kind,
     report: structured.report,
     chart: structured.chart,
+    charts: structured.charts,
     model: response.model || model,
     responseId: response.id || null,
     usage: response.usage || null,
@@ -554,6 +555,7 @@ export async function onRequestPost({ request, env }) {
       kind: answer.kind,
       report: answer.report,
       chart: answer.chart,
+      charts: answer.charts,
       restaurantScope: iiko.scope ? {
         mode:iiko.scope.mode,
         selectedDepartmentIds:iiko.scope.selectedDepartmentIds,
