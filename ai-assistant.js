@@ -4,6 +4,18 @@ const $=id=>document.getElementById(id);function boundedFetch(url,opt={},timeout
 let conversations=[],currentId='',busy=false,currentMessages=[];
 let mediaRecorder=null,mediaStream=null,audioChunks=[],recordStarted=0,recordTicker=null,recordStopTimer=null,currentAudio=null,currentAudioUrl='';
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+// Brand only assistant-authored content; keep original user questions and technical API keys intact.
+function brandVisibleText(value){
+  return String(value??'').replace(/\biiko(?:chain|front|office|server|rms|cloud)?\b/gi,'Smart Horeca');
+}
+function brandPresentation(value){
+  if(typeof value==='string')return brandVisibleText(value);
+  if(Array.isArray(value))return value.map(brandPresentation);
+  if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,brandPresentation(v)]));
+  return value;
+}
+const escBrand=s=>esc(brandVisibleText(s));
+
 async function token(){const c=await window.SHAuth?.createClient?.();if(!c)throw Error('Supabase Auth не готов');const r=await c.auth.getSession();const t=r.data?.session?.access_token;if(r.error||!t)throw Error('Сессия пользователя не найдена');return t}
 async function get(q){const t=await token(),r=await boundedFetch('/api/ai-assistant'+q,{headers:{Authorization:'Bearer '+t},cache:'no-store'},60000),j=await r.json().catch(()=>({}));if(!r.ok||!j.success)throw Error(j.message||('HTTP '+r.status));return j}
 async function post(body){
@@ -37,7 +49,7 @@ function chartCard(chart){
   const series=Array.isArray(chart.series)?chart.series.filter(s=>Array.isArray(s?.data)&&s.data.length):[];
   if(!series.length)return'';
   const notes=Array.isArray(chart.notes)?chart.notes:[];
-  const legend=series.length>1?'<div class="sha-chart-legend">'+series.map((s,i)=>'<span><i class="sha-chart-dot s'+(i%6)+'"></i>'+esc(s.name||('Серия '+(i+1)))+'</span>').join('')+'</div>':'';
+  const legend=series.length>1?'<div class="sha-chart-legend">'+series.map((s,i)=>'<span><i class="sha-chart-dot s'+(i%6)+'"></i>'+escBrand(s.name||('Серия '+(i+1)))+'</span>').join('')+'</div>':'';
 
   let visual='';
   if(type==='horizontal_bar'){
@@ -50,9 +62,9 @@ function chartCard(chart){
         const value=chartNumber(point?.value);
         const end=(value-lo)/span*100,left=Math.min(zero,end),width=Math.abs(end-zero);
         const zeroLine=lo<0?'<i class="sha-hbar-zero" style="left:'+zero.toFixed(2)+'%"></i>':'';
-        return '<div class="sha-hbar-line"><div class="sha-hbar-track">'+zeroLine+'<span class="sha-hbar-fill s'+(i%6)+'" style="left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%"></span></div><strong>'+esc(chartValue(value))+'</strong></div>';
+        return '<div class="sha-hbar-line"><div class="sha-hbar-track">'+zeroLine+'<span class="sha-hbar-fill s'+(i%6)+'" style="left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%"></span></div><strong>'+escBrand(chartValue(value))+'</strong></div>';
       }).join('');
-      return '<div class="sha-hbar-row"><div class="sha-hbar-label">'+esc(label)+'</div><div class="sha-hbar-bars">'+bars+'</div></div>';
+      return '<div class="sha-hbar-row"><div class="sha-hbar-label">'+escBrand(label)+'</div><div class="sha-hbar-bars">'+bars+'</div></div>';
     }).join('')+'</div>';
   }else if(type==='pie'||type==='donut'){
     const points=series[0].data.filter(p=>chartNumber(p?.value)>0);
@@ -69,7 +81,7 @@ function chartCard(chart){
     visual='<div class="sha-pie-layout"><div class="sha-pie'+(type==='donut'?' is-donut':'')+'" style="background:conic-gradient('+stops+')"></div><div class="sha-pie-list">'+data.map((p,i)=>{
       const value=Math.max(0,chartNumber(p?.value));
       const pct=value/total*100;
-      return '<div><span><i class="sha-chart-dot s'+(i%6)+'"></i>'+esc(p?.label??'')+'</span><strong>'+esc(chartValue(value))+' · '+pct.toFixed(1)+'%</strong></div>';
+      return '<div><span><i class="sha-chart-dot s'+(i%6)+'"></i>'+escBrand(p?.label??'')+'</span><strong>'+escBrand(chartValue(value))+' · '+pct.toFixed(1)+'%</strong></div>';
     }).join('')+'</div></div>';
   }else{
     const labels=[...new Set(series.flatMap(s=>s.data.map(p=>String(p?.label??''))))];
@@ -83,9 +95,9 @@ function chartCard(chart){
     const grid=[0,.25,.5,.75,1].map(t=>{
       const gy=padT+plotH-(t*plotH);
       const val=low+span*t;
-      return '<line x1="'+padL+'" y1="'+gy+'" x2="'+(width-padR)+'" y2="'+gy+'" class="sha-chart-grid"></line><text x="'+(padL-8)+'" y="'+(gy+4)+'" class="sha-chart-axis-label" text-anchor="end">'+esc(chartValue(val))+'</text>';
+      return '<line x1="'+padL+'" y1="'+gy+'" x2="'+(width-padR)+'" y2="'+gy+'" class="sha-chart-grid"></line><text x="'+(padL-8)+'" y="'+(gy+4)+'" class="sha-chart-axis-label" text-anchor="end">'+escBrand(chartValue(val))+'</text>';
     }).join('');
-    const xlabels=labels.map((label,i)=>'<text x="'+x(i)+'" y="'+(height-22)+'" class="sha-chart-axis-label" text-anchor="middle">'+esc(label.length>16?label.slice(0,15)+'…':label)+'</text>').join('');
+    const xlabels=labels.map((label,i)=>'<text x="'+x(i)+'" y="'+(height-22)+'" class="sha-chart-axis-label" text-anchor="middle">'+escBrand(label.length>16?label.slice(0,15)+'…':label)+'</text>').join('');
 
     if(type==='line'||type==='area'){
       const lines=series.map((s,si)=>{
@@ -97,7 +109,7 @@ function chartCard(chart){
         const dots=points.map((p,i)=>{
           const point=s.data.find(item=>String(item?.label??'')===labels[i]);
           const value=chartNumber(point?.value);
-          return '<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" class="sha-chart-point s'+(si%6)+'"><title>'+esc(labels[i]+': '+chartValue(value))+'</title></circle>';
+          return '<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" class="sha-chart-point s'+(si%6)+'"><title>'+escBrand(labels[i]+': '+chartValue(value))+'</title></circle>';
         }).join('');
         const area=type==='area'?'<polygon points="'+x(0)+','+y(0)+' '+poly+' '+x(labels.length-1)+','+y(0)+'" class="sha-chart-area s'+(si%6)+'"></polygon>':'';
         return area+'<polyline points="'+poly+'" class="sha-chart-line s'+(si%6)+'"></polyline>'+dots;
@@ -112,14 +124,14 @@ function chartCard(chart){
         const value=chartNumber(point?.value);
         const h=Math.abs(y(value)-y(0));
         const gx=padL+li*groupW+(groupW-(series.length*(barW+gap)-gap))/2+si*(barW+gap);
-        return '<rect x="'+gx.toFixed(2)+'" y="'+Math.min(y(0),y(value)).toFixed(2)+'" width="'+barW.toFixed(2)+'" height="'+h.toFixed(2)+'" rx="4" class="sha-chart-bar s'+(si%6)+'"><title>'+esc(label+': '+chartValue(value))+'</title></rect>';
+        return '<rect x="'+gx.toFixed(2)+'" y="'+Math.min(y(0),y(value)).toFixed(2)+'" width="'+barW.toFixed(2)+'" height="'+h.toFixed(2)+'" rx="4" class="sha-chart-bar s'+(si%6)+'"><title>'+escBrand(label+': '+chartValue(value))+'</title></rect>';
       }).join('')).join('');
-      const bxlabels=labels.map((label,i)=>'<text x="'+(padL+i*groupW+groupW/2)+'" y="'+(height-22)+'" class="sha-chart-axis-label" text-anchor="middle">'+esc(label.length>14?label.slice(0,13)+'…':label)+'</text>').join('');
+      const bxlabels=labels.map((label,i)=>'<text x="'+(padL+i*groupW+groupW/2)+'" y="'+(height-22)+'" class="sha-chart-axis-label" text-anchor="middle">'+escBrand(label.length>14?label.slice(0,13)+'…':label)+'</text>').join('');
       visual='<div class="sha-chart-scroll"><svg class="sha-chart-svg" viewBox="0 0 '+width+' '+height+'" role="img">'+grid+bxlabels+bars+'</svg></div>';
     }
   }
 
-  return '<section class="sha-chart-card"><div class="sha-chart-head"><div><span class="sha-report-eyebrow">SMART HORECA CHART</span><h3>'+esc(chart.title||'График')+'</h3>'+(chart.subtitle?'<p>'+esc(chart.subtitle)+'</p>':'')+'</div></div>'+legend+'<div class="sha-chart-body">'+visual+'</div>'+(chart.xLabel||chart.yLabel?'<div class="sha-chart-labels">'+(chart.xLabel?'<span>X: '+esc(chart.xLabel)+'</span>':'')+(chart.yLabel?'<span>Y: '+esc(chart.yLabel)+'</span>':'')+'</div>':'')+(notes.length?'<div class="sha-report-notes">'+notes.map(note=>'<div>'+esc(note)+'</div>').join('')+'</div>':'')+'</section>';
+  return '<section class="sha-chart-card"><div class="sha-chart-head"><div><span class="sha-report-eyebrow">SMART HORECA CHART</span><h3>'+escBrand(chart.title||'График')+'</h3>'+(chart.subtitle?'<p>'+escBrand(chart.subtitle)+'</p>':'')+'</div></div>'+legend+'<div class="sha-chart-body">'+visual+'</div>'+(chart.xLabel||chart.yLabel?'<div class="sha-chart-labels">'+(chart.xLabel?'<span>X: '+escBrand(chart.xLabel)+'</span>':'')+(chart.yLabel?'<span>Y: '+escBrand(chart.yLabel)+'</span>':'')+'</div>':'')+(notes.length?'<div class="sha-report-notes">'+notes.map(note=>'<div>'+escBrand(note)+'</div>').join('')+'</div>':'')+'</section>';
 }
 
 
@@ -142,6 +154,7 @@ function excelArgb(hex){
 }
 async function exportReportToExcel(report){
   if(!report||typeof report!=='object')throw Error('Отчёт для выгрузки не найден.');
+  report=brandPresentation(report);
   if(!window.ExcelJS)throw Error('Модуль Excel ещё не загрузился. Обновите страницу и попробуйте снова.');
 
   const columns=Array.isArray(report.columns)?report.columns:[];
@@ -395,38 +408,38 @@ function reportCard(report,charts=[],messageIndex=-1){
       map.get(key).rows.push(values);
     });
     bodyHtml=groups.map(group=>
-      '<tr class="sha-report-group-row"><td colspan="'+columns.length+'"><span class="sha-report-group-icon">▦</span><strong>'+esc(group.key)+'</strong></td></tr>'+
+      '<tr class="sha-report-group-row"><td colspan="'+columns.length+'"><span class="sha-report-group-icon">▦</span><strong>'+escBrand(group.key)+'</strong></td></tr>'+
       group.rows.map(row=>'<tr class="sha-report-child-row">'+columns.map((col,i)=>{
         if(i===0)return '<td class="sha-report-group-spacer"></td>';
         const value=row[i]??'';
         const extra=i===1?' sha-report-child-label':'';
-        return '<td class="is-'+align(col?.align)+extra+'">'+esc(value)+'</td>';
+        return '<td class="is-'+align(col?.align)+extra+'">'+escBrand(value)+'</td>';
       }).join('')+'</tr>').join('')
     ).join('');
   }else{
-    bodyHtml=rows.map(row=>'<tr>'+columns.map((col,i)=>'<td class="is-'+align(col?.align)+'">'+esc(Array.isArray(row)?(row[i]??''):'')+'</td>').join('')+'</tr>').join('');
+    bodyHtml=rows.map(row=>'<tr>'+columns.map((col,i)=>'<td class="is-'+align(col?.align)+'">'+escBrand(Array.isArray(row)?(row[i]??''):'')+'</td>').join('')+'</tr>').join('');
   }
 
   const table=columns.length
     ? '<div class="sha-report-table-wrap"><table class="sha-report-table"><thead><tr>'+
-      columns.map(col=>'<th class="is-'+align(col?.align)+'">'+esc(col?.label||'')+'</th>').join('')+
+      columns.map(col=>'<th class="is-'+align(col?.align)+'">'+escBrand(col?.label||'')+'</th>').join('')+
       '</tr></thead><tbody>'+bodyHtml+'</tbody>'+
-      (totals.length?'<tfoot><tr>'+columns.map((col,i)=>'<td class="is-'+align(col?.align)+'">'+esc(totals[i]??'')+'</td>').join('')+'</tr></tfoot>':'')+
+      (totals.length?'<tfoot><tr>'+columns.map((col,i)=>'<td class="is-'+align(col?.align)+'">'+escBrand(totals[i]??'')+'</td>').join('')+'</tr></tfoot>':'')+
       '</table></div>'
     :'';
   return '<section class="sha-report">'+
-    '<div class="sha-report-head"><div><span class="sha-report-eyebrow">SMART HORECA REPORT</span><h3>'+esc(report.title||'Отчёт')+'</h3>'+
-    (report.subtitle?'<p>'+esc(report.subtitle)+'</p>':'')+'</div>'+
+    '<div class="sha-report-head"><div><span class="sha-report-eyebrow">SMART HORECA REPORT</span><h3>'+escBrand(report.title||'Отчёт')+'</h3>'+
+    (report.subtitle?'<p>'+escBrand(report.subtitle)+'</p>':'')+'</div>'+
     '<div class="sha-report-head-actions">'+
-      (report.periodLabel?'<span class="sha-report-period">'+esc(report.periodLabel)+'</span>':'')+
+      (report.periodLabel?'<span class="sha-report-period">'+escBrand(report.periodLabel)+'</span>':'')+
       (messageIndex>=0&&columns.length?'<button type="button" class="sha-report-excel" data-export-report-index="'+messageIndex+'" title="Выгрузить таблицу в Excel">▦ Excel</button>':'')+
       (messageIndex>=0?'<button type="button" class="sha-report-excel sha-report-pdf" data-export-pdf-index="'+messageIndex+'" title="Скачать PDF с графиками и таблицей">⬇ PDF</button>':'')+
     '</div>'+
     '</div>'+
-    (kpis.length?'<div class="sha-report-kpis">'+kpis.map(item=>'<div class="sha-report-kpi"><span>'+esc(item?.label||'')+'</span><strong>'+esc(item?.value||'')+'</strong></div>').join('')+'</div>':'')+
+    (kpis.length?'<div class="sha-report-kpis">'+kpis.map(item=>'<div class="sha-report-kpi"><span>'+escBrand(item?.label||'')+'</span><strong>'+escBrand(item?.value||'')+'</strong></div>').join('')+'</div>':'')+
     (charts.length?'<div class="sha-report-chart-slot sha-report-chart-grid">'+charts.map(chartCard).join('')+'</div>':'')+
     table+
-    (notes.length?'<div class="sha-report-notes">'+notes.map(note=>'<div>'+esc(note)+'</div>').join('')+'</div>':'')+
+    (notes.length?'<div class="sha-report-notes">'+notes.map(note=>'<div>'+escBrand(note)+'</div>').join('')+'</div>':'')+
     '</section>';
 }
 
@@ -437,7 +450,7 @@ function msg(m,index=-1){
   const hasReport=ai&&m.meta?.report;
   const charts=ai?messageCharts(m.meta):[];
   const structured=hasReport?reportCard(m.meta.report,charts,index):(charts.length?'<div class="sha-chart-only"><div class="sha-report-head-actions"><button type="button" class="sha-report-excel sha-report-pdf" data-export-pdf-index="'+index+'">⬇ PDF</button></div><div class="sha-report-chart-grid">'+charts.map(chartCard).join('')+'</div></div>':'');
-  const text=esc(m.content).replace(/\n/g,'<br>');
+  const text=esc(ai?brandVisibleText(m.content):m.content).replace(/\n/g,'<br>');
   return '<article class="sha-message '+(ai?'assistant':'user')+'"><div class="sha-avatar">'+(ai?'AI':'Вы')+'</div><div class="sha-bubble '+(structured?'has-report':'')+'">'+
     (text?'<div class="sha-text">'+text+'</div>':'')+
     structured+
@@ -447,9 +460,9 @@ function msg(m,index=-1){
 function renderMessages(a){currentMessages=Array.isArray(a)?a:[];$('welcome').hidden=currentMessages.length>0;$('messages').innerHTML=currentMessages.map((m,i)=>msg(m,i)).join('');requestAnimationFrame(()=>{$('messages').scrollTop=$('messages').scrollHeight})}
 function renderChats(){$('conversationEmpty').hidden=conversations.length>0;$('conversationList').innerHTML=conversations.map(x=>'<button class="sha-conversation '+(x.id===currentId?'active':'')+'" data-id="'+esc(x.id)+'"><strong>'+esc(x.title||'Новый чат')+'</strong><span>'+esc(fmt(x.updated_at))+'</span></button>').join('');$('conversationList').querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>select(b.dataset.id))}
 function state(t,k){const el=$('assistantState');if(!el)return;el.textContent=t;el.className='sha-state '+(k||'')}
-function note(t,k){$('composerStatus').textContent=t||'';$('composerStatus').className='sha-composer-status '+(k||'')}
+function note(t,k){$('composerStatus').textContent=brandVisibleText(t||'');$('composerStatus').className='sha-composer-status '+(k||'')}
 function size(){const i=$('messageInput');i.style.height='auto';i.style.height=Math.min(160,Math.max(36,i.scrollHeight))+'px'}
-async function loadStatus(){const j=await get('?action=status');if(!j.configured){state('OpenAI не настроен','warn');note('Добавьте OPENAI_API_KEY в Cloudflare Preview.','error');return}state(j.model+' · '+(j.iikoConnected?'iiko подключён':'iiko не подключён'),j.iikoConnected?'ok':'warn')}
+async function loadStatus(){const j=await get('?action=status');if(!j.configured){state('OpenAI не настроен','warn');note('Добавьте OPENAI_API_KEY в Cloudflare Preview.','error');return}state(j.model+' · '+(j.iikoConnected?'Smart Horeca подключён':'Smart Horeca не подключён'),j.iikoConnected?'ok':'warn')}
 async function loadChats(){const j=await get('?action=conversations');conversations=j.conversations||[];renderChats()}
 async function select(id){currentId=id;renderChats();const j=await get('?action=messages&conversationId='+encodeURIComponent(id));$('chatTitle').textContent=j.conversation?.title||'AI Smart Horeca Assistent';$('deleteChatBtn').hidden=false;renderMessages(j.messages||[])}
 async function newChat(){const j=await post({action:'newConversation',title:'Новый чат'});currentId=j.conversation.id;await loadChats();$('chatTitle').textContent='Новый чат';$('deleteChatBtn').hidden=false;renderMessages([]);$('messageInput').focus()}
@@ -547,7 +560,7 @@ async function toggleVoice(){
   if(mediaRecorder?.state==='recording'){stopVoice();return}
   try{await startVoice()}catch(e){cleanupRecording();note(e.message||String(e),'error')}
 }
-async function send(options={}){if(busy)return;const i=$('messageInput'),text=i.value.trim();if(!text)return;busy=true;$('sendBtn').disabled=true;$('micBtn').disabled=true;note('Получаю данные и собираю ответ…');i.value='';size();$('welcome').hidden=true;$('messages').insertAdjacentHTML('beforeend',msg({role:'user',content:text}));thinking();try{const j=await post({action:'message',conversationId:currentId||null,message:text});currentId=j.conversationId;await loadChats();await select(currentId);note('');if(options?.speakReply&&j.answer)await speakText(j.answer)}catch(e){document.getElementById('shaThinking')?.remove();note(e.message,'error');if(e.code==='OPENAI_NOT_CONFIGURED')state('OpenAI не настроен','warn')}finally{busy=false;$('sendBtn').disabled=false;$('micBtn').disabled=false;i.focus()}}
+async function send(options={}){if(busy)return;const i=$('messageInput'),text=i.value.trim();if(!text)return;busy=true;$('sendBtn').disabled=true;$('micBtn').disabled=true;note('Получаю данные и собираю ответ…');i.value='';size();$('welcome').hidden=true;$('messages').insertAdjacentHTML('beforeend',msg({role:'user',content:text}));thinking();try{const j=await post({action:'message',conversationId:currentId||null,message:text});currentId=j.conversationId;await loadChats();await select(currentId);note('');if(options?.speakReply&&j.answer)await speakText(brandVisibleText(j.answer))}catch(e){document.getElementById('shaThinking')?.remove();note(e.message,'error');if(e.code==='OPENAI_NOT_CONFIGURED')state('OpenAI не настроен','warn')}finally{busy=false;$('sendBtn').disabled=false;$('micBtn').disabled=false;i.focus()}}
 async function del(){if(!currentId||!confirm('Удалить этот AI-диалог?'))return;await post({action:'deleteConversation',conversationId:currentId});currentId='';$('deleteChatBtn').hidden=true;$('chatTitle').textContent='AI Smart Horeca Assistent';renderMessages([]);await loadChats()}
 function bind(){$('newChatBtn').onclick=()=>newChat().catch(e=>note(e.message,'error'));$('deleteChatBtn').onclick=()=>del().catch(e=>note(e.message,'error'));$('sendBtn').onclick=()=>send();$('micBtn').onclick=toggleVoice;$('messageInput').oninput=size;$('messageInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};$('messages').addEventListener('click',e=>{
   const exportButton=e.target.closest?.('[data-export-report-index]');
@@ -575,7 +588,7 @@ function bind(){$('newChatBtn').onclick=()=>newChat().catch(e=>note(e.message,'e
   if(!button)return;
   const index=Number(button.dataset.speakIndex);
   const message=currentMessages[index];
-  if(message?.role==='assistant')speakText(message.content,button)
+  if(message?.role==='assistant')speakText(brandVisibleText(message.content),button)
 });document.querySelectorAll('[data-example]').forEach(b=>b.onclick=()=>{$('messageInput').value=window.SH_I18N?.t(b.dataset.example||b.textContent)||(b.dataset.example||b.textContent);size();send()})}
 async function init(){bind();try{await Promise.all([loadStatus(),loadChats()]);if(conversations[0])await select(conversations[0].id)}catch(e){state('Ошибка','error');note(e.message,'error')}}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
