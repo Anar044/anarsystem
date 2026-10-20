@@ -82,7 +82,7 @@ function renderLots(){
     return '<tr><td><strong>'+esc(x.productName)+'</strong><small>'+esc(x.lotCode)+'</small></td>'+
       '<td>'+esc(x.supplierName||'—')+'</td><td>'+day(x.expiresOn)+'</td>'+
       '<td>'+fmt(x.remaining)+' '+esc(x.unit||'')+'<small>Принято: '+fmt(x.receivedQty)+'</small></td>'+
-      '<td>'+(x.balances||[]).filter(b=>b.quantity>0.00001).map(b=>esc(b.locationName)+' · '+fmt(b.quantity)).join('<br>')||'—'+'</td>'+
+      '<td>'+((x.balances||[]).filter(b=>b.quantity>0.00001).map(b=>esc(b.locationName)+' · '+fmt(b.quantity)).join('<br>')||'—')+'</td>'+
       '<td>'+badge+'</td><td><button class="proc-btn small secondary" data-lot-open="'+esc(x.id)+'">Открыть</button></td></tr>';
   }).join(''):'<tr><td colspan="7" class="trace-empty">Партий пока нет. Зарегистрируйте первую из принятого GRN.</td></tr>';
 }
