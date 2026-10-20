@@ -281,6 +281,7 @@ export async function onRequestGet({ request, env }) {
     return json({ success: true, canManage: hasPermission(c.access,"procurement.receive"),
       canConfigure: hasPermission(c.access,"procurement.settings.manage"),
       canRelease: hasPermission(c.access,"procurement.approve") || hasPermission(c.access,"procurement.settings.manage"),
+      canWriteOff: hasPermission(c.access,"procurement.approve") || hasPermission(c.access,"inventory.outgoing.manage"),
       warehouses: [...warehouseMap.values()], locations: locs.map(x => ({
         id:x.id, warehouseId:x.warehouse_id,warehouseName:x.warehouse_name,
         parentId:x.parent_id, name:x.name,kind:x.kind,active:!!x.active
@@ -381,6 +382,8 @@ export async function onRequestPost({ request, env }) {
       const movement=clean(body.movement).toUpperCase(),from=clean(body.fromId),to=clean(body.toId);
       const amount=quantity(body.quantity),reason=clean(body.reason),destination=clean(body.destination),ref=clean(body.reference);
       if (!["TRANSFER","ISSUE","WRITE_OFF","CONSUME"].includes(movement)) throw fail("Неизвестный вид движения.");
+      if (movement==="WRITE_OFF" && !hasPermission(c.access,"procurement.approve") && !hasPermission(c.access,"inventory.outgoing.manage"))
+        throw fail("Для списания требуется право согласования или управления расходными документами.",403);
       if (!(amount>0) || !from) throw fail("Нужно указать положительное количество и место выдачи.");
       if (movement==="TRANSFER"&&!to) throw fail("Выберите место назначения.");
       if (movement!=="TRANSFER"&&to) throw fail("Для выдачи и списания место назначения не используется.");
