@@ -106,7 +106,10 @@ export function normalizeDepartmentCashShifts(payload, from, to, status, departm
         payload?.error || payload?.errorCode) {
         throw new Error("SH Server не вернул список кассовых смен в ожидаемом формате.");
     }
-    const fromDay = isoDate(from), toDay = isoDate(to);
+    // A status-only OPEN query has no opening-date bounds. The server must
+    // itself confirm OPEN and departmentId; do not manufacture an opening date.
+    const fromDay = from instanceof Date ? isoDate(from) : null;
+    const toDay = to instanceof Date ? isoDate(to) : null;
     const result = [];
     for (const [index, row] of list.entries()) {
         const normalized = normalizeShift(row, "", status);
@@ -132,7 +135,8 @@ export function normalizeDepartmentCashShifts(payload, from, to, status, departm
         if (!businessDate || !openedDate) {
             throw new Error("SH Server не передал распознаваемую дату кассовой смены" + rowLabel + ".");
         }
-        if (openedDate < fromDay || openedDate > toDay) {
+        if ((fromDay && openedDate < fromDay) ||
+            (toDay && openedDate > toDay)) {
             throw new Error("Дата открытия кассовой смены вне запрошенного диапазона" + rowLabel + ".");
         }
         if (status === "OPEN" && (row.closeDate || row.closedAt || row.closeTime)) {
@@ -146,6 +150,38 @@ export function normalizeDepartmentCashShifts(payload, from, to, status, departm
         });
     }
     return result;
+}
+
+// Experimental capability probe: some SH Server builds accept OPEN + an
+// authoritative departmentId without opening-date filters. This is the only
+// way this endpoint could include a 10+ day open shift without a historical
+// full-range scan. Do not deploy as a guarantee until verified on the actual
+// SH Server: even HTTP 200 might apply undocumented default date limits.
+// Never drop the department filter or accept an unverified shift identity.
+export async function getOpenShiftsWithoutDateRange(connection, departmentId) {
+    const dep = String(departmentId ?? "").trim();
+    if (!dep) throw new Error("Для OPEN запроса нужен подтверждённый ресторан.");
+    const url = "/resto/api/v2/cashshifts/list?status=OPEN&departmentId=" +
+        encodeURIComponent(dep);
+    const scoped = await iikoJson(connection, url);
+    try {
+        if (!scoped.ok) {
+            throw new Error("HTTP " + scoped.status +
+              " — проверьте поддержку OPEN запроса без диапазона дат");
+        }
+        return {
+            ok:true, status:scoped.status,
+            shifts:normalizeDepartmentCashShifts(scoped.payload,null,null,"OPEN",dep),
+            authCacheHit:scoped.auth?.cacheHit === true,
+            format:"GET status=OPEN + departmentId without opening date"
+        };
+    } catch (error) {
+        return {
+            ok:false, status:scoped.status, shifts:[],
+            text:String(error?.message || "Не удалось проверить OPEN смены."),
+            authCacheHit:scoped.auth?.cacheHit === true
+        };
+    }
 }
 
 export async function getShiftsForDateAndStatus(connection, date, status, options = {}) {
