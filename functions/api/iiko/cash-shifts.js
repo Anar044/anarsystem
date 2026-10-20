@@ -132,11 +132,30 @@ export function normalizeDepartmentCashShifts(payload, from, to, status, departm
         if (!businessDate || !openedDate) {
             throw new Error("SH Server не передал распознаваемую дату кассовой смены" + rowLabel + ".");
         }
-        if (openedDate < fromDay || openedDate > toDay) {
-            throw new Error("Дата открытия кассовой смены вне запрошенного диапазона" + rowLabel + ".");
-        }
         if (status === "OPEN" && (row.closeDate || row.closedAt || row.closeTime)) {
             throw new Error("SH Server вернул закрытую смену при фильтре OPEN.");
+        }
+        if (openedDate < fromDay || openedDate > toDay) {
+            // Some SH Server versions return historical CLOSED sessions even
+            // when openDateFrom/openDateTo is supplied. They do not belong
+            // to the requested operating period, so never let an unrelated
+            // CLOSED row abort the entire authorized restaurant dashboard.
+            //
+            // Do not exclude a CLOSED shift merely because it was opened
+            // before the window when its verified business date is inside
+            // the window. It may belong to the same operating day as a
+            // current register (especially around midnight).
+            //
+            // OPEN is different: silently dropping an old *active* shift
+            // would under-report sales. Fail closed until the upstream
+            // contract supports reliable all-OPEN discovery.
+            if (status === "CLOSED" &&
+                (businessDate < fromDay || businessDate > toDay)) {
+                continue;
+            }
+            if (status !== "CLOSED") {
+                throw new Error("Дата открытия кассовой смены вне запрошенного диапазона" + rowLabel + ".");
+            }
         }
         result.push({
             ...normalized,
