@@ -36,7 +36,8 @@
             <p data-sh-i18n="От потребности по остаткам до фактической приёмки и накладной в Smart Horeca Server.">От потребности по остаткам до фактической приёмки и накладной в Smart Horeca Server.</p>
           </div>
           <div class="proc-hero-actions">
-            <button id="proc-refresh" class="proc-btn secondary" data-sh-i18n="↻ Обновить">↻ Обновить</button>
+            <a class="proc-btn ghost" href="/procurement-trace.html" data-permission="procurement.receive|inventory.stock.view|procurement.settings.manage">▦ Партии и хранение</a>
+             <button id="proc-refresh" class="proc-btn secondary" data-sh-i18n="↻ Обновить">↻ Обновить</button>
             <button id="proc-new-pr" class="proc-btn primary" data-sh-i18n="＋ Новая заявка">＋ Новая заявка</button>
           </div>
         </section>
@@ -139,7 +140,7 @@
         <section class="proc-panel" data-panel="orders" hidden>
           <div class="proc-panel-head">
             <div><h2 data-sh-i18n="Заказы поставщикам (PO)">Заказы поставщикам (PO)</h2><p>Заказано → подтверждено → принято. Система контролирует количество и цены.</p></div>
-            <a class="proc-btn ghost" href="/nakladnye.html">Приходные накладные ↗</a>
+            <div class="proc-panel-actions"><a class="proc-btn ghost" href="/procurement-trace.html">Партии и холодильники ↗</a><a class="proc-btn ghost" href="/nakladnye.html">Приходные накладные ↗</a></div>
           </div>
           <div id="proc-po-list" class="proc-card-list"></div>
         </section>
