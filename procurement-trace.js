@@ -90,9 +90,9 @@ function renderLotCard(){
   const x=findLot(state.lotId),el=$('trace-lot-card');
   if(!x){el.hidden=true;el.innerHTML='';return}
   el.hidden=false;
-  const manage=state.data.canManage,release=state.data.canRelease;
+  const manage=state.data.canManage,release=state.data.canRelease,writeOff=state.data.canWriteOff;
   const actions=manage?(
-    (x.status==='ACTIVE'?['TRANSFER','ISSUE','CONSUME','WRITE_OFF','HOLD']:['WRITE_OFF']).map(a=>
+    (x.status==='ACTIVE'?['TRANSFER','ISSUE','CONSUME','HOLD',...(writeOff?['WRITE_OFF']:[])]:writeOff?['WRITE_OFF']:[]).map(a=>
       '<button type="button" data-move-mode="'+a+'" class="'+(state.action===a?'active ':'')+(a==='WRITE_OFF'||a==='HOLD'?'alert':'')+'">'+esc(actionNames[a])+'</button>').join('')+
     (x.status==='HOLD'&&release?'<button type="button" data-move-mode="RELEASE">Снять карантин</button>':'')
   ):(x.status==='HOLD'&&release?'<button type="button" data-move-mode="RELEASE">Снять карантин</button>':'');
@@ -119,8 +119,8 @@ function renderLotCard(){
 }
 function renderMovementForm(lot){
   let action=state.action;
-  if(lot.status==='HOLD'&&!['WRITE_OFF','RELEASE'].includes(action))action='WRITE_OFF';
-  if(action==='RELEASE'&&!state.data.canRelease)action='WRITE_OFF';
+  if(lot.status==='HOLD'&&!['WRITE_OFF','RELEASE'].includes(action))action=state.data.canWriteOff?'WRITE_OFF':'RELEASE';
+  if(action==='RELEASE'&&!state.data.canRelease)action=state.data.canWriteOff?'WRITE_OFF':'TRANSFER';
   if(action==='HOLD'&&lot.status==='HOLD')action='WRITE_OFF';
   const holder=$('trace-movement-form'),isStatus=['HOLD','RELEASE'].includes(action);
   const from=(lot.balances||[]).filter(x=>x.quantity>0.00001).map(x=>({id:x.locationId,label:x.locationName+' · '+fmt(x.quantity)+' '+lot.unit}));
