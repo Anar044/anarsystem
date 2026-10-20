@@ -29,8 +29,8 @@ const shiftId = shift => clean(
   shift?.sessionID || shift?.uuid || shift?.UUID
 );
 const shiftBusinessDate = shift => dateOnly(
-  shift?.businessDate || shift?.operatingDay || shift?.operationalDay ||
-  shift?._dateKey || shift?.openDate || shift?.openedAt || shift?.openTime
+  shift?._dateKey || shift?.businessDate || shift?.operatingDay ||
+  shift?.operationalDay || shift?.openDate || shift?.openedAt || shift?.openTime
 );
 
 export class OperatingDayError extends Error {
@@ -145,8 +145,9 @@ export async function getCurrentOperatingShifts(connection, departmentIds, opts 
       const reply = await getShiftsForDateAndStatus(connection, from,
         task.status, { departmentId:task.departmentId, toDate:to });
       if (!reply.ok) throw new OperatingDayError("OPERATING_SHIFT_SOURCE_FAILED",
-        "SH Server не подтвердил список кассовых смен с фильтром ресторана: " +
-        String(reply.text || "ошибка сервера").slice(0,160), 502);
+        "Не удалось подтвердить кассовые смены ресторана " + task.departmentId +
+        " (статус " + task.status + "): " +
+        String(reply.text || "ошибка SH Server").slice(0,160), 502);
       for (const shift of reply.shifts) {
         const id = shiftId(shift), dep = shiftDepartment(shift);
         const date = shiftBusinessDate(shift);

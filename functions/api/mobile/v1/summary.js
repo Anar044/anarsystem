@@ -14,6 +14,21 @@ function rowsOf(report) {
   }
   return Array.isArray(rows) ? rows : (Array.isArray(rows?.data) ? rows.data : []);
 }
+function verifiedRowsOf(report) {
+  // Empty, successfully returned OLAP rows are a verified zero-sales day.
+  // An invalid payload is NOT the same as an empty report.
+  let raw = report?.rawResponse ?? report?.data ?? report;
+  if (typeof raw === "string") {
+    try { raw = JSON.parse(raw); }
+    catch { throw new MobileError("DASHBOARD_ROWS_INVALID",
+      "SH OLAP вернул некорректный набор продаж.", 502); }
+  }
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw?.data)) return raw.data;
+  throw new MobileError("DASHBOARD_ROWS_INVALID",
+    "SH OLAP не подтвердил данные продаж.", 502);
+}
+
 function numberFrom(row, field, fields) {
   if (!field) return null;
   const displayName = fields.find(f => f.name === field)?.title;
@@ -51,21 +66,34 @@ export function normalizeSummary(payload) {
     throw new MobileError("DASHBOARD_DATA_UNAVAILABLE", "Нет достоверных данных по продажам.", 502);
   }
   const fields = Array.isArray(payload.fields) ? payload.fields : [];
-  const rows = rowsOf(payload.reports.daily.report);
-  const revenue = sumField(rows, payload.revenueField, fields);
-  const checks = sumField(rows, payload.orderField, fields);
-  const profit = sumField(rows, payload.profitField, fields);
+  const rows = verifiedRowsOf(payload.reports.daily.report);
+  const noSales = rows.length === 0;
+  // Only a valid, successful empty OLAP report can mean ZERO sales.
+  // A missing aggregate field must still remain unavailable (null).
+  const metric = field => noSales && field &&
+    fields.some(f => f.name === field) ? 0 : sumField(rows, field, fields);
+  const revenue = metric(payload.revenueField);
+  const checks = metric(payload.orderField);
+  const profit = metric(payload.profitField);
   // The standalone discounts report groups by discount type and register.
   // Using its identical dimensions, measure and filters avoids displaying
   // a small, unrelated date-aggregate value on Dashboard.
   const discountSource = payload.reports.discountReport;
   const surchargeSource = payload.reports.surchargeReport;
-  const discounts = discountSource?.success
-    ?sumField(rowsOf(discountSource.report),payload.discountField,fields)
-    :null;
-  const surcharges = surchargeSource?.success
-    ?sumField(rowsOf(surchargeSource.report),payload.surchargeField,fields)
-    :null;
+  const verifiedAdjustment = (source,field) => {
+    if (!source?.success || !field || !fields.some(f=>f.name===field)) return null;
+    const adjustmentRows = rowsOf(source.report);
+    // Source reported success and a confirmed empty array: zero adjustments.
+    // Never manufacture a 0 if report shape itself is missing/invalid.
+    const original = source.report?.rawResponse ?? source.report?.data ?? source.report;
+    const validEmpty = Array.isArray(original) ||
+      Array.isArray(original?.data) ||
+      (typeof original==="string" && /^\s*\[/.test(original));
+    return !adjustmentRows.length && validEmpty ? 0
+      : sumField(adjustmentRows,field,fields);
+  };
+  const discounts = verifiedAdjustment(discountSource,payload.discountField);
+  const surcharges = verifiedAdjustment(surchargeSource,payload.surchargeField);
   // ProductCostBase.Cost in a date-grouped OLAP result can be a unit cost,
   // not the aggregated cost of goods (e.g. 2.58 vs 93,509 AZN).
   // On iiko SALES, ProductCostBase.Profit is the gross contribution after
@@ -97,6 +125,7 @@ export function normalizeSummary(payload) {
     costOfGoodsSource: costOfGoods === null ? "UNAVAILABLE" :
       "SALES_REVENUE_MINUS_PRODUCT_COST_GROSS_PROFIT",
     daily,
+    noSalesForPeriod: noSales,
     currency: "AZN",
     source: "SH OLAP SALES",
     updatedAt: new Date().toISOString(),
@@ -135,8 +164,20 @@ export async function onRequestGet({ request, env }) {
     const payload = await upstream.json().catch(() => null);
     if (!upstream.ok || !payload?.success) {
       const code = String(payload?.code || "OLAP_FAILED");
-      const message = typeof payload?.message === "string"
+      let message = typeof payload?.message === "string"
         ? payload.message : "Не удалось получить отчёт SH OLAP.";
+      // The 22-department operating-day request can fail on one specific
+      // restaurant. Tell the owner which authorized restaurant failed, without
+      // leaking credentials or changing scope to an unsafe calendar fallback.
+      if (code.startsWith("OPERATING_SHIFT")) {
+        for (const restaurant of ctx.restaurants || []) {
+          const id = clean(restaurant?.id);
+          if (id && ctx.selectedIds.includes(id) && message.includes(id)) {
+            message = message.replace(id, clean(restaurant.name) || id);
+            break;
+          }
+        }
+      }
       throw new MobileError(code, message, upstream.status === 409 ? 409 : 502);
     }
     const normalized = normalizeSummary(payload);

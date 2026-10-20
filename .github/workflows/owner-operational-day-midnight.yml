@@ -1,0 +1,23 @@
+name: Owner Operational Day Midnight
+on:
+  push:
+    branches: [fix/owner-operating-day-midnight-shifts-20261020]
+  pull_request:
+    paths:
+      - 'functions/api/iiko/cash-shifts.js'
+      - 'functions/api/iiko/_lib/operational-day.js'
+      - 'functions/api/mobile/v1/summary.js'
+      - 'tests/operational-day.test.mjs'
+      - 'tests/mobile-dashboard-cost-reconciliation.test.mjs'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check functions/api/iiko/cash-shifts.js
+      - run: node --check functions/api/iiko/_lib/operational-day.js
+      - run: node --check functions/api/mobile/v1/summary.js
+      - run: node --test tests/operational-day.test.mjs tests/mobile-dashboard-cost-reconciliation.test.mjs
