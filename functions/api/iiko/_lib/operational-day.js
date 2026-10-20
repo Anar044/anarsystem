@@ -1,4 +1,4 @@
-import { getShiftsForDateAndStatus } from "../cash-shifts.js";
+import { getShiftsForDateAndStatus, getOpenShiftsWithoutDateRange } from "../cash-shifts.js";
 
 // Operating-day dates are resolved in the restaurant's configured system
 // timezone (all current Smart Horeca RMS are in Azerbaijan). The browser's
@@ -120,6 +120,74 @@ export function resolveOlapCashShiftField(fields) {
     if (field) return field.name;
   }
   return null;
+}
+
+// Opt-in preproduction verification path. Before enabling it for owners,
+// confirm that the target SH Server interprets a date-free status=OPEN filter
+// as ALL OPEN shifts (not a hidden default date range).
+export async function getCurrentOperatingShiftsStatusOnly(connection, departmentIds, opts = {}) {
+  const today = opts.today || operatingToday();
+  const selected = [...new Set((departmentIds || []).map(clean).filter(Boolean))];
+  if (!selected.length) throw new OperatingDayError(
+    "OPERATING_SCOPE_REQUIRED", "Для операционного дня выберите рестораны.");
+  const lookback = Math.min(7, Math.max(1, opts.lookbackDays || 3));
+  const recent = addDays(today, -lookback);
+  const to = new Date(today + "T12:00:00Z");
+  const shifts = [];
+  const seen = new Map();
+  const run = async tasks => {
+    let next = 0;
+    await Promise.all(Array.from({length:Math.min(4,tasks.length)}, async () => {
+      while (next < tasks.length) {
+        const task = tasks[next++];
+        const reply = task.status === "OPEN"
+          ? await getOpenShiftsWithoutDateRange(connection, task.departmentId)
+          : await getShiftsForDateAndStatus(connection,
+            new Date(task.from + "T12:00:00Z"), "CLOSED",
+            {departmentId:task.departmentId, toDate:to});
+        if (!reply.ok) throw new OperatingDayError(
+          task.status === "OPEN" ? "OPERATING_OPEN_STATUS_UNSUPPORTED"
+            : "OPERATING_SHIFT_SOURCE_FAILED",
+          "Не удалось проверить " + task.status + " смены ресторана " +
+          task.departmentId + ": " + String(reply.text || "SH Server").slice(0,160), 502);
+        for (const row of reply.shifts) {
+          const id = shiftId(row), dep = shiftDepartment(row);
+          const day = shiftBusinessDate(row);
+          if (!id || !day || day > today || dep !== task.departmentId ||
+              clean(row._scopedDepartmentId) !== task.departmentId) {
+            throw new OperatingDayError("OPERATING_SHIFT_SCOPE_UNVERIFIED",
+              "SH Server не подтвердил ресторан, дату или ID кассовой смены.");
+          }
+          const previous = seen.get(id);
+          if (previous) {
+            if (previous.dep !== dep || previous.day !== day ||
+                previous.status !== task.status) throw new OperatingDayError(
+              "OPERATING_SHIFT_FILTER_AMBIGUOUS",
+              "SH Server вернул одну кассовую смену в разных ресторанах или статусах.");
+            continue;
+          }
+          seen.set(id, {dep, day, status:task.status});
+          shifts.push(row);
+        }
+      }
+    }));
+  };
+
+  await run(selected.map(departmentId => ({departmentId,status:"OPEN"})));
+  const closedTasks = selected.map(departmentId => {
+    const opened = shifts.filter(x => shiftDepartment(x) === departmentId)
+      .map(shiftBusinessDate).sort();
+    // Closed shifts must include the opening business day of active registers.
+    // Date bounds for CLOSED discovery follow real open shifts, not an
+    // arbitrary cap (3 / 7 / 10 days).
+    return {departmentId, status:"CLOSED",
+      from:opened.length ? addDays(opened[0], -1) : recent};
+  });
+  await run(closedTasks);
+  const plan = planOperatingShifts(shifts, selected, today);
+  if (plan.from > plan.to) throw new OperatingDayError(
+    "OPERATING_SHIFT_DATE_INVALID", "Дата кассовой смены недопустима.");
+  return plan;
 }
 
 export async function getCurrentOperatingShifts(connection, departmentIds, opts = {}) {
