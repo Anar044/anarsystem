@@ -133,6 +133,13 @@ export function normalizeDepartmentCashShifts(payload, from, to, status, departm
             throw new Error("SH Server не передал распознаваемую дату кассовой смены" + rowLabel + ".");
         }
         if (openedDate < fromDay || openedDate > toDay) {
+            // Some SH Server versions return CLOSED sessions outside the
+            // requested open-date range. Do not let unrelated old closed
+            // sessions block today's operational dashboard or enter OLAP.
+            // OPEN sessions must never be discarded: an old active register
+            // can still hold current sales. All foreign-department and
+            // malformed-ID/date checks above remain fail-closed.
+            if (status === "CLOSED") continue;
             throw new Error("Дата открытия кассовой смены вне запрошенного диапазона" + rowLabel + ".");
         }
         if (status === "OPEN" && (row.closeDate || row.closedAt || row.closeTime)) {
