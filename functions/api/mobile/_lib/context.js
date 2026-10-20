@@ -1,6 +1,7 @@
 import { getUser, loadPrivateIikoState, privateConnection, hasPrivateConnection } from "../../iiko/_lib/user-state.js";
 import { resolveAccessForUser, listUserWorkspaces } from "../../access/_lib/access-control.js";
 import { restaurantDirectory, allowedDepartmentIds } from "../../iiko/_lib/restaurant-scope.js";
+import { restaurantPosStatuses } from "./restaurant-pos.js";
 
 const clean = value => String(value ?? "").trim();
 const unique = values => [...new Set((values || []).map(clean).filter(Boolean))];
@@ -157,8 +158,13 @@ export async function mobileContext(request, env, { connectionRequired = false }
   }
   const selectedIds = requested.length ? requested : availableIds;
   const directory = restaurantDirectory(state);
-  const restaurants = directory.filter(r => availableIds.includes(clean(r.id)))
+  const authorizedRestaurants = directory
+    .filter(r => availableIds.includes(clean(r.id)))
     .map(r => ({ id: clean(r.id), name: clean(r.name || r.id) }));
+  const pos = restaurantPosStatuses(state, authorizedRestaurants);
+  const restaurants = authorizedRestaurants.map(r => ({
+    ...r, ...pos[r.id]
+  }));
   const connectionReady = hasPrivateConnection(state);
   if (connectionRequired && !connectionReady) {
     throw new MobileError("SH_CONNECTION_MISSING", "Smart Horeca Server не подключён.", 503);
