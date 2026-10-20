@@ -14,7 +14,7 @@ jobs:
       - name: Check shared CHAIN scope
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
 
           test -f functions/api/iiko/_lib/restaurant-scope.js
           test -f functions/api/iiko/_lib/store-scope.js
