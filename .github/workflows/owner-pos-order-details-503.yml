@@ -1,0 +1,19 @@
+name: Owner POS Order Details 503
+on:
+  push:
+    branches:
+      - fix/owner-cash-order-503-scoped-20261020
+  pull_request:
+    paths:
+      - functions/api/mobile/v1/cash-order.js
+      - tests/mobile-cash-order.test.mjs
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check functions/api/mobile/v1/cash-order.js
+      - run: node --test tests/mobile-cash-order.test.mjs tests/mobile-cash-feed.test.mjs
