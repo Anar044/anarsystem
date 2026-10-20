@@ -1,0 +1,50 @@
+.trace-app {max-width:1480px;margin:0 auto;padding-bottom:56px}
+.trace-status{display:none;margin:12px 0;padding:12px 16px;border-radius:10px;background:#162433;color:#cedeee;border:1px solid #28394d}
+.trace-status:not(:empty){display:block}
+.trace-status.error{background:#341c22;color:#ffb9c4;border-color:#713746}
+.trace-status.ok{background:#13352c;color:#b4f5d1;border-color:#266e52}
+.trace-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:20px 0}
+.trace-metrics article{padding:17px 19px;border-radius:14px;background:#131e28;border:1px solid #283749;display:grid;gap:6px}
+.trace-metrics span{font-size:12px;color:#a7b9cb}
+.trace-metrics strong{font-size:25px;color:#f2fbff}
+.trace-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 18px}
+.trace-tabs button{border:1px solid #2e4253;background:#14212c;color:#c3d3e1;border-radius:10px;padding:12px 15px;font:600 13px inherit;cursor:pointer}
+.trace-tabs button.active{border-color:#42d392;background:#193d32;color:#dbffee}
+.trace-panel{border:1px solid #263948;border-radius:16px;background:#111b25;padding:20px;min-width:0}
+.trace-panel[hidden],.trace-lot-card[hidden]{display:none!important}
+.trace-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:16px}
+.trace-heading h2{margin:0 0 5px;font-size:21px;color:#eef7fc}
+.trace-heading p{margin:0;color:#9cadbf;font-size:13px;line-height:1.5}
+.trace-toolbar{display:flex;flex-wrap:wrap;gap:8px}
+.trace-toolbar input{min-width:240px}
+.trace-app input,.trace-app select,.trace-app textarea{padding:11px 12px;color:#e4eef5;background:#0c151e;border:1px solid #334557;border-radius:9px;min-width:0;font:inherit}
+.trace-app input:focus,.trace-app select:focus,.trace-app textarea:focus{outline:2px solid #3dbf8b;outline-offset:1px}
+.trace-table-scroll{overflow:auto;width:100%}
+.trace-table{width:100%;border-collapse:collapse;min-width:770px;font-size:13px}
+.trace-table th,.trace-table td{padding:13px 11px;border-bottom:1px solid #2a3847;text-align:left;vertical-align:middle}
+.trace-table th{color:#aebccd;font-weight:650;font-size:12px}
+.trace-table td{color:#e0ebf6}
+.trace-table td small{display:block;color:#94a6bb;font-size:11px;margin-top:4px}
+.trace-table button{cursor:pointer}
+.trace-label{display:inline-block;border-radius:8px;padding:5px 8px;background:#183b30;color:#9ce5c2;font-size:12px}
+.trace-label.hold{background:#553239;color:#ffc2ca}.trace-label.expired{background:#51391f;color:#ffd195}
+.trace-empty{text-align:center;color:#a0b1c3;padding:28px!important}
+.trace-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;max-width:930px;margin:14px 0 22px}
+.trace-form label{display:grid;gap:7px;font-size:12px;color:#b6c5d4}
+.trace-form .trace-wide{grid-column:1/-1}
+.trace-form-actions{display:flex;justify-content:flex-start;align-items:center;gap:12px}
+.trace-note{padding:12px;border:1px solid #31485c;border-radius:10px;background:#182836;color:#bfe3ea;font-size:12px;line-height:1.55}
+.trace-lot-card{margin-top:20px;padding:18px;border:1px solid #466b5e;border-radius:14px;background:#14251f}
+.trace-lot-card h3{margin:0 0 8px;font-size:19px;color:#e7f9f0}
+.trace-lot-card .trace-detail{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 17px;font-size:12px;color:#b5ccca}
+.trace-lot-card .trace-actions{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px}
+.trace-lot-card .trace-actions button{border:1px solid #426457;background:#1c352c;color:#d7f6e6;padding:9px 12px;border-radius:8px;cursor:pointer}
+.trace-lot-card .trace-actions button.active{background:#297b56;border-color:#69c79b}
+.trace-lot-card .trace-actions button.alert{background:#48282d;border-color:#a96264;color:#ffcccc}
+.trace-lot-card .trace-form{margin-bottom:5px}
+.trace-lot-card .trace-table{min-width:570px}
+.trace-muted{font-size:12px;color:#98aec1}
+.trace-danger{color:#ffbdba}
+.trace-app .proc-btn[disabled],.trace-app button[disabled]{opacity:.55;cursor:not-allowed}
+@media(max-width:900px){.trace-metrics{grid-template-columns:repeat(2,1fr)}.trace-panel{padding:14px}.trace-form{grid-template-columns:1fr}.trace-form .trace-wide{grid-column:1}.trace-toolbar input{min-width:150px;flex:1}}
+@media(max-width:540px){.trace-metrics{grid-template-columns:1fr 1fr;gap:7px}.trace-metrics article{padding:11px}.trace-metrics strong{font-size:20px}.trace-tabs button{flex:1 1 46%;padding:10px 6px}.trace-table{font-size:12px}}
