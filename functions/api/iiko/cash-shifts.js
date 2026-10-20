@@ -133,14 +133,25 @@ export function normalizeDepartmentCashShifts(payload, from, to, status, departm
             throw new Error("SH Server не передал распознаваемую дату кассовой смены" + rowLabel + ".");
         }
         if (openedDate < fromDay || openedDate > toDay) {
-            // Some SH Server versions return CLOSED sessions outside the
-            // requested open-date range. Do not let unrelated old closed
-            // sessions block today's operational dashboard or enter OLAP.
-            // OPEN sessions must never be discarded: an old active register
-            // can still hold current sales. All foreign-department and
-            // malformed-ID/date checks above remain fail-closed.
-            if (status === "CLOSED") continue;
-            throw new Error("Дата открытия кассовой смены вне запрошенного диапазона" + rowLabel + ".");
+            // The server sometimes returns historical CLOSED sessions that
+            // are outside the requested opening-date window. Only discard
+            // a CLOSED row if BOTH its verified opening date and its verified
+            // business date precede the window. A session opened long ago
+            // but belonging to a recent operating day may still contribute
+            // to the selected restaurant's current sales.
+            //
+            // Never discard OPEN sessions: old active registers can still
+            // have sales. Never accept unexpected future dates or a missing
+            // immutable ID as valid revenue evidence.
+            if (status === "CLOSED" &&
+                openedDate < fromDay && businessDate < fromDay) {
+                continue;
+            }
+            if (status !== "CLOSED" ||
+                openedDate > toDay ||
+                businessDate < fromDay || businessDate > toDay) {
+                throw new Error("Дата открытия кассовой смены вне запрошенного диапазона" + rowLabel + ".");
+            }
         }
         if (status === "OPEN" && (row.closeDate || row.closedAt || row.closeTime)) {
             throw new Error("SH Server вернул закрытую смену при фильтре OPEN.");
