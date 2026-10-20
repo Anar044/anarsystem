@@ -3,6 +3,22 @@ import { authorizedCashPlugins } from "./cash.js";
 
 const DEFAULT_VPS = "http://68-233-120-197.nip.io";
 const clean = value => String(value ?? "").trim();
+
+/** Never fetch every restaurant's plugins to resolve one known order.
+ * Both selected department and plugin identity are reverified against
+ * mobileContext() before this request is made. */
+export function scopedOrderPluginRegistryUrl(origin, departmentId, connection = {}) {
+  const id = clean(departmentId);
+  if (!id) throw new MobileError("CASH_ORDER_SCOPE_REQUIRED",
+    "Не определён ресторан выбранного заказа.", 400);
+  const url = new URL(String(origin).replace(/\/+$/, "") + "/api/plugin/data");
+  url.searchParams.set("departmentIds", id);
+  if (connection.ip && connection.port) {
+    url.searchParams.set("serverUrl",
+      "http://" + connection.ip + ":" + connection.port);
+  }
+  return url;
+}
 const unwrap = value => {
   let current = value;
   for (let i=0; i<3 && typeof current==="string"; i++) {
@@ -95,6 +111,13 @@ export function normalizePosOrderDetail(payload, requested = {}) {
     throw new MobileError("CASH_ORDER_DETAILS_UNAVAILABLE",
       "Касса не вернула детализацию заказа.", 502);
   }
+  const actualOrderNumber = clean(pick(root, ["orderNum","number","orderNumber"]));
+  const expectedOrderNumber = clean(requested.orderNum);
+  if (actualOrderNumber && expectedOrderNumber &&
+      actualOrderNumber.replace(/^#/, "") !== expectedOrderNumber.replace(/^#/, "")) {
+    throw new MobileError("CASH_ORDER_ID_MISMATCH",
+      "Касса вернула сведения другого заказа. Детали не отображены.", 502);
+  }
   const rawItems = firstArray(root, ["items","orderItems","products","dishes"]);
   const rawPayments = firstArray(root, ["payments","paymentItems","paymentTypes"]);
   const items = rawItems.map(normalizeItem);
@@ -137,9 +160,31 @@ async function fetchJson(url, options = {}) {
     const upstream = await fetch(url, {...options, signal:controller.signal,
       headers:{Accept:"application/json",...(options.headers||{})}});
     const payload = await upstream.json().catch(() => null);
-    if (!upstream.ok || payload === null) throw new MobileError(
-      "CASH_ORDER_SOURCE_FAILED","Не удалось получить данные заказа с кассы.",502);
+    if (!upstream.ok) {
+      // VPS returns 503 when the exact POS plugin disconnects. Do not hide
+      // this as a generic Cloudflare outage or silently switch restaurants.
+      if (upstream.status === 503) throw new MobileError(
+        "CASH_ORDER_PLUGIN_OFFLINE",
+        "Касса временно отключилась. История операций доступна отдельно.",
+        503);
+      if (upstream.status === 504) throw new MobileError(
+        "CASH_ORDER_PLUGIN_TIMEOUT",
+        "Касса не успела ответить. Повторите запрос через несколько секунд.",
+        504);
+      throw new MobileError("CASH_ORDER_SOURCE_FAILED",
+        "Не удалось получить данные заказа с кассы.",502);
+    }
+    if (payload === null) throw new MobileError(
+      "CASH_ORDER_BAD_RESPONSE",
+      "Касса вернула некорректный ответ.",502);
     return payload;
+  } catch (error) {
+    if (error instanceof MobileError) throw error;
+    if (error?.name === "AbortError") throw new MobileError(
+      "CASH_ORDER_PLUGIN_TIMEOUT",
+      "Касса не ответила вовремя. История заказа доступна отдельно.",504);
+    throw new MobileError("CASH_ORDER_SOURCE_UNREACHABLE",
+      "Не удалось связаться с кассой. Попробуйте обновить заказ.",503);
   } finally {
     clearTimeout(timeout);
   }
@@ -149,8 +194,8 @@ async function requestOrder(origin, body) {
     method:"POST", headers:{"Content-Type":"application/json"},
     body:JSON.stringify(body)
   });
-  if (payload?.success === false && payload?.error) {
-    throw new MobileError("CASH_ORDER_SOURCE_FAILED",
+  if (payload?.success === false) {
+    throw new MobileError("CASH_ORDER_DETAILS_UNAVAILABLE",
       "Касса не вернула детали выбранного заказа.",502);
   }
   return payload;
@@ -186,13 +231,12 @@ export async function onRequestGet({request,env}) {
         "Нет доступа к ресторану выбранного заказа.",403);
     }
     const origin = String(env?.PLUGIN_VPS_API_URL || DEFAULT_VPS).replace(/\/+$/,"");
-    const binding = new URL(origin + "/api/plugin/data");
-    binding.searchParams.set("departmentIds",ctx.selectedIds.join(","));
-    if (ctx.connection.ip && ctx.connection.port) {
-      binding.searchParams.set("serverUrl",`http://${ctx.connection.ip}:${ctx.connection.port}`);
-    }
+    // A single-order read never needs to inspect other restaurants. The
+    // requested department has already been authorized via mobileContext().
+    const binding = scopedOrderPluginRegistryUrl(origin,
+      requested.departmentId,ctx.connection);
     const pluginPayload = await fetchJson(binding.toString());
-    const plugins = authorizedCashPlugins(pluginPayload,ctx.selectedIds);
+    const plugins = authorizedCashPlugins(pluginPayload,[requested.departmentId]);
     const plugin = plugins.find(p => p.id===requested.pluginId &&
       p.departmentId===requested.departmentId);
     if (!plugin) throw new MobileError("CASH_ORDER_FORBIDDEN",
@@ -204,27 +248,15 @@ export async function onRequestGet({request,env}) {
       RequestDetail:requested.orderNum,requestDetail:requested.orderNum,
       orderNum:requested.orderNum,orderNumber:requested.orderNum
     };
-    // Both actions only READ one verified POS order. Dispatch together:
-    // an older plugin may support either name, and serial 14s attempts made
-    // an order appear to hang for ~28 seconds on mobile.
-    const results = await Promise.allSettled(
-      ["Order","get_order"].map(async action => {
-        const raw = await requestOrder(origin,{...body,action});
-        return normalizePosOrderDetail(raw,{
-          ...requested,registerName:plugin.name
-        });
-      })
-    );
-    const candidates=results.filter(x=>x.status==="fulfilled")
-      .map(x=>x.value);
-    const withItems=candidates.find(x=>x.itemsAvailable);
-    if (withItems) return response(withItems);
-    if (candidates.length) return response(candidates[0]);
-    const failed=results.find(x=>x.status==="rejected")?.reason;
-    throw new MobileError("CASH_ORDER_DETAILS_UNAVAILABLE",
-      failed instanceof MobileError
-        ? failed.message
-        : "Касса не вернула детали заказа за 9,5 секунды. Попробуйте ещё раз.",502);
+    // VPS maps get_order -> requestType "order". Calling ["Order",
+    // "get_order"] simultaneously used to emit TWO competing POS requests
+    // for the same order, increasing load and possible 503 disconnects.
+    // Do one official read-only request, bound to this exact cash.
+    const raw = await requestOrder(origin,{...body,action:"get_order"});
+    const detail = normalizePosOrderDetail(raw,{
+      ...requested,registerName:plugin.name
+    });
+    return response(detail);
   } catch (error) {
     return errorResponse(error);
   }
