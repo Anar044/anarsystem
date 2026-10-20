@@ -180,3 +180,46 @@ test("ambiguous CHAIN shift under two department filters fails closed", async ()
     ),error=>error.code==="OPERATING_SHIFT_FILTER_AMBIGUOUS");
   } finally {globalThis.fetch=originalFetch;}
 });
+
+test("shift opened today may legitimately belong to yesterday's business day", () => {
+  const from = new Date("2026-10-19T12:00:00Z");
+  const to = new Date("2026-10-20T12:00:00Z");
+  const rows = normalizeDepartmentCashShifts([{
+    id: "verified-shift-1",
+    openDate: "2026-10-20T01:13:00",
+    businessDate: "2026-10-18",
+    sessionStatus: "UNACCEPTED",
+  }], from, to, "OPEN", "restaurant-1");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]._dateKey, "2026-10-18");
+  assert.equal(rows[0]._scopedDepartmentId, "restaurant-1");
+  const plan = planOperatingShifts(rows, ["restaurant-1"], "2026-10-20");
+  assert.deepEqual(plan.shiftIds, ["verified-shift-1"]);
+  assert.equal(plan.from, "2026-10-18");
+  assert.equal(plan.to, "2026-10-20");
+});
+
+test("localized SH cash-shift date is accepted without assuming an identity", () => {
+  const from = new Date("2026-10-19T12:00:00Z");
+  const to = new Date("2026-10-20T12:00:00Z");
+  const rows = normalizeDepartmentCashShifts([{
+    id: "verified-shift-2", openDate: "20.10.2026 01:13:00",
+    businessDate: "19.10.2026", sessionStatus: "UNACCEPTED",
+  }], from, to, "OPEN", "restaurant-1");
+  assert.equal(rows[0]._dateKey, "2026-10-19");
+  assert.equal(planOperatingShifts(rows, ["restaurant-1"], "2026-10-20").activeShiftCount, 1);
+});
+
+test("out-of-range opening date still fails closed even if business date matches", () => {
+  const from = new Date("2026-10-19T12:00:00Z");
+  const to = new Date("2026-10-20T12:00:00Z");
+  assert.throws(() => normalizeDepartmentCashShifts([{
+    id: "out-of-range", openDate: "2026-10-18T18:00:00",
+    businessDate: "2026-10-19",
+  }], from, to, "OPEN", "restaurant-1"),
+  /пределами запрошенных дат открытия/);
+  assert.throws(() => normalizeDepartmentCashShifts([{
+    openDate: "2026-10-20T01:00:00", businessDate: "2026-10-19",
+  }], from, to, "OPEN", "restaurant-1"),
+  /не подтвердил идентификатор/);
+});
