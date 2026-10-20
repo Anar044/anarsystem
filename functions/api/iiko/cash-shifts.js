@@ -150,10 +150,15 @@ export function normalizeDepartmentCashShifts(payload, from, to, status, departm
             // would under-report sales. Fail closed until the upstream
             // contract supports reliable all-OPEN discovery.
             if (status === "CLOSED" &&
-                (businessDate < fromDay || businessDate > toDay)) {
+                openedDate < fromDay && businessDate < fromDay) {
                 continue;
             }
-            if (status !== "CLOSED") {
+            // A historical CLOSED shift with an operating date in the
+            // requested period may be relevant; every other mismatch is
+            // ambiguous and must not be counted as confirmed revenue.
+            if (status !== "CLOSED" ||
+                openedDate > toDay ||
+                businessDate < fromDay || businessDate > toDay) {
                 throw new Error("Дата открытия кассовой смены вне запрошенного диапазона" + rowLabel + ".");
             }
         }
