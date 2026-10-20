@@ -127,7 +127,7 @@ export function normalizeDepartmentCashShifts(payload, from, to, status, departm
             throw new Error("SH Server не подтвердил идентификатор или дату кассовой смены.");
         }
         if (openedDate < fromDay || openedDate > toDay) {
-            throw new Error("SH Server вернул кассовую смену за пределами запрошенных дат открытия.");
+            throw new Error("SH Server не подтвердил дату открытия кассовой смены (вне запрошенного диапазона).");
         }
         if (status === "OPEN" && (row.closeDate || row.closedAt || row.closeTime)) {
             throw new Error("SH Server вернул закрытую смену при фильтре OPEN.");
