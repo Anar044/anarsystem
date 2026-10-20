@@ -124,8 +124,8 @@ test("scoped shift normalization rejects foreign restaurants, missing IDs and ou
   const to = new Date("2026-10-15T12:00:00Z");
   const normalize = rows => normalizeDepartmentCashShifts(rows,from,to,"OPEN","restaurant-1");
   assert.throws(()=>normalize([{id:"x",departmentId:"restaurant-2",openDate:"2026-10-14"}]),/чужую/);
-  assert.throws(()=>normalize([{openDate:"2026-10-14"}]),/идентификатор/);
-  assert.throws(()=>normalize([{id:"x",openDate:"2026-10-13"}]),/дату/);
+  assert.throws(()=>normalize([{openDate:"2026-10-14"}]),/ID кассовой смены/);
+  assert.throws(()=>normalize([{id:"x",openDate:"2026-10-13"}]),/Дата открытия.*вне запрошенного диапазона/);
   assert.throws(()=>normalize({result:"ERROR",message:"failed"}),/ожидаемом формате/);
   assert.throws(()=>normalize([{id:"x",openDate:"2026-10-14",closeDate:"2026-10-14"}]),/закрытую/);
 });
