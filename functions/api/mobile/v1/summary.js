@@ -88,7 +88,7 @@ export function normalizeSummary(payload) {
     const original = source.report?.rawResponse ?? source.report?.data ?? source.report;
     const validEmpty = Array.isArray(original) ||
       Array.isArray(original?.data) ||
-      (typeof original==="string" && /^\\s*\\[/.test(original));
+      (typeof original==="string" && /^\s*\[/.test(original));
     return !adjustmentRows.length && validEmpty ? 0
       : sumField(adjustmentRows,field,fields);
   };
