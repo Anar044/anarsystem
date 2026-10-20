@@ -1,6 +1,6 @@
 (()=>{'use strict';
 const $=id=>document.getElementById(id);
-const state={token:'',data:null,pane:'lots',lotId:'',action:'TRANSFER',busy:false};
+const state={token:'',data:null,pane:'lots',lotId:'',action:'TRANSFER',busy:false,pendingOperation:null};
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=x=>Number(x||0).toLocaleString('ru-RU',{maximumFractionDigits:3});
 const dt=x=>{if(!x)return'—';const d=new Date(x);return Number.isNaN(d.getTime())?esc(x):d.toLocaleString('ru-RU',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})};
@@ -28,10 +28,18 @@ async function post(action,values){
   if(state.busy)return;
   state.busy=true;document.querySelectorAll('button').forEach(b=>{if(b.closest('.trace-app'))b.disabled=true});
   status('Сохраняем действие…');
+  const signature=JSON.stringify([action,values]);
+  const requestId=state.pendingOperation?.signature===signature?state.pendingOperation.requestId:id();
+  state.pendingOperation={signature,requestId};
   try{
-    const response=await api('/api/procurement-trace',{method:'POST',body:JSON.stringify({action,requestId:id(),...values})});
-    await load(true);
-    status('Действие успешно зарегистрировано.','ok');
+    const response=await api('/api/procurement-trace',{method:'POST',body:JSON.stringify({action,requestId,...values})});
+    state.pendingOperation=null;
+    try{
+      await load(true);
+      status('Действие успешно зарегистрировано.','ok');
+    }catch(_){
+      status('Действие зарегистрировано, но обновить список не удалось. Нажмите «Обновить».','error');
+    }
     return response;
   }catch(error){status(error.message||String(error),'error');throw error}
   finally{state.busy=false;document.querySelectorAll('button').forEach(b=>{if(b.closest('.trace-app'))b.disabled=false})}
