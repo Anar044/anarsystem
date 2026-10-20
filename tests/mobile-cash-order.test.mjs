@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizePosOrderDetail } from "../functions/api/mobile/v1/cash-order.js";
+import {
+  normalizePosOrderDetail, scopedOrderPluginRegistryUrl
+} from "../functions/api/mobile/v1/cash-order.js";
 
 test("POS order details include hall, table, open/close times, items and payments",()=>{
  const out=normalizePosOrderDetail({success:true,data:{
@@ -48,4 +50,32 @@ test("numeric fields wrapped by POS objects and currency text remain readable",(
  assert.equal(out.items[0].quantity,2);
  assert.equal(out.items[0].price,3.5);
  assert.equal(out.items[0].amount,7);
+});
+
+test("single-order registry verifies ONLY the authorized restaurant",()=>{
+  const url=scopedOrderPluginRegistryUrl("http://68-233-120-197.nip.io",
+    "rms-2",{ip:"10.0.0.5",port:"8080"});
+  assert.equal(url.pathname,"/api/plugin/data");
+  assert.equal(url.searchParams.get("departmentIds"),"rms-2");
+  assert.equal(url.searchParams.get("serverUrl"),"http://10.0.0.5:8080");
+  assert.equal(url.searchParams.get("departmentIds")?.includes("rms-3"),false);
+});
+test("single-order registry refuses to query an unspecified department",()=>{
+  assert.throws(()=>scopedOrderPluginRegistryUrl("https://vps.example",""),
+    error=>error.code==="CASH_ORDER_SCOPE_REQUIRED");
+});
+test("plugin detail response from a DIFFERENT order must never be displayed",()=>{
+  assert.throws(()=>normalizePosOrderDetail({success:true,data:{
+    OrderNum:"58",items:[{name:"Пицца",amount:1}]
+  }},{orderNum:"57",departmentId:"rms2",pluginId:"pos"}),
+  error=>error.code==="CASH_ORDER_ID_MISMATCH");
+});
+test("the POS detail reader makes one canonical get_order request",async()=>{
+  const {readFileSync}=await import("node:fs");
+  const source=readFileSync(new URL("../functions/api/mobile/v1/cash-order.js",
+    import.meta.url),"utf8");
+  assert.match(source,/action:"get_order"/);
+  assert.doesNotMatch(source,/\["Order","get_order"\]/);
+  assert.doesNotMatch(source,/Promise\.allSettled\(/);
+  assert.match(source,/authorizedCashPlugins\(pluginPayload,\[requested\.departmentId\]\)/);
 });
