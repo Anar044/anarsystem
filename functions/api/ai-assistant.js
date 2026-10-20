@@ -307,7 +307,28 @@ async function openAiResponse(env, payload) {
   }
   return data;
 }
-function instructions(model, connected) {
+export function mobileOwnerExecutiveInstructions() {
+  return `
+Дополнительные правила для мобильного владельца сети ресторанов:
+- Отвечай прежде всего на управленческий вопрос: результат, важное сравнение и причина, если она подтверждается данными. Для конкретного показателя называй числовое значение, валюту AZN, период и число ресторанов, когда они известны из ответа инструмента.
+- При сравнении двух периодов считай абсолютное отклонение и процент только по данным инструмента; используй знак и формулу ((новое-старое)/старое)*100. Если база равна нулю, процент не вычисляй.
+- Различай календарный день и операционный день кассовых смен. Не утверждай, что оборот «сегодня» — это календарные продажи, когда запрос касается действующих кассовых смен.
+- Не называй причину падения продаж, снижения прибыли или изменения среднего чека установленным фактом без сопоставимых данных (трафик, чеки, скидки, средний чек, себестоимость); иначе укажи это как гипотезу и предложи следующий полезный срез.
+- Для вопросов «что изменилось», «где проблема» и «на что обратить внимание» приоритетно показывай 2–4 наиболее значимых, подтверждённых отклонения и короткие рекомендуемые проверки.
+- Пользователь может говорить на русском, азербайджанском или английском. Сохраняй язык вопроса и естественно понимай голосовую транскрипцию, но не приписывай неясным названиям ресторанов уверенное совпадение.
+- Если владелец просит сравнить рестораны, сравнивай только выбранные и разрешённые подразделения. Ни одна агрегированная сумма не может включать чужие организации, даже если источник вернул более широкую выборку.
+- Если пользователь попросил график, создай структурированный chart на основе проверенных значений. При недостатке данных прямо напиши об ограничении и не рисуй вымышленных точек.
+- Если данные отсутствуют для одного выбранного ресторана, не подменяй отсутствие данных нулевыми продажами. Не скрывай неполную выборку.
+- Тон: лаконичный аналитик для владельца. Никакого лишнего описания внутренних API и технических полей, если пользователь не спрашивает о них.
+`.trim();
+}
+
+export function assistantAnalyticQuestion(prompt) {
+  const value = clean(prompt);
+  return /топ|top|срав|анализ|analiz|отч[её]т|report|показател|динамик|график|диаграмм|выруч|прибыл|себестоим|скидк|средн.{0,8}чек|продаж|sales|revenue|profit|trend|compare|chart|grafik|müqayis|satış|gəlir|mənfəət|endirim|dinamik/i.test(value);
+}
+
+function instructions(model, connected, mobile = false) {
   const today = new Date().toISOString().slice(0, 10);
   return `Ты — AI-аналитик SmartHoreca для управления рестораном.
 Сегодня: ${today}.
@@ -346,7 +367,8 @@ function instructions(model, connected) {
 21. Не раскрывай технические пароли, токены или внутренние секреты.
 22. Подключение к iiko сейчас: ${connected ? "есть" : "нет"}.
 
-Модель: ${model}.`;
+Модель: ${model}.
+${mobile ? mobileOwnerExecutiveInstructions() : ""}`;
 }
 function inputFromHistory(history) {
   return history.map(message => ({
@@ -373,10 +395,10 @@ function compactToolTrace(call, result) {
 async function runAssistant(env, connection, history, scope=null, access=null, mobile=false) {
   const model = clean(env.OPENAI_ASSISTANT_MODEL) || DEFAULT_MODEL;
   const prompt = clean(history?.at(-1)?.content);
-  const analyticQuestion = /топ|top|срав|анализ|analiz|отч[её]т|report|показател|по тип|динамик/i.test(prompt);
+  const analyticQuestion = assistantAnalyticQuestion(prompt);
   const base = {
     model,
-    instructions: instructions(model, Boolean(connection)),
+    instructions: instructions(model, Boolean(connection), mobile),
     tools: assistantToolDefinitions,
     tool_choice: "auto",
     parallel_tool_calls: true,
