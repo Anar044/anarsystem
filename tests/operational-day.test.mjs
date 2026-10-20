@@ -217,7 +217,7 @@ test("out-of-range opening date still fails closed even if business date matches
     id: "out-of-range", openDate: "2026-10-18T18:00:00",
     businessDate: "2026-10-19",
   }], from, to, "OPEN", "restaurant-1"),
-  /пределами запрошенных дат открытия/);
+  /не подтвердил дату открытия/);
   assert.throws(() => normalizeDepartmentCashShifts([{
     openDate: "2026-10-20T01:00:00", businessDate: "2026-10-19",
   }], from, to, "OPEN", "restaurant-1"),
