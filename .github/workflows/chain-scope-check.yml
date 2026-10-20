@@ -35,7 +35,12 @@ jobs:
           grep -q "resolveStoreScope" functions/api/iiko/invoice-reference-data.js
 
           grep -q "selectedDepartmentIds" functions/api/iiko/_lib/ai-assistant-tools.js
-          grep -q "resolveRestaurantScope" functions/api/ai-assistant.js
+          # AI request handling delegates workspace and restaurant enforcement
+          # to ai-assistant-context.js rather than importing the scope resolver
+          # in the public route. Verify BOTH the delegation and its strict guard.
+          grep -q "resolveAssistantIiko" functions/api/ai-assistant.js
+          grep -q "resolveRestaurantScope" functions/api/iiko/_lib/ai-assistant-context.js
+          grep -q "scopeStateForAssistant" functions/api/iiko/_lib/ai-assistant-context.js
           grep -q "conversationScopeKey" functions/api/ai-assistant.js
           grep -q "scope_key" functions/api/ai-assistant.js
           grep -q "departmentIds" ai-assistant.js
