@@ -45,4 +45,4 @@ jobs:
           node --experimental-default-type=module --check functions/api/iiko/dashboard-summary.js
           node --experimental-default-type=module --check dashboard-optimized.js
       - name: Test summary normalization
-        run: node --experimental-default-type=module --test tests/mobile-*.test.mjs tests/operational-day.test.mjs
+        run: node --experimental-default-type=module --test tests/mobile-*.test.mjs tests/operational-day.test.mjs tests/owner-cash-shift-validation-diagnostics.test.mjs
