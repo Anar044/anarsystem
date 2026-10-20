@@ -135,8 +135,19 @@ export async function onRequestGet({ request, env }) {
     const payload = await upstream.json().catch(() => null);
     if (!upstream.ok || !payload?.success) {
       const code = String(payload?.code || "OLAP_FAILED");
-      const message = typeof payload?.message === "string"
+      let message = typeof payload?.message === "string"
         ? payload.message : "Не удалось получить отчёт SH OLAP.";
+      if (code === "OPERATING_SHIFT_SOURCE_FAILED") {
+        // The failed department was selected and already authorized by
+        // mobileContext. Use its display name instead of a raw UUID.
+        for (const restaurant of ctx.restaurants || []) {
+          const id = clean(restaurant?.id);
+          if (id && ctx.selectedIds.includes(id) && message.includes(id)) {
+            message = message.replace(id, clean(restaurant?.name) || id);
+            break;
+          }
+        }
+      }
       throw new MobileError(code, message, upstream.status === 409 ? 409 : 502);
     }
     const normalized = normalizeSummary(payload);

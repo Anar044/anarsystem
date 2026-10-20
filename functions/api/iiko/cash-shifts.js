@@ -64,8 +64,13 @@ function shiftDateKey(item, fallback) {
         "openDate", "openedAt", "openTime", "startDate", "startTime"
     ]);
     if (!raw) return fallback;
-    const match = String(raw).match(/(\d{4})[-.](\d{2})[-.](\d{2})/);
-    return match ? `${match[1]}-${match[2]}-${match[3]}` : fallback;
+    const input = String(raw).trim();
+    const iso = input.match(/(\d{4})[-.](\d{2})[-.](\d{2})/);
+    // Older servers can return the Azerbaijan/Russian dd.MM.yyyy format.
+    const local = input.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:[ T]|$)/);
+    const candidate = iso ? `${iso[1]}-${iso[2]}-${iso[3]}`
+        : local ? `${local[3]}-${local[2]}-${local[1]}` : "";
+    return candidate && parseDate(candidate) ? candidate : fallback;
 }
 
 function normalizeShift(item, requestedDate, requestedStatus) {
@@ -103,16 +108,32 @@ export function normalizeDepartmentCashShifts(payload, from, to, status, departm
     }
     const fromDay = isoDate(from), toDay = isoDate(to);
     const result = [];
-    for (const row of list) {
+    for (const [index, row] of list.entries()) {
         const normalized = normalizeShift(row, "", status);
         if (!normalized) continue;
         const explicitDepartment = shiftDepartmentId(row);
         if (explicitDepartment && explicitDepartment !== departmentId) {
             throw new Error("SH Server вернул чужую кассовую смену несмотря на фильтр departmentId.");
         }
-        const opened = normalized._dateKey;
-        if (!normalized._sessionId || !opened || opened < fromDay || opened > toDay) {
-            throw new Error("SH Server не подтвердил идентификатор или дату кассовой смены.");
+        // The filter is by physical OPEN DATE, but the business date can
+        // belong to an earlier operating day when a shift crosses midnight.
+        // Never use the requested date to invent an unverified open date.
+        const businessDate = normalized._dateKey;
+        const rawOpen = firstValue(row, [
+            "openDate", "openedAt", "openTime", "startDate", "startTime"
+        ]);
+        const openedDate = rawOpen
+            ? shiftDateKey({openDate: rawOpen}, "")
+            : businessDate;
+        const rowLabel = ` (запись ${index + 1}, статус ${status})`;
+        if (!normalized._sessionId) {
+            throw new Error("SH Server не передал ID кассовой смены" + rowLabel + ".");
+        }
+        if (!businessDate || !openedDate) {
+            throw new Error("SH Server не передал распознаваемую дату кассовой смены" + rowLabel + ".");
+        }
+        if (openedDate < fromDay || openedDate > toDay) {
+            throw new Error("Дата открытия кассовой смены вне запрошенного диапазона" + rowLabel + ".");
         }
         if (status === "OPEN" && (row.closeDate || row.closedAt || row.closeTime)) {
             throw new Error("SH Server вернул закрытую смену при фильтре OPEN.");
