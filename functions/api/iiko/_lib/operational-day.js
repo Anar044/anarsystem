@@ -29,8 +29,8 @@ const shiftId = shift => clean(
   shift?.sessionID || shift?.uuid || shift?.UUID
 );
 const shiftBusinessDate = shift => dateOnly(
-  shift?.businessDate || shift?.operatingDay || shift?.operationalDay ||
-  shift?._dateKey || shift?.openDate || shift?.openedAt || shift?.openTime
+  shift?._dateKey || shift?.businessDate || shift?.operatingDay ||
+  shift?.operationalDay || shift?.openDate || shift?.openedAt || shift?.openTime
 );
 
 export class OperatingDayError extends Error {
