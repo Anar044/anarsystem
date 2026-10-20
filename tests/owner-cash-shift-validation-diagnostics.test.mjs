@@ -61,3 +61,27 @@ test("invalid entry in multi-shift list is not silently omitted", () => {
     {id: "", openDate: "2026-10-20T04:00:00"}
   ], from, to, "OPEN", restaurant), /запись 2/);
 });
+
+
+test("verified CLOSED sessions outside opening-date range cannot poison today's dashboard", () => {
+  const rows = normalizeDepartmentCashShifts([
+    {id:"old-closed",openDate:"2026-09-15T02:00:00",closeDate:"2026-09-16T03:00:00"},
+    {id:"recent-closed",openDate:"2026-10-19T08:00:00",closeDate:"2026-10-19T18:00:00"}
+  ], from, to, "CLOSED", restaurant);
+  assert.deepEqual(rows.map(row=>row._sessionId),["recent-closed"]);
+});
+
+test("out-of-range OPEN sessions remain a hard error and are never silently discarded", () => {
+  assert.throws(() => normalizeDepartmentCashShifts([
+    {id:"old-still-open",openDate:"2026-09-15T02:00:00"}
+  ], from, to, "OPEN", restaurant), /вне запрошенного диапазона/);
+});
+
+test("invalid CLOSED sessions and mismatched restaurants are never ignored", () => {
+  assert.throws(() => normalizeDepartmentCashShifts([
+    {id:"",openDate:"2026-09-15T02:00:00",closeDate:"2026-09-16T03:00:00"}
+  ],from,to,"CLOSED",restaurant), /ID кассовой смены/);
+  assert.throws(() => normalizeDepartmentCashShifts([
+    {id:"other",departmentId:"not-authorized",openDate:"2026-09-15T02:00:00",closeDate:"2026-09-16T03:00:00"}
+  ],from,to,"CLOSED",restaurant), /чужую кассовую смену/);
+});
