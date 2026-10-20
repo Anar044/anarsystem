@@ -201,11 +201,28 @@ async function ensureTables(db) {
   try { return await initialize; }
   catch(error) { ASSISTANT_SCHEMA_READY.delete(db); throw error; }
 }
-function conversationScopeKey(iiko){
+export function conversationScopeKey(iiko){
+  // User ID alone is NOT an organization boundary. Non-CHAIN workspaces
+  // previously shared the empty scope key, and CHAIN workspaces with an
+  // identical set of department IDs also shared a history namespace.
+  // Require the authenticated workspace identity before touching D1 chats.
+  const workspaceId=clean(iiko?.access?.workspace?.id);
+  if(!workspaceId) {
+    const error=new Error("Не удалось подтвердить организацию для AI диалога.");
+    error.code="AI_WORKSPACE_SCOPE_UNVERIFIED";
+    error.status=403;
+    throw error;
+  }
   const scope=iiko?.scope;
-  if(!scope?.isChain)return "";
-  const ids=[...new Set((scope.selectedDepartmentIds||[]).map(String).filter(Boolean))].sort();
-  return `CHAIN:${ids.join(",")}`;
+  if(!scope?.isChain)return `WS:${workspaceId}:SINGLE`;
+  const ids=[...new Set((scope.selectedDepartmentIds||[]).map(clean).filter(Boolean))].sort();
+  if(!ids.length){
+    const error=new Error("Для AI выберите разрешённые рестораны.");
+    error.code="AI_RESTAURANT_SCOPE_EMPTY";
+    error.status=403;
+    throw error;
+  }
+  return `WS:${workspaceId}:CHAIN:${ids.join(",")}`;
 }
 async function conversationById(db, userId, conversationId, scopeKey="") {
   return db.prepare(`SELECT id,title,created_at,updated_at
