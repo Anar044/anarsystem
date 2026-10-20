@@ -164,8 +164,20 @@ export async function onRequestGet({ request, env }) {
     const payload = await upstream.json().catch(() => null);
     if (!upstream.ok || !payload?.success) {
       const code = String(payload?.code || "OLAP_FAILED");
-      const message = typeof payload?.message === "string"
+      let message = typeof payload?.message === "string"
         ? payload.message : "Не удалось получить отчёт SH OLAP.";
+      // The 22-department operating-day request can fail on one specific
+      // restaurant. Tell the owner which authorized restaurant failed, without
+      // leaking credentials or changing scope to an unsafe calendar fallback.
+      if (code.startsWith("OPERATING_SHIFT")) {
+        for (const restaurant of ctx.restaurants || []) {
+          const id = clean(restaurant?.id);
+          if (id && ctx.selectedIds.includes(id) && message.includes(id)) {
+            message = message.replace(id, clean(restaurant.name) || id);
+            break;
+          }
+        }
+      }
       throw new MobileError(code, message, upstream.status === 409 ? 409 : 502);
     }
     const normalized = normalizeSummary(payload);
