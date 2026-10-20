@@ -96,6 +96,10 @@ async function ensure(db) {
         SELECT CASE WHEN NEW.action IN ('TRANSFER','ISSUE','CONSUME')
           AND (SELECT status FROM proc_trace_lots WHERE id=NEW.lot_id)!='ACTIVE'
           THEN RAISE(ABORT,'LOT_ON_HOLD') END;
+        SELECT CASE WHEN NEW.action IN ('TRANSFER','ISSUE','CONSUME')
+          AND COALESCE((SELECT expires_on FROM proc_trace_lots WHERE id=NEW.lot_id),'')!=''
+          AND (SELECT expires_on FROM proc_trace_lots WHERE id=NEW.lot_id)<date('now')
+          THEN RAISE(ABORT,'LOT_EXPIRED') END;
         SELECT CASE WHEN NEW.action='RECEIVE' AND (
           NEW.from_location_id!='' OR NEW.to_location_id='' OR
           NEW.quantity!=(SELECT received_qty FROM proc_trace_lots WHERE id=NEW.lot_id))
@@ -418,6 +422,7 @@ export async function onRequestPost({ request, env }) {
       LOT_EXCEEDS_GRN:"Количество превышает оставшееся по физической приёмке GRN.",
       INSUFFICIENT_LOT_BALANCE:"Недостаточно остатка партии в выбранном месте.",
       LOT_ON_HOLD:"Партия на карантине: выдача и перемещения запрещены.",
+      LOT_EXPIRED:"Срок годности партии истёк. Разрешены карантин и списание.",
       DESTINATION_SCOPE_MISMATCH:"Место назначения не относится к складу партии.",
       SOURCE_SCOPE_MISMATCH:"Исходное место не относится к складу партии.",
       ALREADY_ON_HOLD:"Партия уже на карантине.",
