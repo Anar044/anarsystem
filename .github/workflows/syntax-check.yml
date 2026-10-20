@@ -67,6 +67,12 @@ jobs:
           node --test tests/internal-order-account-codes.test.mjs
           node --test tests/chain-department-discovery.test.mjs
 
+      - name: Verify procurement batch ledger (SQLite)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_procurement_trace_sql.py'
+
       - name: Check local AI Python syntax
         shell: bash
         run: |
