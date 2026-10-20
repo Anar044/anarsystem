@@ -64,8 +64,12 @@ function shiftDateKey(item, fallback) {
         "openDate", "openedAt", "openTime", "startDate", "startTime"
     ]);
     if (!raw) return fallback;
-    const match = String(raw).match(/(\d{4})[-.](\d{2})[-.](\d{2})/);
-    return match ? `${match[1]}-${match[2]}-${match[3]}` : fallback;
+    const input = String(raw).trim();
+    const iso = input.match(/(\d{4})[-.](\d{2})[-.](\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    // Some SH Server versions emit dd.MM.yyyy timestamps.
+    const local = input.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:[ T]|$)/);
+    return local ? `${local[3]}-${local[2]}-${local[1]}` : fallback;
 }
 
 function normalizeShift(item, requestedDate, requestedStatus) {
@@ -110,9 +114,20 @@ export function normalizeDepartmentCashShifts(payload, from, to, status, departm
         if (explicitDepartment && explicitDepartment !== departmentId) {
             throw new Error("SH Server вернул чужую кассовую смену несмотря на фильтр departmentId.");
         }
-        const opened = normalized._dateKey;
-        if (!normalized._sessionId || !opened || opened < fromDay || opened > toDay) {
+        const operatingDate = normalized._dateKey;
+        // cashshifts/list filters by OPEN DATE; the businessDate can be the
+        // previous operating day, even for a shift opened after midnight.
+        const rawOpen = firstValue(row, [
+            "openDate", "openedAt", "openTime", "startDate", "startTime"
+        ]);
+        const openedDate = rawOpen
+            ? shiftDateKey({ openDate: rawOpen }, "")
+            : operatingDate;
+        if (!normalized._sessionId || !operatingDate || !openedDate) {
             throw new Error("SH Server не подтвердил идентификатор или дату кассовой смены.");
+        }
+        if (openedDate < fromDay || openedDate > toDay) {
+            throw new Error("SH Server вернул кассовую смену за пределами запрошенных дат открытия.");
         }
         if (status === "OPEN" && (row.closeDate || row.closedAt || row.closeTime)) {
             throw new Error("SH Server вернул закрытую смену при фильтре OPEN.");
