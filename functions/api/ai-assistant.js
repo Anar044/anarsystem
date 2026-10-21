@@ -1,4 +1,5 @@
 import { getUser } from "./iiko/_lib/user-state.js";
+import { verifiedRevenuePresentation } from "./iiko/_lib/assistant-verified-revenue-presentation.js";
 import { resolveAssistantIiko, assistantToolAuthorized } from "./iiko/_lib/ai-assistant-context.js";
 import {
   assistantToolDefinitions,
@@ -335,6 +336,7 @@ export function mobileOwnerExecutiveInstructions() {
 - Пользователь может говорить на русском, азербайджанском или английском. Сохраняй язык вопроса и естественно понимай голосовую транскрипцию, но не приписывай неясным названиям ресторанов уверенное совпадение.
 - Если владелец просит сравнить рестораны, сравнивай только выбранные и разрешённые подразделения. Ни одна агрегированная сумма не может включать чужие организации, даже если источник вернул более широкую выборку.
 - Если пользователь попросил график, создай структурированный chart на основе проверенных значений. При недостатке данных прямо напиши об ограничении и не рисуй вымышленных точек.
+- Если пользователь просит сравнить выручку выбранных ресторанов, используй get_verified_restaurant_revenue с конкретными датами как первый инструмент. Он проверяет суммы и ограничение каждого подразделения. Не выдавай названия ресторанов за подтверждённые продажи.
 - Для вопросов о самых продаваемых и наименее продаваемых блюдах используй вначале get_dish_sales_rankings с календарным периодом пользователя. Этот инструмент получает реальные технические поля OLAP, сортирует исходные строки и проверяет ресторан для каждой строки; не заменяй его неподтверждёнными числами.
 - Для вопроса об удалении блюд дай топ и низ продаж по проверенным данным, но не принимай решение о снятии блюда без себестоимости, валовой маржи, сезонности и доступности ингредиентов.
 - При технической ошибке источника не пиши большое рассуждение вместо отчёта. Кратко скажи, что данные недоступны, укажи код источника, если он известен, и предложи повторить запрос позже; не утверждай без доказательств, что ошибка вызвана датами или числом ресторанов.
@@ -426,6 +428,21 @@ export function compactToolTrace(call, result) {
   }
   return trace;
 }
+export function mobileRevenueComparisonQuestion(prompt) {
+  const q=clean(prompt);
+  // A question about revenue by several selected restaurants is deterministic
+  // and must produce the same numerical OLAP response as a regular report.
+  return /(выруч|продаж|revenue|sales|gəlir|satış)/i.test(q) &&
+    /(рестора|подразделени|сравн|сравни|restaurant|department|compare|müqayis|restoran)/i.test(q);
+}
+
+export function mobileInitialToolChoice(prompt, mobile) {
+  if(mobile && mobileRevenueComparisonQuestion(prompt))
+    return {type:"function",name:"get_verified_restaurant_revenue"};
+  if(mobile && mobileRequiresSalesSource(prompt))return "required";
+  return "auto";
+}
+
 export function mobileRequiresSalesSource(prompt) {
   // Do not let the model decline a concrete sales report without first
   // attempting an authorized data lookup. General conversation stays fast.
@@ -477,12 +494,13 @@ async function runAssistant(env, connection, history, scope=null, access=null, m
     ...base,
     // Require at least one authorized read for a concrete sales question.
     // Avoid making "data unavailable" claims without checking the source.
-    tool_choice: mobile && mobileRequiresSalesSource(prompt)
-      ? "required" : "auto",
+    tool_choice: mobileInitialToolChoice(prompt, mobile),
     input: inputFromHistory(history)
   });
 
   const traces = [];
+  let verifiedRevenue = null;
+  let revenueAttempted = false;
   const toolBudget = assistantToolBudget({mobile, analytic:analyticQuestion});
   for (let round = 0; round < toolBudget; round++) {
     const calls = functionCalls(response);
@@ -507,6 +525,11 @@ async function runAssistant(env, connection, history, scope=null, access=null, m
       return { call, result };
     }));
     const outputs = outcomes.map(({ call, result }) => {
+      if (mobile && call.name === "get_verified_restaurant_revenue") {
+        revenueAttempted = true;
+        if (result?.success === true && result?.kind === "verified_revenue_comparison")
+          verifiedRevenue = result;
+      }
       traces.push(compactToolTrace(call, result));
       return {
         type: "function_call_output",
@@ -556,11 +579,32 @@ async function runAssistant(env, connection, history, scope=null, access=null, m
   }
   const structured = parseAssistantPayload(rawText);
   if (!structured.text && !structured.report && !structured.chart) throw new Error("AI вернул пустой ответ.");
+
+  let finalAnswer=structured;
+  if (mobile && mobileRevenueComparisonQuestion(prompt)) {
+    const wantsChart=/график|диаграмм|chart|visual|grafik|diaqram/i.test(prompt);
+    const verified=verifiedRevenuePresentation(verifiedRevenue,{chartRequested:wantsChart});
+    if (verified) {
+      finalAnswer=verified;
+    } else {
+      // A model-generated empty table/graph is NOT a completed report.
+      // Only the validated OLAP rows can authorize a numerical claim.
+      const problems=traces.filter(t=>!t.ok);
+      const code=problems.at(-1)?.code ||
+        (revenueAttempted?"AI_REVENUE_NOT_VERIFIED":"AI_REVENUE_TOOL_NOT_CALLED");
+      finalAnswer={kind:"text",chart:null,report:null,
+        text:"Не удалось получить проверенные числовые данные выручки " +
+          "для выбранных ресторанов. Код: "+code+". " +
+          "Отчёт и график не созданы, потому что источник не подтвердил суммы."};
+      if(!problems.length)traces.push({name:"get_verified_restaurant_revenue",
+        ok:false,success:false,code,error:"Нет подтверждённых OLAP-сумм."});
+    }
+  }
   return {
-    text: structured.text || structured.report?.title || structured.chart?.title || "Отчёт сформирован.",
-    kind: structured.kind,
-    report: structured.report,
-    chart: structured.chart,
+    text: finalAnswer.text || finalAnswer.report?.title || finalAnswer.chart?.title || "Отчёт сформирован.",
+    kind: finalAnswer.kind,
+    report: finalAnswer.report,
+    chart: finalAnswer.chart,
     model: response.model || model,
     responseId: response.id || null,
     usage: response.usage || null,
