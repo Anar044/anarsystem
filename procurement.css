@@ -307,3 +307,177 @@
   .proc-edit-row.proc-pack-row[data-receipt-line]>.proc-field:has([data-receipt-location]){grid-column:1}
   .proc-edit-row.proc-pack-row[data-receipt-line] .line-total{grid-column:1}
 }
+
+
+/* RFQ quotes: compact decision-first matrix. Overrides the legacy oversized
+   summary cards and price-detail stacks only inside supplier comparison. */
+.proc-quote-comparison{margin:12px 10px 10px;min-width:0}
+.quote-compare-toolbar{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  margin-bottom:9px;padding:0 2px
+}
+.quote-compare-toolbar>div:first-child{display:flex;flex-direction:column;gap:3px;min-width:0}
+.quote-compare-toolbar>div:first-child>strong{font-size:12px;font-weight:800;color:#e7f2ee}
+.quote-compare-toolbar>div:first-child>small{font-size:10px;color:#8498a6;line-height:1.45}
+.quote-layout-toggle{
+  display:inline-flex;align-items:center;flex:none;padding:3px;
+  border:1px solid #2a403f;border-radius:9px;background:#0b151c
+}
+.quote-layout-toggle button{
+  border:0;border-radius:6px;background:transparent;color:#92a6af;
+  font:inherit;font-size:10px;font-weight:650;line-height:1.2;padding:7px 11px;cursor:pointer
+}
+.quote-layout-toggle button[aria-pressed="true"]{
+  color:#d9faeb;background:#1d4135;box-shadow:0 1px 4px rgba(0,0,0,.18)
+}
+.quote-layout-toggle button:focus-visible,.quote-supplier-terms summary:focus-visible{
+  outline:2px solid #64dda7;outline-offset:2px
+}
+.proc-quote-comparison .proc-quote-compare-wrap{
+  margin-top:0;max-height:min(68vh,690px);overflow:auto;scrollbar-gutter:stable;
+  border:1px solid #293a43;border-radius:10px;background:#0b151c
+}
+.proc-quote-comparison .proc-quote-compare{
+  width:100%;
+  min-width:max(680px,var(--quote-min-width));
+  table-layout:fixed;border-collapse:separate;border-spacing:0;background:#0b151c
+}
+.proc-quote-comparison .proc-quote-compare th,
+.proc-quote-comparison .proc-quote-compare td{
+  box-sizing:border-box;padding:11px 12px;
+  border-bottom:1px solid #20313b;border-right:1px solid #1b2c35;
+  vertical-align:middle;text-align:left
+}
+.proc-quote-comparison .proc-quote-compare thead th{
+  position:sticky;top:0;z-index:3;background:#13232b;vertical-align:top;
+  box-shadow:0 1px 0 #294048
+}
+.proc-quote-comparison .proc-quote-compare .quote-product-col{
+  width:220px;min-width:220px;position:sticky;left:0;z-index:5;background:#14252d
+}
+.proc-quote-comparison .quote-product-col .quote-col-caption{
+  display:block;color:#8296a3;font-size:9px;font-weight:700;margin:0 0 4px
+}
+.proc-quote-comparison .quote-product-col>strong{
+  display:block;color:#ebf2f6;font-size:12px;text-transform:none
+}
+.proc-quote-comparison .proc-quote-compare .quote-supplier-col{width:auto;min-width:185px}
+.proc-quote-comparison .quote-supplier-heading{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
+.proc-quote-comparison .quote-supplier-heading>strong{
+  width:100%;font-size:12px;color:#eef7f4;line-height:1.3;overflow-wrap:anywhere
+}
+.proc-quote-comparison .quote-supplier-coverage{color:#90a5ae;font-size:9.5px;line-height:1.2}
+.proc-quote-comparison .quote-supplier-sum{
+  display:block;margin-top:3px;font-size:12px;font-weight:800;
+  color:#a8e5ca;line-height:1.1
+}
+.proc-quote-comparison .quote-supplier-sum small{font-size:9px;font-weight:500;color:#758e99}
+.proc-quote-comparison .quote-supplier-terms{
+  width:100%;margin-top:3px;color:#a9bac4;text-transform:none;letter-spacing:normal
+}
+.proc-quote-comparison .quote-supplier-terms>summary{
+  width:max-content;list-style:none;cursor:pointer;font-size:9.5px;
+  font-weight:600;color:#76cfa7;user-select:none
+}
+.proc-quote-comparison .quote-supplier-terms>summary::-webkit-details-marker{display:none}
+.proc-quote-comparison .quote-supplier-terms>summary:after{content:" ▾";font-size:10px}
+.proc-quote-comparison .quote-supplier-terms[open]>summary:after{content:" ▴"}
+.proc-quote-comparison .quote-supplier-terms-content{
+  display:grid;gap:5px;margin-top:8px;padding-top:8px;
+  border-top:1px solid #2d4148;font-weight:400
+}
+.proc-quote-comparison .quote-supplier-terms-content>div{
+  display:flex;flex-direction:column;gap:1px;min-width:0
+}
+.proc-quote-comparison .quote-supplier-terms-content span{color:#8495a2;font-size:8.5px}
+.proc-quote-comparison .quote-supplier-terms-content strong{
+  font-size:9.5px;color:#d0dce3;font-weight:600;overflow-wrap:anywhere
+}
+.proc-quote-comparison .quote-supplier-terms-content p{
+  margin:3px 0 0;font-size:9.5px;line-height:1.5;color:#becdd5;
+  overflow-wrap:anywhere
+}
+.proc-quote-comparison .quote-product-cell{
+  position:sticky;left:0;z-index:2;width:220px;min-width:220px;
+  background:#0e1c25;vertical-align:middle
+}
+.proc-quote-comparison .quote-product-cell strong{
+  display:block;font-size:11.5px;line-height:1.35;color:#edf5f6
+}
+.proc-quote-comparison .quote-product-cell small{
+  display:block;margin-top:4px;font-size:9.5px;color:#8399a6;line-height:1.4
+}
+.proc-quote-comparison .quote-product-vat{display:none!important}
+.proc-quote-comparison .quote-price-cell{
+  position:relative;min-width:185px;background:#0d1821
+}
+.proc-quote-comparison tbody tr:nth-child(even) .quote-price-cell{background:#101d25}
+.proc-quote-comparison tbody tr:hover .quote-price-cell{background:#16242b}
+.proc-quote-comparison tbody tr:hover .quote-product-cell{background:#142531}
+.proc-quote-comparison .quote-price-cell.best,
+.proc-quote-comparison tbody tr:nth-child(even) .quote-price-cell.best{
+  background:#123026;box-shadow:inset 3px 0 0 #45d59b
+}
+.proc-quote-comparison tbody tr:hover .quote-price-cell.best{background:#174033}
+.proc-quote-comparison .quote-compact-price{
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 6px;line-height:1.25
+}
+.proc-quote-comparison .quote-compact-price>strong{
+  color:#e7f1f6;font-size:14px;font-weight:850;font-variant-numeric:tabular-nums;
+  white-space:nowrap
+}
+.proc-quote-comparison .quote-compact-price>small{color:#8698a4;font-size:9.5px}
+.proc-quote-comparison .quote-price-cell.best .quote-compact-price>strong{color:#82e9b9}
+.proc-quote-comparison .quote-compact-price .quote-best-label{
+  display:inline-flex;align-items:center;flex:none;margin:0 0 0 auto;
+  padding:2px 6px;border-radius:5px;background:#1d4734;
+  color:#8beebc;font-size:8px;font-weight:800;letter-spacing:0;text-transform:none
+}
+.proc-quote-comparison .quote-compact-sub{
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  gap:5px 8px;margin-top:6px;font-size:9.5px;color:#8ea4b0
+}
+.proc-quote-comparison .quote-compact-sub strong{
+  color:#cbdde2;font-size:10.5px;font-weight:800;white-space:nowrap;
+  font-variant-numeric:tabular-nums
+}
+.proc-quote-comparison .quote-price-cell.missing{background:#0c161d}
+.proc-quote-comparison .quote-price-cell.missing>span{
+  color:#657888;font-size:18px;line-height:1
+}
+.proc-quote-comparison .quote-price-cell.missing>small{
+  display:block;color:#82929d;font-size:9px;margin-top:4px
+}
+.proc-quote-comparison .quote-cell-details{
+  display:none;margin-top:9px;padding-top:8px;border-top:1px dashed #31434a
+}
+.proc-quote-comparison .quote-cell-details>div{
+  display:flex;justify-content:space-between;gap:9px;margin:4px 0;font-size:9.5px
+}
+.proc-quote-comparison .quote-cell-details span{color:#8499a3}
+.proc-quote-comparison .quote-cell-details b{font-weight:650;color:#c9dce1;text-align:right}
+.proc-quote-comparison[data-quote-layout="details"] .quote-cell-details{display:block}
+.proc-quote-comparison[data-quote-layout="details"] .quote-product-vat{display:block!important}
+.proc-quote-comparison .quote-total-row th,
+.proc-quote-comparison .quote-total-row td{
+  position:sticky;bottom:0;z-index:3;background:#17252d;
+  border-top:1px solid #2b4346;border-bottom:0
+}
+.proc-quote-comparison .quote-total-row th{
+  left:0;z-index:4;color:#ebf3f7;background:#172b31
+}
+.proc-quote-comparison .quote-total-row td>strong{font-size:13px;color:#edf5f8}
+.proc-quote-comparison .quote-po-btn{
+  width:auto;display:inline-flex;margin:8px 0 0;min-height:30px;
+  padding:6px 11px;border-radius:7px;font-size:10px;font-weight:750
+}
+.proc-quote-comparison .proc-quote-legend{margin-top:9px;padding:0 2px}
+.proc-quote-comparison .proc-split-entry{margin-top:12px}
+@media(max-width:700px){
+  .quote-compare-toolbar{align-items:flex-start;flex-direction:column;gap:9px}
+  .proc-quote-comparison .proc-quote-compare{min-width:max(610px,var(--quote-min-width))}
+  .proc-quote-comparison .proc-quote-compare .quote-product-col,
+  .proc-quote-comparison .quote-product-cell{width:180px;min-width:180px}
+  .proc-quote-comparison .quote-price-cell{min-width:175px}
+  .proc-quote-comparison .proc-quote-compare-wrap{max-height:67vh}
+}

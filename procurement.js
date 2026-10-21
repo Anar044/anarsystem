@@ -588,52 +588,87 @@ function quoteComparisonHtml(r){
   const quotes=r.quotes||[],lines=r.lines||[];
   if(!quotes.length)return '<div class="proc-history-note">Предложений пока нет. Добавьте поставщика и укажите цены по каждой позиции.</div>';
 
+  // The established RFQ comparison stays quantity- and price-identical:
+  // cheapest supplier is determined by price per base unit, not package price.
   const bestPriceByProduct=new Map();
   for(const line of lines){
-    const prices=quotes.map(qt=>{const l=quoteLineByProduct(qt,line.productId);return l?num(l.unitPrice)/Math.max(0.001,num(l.packageSize,1)):0}).filter(x=>x>0);
+    const prices=quotes.map(qt=>{
+      const offer=quoteLineByProduct(qt,line.productId);
+      return offer?num(offer.unitPrice)/Math.max(0.001,num(offer.packageSize,1)):0;
+    }).filter(x=>x>0);
     if(prices.length)bestPriceByProduct.set(key(line.productId),Math.min(...prices));
   }
 
-  const quoteCards='<div class="proc-quote-summary-grid">'+quotes.map(qt=>{
-    const date=qt.createdAt?new Date(qt.createdAt).toLocaleString('ru-RU'):'—';
-    return '<article class="proc-quote-summary"><div class="proc-quote-summary-top"><div><span>Поставщик</span><strong>'+esc(qt.supplierName||qt.supplierId)+'</strong></div><b>'+money(qt.totalAmount)+'</b></div>'+
-      '<div class="proc-quote-summary-meta">'+
+  let layout='compact';
+  try{layout=localStorage.getItem('shProcQuoteLayoutV1')==='details'?'details':'compact'}catch(_){}
+
+  const layoutButtons='<div class="quote-layout-toggle" role="group" aria-label="Режим просмотра сравнения">'+
+    '<button type="button" data-quote-layout-mode="compact" aria-pressed="'+(layout==='compact')+'">Компактно</button>'+
+    '<button type="button" data-quote-layout-mode="details" aria-pressed="'+(layout==='details')+'">Подробно</button>'+
+    '</div>';
+
+  const head='<thead><tr><th scope="col" class="quote-product-col"><span class="quote-col-caption">Товар</span><strong>Потребность</strong></th>'+
+    quotes.map(qt=>{
+      const date=qt.createdAt?new Date(qt.createdAt).toLocaleString('ru-RU'):'—';
+      const count=lines.filter(line=>quoteLineByProduct(qt,line.productId)).length;
+      const terms='<details class="quote-supplier-terms"><summary>Условия предложения</summary>'+
+        '<div class="quote-supplier-terms-content">'+
         '<div><span>Доставка</span><strong>'+(qt.deliveryDays?esc(qt.deliveryDays+' дн.'):'—')+'</strong></div>'+
         '<div><span>Оплата</span><strong>'+esc(qt.paymentTerms||'—')+'</strong></div>'+
         '<div><span>Действует до</span><strong>'+esc(qt.validUntil||'—')+'</strong></div>'+
         '<div><span>Получено</span><strong>'+esc(date)+'</strong></div>'+
-      '</div>'+(qt.comment?'<p>'+esc(qt.comment)+'</p>':'')+'</article>';
-  }).join('')+'</div>';
-
-  const head='<thead><tr><th class="quote-product-col">Товар / количество</th>'+
-    quotes.map(qt=>'<th class="quote-supplier-col"><strong>'+esc(qt.supplierName||qt.supplierId)+'</strong><small>'+money(qt.totalAmount)+' всего</small></th>').join('')+
-    '</tr></thead>';
+        (qt.comment?'<p>'+esc(qt.comment)+'</p>':'')+
+        '</div></details>';
+      return '<th scope="col" class="quote-supplier-col">'+
+        '<div class="quote-supplier-heading"><strong>'+esc(qt.supplierName||qt.supplierId)+'</strong>'+
+        '<span class="quote-supplier-coverage">'+count+' из '+lines.length+' позиций</span>'+
+        '<span class="quote-supplier-sum">'+money(qt.totalAmount)+' <small>всего</small></span>'+
+        terms+'</div></th>';
+    }).join('')+'</tr></thead>';
 
   const bodyRows=lines.map(line=>{
     const best=bestPriceByProduct.get(key(line.productId));
-    return '<tr><td class="quote-product-cell"><strong>'+esc(line.productName||line.productId)+'</strong><small>'+qty(line.packageCount||line.quantity)+' уп. × '+qty(line.packageSize||1)+' '+esc(line.unit||'')+' = '+qty(line.quantity)+' '+esc(line.unit||'')+'</small><small>НДС '+num(line.vatPercent)+'%</small></td>'+
-      quotes.map(qt=>{
-        const ql=quoteLineByProduct(qt,line.productId);
-        if(!ql)return '<td class="quote-price-cell missing"><span>Поставщик эту позицию не предложил</span></td>';
-        const price=num(ql.unitPrice),packSize=num(ql.packageSize||line.packageSize||1,1)||1,packCount=num(ql.packageCount, num(ql.quantity||line.quantity)/packSize),lineTotal=num(ql.total||packCount*price),basePrice=packSize>0?price/packSize:price,isBest=best>0&&Math.abs(basePrice-best)<0.0001;
-        return '<td class="quote-price-cell '+(isBest?'best':'')+'">'+
-          '<div class="quote-detail"><span>Цена за упаковку</span><strong>'+money(price)+'</strong></div>'+
-          '<div class="quote-detail"><span>Фасовка</span><b>'+qty(packSize)+' '+esc(ql.unit||line.unit||'')+'</b></div>'+
-          '<div class="quote-detail"><span>Цена за 1 '+esc(ql.unit||line.unit||'ед.')+'</span><b>'+money(basePrice)+'</b></div>'+
-          '<div class="quote-detail"><span>Количество</span><b>'+qty(packCount)+' уп.</b></div>'+
-          '<div class="quote-detail total"><span>Сумма позиции</span><strong>'+money(lineTotal)+'</strong></div>'+
-          '<small class="quote-vat">НДС '+num(ql.vatPercent??line.vatPercent)+'%</small>'+
-          (isBest?'<b class="quote-best-label">Лучшая цена</b>':'')+
-        '</td>';
-      }).join('')+'</tr>';
+    const product='<th scope="row" class="quote-product-cell">'+
+      '<strong>'+esc(line.productName||line.productId)+'</strong>'+
+      '<small>'+qty(line.packageCount||line.quantity)+' уп. × '+qty(line.packageSize||1)+' '+esc(line.unit||'')+
+        ' = '+qty(line.quantity)+' '+esc(line.unit||'')+'</small>'+
+      '<small class="quote-product-vat">НДС '+num(line.vatPercent)+'%</small></th>';
+
+    return '<tr>'+product+quotes.map(qt=>{
+      const ql=quoteLineByProduct(qt,line.productId);
+      if(!ql)return '<td class="quote-price-cell missing"><span>—</span><small>Нет предложения</small></td>';
+      const price=num(ql.unitPrice),packSize=num(ql.packageSize||line.packageSize||1,1)||1;
+      const packCount=num(ql.packageCount,num(ql.quantity||line.quantity)/packSize);
+      const lineTotal=num(ql.total||packCount*price);
+      const basePrice=packSize>0?price/packSize:price;
+      const isBest=best>0&&Math.abs(basePrice-best)<0.0001;
+      const unit=esc(ql.unit||line.unit||'ед.');
+      return '<td class="quote-price-cell '+(isBest?'best':'')+'">'+
+        '<div class="quote-compact-price"><strong>'+money(basePrice)+'</strong><small>/ '+unit+'</small>'+
+          (isBest?'<b class="quote-best-label">Лучшая</b>':'')+'</div>'+
+        '<div class="quote-compact-sub"><span>'+money(price)+' / уп. × '+qty(packCount)+'</span>'+
+          '<strong>'+money(lineTotal)+'</strong></div>'+
+        '<div class="quote-cell-details">'+
+          '<div><span>Фасовка</span><b>'+qty(packSize)+' '+unit+'</b></div>'+
+          '<div><span>Количество</span><b>'+qty(packCount)+' уп.</b></div>'+
+          '<div><span>Цена за упаковку</span><b>'+money(price)+'</b></div>'+
+          '<div><span>Цена за 1 '+unit+'</span><b>'+money(basePrice)+'</b></div>'+
+          '<div><span>НДС</span><b>'+num(ql.vatPercent??line.vatPercent)+'%</b></div>'+
+        '</div></td>';
+    }).join('')+'</tr>';
   }).join('');
 
-  const totals='<tr class="quote-total-row"><td><strong>Итого предложение</strong></td>'+
-    quotes.map(qt=>'<td><strong>'+money(qt.totalAmount)+'</strong>'+(r.status==='APPROVED'?'<button class="proc-btn small primary quote-po-btn" data-po-create="'+r.id+'" data-quote="'+qt.id+'">Создать PO</button>':'')+'</td>').join('')+'</tr>';
-
-  return quoteCards+'<div class="proc-quote-compare-wrap"><table class="proc-quote-compare">'+head+'<tbody>'+bodyRows+totals+'</tbody></table></div>'+ 
-    (r.status==='APPROVED'?'<div class="proc-split-entry"><div><strong>Заказы по лучшим ценам</strong><small>Можно распределить один товар между несколькими поставщиками и создать отдельный PO для каждого.</small></div><button class="proc-btn primary" data-po-split="'+r.id+'">Распределить товары и создать PO</button></div>':'')+
-    '<div class="proc-quote-legend"><span><i class="best-dot"></i> зелёным отмечена минимальная цена по конкретному товару</span><span>Все цены показаны с детализацией по упаковке и базовой единице</span></div>';
+  const totals='<tr class="quote-total-row"><th scope="row"><strong>Итого предложение</strong></th>'+
+    quotes.map(qt=>'<td><strong>'+money(qt.totalAmount)+'</strong>'+
+      (r.status==='APPROVED'?'<button class="proc-btn small primary quote-po-btn" data-po-create="'+esc(r.id)+'" data-quote="'+esc(qt.id)+'">Создать PO</button>':'')+
+      '</td>').join('')+'</tr>';
+  return '<div class="proc-quote-comparison" data-quote-layout="'+layout+'" style="--quote-min-width:'+(220+200*quotes.length)+'px">'+
+    '<div class="quote-compare-toolbar"><div><strong>Сравнение цен</strong><small>Сравниваем стоимость одной единицы, даже если фасовки отличаются</small></div>'+layoutButtons+'</div>'+
+    '<div class="proc-quote-compare-wrap" role="region" tabindex="0" aria-label="Сравнение цен поставщиков; прокрутка по горизонтали">'+
+      '<table class="proc-quote-compare">'+head+'<tbody>'+bodyRows+totals+'</tbody></table></div>'+
+    (r.status==='APPROVED'?'<div class="proc-split-entry"><div><strong>Заказы по лучшим ценам</strong><small>Можно распределить один товар между несколькими поставщиками и создать отдельный PO для каждого.</small></div><button class="proc-btn primary" data-po-split="'+esc(r.id)+'">Распределить товары и создать PO</button></div>':'')+
+    '<div class="proc-quote-legend"><span><i class="best-dot"></i> Зелёный — минимальная цена за единицу</span><span>Условия поставщиков — в заголовках колонок</span></div>'+
+    '</div>';
 }
 function rfqStatusLabel(s){
   return({DRAFT:'Черновик',SENT:'Отправлен',CLOSED:'Закрыт'}[String(s||'').toUpperCase()]||s||'—');
@@ -1736,7 +1771,19 @@ function bind(){
     const row=state.purchaseRows.find(x=>x.id===b.dataset.createNeed);if(row)openPrModal([row]);
   });
   $('proc-pr-list').addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;const id=b.dataset.prEdit||b.dataset.prReview||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prClose||b.dataset.prQuote||b.dataset.poCreate||b.dataset.poSplit||b.dataset.rfqCreate||b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose||b.dataset.rfqLink;if(!id)return;
+    const b=e.target.closest('button');if(!b)return;
+    if(b.dataset.quoteLayoutMode){
+      const layout=b.dataset.quoteLayoutMode==='details'?'details':'compact';
+      document.querySelectorAll('.proc-quote-comparison').forEach(panel=>{
+        panel.dataset.quoteLayout=layout;
+        panel.querySelectorAll('[data-quote-layout-mode]').forEach(button=>{
+          button.setAttribute('aria-pressed',String(button.dataset.quoteLayoutMode===layout));
+        });
+      });
+      try{localStorage.setItem('shProcQuoteLayoutV1',layout)}catch(_){}
+      return;
+    }
+    const id=b.dataset.prEdit||b.dataset.prReview||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prClose||b.dataset.prQuote||b.dataset.poCreate||b.dataset.poSplit||b.dataset.rfqCreate||b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose||b.dataset.rfqLink;if(!id)return;
     const r=(state.data?.requisitions||[]).find(x=>x.id===id)||(state.data?.requisitions||[]).find(x=>(x.rfqs||[]).some(q=>q.id===id));
     if((b.dataset.prEdit||b.dataset.prReview)&&r)return openPrModal([],r);
     if(b.dataset.rfqCreate&&r)return openRfqModal(r);
