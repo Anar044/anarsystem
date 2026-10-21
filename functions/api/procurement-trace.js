@@ -239,6 +239,17 @@ export async function onRequestGet({ request, env }) {
     for (const o of orders) if (clean(o.warehouse_id))
       warehouseMap.set(o.warehouse_id, { id: o.warehouse_id, name: o.warehouse_name || o.warehouse_id });
     const warehouses = new Set(warehouseMap.keys());
+    const mode=new URL(request.url).searchParams.get("mode");
+    if(mode==="locations"){
+      const locations=await c.db.prepare(`SELECT id,warehouse_id,name,kind,parent_id,active
+        FROM proc_trace_locations WHERE workspace_id=?1 AND server_scope=?2 ORDER BY name`)
+        .bind(c.workspace,c.server).all();
+      return json({success:true,canConfigure:hasPermission(c.access,"procurement.settings.manage"),
+        locations:(locations.results||[]).filter(x=>warehouses.has(x.warehouse_id)).map(x=>({
+          id:x.id,warehouseId:x.warehouse_id,name:x.name,kind:x.kind,
+          parentId:x.parent_id,active:!!x.active
+        }))});
+    }
     const [loc, lots, grns, balance, moves, counted] = await Promise.all([
       c.db.prepare(`SELECT * FROM proc_trace_locations WHERE workspace_id=?1 AND server_scope=?2 ORDER BY warehouse_name,name`)
         .bind(c.workspace,c.server).all(),
