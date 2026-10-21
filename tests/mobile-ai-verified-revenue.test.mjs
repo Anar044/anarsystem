@@ -83,6 +83,8 @@ test("server selects verified revenue tool for revenue-by-restaurant requests",(
       {type:"function",name:"get_verified_restaurant_revenue"});
   }
   assert.equal(mobileRevenueComparisonQuestion("Привет"),false);
+  assert.equal(mobileRevenueComparisonQuestion("Сравни продажи блюд за неделю"),false);
+  assert.equal(mobileRevenueComparisonQuestion("Сравни продажи блюд по ресторанам"),false);
   assert.equal(mobileInitialToolChoice("Привет",true),"auto");
   assert.equal(mobileInitialToolChoice("Сравни выручку ресторанов",false),"auto");
 });
