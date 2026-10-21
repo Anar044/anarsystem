@@ -1486,7 +1486,6 @@ function openReceiptModal(o){
         id:o.id,documentDate:$('proc-receipt-date').value,comment:'Фактическая приёмка по '+o.number,lines:rlines
       });
       createdGrn={id:result.grnId,number:result.grnNumber};
-      $('proc-grn-only').disabled=true;
     }
     if(!placementSynced){
       // Register Smart Horeca-only lots after GRN persistence. Sync reads the
@@ -1504,6 +1503,7 @@ function openReceiptModal(o){
       }
       placementSynced=true;
     }
+    $('proc-grn-only').disabled=true;
     modalStatus('GRN '+createdGrn.number+' сохранён.','success');
     return createdGrn;
   }
