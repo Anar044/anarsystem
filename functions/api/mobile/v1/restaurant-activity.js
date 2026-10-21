@@ -1,5 +1,6 @@
 import { mobileContext, response, errorResponse } from "../_lib/context.js";
 import { getVerifiedRevenueComparison } from "../../iiko/_lib/assistant-revenue-comparison.js";
+import { privateConnection } from "../../iiko/_lib/user-state.js";
 
 const clean=v=>String(v??"").trim();
 const values=v=>Array.isArray(v)?v:[];
@@ -73,10 +74,7 @@ export async function onRequestGet({request,env}){
       try{
         // This one read-only OLAP request runs ONLY on authorized departments.
         revenue=await getVerifiedRevenueComparison(
-          await (async()=>{
-            const { privateConnection }=await import("../../iiko/_lib/private-state.js");
-            return privateConnection(ctx.state);
-          })(),
+          privateConnection(ctx.state),
           {mobileStrict:true,selectedDepartmentIds:ctx.availableIds,
             allowedDepartmentIds:ctx.availableIds,
             selectedRestaurants:ctx.restaurants},
@@ -91,7 +89,7 @@ export async function onRequestGet({request,env}){
     }else sourceCode="SH_CONNECTION_MISSING";
     const departments=classifyDepartmentActivity(metadata,revenue);
     return response({
-      lookbackDays:30,period:{from,to},
+      success:true,lookbackDays:30,period:{from,to},
       sourceStatus,sourceCode,
       topology:{
         groupsKnown:metadata.some(x=>x.groupCount!==null),
