@@ -80,6 +80,12 @@ export async function onRequestPost({request,env}) {
       answer:clean(payload.answer),
       kind:clean(payload.meta?.kind||"text"),
       report:payload.meta?.report||null, chart:payload.meta?.chart||null,
+      sourceWarnings:Array.isArray(payload.meta?.sourceWarnings)
+        ? payload.meta.sourceWarnings.slice(0,5).map(item=>({
+            name:clean(item?.name).slice(0,80),
+            code:clean(item?.code).slice(0,80),
+            ...(Number.isInteger(item?.status)?{status:item.status}:{})
+          })) : [],
       selectedDepartmentIds:ctx.selectedIds
     });
   }catch(error){return errorResponse(error);}
