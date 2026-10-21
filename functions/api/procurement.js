@@ -1283,7 +1283,7 @@ export async function onRequestPost({request,env}){
         const place=placementFor.get(clean(x.productId).toLowerCase().replace(/[{}]/g,""))||{};
         const locationId=clean(place.locationId), lotCode=clean(place.lotCode);
         const expiresOn=clean(place.expiresOn);
-        if(lotCode.length>80||expiresOn&&!/^\\d{4}-\\d{2}-\\d{2}$/.test(expiresOn))
+        if(lotCode.length>80||expiresOn&&!/^\d{4}-\d{2}-\d{2}$/.test(expiresOn))
           throw new Error("Проверьте номер партии и срок годности.");
         return{
           productId:x.productId,productName:x.productName||ol.product_name,unit:x.unit||ol.unit,quantity:x.quantity,
