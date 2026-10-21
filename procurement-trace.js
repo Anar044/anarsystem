@@ -152,7 +152,7 @@ function renderMovementForm(lot){
       if(!confirm(action==='RELEASE'?'Подтвердить снятие карантина?':'Заблокировать выдачу и перемещения этой партии?'))return;
       try{await post('SET_HOLD',{lotId:lot.id,status:action==='HOLD'?'HOLD':'ACTIVE',reason:values.reason})}catch(_){}
     }else{
-      if(action==='WRITE_OFF'&&!confirm('Списать '+values.quantity+' '+lot.unit+' из партии '+lot.lotCode+'?'))return;
+      if(action==='WRITE_OFF'&&!confirm('Это изменение только учёта полок Smart Horeca. Проведённый акт списания в Smart Horeca Server должен существовать отдельно. Отметить списание '+values.quantity+' '+lot.unit+' по партии '+lot.lotCode+'?'))return;
       try{await post('MOVE',{lotId:lot.id,movement:action,...values})}catch(_){}
     }
   };
