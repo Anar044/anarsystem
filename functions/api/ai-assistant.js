@@ -426,6 +426,13 @@ export function compactToolTrace(call, result) {
   }
   return trace;
 }
+export function mobileRequiresSalesSource(prompt) {
+  // Do not let the model decline a concrete sales report without first
+  // attempting an authorized data lookup. General conversation stays fast.
+  return /выруч|продаж|чек[иаов]?|по\s+ресторанам|сравни|сравнен|график|диаграм|рейтинг\s+блюд|revenue|sales|compare|chart|grafik|satış|gəlir|müqayis/i
+    .test(clean(prompt));
+}
+
 export function assistantToolBudget({mobile=false, analytic=false} = {}) {
   // A comparison report commonly takes several dependent lookups:
   // first identify fields, then fetch verified OLAP rows, finally summarize.
@@ -468,6 +475,10 @@ async function runAssistant(env, connection, history, scope=null, access=null, m
 
   let response = await openAiResponse(env, {
     ...base,
+    // Require at least one authorized read for a concrete sales question.
+    // Avoid making "data unavailable" claims without checking the source.
+    tool_choice: mobile && mobileRequiresSalesSource(prompt)
+      ? "required" : "auto",
     input: inputFromHistory(history)
   });
 
