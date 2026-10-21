@@ -101,7 +101,8 @@ const TOOL_PERMISSIONS = {
   analyze_purchase_prices: ["procurement.prices.view", "procurement.analytics", "inventory.incoming.view"],
   get_supplier_balances: ["reports.supplier_balances", "finance.view", "procurement.analytics", "procurement.sourcing"],
   search_olap_fields: ["reports.olap"],
-  run_olap_report: ["reports.olap"]
+  run_olap_report: ["reports.olap"],
+  get_dish_sales_rankings: ["reports.olap"]
 };
 export function assistantToolAuthorized(access, name) {
   if (name === "list_smart_horeca_capabilities") return true;
