@@ -1380,9 +1380,33 @@ function openLinkInvoiceModal(o){
   };
 }
 
+// Place is optional and does not change the iiko warehouse document. It is
+// captured per GRN item, not once for the entire delivery.
+async function loadReceiptLocations(warehouseId){
+  const rows=[...document.querySelectorAll('[data-receipt-location]')];
+  try{
+    const response=await authFetch('/api/procurement-trace?mode=locations',{cache:'no-store'});
+    const payload=await response.json().catch(()=>({}));
+    if(!response.ok||payload.success===false)throw Error(payload.message||'Места хранения недоступны');
+    const locations=(payload.locations||[]).filter(x=>x.active&&key(x.warehouseId)===key(warehouseId));
+    for(const select of rows){
+      const chosen=select.value;
+      select.innerHTML='<option value="">Не указывать место (необязательно)</option>'+
+        locations.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('');
+      if(locations.some(x=>x.id===chosen))select.value=chosen;
+    }
+    const note=$('proc-storage-note');
+    if(note)note.textContent=locations.length
+      ?'Место хранения необязательно. Оно остаётся в Smart Horeca и не отправляется в iiko.'
+      :'Для этого склада ещё нет холодильников и полок. Их можно создать в разделе «Партии и хранение».';
+  }catch(error){
+    const note=$('proc-storage-note');
+    if(note)note.textContent='Места хранения не загружены: '+(error.message||String(error))+'. Приёмку можно оформить без полки.';
+  }
+}
 function receiptLineHtml(l){
   const packageSize=num(l.packageSize,1)||1,packageCount=Math.max(0,num(l.remainingQty)/packageSize),vat=num(l.vatPercent,0);
-  return '<div class="proc-edit-row proc-pack-row" data-receipt-line data-product-id="'+esc(l.productId)+'"><div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div><div class="proc-field proc-package-field"><span>Фасовка</span><select data-f="packageChoice">'+packagingChoiceHtml(l.productId,{containerId:l.containerId,packageSize,packageName:l.packageName})+'</select><input data-f="packageSize" type="number" min="0.001" step="0.001" value="'+packageSize+'"></div><div class="proc-field"><span>Упаковок</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+packageCount+'"></div><div class="proc-field"><span>Итого '+esc(l.unit||'ед.')+'</span><input data-f="quantity" type="number" readonly value="'+num(l.remainingQty)+'"></div><div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div><div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0.01" step="0.01" value="'+num(l.unitPrice)+'"></div><strong class="line-total">'+money(packageCount*num(l.unitPrice))+'</strong><span></span><input data-f="containerId" type="hidden" value="'+esc(l.containerId||'')+'"><input data-f="packageName" type="hidden" value="'+esc(l.packageName||'')+'"><input data-f="unit" type="hidden" value="'+esc(l.unit||'')+'"></div>';
+  return '<div class="proc-edit-row proc-pack-row" data-receipt-line data-product-id="'+esc(l.productId)+'"><div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div><div class="proc-field proc-package-field"><span>Фасовка</span><select data-f="packageChoice">'+packagingChoiceHtml(l.productId,{containerId:l.containerId,packageSize,packageName:l.packageName})+'</select><input data-f="packageSize" type="number" min="0.001" step="0.001" value="'+packageSize+'"></div><div class="proc-field"><span>Упаковок</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+packageCount+'"></div><div class="proc-field"><span>Итого '+esc(l.unit||'ед.')+'</span><input data-f="quantity" type="number" readonly value="'+num(l.remainingQty)+'"></div><div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div><div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0.01" step="0.01" value="'+num(l.unitPrice)+'"></div><div class="proc-field"><span>Полка / холодильник (необязательно)</span><select data-f="locationId" data-receipt-location><option value="">Не указывать место</option></select></div><div class="proc-field"><span>Партия поставщика</span><input data-f="lotCode" maxlength="80" placeholder="Номер партии или авто"></div><div class="proc-field"><span>Годен до</span><input data-f="expiresOn" type="date"></div><strong class="line-total">'+money(packageCount*num(l.unitPrice))+'</strong><span></span><input data-f="containerId" type="hidden" value="'+esc(l.containerId||'')+'"><input data-f="packageName" type="hidden" value="'+esc(l.packageName||'')+'"><input data-f="unit" type="hidden" value="'+esc(l.unit||'')+'"></div>';
 }
 function recalcReceipt(){
   let total=0;document.querySelectorAll('[data-receipt-line]').forEach(row=>{const pack=num(row.querySelector('[data-f="packageSize"]').value,1),count=num(row.querySelector('[data-f="packageCount"]').value),price=num(row.querySelector('[data-f="price"]').value);row.querySelector('[data-f="quantity"]').value=(pack*count).toFixed(3).replace(/\.000$/,'');const v=count*price;total+=v;row.querySelector('.line-total').textContent=money(v)});if($('proc-receipt-total'))$('proc-receipt-total').textContent=money(total)
@@ -1405,7 +1429,7 @@ function openReceiptModal(o){
   if(!lines.length){toast('По PO всё количество уже принято по GRN.','error');return}
 
   const draftNo='RC-'+Date.now().toString().slice(-9);
-  let createdGrn=null;
+  let createdGrn=null,placementSynced=false;
 
   openModal('Фактическая приёмка · '+o.number,'GOODS RECEIPT NOTE · GRN',
     '<div class="proc-form-grid">'+
@@ -1420,11 +1444,13 @@ function openReceiptModal(o){
     '<div class="proc-edit-lines"><div class="proc-edit-head"><strong>Фактически получено</strong><span class="proc-history-note">Можно принять PO частично.</span></div><div id="proc-receipt-lines">'+lines.map(receiptLineHtml).join('')+'</div></div>'+
     '<div class="proc-modal-summary"><span>Расчётная сумма по текущей цене</span><strong id="proc-receipt-total">0,00 ₼</strong></div>'+
     '<div class="proc-history-note">Поле «Цена / упак.» используется для накладной. GRN фиксирует фактическое количество, а Smart Horeca затем отдельно сверяет цену накладной с PO.</div>'+
+    '<div class="proc-history-note" id="proc-storage-note">Место хранения необязательно. Выбранная полка остаётся только в Smart Horeca.</div>'+
     '<div id="proc-receipt-status" class="proc-receipt-status" hidden></div>'+
     '<div class="proc-receipt-choice"><button id="proc-receipt-cancel" class="proc-btn ghost" type="button">Отмена</button><button id="proc-grn-only" class="proc-btn secondary" type="button">Сохранить только GRN</button>'+(canCost?'<button id="proc-grn-draft" class="proc-btn secondary" type="button">GRN + накладная</button><button id="proc-grn-post" class="proc-btn primary" type="button">GRN + провести</button>':'')+'</div>'
   );
 
   bindReceiptPackaging();recalcReceipt();$('proc-receipt-cancel').onclick=closeModal;
+  loadReceiptLocations(o.warehouseId).catch(e=>console.warn('Location lookup failed',e));
 
   function modalStatus(message,kind=''){
     const el=$('proc-receipt-status');if(!el)return;
@@ -1447,18 +1473,38 @@ function openReceiptModal(o){
       if(!(packageSize>0))throw Error(productName(pid)+': фасовка не определена в iiko.');
       if(!(packageCount>0))throw Error(productName(pid)+': количество упаковок должно быть больше нуля.');
       if(unitPrice<0)throw Error(productName(pid)+': цена не может быть отрицательной.');
-      return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId,packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent,unitPrice};
+      return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId,packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent,unitPrice,
+        locationId:row.querySelector('[data-f="locationId"]')?.value||'',
+        lotCode:row.querySelector('[data-f="lotCode"]')?.value.trim()||'',
+        expiresOn:row.querySelector('[data-f="expiresOn"]')?.value||''};
     }).filter(x=>x.quantity>0&&x.packageCount>0);
   }
   async function ensureGrn(rlines){
-    if(createdGrn)return createdGrn;
-    modalStatus('Создаём GRN — фиксируем фактическую приёмку…','loading');
-    const result=await procPost('create-grn',{
-      id:o.id,documentDate:$('proc-receipt-date').value,comment:'Фактическая приёмка по '+o.number,lines:rlines
-    });
-    createdGrn={id:result.grnId,number:result.grnNumber};
-    modalStatus('GRN '+createdGrn.number+' сохранён.','success');
+    if(!createdGrn){
+      modalStatus('Создаём GRN — фиксируем фактическую приёмку…','loading');
+      const result=await procPost('create-grn',{
+        id:o.id,documentDate:$('proc-receipt-date').value,comment:'Фактическая приёмка по '+o.number,lines:rlines
+      });
+      createdGrn={id:result.grnId,number:result.grnNumber};
+    }
+    if(!placementSynced){
+      // Register Smart Horeca-only lots after GRN persistence. Sync reads the
+      // immutable GRN on the server and safely ignores duplicate requests.
+      if(rlines.some(x=>x.locationId)){
+        modalStatus('GRN '+createdGrn.number+' сохранён. Размещаем партии по полкам…','loading');
+        const result=await authFetch('/api/procurement-trace',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'SYNC_GRN',grnId:createdGrn.id,requestId:crypto.randomUUID()}),
+          cache:'no-store'
+        });
+        const json=await result.json().catch(()=>({}));
+        if(!result.ok||json.success===false)throw Error('GRN сохранён, но размещение партий не завершено: '+(json.message||('HTTP '+result.status))+
+          '. Повторите сохранение; GRN не будет создан заново.');
+      }
+      placementSynced=true;
+    }
     $('proc-grn-only').disabled=true;
+    modalStatus('GRN '+createdGrn.number+' сохранён.','success');
     return createdGrn;
   }
   async function createInvoice(rlines,process){

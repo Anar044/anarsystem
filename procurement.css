@@ -285,3 +285,25 @@
 #proc-split-message{color:#8fa6b7}
 @media(max-width:1100px){.proc-edit-row.proc-pr-no-prices{grid-template-columns:repeat(2,minmax(0,1fr))}.proc-split-entry{align-items:flex-start;flex-direction:column}}
 @media(max-width:650px){.proc-edit-row.proc-pr-no-prices{grid-template-columns:1fr}.proc-split-option{grid-template-columns:1fr 100px}.proc-split-money{grid-column:1/-1;text-align:left}.proc-activity-list>div{grid-template-columns:1fr;gap:3px}.proc-split-product>header{align-items:flex-start;flex-direction:column}}
+
+
+/* Optional location and supplier lot are edited on the same GRN line,
+   wrapped rather than widening the modal beyond the screen. */
+.proc-edit-row.proc-pack-row[data-receipt-line]{
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  align-items:end;
+}
+.proc-edit-row.proc-pack-row[data-receipt-line]>.proc-field:first-child{grid-column:span 2}
+.proc-edit-row.proc-pack-row[data-receipt-line]>.proc-field:has([data-receipt-location]){grid-column:span 2}
+.proc-edit-row.proc-pack-row[data-receipt-line] .line-total{
+  grid-column:1/-1;text-align:right;white-space:nowrap
+}
+@media(max-width:860px){
+  .proc-edit-row.proc-pack-row[data-receipt-line]{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:520px){
+  .proc-edit-row.proc-pack-row[data-receipt-line]{grid-template-columns:1fr}
+  .proc-edit-row.proc-pack-row[data-receipt-line]>.proc-field:first-child,
+  .proc-edit-row.proc-pack-row[data-receipt-line]>.proc-field:has([data-receipt-location]){grid-column:1}
+  .proc-edit-row.proc-pack-row[data-receipt-line] .line-total{grid-column:1}
+}

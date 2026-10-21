@@ -4,6 +4,7 @@
 <section class="stock-toolbar">
 <div class="field"><label>Дата</label><input id="stock-date" type="date"></div>
 <div class="field"><label>Склад</label><select id="stock-store"><option value="">Все склады</option></select></div>
+<div class="field"><label>Полка / холодильник</label><select id="stock-location"><option value="">Все места хранения</option></select></div>
 <div class="field"><label>Категория / группа</label><select id="stock-category"><option value="">Все категории</option></select></div>
 <div class="field search"><label>Поиск</label><input id="stock-search" placeholder="Название, артикул, код…"></div>
 </section>
@@ -25,15 +26,15 @@
 <button data-status="negative">Отрицательные <b id="count-negative">0</b></button>
 <button data-status="belowMin">Ниже min <b id="count-low">0</b></button>
 </div>
-<div class="table-wrap"><table id="stock-table"><thead><tr><th>Код</th><th>Товар</th><th>Группа</th><th>Склад</th><th>Ед.</th><th class="num">Количество</th><th class="num">Себест./ед.</th><th class="num">Стоимость</th><th class="num">Min</th><th class="num">Max</th><th>Статус</th></tr></thead><tbody></tbody></table></div>
+<div class="table-wrap"><table id="stock-table"><thead><tr><th>Код</th><th>Товар</th><th>Группа</th><th>Склад</th><th>Место хранения (Smart Horeca)</th><th>Ед.</th><th class="num">Количество</th><th class="num">Себест./ед.</th><th class="num">Стоимость</th><th class="num">Min</th><th class="num">Max</th><th>Статус</th></tr></thead><tbody></tbody></table></div>
 <div id="stock-limit-note" class="limit-note"></div>
 </section>
 
 <section class="stock-note"><b>Важно:</b> iiko не возвращает строку для товара с нулевым остатком. SmartHoreca дополняет такие строки из активной номенклатуры для складов, которые присутствуют в реальном ответе. Отрицательные остатки показываются как есть и не исправляются автоматически.</section>
 </section></div></main></div>
 
-<div id="stock-modal" class="modal-backdrop" hidden><div class="stock-modal"><button id="stock-modal-close" class="modal-close">×</button><div class="eyebrow">КАРТОЧКА ОСТАТКА</div><h2 id="stock-modal-title">—</h2><div id="stock-modal-grid" class="modal-grid"></div><div class="modal-foot">Детальное движение товара добавим следующим этапом на базе складских операций iiko.</div></div></div>
+<div id="stock-modal" class="modal-backdrop" hidden><div class="stock-modal"><button id="stock-modal-close" class="modal-close">×</button><div class="eyebrow">КАРТОЧКА ОСТАТКА</div><h2 id="stock-modal-title">—</h2><div id="stock-modal-grid" class="modal-grid"></div><div id="stock-location-breakdown" class="modal-foot"></div><div class="modal-foot">Полки и партии учитываются в Smart Horeca отдельно от iiko. Текущий срез по партиям может отличаться от общего остатка iiko, если движения оформлялись вне Smart Horeca.</div></div></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/auth-config.js"></script><script src="/auth.js"></script><script src="/iiko-context.js?v=20261003-chain-3"></script><script src="/app-shell.js?v=20261003-perf-2"></script><script src="/smart-horeca-sidebar-brand.js?v=20260920-1"></script><script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script><script src="/stock-balances.js?v=20261014-code-v1"></script><script src="/documents-nav.js?v=8"></script><script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/auth-config.js"></script><script src="/auth.js"></script><script src="/iiko-context.js?v=20261003-chain-3"></script><script src="/app-shell.js?v=20261003-perf-2"></script><script src="/smart-horeca-sidebar-brand.js?v=20260920-1"></script><script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script><script src="/stock-balances.js?v=20261021-locations-v1"></script><script src="/documents-nav.js?v=8"></script><script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script>
 <script src="/sh-i18n.js?v=20261012-ui-i18n-v1"></script>
 </body></html>

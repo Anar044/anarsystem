@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Horeca — Партии и хранение</title>
+<script>(function(){try{localStorage.setItem('shReportsTheme','dark')}catch(_){}document.documentElement.dataset.theme='dark'})();</script>
+<link rel="stylesheet" href="/app-shell.css?v=20261012-fast-nav1">
+<link rel="stylesheet" href="/procurement.css?v=20261014-pr-split-v1">
+<link rel="stylesheet" href="/procurement-trace.css?v=20261020-1">
+</head>
+<body data-protected="true">
+<div class="app-shell"><aside class="sidebar"></aside><main class="main">
+<header class="topbar">
+  <div><button class="icon-btn mobile-menu" data-mobile-menu>☰</button>
+    <span class="topbar-title">Партии и хранение</span>
+    <div class="topbar-sub">Внешние закупки → GRN → Партия → Холодильник → Кухня</div>
+  </div>
+  <div class="top-actions"><span class="user-chip"><span class="user-avatar" data-auth-avatar>SH</span><span data-auth-name>Пользователь</span></span>
+    <button class="icon-btn" data-auth-logout>Выйти</button></div>
+</header>
+<div class="app-content">
+<section class="proc-page trace-app">
+<div class="proc-hero">
+  <div><div class="eyebrow">STOCK TRACEABILITY · SMART HORECA</div>
+    <h1>Партии и места хранения</h1>
+    <p>Полная история товара от поставщика до кухни и списания. Остатки партий ведутся отдельно от бухгалтерских остатков Smart Horeca Server.</p>
+  </div>
+  <div class="proc-hero-actions"><a class="proc-btn ghost" href="/procurement.html?view=receiving">← Приёмка GRN</a>
+    <button id="trace-refresh" class="proc-btn secondary" type="button">↻ Обновить</button></div>
+</div>
+<div id="trace-status" class="trace-status" role="status">Получаем партии и места хранения…</div>
+<div class="trace-metrics" id="trace-metrics"></div>
+<nav class="trace-tabs" aria-label="Разделы партийного учёта">
+<button data-pane="lots" class="active" type="button">Партии и движение</button>
+<button data-pane="receipts" type="button">Размещение GRN</button>
+<button data-pane="locations" type="button">Холодильники и зоны</button>
+<button data-pane="history" type="button">История операций</button>
+</nav>
+<section class="trace-panel" data-pane-panel="lots">
+  <div class="trace-heading"><div><h2>Остатки по партиям</h2><p>Одинаковые товары разных поставщиков и поставок не смешиваются.</p></div>
+    <div class="trace-toolbar"><input id="trace-search" placeholder="Товар, партия, поставщик, холодильник…" aria-label="Поиск партии">
+    <select id="trace-filter" aria-label="Фильтр партий"><option value="all">Все партии</option><option value="active">Доступный остаток</option><option value="hold">Карантин</option><option value="expired">Истёк срок</option></select></div>
+  </div>
+  <div class="trace-table-scroll"><table class="trace-table"><thead><tr><th>Партия / товар</th><th>Поставщик</th><th>Срок годности</th><th>Остаток</th><th>Место</th><th>Статус</th><th></th></tr></thead><tbody id="trace-lots-body"></tbody></table></div>
+  <section id="trace-lot-card" class="trace-lot-card" hidden aria-live="polite"></section>
+</section>
+<section class="trace-panel" data-pane-panel="receipts" hidden>
+  <div class="trace-heading"><div><h2>Разместить принятую поставку</h2><p>Сначала оформляется обычная физическая приёмка GRN. Здесь вы распределяете её товары по партиям и холодильникам, не создавая второй приход в iiko.</p></div></div>
+  <form id="trace-receipt-form" class="trace-form">
+    <label class="trace-wide">Позиция физической приёмки GRN<select name="receipt" id="trace-receipt" required><option value="">Выберите GRN и товар</option></select></label>
+    <div id="trace-receipt-info" class="trace-note trace-wide"></div>
+    <label>Номер партии поставщика<input name="lotCode" maxlength="80" placeholder="Например, BR-2026-104"></label>
+    <label>Количество в базовой единице<input name="quantity" type="number" required min="0.001" step="0.001"></label>
+    <label class="trace-wide">Место хранения<select name="locationId" id="trace-receipt-location" required><option value="">Выберите холодильник или полку</option></select></label>
+    <label>Дата производства<input name="producedOn" type="date"></label>
+    <label>Срок годности<input name="expiresOn" type="date"></label>
+    <label class="trace-wide">Примечание<input name="note" maxlength="500" placeholder="Температура при приёмке, номер сертификата, особые условия…"></label>
+    <div class="trace-form-actions trace-wide"><button class="proc-btn primary" type="submit">Зарегистрировать партию</button></div>
+  </form>
+</section>
+<section class="trace-panel" data-pane-panel="locations" hidden>
+  <div class="trace-heading"><div><h2>Холодильники, полки и зоны</h2><p>Места хранения создаются внутри существующих складов. Каждый склад остаётся прежним в учётной системе.</p></div></div>
+  <form id="trace-location-form" class="trace-form">
+    <label>Склад<input type="hidden" name="scopeMarker" value=""><select name="warehouseId" id="trace-warehouse" required><option value="">Выберите склад</option></select></label>
+    <label>Тип зоны<select name="kind"><option value="CHILLER">Холодильник</option><option value="FREEZER">Морозильник</option><option value="SHELF">Полка / ячейка</option><option value="ROOM">Помещение</option><option value="KITCHEN">Кухня / цех</option><option value="OTHER">Другое</option></select></label>
+    <label>Название<input name="name" maxlength="100" required placeholder="Холодильник №1 — Bravo"></label>
+    <label>Внутри зоны (необязательно)<select name="parentId" id="trace-parent"><option value="">Основной уровень</option></select></label>
+    <div class="trace-form-actions trace-wide"><button class="proc-btn primary" type="submit">Добавить место хранения</button></div>
+  </form>
+  <div class="trace-table-scroll"><table class="trace-table"><thead><tr><th>Склад</th><th>Место</th><th>Тип</th><th>Внутри</th></tr></thead><tbody id="trace-locations-body"></tbody></table></div>
+</section>
+<section class="trace-panel" data-pane-panel="history" hidden>
+  <div class="trace-heading"><div><h2>Неизменяемый журнал партий</h2><p>Приёмка, перемещение, выдача, расход, списание и карантин — с сотрудником, временем и основанием.</p></div></div>
+  <div class="trace-table-scroll"><table class="trace-table"><thead><tr><th>Когда</th><th>Действие</th><th>Партия</th><th>Количество</th><th>Откуда → куда</th><th>Кто / основание</th></tr></thead><tbody id="trace-history-body"></tbody></table></div>
+</section>
+</section>
+</div></main></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth-config.js"></script><script src="/auth.js?v=20261012-nav-stable1"></script>
+<script src="/iiko-context.js?v=20261003-chain-3"></script>
+<script src="/app-shell.js?v=20261012-fast-nav1"></script>
+<script src="/smart-horeca-sidebar-brand.js?v=20260920-1"></script>
+<script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script>
+<script src="/procurement-trace.js?v=20261020-1"></script>
+<script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script>
+<script src="/sh-i18n.js?v=20261012-ui-i18n-v1"></script>
+</body></html>
