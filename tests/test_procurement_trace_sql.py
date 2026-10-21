@@ -142,6 +142,39 @@ class TraceLedgerTests(unittest.TestCase):
             self.move("ISSUE", 1, "from-other-tenant", src="cold", workspace="tenantB")
         self.assertEqual(self.remaining("cold"), 22)
 
+    def test_auto_register_from_grn_has_exact_sql_column_binding_contract(self):
+        # This SQL is used by SYNC_GRN, which is invoked immediately after the
+        # physical receipt is saved. Prevent a broken D1 INSERT from passing
+        # schema-only tests.
+        source = ENDPOINT.read_text(encoding="utf-8")
+        section = source.split('if (action === "SYNC_GRN")', 1)[1].split(
+            'if (action === "REGISTER_LOT")', 1
+        )[0]
+        match = re.search(
+            r"INSERT INTO proc_trace_lots\\((.*?)\\) VALUES\\((.*?)\\)",
+            section, re.S,
+        )
+        self.assertIsNotNone(match, "SYNC_GRN must insert a real lot")
+        columns = [c.strip() for c in match.group(1).split(",")]
+        binds = re.findall(r"\\?(\\d+)", match.group(2))
+        self.assertEqual(len(columns), 19)
+        self.assertEqual(binds, [str(i) for i in range(1, len(columns) + 1)])
+
+    def test_location_is_optional_in_grn_and_not_sent_in_iiko_payload(self):
+        root = ENDPOINT.parents[2]
+        procurement_api = (root / "functions/api/procurement.js").read_text("utf-8")
+        procurement_ui = (root / "procurement.js").read_text("utf-8")
+        self.assertIn("const locationId=clean(place.locationId)", procurement_api)
+        self.assertIn("loadReceiptLocations(o.warehouseId)", procurement_ui)
+        # The iiko invoice mapper must still explicitly whitelist accounting
+        # attributes instead of forwarding the GRN line object.
+        invoice_section = procurement_ui.split("const incomingDocument=", 1)[1].split(
+            "documentTotal:", 1
+        )[0]
+        self.assertNotIn("locationId:", invoice_section)
+        self.assertNotIn("lotCode:", invoice_section)
+        self.assertNotIn("expiresOn:", invoice_section)
+
     def test_repeated_request_is_not_applied_twice(self):
         self.lot()
         self.move("RECEIVE", 22, "receive1", dest="cold")
