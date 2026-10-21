@@ -1,4 +1,5 @@
-import { clean, getIikoAuth, getOlapFields, iikoJson, iikoText } from "./iiko-client.js";
+import { clean, getIikoAuth, getOlapFields, iikoJson, iikoText, isIikoLicenseSeatExhausted } from "./iiko-client.js";
+import { readDishRankings } from "./assistant-dish-rankings.js";
 import { syncReferences } from "../references.js";
 import { getIikoSuppliers } from "./iiko-suppliers.js";
 import { resolveStoreScope } from "./store-scope.js";
@@ -456,6 +457,21 @@ export const assistantToolDefinitions = [
   },
   {
     type: "function",
+    name: "get_dish_sales_rankings",
+    description: "Надёжный готовый OLAP-рейтинг блюд за период: самые и наименее продаваемые позиции с проверенной выручкой и количеством, если поле доступно. Для вопросов владельца о топе/аутсайдерах блюд используй этот инструмент первым, не угадывай имена OLAP-полей.",
+    parameters: {
+      type:"object",
+      properties: {
+        from:{type:"string",description:"Начало периода YYYY-MM-DD"},
+        to:{type:"string",description:"Конец периода YYYY-MM-DD"}
+      },
+      required:["from","to"],
+      additionalProperties:false
+    },
+    strict:true
+  },
+  {
+    type: "function",
     name: "run_olap_report",
     description: "Выполняет OLAP-отчёт iiko по уже известным техническим полям. Используй для продаж, касс, блюд, сотрудников, скидок и других данных OLAP.",
     parameters: {
@@ -664,6 +680,10 @@ export async function executeAssistantTool(name, args, context) {
     return { query: args.query, reportType: args.report_type, count: matches.length, fields: matches };
   }
 
+  if (name === "get_dish_sales_rankings") {
+    return readDishRankings(connection, scope, clean(args.from), clean(args.to));
+  }
+
   if (name === "run_olap_report") {
     const reportType = clean(args.report_type || "SALES").toUpperCase();
     const metadata = await getOlapFields(connection, reportType);
@@ -716,7 +736,13 @@ export async function executeAssistantTool(name, args, context) {
       timeoutMs: 60000
     });
     if (!result.ok) {
-      return { success: false, status: result.status, message: result.text.slice(0, 1200), request };
+      return { success: false, status: result.status,
+        code:isIikoLicenseSeatExhausted(result.text)
+          ? "REST_API_LICENSE_EXHAUSTED" : "AI_OLAP_HTTP_ERROR",
+        message:isIikoLicenseSeatExhausted(result.text)
+          ? "SH Server не выделил лицензию REST API (2000). Повторять авторизацию не нужно."
+          : "SH Server отклонил запрос OLAP (HTTP " + result.status + ")."
+      };
     }
     let report = compactForAi(result.payload);
     const dishFields = [...rows,...columns].filter(field =>

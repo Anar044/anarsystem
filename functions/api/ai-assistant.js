@@ -335,6 +335,9 @@ export function mobileOwnerExecutiveInstructions() {
 - Пользователь может говорить на русском, азербайджанском или английском. Сохраняй язык вопроса и естественно понимай голосовую транскрипцию, но не приписывай неясным названиям ресторанов уверенное совпадение.
 - Если владелец просит сравнить рестораны, сравнивай только выбранные и разрешённые подразделения. Ни одна агрегированная сумма не может включать чужие организации, даже если источник вернул более широкую выборку.
 - Если пользователь попросил график, создай структурированный chart на основе проверенных значений. При недостатке данных прямо напиши об ограничении и не рисуй вымышленных точек.
+- Для вопросов о самых продаваемых и наименее продаваемых блюдах используй вначале get_dish_sales_rankings с календарным периодом пользователя. Этот инструмент получает реальные технические поля OLAP, сортирует исходные строки и проверяет ресторан для каждой строки; не заменяй его неподтверждёнными числами.
+- Для вопроса об удалении блюд дай топ и низ продаж по проверенным данным, но не принимай решение о снятии блюда без себестоимости, валовой маржи, сезонности и доступности ингредиентов.
+- При технической ошибке источника не пиши большое рассуждение вместо отчёта. Кратко скажи, что данные недоступны, укажи код источника, если он известен, и предложи повторить запрос позже; не утверждай без доказательств, что ошибка вызвана датами или числом ресторанов.
 - Если данные отсутствуют для одного выбранного ресторана, не подменяй отсутствие данных нулевыми продажами. Не скрывай неполную выборку.
 - Тон: лаконичный аналитик для владельца. Никакого лишнего описания внутренних API и технических полей, если пользователь не спрашивает о них.
 `.trim();
@@ -397,16 +400,30 @@ function safeToolArgs(raw) {
   if (raw && typeof raw === "object") return raw;
   try { return JSON.parse(String(raw || "{}")); } catch { return {}; }
 }
-function compactToolTrace(call, result) {
-  const trace = { name: call.name, ok: !result?.error };
+export function compactToolTrace(call, result) {
+  // A tool can fail as {success:false,code,status,message} without throwing.
+  // Treat that as a genuine source error, not as a completed data report.
+  const failed = Boolean(result?.error) || result?.success === false;
+  const trace = { name: call.name, ok: !failed };
   if (call.name === "search_products") trace.count = result?.count ?? null;
   if (call.name === "analyze_purchase_prices") {
     trace.matchedPurchaseRows = result?.matchedPurchaseRows ?? null;
     trace.suppliers = Array.isArray(result?.suppliers) ? result.suppliers.length : null;
   }
   if (call.name === "search_olap_fields") trace.count = result?.count ?? null;
-  if (call.name === "run_olap_report") trace.success = result?.success === true;
-  if (result?.error) trace.error = String(result.error).slice(0, 300);
+  if (call.name === "run_olap_report" ||
+      call.name === "get_dish_sales_rankings") {
+    trace.success = result?.success === true;
+  }
+  if (failed) {
+    trace.code = clean(result?.code) || "AI_TOOL_SOURCE_FAILED";
+    const status = Number(result?.status);
+    if (Number.isInteger(status) && status >= 400 && status <= 599)
+      trace.status = status;
+    // Never expose a raw server body or authorization header to the client.
+    trace.error = clean(result?.message || result?.error)
+      .slice(0, 240) || "Источник данных не ответил.";
+  }
   return trace;
 }
 async function runAssistant(env, connection, history, scope=null, access=null, mobile=false) {
@@ -520,7 +537,11 @@ async function runAssistant(env, connection, history, scope=null, access=null, m
     model: response.model || model,
     responseId: response.id || null,
     usage: response.usage || null,
-    tools: traces
+    tools: traces,
+    sourceWarnings: traces.filter(item=>!item.ok).map(item=>({
+      name:item.name, code:item.code,
+      ...(item.status?{status:item.status}:{})
+    }))
   };
 }
 
@@ -636,6 +657,7 @@ export async function onRequestPost({ request, env }) {
       responseId: answer.responseId,
       usage: answer.usage,
       tools: answer.tools,
+      sourceWarnings: answer.sourceWarnings,
       kind: answer.kind,
       report: answer.report,
       chart: answer.chart,
