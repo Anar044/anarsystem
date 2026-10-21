@@ -334,6 +334,76 @@ export async function onRequestPost({ request, env }) {
       await audit(c,"CREATE_LOCATION",id,name,{warehouseId,kind,parentId});
       return json({success:true,id},201);
     }
+    // A saved GRN carries optional placement attributes for each line. Sync
+    // only from that immutable, server-validated document, never from a
+    // client-provided supplier, amount or product name. Retrying is idempotent.
+    if (action === "SYNC_GRN") {
+      requirePermission(c.access,"procurement.receive");
+      const grnId=clean(body.grnId);
+      const grn=await c.db.prepare(`SELECT g.*,o.restaurant_ids_json FROM procurement_grns g
+        JOIN procurement_orders o ON o.id=g.order_id AND o.server_scope=g.server_scope
+        WHERE g.id=?1 AND g.server_scope=?2 LIMIT 1`).bind(grnId,c.server).first();
+      if (!grn||!documentAllowed(c,grn))throw fail("GRN не найдена или недоступна.",403);
+      const lines=parse(grn.lines_json,[]).filter(x=>Number(x?.quantity)>0);
+      const toInsert=[];
+      let skipped=0;
+      for (let i=0;i<lines.length;i++) {
+        const line=lines[i],locationId=clean(line.locationId);
+        if (!locationId){skipped++;continue}
+        const loc=await locationRow(c,locationId,grn.warehouse_id);
+        if(!loc.active)throw fail("Место хранения было отключено. Исправьте размещение.",409);
+        const pid=clean(line.productId);
+        const existingRequest="grn-line:"+grnId+":"+i;
+        const existing=await c.db.prepare(`SELECT id FROM proc_trace_lots WHERE workspace_id=?1
+          AND server_scope=?2 AND request_id=?3 LIMIT 1`)
+          .bind(c.workspace,c.server,existingRequest).first();
+        if(existing){skipped++;continue}
+        const accepted=quantity(lines.filter(x=>clean(x.productId)===pid)
+          .reduce((sum,x)=>sum+Number(x.quantity||0),0));
+        const qty=quantity(line.quantity);
+        if(!pid||!(qty>0)||!(accepted>0))throw fail("Некорректная строка GRN.",409);
+        const code=clean(line.lotCode)||"GRN-"+clean(grn.number)+"-"+(i+1);
+        const expiry=clean(line.expiresOn);
+        if(code.length>80||!validDate(expiry))throw fail("Некорректный номер партии или дата.");
+        toInsert.push({i,pid,line,loc,accepted,qty,code,expiry,request:existingRequest});
+      }
+      if(toInsert.length){
+        const at=timestamp(),ops=[];
+        const acceptedRows=new Set();
+        for(const p of toInsert){
+          const key=p.pid;
+          if(!acceptedRows.has(key)){
+            acceptedRows.add(key);
+            ops.push(c.db.prepare(`INSERT INTO proc_trace_grn_items
+              (workspace_id,server_scope,grn_id,product_id,accepted_qty)
+              VALUES(?1,?2,?3,?4,?5)
+              ON CONFLICT(workspace_id,server_scope,grn_id,product_id) DO NOTHING`)
+              .bind(c.workspace,c.server,grnId,p.pid,p.accepted));
+          }
+          const lotId=uuid();
+          ops.push(c.db.prepare(`INSERT INTO proc_trace_lots(
+            id,workspace_id,server_scope,request_id,grn_id,order_id,warehouse_id,restaurant_ids_json,
+            supplier_id,supplier_name,product_id,product_name,unit,lot_code,expires_on,
+            received_qty,note,created_at,created_by
+          ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)`)
+            .bind(lotId,c.workspace,c.server,p.request,grnId,grn.order_id,grn.warehouse_id,
+              grn.restaurant_ids_json||"[]",grn.supplier_id,grn.supplier_name,p.pid,
+              clean(p.line.productName)||p.pid,clean(p.line.unit),p.code,p.expiry,
+              p.qty,"Размещение при физической приёмке GRN",at,c.auth.user.id));
+          ops.push(c.db.prepare(`INSERT INTO proc_trace_moves(
+            id,workspace_id,server_scope,request_id,lot_id,action,to_location_id,quantity,
+            reference,actor_id,actor_name,created_at
+          ) VALUES(?1,?2,?3,?4,?5,'RECEIVE',?6,?7,?8,?9,?10,?11)`)
+            .bind(uuid(),c.workspace,c.server,p.request+":receive",lotId,p.loc.id,p.qty,
+              clean(grn.number),c.auth.user.id,clean(c.access.displayName)||clean(c.auth.user.email),at));
+        }
+        // Cloudflare D1 batch is transactional. Any invalid stock quantity
+        // rolls back the entire registration, including movement balances.
+        await c.db.batch(ops);
+        await audit(c,"SYNC_GRN",grnId,clean(grn.number),{created:toInsert.length,skipped});
+      }
+      return json({success:true,created:toInsert.length,skipped});
+    }
     if (action === "REGISTER_LOT") {
       requirePermission(c.access,"procurement.receive");
       const grnId=clean(body.grnId),productId=clean(body.productId),locationId=clean(body.locationId);
