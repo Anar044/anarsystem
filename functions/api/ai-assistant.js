@@ -432,8 +432,11 @@ export function mobileRevenueComparisonQuestion(prompt) {
   const q=clean(prompt);
   // A question about revenue by several selected restaurants is deterministic
   // and must produce the same numerical OLAP response as a regular report.
-  return /(выруч|продаж|revenue|sales|gəlir|satış)/i.test(q) &&
-    /(рестора|подразделени|сравн|сравни|restaurant|department|compare|müqayis|restoran)/i.test(q);
+  const byRestaurant=/(рестора|подразделени|restaurant|department|restoran)/i.test(q);
+  const revenue=/(выруч|revenue|gəlir)/i.test(q);
+  const salesNotDishes=/(продаж|sales|satış)/i.test(q) &&
+    !/(блюд|блюда|dish|товар|ingredient)/i.test(q);
+  return byRestaurant && (revenue || salesNotDishes);
 }
 
 export function mobileInitialToolChoice(prompt, mobile) {
