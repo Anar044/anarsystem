@@ -662,7 +662,7 @@ function quoteComparisonHtml(r){
     quotes.map(qt=>'<td><strong>'+money(qt.totalAmount)+'</strong>'+
       (r.status==='APPROVED'?'<button class="proc-btn small primary quote-po-btn" data-po-create="'+esc(r.id)+'" data-quote="'+esc(qt.id)+'">Создать PO</button>':'')+
       '</td>').join('')+'</tr>';
-  return '<div class="proc-quote-comparison" data-quote-layout="'+layout+'" style="--quote-supplier-count:'+quotes.length+'">'+
+  return '<div class="proc-quote-comparison" data-quote-layout="'+layout+'" style="--quote-min-width:'+(220+200*quotes.length)+'px">'+
     '<div class="quote-compare-toolbar"><div><strong>Сравнение цен</strong><small>Сравниваем стоимость одной единицы, даже если фасовки отличаются</small></div>'+layoutButtons+'</div>'+
     '<div class="proc-quote-compare-wrap" role="region" tabindex="0" aria-label="Сравнение цен поставщиков; прокрутка по горизонтали">'+
       '<table class="proc-quote-compare">'+head+'<tbody>'+bodyRows+totals+'</tbody></table></div>'+
