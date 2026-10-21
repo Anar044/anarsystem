@@ -1270,18 +1270,37 @@ export async function onRequestPost({request,env}){
       const o=await orderRow(db,c.scope,clean(body?.id),c.serverScope);
       if(o.status==="CANCELLED"){const e=new Error("Отменённый PO нельзя принимать.");e.status=409;throw e}
       const progress=await physicalProgress(db,o.id),by=new Map(progress.orderLines.map(x=>[x.product_id,x]));
+      // Optional physical location metadata belongs to Smart Horeca only. It
+      // travels with the immutable GRN, never with the iiko invoice payload.
+      const rawLines=Array.isArray(body?.lines)?body.lines:[];
+      const placementFor=new Map(rawLines.map(x=>[clean(x?.productId).toLowerCase().replace(/[{}]/g,""),x]));
       const lines=normalizeLines(body?.lines,{allowZeroPrice:true}).map(x=>{
         const ol=by.get(x.productId);
         if(!ol)throw new Error("GRN содержит позицию вне PO.");
         const remaining=q(n(ol.confirmed_qty||ol.ordered_qty)-n(progress.received.get(x.productId)));
         if(!s.allowOverReceipt&&x.quantity>remaining+0.0005)throw new Error(`${ol.product_name}: принимаемое количество больше остатка PO (${remaining}).`);
         const poPrice=n(ol.unit_price);
+        const place=placementFor.get(clean(x.productId).toLowerCase().replace(/[{}]/g,""))||{};
+        const locationId=clean(place.locationId), lotCode=clean(place.lotCode);
+        const expiresOn=clean(place.expiresOn);
+        if(lotCode.length>80||expiresOn&&!/^\\d{4}-\\d{2}-\\d{2}$/.test(expiresOn))
+          throw new Error("Проверьте номер партии и срок годности.");
         return{
           productId:x.productId,productName:x.productName||ol.product_name,unit:x.unit||ol.unit,quantity:x.quantity,
+          locationId,lotCode,expiresOn,
           packageSize:x.packageSize,packageCount:x.packageCount,containerId:x.containerId,packageName:x.packageName,
           vatPercent:n(ol.vat_percent),unitPrice:poPrice,total:money(x.packageCount*poPrice)
         };
       });
+      // A client cannot write arbitrary shelf IDs into a GRN. Verify warehouse,
+      // organization, server and active state at the point of acceptance.
+      for(const line of lines){
+        if(!line.locationId)continue;
+        const loc=await db.prepare(`SELECT id FROM proc_trace_locations WHERE id=?1
+          AND workspace_id=?2 AND server_scope=?3 AND warehouse_id=?4 AND active=1 LIMIT 1`)
+          .bind(line.locationId,clean(c.access.workspace?.id),c.serverScope,clean(o.warehouse_id)).first();
+        if(!loc){const e=new Error("Место хранения не относится к складу этой приёмки.");e.status=403;throw e}
+      }
       const id=uid(),number=docNo("GRN"),total=money(lines.reduce((sum,x)=>sum+x.total,0)),documentDate=clean(body?.documentDate||stamp.slice(0,10));
       await db.prepare(`INSERT INTO procurement_grns(id,server_scope,order_id,number,status,document_date,supplier_id,supplier_name,warehouse_id,warehouse_name,total_amount,lines_json,comment,created_at,created_by,created_by_name)
         VALUES(?1,?2,?3,?4,'RECEIVED',?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`)
