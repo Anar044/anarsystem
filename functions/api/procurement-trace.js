@@ -396,7 +396,7 @@ export async function onRequestPost({ request, env }) {
             id,workspace_id,server_scope,request_id,grn_id,order_id,warehouse_id,restaurant_ids_json,
             supplier_id,supplier_name,product_id,product_name,unit,lot_code,expires_on,
             received_qty,note,created_at,created_by
-          ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)`)
+          ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)`)
             .bind(lotId,c.workspace,c.server,p.request,grnId,grn.order_id,grn.warehouse_id,
               grn.restaurant_ids_json||"[]",grn.supplier_id,grn.supplier_name,p.pid,
               clean(p.line.productName)||p.pid,clean(p.line.unit),p.code,p.expiry,
