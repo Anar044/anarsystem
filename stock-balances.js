@@ -1,6 +1,7 @@
 (()=>{'use strict';
 const $=id=>document.getElementById(id);
 let rows=[],renderedRows=[],statusFilter='all',zeroTruncated=false;
+let traceLots=[],traceLocations=[],traceState='unavailable',traceMessage='';
 
 function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function isGuidLike(v){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v??'').trim())}
@@ -13,6 +14,45 @@ function money(v){return Number(v||0).toLocaleString('ru-RU',{minimumFractionDig
 function cost(v){return v===null||v===undefined?'—':Number(v||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:4})+' ₼'}
 function amount(v){return Number(v||0).toLocaleString('ru-RU',{minimumFractionDigits:0,maximumFractionDigits:3})}
 function catOf(r){return String(r.categoryName||r.groupName||'Без категории').trim()}
+function refKey(v){return String(v??'').trim().replace(/[{}]/g,'').toLowerCase()}
+function lotsForRow(r){
+  if(traceState!=='current')return[];
+  return traceLots.filter(l=>refKey(l.productId)===refKey(r.productId)&&
+    refKey(l.warehouseId)===refKey(r.storeId)&&Number(l.remaining)>0.00001);
+}
+function locationRows(r){
+  return lotsForRow(r).flatMap(l=>(l.balances||[]).filter(b=>Number(b.quantity)>0.00001)
+    .map(b=>({lot:l,locationId:b.locationId,name:b.locationName,quantity:Number(b.quantity)})));
+}
+function locationBrief(r){
+  if(traceState==='historical')return'Места хранения доступны только для текущей даты';
+  if(traceState!=='current')return'Нет данных о местах хранения';
+  const places=locationRows(r);
+  if(!places.length)return'Без распределения';
+  const grouped=new Map();
+  for(const x of places)grouped.set(x.name,(grouped.get(x.name)||0)+x.quantity);
+  return [...grouped.entries()].map(([name,qty])=>name+' · '+amount(qty)).join(' | ');
+}
+async function refreshTrace(date){
+  traceLots=[];traceLocations=[];traceState='unavailable';traceMessage='';
+  if(date!==ymd()){traceState='historical';traceMessage='Полки отображаются только для текущих остатков; исторические места хранения пока не восстановлены.';return}
+  try{
+    const client=await window.SHAuth?.createClient?.();
+    const session=(await client?.auth?.getSession?.())?.data?.session;
+    if(!session?.access_token)throw Error('Нет активной сессии');
+    const fn=window.SH_IikoContext?.fetchWithTimeout||fetch;
+    const response=await fn('/api/procurement-trace',{
+      method:'GET',headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'
+    },45000);
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok||data.success===false)throw Error(data.message||'HTTP '+response.status);
+    traceLots=data.lots||[];traceLocations=data.locations||[];traceState='current';
+    traceMessage='Полки и партии — локальный учёт Smart Horeca на текущий момент; iiko показывает общий остаток.';
+  }catch(error){
+    traceMessage='Не удалось получить полки из Smart Horeca: '+(error.message||String(error));
+  }
+}
+
 async function binding(){if(window.SH_IikoContext?.getBinding)return await window.SH_IikoContext.getBinding();return null}
 
 function setMessage(text,isError=false){const el=$('stock-message');el.textContent=text;el.classList.toggle('error',!!isError);el.style.display=text?'block':'none'}
@@ -27,12 +67,14 @@ function populateSelect(select,items,placeholder){
 function baseFiltered(){
   const store=$('stock-store').value;
   const category=$('stock-category').value;
+  const location=$('stock-location')?.value||'';
   const q=($('stock-search').value||'').trim().toLowerCase();
   return rows.filter(r=>{
     if(store&&String(r.storeId)!==store)return false;
     if(category&&catOf(r)!==category)return false;
+    if(location&&!locationRows(r).some(x=>x.locationId===location))return false;
     if(q){
-      const hay=[r.productName,r.productNum,r.productCode,r.groupName,r.categoryName,r.storeName,r.unit].join(' ').toLowerCase();
+      const hay=[r.productName,r.productNum,r.productCode,r.groupName,r.categoryName,r.storeName,r.unit,locationBrief(r),...lotsForRow(r).map(l=>l.supplierName+' '+l.lotCode)].join(' ').toLowerCase();
       if(!hay.includes(q))return false;
     }
     return true;
@@ -90,6 +132,7 @@ function render(){
       '<td class="product-code-cell">'+esc(code||'—')+'</td><td class="product-cell"><strong>'+esc(r.productName||r.productId)+'</strong></td>'+ 
       '<td>'+esc(r.categoryName||r.groupName||'—')+'</td>'+
       '<td>'+esc(storeLabel(r))+'</td>'+
+      '<td class="stock-storage-cell">'+esc(locationBrief(r))+'</td>'+
       '<td>'+esc(unitLabel(r))+'</td>'+
       '<td class="num">'+amount(r.amount)+'</td>'+
       '<td class="num">'+cost(r.unitCost)+'</td>'+
@@ -97,11 +140,12 @@ function render(){
       '<td class="num">'+(r.minAmount===null||r.minAmount===undefined?'—':amount(r.minAmount))+'</td>'+
       '<td class="num">'+(r.maxAmount===null||r.maxAmount===undefined?'—':amount(r.maxAmount))+'</td>'+
       '<td>'+badge(r)+'</td></tr>';
-  }).join('')||'<tr><td colspan="11" class="sh-i18n-empty-state" style="text-align:center;padding:34px;color:#8192a4">По выбранным фильтрам данных нет.</td></tr>';
+  }).join('')||'<tr><td colspan="12" class="sh-i18n-empty-state" style="text-align:center;padding:34px;color:#8192a4">По выбранным фильтрам данных нет.</td></tr>';
 
   const shown=Math.min(visible.length,renderedRows.length);
   $('stock-result-meta').textContent=shown+' из '+visible.length+' позиций';
   const notes=[];
+  if(traceMessage)notes.push(traceMessage);
   if(visible.length>renderedRows.length)notes.push('На экране показаны первые '+renderedRows.length+' строк. Экспорт CSV содержит все '+visible.length+'.');
   if(zeroTruncated)notes.push('Нулевые позиции частично ограничены защитным лимитом.');
   $('stock-limit-note').textContent=notes.join(' ');
@@ -122,16 +166,29 @@ function openModal(r){
     ['Maximum',r.maxAmount===null||r.maxAmount===undefined?'—':amount(r.maxAmount)]
   ];
   $('stock-modal-grid').innerHTML=items.map(x=>'<div class="modal-item"><span>'+esc(x[0])+'</span><strong>'+esc(x[1])+'</strong></div>').join('');
+  const breakdown=$('stock-location-breakdown'),shelves=locationRows(r);
+  if(traceState!=='current')breakdown.textContent=traceMessage||'Нет информации по партиям.';
+  else if(!shelves.length)breakdown.textContent='Для этой позиции нет зарегистрированных партий с указанием полки. Общий остаток iiko остаётся доступным.';
+  else{
+    const records=shelves.map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.lot.lotCode)+'</td>'+
+      '<td>'+esc(x.lot.supplierName||'—')+'</td><td>'+amount(x.quantity)+' '+esc(x.lot.unit||'')+'</td>'+
+      '<td>'+esc(x.lot.expiresOn||'—')+'</td></tr>').join('');
+    const tracked=shelves.reduce((sum,x)=>sum+x.quantity,0);
+    breakdown.innerHTML='<strong>Расположение зарегистрированных партий</strong>'+
+      '<div class="table-wrap"><table><thead><tr><th>Место</th><th>Партия</th><th>Поставщик</th><th>Кол-во</th><th>Срок</th></tr></thead><tbody>'+
+      records+'</tbody></table></div><p>Учтено по партиям: '+amount(tracked)+' '+esc(unitLabel(r))+'. Остаток по iiko: '+
+      amount(r.amount)+' '+esc(unitLabel(r))+'. Разница требует сверки, не прибавляется к остатку.</p>';
+  }
   $('stock-modal').hidden=false;
 }
 
 function exportCsv(){
   const visible=baseFiltered().filter(matchesStatus);
   if(!visible.length)return;
-  const head=['Товар','Артикул','Код','Категория','Группа','Склад','Ед.','Количество','Себест./ед.','Стоимость','Min','Max','Статус'];
+  const head=['Товар','Артикул','Код','Категория','Группа','Склад','Полка / холодильник','Ед.','Количество','Себест./ед.','Стоимость','Min','Max','Статус'];
   const quote=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
   const body=visible.map(r=>[
-    r.productName,r.productNum,r.productCode,r.categoryName,r.groupName,storeLabel(r),unitLabel(r),
+    r.productName,r.productNum,r.productCode,r.categoryName,r.groupName,storeLabel(r),locationBrief(r),unitLabel(r),
     Number(r.amount||0),r.unitCost??'',Number(r.sum||0),r.minAmount??'',r.maxAmount??'',
     Number(r.amount||0)<0?'Отрицательный':r.belowMin?'Ниже min':Math.abs(Number(r.amount||0))<=1e-12?'Нулевой':'В наличии'
   ].map(quote).join(';'));
@@ -154,6 +211,8 @@ async function load(){
     if(!r.ok||!j.success)throw Error(j.message||('HTTP '+r.status));
     rows=Array.isArray(j.rows)?j.rows:[];
     zeroTruncated=!!j.meta?.zeroExpansionTruncated;
+    await refreshTrace(date);
+    populateSelect($('stock-location'),traceLocations.filter(x=>x.active).map(x=>({value:x.id,label:x.name+' · '+(x.warehouseName||x.warehouseId)})),'Все места хранения');
 
     populateSelect($('stock-store'),(j.warehouses||[]).map(x=>({value:String(x.id),label:(x.name&&!isGuidLike(x.name))?x.name:shortRef(x.id,'Склад iiko')})),'Все склады');
     const cats=[...new Set(rows.map(catOf).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru'));
@@ -173,6 +232,7 @@ function bind(){
   $('stock-refresh').onclick=load;
   $('stock-export').onclick=exportCsv;
   $('stock-store').onchange=render;
+  $('stock-location').onchange=render;
   $('stock-category').onchange=render;
   $('stock-search').oninput=render;
   $('stock-status-filters').addEventListener('click',e=>{
