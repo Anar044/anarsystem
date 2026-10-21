@@ -21,11 +21,12 @@ export function departmentActivityMetadata(ctx) {
   const groupOwners=new Map();
   for(const group of groups){
     const owner=clean(group?.departmentId),groupId=clean(group?.id);
-    if(!allowed.has(owner)||!counts.has(owner))continue;
-    if(groupId)groupOwners.set(groupId,owner);
+    if(!groupId||!allowed.has(owner)||!counts.has(owner))continue;
+    groupOwners.set(groupId,owner);
     if(groupsKnown)counts.get(owner).groupCount++;
   }
   for(const point of points){
+    if(!clean(point?.id))continue;
     const owner=clean(point?.departmentId) ||
       groupOwners.get(clean(point?.groupId))||"";
     if(!allowed.has(owner)||!counts.has(owner))continue;
