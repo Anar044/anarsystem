@@ -426,6 +426,20 @@ export function compactToolTrace(call, result) {
   }
   return trace;
 }
+export function assistantToolBudget({mobile=false, analytic=false} = {}) {
+  // A comparison report commonly takes several dependent lookups:
+  // first identify fields, then fetch verified OLAP rows, finally summarize.
+  // A mobile transport must not silently prevent the last data fetch.
+  return mobile && !analytic ? 4 : MAX_TOOL_ROUNDS;
+}
+
+export function assistantContinuationToolChoice(round, budget) {
+  // After the final permitted set of read-only tool results, force a
+  // conclusion (or an explicit missing-data warning), never an extra
+  // unfulfilled function call.
+  return round >= budget - 1 ? "none" : "auto";
+}
+
 async function runAssistant(env, connection, history, scope=null, access=null, mobile=false) {
   const model = clean(env.OPENAI_ASSISTANT_MODEL) || DEFAULT_MODEL;
   const prompt = clean(history?.at(-1)?.content);
@@ -458,7 +472,8 @@ async function runAssistant(env, connection, history, scope=null, access=null, m
   });
 
   const traces = [];
-  for (let round = 0; round < (mobile ? Math.min(4, MAX_TOOL_ROUNDS) : MAX_TOOL_ROUNDS); round++) {
+  const toolBudget = assistantToolBudget({mobile, analytic:analyticQuestion});
+  for (let round = 0; round < toolBudget; round++) {
     const calls = functionCalls(response);
     if (!calls.length) break;
 
@@ -493,9 +508,10 @@ async function runAssistant(env, connection, history, scope=null, access=null, m
       ...base,
       previous_response_id: response.id,
       input: outputs,
-      // Bound extra tool iterations and the resulting latency. After the
-      // third round the model must summarize the verified tool outputs.
-      ...(mobile && round >= 2 ? {tool_choice: "none"} : {})
+      // Match the website's depth for real multi-step analytical reports.
+      // Force the last response to be final only AFTER all required tool
+      // results have had a chance to arrive.
+      tool_choice: assistantContinuationToolChoice(round, toolBudget)
     });
   }
 
