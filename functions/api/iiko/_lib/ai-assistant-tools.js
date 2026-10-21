@@ -1,5 +1,6 @@
 import { clean, getIikoAuth, getOlapFields, iikoJson, iikoText, isIikoLicenseSeatExhausted } from "./iiko-client.js";
 import { readDishRankings } from "./assistant-dish-rankings.js";
+import { getVerifiedRevenueComparison } from "./assistant-revenue-comparison.js";
 import { syncReferences } from "../references.js";
 import { getIikoSuppliers } from "./iiko-suppliers.js";
 import { resolveStoreScope } from "./store-scope.js";
@@ -457,6 +458,21 @@ export const assistantToolDefinitions = [
   },
   {
     type: "function",
+    name: "get_verified_restaurant_revenue",
+    description: "Проверенный календарный отчёт о выручке каждого выбранного ресторана и по дням. ОБЯЗАТЕЛЬНО используй ПЕРВЫМ для запросов сравнения выручки ресторанов с таблицей или графиком. Сам проверяет технические поля OLAP, числовую сумму и принадлежность всех строк выбранной сети. При ошибке не придумывай цифры.",
+    parameters: {
+      type:"object",
+      properties:{
+        from:{type:"string",description:"Начало диапазона YYYY-MM-DD"},
+        to:{type:"string",description:"Конец диапазона YYYY-MM-DD"}
+      },
+      required:["from","to"],
+      additionalProperties:false
+    },
+    strict:true
+  },
+  {
+    type: "function",
     name: "get_dish_sales_rankings",
     description: "Надёжный готовый OLAP-рейтинг блюд за период: самые и наименее продаваемые позиции с проверенной выручкой и количеством, если поле доступно. Для вопросов владельца о топе/аутсайдерах блюд используй этот инструмент первым, не угадывай имена OLAP-полей.",
     parameters: {
@@ -678,6 +694,10 @@ export async function executeAssistantTool(name, args, context) {
       .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title, "ru"))
       .slice(0, Math.min(40, Math.max(1, Number(args.limit) || 20)));
     return { query: args.query, reportType: args.report_type, count: matches.length, fields: matches };
+  }
+
+  if (name === "get_verified_restaurant_revenue") {
+    return getVerifiedRevenueComparison(connection,scope,clean(args.from),clean(args.to));
   }
 
   if (name === "get_dish_sales_rankings") {
