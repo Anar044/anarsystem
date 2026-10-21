@@ -50,7 +50,7 @@ test("numeric revenue comparison shows the right totals and unknown stores",()=>
   assert.equal(result.kind,"report_with_chart");
   assert.equal(result.report.rows[0][1],"300,50");
   assert.equal(result.chart.series[0].data[0].value,300.5);
-  assert.match(result.report.notes.join(" "),/не ноль/);
+  assert.match(result.report.notes.join(" "),/не включены в сумму/);
 });
 test("out-of-scope department or date blocks whole report without leaking",()=>{
   for (const row of [
@@ -91,4 +91,32 @@ test("server selects verified revenue tool for revenue-by-restaurant requests",(
 test("new revenue comparison tool is blocked without reports.olap permission",()=>{
   assert.equal(assistantToolAuthorized({permissions:[]},
     "get_verified_restaurant_revenue"),false);
+});
+
+test("single restaurant with multiple verified sale days shows daily trend, without fake zero dates",()=>{
+  const x={
+    success:true,kind:"verified_revenue_comparison",
+    period:{from:"2026-10-15",to:"2026-10-21"},
+    totalRevenue:1752,sourceRows:3,selectedRestaurantCount:4,
+    restaurantsWithRows:1,
+    rows:[{departmentId:"r1",departmentName:"RMS 2",revenue:1752}],
+    days:[
+      {departmentId:"r1",date:"2026-10-15",revenue:1311.4},
+      {departmentId:"r1",date:"2026-10-16",revenue:184},
+      {departmentId:"r1",date:"2026-10-19",revenue:256.6}
+    ],
+    restaurantsWithoutRows:[
+      {departmentId:"r2",departmentName:"RMS 1"},
+      {departmentId:"r3",departmentName:"RMS 3"}
+    ]
+  };
+  const v=verifiedRevenuePresentation(x,{chartRequested:true});
+  assert.equal(v.chart.type,"daily_trend");
+  assert.equal(v.chart.series[0].data.length,3);
+  assert.deepEqual(v.chart.series[0].data.map(item=>item.label),
+    ["15.10","16.10","19.10"]);
+  assert.equal(v.chart.series[0].data.reduce((sum,item)=>sum+item.value,0),1752);
+  assert.equal(v.report.notes.length,1);
+  assert.equal(v.chart.notes.length,1);
+  assert.ok(!v.report.notes.some(n=>n.includes("DishDiscountSumInt")));
 });

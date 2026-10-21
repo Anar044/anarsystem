@@ -12,11 +12,10 @@ export function verifiedRevenuePresentation(data,{chartRequested=true}={}) {
   const displayed=data.rows.slice(0,30);
   const missing=Array.isArray(data.restaurantsWithoutRows)?
     data.restaurantsWithoutRows:[];
+  // User-facing reports show one concise warning, not repeated OLAP internals.
   const notes=[
-    `Источник: SH OLAP SALES; поле выручки: ${data.revenueField}.`,
-    `Подтверждено строк OLAP: ${data.sourceRows}. Суммы только по полученным подразделениям.`,
     ...(missing.length?[
-      `Для ${missing.length} выбранных подразделений OLAP не вернул строк: ${missing.slice(0,8).map(x=>x.departmentName).join(", ")}. Их выручка неизвестна, а не ноль.`
+      `Без данных по ${missing.length} подразделениям: ${missing.slice(0,8).map(x=>x.departmentName).join(", ")}. Они не включены в сумму.`
     ]:[]),
     ...(data.rows.length>displayed.length?
       [`Показаны первые ${displayed.length} подразделений из ${data.rows.length}.`]:[])
@@ -36,13 +35,27 @@ export function verifiedRevenuePresentation(data,{chartRequested=true}={}) {
     totals:["Итого по полученным данным",money(data.totalRevenue)],
     notes
   };
+  const oneRestaurant=displayed.length===1;
+  const daily=oneRestaurant && Array.isArray(data.days)?
+    data.days.filter(day=>day.departmentId===displayed[0].departmentId &&
+      typeof day.revenue==="number" && Number.isFinite(day.revenue))
+      .sort((a,b)=>a.date.localeCompare(b.date)): [];
+  // When only one restaurant sold anything, compare its observed sales DAYS.
+  // Do not insert zero bars for missing dates: those days are unverified.
+  const useDailyTrend=oneRestaurant && daily.length>=2;
+  const chartRows=useDailyTrend ? daily.slice(0,32).map(day=>({
+    label:`${day.date.slice(8,10)}.${day.date.slice(5,7)}`,
+    value:day.revenue
+  })) : displayed.slice(0,24).map(row=>({
+    label:row.departmentName,value:row.revenue
+  }));
   const chart=chartRequested?{
-    type:"horizontal_bar",title:"Выручка по ресторанам",subtitle:period,
-    xLabel:"Ресторан",yLabel:"Выручка, AZN",
-    series:[{name:"Выручка",data:displayed.slice(0,24).map(row=>({
-      label:row.departmentName,value:row.revenue
-    }))}],
-    notes:notes.slice(1,3)
+    type:useDailyTrend?"daily_trend":"horizontal_bar",
+    title:useDailyTrend?"Выручка по дням":"Выручка по ресторанам",
+    subtitle:useDailyTrend?`${displayed[0].departmentName} · ${period}`:period,
+    xLabel:useDailyTrend?"День":"Ресторан",yLabel:"Выручка, AZN",
+    series:[{name:"Выручка",data:chartRows}],
+    notes:useDailyTrend?["Показаны только дни с данными о продажах."]: []
   }:null;
   return {
     kind:chart?"report_with_chart":"report",
