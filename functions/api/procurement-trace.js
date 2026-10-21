@@ -469,6 +469,7 @@ export async function onRequestPost({ request, env }) {
       if (movement==="TRANSFER"&&!to) throw fail("Выберите место назначения.");
       if (movement!=="TRANSFER"&&to) throw fail("Для выдачи и списания место назначения не используется.");
       if (movement==="WRITE_OFF"&&!reason) throw fail("Укажите причину списания.");
+      if (movement==="WRITE_OFF"&&!ref) throw fail("Для складского списания укажите номер фактического акта списания.");
       if (["ISSUE","CONSUME"].includes(movement)&&!destination) throw fail("Укажите получателя или кухню.");
       await c.db.prepare(`INSERT INTO proc_trace_moves(
         id,workspace_id,server_scope,request_id,lot_id,action,from_location_id,to_location_id,
