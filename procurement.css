@@ -325,7 +325,7 @@
 }
 .quote-layout-toggle button{
   border:0;border-radius:6px;background:transparent;color:#92a6af;
-  font:600 10px/1.2 inherit;padding:7px 11px;cursor:pointer
+  font:inherit;font-size:10px;font-weight:650;line-height:1.2;padding:7px 11px;cursor:pointer
 }
 .quote-layout-toggle button[aria-pressed="true"]{
   color:#d9faeb;background:#1d4135;box-shadow:0 1px 4px rgba(0,0,0,.18)
@@ -339,7 +339,7 @@
 }
 .proc-quote-comparison .proc-quote-compare{
   width:100%;
-  min-width:max(680px,calc(220px + 200px * var(--quote-supplier-count)));
+  min-width:max(680px,var(--quote-min-width));
   table-layout:fixed;border-collapse:separate;border-spacing:0;background:#0b151c
 }
 .proc-quote-comparison .proc-quote-compare th,
@@ -475,7 +475,7 @@
 .proc-quote-comparison .proc-split-entry{margin-top:12px}
 @media(max-width:700px){
   .quote-compare-toolbar{align-items:flex-start;flex-direction:column;gap:9px}
-  .proc-quote-comparison .proc-quote-compare{min-width:max(610px,calc(180px + 185px * var(--quote-supplier-count)))}
+  .proc-quote-comparison .proc-quote-compare{min-width:max(610px,var(--quote-min-width))}
   .proc-quote-comparison .proc-quote-compare .quote-product-col,
   .proc-quote-comparison .quote-product-cell{width:180px;min-width:180px}
   .proc-quote-comparison .quote-price-cell{min-width:175px}
