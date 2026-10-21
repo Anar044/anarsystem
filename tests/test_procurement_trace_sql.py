@@ -151,12 +151,12 @@ class TraceLedgerTests(unittest.TestCase):
             'if (action === "REGISTER_LOT")', 1
         )[0]
         match = re.search(
-            r"INSERT INTO proc_trace_lots\\((.*?)\\) VALUES\\((.*?)\\)",
+            r"INSERT INTO proc_trace_lots\((.*?)\) VALUES\((.*?)\)",
             section, re.S,
         )
         self.assertIsNotNone(match, "SYNC_GRN must insert a real lot")
         columns = [c.strip() for c in match.group(1).split(",")]
-        binds = re.findall(r"\\?(\\d+)", match.group(2))
+        binds = re.findall(r"\?(\d+)", match.group(2))
         self.assertEqual(len(columns), 19)
         self.assertEqual(binds, [str(i) for i in range(1, len(columns) + 1)])
 
