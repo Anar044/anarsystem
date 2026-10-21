@@ -566,6 +566,19 @@ async function runAssistant(env, connection, history, scope=null, access=null, m
   }
 
   const rawText = outputText(response);
+  if (!rawText && mobile && mobileRevenueComparisonQuestion(prompt) && verifiedRevenue) {
+    // The numeric result is already verified. A model output budget or
+    // continuation issue must not discard it or turn it into an empty report.
+    const wantsChart=/график|диаграмм|chart|visual|grafik|diaqram/i.test(prompt);
+    const answer=verifiedRevenuePresentation(verifiedRevenue,{chartRequested:wantsChart});
+    if (answer)return {
+      ...answer,model:response?.model||model,responseId:response?.id||null,
+      usage:response?.usage||null,tools:traces,
+      sourceWarnings:traces.filter(t=>!t.ok).map(t=>({
+        name:t.name,code:t.code,...(t.status?{status:t.status}:{})
+      }))
+    };
+  }
   if (!rawText) {
     const code = response?.incomplete_details?.reason ||
       (functionCalls(response).length ? "tool_rounds_exhausted" : "no_text");
