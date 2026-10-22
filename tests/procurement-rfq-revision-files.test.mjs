@@ -102,3 +102,73 @@ test('GRN accounting still reads the exact original controls',()=>{
  assert.match(ui,/\['packageSize','packageCount','price'\]\.forEach/);
  assert.match(ui,/applyPackagingChoice\(row\);recalcReceipt\(\)/);
 });
+
+test('PR document layout stays one-line and requester still sees no pricing inputs',()=>{
+ const from=ui.indexOf('function prLineHtml(line={}){');
+ const to=ui.indexOf('\nfunction bindEditRows(',from);
+ assert.ok(from>=0&&to>from);
+ const builder=new Function('key','productName','unitFor','canViewProcurementPrices',
+   'num','esc','productLabel','packagingChoiceHtml','vatOptions','money',
+   ui.slice(from,to)+';return prLineHtml;');
+ const base=[String,()=> 'Помидоры',()=> 'кг'];
+ const rest=[(x,d=0)=>Number(x??d)||d,String,(pid,name)=>name||pid,
+   ()=>'<option>Осн. ед.</option>',()=>'<option>0%</option>',x=>Number(x).toFixed(2)+' ₼'];
+ const withCosts=builder(...base,()=>true,...rest)({
+   productId:'tomato',productName:'Помидоры',unit:'кг',quantity:8,
+   packageSize:2,packageCount:4,expectedPrice:6,vatPercent:0
+ });
+ const requester=builder(...base,()=>false,...rest)({
+   productId:'tomato',productName:'Помидоры',unit:'кг',quantity:8,
+   packageSize:2,packageCount:4,expectedPrice:6,vatPercent:0
+ });
+ assert.match(withCosts,/proc-compact-pr-row/);
+ assert.match(withCosts,/data-f="price"/);
+ assert.match(withCosts,/data-f="vatPercent"/);
+ assert.match(withCosts,/class="line-total"/);
+ assert.match(withCosts,/data-f="product"/);
+ assert.match(withCosts,/class="remove"/);
+ assert.match(requester,/proc-pr-no-prices/);
+ assert.doesNotMatch(requester,/data-f="price"/);
+ assert.doesNotMatch(requester,/data-f="vatPercent"/);
+ assert.doesNotMatch(requester,/class="line-total"/);
+ assert.match(ui,/documentTableHead\(canViewProcurementPrices\(\)\?/);
+ assert.match(ui,/id="proc-pr-lines"/);
+ assert.match(ui,/id="proc-pr-add-line"/);
+});
+test('supplier quote price editor preserves exact payload input fields and per-line total',()=>{
+ const from=ui.indexOf('function quoteLineHtml(l,supplierId){');
+ const to=ui.indexOf('\nfunction recalcQuote()',from);
+ assert.ok(from>=0&&to>from);
+ const fn=new Function('historyPrice','num','esc','vatOptions','money',
+   ui.slice(from,to)+';return quoteLineHtml;')(
+   ()=>null,(v,d=0)=>Number(v??d)||d,String,()=>'<option>0%</option>',
+   x=>Number(x).toFixed(2)+' ₼'
+ );
+ const row=fn({productId:'cheese',productName:'Сыр',packageSize:2.5,packageCount:4,
+   quantity:10,unit:'кг',expectedPrice:7,vatPercent:0},'supplier');
+ assert.match(row,/proc-compact-quote-row/);
+ for(const field of ['packageSize','packageCount','vatPercent','price','containerId','packageName','unit']){
+   assert.ok(row.includes('data-f="'+field+'"'),'Missing field '+field);
+ }
+ assert.match(row,/28\.00 ₼/);
+ assert.match(ui,/documentTableHead\(\['Товар','Фасовка','Упаковок','НДС','Цена \/ упак\.','Сумма'\]\)/);
+ assert.match(ui,/id="proc-quote-lines"/);
+});
+test('invoice, linked PO and allocation are compact while maintaining action selectors',()=>{
+ assert.match(ui,/proc-invoice-compact-table/);
+ assert.match(ui,/proc-compact-invoice-row/);
+ assert.match(ui,/documentTableHead\(\['Товар','Фасовка','Упаковок','Итого','НДС','Цена \/ упак\.','Сумма'\]\)/);
+ for(const f of ['packageCount','quantity','vatPercent','price']){
+   assert.ok(ui.includes('[data-f="'+f+'"]'),f);
+ }
+ for(const name of ['data-inv-grn-line','proc-inv-save','proc-inv-post','proc-split-grid-head',
+   'data-split-qty','proc-split-save','proc-link-match-row']){
+   assert.ok(ui.includes(name),name);
+ }
+ assert.match(css,/\.proc-modal-wide \.proc-pr-compact-table \.proc-compact-grid/);
+ assert.match(css,/\.proc-modal-wide \.proc-quote-compact-table \.proc-compact-grid/);
+ assert.match(css,/\.proc-modal-wide \.proc-invoice-compact-table \.proc-compact-grid/);
+ assert.match(css,/\.proc-modal-wide \.proc-compact-grid-head/);
+ assert.match(css,/\.proc-modal-wide \.proc-split-grid-head/);
+ assert.match(css,/\.proc-modal-wide \.proc-compact-scroll/);
+});
