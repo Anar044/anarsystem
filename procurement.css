@@ -526,3 +526,88 @@
  .proc-file-upload{flex-direction:column;align-items:stretch}
 }
 @media(max-width:500px){.proc-modal-wide .proc-form-grid{grid-template-columns:1fr}}
+
+
+/* Compact one-line goods receipt matrix (GRN). Each product occupies one row.
+   Horizontal scrolling retains all existing fields without stacking cards. */
+.proc-modal-wide .proc-receipt-table{overflow:visible}
+.proc-modal-wide .proc-receipt-table>.proc-edit-head{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  border:1px solid #29404b;border-bottom:0;border-radius:9px 9px 0 0
+}
+.proc-modal-wide .proc-receipt-table>.proc-edit-head .proc-history-note{
+  margin:0;color:#8ba8b7;font-size:10px
+}
+.proc-receipt-scroll{
+  overflow-x:auto;overflow-y:hidden;max-width:100%;border:1px solid #29404b;
+  border-radius:0 0 9px 9px;scrollbar-width:thin;scrollbar-color:#49616b #111c25;
+  overscroll-behavior-x:contain
+}
+.proc-receipt-scroll:focus-visible{outline:2px solid #46cea1;outline-offset:2px}
+.proc-receipt-grid{
+  --receipt-columns:minmax(210px,1.55fr) minmax(155px,1.2fr) 84px 86px 70px 102px
+      minmax(158px,1.2fr) 118px 134px 100px;
+  min-width:1320px;
+}
+.proc-receipt-grid-head,
+.proc-modal-wide .proc-edit-row.proc-pack-row[data-receipt-line]{
+  display:grid;grid-template-columns:var(--receipt-columns);
+  align-items:center;gap:8px;
+}
+.proc-receipt-grid-head{
+  position:relative;z-index:1;
+  padding:9px 12px;border-bottom:1px solid #304451;
+  color:#91a9b8;background:#152530;
+  font-size:10px;font-weight:750;line-height:1.3
+}
+.proc-receipt-grid-head span:first-child{
+  position:sticky;left:0;z-index:3;
+  margin:-9px 0 -9px -12px;padding:9px 12px;
+  background:#152530;border-right:1px solid #2d444f
+}
+.proc-modal-wide .proc-edit-row.proc-pack-row[data-receipt-line]{
+  padding:9px 12px;border-top:0;border-bottom:1px solid #243844;
+  background:#101b25;min-height:54px;
+}
+.proc-modal-wide #proc-receipt-lines>.proc-receipt-row:nth-child(even){background:#14222c}
+.proc-modal-wide #proc-receipt-lines>.proc-receipt-row:last-child{border-bottom:0}
+.proc-modal-wide #proc-receipt-lines>.proc-receipt-row:hover{background:#192c36}
+.proc-modal-wide .proc-receipt-row>.proc-field:first-child,
+.proc-modal-wide .proc-receipt-row>.proc-field:has([data-receipt-location]),
+.proc-modal-wide .proc-receipt-row .line-total{
+  grid-column:auto;
+}
+.proc-modal-wide .proc-receipt-row>.proc-field{min-width:0}
+.proc-modal-wide .proc-receipt-row>.proc-field>span{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.proc-modal-wide .proc-receipt-row input:not([type="hidden"]),
+.proc-modal-wide .proc-receipt-row select{
+  height:34px;min-height:34px;width:100%;min-width:0;
+  padding:0 7px;border-radius:7px;border:1px solid #314454;
+  background:#0d1821;color:#e5edf2;font-size:11px;line-height:1.2;
+  box-sizing:border-box
+}
+.proc-modal-wide .proc-receipt-row input[type="date"]{padding:0 4px;font-size:10.5px}
+.proc-modal-wide .proc-receipt-row input[readonly]{color:#a2b7c2;background:#15232c}
+.proc-modal-wide .proc-receipt-row .proc-package-locked{display:none!important}
+.proc-modal-wide .proc-receipt-row>.proc-receipt-product{
+  position:sticky;left:0;z-index:2;min-width:0;
+  height:100%;display:flex;flex-direction:column;justify-content:center;
+  padding-right:10px;border-right:1px solid #2c434d;
+  background:#101b25
+}
+.proc-modal-wide #proc-receipt-lines>.proc-receipt-row:nth-child(even)>.proc-receipt-product{background:#14222c}
+.proc-modal-wide #proc-receipt-lines>.proc-receipt-row:hover>.proc-receipt-product{background:#192c36}
+.proc-modal-wide .proc-receipt-product strong{
+  color:#e9f4f3;font-size:11.5px;line-height:1.35;
+  white-space:normal;overflow-wrap:anywhere
+}
+.proc-modal-wide .proc-receipt-product small{color:#8ba8b4;margin-top:3px;font-size:9px}
+.proc-modal-wide .proc-receipt-row .line-total{
+  display:block;margin:0;text-align:right;white-space:nowrap;
+  color:#75e6b7;font-size:11.5px;font-weight:850;
+  font-variant-numeric:tabular-nums
+}
+@media(max-width:780px){
+  .proc-modal-wide .proc-receipt-table>.proc-edit-head{align-items:flex-start;flex-direction:column}
+  .proc-modal-wide .proc-receipt-table>.proc-edit-head .proc-history-note{font-size:9.5px}
+}
