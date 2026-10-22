@@ -160,8 +160,15 @@ async function brokerExchange(connection,action,path="",options={}) {
     try{issue=await response.json()}catch{}
     throw Error(`SH central iiko broker ${issue.code||"UNAVAILABLE"} (HTTP ${response.status}). Direct authorization blocked.`);
   }
+  const metric=name=>{
+    const value=Number(response.headers.get(name));
+    return Number.isFinite(value)&&value>=0?value:0;
+  };
   return {response,auth:{serverUrl:c.serverUrl,cacheHit:response.headers.get("x-sh-broker-cache")==="1",
-    viaBroker:true,connectionKey:bridge.tenantId}};
+    viaBroker:true,connectionKey:bridge.tenantId,
+    brokerTiming:{queueMs:metric("x-sh-broker-wait-ms"),iikoMs:metric("x-sh-broker-upstream-ms"),
+      parallel:metric("x-sh-broker-parallel"),
+      coalesced:response.headers.get("x-sh-broker-coalesced")==="1"}}};
 }
 
 async function performAuthentication(connection, key) {
