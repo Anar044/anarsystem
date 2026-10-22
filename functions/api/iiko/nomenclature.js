@@ -1,4 +1,4 @@
-import { clean, iikoJson, sha1 } from './_lib/iiko-client.js';
+import { clean, iikoJson, sha1, bindIikoBroker } from './_lib/iiko-client.js';
 import { logAuditEvent } from '../_lib/audit-log.js';
 
 const bootstrapCache=new Map();
@@ -164,9 +164,10 @@ export async function onRequestPost(context){try{
   const b=await context.request.json();
   const action=String(b.action||'');
   const params=b.params||{},payload=b.payload??null;
+  const connection=bindIikoBroker(b.connection||b,context);
   const mutation=isMutation(action);
-  const before=mutation?await mutationBefore(action,b.connection,params,payload):null;
-  const data=await resolveAction(action,b.connection,params,payload);
+  const before=mutation?await mutationBefore(action,connection,params,payload):null;
+  const data=await resolveAction(action,connection,params,payload);
   let audit=null;
   if(mutation){
     const id=payloadEntityId(action,params,payload)||clean(data?.id);
@@ -189,4 +190,13 @@ export async function onRequestPost(context){try{
   }
   return json({success:true,data,audit:audit?{logged:audit.logged===true,changes:audit.changes||0}:undefined});
 }catch(e){return json({success:false,message:e?.message||'Ошибка iiko API'},502)}}
-export async function onRequestGet({request}){try{const q=new URL(request.url).searchParams,connection=JSON.parse(q.get('connection')||'{}'),action=q.get('action')||'',params={};q.forEach((v,k)=>{if(k==='connection'||k==='action')return;if(params[k]===undefined)params[k]=v;else params[k]=Array.isArray(params[k])?[...params[k],v]:[params[k],v]});const data=await resolveAction(action,connection,params,null);return json({success:true,data})}catch(e){return json({success:false,message:e?.message||'Ошибка iiko API'},502)}}
+export async function onRequestGet(context){
+  // Prevent URL-embedded iiko credentials and bypass of broker isolation.
+  if(context.env?.IIKO_SESSION_BROKER)return json({success:false,code:"BROKER_POST_REQUIRED",
+    message:"Используйте POST для запросов номенклатуры."},405);
+  const {request}=context;
+  try{const q=new URL(request.url).searchParams,connection=JSON.parse(q.get('connection')||'{}'),action=q.get('action')||'',params={};
+  q.forEach((v,k)=>{if(k==='connection'||k==='action')return;if(params[k]===undefined)params[k]=v;else params[k]=Array.isArray(params[k])?[...params[k],v]:[params[k],v]});
+  const data=await resolveAction(action,connection,params,null);return json({success:true,data});
+  }catch(e){return json({success:false,message:e?.message||'Ошибка iiko API'},502)}
+}
