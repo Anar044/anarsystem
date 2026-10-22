@@ -1,3 +1,4 @@
+import { buildOwnerFcmMessage } from '../functions/api/mobile/_lib/fcm.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import { classifyPosAlert,posAlertDetails,ALERT_KINDS }
@@ -38,4 +39,17 @@ test("device key is deterministic without exposing the FCM token",async()=>{
  assert.equal(a,b);
  assert.equal(a.length,64);
  assert.ok(!a.includes(token));
+});
+
+test("FCM includes explicit APNs alert and Android priority for every authorized cash event",()=>{
+  const msg=buildOwnerFcmMessage("device_token",{
+    title:"Кассовое событие",body:"Изменён чек",
+    kind:"ITEM_REMOVED",departmentId:"department-1",orderNum:"456"
+  });
+  assert.equal(msg.apns.headers["apns-push-type"],"alert");
+  assert.equal(msg.apns.headers["apns-priority"],"10");
+  assert.equal(msg.apns.payload.aps.sound,"default");
+  assert.equal(msg.android.priority,"HIGH");
+  assert.equal(msg.data.departmentId,"department-1");
+  assert.equal(msg.data.kind,"ITEM_REMOVED");
 });

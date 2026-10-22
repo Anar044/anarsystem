@@ -39,6 +39,22 @@ async function bearerToken(account){
 export function configuredFcm(env){
  return Boolean(clean(env?.FCM_SERVICE_ACCOUNT_JSON));
 }
+// Send one and the same authorized cash-register event to Android FCM
+// and Apple APNs via Firebase. Do not expose user/account details in data.
+export function buildOwnerFcmMessage(deviceToken,alert){
+ return {
+   token:deviceToken,
+   notification:{title:"Smart Horeca • "+alert.title,body:alert.body},
+   android:{priority:"HIGH",
+     notification:{channel_id:"sh_owner_pos_alerts",sound:"default"}},
+   apns:{
+     headers:{"apns-push-type":"alert","apns-priority":"10"},
+     payload:{aps:{sound:"default"}}
+   },
+   data:{kind:alert.kind,departmentId:alert.departmentId,
+     ...(alert.orderNum?{orderNum:alert.orderNum}:{})}
+ };
+}
 export async function sendFcmAlert(env,deviceToken,alert){
  const raw=clean(env?.FCM_SERVICE_ACCOUNT_JSON);
  if(!raw)throw Error("FCM_NOT_CONFIGURED");
@@ -46,16 +62,7 @@ export async function sendFcmAlert(env,deviceToken,alert){
  if(!account?.client_email||!account?.private_key||!account?.project_id)
    throw Error("FCM_SERVICE_ACCOUNT_INCOMPLETE");
  const bearer=await bearerToken(account);
- const payload={message:{
-   token:deviceToken,
-   notification:{title:"Smart Horeca • "+alert.title,body:alert.body},
-   android:{
-     priority:"HIGH",
-     notification:{channel_id:"sh_owner_pos_alerts",sound:"default"}
-   },
-   data:{kind:alert.kind,departmentId:alert.departmentId,
-     ...(alert.orderNum?{orderNum:alert.orderNum}:{})}
- }};
+ const payload={message:buildOwnerFcmMessage(deviceToken,alert)};
  const resp=await fetch("https://fcm.googleapis.com/v1/projects/"+
    encodeURIComponent(account.project_id)+"/messages:send",{
    method:"POST",headers:{"Authorization":"Bearer "+bearer,
