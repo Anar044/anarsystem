@@ -5,7 +5,7 @@ const $=id=>document.getElementById(id);
 const state={
   token:'',binding:null,data:null,refs:{suppliers:[],warehouses:[],products:[]},
   stockRows:[],purchaseRows:[],needs:[],historyDocs:[],supplierBalances:new Map(),latestByProduct:new Map(),priceBySupplierProduct:new Map(),
-  productById:new Map(),productLabelToId:new Map(),selectedNeeds:new Set(),
+  productById:new Map(),productLabelToId:new Map(),productDisplayLabels:new Map(),selectedNeeds:new Set(),
   normDrafts:new Map(),dirtyNorms:new Set(),busy:false,tab:'needs',view:'catalog',cacheWarnings:[]
 };
 
@@ -201,8 +201,7 @@ async function loadReferences(){
     console.warn('Procurement references cache fallback',e);
   }
   state.productById=new Map((state.refs.products||[]).map(x=>[key(x.id),x]));
-  state.productLabelToId=new Map();
-  for(const p of state.refs.products||[])state.productLabelToId.set(productLabel(p.id,p.name),key(p.id));
+  buildProductDisplayLabels();
   return state.refs;
 }
 async function loadStocks(){
@@ -307,7 +306,41 @@ function canViewProcurementPrices(){
   const permissions=state.data?.access?.permissions||[];
   return Array.isArray(permissions)&&(permissions.includes('*')||permissions.includes('procurement.prices.view')||permissions.includes('sensitive.cost.view'));
 }
-function productLabel(pid,name){const id=key(pid);return String(name||productName(id)||id)+(id?' · …'+id.slice(-6):'')}
+// User-facing product names never contain an internal iiko UUID. A real
+// catalogue article is shown only when names are duplicated, to keep the
+// chooser unambiguous without exposing technical identifiers.
+function buildProductDisplayLabels(){
+  const products=(state.refs.products||[]).filter(p=>key(p.id));
+  const nameOf=p=>String(p.name||'Номенклатура без названия').trim();
+  const count=new Map();
+  for(const p of products){const n=nameOf(p).toLocaleLowerCase();count.set(n,(count.get(n)||0)+1)}
+  const used=new Set(products.filter(p=>count.get(nameOf(p).toLocaleLowerCase())===1).map(p=>nameOf(p).toLocaleLowerCase()));
+  const display=new Map(),reverse=new Map();
+  const ordered=[...products].sort((a,b)=>nameOf(a).localeCompare(nameOf(b),'ru')||
+    String(a.num||'').localeCompare(String(b.num||''),'ru')||key(a.id).localeCompare(key(b.id)));
+  for(const p of ordered){
+    const pid=key(p.id),name=nameOf(p);
+    if(display.has(pid))continue;
+    let label=name;
+    if(count.get(name.toLocaleLowerCase())>1){
+      const article=String(p.num||'').trim();
+      const base=article?name+' · арт. '+article:name+' · вариант';
+      label=base;
+      for(let n=2;used.has(label.toLocaleLowerCase());n++)label=base+' ('+n+')';
+    }
+    display.set(pid,label);
+    reverse.set(label,pid);
+    used.add(label.toLocaleLowerCase());
+  }
+  state.productDisplayLabels=display;
+  state.productLabelToId=reverse;
+}
+function productLabel(pid,name){
+  const id=key(pid);
+  if(id&&state.productDisplayLabels.has(id))return state.productDisplayLabels.get(id);
+  const text=String(name||state.productById.get(id)?.name||'').trim();
+  return text&&text!==id?text:(id?'Номенклатура недоступна':'');
+}
 function productRef(pid){return state.productById.get(key(pid))||null}
 function productPackagings(pid){
   const p=productRef(pid),list=Array.isArray(p?.packagings)?p.packagings:[];
@@ -1199,7 +1232,9 @@ function recalcPrModal(){
 
 function collectPrLines(){
   return [...document.querySelectorAll('#proc-pr-lines [data-pr-line]')].map(row=>{
-    const label=row.querySelector('[data-f="product"]').value,pid=key(row.dataset.productId||resolveProductLabel(label));if(!pid)throw Error('Выберите номенклатуру из списка.');
+    const label=row.querySelector('[data-f="product"]').value.trim(),bound=key(row.dataset.productId);
+    const pid=bound&&productLabel(bound)===label?bound:key(resolveProductLabel(label));
+    if(!pid)throw Error('Выберите номенклатуру из списка.');
     const packageSize=num(row.querySelector('[data-f="packageSize"]').value),packageCount=num(row.querySelector('[data-f="packageCount"]').value);
     const containerId=key(row.querySelector('[data-f="containerId"]').value),packs=productPackagings(pid);
     if(packs.length&&!containerId)throw Error(productName(pid)+': выберите фасовку из iiko.');
