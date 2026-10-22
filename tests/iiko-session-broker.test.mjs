@@ -154,3 +154,144 @@ test("iiko image proxy preserves binary bytes without decoding",async()=>{
   assert.equal(auth,1);
  }finally{undo()}
 });
+
+const postOlap=(name, body)=>new Request("https://broker.internal/request",{
+ method:"POST",headers:{"content-type":"application/json"},
+ body:JSON.stringify({tenantId:"workspace:org-a",connection,action:"request",
+  request:{path:"/resto/api/v2/reports/olap",method:"POST",
+    headers:{"content-type":"application/json"},body:JSON.stringify({query:name,...body})}})
+});
+
+test("slow OLAP request does not delay unrelated report on same licensed session",async()=>{
+ let releaseSlow=()=>{};
+ let slowReached=()=>{};
+ const reached=new Promise(resolve=>{slowReached=resolve});
+ const undo=installFetch(async url=>{
+  const u=new URL(String(url));
+  if(u.pathname.endsWith("/auth"))return new Response("one-token");
+  if(u.pathname.endsWith("/olap") && u.searchParams.has("key")){
+    // The distinct POST payloads identify the slow and fast reports.
+    return new Response("fallback");
+  }
+  return new Response("fast");
+ });
+ // Override once to model a slow server call and ensure the token is shared.
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=async(url,options)=>{
+  const u=new URL(String(url));
+  if(u.pathname.endsWith("/auth"))return new Response("one-token");
+  if(JSON.parse(options.body).query==="slow"){
+    slowReached();
+    return new Promise(resolve=>{releaseSlow=()=>resolve(new Response("slow"))});
+  }
+  return new Response("fast");
+ };
+ try{
+  const session=new IikoSession({storage:storage()},env);
+  const slow=session.fetch(postOlap("slow"));
+  await reached;
+  const fast=session.fetch(postOlap("fast"));
+  const outcome=await Promise.race([
+    fast.then(async r=>({status:r.status,body:await r.text()})),
+    new Promise(resolve=>setTimeout(()=>resolve({status:0}),300))
+  ]);
+  assert.equal(outcome.status,200,"fast request blocked by unrelated slow report");
+  assert.equal(outcome.body,"fast");
+  releaseSlow();
+  assert.equal((await slow).status,200);
+ }finally{releaseSlow();globalThis.fetch=originalFetch;undo()}
+});
+
+test("load: many requests share one auth and respect three concurrent upstream calls",async()=>{
+ let auth=0,active=0,maxActive=0,completed=0;
+ const undo=installFetch(async url=>{
+  const u=new URL(String(url));
+  if(u.pathname.endsWith("/auth")){auth++;return new Response("one-token")}
+  active++;maxActive=Math.max(active,maxActive);
+  await new Promise(resolve=>setTimeout(resolve,12));
+  active--;completed++;
+  return new Response("ok");
+ });
+ try{
+  const broker=new IikoSession({storage:storage()},env);
+  const responses=await Promise.all(Array.from({length:24},(_,i)=>broker.fetch(
+    request("request","/resto/api/v2/reports/olap/unique-"+i))));
+  assert.ok(responses.every(x=>x.status===200));
+  assert.equal(auth,1);
+  assert.equal(completed,24);
+  assert.ok(maxActive>1,"no meaningful upstream parallelism");
+  assert.ok(maxActive<=3,"upstream concurrency ceiling exceeded");
+  assert.equal(broker.active,0);
+  assert.equal(broker.waiting.length,0);
+ }finally{undo()}
+});
+
+test("duplicate read-only OLAP queries coalesce without stale result caching",async()=>{
+ let auth=0, data=0;
+ const undo=installFetch(async(url)=>{
+  const u=new URL(String(url));
+  if(u.pathname.endsWith("/auth")){auth++;return new Response("one-token")}
+  data++;
+  await new Promise(resolve=>setTimeout(resolve,18));
+  return new Response(JSON.stringify({rows:[{sum:42}]}),{headers:{"content-type":"application/json"}});
+ });
+ try{
+  const broker=new IikoSession({storage:storage()},env);
+  const all=await Promise.all(Array.from({length:18},()=>broker.fetch(postOlap("same",{date:"2026-10-22"}))));
+  assert.equal(auth,1);
+  assert.equal(data,1,"identical concurrent read must share a single iiko request");
+  assert.deepEqual(new Set(await Promise.all(all.map(x=>x.text()))).size,1);
+  assert.ok(all.some(x=>x.headers.get("x-sh-broker-coalesced")==="1"));
+  await broker.fetch(postOlap("same",{date:"2026-10-22"}));
+  assert.equal(data,2,"in-flight coalescing is not a stale cross-request cache");
+ }finally{undo()}
+});
+
+test("simultaneous stale token 401 responses trigger exactly one license refresh",async()=>{
+ let auth=0;
+ const undo=installFetch(async url=>{
+  const u=new URL(String(url));
+  if(u.pathname.endsWith("/auth")){auth++;return new Response("token-"+auth)}
+  if(u.searchParams.get("key")==="token-1" && u.pathname.endsWith("/expired")){
+   await new Promise(resolve=>setTimeout(resolve,5));
+   return new Response("expired",{status:401});
+  }
+  return new Response("ok");
+ });
+ try{
+  const broker=new IikoSession({storage:storage()},env);
+  assert.equal((await broker.fetch(request("request","/resto/api/demo"))).status,200);
+  const replies=await Promise.all(Array.from({length:12},()=>broker.fetch(
+    request("request","/resto/api/expired"))));
+  assert.ok(replies.every(r=>r.status===200));
+  assert.equal(auth,2);
+ }finally{undo()}
+});
+
+test("bounded request admission rejects overload without allocating another token",async()=>{
+ let reached=()=>{},release=()=>{},auth=0;
+ const entered=new Promise(r=>{reached=r});
+ const undo=installFetch(async url=>{
+  if(new URL(String(url)).pathname.endsWith("/auth")){auth++;return new Response("one-token")}
+  reached();
+  return new Promise(resolve=>{release=()=>resolve(new Response("ok"))});
+ });
+ try{
+  const broker=new IikoSession({storage:storage()},{...env,
+    IIKO_MAX_PARALLEL_REQUESTS:"1",IIKO_MAX_PENDING_REQUESTS:"1"});
+  const one=broker.fetch(request("request","/resto/api/first"));
+  await entered;
+  const two=broker.fetch(request("request","/resto/api/second"));
+  await Promise.resolve();
+  const three=await broker.fetch(request("request","/resto/api/third"));
+  assert.equal(three.status,429);
+  assert.equal((await three.json()).code,"BROKER_BUSY");
+  release();
+  assert.equal((await one).status,200);
+  // The queued request starts after the first releases its slot.
+  await new Promise(resolve=>setTimeout(resolve,1));
+  release();
+  assert.equal((await two).status,200);
+  assert.equal(auth,1);
+ }finally{release();undo()}
+});
