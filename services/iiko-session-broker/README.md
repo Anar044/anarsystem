@@ -35,10 +35,17 @@ comma-separated, server-verified `access.workspace.id` values.
   `IIKO_SESSION_BROKER` service binding and secret already exist.
 - `workspace:org-a` must be supplied to the backend by authenticated RBAC;
   the Cloudflare allowlist must contain the raw workspace ID `org-a`.
-- No `*` wildcard. A selected workspace with a missing binding, missing
-  service secret or unavailable broker **fails closed** instead of directly
-  logging into iiko. Unselected workspaces keep using the existing client
-  until separately migrated.
+- After the private production Worker is deployed, its encryption and
+  service secrets are set, and its **complete** permitted iiko host:port list
+  is configured, set `IIKO_BROKER_ENABLED_WORKSPACES=*` **in Production
+  Pages only** to route **all authenticated, verified workspaces** through
+  their own isolated Durable Object sessions. Merely adding a service binding
+  does not enable the broker. The `*` value is an explicit all-workspaces
+  opt-in and is **not** an upstream server allowlist.
+- A selected workspace with a missing binding, missing service secret or
+  unavailable broker **fails closed** instead of directly logging into
+  iiko. Non-selected workspaces keep the original route during any
+  phased deployment.
 - Under `/api/iiko/*`, pilot workspaces always use the credentials
   persisted in their own private D1 state, **including GET routes**. The
   browser may not substitute a host, username or password. Connection
@@ -62,6 +69,36 @@ The previously tested Preview workspace needs its own explicit Preview
 `IIKO_BROKER_ENABLED_WORKSPACES` value to remain brokered after this
 safety gate is deployed. This must be configured only with the actual
 verified workspace ID; do not guess one from screen labels.
+
+## One-switch activation after production prerequisites
+
+1. Deploy a separate private `sh-iiko-session-broker` Worker from
+   `services/iiko-session-broker/wrangler.toml` with no public workers.dev
+   endpoint. This is **not** the existing test Worker.
+2. Set `IIKO_BROKER_SERVICE_SECRET` in the production Worker and Production
+   Pages (same value), and `IIKO_BROKER_ENCRYPTION_KEY_B64` in the Worker only.
+   Use **new**, independent production secrets; never copy the test encryption
+   key. Save keys securely; values must never appear in GitHub.
+3. Set `IIKO_ALLOWED_TARGETS` in production Worker to a comma-separated list
+   of **every actual, registered iiko server host:port**. There is no safe
+   host wildcard. If an expected server is absent, that network will receive
+   `TARGET_DENIED`; do NOT skip this control or expose an open proxy.
+4. Add `IIKO_SESSION_BROKER` Service binding (entrypoint Default) to the
+   **Production** environment of Cloudflare Pages `smarthoreca`. Make sure
+   the private Worker can reach those exact host:ports.
+5. Only after the above are valid, set Production Pages text environment
+   variable `IIKO_BROKER_ENABLED_WORKSPACES` to `*` and redeploy Production.
+   This **intentionally enables all current and future workspaces** verified
+   by RBAC. No Cloudflare remote deployment is performed by merging code alone.
+6. For an emergency stop, clear `IIKO_BROKER_ENABLED_WORKSPACES` and redeploy.
+   This rolls all orgs back to direct client auth. Previous broker sessions
+   may remain active, so monitor and plan session logout to avoid temporary
+   REST_API seat overlap.
+
+**Do not switch on `*` unless all expected hosts are included, the production
+broker has been deployed, and the team accepts a coordinated cutover.** One
+test server's successful OLAP results do not prove connectivity to different
+restaurant chains' independently hosted servers.
 
 ## Required production steps
 
