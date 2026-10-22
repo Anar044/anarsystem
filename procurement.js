@@ -576,13 +576,13 @@ function requestCard(r){
   const effective=r.effectiveStatus||r.status,done=['COMPLETED','CLOSED','CANCELLED'].includes(effective),seePrices=canViewProcurementPrices();
   return '<article class="proc-doc-card '+(done?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+dateTimeLabel(r.createdAt)+' · '+esc(r.createdBy||'')+'</span></div><span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span></div>'+
     prProgressHtml(r)+prLinesHtml(r,seePrices)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
-    '<div class="proc-doc-footer"><strong>'+(seePrices?(r.totalEstimate?money(r.totalEstimate):'Цена уточняется'):'Заявка без цен')+'</strong><div class="proc-actions">'+requesterActions(r)+'</div></div>'+historyHtml(r)+'</article>';
+    '<div class="proc-doc-footer"><strong>'+(seePrices?(r.totalEstimate?money(r.totalEstimate):'Цена уточняется'):'Заявка без цен')+'</strong><div class="proc-actions">'+attachmentButton('PR',r.id,'Файлы PR')+requesterActions(r)+'</div></div>'+historyHtml(r)+'</article>';
 }
 function approvalCard(r){
   const seePrices=canViewProcurementPrices();
   return '<article class="proc-doc-card"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(r.number)+'</strong><span>'+esc(r.warehouseName||'Склад')+' · '+dateTimeLabel(r.createdAt)+' · '+esc(r.createdBy||'')+'</span></div><span class="proc-status-badge warn">На согласовании</span></div>'+
     prLinesHtml(r,seePrices)+(r.comment?'<p class="proc-doc-comment">'+esc(r.comment)+'</p>':'')+
-    '<div class="proc-doc-footer"><strong>'+(seePrices?(r.totalEstimate?money(r.totalEstimate):'Цена уточняется'):'Проверка количества')+'</strong><div class="proc-actions"><button class="proc-btn small secondary" data-pr-review="'+r.id+'">Изменить заявку</button><button class="proc-btn small primary" data-pr-approve="'+r.id+'">Согласовать</button><button class="proc-btn small danger" data-pr-cancel="'+r.id+'">Отклонить</button></div></div>'+historyHtml(r)+'</article>';
+    '<div class="proc-doc-footer"><strong>'+(seePrices?(r.totalEstimate?money(r.totalEstimate):'Цена уточняется'):'Проверка количества')+'</strong><div class="proc-actions">'+attachmentButton('PR',r.id,'Файлы PR')+'<button class="proc-btn small secondary" data-pr-review="'+r.id+'">Изменить заявку</button><button class="proc-btn small primary" data-pr-approve="'+r.id+'">Согласовать</button><button class="proc-btn small danger" data-pr-cancel="'+r.id+'">Отклонить</button></div></div>'+historyHtml(r)+'</article>';
 }
 function quoteLineByProduct(quote,productId){
   return (quote?.lines||[]).find(x=>key(x.productId)===key(productId))||null;
@@ -626,7 +626,7 @@ function quoteComparisonHtml(r){
         '<div class="quote-supplier-heading"><strong>'+esc(qt.supplierName||qt.supplierId)+'</strong>'+
         '<span class="quote-supplier-coverage">'+count+' из '+lines.length+' позиций</span>'+
         '<span class="quote-supplier-sum">'+money(qt.totalAmount)+' <small>всего</small></span>'+
-        terms+'</div></th>';
+        terms+attachmentButton('QUOTE',qt.id,'Прайс-лист')+'</div></th>';
     }).join('')+'</tr></thead>';
 
   const bodyRows=lines.map(line=>{
@@ -812,7 +812,10 @@ function rfqListHtml(r){
       const name=(x.supplierNames||[])[i]||sid;
       return '<div class="proc-rfq-supplier-row"><div><strong>'+esc(name)+'</strong><small>'+(quote?'Ответ получен · '+money(quote.totalAmount):'Ожидаем предложение')+'</small></div>'+(x.status!=='CLOSED'?'<button class="proc-btn small '+(quote?'ghost':'secondary')+'" data-rfq-link="'+x.id+'" data-supplier="'+esc(sid)+'">Ссылка</button>':'')+'</div>';
     }).join('');
-    return '<div class="proc-rfq-row"><div class="proc-rfq-main"><div><strong>'+esc(x.number)+'</strong><span class="proc-status-badge '+rfqStatusTone(x.status)+'">'+esc(rfqStatusLabel(x.status))+'</span></div><small>Ответов: '+num(x.responseCount)+' из '+(x.supplierIds||[]).length+' · срок: '+esc(deadline)+'</small></div><div class="proc-actions"><button class="proc-btn small ghost" data-rfq-copy="'+x.id+'">Копировать RFQ</button>'+(x.status==='DRAFT'?'<button class="proc-btn small primary" data-rfq-send="'+x.id+'">Отметить отправленным</button>':'')+(x.status!=='CLOSED'?'<button class="proc-btn small danger" data-rfq-close="'+x.id+'">Закрыть</button>':'')+'</div><div class="proc-rfq-supplier-links">'+supplierRows+'</div></div>';
+    return '<div class="proc-rfq-row"><div class="proc-rfq-main"><div><strong>'+esc(x.number)+'</strong><span class="proc-status-badge '+rfqStatusTone(x.status)+'">'+esc(rfqStatusLabel(x.status))+'</span></div><small>Ответов: '+num(x.responseCount)+' из '+(x.supplierIds||[]).length+' · срок: '+esc(deadline)+'</small></div><div class="proc-actions">'+attachmentButton('RFQ',x.id,'Файлы RFQ')+
+      (x.status!=='CLOSED'&&(r.quotes||[]).some(q=>key(q.rfqId)===key(x.id))?
+        '<button class="proc-btn small secondary" data-rfq-revise="'+esc(x.id)+'">На доработку</button>':'')+
+      '<button class="proc-btn small ghost" data-rfq-copy="'+x.id+'">Копировать RFQ</button>'+(x.status==='DRAFT'?'<button class="proc-btn small primary" data-rfq-send="'+x.id+'">Отметить отправленным</button>':'')+(x.status!=='CLOSED'?'<button class="proc-btn small danger" data-rfq-close="'+x.id+'">Закрыть</button>':'')+'</div><div class="proc-rfq-supplier-links">'+supplierRows+'</div></div>';
   }).join('');
 }
 function sourcingCard(r,index=0){
@@ -821,9 +824,12 @@ function sourcingCard(r,index=0){
   return '<article class="proc-doc-card sourcing-card proc-sourcing-document">'+
     '<div class="proc-document-banner"><div><span>ЗАЯВКА PR · ДОКУМЕНТ '+String(index+1).padStart(2,'0')+'</span><strong>'+esc(r.number)+'</strong></div><span class="proc-status-badge '+statusTone(effective)+'">'+esc(statusLabel(effective))+'</span></div>'+
     '<div class="proc-document-meta"><span><b>Склад:</b> '+esc(r.warehouseName||'—')+'</span><span><b>Дата:</b> '+new Date(r.createdAt).toLocaleDateString('ru-RU')+'</span><span><b>Автор:</b> '+esc(r.createdBy||'—')+'</span></div>'+
+    '<div class="proc-stage-attachments">'+attachmentButton('PR',r.id,'Файлы заявки')+'</div>'+
     '<section class="proc-sourcing-section"><div class="proc-section-title"><b>1</b><div><strong>Потребность</strong><span>Что нужно купить</span></div><em>'+(r.lines||[]).length+' позиций</em></div>'+prLinesHtml(r,false)+'</section>'+
     '<section class="proc-sourcing-section"><div class="proc-section-title"><b>2</b><div><strong>RFQ · запрос цен</strong><span>Кому отправили и кто ответил</span></div><button class="proc-btn small secondary" data-rfq-create="'+r.id+'">+ Создать RFQ</button></div>'+rfqListHtml(r)+'</section>'+
-    '<section class="proc-sourcing-section quotes"><div class="proc-section-title"><b>3</b><div><strong>Предложения поставщиков</strong><span>Цены, условия и сравнение</span></div><button class="proc-btn small ghost" data-pr-quote="'+r.id+'" '+(activeRfq?'data-rfq="'+activeRfq.id+'"':'')+'>+ Внести предложение</button></div>'+quoteComparisonHtml(r)+'</section>'+
+    '<section class="proc-sourcing-section quotes"><div class="proc-section-title"><b>3</b><div><strong>Предложения поставщиков</strong><span>Цены, условия и сравнение</span></div><button class="proc-btn small ghost" data-pr-quote="'+r.id+'" '+(activeRfq?'data-rfq="'+activeRfq.id+'"':'')+'>+ Внести предложение</button></div>'+quoteComparisonHtml(r)+((r.priorQuotes||[]).length?'<details class="proc-prior-quotes"><summary>Ранее отклонённые предложения · '+r.priorQuotes.length+'</summary>'+
+        r.priorQuotes.map(q=>'<div><span><strong>'+esc(q.supplierName||q.supplierId)+'</strong><small>'+esc(dateTimeLabel(q.createdAt))+' · '+money(q.totalAmount)+' · возвращено на доработку</small></span>'+
+          attachmentButton('QUOTE',q.id,'Старый прайс')+'</div>').join('')+'</details>':'')+'</section>'+
     '<div class="proc-document-footer"><div><span>Заявка PR</span><strong>'+(r.lines||[]).length+' позиций</strong></div><div><span>Заказы PO</span><strong>'+((r.linkedOrders||[]).length?r.linkedOrders.length:'ещё нет')+'</strong></div><em>Конец '+esc(r.number)+'</em></div>'+historyHtml(r)+
   '</article>';
 }
@@ -957,7 +963,8 @@ function grnHistoryHtml(o){
   if(!rows.length)return '<div class="proc-threeway-empty">GRN ещё не создан.</div>';
   return '<div class="proc-grn-list">'+rows.map(g=>{
     const invoices=g.invoices||[],label=g.legacy?'Историческая приёмка':g.number;
-    return '<div class="proc-grn-row"><div><strong>'+esc(label)+'</strong><span>'+esc(g.documentDate||'—')+' · '+moneyMaybe(g.totalAmount)+'</span></div><div><span class="proc-status-badge '+(g.legacy?'neutral':'success')+'">'+(g.legacy?'legacy':'GRN')+'</span><small>'+(invoices.length?'Накладная: '+invoices.map(x=>esc(x.iikoDocumentNumber||'без №')).join(', '):'Накладная не привязана')+'</small>'+
+    return '<div class="proc-grn-row"><div><strong>'+esc(label)+'</strong><span>'+esc(g.documentDate||'—')+' · '+moneyMaybe(g.totalAmount)+'</span></div><div><span class="proc-status-badge '+(g.legacy?'neutral':'success')+'">'+(g.legacy?'legacy':'GRN')+'</span><small>'+(invoices.length?'Накладная: '+invoices.map(x=>esc(x.iikoDocumentNumber||'без №')).join(', '):'Накладная не привязана')+'</small>'+(!g.legacy?attachmentButton('GRN',g.id,'Файлы приёмки'):'')+
+      invoices.map(inv=>attachmentButton('INVOICE',inv.id,'Накладная '+(inv.iikoDocumentNumber||''))).join('')+
       invoices.map(inv=>{
         const diff=inv.varianceStatus||'NONE';
         if(diff==='NONE'&&!inv.resolutionMethod)return'';
@@ -1030,7 +1037,7 @@ function orderCard(o,{receiving=false}={}){
     '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(o.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>По GRN принято '+qty(o.receivedQty)+' из '+qty(o.orderedQty)+'</span><span>'+num(o.completionPercent).toFixed(1)+'%</span></div></div>'+
     '<div class="proc-line-list">'+lines+'</div>'+
     threeWayPanelHtml(o)+
-    '<div class="proc-doc-footer">'+(receiving?'<strong>'+((o.lines||[]).filter(x=>num(x.remainingQty)>0.0005).length)+' поз. к приёмке</strong>':'<strong>'+money(o.totalAmount)+'</strong>')+'<div class="proc-actions">'+(receiving?receivingActions(o):buyerOrderActions(o))+((o.receipts||[]).length?'<a class="proc-btn small ghost" href="/nakladnye.html">Открыть накладные ↗</a>':'')+'</div></div></article>';
+    '<div class="proc-doc-footer">'+(receiving?'<strong>'+((o.lines||[]).filter(x=>num(x.remainingQty)>0.0005).length)+' поз. к приёмке</strong>':'<strong>'+money(o.totalAmount)+'</strong>')+'<div class="proc-actions">'+attachmentButton('PO',o.id,'Файлы PO')+(receiving?receivingActions(o):buyerOrderActions(o))+((o.receipts||[]).length?'<a class="proc-btn small ghost" href="/nakladnye.html">Открыть накладные ↗</a>':'')+'</div></div></article>';
 }
 
 function renderOrders(){
@@ -1898,6 +1905,7 @@ function bind(){
   });
   $('proc-pr-list').addEventListener('click',e=>{
     const b=e.target.closest('button');if(!b)return;
+    if(b.dataset.attachmentType)return openProcurementAttachments(b.dataset.attachmentType,b.dataset.attachmentId,b.dataset.attachmentLabel);
     if(b.dataset.quoteLayoutMode){
       const layout=b.dataset.quoteLayoutMode==='details'?'details':'compact';
       document.querySelectorAll('.proc-quote-comparison').forEach(panel=>{
@@ -1909,10 +1917,11 @@ function bind(){
       try{localStorage.setItem('shProcQuoteLayoutV1',layout)}catch(_){}
       return;
     }
-    const id=b.dataset.prEdit||b.dataset.prReview||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prClose||b.dataset.prQuote||b.dataset.poCreate||b.dataset.poSplit||b.dataset.rfqCreate||b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose||b.dataset.rfqLink;if(!id)return;
+    const id=b.dataset.rfqRevise||b.dataset.prEdit||b.dataset.prReview||b.dataset.prSubmit||b.dataset.prApprove||b.dataset.prCancel||b.dataset.prClose||b.dataset.prQuote||b.dataset.poCreate||b.dataset.poSplit||b.dataset.rfqCreate||b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose||b.dataset.rfqLink;if(!id)return;
     const r=(state.data?.requisitions||[]).find(x=>x.id===id)||(state.data?.requisitions||[]).find(x=>(x.rfqs||[]).some(q=>q.id===id));
     if((b.dataset.prEdit||b.dataset.prReview)&&r)return openPrModal([],r);
     if(b.dataset.rfqCreate&&r)return openRfqModal(r);
+    if(b.dataset.rfqRevise&&r)return openRfqRevisionModal(r,(r.rfqs||[]).find(q=>q.id===b.dataset.rfqRevise));
     if((b.dataset.rfqCopy||b.dataset.rfqSend||b.dataset.rfqClose||b.dataset.rfqLink)&&r){
       const rfq=(r.rfqs||[]).find(x=>x.id===id);if(!rfq)return;
       if(b.dataset.rfqCopy)return copyRfq(r,rfq);
@@ -1929,7 +1938,9 @@ function bind(){
     if(b.dataset.prCancel&&confirm((state.view==='approvals'?'Отклонить':'Отменить')+' заявку '+(r?.number||'')+'?'))return simpleAction(state.view==='approvals'?'reject-requisition':'cancel-requisition',id,state.view==='approvals'?'Заявка отклонена.':'Заявка отменена.');
   });
   $('proc-po-list').addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poInvoice||b.dataset.poLink||b.dataset.poCopy||b.dataset.poCancel||b.dataset.poReview;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
+    const b=e.target.closest('button');if(!b)return;
+    if(b.dataset.attachmentType)return openProcurementAttachments(b.dataset.attachmentType,b.dataset.attachmentId,b.dataset.attachmentLabel);
+    const id=b.dataset.poSend||b.dataset.poConfirm||b.dataset.poReceive||b.dataset.poInvoice||b.dataset.poLink||b.dataset.poCopy||b.dataset.poCancel||b.dataset.poReview;if(!id)return;const o=(state.data?.orders||[]).find(x=>x.id===id);
     if(b.dataset.varianceReview&&o)return reviewInvoiceVariance(o,b.dataset.varianceReview);
     if(b.dataset.variancePlan&&o)return manageVarianceResolution(o,b.dataset.variancePlan,false);
     if(b.dataset.varianceVerify&&o)return manageVarianceResolution(o,b.dataset.varianceVerify,true);
