@@ -83,3 +83,7 @@ delete live sessions solely to clear error 403 without an audit.
 
 This procedure is a controlled checklist, not proof of deployment or
 connectivity. All changes to Cloudflare require separate user action.
+
+## Preview service-binding activation
+
+After configuring `IIKO_SESSION_BROKER` and `IIKO_BROKER_SERVICE_SECRET` in the **Preview** environment of Cloudflare Pages `smarthoreca`, deploy a fresh preview commit from this branch. The binding only takes effect on the new preview deployment. Never select `Production` for these settings. Read-only smoke-test first because Preview shares the D1 and R2 resources with Production in the current project configuration.
