@@ -186,9 +186,11 @@ export class IikoSession {
     return this.withAuthLock(async()=>{
       const now=await this.savedToken(scope);
       if(now && now!==oldToken)return now;
-      if(now===oldToken)await this.state.storage.delete("session");
+      if(now===oldToken){
+        await this.state.storage.delete("session");
         this.cachedToken="";
         this.cachedScope="";
+      }
       return this.authenticate(c,scope);
     });
   }
