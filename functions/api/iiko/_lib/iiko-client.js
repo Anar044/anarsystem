@@ -197,6 +197,26 @@ export async function iikoFetch(connection, path, options = {}) {
   });
 }
 
+/// Release a licensed iiko session only on explicit server disconnect or
+/// credential replacement. Do not run after every request: many SH modules
+/// share the authenticated session and still need its key.
+export async function releaseIikoSession(connection) {
+  const key=await connectionKey(connection);
+  return sequentialIikoCall(key,async()=>{
+    const cached=tokenCache.get(key);
+    if(!cached?.token)return false;
+    const serverUrl=normalizeConnection(connection).serverUrl;
+    const url=`${serverUrl}/resto/api/logout?key=${encodeURIComponent(cached.token)}`;
+    const reply=await fetchWithTimeout(url,
+      {method:"GET",cache:"no-store"},12000);
+    if(reply.ok || reply.status===401){
+      tokenCache.delete(key);
+      return true;
+    }
+    throw Error(`iiko logout failed: HTTP ${reply.status}`);
+  });
+}
+
 export async function iikoText(connection, path, options = {}) {
   const { response, auth } = await iikoFetch(connection, path, options);
   const text = (await response.text()).trim();
