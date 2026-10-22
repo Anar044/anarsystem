@@ -1,4 +1,4 @@
-import { clean, getIikoAuth, iikoJson, iikoText } from "./_lib/iiko-client.js";
+import {clean, getIikoAuth, iikoJson, iikoText, bindIikoBroker } from "./_lib/iiko-client.js";
 
 const metaCache = new Map();
 const META_TTL_MS = 5 * 60 * 1000;
@@ -190,10 +190,10 @@ function buildTimestamp(date,time){
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
 
-export async function onRequestPost({request}){
+export async function onRequestPost(context){ const {request}=context;
   try{
     const b=await request.json();
-    const connection={ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??"")};
+    const connection=bindIikoBroker({ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??"")},context);
     if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Нет подключения к iiko Server"},400);
 
     const timestamp=buildTimestamp(b.date,b.time);
