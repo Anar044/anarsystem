@@ -1,3 +1,4 @@
+import {bindWorkspaceIikoBroker} from "./iiko/_lib/iiko-client.js";
 import { getUser } from "./iiko/_lib/user-state.js";
 import { resolveAssistantIiko, assistantToolAuthorized } from "./iiko/_lib/ai-assistant-context.js";
 import {
@@ -643,7 +644,7 @@ export async function onRequestPost({ request, env }) {
     }
 
     const history = await recentMessages(env.DB, auth.user.id, conversationId, MAX_HISTORY_MESSAGES);
-    const answer = await runAssistant(env, iiko.connection, history, iiko.scope, iiko.access, guard, request.signal);
+    const answer = await runAssistant(env, bindWorkspaceIikoBroker(iiko.connection,env,iiko.access), history, iiko.scope, iiko.access, guard, request.signal);
     const meta = {
       model: answer.model,
       responseId: answer.responseId,
