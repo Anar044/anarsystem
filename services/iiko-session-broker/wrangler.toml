@@ -6,6 +6,10 @@ workers_dev = false
 [vars]
 # Existing production installations use GET /auth; test POST separately.
 IIKO_AUTH_METHOD = "GET"
+# Exact DNS host: any valid TCP port at s01.smarthoreca.az is accepted.
+# No wildcard suffix/subdomain matching. Add each other registered iiko
+# hostname separately (comma separated) before enabling all workspaces.
+IIKO_ALLOWED_TARGETS = "s01.smarthoreca.az"
 # One licensed auth session. Up to three concurrent iiko data calls per
 # registered workspace/credential. Set to 1 for strict sequential mode.
 IIKO_MAX_PARALLEL_REQUESTS = "3"
