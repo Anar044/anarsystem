@@ -1,4 +1,4 @@
-import { iikoText } from "./_lib/iiko-client.js";
+import {iikoText, bindIikoBroker } from "./_lib/iiko-client.js";
 import {normalizeDepartmentsPayload,parseDepartmentsXml,safeDepartmentDiagnostic} from "./_lib/departments.js";
 
 function corsHeaders() {
@@ -182,12 +182,12 @@ export async function onRequestOptions() {
 export async function onRequestPost(context) {
     try {
         const body = await context.request.json();
-        const connection = {
+        const connection = bindIikoBroker({
             ip: String(body.ip || "").trim(),
             port: String(body.port || "").trim(),
             login: String(body.login || "").trim(),
             password: String(body.password || "")
-        };
+        },context);
 
         if (!connection.ip || !connection.port || !connection.login || !connection.password) {
             return jsonResponse({
