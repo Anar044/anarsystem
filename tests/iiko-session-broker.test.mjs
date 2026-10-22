@@ -137,3 +137,20 @@ test("an unconfirmed authentication response cannot allocate another licensed se
   assert.ok(Number(await state.storage.get("authBlockedUntil"))>Date.now()+60*60*1000);
  }finally{undo()}
 });
+
+test("iiko image proxy preserves binary bytes without decoding",async()=>{
+ const expected=new Uint8Array([0,255,137,80,78,71,13,10,26,10]);
+ let auth=0;
+ const undo=installFetch(async url=>{
+  const u=new URL(String(url));
+  if(u.pathname.endsWith("/auth")){auth++;return new Response("token-image");}
+  return new Response(expected,{status:200,headers:{"content-type":"image/png"}});
+ });
+ try{
+  const object=new IikoSession({storage:storage()},env);
+  const response=await object.fetch(request("request","/resto/api/v2/images/test"));
+  assert.equal(response.headers.get("content-type"),"image/png");
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()),expected);
+  assert.equal(auth,1);
+ }finally{undo()}
+});
