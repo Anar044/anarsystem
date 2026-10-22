@@ -1,4 +1,4 @@
-import { clean, iikoJson, sha1, bindIikoBroker } from './_lib/iiko-client.js';
+import { clean, iikoJson, sha1, bindIikoBroker, iikoReferenceScope } from './_lib/iiko-client.js';
 import { logAuditEvent } from '../_lib/audit-log.js';
 
 const bootstrapCache=new Map();
@@ -15,7 +15,7 @@ function corsHeaders(){return {'Access-Control-Allow-Origin':'*','Access-Control
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json',...corsHeaders()}})}
 function buildPath(path,params={}){const q=new URLSearchParams();for(const[k,v]of Object.entries(params)){if(v===undefined||v===null||v==='')continue;if(Array.isArray(v))v.forEach(x=>q.append(k,String(x)));else q.set(k,String(v))}const s=q.toString();return s?`${path}?${s}`:path}
 function normalizeConnection(connection){const c={ip:clean(connection?.ip),port:clean(connection?.port),login:clean(connection?.login),password:String(connection?.password||'')};if(!c.ip||!c.port||!c.login||!c.password)throw new Error('Нет подключения iiko Server');return c}
-async function connectionCacheKey(connection){const c=normalizeConnection(connection);return `${c.ip}:${c.port}|${c.login}|${await sha1(c.password)}`}
+async function connectionCacheKey(connection){const c=normalizeConnection(connection);return `${iikoReferenceScope(connection)}|${await sha1(c.password)}`}
 function actionSpec(action,params={},payload=null){let path,method='GET',body;
 switch(action){
 case'products.list':path='/resto/api/v2/entities/products/list';break;
