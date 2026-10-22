@@ -174,6 +174,12 @@ async function ensure(db){
     )`),
     db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_proc_rfq_supplier_unique ON procurement_rfq_suppliers(rfq_id,supplier_id)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_rfq_supplier_scope ON procurement_rfq_suppliers(server_scope,rfq_id,status)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS procurement_rfq_revisions(
+      id TEXT PRIMARY KEY,server_scope TEXT NOT NULL,old_rfq_id TEXT NOT NULL,new_rfq_id TEXT NOT NULL,
+      requisition_id TEXT NOT NULL,reason TEXT NOT NULL,supplier_ids_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,created_by TEXT NOT NULL)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_proc_rfq_revision_lookup
+      ON procurement_rfq_revisions(server_scope,requisition_id,created_at DESC)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS procurement_quotes (
       id TEXT PRIMARY KEY,
       server_scope TEXT NOT NULL,
@@ -674,11 +680,12 @@ async function readData(db,serverScope,scope,view=""){
   // Empty optional result sets preserve the existing response shape.
   const lightweightOrders=view==="orders"||view==="receiving";
   const empty=()=>Promise.resolve({results:[]});
-  const [reqsR,reqLinesR,rfqsR,quotesR,ordersR,orderLinesR,grnsR,receiptsR,normsR,supplierProfilesR,supplierContractsR]=await Promise.all([
+  const [reqsR,reqLinesR,rfqsR,quotesR,revisionsR,ordersR,orderLinesR,grnsR,receiptsR,normsR,supplierProfilesR,supplierContractsR]=await Promise.all([
     lightweightOrders?empty():db.prepare("SELECT * FROM procurement_requisitions WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 500").bind(serverScope).all(),
     lightweightOrders?empty():db.prepare(`SELECT l.* FROM procurement_requisition_lines l JOIN procurement_requisitions r ON r.id=l.requisition_id WHERE r.server_scope=?1 ORDER BY l.rowid`).bind(serverScope).all(),
     lightweightOrders?empty():db.prepare("SELECT * FROM procurement_rfqs WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
     lightweightOrders?empty():db.prepare("SELECT * FROM procurement_quotes WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
+    lightweightOrders?empty():db.prepare("SELECT * FROM procurement_rfq_revisions WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_orders WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 500").bind(serverScope).all(),
     db.prepare(`SELECT l.* FROM procurement_order_lines l JOIN procurement_orders o ON o.id=l.order_id WHERE o.server_scope=?1 ORDER BY l.rowid`).bind(serverScope).all(),
     db.prepare("SELECT * FROM procurement_grns WHERE server_scope=?1 ORDER BY created_at DESC LIMIT 1000").bind(serverScope).all(),
@@ -691,6 +698,7 @@ async function readData(db,serverScope,scope,view=""){
   const reqIds=new Set(reqRows.map(x=>x.id));
   const rfqRows=(rfqsR.results||[]).filter(x=>reqIds.has(x.requisition_id));
   const quoteRows=(quotesR.results||[]).filter(x=>reqIds.has(x.requisition_id));
+  const revisions=(revisionsR.results||[]).filter(x=>reqIds.has(x.requisition_id));
   const orderRows=(ordersR.results||[]).filter(x=>rowAllowed(x,scope));
   const orderIds=new Set(orderRows.map(x=>x.id));
   const receipts=(receiptsR.results||[]).filter(x=>orderIds.has(x.order_id)).map(r=>({
@@ -726,6 +734,7 @@ async function readData(db,serverScope,scope,view=""){
     lines:(reqLinesBy.get(r.id)||[]).map(l=>({id:l.id,productId:l.product_id,productName:l.product_name,unit:l.unit,quantity:n(l.quantity),packageSize:n(l.package_size,1)||1,packageCount:n(l.package_count)||n(l.quantity),containerId:l.container_id||"",packageName:l.package_name||"",vatPercent:n(l.vat_percent),expectedPrice:n(l.expected_price),currentStock:n(l.current_stock),minStock:l.min_stock===null?null:n(l.min_stock),maxStock:l.max_stock===null?null:n(l.max_stock),storeId:l.store_id,storeName:l.store_name})),
     rfqs:rfqRows.filter(x=>x.requisition_id===r.id).map(x=>({
       id:x.id,number:x.number,status:x.status,deadline:x.deadline,message:x.message,
+      revisionReason:revisions.find(v=>v.old_rfq_id===x.id)?.reason||"",previousRfqId:revisions.find(v=>v.new_rfq_id===x.id)?.old_rfq_id||"",
       supplierIds:parse(x.supplier_ids_json,[]),supplierNames:parse(x.supplier_names_json,[]),
       createdAt:x.created_at,createdBy:x.created_by_name||x.created_by,sentAt:x.sent_at,closedAt:x.closed_at,
       responseCount:new Set(quoteRows.filter(q=>q.requisition_id===r.id&&clean(q.rfq_id)===clean(x.id)).map(q=>clean(q.supplier_id)).filter(Boolean)).size
@@ -1126,10 +1135,6 @@ export async function onRequestPost({request,env}){
       }
       if(!suppliers.length||suppliers.length>80)throw Object.assign(new Error("Выберите поставщиков для повторного запроса (от 1 до 80)."),{status:400});
       const newId=uid(),number=docNo("RFQ"),reasonMessage="Повторный запрос по "+old.number+". Причина: "+reason;
-      const history=await db.prepare(`CREATE TABLE IF NOT EXISTS procurement_rfq_revisions (
-        id TEXT PRIMARY KEY,server_scope TEXT NOT NULL,old_rfq_id TEXT NOT NULL,new_rfq_id TEXT NOT NULL,
-        requisition_id TEXT NOT NULL,reason TEXT NOT NULL,supplier_ids_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,created_by TEXT NOT NULL)`).run();
       const batch=[
         db.prepare("UPDATE procurement_rfqs SET status='CLOSED',closed_at=?2 WHERE id=?1 AND server_scope=?3 AND status<>'CLOSED'").bind(previousId,stamp,c.serverScope),
         db.prepare("UPDATE procurement_quotes SET status='REVISION_REQUESTED' WHERE rfq_id=?1 AND server_scope=?2 AND status='OFFERED'").bind(previousId,c.serverScope),
