@@ -41,15 +41,15 @@ async function ensure(db){
     const exists=await db.prepare("SELECT name FROM sqlite_master WHERE name='sh_proc_attachments' AND type='table'").first();
     if(exists)return;
     await db.batch([
-      db.prepare(\`CREATE TABLE IF NOT EXISTS sh_proc_attachments(
+      db.prepare(`CREATE TABLE IF NOT EXISTS sh_proc_attachments(
         id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,server_scope TEXT NOT NULL,
         entity_type TEXT NOT NULL,entity_id TEXT NOT NULL, filename TEXT NOT NULL,
         mime_type TEXT NOT NULL,size_bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,
         created_at TEXT NOT NULL,created_by TEXT NOT NULL,created_by_name TEXT NOT NULL,
-        supplier_id TEXT NOT NULL DEFAULT '',supplier_name TEXT NOT NULL DEFAULT '')\`),
-      db.prepare(\`CREATE TABLE IF NOT EXISTS sh_proc_attachment_chunks(
+        supplier_id TEXT NOT NULL DEFAULT '',supplier_name TEXT NOT NULL DEFAULT '')`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS sh_proc_attachment_chunks(
         attachment_id TEXT NOT NULL,seq INTEGER NOT NULL,body_base64 TEXT NOT NULL,
-        PRIMARY KEY(attachment_id,seq))\`),
+        PRIMARY KEY(attachment_id,seq))`),
       db.prepare("CREATE INDEX IF NOT EXISTS sh_proc_files_entity ON sh_proc_attachments(workspace_id,server_scope,entity_type,entity_id,created_at DESC)")
     ]);
   })().catch(e=>{initialized=null;throw e});
@@ -151,16 +151,16 @@ export async function onRequestGet({request,env}){
       const safe=meta.filename.replace(/[^a-zA-Z0-9_.-]+/g,"_").slice(0,110)||"attachment";
       return new Response(total,{status:200,headers:{
         "Content-Type":meta.mime_type,"Content-Length":String(total.byteLength),
-        "Content-Disposition":'attachment; filename="'+safe+'"; filename*=UTF-8\\'\\''+encodeURIComponent(meta.filename),
+        "Content-Disposition": "attachment; filename=\"" + safe + "\"; filename*=UTF-8''" + encodeURIComponent(meta.filename),
         "Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
         "Content-Security-Policy":"sandbox"
       }});
     }
     const type=clean(url.searchParams.get("entityType")).toUpperCase(),entityId=clean(url.searchParams.get("entityId"));
     await validateDocument(c,type,entityId);
-    const rows=(await c.db.prepare(\`SELECT * FROM sh_proc_attachments
+    const rows=(await c.db.prepare(`SELECT * FROM sh_proc_attachments
       WHERE workspace_id=?1 AND server_scope=?2 AND entity_type=?3 AND entity_id=?4
-      ORDER BY created_at DESC LIMIT 30\`).bind(c.workspace,c.server,type,entityId).all()).results||[];
+      ORDER BY created_at DESC LIMIT 30`).bind(c.workspace,c.server,type,entityId).all()).results||[];
     return json({success:true,files:rows.map(describe)});
   }catch(e){return json({success:false,message:e.message||String(e)},e.status||500)}
 }
@@ -174,26 +174,26 @@ export async function onRequestPost({request,env}){
     const doc=await validateDocument(c,type,entityId,true);
     const file=form.get("file");
     if(!(file instanceof File))throw fail("Выберите файл.");
-    const filename=clean(file.name).replace(/[\\r\\n\\u0000-\\u001f]/g,"").slice(0,160);
+    const filename=clean(file.name).replace(/[\r\n\u0000-\u001f]/g,"").slice(0,160);
     const ext=filename.toLowerCase().split(".").pop();
     if(!filename||!Object.hasOwn(mimeByExt,ext))throw fail("Поддерживаются PDF, фото JPG/PNG/WEBP, Excel, Word, CSV и TXT.");
     if(file.size<1||file.size>LIMIT_BYTES)throw fail("Файл должен быть не более 6 МБ.",413);
     const bytes=new Uint8Array(await file.arrayBuffer());
     if(!checkSignature(bytes,ext))throw fail("Содержимое файла не соответствует его типу.",415);
-    const rows=await c.db.prepare(\`SELECT COUNT(*) AS count,COALESCE(SUM(size_bytes),0) AS sum
-      FROM sh_proc_attachments WHERE workspace_id=?1 AND server_scope=?2 AND entity_type=?3 AND entity_id=?4\`)
+    const rows=await c.db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(size_bytes),0) AS sum
+      FROM sh_proc_attachments WHERE workspace_id=?1 AND server_scope=?2 AND entity_type=?3 AND entity_id=?4`)
       .bind(c.workspace,c.server,type,entityId).first();
     if(Number(rows?.count)>=MAX_FILES)throw fail("Лимит: 30 вложений на документ.",409);
-    const quota=await c.db.prepare(\`SELECT COALESCE(SUM(size_bytes),0) AS used
-      FROM sh_proc_attachments WHERE workspace_id=?1 AND server_scope=?2\`).bind(c.workspace,c.server).first();
+    const quota=await c.db.prepare(`SELECT COALESCE(SUM(size_bytes),0) AS used
+      FROM sh_proc_attachments WHERE workspace_id=?1 AND server_scope=?2`).bind(c.workspace,c.server).first();
     if(Number(quota?.used)+file.size>QUOTA_BYTES)throw fail("Место для документов организации заполнено (96 МБ).",409);
     const digest=await crypto.subtle.digest("SHA-256",bytes);
     const sha256=[...new Uint8Array(digest)].map(x=>x.toString(16).padStart(2,"0")).join("");
     const fileId=id(),at=new Date().toISOString(),actor=clean(c.access.displayName)||clean(c.auth.user.email);
-    const ops=[c.db.prepare(\`INSERT INTO sh_proc_attachments
+    const ops=[c.db.prepare(`INSERT INTO sh_proc_attachments
       (id,workspace_id,server_scope,entity_type,entity_id,filename,mime_type,size_bytes,sha256,
         created_at,created_by,created_by_name,supplier_id,supplier_name)
-      VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)\`)
+      VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)`)
       .bind(fileId,c.workspace,c.server,type,entityId,filename,mimeByExt[ext],file.size,sha256,
         at,c.auth.user.id,actor,clean(doc.supplier_id),clean(doc.supplier_name))];
     for(let i=0,seq=0;i<bytes.length;i+=CHUNK_BYTES,seq++){
