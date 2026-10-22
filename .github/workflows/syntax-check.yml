@@ -269,7 +269,7 @@ jobs:
           grep -q 'bindIikoBroker' functions/api/iiko/incoming-invoices.js
           grep -q 'bindIikoBroker' functions/api/iiko/outgoing-invoices.js
           grep -q 'iikoText' functions/api/iiko/references.js
-          if grep -Eq 'getIikoAuth|key=\\$\\{' functions/api/iiko/incoming-invoices.js functions/api/iiko/outgoing-invoices.js functions/api/iiko/references.js; then
+          if grep -Eq 'getIikoAuth|encodeURIComponent\\(token\\)' functions/api/iiko/incoming-invoices.js functions/api/iiko/outgoing-invoices.js functions/api/iiko/references.js; then
             echo 'Legacy token path reintroduced in shared document routes'
             exit 1
           fi
