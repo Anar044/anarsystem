@@ -115,7 +115,7 @@ function setStatus(text,kind=''){
   el.textContent=text||'';el.className='proc-status'+(text?' show':'')+(kind?' '+kind:'');
 }
 function setBusy(v){state.busy=!!v;document.querySelectorAll('.proc-btn').forEach(b=>{if(b.dataset.noBusy!=='1')b.disabled=!!v})}
-function closeModal(){$('proc-modal').hidden=true;$('proc-modal-body').innerHTML='';document.querySelector('#proc-modal .proc-modal')?.classList.remove('proc-modal-wide')}
+function closeModal(){const preview=$('proc-file-preview');if(preview?.dataset.blobUrl)URL.revokeObjectURL(preview.dataset.blobUrl);$('proc-modal').hidden=true;$('proc-modal-body').innerHTML='';document.querySelector('#proc-modal .proc-modal')?.classList.remove('proc-modal-wide')}
 function openModal(title,eyebrow,html){
   $('proc-modal-title').textContent=title;$('proc-modal-eyebrow').textContent=eyebrow||'ЗАКУПКИ';
   $('proc-modal-body').innerHTML=html;
@@ -810,9 +810,9 @@ function rfqListHtml(r){
     const supplierRows=(x.supplierIds||[]).map((sid,i)=>{
       const quote=(r.quotes||[]).find(q=>key(q.rfqId)===key(x.id)&&key(q.supplierId)===key(sid));
       const name=(x.supplierNames||[])[i]||sid;
-      return '<div class="proc-rfq-supplier-row"><div><strong>'+esc(name)+'</strong><small>'+(quote?'Ответ получен · '+money(quote.totalAmount):'Ожидаем предложение')+'</small></div>'+(x.status!=='CLOSED'?'<button class="proc-btn small '+(quote?'ghost':'secondary')+'" data-rfq-link="'+x.id+'" data-supplier="'+esc(sid)+'">Ссылка</button>':'')+'</div>';
+      return '<div class="proc-rfq-supplier-row"><div><strong>'+esc(name)+'</strong><small>'+(quote?'Ответ получен · '+money(quote.totalAmount):(x.revisionReason?'Предложение возвращено на доработку':'Ожидаем предложение'))+'</small></div>'+(x.status!=='CLOSED'?'<button class="proc-btn small '+(quote?'ghost':'secondary')+'" data-rfq-link="'+x.id+'" data-supplier="'+esc(sid)+'">Ссылка</button>':'')+'</div>';
     }).join('');
-    return '<div class="proc-rfq-row"><div class="proc-rfq-main"><div><strong>'+esc(x.number)+'</strong><span class="proc-status-badge '+rfqStatusTone(x.status)+'">'+esc(rfqStatusLabel(x.status))+'</span></div><small>Ответов: '+num(x.responseCount)+' из '+(x.supplierIds||[]).length+' · срок: '+esc(deadline)+'</small></div><div class="proc-actions">'+attachmentButton('RFQ',x.id,'Файлы RFQ')+
+    return '<div class="proc-rfq-row"><div class="proc-rfq-main"><div><strong>'+esc(x.number)+'</strong><span class="proc-status-badge '+rfqStatusTone(x.status)+'">'+esc(rfqStatusLabel(x.status))+'</span></div><small>Ответов: '+num(x.responseCount)+' из '+(x.supplierIds||[]).length+' · срок: '+esc(deadline)+'</small>'+(x.revisionReason?'<small class="proc-revision-history">Возврат на доработку: '+esc(x.revisionReason)+'</small>':'')+'</div><div class="proc-actions">'+attachmentButton('RFQ',x.id,'Файлы RFQ')+
       (x.status!=='CLOSED'&&(r.quotes||[]).some(q=>key(q.rfqId)===key(x.id))?
         '<button class="proc-btn small secondary" data-rfq-revise="'+esc(x.id)+'">На доработку</button>':'')+
       '<button class="proc-btn small ghost" data-rfq-copy="'+x.id+'">Копировать RFQ</button>'+(x.status==='DRAFT'?'<button class="proc-btn small primary" data-rfq-send="'+x.id+'">Отметить отправленным</button>':'')+(x.status!=='CLOSED'?'<button class="proc-btn small danger" data-rfq-close="'+x.id+'">Закрыть</button>':'')+'</div><div class="proc-rfq-supplier-links">'+supplierRows+'</div></div>';
@@ -1037,7 +1037,7 @@ function orderCard(o,{receiving=false}={}){
     '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(o.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>По GRN принято '+qty(o.receivedQty)+' из '+qty(o.orderedQty)+'</span><span>'+num(o.completionPercent).toFixed(1)+'%</span></div></div>'+
     '<div class="proc-line-list">'+lines+'</div>'+
     threeWayPanelHtml(o)+
-    '<div class="proc-doc-footer">'+(receiving?'<strong>'+((o.lines||[]).filter(x=>num(x.remainingQty)>0.0005).length)+' поз. к приёмке</strong>':'<strong>'+money(o.totalAmount)+'</strong>')+'<div class="proc-actions">'+attachmentButton('PO',o.id,'Файлы PO')+(receiving?receivingActions(o):buyerOrderActions(o))+((o.receipts||[]).length?'<a class="proc-btn small ghost" href="/nakladnye.html">Открыть накладные ↗</a>':'')+'</div></div></article>';
+    '<div class="proc-doc-footer">'+(receiving?'<strong>'+((o.lines||[]).filter(x=>num(x.remainingQty)>0.0005).length)+' поз. к приёмке</strong>':'<strong>'+money(o.totalAmount)+'</strong>')+'<div class="proc-actions">'+attachmentButton('PO',o.id,'Файлы PO')+(o.quoteId?attachmentButton('QUOTE',o.quoteId,'Прайс поставщика'):'')+(receiving?receivingActions(o):buyerOrderActions(o))+((o.receipts||[]).length?'<a class="proc-btn small ghost" href="/nakladnye.html">Открыть накладные ↗</a>':'')+'</div></div></article>';
 }
 
 function renderOrders(){
