@@ -79,6 +79,7 @@ async function ensure(db){
       (SELECT id FROM procurement_requisitions LIMIT 1),
       (SELECT id FROM procurement_orders LIMIT 1),
       (SELECT id FROM procurement_rfqs LIMIT 1),
+      (SELECT id FROM procurement_rfq_revisions LIMIT 1),
       (SELECT id FROM procurement_rfq_suppliers LIMIT 1),
       (SELECT server_scope FROM procurement_settings LIMIT 1),
       (SELECT server_scope FROM procurement_stock_norms LIMIT 1),
