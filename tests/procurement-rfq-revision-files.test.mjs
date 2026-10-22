@@ -18,7 +18,7 @@ test('RFQ revision is authorized and creates a new RFQ without overwriting old q
  assert.match(revision,/INSERT INTO procurement_rfqs/);
  assert.match(revision,/INSERT INTO procurement_rfq_revisions/);
  assert.doesNotMatch(revision,/DELETE FROM procurement_quotes/);
- assert.match(source,/quote\.status==="REVISION_REQUESTED"/);
+ assert.match(source,/quote\?\.status==="REVISION_REQUESTED"/);
  assert.match(source,/priorQuotes:/);
  assert.match(source,/revisionReason:/);
 });
