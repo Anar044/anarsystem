@@ -6,7 +6,7 @@ import { bindIikoBroker, iikoText, clearIikoClientCache } from "../functions/api
 if(!globalThis.crypto)globalThis.crypto=webcrypto;
 
 const connection={ip:"iiko.example",port:"8080",login:"demo",password:"secret"};
-const env={IIKO_AUTH_METHOD:"GET",IIKO_BROKER_ENCRYPTION_KEY_B64:Buffer.alloc(32,7).toString("base64")};
+const env={IIKO_AUTH_METHOD:"GET",IIKO_ALLOWED_TARGETS:"iiko.example:8080",IIKO_BROKER_ENCRYPTION_KEY_B64:Buffer.alloc(32,7).toString("base64")};
 function storage(){
  const saved=new Map();
  return {get:async k=>saved.get(k),put:async(k,v)=>{saved.set(k,v)},delete:async k=>{saved.delete(k)}};
