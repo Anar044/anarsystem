@@ -1,4 +1,4 @@
-import { clean, iikoJson, iikoText } from './_lib/iiko-client.js';
+import {clean, iikoJson, iikoText, bindIikoBroker } from './_lib/iiko-client.js';
 
 function corsHeaders(){return {"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type","Content-Type":"application/json; charset=utf-8"}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{...corsHeaders(),"Cache-Control":"no-store"}})}
@@ -31,7 +31,7 @@ async function getBalances(connection,ts,departmentIds=[]){
   return{rows:list(r.payload),authCacheHit:Boolean(r.auth?.cacheHit)}
 }
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
-export async function onRequestPost(c){try{const b=await c.request.json();const connection={ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??"")};if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Заполните IP, порт, логин и пароль SH Server."},400);const ts=timestamp(b.timestamp),diagnostics=[];
+export async function onRequestPost(c){try{const b=await c.request.json();const connection=bindIikoBroker({ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??"")},context);if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Заполните IP, порт, логин и пароль SH Server."},400);const ts=timestamp(b.timestamp),diagnostics=[];
 const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(String).filter(Boolean))]:[];
 const allowedIds=Array.isArray(b?.chainScope?.allowedDepartmentIds)?b.chainScope.allowedDepartmentIds.map(String).filter(Boolean):[];
 const subsetRequested=String(b?.chainScope?.mode||"").toUpperCase()==="CHAIN"&&departmentIds.length>0&&allowedIds.length>departmentIds.length;
