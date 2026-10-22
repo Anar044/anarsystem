@@ -1,5 +1,5 @@
 import { syncAiReferences } from "./references.js";
-import { getIikoAuth, iikoText, iikoJson } from "./_lib/iiko-client.js";
+import { iikoReferenceScope, iikoText, bindIikoBroker, iikoJson } from "./_lib/iiko-client.js";
 import { loadCachedReferenceMaps } from "./_lib/reference-cache.js";
 import { resolveStoreScope } from "./_lib/store-scope.js";
 import { getIikoSuppliers } from "./_lib/iiko-suppliers.js";
@@ -82,19 +82,19 @@ async function getAccountNames(connection,wantedIds=[]){
 
 function applyNames(docs,refs){return docs.map(d=>{const supplierName=refs.suppliers.get(key(d.supplierId))||d.supplierId||"—";const storeName=refs.warehouses.get(key(d.storeId))||d.storeId||"—";const items=Array.isArray(d.items)?d.items.map(x=>({...x,productName:refs.products.get(key(x.productId))||x.productId||"—",storeName:refs.warehouses.get(key(x.storeId))||x.storeId||"—"})):d.items;return {...d,supplierName,storeName,items};});}
 function supplierDebug(docs,maps){const ids=[...new Set(docs.map(d=>key(d.supplierId)).filter(Boolean))];const resolved=ids.filter(id=>maps.suppliers.has(id));return {invoiceSupplierIds:ids,resolvedSupplierIds:resolved,unresolvedSupplierIds:ids.filter(id=>!maps.suppliers.has(id)),supplierReferenceCount:maps.suppliers.size};}
-async function getReferences(env,auth,neededSupplierIds=[]){try{
-  const cached=await loadCachedReferenceMaps(env,auth.serverUrl,neededSupplierIds,{
+async function getReferences(env,connection,neededSupplierIds=[]){try{
+  const cached=await loadCachedReferenceMaps(env,iikoReferenceScope(connection),neededSupplierIds,{
     ttlMs:6*60*60*1000,
     allowStale:true,
     requiredKeys:["suppliers","warehouses","products"]
   });
   if(cached)return {...cached,diagnostics:{cache:{hit:true,stale:cached.stale===true,ageMs:cached.ageMs,ttlMs:cached.ttlMs}}};
-  const synced=await syncAiReferences(env,auth.serverUrl,auth.token);
+  const synced=await syncAiReferences(env,connection);
   return {...synced,cacheHit:false};
 }catch(e){return {maps:{suppliers:new Map(),warehouses:new Map(),products:new Map(),groups:new Map(),categories:new Map()},cacheHit:false,diagnostics:{error:String(e?.message||e)}};}}
 async function getInvoices(connection,from,to){const attempts=[];const seen=new Set();const fromFormats=dateFormats(from),toFormats=dateFormats(to);const tryRequest=async(label,path)=>{const result=await requestXml(connection,path);const docs=result.ok?parseDocuments(result.text):[];attempts.push({label,status:result.status,ok:result.ok,length:result.text.length,contentType:result.contentType,documents:docs.length,preview:result.text.slice(0,800)});return {result,docs};};for(const f of fromFormats)for(const t of toFormats){const k=`${f}|${t}`;if(seen.has(k))continue;seen.add(k);const params=new URLSearchParams({from:f,to:t});const a=await tryRequest(`${f} → ${t}`,`/resto/api/documents/export/incomingInvoice?${params.toString()}`);if(a.result.ok&&a.docs.length)return {docs:a.docs,from:f,to:t,attempts};}const fallback=await tryRequest("без фильтра дат","/resto/api/documents/export/incomingInvoice");if(fallback.result.ok&&fallback.docs.length)return {docs:filterByRange(fallback.docs,from,to),from,to,attempts,serverDocuments:fallback.docs.length};return {docs:[],from,to,attempts};}
 export async function onRequestOptions(){return new Response(null,{status:204,headers:{...corsHeaders()}});}
-export async function onRequestPost(context){try{const b=await context.request.json();const connection={ip:String(b.ip||"").trim(),port:String(b.port||"").trim(),login:String(b.login||"").trim(),password:String(b.password||"")};if(!connection.ip||!connection.port||!connection.login||!connection.password)return jsonResponse({success:false,message:"Заполните IP, порт, логин и пароль SH Server"},400);const fromFormats=dateFormats(b.from),toFormats=dateFormats(b.to);if(!fromFormats.length||!toFormats.length)return jsonResponse({success:false,message:"Укажите период в формате даты"},400);if(dateKey(b.to)<dateKey(b.from))return jsonResponse({success:false,message:"Дата «По» раньше даты «С»"},400);const result=await getInvoices(connection,b.from,b.to);
+export async function onRequestPost(context){try{const b=await context.request.json();const connection=bindIikoBroker({ip:String(b.ip||"").trim(),port:String(b.port||"").trim(),login:String(b.login||"").trim(),password:String(b.password||"")},context);if(!connection.ip||!connection.port||!connection.login||!connection.password)return jsonResponse({success:false,message:"Заполните IP, порт, логин и пароль SH Server"},400);const fromFormats=dateFormats(b.from),toFormats=dateFormats(b.to);if(!fromFormats.length||!toFormats.length)return jsonResponse({success:false,message:"Укажите период в формате даты"},400);if(dateKey(b.to)<dateKey(b.from))return jsonResponse({success:false,message:"Дата «По» раньше даты «С»"},400);const result=await getInvoices(connection,b.from,b.to);
 const bodyDepartmentIds=Array.isArray(b.departmentIds)?b.departmentIds:[];
 const scopeDepartmentIds=Array.isArray(b?.chainScope?.selectedDepartmentIds)?b.chainScope.selectedDepartmentIds:[];
 const departmentIds=[...new Set((bodyDepartmentIds.length?bodyDepartmentIds:scopeDepartmentIds).map(String).filter(Boolean))];
@@ -120,9 +120,9 @@ if(subsetRequested){
   });
 }
 result.docs=await enrichProcurementInvoicePackaging(context.env,connection,scopedDocs);
-const auth=await getIikoAuth(connection);
+const auth={serverUrl:iikoReferenceScope(connection),cacheHit:false};
 const neededSupplierIds=[...new Set(result.docs.map(d=>key(d.supplierId)).filter(Boolean))];
-const refs=await getReferences(context.env,auth,neededSupplierIds);
+const refs=await getReferences(context.env,connection,neededSupplierIds);
 const maps=refs.maps||refs;
 maps.suppliers=maps.suppliers||new Map();
 const missingSupplierIds=neededSupplierIds.filter(id=>!maps.suppliers.has(id));
