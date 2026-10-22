@@ -1,4 +1,4 @@
-import { clean, iikoJson } from "./_lib/iiko-client.js";
+import { clean, iikoJson, iikoReferenceScope, bindIikoBroker } from "./_lib/iiko-client.js";
 import { getIikoSuppliers } from "./_lib/iiko-suppliers.js";
 import { syncAiReferences } from "./references.js";
 import { loadCachedReferenceMaps } from "./_lib/reference-cache.js";
@@ -211,28 +211,27 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: corsHeaders() });
 }
 
-export async function onRequestPost({ request, env }) {
+export async function onRequestPost(context) {const {request,env}=context;
   try {
     const body = await request.json();
     const raw = body?.connection || body || {};
-    const connection = {
+    const connection = bindIikoBroker({
       ip: clean(raw.ip),
       port: clean(raw.port),
       login: clean(raw.login),
       password: String(raw.password || "")
-    };
+    },context);
     if (!connection.ip || !connection.port || !connection.login || !connection.password) {
       return json({ success: false, message: "Не найдено подключение к iiko Server" }, 400);
     }
 
-    const authModule = await import("./_lib/iiko-client.js");
-    const auth = await authModule.getIikoAuth(connection);
+    const auth = {serverUrl:iikoReferenceScope(connection),cacheHit:false};
     let refs = await loadCachedReferenceMaps(env, auth.serverUrl, [], {
       ttlMs: 6 * 60 * 60 * 1000,
       allowStale: true,
       requiredKeys: ["suppliers", "warehouses", "products"]
     });
-    if (!refs) refs = await syncAiReferences(env, auth.serverUrl, auth.token);
+    if (!refs) refs = await syncAiReferences(env, connection);
     const maps = refs.maps || {};
     let productDetailsResult = { ok: false, status: 0, payload: null, text: "" };
     let productDetails = new Map();
