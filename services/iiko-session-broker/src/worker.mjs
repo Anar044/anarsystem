@@ -57,12 +57,6 @@ function safeHeaders(value) {
   }
   return h;
 }
-function outgoing(upstream, body, cached) {
-  const headers=new Headers({"cache-control":"no-store","x-sh-broker-result":"upstream","x-sh-broker-cache":cached?"1":"0"});
-  const ct=upstream.headers.get("content-type");
-  if(ct)headers.set("content-type",ct);
-  return new Response([204,205,304].includes(upstream.status)?null:body,{status:upstream.status,headers});
-}
 function fail(code,message,status=503) {return json({success:false,code,message},status);}
 
 
@@ -91,14 +85,6 @@ function shareableRead(params) {
   if(params.method!=="GET")return false;
   return /^\/resto\/api\/(corporation\/|v2\/reports\/|v2\/images\/|images\/|documents\/export\/|suppliers(?:\?|\/|$)|products(?:\?|\/|$)|v2\/entities\/)/.test(params.path);
 }
-function metricsHeaders(response,metric,coalesced=false) {
-  const headers=new Headers(response.headers);
-  headers.set("x-sh-broker-wait-ms",String(metric.waitMs||0));
-  headers.set("x-sh-broker-upstream-ms",String(metric.upstreamMs||0));
-  headers.set("x-sh-broker-parallel",String(metric.parallel||1));
-  headers.set("x-sh-broker-coalesced",coalesced?"1":"0");
-  return headers;
-}
 
 export class IikoSession {
   constructor(state,env) {
@@ -114,6 +100,8 @@ export class IikoSession {
     this.draining=false;
     this.maxParallel=parallelism(env);
     this.maxPending=queueCapacity(env);
+    this.cachedToken="";
+    this.cachedScope="";
   }
   async withAuthLock(task) {
     const previous=this.authTail;
@@ -146,10 +134,18 @@ export class IikoSession {
     finally{this.releaseSlot()}
   }
   async savedToken(scope) {
+    if(this.cachedToken && this.cachedScope===scope)return this.cachedToken;
     const stored=await this.state.storage.get("session");
-    if(!stored)return "";
+    if(!stored){
+      this.cachedToken="";
+      this.cachedScope="";
+      return "";
+    }
     // An unreadable token could still own a license: fail closed.
-    return decrypt(this.env,stored,scope);
+    const token=await decrypt(this.env,stored,scope);
+    this.cachedToken=token;
+    this.cachedScope=scope;
+    return token;
   }
   async authenticate(c,scope) {
     const blocked=Number(await this.state.storage.get("authBlockedUntil")||0);
@@ -172,6 +168,8 @@ export class IikoSession {
       throw Object.assign(Error("iiko authentication HTTP "+response.status+"; no retry attempted"),{code:"AUTH_FAILED"});
     }
     await this.state.storage.put("session",await encrypt(this.env,token,scope));
+    this.cachedToken=token;
+    this.cachedScope=scope;
     await this.state.storage.delete("authBlockedUntil");
     return token;
   }
@@ -189,6 +187,8 @@ export class IikoSession {
       const now=await this.savedToken(scope);
       if(now && now!==oldToken)return now;
       if(now===oldToken)await this.state.storage.delete("session");
+        this.cachedToken="";
+        this.cachedScope="";
       return this.authenticate(c,scope);
     });
   }
@@ -197,6 +197,8 @@ export class IikoSession {
       const current=await this.savedToken(scope);
       if(current===token){
         await this.state.storage.delete("session");
+        this.cachedToken="";
+        this.cachedScope="";
         if(cooldown)await this.state.storage.put("authBlockedUntil",Date.now()+70*60_000);
       }
     });
@@ -288,6 +290,8 @@ export class IikoSession {
         const response=await sleepAbort(url,{method:"GET",cache:"no-store",redirect:"manual"},12000);
         if(response.ok || response.status===401){
           await this.state.storage.delete("session");
+        this.cachedToken="";
+        this.cachedScope="";
           return json({success:true,released:true},200);
         }
         return fail("LOGOUT_FAILED","iiko logout HTTP "+response.status,502);
