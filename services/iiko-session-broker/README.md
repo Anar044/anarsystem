@@ -2,14 +2,17 @@
 
 The iiko REST API consumes a limited licensed slot for each new session. Cloudflare
 Pages isolates currently use different token maps and can independently log in.
-This private Cloudflare Worker provides one serialized, durable session per
+This private Cloudflare Worker provides one shared, durable licensed session per
 **verified owner/workspace + exact server/login/password**.
 
 ## Guarantees
 
 - The Worker is private (no workers.dev route). Pages accesses it via a **service binding**.
-- Each Durable Object serializes data requests; the token is encrypted with AES-256-GCM
+- Each Durable Object serializes **authentication and token rotation only**; data requests use a bounded parallel pool. The token is encrypted with AES-256-GCM
   using a secret that is **not committed** to GitHub; the record survives evictions.
+- Defaults to 3 concurrent upstream calls per workspace/credential, configurable via `IIKO_MAX_PARALLEL_REQUESTS` (1–5). `1` restores strict sequential operation for iiko servers with limited capacity. The bounded FIFO queue rejects overload (HTTP 429) without creating a new login.
+- Identical concurrent GET metadata/report requests and POST SALES OLAP reads are coalesced in flight; **no persistent/stale sales cache** is introduced. Write operations never coalesce or retry automatically.
+- Responses provide internal-only `x-sh-broker-wait-ms`, `x-sh-broker-upstream-ms`, `x-sh-broker-parallel` and `x-sh-broker-coalesced` headers to measure bottlenecks, not consumer-visible token data.
 - A successful auth token is stored before being used. After a cached-token **401**,
   at most one new login is attempted. A **403** never triggers login.
 - An ambiguous login response is **not retried**; a 70-minute persisted cooldown limits
@@ -38,7 +41,7 @@ This private Cloudflare Worker provides one serialized, durable session per
 6. Scope the allowed iiko host:port per workspace from stored server settings.
    For production apply a *network egress allowlist* or validated registered
    target lookup on the trusted backend before making the binding available.
-7. Test: two simultaneous Workers sharing a session, iiko 401, simulated
+7. Test load at 1, 3 and 5 concurrent data requests per credential, measure queue time, iiko CPU and OLAP latency, and select safe limits per installed server version. Also test two simultaneous Workers sharing a session, iiko 401, simulated
    authentication timeout, 403/no retries, logout, per-tenant separation, and
    a Worker restart. Count actual active REST_API seats on the iiko Server.
 8. Switch traffic gradually behind a feature flag, check licensing and latency,
@@ -54,3 +57,9 @@ not the end user: Pages must continue its existing authentication, tenant
 isolation and RBAC checks. Never accept tenant ID or credentials directly
 from the mobile client. Cloudflare encryption key loss prevents recovery of
 saved tokens and must fail closed. No production deployment has been made.
+
+## Latency and throughput
+
+The previous broker serialized every request behind a single slow OLAP query; this version restricts the exclusive lock to login, logout and token changes. Up to `IIKO_MAX_PARALLEL_REQUESTS` independent calls run at once on the **same** token. If iiko cannot safely handle parallel requests, set the value to `1` without changing authorization behavior. A bounded FIFO queue and HTTP 429 `BROKER_BUSY` prevent unbounded memory usage; mutation/write requests are never retried on overload. Requests for distinct organizations use separate Durable Objects, so a slow restaurant chain does not block another organization's reports.
+
+The header values indicate **broker wait and upstream time only**. Real user latency also includes browser ↔ Pages, Pages request preparation and rendering. Simulated tests do not establish production response-time guarantees. Verify iiko REST_API(2000) seat usage in a real staging environment before enabling the Pages binding.
