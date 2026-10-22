@@ -151,7 +151,13 @@ export class IikoSession {
         token=await this.authenticate(c,scope);
         result=await this.call(c,token,input.request.path,input.request);
       }
-      if(result.response.status===401)await this.state.storage.delete("session");
+      if(result.response.status===401){
+        await this.state.storage.delete("session");
+        // A newly allocated token rejected by iiko must not trigger a login
+        // storm from subsequent independent requests.
+        if(!wasCached || input.request.retryAuth!==false)
+          await this.state.storage.put("authBlockedUntil",Date.now()+5*60_000);
+      }
       return outgoing(result.response,result.body,wasCached);
     } catch(error) {
       const code=["AUTH_UNCERTAIN","AUTH_COOLDOWN","AUTH_FAILED"].includes(error?.code)?error.code:"BROKER_ERROR";
@@ -165,12 +171,10 @@ export default {
     if(request.method!=="POST")return fail("FORBIDDEN","Private service only",403);
     const shared=String(env.IIKO_BROKER_SERVICE_SECRET||"");
     const received=String(request.headers.get("x-sh-broker-secret")||"");
-    if(!shared || received.length!==shared.length || !received ||
-       !(await crypto.subtle.timingSafeEqual?.(te.encode(shared),te.encode(received)) ?? false)) {
-      // Cloudflare's WebCrypto may not have timingSafeEqual; use hashed fixed-length comparison.
-      const a=await hash(shared),b=await hash(received);
-      if(!shared || a!==b)return fail("FORBIDDEN","Private service only",403);
-    }
+    const a=await hash(shared),b=await hash(received);
+    let mismatch=0;
+    for(let i=0;i<a.length;i++)mismatch|=a.charCodeAt(i)^b.charCodeAt(i);
+    if(!shared || !received || mismatch!==0)return fail("FORBIDDEN","Private service only",403);
     try {
       if(!env.IIKO_SESSIONS || !env.IIKO_BROKER_ENCRYPTION_KEY_B64)return fail("CONFIG_MISSING","Broker is not configured",503);
       const input=await request.json();
