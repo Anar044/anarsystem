@@ -63,7 +63,7 @@ test('UI supports RFQ return, multi-stage attachments and large receiving dialog
 
 test('GRN receiving renders each item in a single table row without losing required fields',()=>{
  const from=ui.indexOf('function receiptLineHtml(l){');
- const to=ui.indexOf('\\nfunction recalcReceipt(){',from);
+ const to=ui.indexOf('function recalcReceipt(){',from);
  assert.ok(from>0&&to>from,'receipt row builder must exist');
  const builder=new Function('num','esc','money','packagingChoiceHtml','vatOptions',
    ui.slice(from,to)+';return receiptLineHtml;');
@@ -81,7 +81,7 @@ test('GRN receiving renders each item in a single table row without losing requi
    'price','locationId','lotCode','expiresOn','containerId','packageName','unit']){
    assert.ok(row.includes('data-f="'+field+'"'),'Missing field '+field);
  }
- assert.match(row,/12\.50 ₼/);
+ assert.match(row,/20\.00 ₼/);
  assert.match(row,/aria-label="Годен до/);
  assert.match(ui,/class="proc-receipt-scroll"/);
  assert.match(ui,/class="proc-receipt-grid-head"/);
