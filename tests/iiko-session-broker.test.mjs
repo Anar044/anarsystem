@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { webcrypto } from "node:crypto";
+import { webcrypto, createHash } from "node:crypto";
 import brokerWorker, { IikoSession } from "../services/iiko-session-broker/src/worker.mjs";
 import { bindIikoBroker, iikoText, clearIikoClientCache } from "../functions/api/iiko/_lib/iiko-client.js";
 if(!globalThis.crypto)globalThis.crypto=webcrypto;
@@ -26,7 +26,7 @@ test("one REST API seat for concurrent calls and across Durable Object eviction"
  let auth=0, data=0;
  const undo=installFetch(async url=>{
   const u=new URL(String(url));
-  if(u.pathname.endsWith("/auth"))return new Response("token-"+(++auth));
+  if(u.pathname.endsWith("/auth")){assert.equal(u.searchParams.get("pass"),createHash("sha1").update(connection.password).digest("hex"));return new Response("token-"+(++auth));}
   data++;assert.equal(u.searchParams.get("key"),"token-1");
   return new Response("ok");
  });
@@ -121,4 +121,19 @@ test("broker uses distinct Durable Objects for separate authorized workspaces",a
  }
  assert.equal(names.length,2);
  assert.notEqual(names[0],names[1]);
+});
+
+test("an unconfirmed authentication response cannot allocate another licensed seat",async()=>{
+ let auth=0;
+ const state={storage:storage()};
+ const undo=installFetch(async url=>{
+  if(new URL(String(url)).pathname.endsWith("/auth")){auth++;throw Error("proxy response lost")}
+  return new Response("unreachable");
+ });
+ try{
+  assert.equal((await new IikoSession(state,env).fetch(request())).status,503);
+  assert.equal((await new IikoSession(state,env).fetch(request())).status,503);
+  assert.equal(auth,1);
+  assert.ok(Number(await state.storage.get("authBlockedUntil"))>Date.now()+60*60*1000);
+ }finally{undo()}
 });
