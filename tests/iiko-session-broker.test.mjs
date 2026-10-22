@@ -312,7 +312,10 @@ test("broker requires exact, explicitly enabled, RBAC workspace ID",()=>{
  assert.equal(isIikoBrokerPilot(e,"workspace:org"),false);
  assert.equal(isIikoBrokerPilot(e,"workspace:org-acme"),false);
  assert.equal(isIikoBrokerPilot(e,"org-a"),false);
- assert.equal(isIikoBrokerPilot({...e,IIKO_BROKER_ENABLED_WORKSPACES:"*"},"workspace:org-a"),false);
+ assert.equal(isIikoBrokerPilot({...e,IIKO_BROKER_ENABLED_WORKSPACES:"*"},"workspace:org-a"),true);
+ assert.equal(isIikoBrokerPilot({...e,IIKO_BROKER_ENABLED_WORKSPACES:"*"},"workspace:org-b"),true);
+ assert.equal(isIikoBrokerPilot({...e,IIKO_BROKER_ENABLED_WORKSPACES:"*"},"org-a"),false);
+ assert.equal(isIikoBrokerPilot({...e,IIKO_BROKER_ENABLED_WORKSPACES:"*"},"workspace:"),false);
  assert.equal(isIikoBrokerPilot({},"workspace:org-a"),false);
 });
 
@@ -358,4 +361,27 @@ test("independent backend route uses only verified access workspace to opt in",(
  assert.equal(bindWorkspaceIikoBroker(connection,e,{allowed:true,workspace:{id:"org-b"}}),connection);
  assert.throws(()=>bindWorkspaceIikoBroker(connection,e,{
    allowed:false,workspace:{id:"org-a"}}),/requires verified workspace access/);
+});
+
+test("all-workspaces rollout is explicit, isolated, and fails closed if broker unavailable",()=>{
+ const enabled={
+  IIKO_BROKER_ENABLED_WORKSPACES:"*",
+  IIKO_BROKER_SERVICE_SECRET:"shared",
+  IIKO_SESSION_BROKER:{fetch:async()=>new Response("unused")}
+ };
+ const accessA={allowed:true,workspace:{id:"network-a"}};
+ const accessB={allowed:true,workspace:{id:"network-b"}};
+ const a=bindWorkspaceIikoBroker(connection,enabled,accessA);
+ const b=bindWorkspaceIikoBroker(connection,enabled,accessB);
+ assert.equal(a._shBroker.tenantId,"workspace:network-a");
+ assert.equal(b._shBroker.tenantId,"workspace:network-b");
+ assert.notEqual(a._shBroker.tenantId,b._shBroker.tenantId);
+ assert.throws(()=>bindWorkspaceIikoBroker(connection,{
+  IIKO_BROKER_ENABLED_WORKSPACES:"*"
+ },accessA),/not fully configured/);
+ assert.throws(()=>bindWorkspaceIikoBroker(connection,enabled,{
+  allowed:false,workspace:{id:"network-a"}
+ }),/requires verified workspace access/);
+ assert.equal(bindIikoBroker(connection,{env:{...enabled,IIKO_BROKER_ENABLED_WORKSPACES:""},
+  data:{shBrokerTenantId:"workspace:network-a"}}),connection);
 });
