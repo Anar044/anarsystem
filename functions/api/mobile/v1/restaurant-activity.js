@@ -192,8 +192,8 @@ export async function onRequestGet({request,env}) {
       shiftChecks:{
         checked:Object.keys(recentShifts).length,
         incomplete:metadata.some(x=>
-          recentShifts[x.id]===undefined &&
-          classifyDepartmentActivity([x],revenue)[0].activity==="UNVERIFIED"),
+          classifyDepartmentActivity([x],revenue,recentShifts)[0].activity==="UNVERIFIED" &&
+          recentShifts[x.id]?.verified!==true),
         maxPerRequest:8
       },
       departments:classifyDepartmentActivity(metadata,revenue,recentShifts)
