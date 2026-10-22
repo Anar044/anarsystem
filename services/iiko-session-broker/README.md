@@ -1,4 +1,4 @@
-# SH Central iiko Session Broker — **NOT DEPLOYED**
+# SH Central iiko Session Broker — **production not activated**
 
 The iiko REST API consumes a limited licensed slot for each new session. Cloudflare
 Pages isolates currently use different token maps and can independently log in.
@@ -22,6 +22,46 @@ This private Cloudflare Worker provides one shared, durable licensed session per
 - The upstream license token is never sent to a mobile device or browser.
 - `/resto/api/auth`, `/resto/api/logout`, and caller-provided `key` are
   blocked on the regular request path.
+
+## Safety gate for multi-tenant Production
+
+The Cloudflare Pages app supports 100+ potentially independent client
+workspaces. To avoid accidentally routing ALL customers through a single
+unconfigured production broker, the adapter now requires an EXPLICIT
+**Pages environment variable** `IIKO_BROKER_ENABLED_WORKSPACES`, containing
+comma-separated, server-verified `access.workspace.id` values.
+
+- Missing/empty value = **nobody uses the broker**, even if
+  `IIKO_SESSION_BROKER` service binding and secret already exist.
+- `workspace:org-a` must be supplied to the backend by authenticated RBAC;
+  the Cloudflare allowlist must contain the raw workspace ID `org-a`.
+- No `*` wildcard. A selected workspace with a missing binding, missing
+  service secret or unavailable broker **fails closed** instead of directly
+  logging into iiko. Unselected workspaces keep using the existing client
+  until separately migrated.
+- Under `/api/iiko/*`, pilot workspaces always use the credentials
+  persisted in their own private D1 state, **including GET routes**. The
+  browser may not substitute a host, username or password. Connection
+  management endpoints remain exempt to permit initial setup/updates.
+- Independent backend procurement, internal orders, AI and OCR routes use
+  the workspace verified by their own backend RBAC.
+- After disabling a pilot ID to roll back, earlier brokered sessions may
+  remain active until timed out or explicitly released. Old and new
+  session pools must be carefully monitored for overlap during cutover.
+
+Before installing the Production Pages binding, confirm that the separate
+private production Worker is deployed, its egress allowlist is configured
+for **only registered iiko target hosts:ports**, credentials are stored as
+secrets (never GitHub or browser), and the corresponding organization
+already has a known and verified workspace ID. Keep
+`IIKO_BROKER_ENABLED_WORKSPACES` empty during initial binding.
+Roll out one workspace at a time; monitor REST_API(2000) seat counts,
+end-to-end report latency and iiko error rates.
+
+The previously tested Preview workspace needs its own explicit Preview
+`IIKO_BROKER_ENABLED_WORKSPACES` value to remain brokered after this
+safety gate is deployed. This must be configured only with the actual
+verified workspace ID; do not guess one from screen labels.
 
 ## Required production steps
 

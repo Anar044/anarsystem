@@ -96,14 +96,29 @@ function cloudflareDiagnostic(response, body) {
   return `Cloudflare HTTP ${response?.status || 530}${suffix}: проблема DNS/origin у адреса iiko Server`;
 }
 
-// Only a trusted Pages handler can attach a broker binding. It is deliberately
-// non-enumerable: neither Cloudflare bindings nor tenant IDs can leak via JSON.
+// Production rollout is EXPLICITLY opt-in for each verified workspace ID.
+// Never use a tenant ID, host, flag, or password supplied in the client request.
+// Missing/misconfigured service bindings must FAIL CLOSED for an opted-in workspace
+// instead of silently allocating a second licensed /auth session.
+export function isIikoBrokerPilot(env, tenantId) {
+  const scoped=clean(tenantId);
+  if(!scoped.startsWith("workspace:") || scoped.length<=10)return false;
+  const allowlist=clean(env?.IIKO_BROKER_ENABLED_WORKSPACES)
+    .split(",").map(x=>x.trim()).filter(Boolean);
+  return allowlist.includes(scoped.slice(10));
+}
+
+// Only middleware with authenticated RBAC may supply the verified connection.
+// A complete IP/login/password from an untrusted GET or JSON is NEVER enough.
 export function bindIikoBroker(connection, context) {
-  if (!context?.env?.IIKO_SESSION_BROKER) return connection;
   const tenantId=clean(context?.data?.shBrokerTenantId);
-  if(!tenantId || !context.env.IIKO_BROKER_SERVICE_SECRET)
-    throw Error("SH central iiko broker has no verified tenant or service secret");
-  const bound={...connection};
+  if(!isIikoBrokerPilot(context?.env,tenantId) || context?.data?.shBrokerBypass)
+    return connection;
+  if(!context?.env?.IIKO_SESSION_BROKER || !context.env.IIKO_BROKER_SERVICE_SECRET)
+    throw Error("SH central iiko broker pilot is not fully configured; direct authorization blocked");
+  const verified=context?.data?.shBrokerVerifiedConnection;
+  if(!verified)throw Error("SH central iiko broker requires server-stored workspace credentials");
+  const bound={...verified};
   Object.defineProperty(bound,"_shBroker",{
     value:{service:context.env.IIKO_SESSION_BROKER,secret:context.env.IIKO_BROKER_SERVICE_SECRET,tenantId},
     configurable:false,enumerable:false,writable:false
@@ -111,13 +126,20 @@ export function bindIikoBroker(connection, context) {
   return bound;
 }
 
-// Server-side authorization helpers. The workspace MUST come from RBAC and
-// must never be accepted from request JSON or mobile client configuration.
+// Independent routes load connection via private state after workspace RBAC.
+// They are permitted to mark this connection as verified, not browser requests.
 export function bindWorkspaceIikoBroker(connection, env, access) {
-  if(!env?.IIKO_SESSION_BROKER)return connection;
   const workspaceId=clean(access?.workspace?.id);
-  if(!access?.allowed || !workspaceId)throw Error("Broker requires verified workspace access");
-  return bindIikoBroker(connection,{env,data:{shBrokerTenantId:"workspace:"+workspaceId}});
+  if(!access?.allowed || !workspaceId) {
+    if(clean(env?.IIKO_BROKER_ENABLED_WORKSPACES))
+      throw Error("Broker requires verified workspace access");
+    return connection;
+  }
+  const tenantId="workspace:"+workspaceId;
+  if(!isIikoBrokerPilot(env,tenantId))return connection;
+  return bindIikoBroker(connection,{env,data:{
+    shBrokerTenantId:tenantId,shBrokerVerifiedConnection:connection
+  }});
 }
 
 export function iikoReferenceScope(connection) {
