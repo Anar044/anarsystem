@@ -65,111 +65,248 @@ function outgoing(upstream, body, cached) {
 }
 function fail(code,message,status=503) {return json({success:false,code,message},status);}
 
+
+function parallelism(env) {
+  const n=Number(env.IIKO_MAX_PARALLEL_REQUESTS);
+  return Number.isInteger(n) && n>=1 && n<=5 ? n : 3;
+}
+function queueCapacity(env) {
+  const n=Number(env.IIKO_MAX_PENDING_REQUESTS);
+  return Number.isInteger(n) && n>=1 && n<=500 ? n : 100;
+}
+function validatedRequest(item) {
+  if(!item || typeof item!=="object")throw Error("Missing iiko request");
+  const path=safePath(item.path);
+  const method=clean(item.method||"GET").toUpperCase();
+  if(!["GET","POST","PUT","PATCH","DELETE"].includes(method))throw Error("Invalid iiko request method");
+  safeHeaders(item.headers);
+  const body=item.body;
+  if(body!==undefined && body!==null && typeof body!=="string")throw Error("Only string bodies supported");
+  if(body && body.length>3*1024*1024)throw Error("iiko request body too large");
+  if(["GET","DELETE"].includes(method) && body)throw Error("Body not allowed for this method");
+  return {...item,method,path};
+}
+function shareableRead(params) {
+  if(params.method==="POST" && params.path==="/resto/api/v2/reports/olap")return true;
+  if(params.method!=="GET")return false;
+  return /^\/resto\/api\/(corporation\/|v2\/reports\/|v2\/images\/|images\/|documents\/export\/|suppliers(?:\?|\/|$)|products(?:\?|\/|$)|v2\/entities\/)/.test(params.path);
+}
+function metricsHeaders(response,metric,coalesced=false) {
+  const headers=new Headers(response.headers);
+  headers.set("x-sh-broker-wait-ms",String(metric.waitMs||0));
+  headers.set("x-sh-broker-upstream-ms",String(metric.upstreamMs||0));
+  headers.set("x-sh-broker-parallel",String(metric.parallel||1));
+  headers.set("x-sh-broker-coalesced",coalesced?"1":"0");
+  return headers;
+}
+
 export class IikoSession {
   constructor(state,env) {
     this.state=state;
     this.env=env;
-    this.tail=Promise.resolve();
+    // Authentication is the ONLY single-flight exclusive section.
+    // Data I/O is governed by an independent bounded FIFO semaphore.
+    this.authTail=Promise.resolve();
+    this.active=0;
+    this.waiting=[];
+    this.activities=new Set();
+    this.sharedReads=new Map();
+    this.draining=false;
+    this.maxParallel=parallelism(env);
+    this.maxPending=queueCapacity(env);
   }
-  fetch(request) {
-    const work=this.tail.then(()=>this.handle(request));
-    this.tail=work.catch(()=>{});
-    return work;
+  async withAuthLock(task) {
+    const previous=this.authTail;
+    let release;
+    this.authTail=new Promise(resolve=>{release=resolve});
+    await previous;
+    try{return await task()}
+    finally{release()}
+  }
+  acquireSlot() {
+    if(this.active<this.maxParallel && !this.waiting.length){
+      this.active++;
+      return Promise.resolve();
+    }
+    if(this.waiting.length>=this.maxPending) {
+      throw Object.assign(Error("iiko request queue full"),{code:"BROKER_BUSY"});
+    }
+    return new Promise(resolve=>this.waiting.push(resolve));
+  }
+  releaseSlot() {
+    const next=this.waiting.shift();
+    if(next)next();
+    else this.active--;
+  }
+  async withSlot(task) {
+    const started=Date.now();
+    await this.acquireSlot();
+    const waitMs=Date.now()-started;
+    try{return {data:await task(),waitMs}}
+    finally{this.releaseSlot()}
   }
   async savedToken(scope) {
     const stored=await this.state.storage.get("session");
     if(!stored)return "";
-    // Fail closed on key rotation/decryption failure: do not allocate a new
-    // license while an existing, possibly live, session is unrecoverable.
+    // An unreadable token could still own a license: fail closed.
     return decrypt(this.env,stored,scope);
   }
   async authenticate(c,scope) {
     const blocked=Number(await this.state.storage.get("authBlockedUntil")||0);
-    if(blocked>Date.now())throw Object.assign(Error("Authorization cooldown after uncertain result"),{code:"AUTH_COOLDOWN"});
+    if(blocked>Date.now())
+      throw Object.assign(Error("Authorization cooldown after uncertain result"),{code:"AUTH_COOLDOWN"});
     const pass=await sha1(c.password);
-    const url=`${c.serverUrl}/resto/api/auth?login=${encodeURIComponent(c.login)}&pass=${pass}`;
-    const method=this.env.IIKO_AUTH_METHOD==="POST"?"POST":"GET"; // GET is currently used in production; change only after live compatibility test.
-    let response, token;
-    try {
+    const url=c.serverUrl+"/resto/api/auth?login="+encodeURIComponent(c.login)+"&pass="+pass;
+    const method=this.env.IIKO_AUTH_METHOD==="POST"?"POST":"GET";
+    let response,token;
+    try{
       response=await sleepAbort(url,{method,cache:"no-store",redirect:"manual"},12000);
       token=(await response.text()).trim();
-    } catch {
+    }catch{
       await this.state.storage.put("authBlockedUntil",Date.now()+70*60_000);
       throw Object.assign(Error("iiko authentication result unknown; no retry attempted"),{code:"AUTH_UNCERTAIN"});
     }
-    if(!response.ok || !token) {
+    if(!response.ok || !token){
       if([403,429,500,502,503,504].includes(response.status)||response.ok)
         await this.state.storage.put("authBlockedUntil",Date.now()+70*60_000);
-      throw Object.assign(Error(`iiko authentication HTTP ${response.status}; no retry attempted`),{code:"AUTH_FAILED"});
+      throw Object.assign(Error("iiko authentication HTTP "+response.status+"; no retry attempted"),{code:"AUTH_FAILED"});
     }
-    // Persist BEFORE using the new token. Durable storage survives object eviction.
     await this.state.storage.put("session",await encrypt(this.env,token,scope));
     await this.state.storage.delete("authBlockedUntil");
     return token;
   }
-  async call(c,token,raw,params) {
-    const method=clean(params.method||"GET").toUpperCase();
-    if(!["GET","POST","PUT","PATCH","DELETE"].includes(method))throw Error("Method not allowed");
-    const path=safePath(raw);
-    const u=new URL(path,c.serverUrl);
+  async ensureToken(c,scope) {
+    return this.withAuthLock(async()=>{
+      const token=await this.savedToken(scope);
+      if(token)return {token,cached:true};
+      return {token:await this.authenticate(c,scope),cached:false};
+    });
+  }
+  async refreshStaleToken(c,scope,oldToken) {
+    // Concurrent 401 replies all compare against durable state. Only the
+    // first one may allocate a new licensed session.
+    return this.withAuthLock(async()=>{
+      const now=await this.savedToken(scope);
+      if(now && now!==oldToken)return now;
+      if(now===oldToken)await this.state.storage.delete("session");
+      return this.authenticate(c,scope);
+    });
+  }
+  async rejectToken(scope,token,cooldown) {
+    await this.withAuthLock(async()=>{
+      const current=await this.savedToken(scope);
+      if(current===token){
+        await this.state.storage.delete("session");
+        if(cooldown)await this.state.storage.put("authBlockedUntil",Date.now()+70*60_000);
+      }
+    });
+  }
+  async call(c,token,params) {
+    const u=new URL(params.path,c.serverUrl);
     u.searchParams.set("key",token);
     const headers=safeHeaders(params.headers);
-    const body=params.body;
-    if(body!==undefined && body!==null && typeof body!=="string")throw Error("Only string bodies supported");
-    if(["GET","DELETE"].includes(method) && body)throw Error("Body not allowed for this method");
-    const response=await sleepAbort(u.toString(),{method,headers,body:body||undefined,cache:"no-store",redirect:"manual"},Number(params.timeoutMs)>0?Math.min(Number(params.timeoutMs),60000):20000);
-    // iiko can return binary QR/menu images as well as JSON and XML.
-    // Keep the raw bytes; text decoding would corrupt JPEG/PNG responses.
+    const maxTime=Number(params.timeoutMs)>0?Math.min(Number(params.timeoutMs),60000):20000;
+    const response=await sleepAbort(u.toString(),{
+      method:params.method,headers,body:params.body||undefined,
+      cache:"no-store",redirect:"manual"
+    },maxTime);
+    // Keep raw image, XML and JSON bytes.
     return {response,body:await response.arrayBuffer()};
   }
-  async handle(request) {
-    try {
-      const input=await request.json();
-      const tenantId=clean(input.tenantId);
-      if(!tenantId || tenantId.length>256)throw Error("Missing verified tenant");
+  async requestData(c,scope,params) {
+    const {token:initial,cached}=await this.ensureToken(c,scope);
+    let token=initial;
+    let totalWait=0,totalUpstream=0;
+    const execute=async()=>{
+      const start=Date.now();
+      const result=await this.withSlot(()=>this.call(c,token,params));
+      totalWait+=result.waitMs;
+      totalUpstream+=Date.now()-start-result.waitMs;
+      return result.data;
+    };
+    let result=await execute();
+    if(result.response.status===401 && cached && params.retryAuth!==false){
+      token=await this.refreshStaleToken(c,scope,initial);
+      result=await execute();
+    }
+    if(result.response.status===401){
+      const shouldCooldown=token!==initial || !cached;
+      await this.rejectToken(scope,token,shouldCooldown);
+    }
+    return {result,cached,metric:{
+      waitMs:totalWait,upstreamMs:totalUpstream,parallel:this.maxParallel
+    }};
+  }
+  async runRequest(input) {
+    const c=connectionOf(input.connection);
+    const scope=await hash(JSON.stringify([clean(input.tenantId),c.serverUrl,c.login,await hash(c.password)]));
+    // Validate first: a bad request must never consume an auth license.
+    const params=validatedRequest(input.request);
+    const dedupeKey=shareableRead(params)
+      ?JSON.stringify([params.method,params.path,params.headers||{},params.body||""]):"";
+    let shared=false;
+    let task=dedupeKey?this.sharedReads.get(dedupeKey):null;
+    if(task)shared=true;
+    else {
+      task=this.requestData(c,scope,params);
+      if(dedupeKey)this.sharedReads.set(dedupeKey,task);
+    }
+    let data;
+    try{data=await task}
+    finally{if(dedupeKey && !shared && this.sharedReads.get(dedupeKey)===task)this.sharedReads.delete(dedupeKey)}
+    const {result,cached,metric}=data;
+    const reply=outgoing(result.response,result.body,cached);
+    return new Response([204,205,304].includes(reply.status)?null:await reply.arrayBuffer(),{
+      status:reply.status,headers:metricsHeaders(reply,metric,shared)
+    });
+  }
+  async logout(input) {
+    if(this.draining)return fail("BROKER_BUSY","iiko broker is already draining",429);
+    this.draining=true;
+    try{
+      // No new operations enter; finish writes already accepted before
+      // revoking the session (especially internal order shipments).
+      await Promise.allSettled([...this.activities]);
       const c=connectionOf(input.connection);
-      const scope=await hash(JSON.stringify([tenantId,c.serverUrl,c.login,await hash(c.password)]));
-      const action=input.action;
-      let token=await this.savedToken(scope);
-      if(action==="logout"){
+      const scope=await hash(JSON.stringify([clean(input.tenantId),c.serverUrl,c.login,await hash(c.password)]));
+      return this.withAuthLock(async()=>{
+        const token=await this.savedToken(scope);
         if(!token)return json({success:true,released:false},200);
-        const url=`${c.serverUrl}/resto/api/logout?key=${encodeURIComponent(token)}`;
+        const url=c.serverUrl+"/resto/api/logout?key="+encodeURIComponent(token);
         const response=await sleepAbort(url,{method:"GET",cache:"no-store",redirect:"manual"},12000);
-        if(response.ok||response.status===401){
+        if(response.ok || response.status===401){
           await this.state.storage.delete("session");
           return json({success:true,released:true},200);
         }
-        return fail("LOGOUT_FAILED",`iiko logout HTTP ${response.status}`,502);
-      }
-      if(action!=="request")throw Error("Invalid action");
-      // All validation happens before a licensed login.
-      safePath(input.request?.path);
-      safeHeaders(input.request?.headers);
-      if(!["GET","POST","PUT","PATCH","DELETE"].includes(clean(input.request?.method||"GET").toUpperCase()))throw Error("Bad method");
-      const wasCached=!!token;
-      if(!token)token=await this.authenticate(c,scope);
-      let result=await this.call(c,token,input.request.path,input.request);
-      if(result.response.status===401 && wasCached && input.request.retryAuth!==false) {
-        await this.state.storage.delete("session");
-        // A single new login and data retry is permitted after an explicit stale-token 401.
-        token=await this.authenticate(c,scope);
-        result=await this.call(c,token,input.request.path,input.request);
-      }
-      if(result.response.status===401){
-        await this.state.storage.delete("session");
-        // A newly allocated token rejected by iiko must not trigger a login
-        // storm from subsequent independent requests.
-        if(!wasCached || input.request.retryAuth!==false)
-          await this.state.storage.put("authBlockedUntil",Date.now()+70*60_000);
-      }
-      return outgoing(result.response,result.body,wasCached);
-    } catch(error) {
-      const code=["AUTH_UNCERTAIN","AUTH_COOLDOWN","AUTH_FAILED"].includes(error?.code)?error.code:"BROKER_ERROR";
-      // Do not expose upstream auth URLs, login, password hash, token, or stack traces.
-      return fail(code,code==="BROKER_ERROR"?"Central iiko session broker request failed":error.message);
+        return fail("LOGOUT_FAILED","iiko logout HTTP "+response.status,502);
+      });
+    }finally{this.draining=false}
+  }
+  async fetch(request) {
+    try{
+      const input=await request.json();
+      if(!input || !clean(input.tenantId) || clean(input.tenantId).length>256)
+        throw Error("Missing verified tenant");
+      if(input.action==="logout")return await this.logout(input);
+      if(input.action!=="request")throw Error("Invalid action");
+      if(this.draining)return fail("BROKER_DRAINING","iiko broker is draining",503);
+      // Bound admitted operations BEFORE auth to avoid memory pressure and
+      // another license allocation during overload.
+      if(this.activities.size>=this.maxPending+this.maxParallel)
+        return fail("BROKER_BUSY","Too many pending iiko requests",429);
+      const task=this.runRequest(input);
+      this.activities.add(task);
+      try{return await task}
+      finally{this.activities.delete(task)}
+    }catch(error){
+      const code=["AUTH_UNCERTAIN","AUTH_COOLDOWN","AUTH_FAILED","BROKER_BUSY"].includes(error?.code)
+        ?error.code:"BROKER_ERROR";
+      return fail(code,code==="BROKER_ERROR"?"Central iiko session broker request failed":error.message,
+        code==="BROKER_BUSY"?429:503);
     }
   }
 }
+
 export default {
   async fetch(request,env) {
     if(request.method!=="POST")return fail("FORBIDDEN","Private service only",403);
