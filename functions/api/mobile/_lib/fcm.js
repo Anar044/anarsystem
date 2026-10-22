@@ -39,6 +39,25 @@ async function bearerToken(account){
 export function configuredFcm(env){
  return Boolean(clean(env?.FCM_SERVICE_ACCOUNT_JSON));
 }
+export function buildOwnerPushPayload(deviceToken,alert){
+  return {message:{
+   token:deviceToken,
+   notification:{title:"Smart Horeca • "+alert.title,body:alert.body},
+   android:{
+     priority:"HIGH",
+     // Don't reference a custom channel that the Android app never creates.
+     // FCM will use the app's configured/default notification channel.
+     notification:{sound:"default"}
+   },
+   apns:{
+     headers:{"apns-priority":"10","apns-push-type":"alert"},
+     payload:{aps:{sound:"default"}}
+   },
+   data:{kind:alert.kind,departmentId:alert.departmentId,
+     ...(alert.orderNum?{orderNum:alert.orderNum}:{})}
+ }};
+}
+
 export async function sendFcmAlert(env,deviceToken,alert){
  const raw=clean(env?.FCM_SERVICE_ACCOUNT_JSON);
  if(!raw)throw Error("FCM_NOT_CONFIGURED");
@@ -46,16 +65,7 @@ export async function sendFcmAlert(env,deviceToken,alert){
  if(!account?.client_email||!account?.private_key||!account?.project_id)
    throw Error("FCM_SERVICE_ACCOUNT_INCOMPLETE");
  const bearer=await bearerToken(account);
- const payload={message:{
-   token:deviceToken,
-   notification:{title:"Smart Horeca • "+alert.title,body:alert.body},
-   android:{
-     priority:"HIGH",
-     notification:{channel_id:"sh_owner_pos_alerts",sound:"default"}
-   },
-   data:{kind:alert.kind,departmentId:alert.departmentId,
-     ...(alert.orderNum?{orderNum:alert.orderNum}:{})}
- }};
+ const payload=buildOwnerPushPayload(deviceToken,alert);
  const resp=await fetch("https://fcm.googleapis.com/v1/projects/"+
    encodeURIComponent(account.project_id)+"/messages:send",{
    method:"POST",headers:{"Authorization":"Bearer "+bearer,
