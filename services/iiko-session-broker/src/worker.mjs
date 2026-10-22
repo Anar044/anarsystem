@@ -255,9 +255,21 @@ export class IikoSession {
     try{data=await task}
     finally{if(dedupeKey && !shared && this.sharedReads.get(dedupeKey)===task)this.sharedReads.delete(dedupeKey)}
     const {result,cached,metric}=data;
-    const reply=outgoing(result.response,result.body,cached);
-    return new Response([204,205,304].includes(reply.status)?null:await reply.arrayBuffer(),{
-      status:reply.status,headers:metricsHeaders(reply,metric,shared)
+    const upstream=result.response;
+    const headers=new Headers({
+      "cache-control":"no-store",
+      "x-sh-broker-result":"upstream",
+      "x-sh-broker-cache":cached?"1":"0"
+    });
+    const contentType=upstream.headers.get("content-type");
+    if(contentType)headers.set("content-type",contentType);
+    headers.set("x-sh-broker-wait-ms",String(metric.waitMs));
+    headers.set("x-sh-broker-upstream-ms",String(metric.upstreamMs));
+    headers.set("x-sh-broker-parallel",String(metric.parallel));
+    headers.set("x-sh-broker-coalesced",shared?"1":"0");
+    // Construct once: no extra arrayBuffer()/Response round trip.
+    return new Response([204,205,304].includes(upstream.status)?null:result.body,{
+      status:upstream.status,headers
     });
   }
   async logout(input) {
