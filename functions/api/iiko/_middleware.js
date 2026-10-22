@@ -220,6 +220,11 @@ export async function onRequest(context) {
     if(!auth)return accessDenied("Требуется авторизация.",401,"UNAUTHENTICATED");
     access=await resolveAccessForUser(env.DB,auth.user,{claimInvite:true,request});
     if(!access.allowed)return accessDenied("Доступ к Smart Horeca не назначен.",403,access.reason||"ACCESS_DENIED");
+    // Request-scoped, server-verified tenant for the private session broker.
+    // Never derive this value from JSON, cookies, query params or device inputs.
+    context.data ??= {};
+    context.data.shBrokerTenantId="workspace:"+String(access.workspace?.id||"");
+    if(!access.workspace?.id) return accessDenied("Рабочая область не определена.",403,"WORKSPACE_REQUIRED");
   }
 
   let body=null;
