@@ -120,7 +120,8 @@ function openModal(title,eyebrow,html){
   $('proc-modal-title').textContent=title;$('proc-modal-eyebrow').textContent=eyebrow||'ЗАКУПКИ';
   $('proc-modal-body').innerHTML=html;
   document.querySelector('#proc-modal .proc-modal')?.classList.toggle('proc-modal-wide',
-    !!$('proc-receipt-lines')||!!$('proc-inv-lines')||!!$('proc-link-grn'));
+    !!$('proc-receipt-lines')||!!$('proc-inv-lines')||!!$('proc-link-grn')||
+    !!$('proc-pr-lines')||!!$('proc-quote-lines')||!!$('proc-split-products'));
   $('proc-modal').hidden=false;
 }
 function toast(message,kind='ok'){setStatus(message,kind);if(kind==='ok')setTimeout(()=>{if($('proc-status')?.textContent===message)setStatus('')},3500)}
@@ -1155,10 +1156,15 @@ function supplierOptions(selected=''){return '<option value="">Выберите 
 function vatOptions(selected=0){
   return [0,2,8,18].map(v=>'<option value="'+v+'" '+(num(selected)===v?'selected':'')+'>'+v+'%</option>').join('');
 }
+// Presentation-only table headers. Existing input data-f selectors remain unchanged.
+function documentTableHead(columns){
+  return '<div class="proc-compact-grid-head" aria-hidden="true">'+
+    columns.map(x=>'<span>'+esc(x)+'</span>').join('')+'</div>';
+}
 function prLineHtml(line={}){
   const pid=key(line.productId),name=line.productName||productName(pid),unit=line.unit||unitFor(pid),canCost=canViewProcurementPrices(),price=canCost?num(line.expectedPrice??line.unitPrice):0;
   const quantity=num(line.quantity??line.recommendedQty??line.manualQty??1),packageSize=num(line.packageSize,1)||1,packageCount=num(line.packageCount,quantity/packageSize)||1,vat=num(line.vatPercent,0);
-  return '<div class="proc-edit-row proc-pack-row '+(canCost?'':'proc-pr-no-prices')+'" data-pr-line data-product-id="'+esc(pid)+'">'+
+  return '<div class="proc-edit-row proc-pack-row proc-compact-pr-row '+(canCost?'':'proc-pr-no-prices')+'" data-pr-line data-product-id="'+esc(pid)+'">'+
     '<div class="proc-field"><span>Товар</span><input data-f="product" list="proc-products-list" value="'+esc(productLabel(pid,name))+'" placeholder="Начните вводить название"></div>'+
     '<div class="proc-field proc-package-field"><span>Фасовка</span><select data-f="packageChoice">'+packagingChoiceHtml(pid,{containerId:line.containerId,packageSize,packageName:line.packageName})+'</select><input data-f="packageSize" type="number" min="0.001" step="0.001" value="'+packageSize+'"></div>'+
     '<div class="proc-field"><span>Упаковок</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+packageCount+'"></div>'+
@@ -1209,7 +1215,11 @@ function openPrModal(seed=[],existing=null){
   const source=existing?.source||(seed.length&&seed.every(x=>x.autoRecommended)?'AUTO_MINMAX':'MANUAL');
   const sameStore=lines.length&&lines.every(x=>key(x.storeId)===key(lines[0].storeId))?lines[0].storeId:'',warehouse=existing?.warehouseId||sameStore||state.refs.warehouses[0]?.id||'',lead=num(state.data?.settings?.defaultLeadDays,2);
   openModal(existing?'Изменить заявку '+existing.number:'Новая заявка на закупку',review?'СОГЛАСОВАНИЕ · РЕДАКТИРОВАНИЕ':'PURCHASE REQUISITION',
-    '<form id="proc-pr-form"><datalist id="proc-products-list">'+productOptions()+'</datalist><div class="proc-form-grid"><label class="proc-field"><span>Склад назначения</span><select id="proc-pr-warehouse">'+warehouseOptions(warehouse)+'</select></label><label class="proc-field"><span>Нужно к дате</span><input id="proc-pr-needed" type="date" value="'+esc(existing?.neededBy||addDays(today(),lead))+'"></label><label class="proc-field"><span>Источник</span><input value="'+esc(source)+'" disabled></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-pr-comment" placeholder="Причина, проект, пожелания закупщику…">'+esc(existing?.comment||'')+'</textarea></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Позиции заявки</strong><button id="proc-pr-add-line" type="button" class="proc-btn small ghost">＋ Добавить</button></div><div id="proc-pr-lines">'+lines.map(prLineHtml).join('')+'</div></div>'+(canViewProcurementPrices()?'<div class="proc-modal-summary"><span>Оценочная сумма заявки</span><strong id="proc-pr-total">0,00 ₼</strong></div>':'')+'<div class="proc-modal-actions"><button type="button" class="proc-btn ghost" id="proc-pr-cancel">Отмена</button><button class="proc-btn primary" type="submit">'+(existing?'Сохранить изменения':'Создать PR')+'</button></div></form>');
+    '<form id="proc-pr-form"><datalist id="proc-products-list">'+productOptions()+'</datalist><div class="proc-form-grid"><label class="proc-field"><span>Склад назначения</span><select id="proc-pr-warehouse">'+warehouseOptions(warehouse)+'</select></label><label class="proc-field"><span>Нужно к дате</span><input id="proc-pr-needed" type="date" value="'+esc(existing?.neededBy||addDays(today(),lead))+'"></label><label class="proc-field"><span>Источник</span><input value="'+esc(source)+'" disabled></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-pr-comment" placeholder="Причина, проект, пожелания закупщику…">'+esc(existing?.comment||'')+'</textarea></label></div><div class="proc-edit-lines proc-compact-table proc-pr-compact-table '+(canViewProcurementPrices()?'':'proc-compact-without-prices')+'">'+
+    '<div class="proc-edit-head"><strong>Позиции заявки · '+lines.length+' поз.</strong><button id="proc-pr-add-line" type="button" class="proc-btn small ghost">＋ Добавить</button></div>'+
+    '<div class="proc-compact-scroll" role="region" tabindex="0" aria-label="Таблица товаров заявки PR"><div class="proc-compact-grid">'+
+    documentTableHead(canViewProcurementPrices()?['Товар','Фасовка','Упаковок','Итого','НДС','Цена / упак.','Сумма','']:['Товар','Фасовка','Упаковок','Итого',''])+
+    '<div id="proc-pr-lines">'+lines.map(prLineHtml).join('')+'</div></div></div></div>'+(canViewProcurementPrices()?'<div class="proc-modal-summary"><span>Оценочная сумма заявки</span><strong id="proc-pr-total">0,00 ₼</strong></div>':'')+'<div class="proc-modal-actions"><button type="button" class="proc-btn ghost" id="proc-pr-cancel">Отмена</button><button class="proc-btn primary" type="submit">'+(existing?'Сохранить изменения':'Создать PR')+'</button></div></form>');
   bindEditRows($('proc-pr-lines'));recalcPrModal();$('proc-pr-cancel').onclick=closeModal;
   $('proc-pr-add-line').onclick=()=>{$('proc-pr-lines').insertAdjacentHTML('beforeend',prLineHtml({quantity:1,packageSize:1,packageCount:1}));bindEditRows($('proc-pr-lines'));recalcPrModal()};
   $('proc-pr-form').onsubmit=async e=>{
@@ -1230,7 +1240,7 @@ function openPrModal(seed=[],existing=null){
 function quoteLineHtml(l,supplierId){
   const h=historyPrice(l.productId,supplierId),price=h?num(h.price):num(l.expectedPrice);
   const packageSize=num(l.packageSize,1)||1,packageCount=num(l.packageCount,num(l.quantity)/packageSize)||1,vat=num(l.vatPercent,0);
-  return '<div class="proc-edit-row proc-quote-pack-row" data-quote-line data-product-id="'+esc(l.productId)+'"><div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div><div class="proc-field"><span>Фасовка</span><input data-f="packageSize" value="'+packageSize+'" disabled><small>'+esc(l.packageName||'iiko')+'</small></div><div class="proc-field"><span>Упаковок</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+packageCount+'"></div><div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div><div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0.01" step="0.01" value="'+price+'"></div><strong class="line-total">'+money(packageCount*price)+'</strong><span></span><input data-f="containerId" type="hidden" value="'+esc(l.containerId||'')+'"><input data-f="packageName" type="hidden" value="'+esc(l.packageName||'')+'"><input data-f="unit" type="hidden" value="'+esc(l.unit||'')+'"></div>';
+  return '<div class="proc-edit-row proc-quote-pack-row proc-compact-quote-row" data-quote-line data-product-id="'+esc(l.productId)+'"><div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div><div class="proc-field"><span>Фасовка</span><input data-f="packageSize" value="'+packageSize+'" disabled><small>'+esc(l.packageName||'iiko')+'</small></div><div class="proc-field"><span>Упаковок</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+packageCount+'"></div><div class="proc-field"><span>НДС</span><select data-f="vatPercent">'+vatOptions(vat)+'</select></div><div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0.01" step="0.01" value="'+price+'"></div><strong class="line-total">'+money(packageCount*price)+'</strong><span></span><input data-f="containerId" type="hidden" value="'+esc(l.containerId||'')+'"><input data-f="packageName" type="hidden" value="'+esc(l.packageName||'')+'"><input data-f="unit" type="hidden" value="'+esc(l.unit||'')+'"></div>';
 }
 function recalcQuote(){let total=0;document.querySelectorAll('[data-quote-line]').forEach(row=>{const x=num(row.querySelector('[data-f="packageCount"]').value)*num(row.querySelector('[data-f="price"]').value);total+=x;row.querySelector('.line-total').textContent=money(x)});if($('proc-quote-total'))$('proc-quote-total').textContent=money(total)}
 function openRfqModal(r){
@@ -1263,7 +1273,11 @@ function openQuoteModal(r,rfqId=''){
   const rfq=(r.rfqs||[]).find(x=>key(x.id)===key(rfqId))||null;
   const allowed=rfq?new Set((rfq.supplierIds||[]).map(key)):null;
   const supplierHtml='<option value="">Выберите поставщика</option>'+state.refs.suppliers.filter(x=>!allowed||allowed.has(key(x.id))).map(x=>'<option value="'+esc(key(x.id))+'">'+esc(x.name)+'</option>').join('');
-  openModal('Предложение поставщика · '+r.number,'СРАВНЕНИЕ ПОСТАВЩИКОВ','<form id="proc-quote-form"><div class="proc-form-grid"><label class="proc-field"><span>Поставщик</span><select id="proc-quote-supplier">'+supplierHtml+'</select></label><label class="proc-field"><span>Срок доставки, дней</span><input id="proc-quote-days" type="number" min="0" step="1" value="1"></label><label class="proc-field"><span>Предложение действует до</span><input id="proc-quote-valid" type="date" value="'+addDays(today(),7)+'"></label><label class="proc-field wide"><span>Условия оплаты</span><input id="proc-quote-payment" placeholder="Например: 7 дней / предоплата / по факту"></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-quote-comment"></textarea></label></div><div class="proc-edit-lines"><div class="proc-edit-head"><strong>Цены предложения</strong><span class="proc-history-note">Если есть история накладных этого поставщика, подставим последнюю цену.</span></div><div id="proc-quote-lines">'+(r.lines||[]).map(l=>quoteLineHtml(l,'')).join('')+'</div></div><div class="proc-modal-summary"><span>Итого предложение</span><strong id="proc-quote-total">0,00 ₼</strong></div><div class="proc-modal-actions"><button type="button" id="proc-quote-cancel" class="proc-btn ghost">Отмена</button><button class="proc-btn primary">Сохранить предложение</button></div></form>');
+  openModal('Предложение поставщика · '+r.number,'СРАВНЕНИЕ ПОСТАВЩИКОВ','<form id="proc-quote-form"><div class="proc-form-grid"><label class="proc-field"><span>Поставщик</span><select id="proc-quote-supplier">'+supplierHtml+'</select></label><label class="proc-field"><span>Срок доставки, дней</span><input id="proc-quote-days" type="number" min="0" step="1" value="1"></label><label class="proc-field"><span>Предложение действует до</span><input id="proc-quote-valid" type="date" value="'+addDays(today(),7)+'"></label><label class="proc-field wide"><span>Условия оплаты</span><input id="proc-quote-payment" placeholder="Например: 7 дней / предоплата / по факту"></label><label class="proc-field wide"><span>Комментарий</span><textarea id="proc-quote-comment"></textarea></label></div><div class="proc-edit-lines proc-compact-table proc-quote-compact-table">'+
+    '<div class="proc-edit-head"><strong>Цены предложения · '+(r.lines||[]).length+' поз.</strong><span class="proc-history-note">Последняя цена подставляется из истории накладных поставщика.</span></div>'+
+    '<div class="proc-compact-scroll" role="region" tabindex="0" aria-label="Таблица цен поставщика"><div class="proc-compact-grid">'+
+    documentTableHead(['Товар','Фасовка','Упаковок','НДС','Цена / упак.','Сумма'])+
+    '<div id="proc-quote-lines">'+(r.lines||[]).map(l=>quoteLineHtml(l,'')).join('')+'</div></div></div></div><div class="proc-modal-summary"><span>Итого предложение</span><strong id="proc-quote-total">0,00 ₼</strong></div><div class="proc-modal-actions"><button type="button" id="proc-quote-cancel" class="proc-btn ghost">Отмена</button><button class="proc-btn primary">Сохранить предложение</button></div></form>');
   const bind=()=>document.querySelectorAll('[data-quote-line] input,[data-quote-line] select').forEach(x=>{x.oninput=recalcQuote;x.onchange=recalcQuote});bind();recalcQuote();$('proc-quote-cancel').onclick=closeModal;
   $('proc-quote-supplier').onchange=e=>{const sid=e.target.value;document.querySelectorAll('[data-quote-line]').forEach((row,i)=>{const l=r.lines[i],h=historyPrice(l.productId,sid);if(h)row.querySelector('[data-f="price"]').value=h.price});recalcQuote()};
   $('proc-quote-form').onsubmit=async e=>{e.preventDefault();try{setBusy(true);const sid=key($('proc-quote-supplier').value),sup=state.refs.suppliers.find(x=>key(x.id)===sid);if(!sid)throw Error('Выберите поставщика.');const lines=[...document.querySelectorAll('[data-quote-line]')].map(row=>{const pid=row.dataset.productId;const packageSize=num(row.querySelector('[data-f="packageSize"]').value,1),packageCount=num(row.querySelector('[data-f="packageCount"]').value);return{productId:pid,productName:productName(pid),unit:row.querySelector('[data-f="unit"]').value,quantity:packageSize*packageCount,packageSize,packageCount,containerId:key(row.querySelector('[data-f="containerId"]').value),packageName:row.querySelector('[data-f="packageName"]').value||'',vatPercent:num(row.querySelector('[data-f="vatPercent"]').value),unitPrice:num(row.querySelector('[data-f="price"]').value)}});await procPost('add-quote',{requisitionId:r.id,rfqId:rfq?.id||'',supplierId:sid,supplierName:sup?.name||'',deliveryDays:num($('proc-quote-days').value),paymentTerms:$('proc-quote-payment').value,validUntil:$('proc-quote-valid').value,comment:$('proc-quote-comment').value,lines});closeModal();try{await refreshSourcingDocument(r.id);toast('Предложение поставщика сохранено. Документ остался открытым.')}catch(refreshError){toast('Предложение сохранено, но новые данные пока не загрузились: '+(refreshError.message||String(refreshError)),'error')}}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}};
@@ -1377,7 +1391,7 @@ function openInvoiceForGrnModal(o){
       '<label class="proc-field"><span>Поставщик</span><input value="'+esc(o.supplierName||o.supplierId)+'" disabled></label>'+
     '</div>'+
     '<div class="proc-grn-explain"><strong>GRN — неизменяемый факт физической приёмки.</strong><span>Количество, цена и НДС накладной вводятся отдельно. При несовпадении сохраняйте черновик. Для дополнительных накладных по одобренной недостаче предварительно создайте план урегулирования.</span></div>'+
-    '<div id="proc-inv-lines" class="proc-edit-lines"></div>'+
+    '<div id="proc-inv-lines" class="proc-edit-lines proc-compact-table proc-invoice-compact-table"></div>'+
     '<div class="proc-receipt-status warning" id="proc-inv-variance" hidden></div>'+
     '<div class="proc-modal-summary"><span>Сумма накладной</span><strong id="proc-inv-total">0,00 ₼</strong></div>'+
     '<div id="proc-inv-status" class="proc-receipt-status" hidden></div>'+
@@ -1395,10 +1409,12 @@ function openInvoiceForGrnModal(o){
   }
   function renderLines(){
     const g=selectedGrn();
-    $('proc-inv-lines').innerHTML='<div class="proc-edit-head"><strong>'+esc(g?.number||'GRN')+'</strong><span class="proc-history-note">Количество по накладной можно изменить; GRN не меняется.</span></div>'+
+    $('proc-inv-lines').innerHTML='<div class="proc-edit-head"><strong>'+esc(g?.number||'GRN')+' · '+grnInvoiceDraftLines(g).length+' поз.</strong><span class="proc-history-note">Редактируется накладная; GRN не меняется.</span></div>'+
+      '<div class="proc-compact-scroll" role="region" tabindex="0" aria-label="Таблица приходной накладной"><div class="proc-compact-grid">'+
+      documentTableHead(['Товар','Фасовка','Упаковок','Итого','НДС','Цена / упак.','Сумма'])+
       grnInvoiceDraftLines(g).map((l,i)=>{
         const pack=num(l.packageSize,1)||1,count=num(l.packageCount,num(l.quantity)/pack),price=num(l.unitPrice),vat=num(l.vatPercent,0);
-        return '<div class="proc-edit-row proc-pack-row proc-invoice-grn-row" data-inv-grn-line data-index="'+i+'">'+
+        return '<div class="proc-edit-row proc-pack-row proc-invoice-grn-row proc-compact-invoice-row" data-inv-grn-line data-index="'+i+'">'+
           '<div class="proc-field"><span>Товар</span><input value="'+esc(l.productName||l.productId)+'" disabled></div>'+
           '<div class="proc-field"><span>Фасовка</span><input value="'+qty(pack)+' '+esc(l.unit||'')+'" disabled></div>'+
           '<div class="proc-field"><span>Упаковок по накладной</span><input data-f="packageCount" type="number" min="0.001" step="0.001" value="'+count+'"></div>'+
@@ -1407,7 +1423,7 @@ function openInvoiceForGrnModal(o){
           '<div class="proc-field"><span>Цена / упак.</span><input data-f="price" type="number" min="0" step="0.01" value="'+price+'"></div>'+
           '<strong class="line-total">'+money(count*price)+'</strong>'+
         '</div>';
-      }).join('');
+      }).join('')+'</div></div>';
     document.querySelectorAll('[data-inv-grn-line]').forEach(row=>{
       row.querySelector('[data-f="price"]').oninput=recalc;
       row.querySelector('[data-f="packageCount"]').oninput=recalc;
