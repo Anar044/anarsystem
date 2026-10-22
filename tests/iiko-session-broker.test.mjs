@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { webcrypto, createHash } from "node:crypto";
 import brokerWorker, { IikoSession } from "../services/iiko-session-broker/src/worker.mjs";
-import { bindIikoBroker, iikoText, clearIikoClientCache } from "../functions/api/iiko/_lib/iiko-client.js";
+import { bindIikoBroker, bindWorkspaceIikoBroker, isIikoBrokerPilot, iikoText, clearIikoClientCache } from "../functions/api/iiko/_lib/iiko-client.js";
 if(!globalThis.crypto)globalThis.crypto=webcrypto;
 
 const connection={ip:"iiko.example",port:"8080",login:"demo",password:"secret"};
@@ -77,8 +77,9 @@ test("uncertain login is not repeated while cooldown persists",async()=>{
 test("bridge carries verified tenant via private binding and does not expose token",async()=>{
  clearIikoClientCache();
  let payload;
- const bound=bindIikoBroker(connection,{data:{shBrokerTenantId:"workspace:org-a"},
-  env:{IIKO_BROKER_SERVICE_SECRET:"local-test-secret",IIKO_SESSION_BROKER:{
+ const bound=bindIikoBroker(connection,{data:{
+  shBrokerTenantId:"workspace:org-a",shBrokerVerifiedConnection:connection},
+  env:{IIKO_BROKER_ENABLED_WORKSPACES:"org-a",IIKO_BROKER_SERVICE_SECRET:"local-test-secret",IIKO_SESSION_BROKER:{
    fetch:async(_,init)=>{
     assert.equal(init.headers["x-sh-broker-secret"],"local-test-secret");
     payload=JSON.parse(init.body);
@@ -302,4 +303,59 @@ test("bounded request admission rejects overload without allocating another toke
   while(pending.length)pending.shift()();
   undo();
  }
+});
+
+test("broker requires exact, explicitly enabled, RBAC workspace ID",()=>{
+ const e={IIKO_BROKER_ENABLED_WORKSPACES:"org-a,org-b"};
+ assert.equal(isIikoBrokerPilot(e,"workspace:org-a"),true);
+ assert.equal(isIikoBrokerPilot(e,"workspace:org-b"),true);
+ assert.equal(isIikoBrokerPilot(e,"workspace:org"),false);
+ assert.equal(isIikoBrokerPilot(e,"workspace:org-acme"),false);
+ assert.equal(isIikoBrokerPilot(e,"org-a"),false);
+ assert.equal(isIikoBrokerPilot({...e,IIKO_BROKER_ENABLED_WORKSPACES:"*"},"workspace:org-a"),false);
+ assert.equal(isIikoBrokerPilot({},"workspace:org-a"),false);
+});
+
+test("binding alone never enables broker or silently falls back for an opted-in workspace",()=>{
+ const stub={fetch:async()=>new Response("ok")};
+ const opts={data:{shBrokerTenantId:"workspace:org-a",shBrokerVerifiedConnection:connection},
+  env:{IIKO_SESSION_BROKER:stub,IIKO_BROKER_SERVICE_SECRET:"shared"}};
+ assert.equal(bindIikoBroker(connection,opts),connection,"binding only is a no-op");
+ assert.equal(bindWorkspaceIikoBroker(connection,opts.env,{allowed:true,workspace:{id:"org-a"}}),connection);
+ assert.throws(()=>bindIikoBroker(connection,{
+  ...opts,env:{IIKO_BROKER_ENABLED_WORKSPACES:"org-a"}
+ }),/not fully configured/,"pilot workspace must never silently use direct auth");
+ assert.throws(()=>bindWorkspaceIikoBroker(connection,{
+  IIKO_BROKER_ENABLED_WORKSPACES:"org-a",IIKO_BROKER_SERVICE_SECRET:"shared"
+ },{allowed:true,workspace:{id:"org-a"}}),/not fully configured/);
+});
+
+test("pilot broker ignores caller-supplied server credentials and requires verified saved connection",()=>{
+ const e={IIKO_SESSION_BROKER:{fetch:async()=>new Response("ok")},
+  IIKO_BROKER_SERVICE_SECRET:"shared",IIKO_BROKER_ENABLED_WORKSPACES:"org-a"};
+ const untrusted={ip:"attacker.example",port:"8080",login:"attacker",password:"attack"};
+ const context={env:e,data:{shBrokerTenantId:"workspace:org-a",
+   shBrokerVerifiedConnection:connection}};
+ const bound=bindIikoBroker(untrusted,context);
+ assert.equal(bound.ip,connection.ip);
+ assert.equal(bound.login,connection.login);
+ assert.equal(bound.password,connection.password);
+ assert.ok(bound._shBroker);
+ assert.throws(()=>bindIikoBroker(untrusted,{env:e,data:{shBrokerTenantId:"workspace:org-a"}}),
+  /requires server-stored workspace credentials/);
+ const outsider=bindIikoBroker(untrusted,{env:e,data:{shBrokerTenantId:"workspace:org-b"}});
+ assert.equal(outsider,untrusted,"non-pilot retains legacy path until explicitly migrated");
+ const admin=bindIikoBroker(untrusted,{env:e,data:{
+  shBrokerTenantId:"workspace:org-a",shBrokerBypass:true}});
+ assert.equal(admin,untrusted,"connection-management route stays direct");
+});
+
+test("independent backend route uses only verified access workspace to opt in",()=>{
+ const e={IIKO_SESSION_BROKER:{fetch:async()=>new Response("ok")},
+  IIKO_BROKER_SERVICE_SECRET:"shared",IIKO_BROKER_ENABLED_WORKSPACES:"org-a"};
+ const allowed={allowed:true,workspace:{id:"org-a"}};
+ assert.ok(bindWorkspaceIikoBroker(connection,e,allowed)._shBroker);
+ assert.equal(bindWorkspaceIikoBroker(connection,e,{allowed:true,workspace:{id:"org-b"}}),connection);
+ assert.throws(()=>bindWorkspaceIikoBroker(connection,e,{
+   allowed:false,workspace:{id:"org-a"}}),/requires verified workspace access/);
 });
