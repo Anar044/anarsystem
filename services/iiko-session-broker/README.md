@@ -12,7 +12,7 @@ This private Cloudflare Worker provides one serialized, durable session per
   using a secret that is **not committed** to GitHub; the record survives evictions.
 - A successful auth token is stored before being used. After a cached-token **401**,
   at most one new login is attempted. A **403** never triggers login.
-- An ambiguous login response is **not retried**; a 5-minute persisted cooldown limits
+- An ambiguous login response is **not retried**; a 70-minute persisted cooldown limits
   repeated license allocation. Logout is reserved for disconnect or credential rotation.
 - No cross-organization token sharing. Each request uses a verified tenant ID from
   backend authorization, never a caller-provided restaurant selection.
