@@ -611,3 +611,156 @@
   .proc-modal-wide .proc-receipt-table>.proc-edit-head{align-items:flex-start;flex-direction:column}
   .proc-modal-wide .proc-receipt-table>.proc-edit-head .proc-history-note{font-size:9.5px}
 }
+
+
+/* Compact procurement document tables: PR / supplier offer / invoice.
+   Presentation only: field names, data-f attributes, selectors and posting are unchanged. */
+.proc-modal-wide .proc-compact-table{overflow:visible;min-width:0}
+.proc-modal-wide .proc-compact-table>.proc-edit-head{border-radius:9px 9px 0 0;border:1px solid #2a4050;border-bottom:0;gap:12px}
+.proc-modal-wide .proc-compact-table>.proc-edit-head .proc-history-note{margin:0;line-height:1.4}
+.proc-modal-wide .proc-compact-scroll{
+  max-width:100%;overflow-x:auto;overflow-y:hidden;
+  border:1px solid #2a4050;border-radius:0 0 9px 9px;
+  scrollbar-width:thin;scrollbar-color:#49616b #111c25
+}
+.proc-modal-wide .proc-compact-scroll:focus-visible{outline:2px solid #51cea7;outline-offset:2px}
+.proc-modal-wide .proc-compact-grid{min-width:var(--compact-min-width);--compact-min-width:900px}
+.proc-modal-wide .proc-pr-compact-table .proc-compact-grid{
+  --compact-columns:minmax(255px,1.8fr) 155px 94px 91px 72px 112px 106px 37px;
+  --compact-min-width:990px
+}
+.proc-modal-wide .proc-pr-compact-table.proc-compact-without-prices .proc-compact-grid{
+  --compact-columns:minmax(250px,1.9fr) 160px 110px 110px 40px;
+  --compact-min-width:750px
+}
+.proc-modal-wide .proc-quote-compact-table .proc-compact-grid{
+  --compact-columns:minmax(240px,1.8fr) 155px 105px 82px 130px 110px;
+  --compact-min-width:910px
+}
+.proc-modal-wide .proc-invoice-compact-table .proc-compact-grid{
+  --compact-columns:minmax(235px,1.8fr) 145px 118px 100px 80px 130px 105px;
+  --compact-min-width:970px
+}
+.proc-modal-wide .proc-compact-grid-head,
+.proc-modal-wide .proc-compact-table .proc-compact-pr-row,
+.proc-modal-wide .proc-compact-table .proc-compact-quote-row,
+.proc-modal-wide .proc-compact-table .proc-compact-invoice-row{
+  display:grid;grid-template-columns:var(--compact-columns);
+  align-items:center;gap:8px;
+}
+.proc-modal-wide .proc-compact-grid-head{
+  padding:9px 12px;background:#142630;color:#91a8b5;
+  border-bottom:1px solid #304451;
+  font-size:9.5px;font-weight:750;line-height:1.4
+}
+.proc-modal-wide .proc-compact-grid-head span:first-child{
+  position:sticky;left:0;z-index:3;
+  margin:-9px 0 -9px -12px;padding:9px 12px;
+  border-right:1px solid #2b414d;background:#142630
+}
+.proc-modal-wide .proc-compact-table .proc-compact-pr-row,
+.proc-modal-wide .proc-compact-table .proc-compact-quote-row,
+.proc-modal-wide .proc-compact-table .proc-compact-invoice-row{
+  min-height:52px;padding:8px 12px;
+  border-top:0;border-bottom:1px solid #263845;background:#101b24
+}
+.proc-modal-wide .proc-compact-table .proc-compact-pr-row:nth-child(even),
+.proc-modal-wide .proc-compact-table .proc-compact-quote-row:nth-child(even),
+.proc-modal-wide .proc-compact-table .proc-compact-invoice-row:nth-child(even){background:#14222c}
+.proc-modal-wide .proc-compact-table .proc-compact-pr-row:last-child,
+.proc-modal-wide .proc-compact-table .proc-compact-quote-row:last-child,
+.proc-modal-wide .proc-compact-table .proc-compact-invoice-row:last-child{border-bottom:0}
+.proc-modal-wide .proc-compact-table .proc-compact-pr-row:hover,
+.proc-modal-wide .proc-compact-table .proc-compact-quote-row:hover,
+.proc-modal-wide .proc-compact-table .proc-compact-invoice-row:hover{background:#192c36}
+.proc-modal-wide .proc-compact-table .proc-edit-row>.proc-field{min-width:0}
+.proc-modal-wide .proc-compact-table .proc-edit-row>.proc-field>span{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0,0,0,0);white-space:nowrap;border:0
+}
+.proc-modal-wide .proc-compact-table .proc-edit-row input:not([type="hidden"]),
+.proc-modal-wide .proc-compact-table .proc-edit-row select{
+  width:100%;min-width:0;height:34px;min-height:34px;padding:0 7px;
+  box-sizing:border-box;border-radius:7px;border:1px solid #324655;
+  background:#0c1821;color:#e5eef4;font-size:11px;line-height:1.3
+}
+.proc-modal-wide .proc-compact-table .proc-edit-row input[readonly]{color:#a9bdc7;background:#152530}
+.proc-modal-wide .proc-compact-table .proc-edit-row .proc-package-locked{display:none!important}
+.proc-modal-wide .proc-compact-table .proc-edit-row>.proc-field:first-child{
+  position:sticky;left:0;z-index:2;
+  display:flex;flex-direction:column;justify-content:center;
+  height:100%;padding-right:8px;border-right:1px solid #2b414d;background:#101b24
+}
+.proc-modal-wide .proc-compact-table .proc-edit-row:nth-child(even)>.proc-field:first-child{background:#14222c}
+.proc-modal-wide .proc-compact-table .proc-edit-row:hover>.proc-field:first-child{background:#192c36}
+.proc-modal-wide .proc-quote-compact-table .proc-edit-row>.proc-field:first-child input[disabled],
+.proc-modal-wide .proc-invoice-compact-table .proc-edit-row>.proc-field:first-child input[disabled]{
+  height:auto;border:0;padding:0;background:transparent;
+  font-size:11.5px;font-weight:700;color:#eaf3f7;white-space:normal;
+  text-overflow:ellipsis
+}
+.proc-modal-wide .proc-invoice-compact-table .proc-edit-row .line-total,
+.proc-modal-wide .proc-pr-compact-table .proc-edit-row .line-total,
+.proc-modal-wide .proc-quote-compact-table .proc-edit-row .line-total{
+  grid-column:auto;white-space:nowrap;text-align:right;
+  align-self:center;font-size:11.5px;font-weight:850;color:#80e6ba;
+  font-variant-numeric:tabular-nums
+}
+.proc-modal-wide .proc-pr-compact-table .proc-edit-row .remove{
+  width:30px;height:34px;align-self:center;justify-self:center;
+  border-radius:7px
+}
+.proc-modal-wide .proc-invoice-compact-table .proc-edit-row>.proc-field:first-child,
+.proc-modal-wide .proc-quote-compact-table .proc-edit-row>.proc-field:first-child,
+.proc-modal-wide .proc-pr-compact-table .proc-edit-row>.proc-field:first-child{
+  grid-column:auto
+}
+.proc-modal-wide .proc-compact-table .proc-edit-row .proc-field small{
+  display:block;margin-top:3px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;font-size:9px;color:#8b9eae
+}
+.proc-modal-wide .proc-quote-compact-table .proc-edit-row .proc-field:nth-child(2) input[disabled],
+.proc-modal-wide .proc-invoice-compact-table .proc-edit-row .proc-field:nth-child(2) input[disabled]{
+  background:#142531;color:#b3cbd3
+}
+/* Split PO supplier allocation is a dense comparison, not a stack of large tiles. */
+.proc-modal-wide #proc-split-products{gap:8px}
+.proc-modal-wide .proc-split-product{
+  padding:0;overflow:hidden;border-radius:9px;
+  border:1px solid #304450;background:#101a23
+}
+.proc-modal-wide .proc-split-product>header{
+  padding:10px 13px;margin:0;gap:10px;
+  border-bottom:1px solid #283d4a;background:#162630
+}
+.proc-modal-wide .proc-split-product>header strong{font-size:12px;color:#eaf3f7}
+.proc-modal-wide .proc-split-product>header span{font-size:10px}
+.proc-modal-wide .proc-split-grid-head,
+.proc-modal-wide .proc-split-option{
+  display:grid;grid-template-columns:minmax(250px,1fr) 145px 105px;
+  align-items:center;gap:10px
+}
+.proc-modal-wide .proc-split-grid-head{
+  padding:6px 12px;font-size:9.5px;font-weight:700;
+  color:#819fae;background:#12212b
+}
+.proc-modal-wide .proc-split-option{
+  padding:6px 12px;margin:0;border-top:1px solid #233641;background:transparent
+}
+.proc-modal-wide .proc-split-option small{font-size:9.5px}
+.proc-modal-wide .proc-split-option input{height:32px;min-height:32px}
+.proc-modal-wide .proc-split-summary{padding:8px 12px;border-top:1px solid #29424e}
+.proc-modal-wide .proc-split-money{font-size:11px}
+.proc-modal-wide #proc-split-total{font-size:14px}
+.proc-modal-wide #proc-link-preview .proc-edit-head{padding:10px 12px}
+.proc-modal-wide #proc-link-preview .proc-link-match-row{padding:7px 12px;min-height:42px}
+.proc-modal-wide #proc-link-preview .proc-link-match-row>div>strong{font-size:11px}
+.proc-modal-wide #proc-link-preview .proc-link-match-row>div>span{font-size:9.5px}
+@media(max-width:710px){
+  .proc-modal-wide .proc-compact-table>.proc-edit-head{flex-direction:column;align-items:flex-start}
+  .proc-modal-wide .proc-split-product>header{align-items:flex-start}
+  .proc-modal-wide .proc-split-grid-head,.proc-modal-wide .proc-split-option{
+    grid-template-columns:minmax(155px,1fr) 95px 65px;gap:6px
+  }
+  .proc-modal-wide .proc-split-option{padding:7px}
+}
