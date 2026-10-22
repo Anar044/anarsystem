@@ -572,9 +572,9 @@
 .proc-modal-wide #proc-receipt-lines>.proc-receipt-row:nth-child(even){background:#14222c}
 .proc-modal-wide #proc-receipt-lines>.proc-receipt-row:last-child{border-bottom:0}
 .proc-modal-wide #proc-receipt-lines>.proc-receipt-row:hover{background:#192c36}
-.proc-modal-wide .proc-receipt-row>.proc-field:first-child,
-.proc-modal-wide .proc-receipt-row>.proc-field:has([data-receipt-location]),
-.proc-modal-wide .proc-receipt-row .line-total{
+.proc-modal-wide .proc-edit-row.proc-pack-row[data-receipt-line]>.proc-field:first-child,
+.proc-modal-wide .proc-edit-row.proc-pack-row[data-receipt-line]>.proc-field:has([data-receipt-location]),
+.proc-modal-wide .proc-edit-row.proc-pack-row[data-receipt-line] .line-total{
   grid-column:auto;
 }
 .proc-modal-wide .proc-receipt-row>.proc-field{min-width:0}
