@@ -184,9 +184,16 @@ export async function onRequestGet({request,env}) {
       sourceStatus:revenue?.success===true?"VERIFIED":"UNAVAILABLE",
       sourceCode,
       topology:{
-        groupsKnown:topology.verified===true,
-        cashKnown:topology.verified===true,
-        sourceStatus:topology.verified===true?"VERIFIED":"UNAVAILABLE",
+        // A successful HTTP response is not a complete map when some group
+        // /terminal lacks an authoritative department mapping. Never allow
+        // "select working restaurants" to hide unknown departments then.
+        groupsKnown:topology.verified===true &&
+          metadata.every(x=>x.groupCount!==null),
+        cashKnown:topology.verified===true &&
+          metadata.every(x=>x.cashCount!==null),
+        sourceStatus:topology.verified!==true?"UNAVAILABLE":
+          metadata.every(x=>x.groupCount!==null && x.cashCount!==null)
+            ?"VERIFIED":"PARTIAL",
         sourceCode:topology.code||null
       },
       shiftChecks:{
