@@ -62,6 +62,44 @@ async function fetchCorporationDepartments(connection){
   }
   return best;
 }
+// Live group/POS topology must be read independently of saved connection
+// snapshots. Never treat an unsuccessful or unparseable response as zero
+// groups or zero terminals for a restaurant.
+export async function fetchChainGroupTopology(connection) {
+  try {
+    const response=await getJsonOrXml(connection,
+      "/resto/api/corporation/groups?revisionFrom=-1");
+    if(response.rawFormat==="empty")return {
+      verified:false,groups:[],pointsOfSale:[],code:"GROUPS_EMPTY_RESPONSE"
+    };
+    const xml=String(response.xml||"");
+    const payload=response.payload;
+    const validXml=response.rawFormat==="xml" &&
+      /^\s*<\??(?:xml|[\w:])/i.test(xml) &&
+      /<\/?(?:[\w-]+:)?(?:groups|groupDtoes|groupDto|group|list|items)\b/i.test(xml);
+    const jsonList=Array.isArray(payload) ? payload
+      : payload?.groups??payload?.groupDtoes??payload?.items??payload?.data;
+    const validJson=response.rawFormat==="json" &&
+      (Array.isArray(jsonList) || (payload && typeof payload==="object" &&
+        ("pointOfSaleDtoes" in payload || "departmentId" in payload)));
+    if(!validXml && !validJson)return {
+      verified:false,groups:[],pointsOfSale:[],code:"GROUPS_UNRECOGNIZED_RESPONSE"
+    };
+    const parsed=response.rawFormat==="xml"
+      ?parseGroupsXml(xml):groupObjects(payload);
+    if(response.rawFormat==="json" && Array.isArray(jsonList) &&
+      jsonList.length && !parsed.groups.length)return {
+      verified:false,groups:[],pointsOfSale:[],code:"GROUPS_UNRECOGNIZED_ROWS"
+    };
+    return {
+      verified:true,groups:parsed.groups,pointsOfSale:parsed.pointsOfSale,
+      code:null
+    };
+  } catch (_) {
+    return {verified:false,groups:[],pointsOfSale:[],code:"GROUPS_REQUEST_FAILED"};
+  }
+}
+
 // Shared CHAIN directory discovery. The old CHAIN connection flow is the
 // source of truth for RMS/CHAIN organization provisioning. Do not replace it
 // with the generic connect endpoint or an OLAP-only identity check.
