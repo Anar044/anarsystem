@@ -288,7 +288,12 @@ export async function onRequest(context) {
 
   rewrittenBody = applyOlapPolicy(rewrittenBody, storedState, request);
 
-  if (needsServerCredentials(rewrittenBody) && storedConnection) {
+  // A brokered request MUST use the workspace's stored server credentials,
+  // not IP/login/password supplied in an untrusted browser JSON body.
+  if (env.IIKO_SESSION_BROKER && storedConnection && url.pathname !== "/api/iiko/connect" &&
+      url.pathname !== "/api/iiko/connection" && url.pathname !== "/api/iiko/chain") {
+    rewrittenBody = injectConnection(rewrittenBody, storedConnection);
+  } else if (needsServerCredentials(rewrittenBody) && storedConnection) {
     rewrittenBody = injectConnection(rewrittenBody, storedConnection);
   }
 
