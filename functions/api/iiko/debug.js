@@ -1,4 +1,4 @@
-import { getIikoAuth, iikoText } from "./_lib/iiko-client.js";
+import { iikoText, bindIikoBroker } from "./_lib/iiko-client.js";
 
 function corsHeaders() {
     return {
@@ -89,12 +89,12 @@ export async function onRequestPost(context) {
 
     try {
         const body = await context.request.json();
-        const connection = {
+        const connection = bindIikoBroker({
             ip: String(body.ip || "").trim(),
             port: String(body.port || "").trim(),
             login: String(body.login || "").trim(),
             password: String(body.password || "")
-        };
+        },context);
 
         if (!connection.ip || !connection.port || !connection.login || !connection.password) {
             addTrace(trace, "err", "Входные данные не заполнены");
@@ -105,12 +105,15 @@ export async function onRequestPost(context) {
         addTrace(trace, "info", "Начинаем диагностику", `server=${serverUrl}`);
         addTrace(trace, "info", "→ общий iiko auth", `login=${connection.login}\npassword=*** (скрыт)`);
 
-        const auth = await getIikoAuth(connection);
+        const probe = await iikoText(connection,"/resto/api/corporation/departments/",{
+            headers:{Accept:"application/xml,text/xml,*/*"}
+        });
+        const auth={cacheHit:probe.auth?.cacheHit===true,token:"",viaBroker:probe.auth?.viaBroker===true};
         addTrace(
             trace,
             "ok",
             "← авторизация iiko успешна",
-            `token=получен, длина ${auth.token.length}\ncache=${auth.cacheHit ? "hit" : "miss"}`
+            `token=скрыт\\ncache=${auth.cacheHit ? "hit" : "miss"}`
         );
 
         addTrace(trace, "info", "→ iiko /resto/api/corporation/departments/", "method=GET\nAccept=application/xml\nkey=*** (токен скрыт)");

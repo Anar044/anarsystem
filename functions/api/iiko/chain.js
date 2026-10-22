@@ -1,4 +1,4 @@
-import { clean, iikoText } from './_lib/iiko-client.js';
+import {clean, iikoText, bindIikoBroker } from './_lib/iiko-client.js';
 
 function corsHeaders(){return{"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type"}}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store",...corsHeaders()}})}
@@ -107,11 +107,11 @@ export async function discoverChainStructure(connection){
 }
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
-export async function onRequestPost({request}){
+export async function onRequestPost(context){ const {request}=context;
   try{
     const b=await request.json();
-    const connection={ip:clean(b.ip),port:clean(b.port),
-      login:clean(b.login),password:String(b.password??"")};
+    const connection=bindIikoBroker({ip:clean(b.ip),port:clean(b.port),
+      login:clean(b.login),password:String(b.password??"")},context);
     if(!connection.ip||!connection.port||!connection.login||!connection.password){
       return json({success:false,message:"Заполните IP, порт, логин и пароль SH Server"},400);
     }

@@ -38,6 +38,7 @@ function harness(session={user:{id:'admin-user'},access:admin,storageUserId:'pla
     getUser:async()=>{throw Error('AI Docs must not load raw user state')},
     loadRequestIikoState:async()=>session,
     privateConnection:value=>value?.connection,
+    bindWorkspaceIikoBroker:(connection,env,access)=>connection,
     hasPrivateConnection:value=>Boolean(value?.connection?.ip&&value?.connection?.password),
     hasPermission:(access,permission)=>Boolean(access?.permissions?.includes('*')||access?.permissions?.includes(permission)),
     scopeStateForAssistant,resolveRestaurantScope,

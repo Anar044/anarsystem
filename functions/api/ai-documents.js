@@ -1,7 +1,7 @@
 import { loadRequestIikoState, privateConnection, hasPrivateConnection } from "./iiko/_lib/user-state.js";
 import { hasPermission } from "./access/_lib/access-control.js";
 import { scopeStateForAssistant } from "./iiko/_lib/ai-assistant-context.js";
-import { getIikoAuth } from "./iiko/_lib/iiko-client.js";
+import {bindWorkspaceIikoBroker,iikoReferenceScope} from "./iiko/_lib/iiko-client.js";
 import { getIikoSuppliers } from "./iiko/_lib/iiko-suppliers.js";
 import { loadCachedReferenceMaps } from "./iiko/_lib/reference-cache.js";
 import { aiProviderStatus, processPurchaseDocument } from "./iiko/_lib/ai-document-providers.js";
@@ -142,7 +142,7 @@ async function auth(request,env) {
   const scope=resolveRestaurantScope({state,request,strict:true});
   const documentUserId=documentOwnerKey(stored.storageUserId,stored.user?.id);
   await ensure(env.DB);
-  return {user:stored.user,documentUserId,scope,connection:privateConnection(stored.state)};
+  return {user:stored.user,documentUserId,scope,connection:bindWorkspaceIikoBroker(privateConnection(stored.state),env,stored.access)};
 }
 function publicRow(r){
   if(!r)return null;
@@ -171,7 +171,7 @@ function requireSingleRestaurant(scope){
   return clean(scope?.selectedDepartmentIds?.[0]);
 }
 async function referenceData(env,connection,scope=null){
-  const auth=await getIikoAuth(connection);
+  const auth={serverUrl:iikoReferenceScope(connection),cacheHit:false};
 
   // The AI page already warms these D1 reference tables when it loads.
   // Re-downloading and reparsing the whole CHAIN catalog during every OCR

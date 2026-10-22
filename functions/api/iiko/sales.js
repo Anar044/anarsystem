@@ -1,4 +1,4 @@
-import { clean, getOlapFields, iikoText } from "./_lib/iiko-client.js";
+import {clean, getOlapFields, iikoText, bindIikoBroker } from "./_lib/iiko-client.js";
 
 function corsHeaders() {
     return {
@@ -42,12 +42,12 @@ export async function onRequestOptions() {
 export async function onRequestPost(context) {
     try {
         const body = await context.request.json();
-        const connection = {
+        const connection = bindIikoBroker({
             ip: clean(body.ip),
             port: clean(body.port),
             login: clean(body.login),
             password: String(body.password || "")
-        };
+        },context);
         const from = clean(body.from);
         const to = clean(body.to);
         const departmentIds = [...new Set((Array.isArray(body.departmentIds) ? body.departmentIds : []).map(clean).filter(Boolean))];

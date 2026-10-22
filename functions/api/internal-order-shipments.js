@@ -4,7 +4,7 @@ import {getUser,loadPrivateIikoState,privateConnection,hasPrivateConnection} fro
 import {restaurantDirectory} from "./iiko/_lib/restaurant-scope.js";
 import {resolveAccessForUser,hasPermission,requirePermission} from "./access/_lib/access-control.js";
 import {serverScopeFromConnection,logAuditEvent} from "./_lib/audit-log.js";
-import {iikoText,iikoJson} from "./iiko/_lib/iiko-client.js";
+import {iikoText,iikoJson,bindWorkspaceIikoBroker} from "./iiko/_lib/iiko-client.js";
 import {resolveStoreScope} from "./iiko/_lib/store-scope.js";
 import {warehouseCostRows,costQuote} from "./_lib/internal-shipment-cost.js";
 import {inspectOutgoingForOrder} from "./_lib/internal-order-invoice.js";
@@ -49,7 +49,7 @@ async function ctx(request,env){
   const access=await resolveAccessForUser(env.DB,auth.user,{claimInvite:true,request});if(!access?.allowed)throw err("Доступ запрещён.",403);
   const stored=await loadPrivateIikoState(env.DB,access.storageUserId||access.ownerUserId||auth.user.id,env);
   if(!stored?.found||!hasPrivateConnection(stored.state))throw err("Подключите Smart Horeca Server.",409);
-  const conn=privateConnection(stored.state),scope=await serverScopeFromConnection(conn);
+  const conn=bindWorkspaceIikoBroker(privateConnection(stored.state),env,access),scope=await serverScopeFromConnection(conn);
   if(!scope)throw err("Контур сервера не определён.",409);
   const dep=restaurantDirectory(stored.state),a=access.scope;
   const allowed=access.isOwner||a?.mode!=="SELECTED"?dep:dep.filter(x=>(a.departmentIds||[]).some(y=>id(y)===id(x.id))||(a.departmentCodes||[]).includes(x.code));

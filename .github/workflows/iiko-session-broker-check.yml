@@ -1,0 +1,28 @@
+name: Central iiko Session Broker Check
+
+on:
+  pull_request:
+    paths:
+      - 'services/iiko-session-broker/**'
+      - 'functions/api/iiko/**'
+      - 'tests/iiko-session-broker.test.mjs'
+      - 'tests/iiko-rest403-auth-retry.test.mjs'
+      - '.github/workflows/iiko-session-broker-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/iiko-session-broker/**'
+      - 'functions/api/iiko/**'
+      - 'tests/iiko-session-broker.test.mjs'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check services/iiko-session-broker/src/worker.mjs
+      - run: node --check functions/api/iiko/_lib/iiko-client.js
+      - run: node --test tests/iiko-session-broker.test.mjs tests/iiko-rest403-auth-retry.test.mjs tests/iiko-broker-route-coverage.test.mjs

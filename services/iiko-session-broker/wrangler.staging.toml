@@ -1,0 +1,21 @@
+# Test-only broker for iiko test server s01.smarthoreca.az:9132.
+# Worker Git build source: feature/iiko-central-session-broker-20261022.
+# No routes/workers.dev endpoints; do not attach to production Pages.
+# Do NOT point the production smarthoreca.pages.dev Pages binding to this Worker.
+name = "sh-iiko-session-broker-test"
+main = "src/worker.mjs"
+compatibility_date = "2026-10-01"
+workers_dev = false
+
+[vars]
+IIKO_AUTH_METHOD = "GET"
+IIKO_MAX_PARALLEL_REQUESTS = "3"
+IIKO_MAX_PENDING_REQUESTS = "20"
+IIKO_ALLOWED_TARGETS = "s01.smarthoreca.az:9132"
+
+[durable_objects]
+bindings = [{ name = "IIKO_SESSIONS", class_name = "IikoSession" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["IikoSession"]

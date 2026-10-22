@@ -1,0 +1,20 @@
+name = "sh-iiko-session-broker"
+main = "src/worker.mjs"
+compatibility_date = "2026-10-01"
+workers_dev = false
+
+[vars]
+# Existing production installations use GET /auth; test POST separately.
+IIKO_AUTH_METHOD = "GET"
+# One licensed auth session. Up to three concurrent iiko data calls per
+# registered workspace/credential. Set to 1 for strict sequential mode.
+IIKO_MAX_PARALLEL_REQUESTS = "3"
+# FIFO queue cap; overload returns 429, never starts another auth.
+IIKO_MAX_PENDING_REQUESTS = "100"
+
+[durable_objects]
+bindings = [{ name = "IIKO_SESSIONS", class_name = "IikoSession" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["IikoSession"]

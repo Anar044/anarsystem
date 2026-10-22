@@ -75,7 +75,7 @@ function toolsHarness(){
   const synced=[];
   const mock={
     clean:value=>String(value??"").trim(),
-    getIikoAuth:async()=>({serverUrl:"http://shared-server:8080",token:"token"}),
+    iikoReferenceScope:()=> "http://shared-server:8080",
     syncReferences:async(...params)=>{synced.push(params);return{maps:{products:new Map([["p1","Томаты"]]),warehouses:new Map(),suppliers:new Map()}}},
     getIikoSuppliers:async()=>({rows:[{id:"sup",name:"Поставщик"}]}),
     iikoJson:async(_c,path)=>{
@@ -96,8 +96,8 @@ test("AI reference dictionaries are segregated by workspace even on identical se
   assert.ok(a.products.length);
   assert.ok(b.products.length);
   assert.equal(harness.synced.length,2);
-  assert.notEqual(harness.synced[0][4],harness.synced[1][4]);
-  assert.ok(harness.synced.every(entry=>entry[4].includes("ai-v2")));
+  assert.notEqual(harness.synced[0][3],harness.synced[1][3]);
+  assert.ok(harness.synced.every(entry=>entry[3].includes("ai-v2")));
 });
 
 test("AI rejects supplier balances when department ownership cannot be proven",async()=>{

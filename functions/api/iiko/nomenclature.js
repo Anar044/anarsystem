@@ -1,4 +1,4 @@
-import { clean, iikoJson, sha1 } from './_lib/iiko-client.js';
+import { clean, iikoJson, sha1, bindIikoBroker, iikoReferenceScope } from './_lib/iiko-client.js';
 import { logAuditEvent } from '../_lib/audit-log.js';
 
 const bootstrapCache=new Map();
@@ -15,7 +15,7 @@ function corsHeaders(){return {'Access-Control-Allow-Origin':'*','Access-Control
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json',...corsHeaders()}})}
 function buildPath(path,params={}){const q=new URLSearchParams();for(const[k,v]of Object.entries(params)){if(v===undefined||v===null||v==='')continue;if(Array.isArray(v))v.forEach(x=>q.append(k,String(x)));else q.set(k,String(v))}const s=q.toString();return s?`${path}?${s}`:path}
 function normalizeConnection(connection){const c={ip:clean(connection?.ip),port:clean(connection?.port),login:clean(connection?.login),password:String(connection?.password||'')};if(!c.ip||!c.port||!c.login||!c.password)throw new Error('Нет подключения iiko Server');return c}
-async function connectionCacheKey(connection){const c=normalizeConnection(connection);return `${c.ip}:${c.port}|${c.login}|${await sha1(c.password)}`}
+async function connectionCacheKey(connection){const c=normalizeConnection(connection);return `${iikoReferenceScope(connection)}|${await sha1(c.password)}`}
 function actionSpec(action,params={},payload=null){let path,method='GET',body;
 switch(action){
 case'products.list':path='/resto/api/v2/entities/products/list';break;
@@ -164,9 +164,10 @@ export async function onRequestPost(context){try{
   const b=await context.request.json();
   const action=String(b.action||'');
   const params=b.params||{},payload=b.payload??null;
+  const connection=bindIikoBroker(b.connection||b,context);
   const mutation=isMutation(action);
-  const before=mutation?await mutationBefore(action,b.connection,params,payload):null;
-  const data=await resolveAction(action,b.connection,params,payload);
+  const before=mutation?await mutationBefore(action,connection,params,payload):null;
+  const data=await resolveAction(action,connection,params,payload);
   let audit=null;
   if(mutation){
     const id=payloadEntityId(action,params,payload)||clean(data?.id);
@@ -189,4 +190,13 @@ export async function onRequestPost(context){try{
   }
   return json({success:true,data,audit:audit?{logged:audit.logged===true,changes:audit.changes||0}:undefined});
 }catch(e){return json({success:false,message:e?.message||'Ошибка iiko API'},502)}}
-export async function onRequestGet({request}){try{const q=new URL(request.url).searchParams,connection=JSON.parse(q.get('connection')||'{}'),action=q.get('action')||'',params={};q.forEach((v,k)=>{if(k==='connection'||k==='action')return;if(params[k]===undefined)params[k]=v;else params[k]=Array.isArray(params[k])?[...params[k],v]:[params[k],v]});const data=await resolveAction(action,connection,params,null);return json({success:true,data})}catch(e){return json({success:false,message:e?.message||'Ошибка iiko API'},502)}}
+export async function onRequestGet(context){
+  // Prevent URL-embedded iiko credentials and bypass of broker isolation.
+  if(context.env?.IIKO_SESSION_BROKER)return json({success:false,code:"BROKER_POST_REQUIRED",
+    message:"Используйте POST для запросов номенклатуры."},405);
+  const {request}=context;
+  try{const q=new URL(request.url).searchParams,connection=JSON.parse(q.get('connection')||'{}'),action=q.get('action')||'',params={};
+  q.forEach((v,k)=>{if(k==='connection'||k==='action')return;if(params[k]===undefined)params[k]=v;else params[k]=Array.isArray(params[k])?[...params[k],v]:[params[k],v]});
+  const data=await resolveAction(action,connection,params,null);return json({success:true,data});
+  }catch(e){return json({success:false,message:e?.message||'Ошибка iiko API'},502)}
+}

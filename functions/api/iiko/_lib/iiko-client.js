@@ -96,32 +96,100 @@ function cloudflareDiagnostic(response, body) {
   return `Cloudflare HTTP ${response?.status || 530}${suffix}: проблема DNS/origin у адреса iiko Server`;
 }
 
+// Only a trusted Pages handler can attach a broker binding. It is deliberately
+// non-enumerable: neither Cloudflare bindings nor tenant IDs can leak via JSON.
+export function bindIikoBroker(connection, context) {
+  if (!context?.env?.IIKO_SESSION_BROKER) return connection;
+  const tenantId=clean(context?.data?.shBrokerTenantId);
+  if(!tenantId || !context.env.IIKO_BROKER_SERVICE_SECRET)
+    throw Error("SH central iiko broker has no verified tenant or service secret");
+  const bound={...connection};
+  Object.defineProperty(bound,"_shBroker",{
+    value:{service:context.env.IIKO_SESSION_BROKER,secret:context.env.IIKO_BROKER_SERVICE_SECRET,tenantId},
+    configurable:false,enumerable:false,writable:false
+  });
+  return bound;
+}
+
+// Server-side authorization helpers. The workspace MUST come from RBAC and
+// must never be accepted from request JSON or mobile client configuration.
+export function bindWorkspaceIikoBroker(connection, env, access) {
+  if(!env?.IIKO_SESSION_BROKER)return connection;
+  const workspaceId=clean(access?.workspace?.id);
+  if(!access?.allowed || !workspaceId)throw Error("Broker requires verified workspace access");
+  return bindIikoBroker(connection,{env,data:{shBrokerTenantId:"workspace:"+workspaceId}});
+}
+
+export function iikoReferenceScope(connection) {
+  const c=normalizeConnection(connection);
+  return connection?._shBroker
+    ? JSON.stringify(["workspace",connection._shBroker.tenantId,c.serverUrl,c.login])
+    : c.serverUrl;
+}
+
+async function brokerExchange(connection,action,path="",options={}) {
+  const bridge=connection?._shBroker;
+  if(!bridge)throw Error("SH central iiko broker not bound");
+  const c=normalizeConnection(connection);
+  const payload={
+    tenantId:bridge.tenantId,action,
+    connection:{ip:c.ip,port:c.port,login:c.login,password:c.password},
+    ...(action==="request"?{request:{
+      path,method:options.method||"GET",headers:options.headers||{},
+      body:options.body,timeoutMs:options.timeoutMs,retryAuth:options.retryAuth
+    }}:{})
+  };
+  let response;
+  try {
+    response=await bridge.service.fetch("https://broker.internal/request",{
+      method:"POST",
+      headers:{"content-type":"application/json","x-sh-broker-secret":bridge.secret},
+      body:JSON.stringify(payload)
+    });
+  } catch {
+    throw Error("SH central iiko broker unreachable; auth was NOT retried directly");
+  }
+  if(action==="logout") {
+    if(!response.ok)throw Error(`SH central iiko broker logout HTTP ${response.status}`);
+    const data=await response.json();
+    return data.released===true;
+  }
+  if(response.headers.get("x-sh-broker-result")!=="upstream") {
+    // NEVER fail over to direct /auth: that could consume another licensed seat.
+    let issue={};
+    try{issue=await response.json()}catch{}
+    throw Error(`SH central iiko broker ${issue.code||"UNAVAILABLE"} (HTTP ${response.status}). Direct authorization blocked.`);
+  }
+  const metric=name=>{
+    const value=Number(response.headers.get(name));
+    return Number.isFinite(value)&&value>=0?value:0;
+  };
+  return {response,auth:{serverUrl:c.serverUrl,cacheHit:response.headers.get("x-sh-broker-cache")==="1",
+    viaBroker:true,connectionKey:bridge.tenantId,
+    brokerTiming:{queueMs:metric("x-sh-broker-wait-ms"),iikoMs:metric("x-sh-broker-upstream-ms"),
+      parallel:metric("x-sh-broker-parallel"),
+      coalesced:response.headers.get("x-sh-broker-coalesced")==="1"}}};
+}
+
 async function performAuthentication(connection, key) {
   const c = normalizeConnection(connection);
   const passwordHash = await sha1(c.password);
   const url = `${c.serverUrl}/resto/api/auth?login=${encodeURIComponent(c.login)}&pass=${passwordHash}`;
-  let lastResponse=null,lastToken="";
-  const delays=[0,350,1000];
-  for(let attempt=0;attempt<delays.length;attempt++){
-    if(delays[attempt])await sleep(delays[attempt]);
-    const response=await fetchWithTimeout(url,{method:"GET",cache:"no-store"},12000);
-    const token=(await response.text()).trim();
-    lastResponse=response;lastToken=token;
-    if(response.ok&&token){
-      tokenCache.set(key,{token});
-      return{serverUrl:c.serverUrl,token,cacheHit:false,connectionKey:key,authAttempts:attempt+1};
-    }
-    if(!authRetryableStatus(response.status))break;
+  // Auth occupies a REST_API slot. Retrying a 503/timeout can allocate
+  // multiple seats if the successful token response was lost by a proxy.
+  const response=await fetchWithTimeout(url,{method:"GET",cache:"no-store"},12000);
+  const token=(await response.text()).trim();
+  if(response.ok && token){
+    tokenCache.set(key,{token});
+    return{serverUrl:c.serverUrl,token,cacheHit:false,connectionKey:key,authAttempts:1};
   }
   tokenCache.delete(key);
-  const cf=cloudflareDiagnostic(lastResponse,lastToken);
-  if(cf)throw new Error(cf);
-  const status=Number(lastResponse?.status)||0;
-  const preview=lastToken?` — ${lastToken.slice(0,240).replace(/\s+/g," ")}`:"";
-  if(authRetryableStatus(status)){
-    throw new Error(`SH Server временно недоступен при авторизации: HTTP ${status}. Выполнено 3 попытки.${preview}`);
-  }
-  throw new Error(`Ошибка авторизации iiko Server: HTTP ${status}${preview}`);
+  const cf=cloudflareDiagnostic(response,token);
+  if(cf)throw Error(cf);
+  const status=Number(response?.status)||0;
+  const preview=token?` — ${token.slice(0,240).replace(/\s+/g," ")}`:"";
+  throw Error(`iiko auth HTTP ${status}. Repeated authentication blocked to protect REST_API licences.${preview}`);
+
 }
 
 async function authenticate(connection, force = false) {
@@ -148,6 +216,7 @@ async function authenticate(connection, force = false) {
 }
 
 export async function getIikoAuth(connection, options = {}) {
+  if(connection?._shBroker)throw Error("Direct token access disabled for brokered iiko connection");
   return authenticate(connection, options.force === true);
 }
 
@@ -169,6 +238,7 @@ async function sequentialIikoCall(key, task) {
 }
 
 export async function iikoFetch(connection, path, options = {}) {
+  if(connection?._shBroker) return brokerExchange(connection,"request",path,options);
   const {
     method = "GET",
     headers = {},
@@ -201,6 +271,7 @@ export async function iikoFetch(connection, path, options = {}) {
 /// credential replacement. Do not run after every request: many SH modules
 /// share the authenticated session and still need its key.
 export async function releaseIikoSession(connection) {
+  if(connection?._shBroker)return brokerExchange(connection,"logout");
   const key=await connectionKey(connection);
   return sequentialIikoCall(key,async()=>{
     const cached=tokenCache.get(key);

@@ -4,7 +4,7 @@ import {getUser,loadPrivateIikoState,privateConnection,hasPrivateConnection} fro
 import {restaurantDirectory,cookieDepartmentIds} from "./iiko/_lib/restaurant-scope.js";
 import {resolveAccessForUser,hasPermission,requirePermission} from "./access/_lib/access-control.js";
 import {resolveStoreScope} from "./iiko/_lib/store-scope.js";
-import {iikoText} from "./iiko/_lib/iiko-client.js";
+import {iikoText,bindWorkspaceIikoBroker} from "./iiko/_lib/iiko-client.js";
 import {parseOutgoingForVerification,inspectOutgoingForOrder} from "./_lib/internal-order-invoice.js";
 import {serverScopeFromConnection,logAuditEvent} from "./_lib/audit-log.js";
 import {normalizeInternalLines,validateApproval,internalNextStatus,assertCrossRmsRoute,canAccessInternalOrder} from "./_lib/internal-order-core.js";
@@ -55,7 +55,7 @@ async function context(request,env){
   if(!access?.allowed)throw fail("Нет доступа к Smart Horeca.",403);
   const stored=await loadPrivateIikoState(env.DB,access.storageUserId||access.ownerUserId||auth.user.id,env);
   if(!stored?.found||!hasPrivateConnection(stored.state))throw fail("Подключите Smart Horeca Server.",409);
-  const connection=privateConnection(stored.state),serverScope=await serverScopeFromConnection(connection);
+  const connection=bindWorkspaceIikoBroker(privateConnection(stored.state),env,access),serverScope=await serverScopeFromConnection(connection);
   if(!serverScope)throw fail("Контур сервера не определён.",409);
   const directory=restaurantDirectory(stored.state),allowed=permittedDepartments(access,directory);
   if(!allowed.length)throw fail("Нет доступных подразделений RMS.",403);

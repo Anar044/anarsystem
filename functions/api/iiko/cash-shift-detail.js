@@ -1,4 +1,4 @@
-import { iikoJson } from "./_lib/iiko-client.js";
+import {iikoJson, bindIikoBroker } from "./_lib/iiko-client.js";
 
 function corsHeaders() {
     return {
@@ -66,12 +66,12 @@ export async function onRequestOptions() {
 export async function onRequestPost(context) {
     try {
         const body = await context.request.json();
-        const connection = {
+        const connection = bindIikoBroker({
             ip: String(body.ip || "").trim(),
             port: String(body.port || "").trim(),
             login: String(body.login || "").trim(),
             password: String(body.password || "")
-        };
+        },context);
         const sessionId = String(body.sessionId || body.sessionID || body.id || "").trim();
 
         if (!connection.ip || !connection.port || !connection.login || !connection.password) return jsonResponse({ success: false, message: "Заполните IP, порт, логин и пароль SH Server" }, 400);

@@ -2,7 +2,7 @@ import { getUser, loadPrivateIikoState, privateConnection, hasPrivateConnection 
 import { resolveRestaurantScope, cookieDepartmentIds } from "./iiko/_lib/restaurant-scope.js";
 import { resolveAccessForUser, hasPermission, requirePermission } from "./access/_lib/access-control.js";
 import { serverScopeFromConnection, auditScopeFromConnection, logAuditEvent } from "./_lib/audit-log.js";
-import { iikoText } from "./iiko/_lib/iiko-client.js";
+import { iikoText, bindWorkspaceIikoBroker } from "./iiko/_lib/iiko-client.js";
 
 const HEADERS={
   "Access-Control-Allow-Origin":"*",
@@ -396,7 +396,7 @@ async function contextFor(request,env){
   const storageUserId=access.storageUserId||access.ownerUserId;
   const stored=await loadPrivateIikoState(env.DB,storageUserId,env);
   if(!stored?.found||!hasPrivateConnection(stored.state)){const e=new Error("Сначала подключите Smart Horeca Server в настройках.");e.status=409;throw e}
-  const connection=privateConnection(stored.state);
+  const connection=bindWorkspaceIikoBroker(privateConnection(stored.state),env,access);
   const serverScope=await serverScopeFromConnection(connection);
   if(!serverScope)throw new Error("Не удалось определить контур подключенного сервера.");
   const scope=scopedByAccess(stored.state,request,access);

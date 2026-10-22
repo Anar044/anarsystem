@@ -1,5 +1,5 @@
 import { resolveStoreScope } from "./_lib/store-scope.js";
-import { clean, getOlapFields, iikoJson, iikoText } from "./_lib/iiko-client.js";
+import {clean, getOlapFields, iikoJson, iikoText, bindIikoBroker } from "./_lib/iiko-client.js";
 
 const cache=new Map();
 const CACHE_TTL_MS=5*60*1000;
@@ -261,10 +261,10 @@ function percent(n,d){return Math.abs(d)>1e-12?n/d*100:null}
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:cors()})}
 
-export async function onRequestPost({request}){
+export async function onRequestPost(context){ const {request}=context;
   const requestId=crypto.randomUUID?.()||Date.now().toString(36);
   try{
-    const b=await request.json(),connection={ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??"")};
+    const b=await request.json(),connection=bindIikoBroker({ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??"")},context);
     const from=dateOnly(b.from),to=dateOnly(b.to),departmentIds=[...new Set((Array.isArray(b.departmentIds)?b.departmentIds:[]).map(key).filter(Boolean))],storeId=key(b.storeId);
     if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Нет подключения к iiko Server",requestId},400);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return json({success:false,message:"Проверьте период",requestId},400);

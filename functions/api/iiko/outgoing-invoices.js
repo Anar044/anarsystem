@@ -1,5 +1,5 @@
 import { syncReferences } from "./references.js";
-import { getIikoAuth, iikoText } from "./_lib/iiko-client.js";
+import {iikoReferenceScope, iikoText, bindIikoBroker } from "./_lib/iiko-client.js";
 import { loadCachedReferenceMaps } from "./_lib/reference-cache.js";
 import { resolveStoreScope } from "./_lib/store-scope.js";
 
@@ -136,16 +136,16 @@ async function requestXml(connection, path) {
   return iikoText(connection, path, { headers: { Accept: "application/xml,text/xml,*/*" } });
 }
 
-async function getReferences(env, auth, neededSupplierIds = []) {
+async function getReferences(env, connection, neededSupplierIds = []) {
   try {
-    const cached = await loadCachedReferenceMaps(env, auth.serverUrl, neededSupplierIds);
+    const cached = await loadCachedReferenceMaps(env, iikoReferenceScope(connection), neededSupplierIds);
     if (cached) {
       return {
         ...cached,
         diagnostics: { cache: { hit: true, ageMs: cached.ageMs, ttlMs: cached.ttlMs } }
       };
     }
-    const synced = await syncReferences(env, auth.serverUrl, auth.token, neededSupplierIds);
+    const synced = await syncReferences(env, connection, neededSupplierIds);
     return { ...synced, cacheHit: false };
   } catch (error) {
     return {
@@ -199,12 +199,12 @@ export async function onRequestOptions() {
 export async function onRequestPost(context) {
   try {
     const body = await context.request.json();
-    const connection = {
+    const connection = bindIikoBroker({
       ip: String(body.ip || "").trim(),
       port: String(body.port || "").trim(),
       login: String(body.login || "").trim(),
       password: String(body.password || "")
-    };
+    },context);
 
     if (!connection.ip || !connection.port || !connection.login || !connection.password) {
       return jsonResponse({ success: false, message: "Заполните IP, порт, логин и пароль SH Server" }, 400);
@@ -240,9 +240,9 @@ export async function onRequestPost(context) {
         return ids.some(id=>wantedStores.has(id));
       });
     }
-    const auth = await getIikoAuth(connection);
+    const auth = {serverUrl:iikoReferenceScope(connection),cacheHit:false};
     const needed = [...new Set(result.docs.map(document => key(document.counteragentId)).filter(Boolean))];
-    const references = await getReferences(context.env, auth, needed);
+    const references = await getReferences(context.env, connection, needed);
     const maps = references.maps || references;
     const documents = applyNames(result.docs, maps);
 

@@ -1,4 +1,4 @@
-import { iikoFetch } from "./_lib/iiko-client.js";
+import {iikoFetch, bindIikoBroker } from "./_lib/iiko-client.js";
 
 const headers = {
   "Access-Control-Allow-Origin": "*",
@@ -25,15 +25,15 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers });
 }
 
-export async function onRequestPost({ request }) {
+export async function onRequestPost(context){ const {request}=context;
   try {
     const body = await request.json();
-    const connection = {
+    const connection = bindIikoBroker({
       ip: String(body.ip || "").trim(),
       port: String(body.port || "").trim(),
       login: String(body.login || "").trim(),
       password: String(body.password || "")
-    };
+    },context);
     const imageId = String(body.imageId || "").trim();
 
     if (!connection.ip || !connection.port || !connection.login || !connection.password || !imageId) {

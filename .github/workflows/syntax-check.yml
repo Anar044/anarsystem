@@ -266,9 +266,13 @@ jobs:
             fi
             grep -q './_lib/iiko-client.js' "$file"
           done
-          grep -q 'getIikoAuth' functions/api/iiko/incoming-invoices.js
-          grep -q 'getIikoAuth' functions/api/iiko/outgoing-invoices.js
-          grep -q 'getIikoAuth' functions/api/iiko/references.js
+          grep -q 'bindIikoBroker' functions/api/iiko/incoming-invoices.js
+          grep -q 'bindIikoBroker' functions/api/iiko/outgoing-invoices.js
+          grep -q 'iikoText' functions/api/iiko/references.js
+          if grep -Eq 'getIikoAuth|encodeURIComponent\\(token\\)' functions/api/iiko/incoming-invoices.js functions/api/iiko/outgoing-invoices.js functions/api/iiko/references.js; then
+            echo 'Legacy token path reintroduced in shared document routes'
+            exit 1
+          fi
           grep -q 'iikoText' functions/api/iiko/connect.js
           echo 'Shared iiko authentication check passed'
 

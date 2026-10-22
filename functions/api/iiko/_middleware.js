@@ -220,6 +220,11 @@ export async function onRequest(context) {
     if(!auth)return accessDenied("Требуется авторизация.",401,"UNAUTHENTICATED");
     access=await resolveAccessForUser(env.DB,auth.user,{claimInvite:true,request});
     if(!access.allowed)return accessDenied("Доступ к Smart Horeca не назначен.",403,access.reason||"ACCESS_DENIED");
+    // Request-scoped, server-verified tenant for the private session broker.
+    // Never derive this value from JSON, cookies, query params or device inputs.
+    context.data ??= {};
+    if(access.workspace?.id) context.data.shBrokerTenantId="workspace:"+String(access.workspace.id);
+    else if(env.IIKO_SESSION_BROKER) return accessDenied("Рабочая область не определена.",403,"WORKSPACE_REQUIRED");
   }
 
   let body=null;
@@ -283,7 +288,12 @@ export async function onRequest(context) {
 
   rewrittenBody = applyOlapPolicy(rewrittenBody, storedState, request);
 
-  if (needsServerCredentials(rewrittenBody) && storedConnection) {
+  // A brokered request MUST use the workspace's stored server credentials,
+  // not IP/login/password supplied in an untrusted browser JSON body.
+  if (env.IIKO_SESSION_BROKER && storedConnection && url.pathname !== "/api/iiko/connect" &&
+      url.pathname !== "/api/iiko/connection" && url.pathname !== "/api/iiko/chain") {
+    rewrittenBody = injectConnection(rewrittenBody, storedConnection);
+  } else if (needsServerCredentials(rewrittenBody) && storedConnection) {
     rewrittenBody = injectConnection(rewrittenBody, storedConnection);
   }
 

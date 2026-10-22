@@ -1,4 +1,4 @@
-import { clean, iikoJson, getOlapFields } from "./_lib/iiko-client.js";
+import {clean, iikoJson, getOlapFields, bindIikoBroker } from "./_lib/iiko-client.js";
 import { getUser } from "./_lib/user-state.js";
 import { listAccountingJournal } from "../hr/_lib/payroll-accounting.js";
 
@@ -180,11 +180,11 @@ function normalizePosting(row,fields,matchedOn="account"){
 }
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()});}
 
-export async function onRequestPost({request,env}){
+export async function onRequestPost(context){ const {request,env}=context;
   try{
     const auth=await getUser(request,env).catch(()=>null);
     const body=await request.json();
-    const connection={ip:clean(body.ip),port:clean(body.port),login:clean(body.login),password:String(body.password||"")};
+    const connection=bindIikoBroker({ip:clean(body.ip),port:clean(body.port),login:clean(body.login),password:String(body.password||"")},context);
     if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:"Нет подключения к SH Server"},400);
     const from=dateOnly(body.from),to=dateOnly(body.to),accountId=clean(body.accountId),accountCode=clean(body.accountCode),accountName=clean(body.accountName);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return json({success:false,message:"Укажите корректный период"},400);

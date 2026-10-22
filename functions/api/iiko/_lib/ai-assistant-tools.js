@@ -1,4 +1,4 @@
-import { clean, getIikoAuth, getOlapFields, iikoJson, iikoText } from "./iiko-client.js";
+import { clean, iikoReferenceScope, getOlapFields, iikoJson, iikoText } from "./iiko-client.js";
 import { syncReferences } from "../references.js";
 import { getIikoSuppliers } from "./iiko-suppliers.js";
 import { resolveStoreScope } from "./store-scope.js";
@@ -116,12 +116,12 @@ function mapRows(map) {
 async function references(env, connection, access) {
   const workspaceId=clean(access?.workspace?.id),storageId=clean(access?.storageUserId);
   if(!workspaceId||!storageId)throw Error("AI: организация не подтверждена, справочники недоступны.");
-  const auth = await getIikoAuth(connection);
+  const referenceScope=iikoReferenceScope(connection);
   // The same server URL can host different businesses/credentials. AI must
   // never read a dictionary cached under another workspace or login.
-  const dictionaryScope=JSON.stringify(["ai-v2",workspaceId,storageId,auth.serverUrl,clean(connection.login),String(connection.password||"")]);
+  const dictionaryScope=JSON.stringify(["ai-v2",workspaceId,storageId,referenceScope,clean(connection.login),String(connection.password||"")]);
   const [synced, suppliersResult] = await Promise.all([
-    syncReferences(env, auth.serverUrl, auth.token, [], dictionaryScope),
+    syncReferences(env, connection, [], dictionaryScope),
     getIikoSuppliers(connection)
   ]);
   const maps = synced.maps || {};
