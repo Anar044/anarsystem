@@ -1,4 +1,4 @@
-import { clean, iikoFetch, iikoJson, iikoText } from './_lib/iiko-client.js';
+import {clean, iikoFetch, iikoJson, iikoText, bindIikoBroker } from './_lib/iiko-client.js';
 
 function corsHeaders() {
     return {
@@ -225,12 +225,12 @@ export async function onRequestOptions() {
 export async function onRequestPost(context) {
     try {
         const body = await context.request.json();
-        const connection = {
+        const connection = bindIikoBroker({
             ip: clean(body.ip),
             port: clean(body.port),
             login: clean(body.login),
             password: String(body.password || "")
-        };
+        },context);
 
         if (!connection.ip || !connection.port || !connection.login || !connection.password) {
             return jsonResponse({ success: false, message: "Заполните IP, порт, логин и пароль iiko" }, 400);
