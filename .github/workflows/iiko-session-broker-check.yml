@@ -25,4 +25,4 @@ jobs:
           node-version: '22'
       - run: node --check services/iiko-session-broker/src/worker.mjs
       - run: node --check functions/api/iiko/_lib/iiko-client.js
-      - run: node --test tests/iiko-session-broker.test.mjs tests/iiko-rest403-auth-retry.test.mjs
+      - run: node --test tests/iiko-session-broker.test.mjs tests/iiko-rest403-auth-retry.test.mjs tests/iiko-broker-route-coverage.test.mjs
