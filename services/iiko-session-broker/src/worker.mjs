@@ -59,7 +59,7 @@ function outgoing(upstream, body, cached) {
   const headers=new Headers({"cache-control":"no-store","x-sh-broker-result":"upstream","x-sh-broker-cache":cached?"1":"0"});
   const ct=upstream.headers.get("content-type");
   if(ct)headers.set("content-type",ct);
-  return new Response(body,{status:upstream.status,headers});
+  return new Response([204,205,304].includes(upstream.status)?null:body,{status:upstream.status,headers});
 }
 function fail(code,message,status=503) {return json({success:false,code,message},status);}
 
