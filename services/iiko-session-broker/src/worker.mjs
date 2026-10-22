@@ -118,7 +118,9 @@ export class IikoSession {
     if(body!==undefined && body!==null && typeof body!=="string")throw Error("Only string bodies supported");
     if(["GET","DELETE"].includes(method) && body)throw Error("Body not allowed for this method");
     const response=await sleepAbort(u.toString(),{method,headers,body:body||undefined,cache:"no-store",redirect:"manual"},Number(params.timeoutMs)>0?Math.min(Number(params.timeoutMs),60000):20000);
-    return {response,body:await response.text()};
+    // iiko can return binary QR/menu images as well as JSON and XML.
+    // Keep the raw bytes; text decoding would corrupt JPEG/PNG responses.
+    return {response,body:await response.arrayBuffer()};
   }
   async handle(request) {
     try {
