@@ -80,8 +80,14 @@ verified workspace ID; do not guess one from screen labels.
    Use **new**, independent production secrets; never copy the test encryption
    key. Save keys securely; values must never appear in GitHub.
 3. Set `IIKO_ALLOWED_TARGETS` in production Worker to a comma-separated list
-   of **every actual, registered iiko server host:port**. There is no safe
-   host wildcard. If an expected server is absent, that network will receive
+   of **every actual, registered iiko server hostname or host:port**. A bare
+   exact DNS hostname (e.g. `s01.smarthoreca.az`) permits all valid TCP
+   ports for that host; an entry with a port (e.g. `s01.smarthoreca.az:9132`)
+   permits only that endpoint. No `*` wildcards, subdomains, suffix matching,
+   URL prefixes, or IP ranges are allowed. Host-only entries are intentionally
+   broader: they may reach non-iiko ports at the allowed host, so use them
+   only on trusted server-controlled domains. They do **not** cover other
+   iiko hosts such as `s02.smarthoreca.az` or customer-owned domains. If an expected server is absent, that network will receive
    `TARGET_DENIED`; do NOT skip this control or expose an open proxy.
 4. Add `IIKO_SESSION_BROKER` Service binding (entrypoint Default) to the
    **Production** environment of Cloudflare Pages `smarthoreca`. Make sure
@@ -108,7 +114,7 @@ restaurant chains' independently hosted servers.
    and `IIKO_BROKER_ENCRYPTION_KEY_B64` (base64 of 32 random bytes).
    Configure both with `wrangler secret put`; never publish or rotate the
    encryption key without a controlled session-drain procedure.
-3. Configure `IIKO_ALLOWED_TARGETS` as a comma-separated allowlist of registered iiko hosts and ports (e.g. `restaurant.example:8080`); an empty list rejects all traffic. Do not expose local/cloud metadata endpoints. Deploy Worker `sh-iiko-session-broker` with Durable Object SQLite migration.
+3. Configure `IIKO_ALLOWED_TARGETS` as a comma-separated allowlist of registered exact iiko DNS hostnames (all ports) and/or exact `host:port` entries (single port); e.g. `s01.smarthoreca.az,other.example:8080`. An empty list rejects all traffic. The production `wrangler.toml` currently contains the exact DNS host `s01.smarthoreca.az`, so all its ports are allowed, **but no other hostname is allowed**. Do not expose local/cloud metadata endpoints. Deploy Worker `sh-iiko-session-broker` with Durable Object SQLite migration.
    Keep `workers_dev = false` and no public route.
 4. Add Pages service binding `IIKO_SESSION_BROKER` -> `sh-iiko-session-broker`;
    set Pages secret `IIKO_BROKER_SERVICE_SECRET` equal to Worker service secret.
