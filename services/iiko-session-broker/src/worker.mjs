@@ -91,7 +91,7 @@ export class IikoSession {
     const method=this.env.IIKO_AUTH_METHOD==="POST"?"POST":"GET"; // GET is currently used in production; change only after live compatibility test.
     let response, token;
     try {
-      response=await sleepAbort(url,{method,cache:"no-store"},12000);
+      response=await sleepAbort(url,{method,cache:"no-store",redirect:"manual"},12000);
       token=(await response.text()).trim();
     } catch {
       await this.state.storage.put("authBlockedUntil",Date.now()+70*60_000);
@@ -117,7 +117,7 @@ export class IikoSession {
     const body=params.body;
     if(body!==undefined && body!==null && typeof body!=="string")throw Error("Only string bodies supported");
     if(["GET","DELETE"].includes(method) && body)throw Error("Body not allowed for this method");
-    const response=await sleepAbort(u.toString(),{method,headers,body:body||undefined,cache:"no-store"},Number(params.timeoutMs)>0?Math.min(Number(params.timeoutMs),60000):20000);
+    const response=await sleepAbort(u.toString(),{method,headers,body:body||undefined,cache:"no-store",redirect:"manual"},Number(params.timeoutMs)>0?Math.min(Number(params.timeoutMs),60000):20000);
     return {response,body:await response.text()};
   }
   async handle(request) {
@@ -132,7 +132,7 @@ export class IikoSession {
       if(action==="logout"){
         if(!token)return json({success:true,released:false},200);
         const url=`${c.serverUrl}/resto/api/logout?key=${encodeURIComponent(token)}`;
-        const response=await sleepAbort(url,{method:"GET",cache:"no-store"},12000);
+        const response=await sleepAbort(url,{method:"GET",cache:"no-store",redirect:"manual"},12000);
         if(response.ok||response.status===401){
           await this.state.storage.delete("session");
           return json({success:true,released:true},200);
