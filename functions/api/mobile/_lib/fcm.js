@@ -51,7 +51,13 @@ export async function sendFcmAlert(env,deviceToken,alert){
    notification:{title:"Smart Horeca • "+alert.title,body:alert.body},
    android:{
      priority:"HIGH",
-     notification:{channel_id:"sh_owner_pos_alerts",sound:"default"}
+     // Don't reference a custom channel that the Android app never creates.
+     // FCM will use the app's configured/default notification channel.
+     notification:{sound:"default"}
+   },
+   apns:{
+     headers:{"apns-priority":"10","apns-push-type":"alert"},
+     payload:{aps:{sound:"default"}}
    },
    data:{kind:alert.kind,departmentId:alert.departmentId,
      ...(alert.orderNum?{orderNum:alert.orderNum}:{})}
