@@ -385,3 +385,34 @@ test("all-workspaces rollout is explicit, isolated, and fails closed if broker u
  assert.equal(bindIikoBroker(connection,{env:{...enabled,IIKO_BROKER_ENABLED_WORKSPACES:""},
   data:{shBrokerTenantId:"workspace:network-a"}}),connection);
 });
+
+
+test("hostname allowlist works with multiple iiko ports and no unrelated hosts",async()=>{
+ const names=[];
+ const workerEnv={...env,IIKO_BROKER_SERVICE_SECRET:"local-test-secret",
+  IIKO_ALLOWED_TARGETS:"s01.smarthoreca.az",
+  IIKO_SESSIONS:{idFromName:key=>key,get:()=>({fetch:async()=>{names.push("hit");return new Response("ok")}})}};
+ const send=async(ip,port)=>brokerWorker.fetch(new Request("https://broker.internal/request",{
+  method:"POST",headers:{"x-sh-broker-secret":"local-test-secret"},
+  body:JSON.stringify({tenantId:"workspace:org-a",
+    connection:{...connection,ip,port},action:"request",
+    request:{path:"/resto/api/demo",method:"GET"}})
+ }),workerEnv);
+ assert.equal((await send("s01.smarthoreca.az","9132")).status,200);
+ assert.equal((await send("s01.smarthoreca.az","8080")).status,200);
+ assert.equal((await send("s02.smarthoreca.az","9132")).status,403);
+ assert.equal(names.length,2);
+});
+test("specific host:port allowlist does not permit all ports",async()=>{
+ const workerEnv={...env,IIKO_BROKER_SERVICE_SECRET:"local-test-secret",
+  IIKO_ALLOWED_TARGETS:"s01.smarthoreca.az:9132",
+  IIKO_SESSIONS:{idFromName:key=>key,get:()=>({fetch:async()=>new Response("ok")})}};
+ const send=async port=>brokerWorker.fetch(new Request("https://broker.internal/request",{
+   method:"POST",headers:{"x-sh-broker-secret":"local-test-secret"},
+   body:JSON.stringify({tenantId:"workspace:org-a",
+    connection:{...connection,ip:"s01.smarthoreca.az",port},
+    action:"request",request:{path:"/resto/api/demo",method:"GET"}})
+ }),workerEnv);
+ assert.equal((await send("9132")).status,200);
+ assert.equal((await send("8080")).status,403);
+});
