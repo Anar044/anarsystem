@@ -105,7 +105,10 @@ export function isIikoBrokerPilot(env, tenantId) {
   if(!scoped.startsWith("workspace:") || scoped.length<=10)return false;
   const allowlist=clean(env?.IIKO_BROKER_ENABLED_WORKSPACES)
     .split(",").map(x=>x.trim()).filter(Boolean);
-  return allowlist.includes(scoped.slice(10));
+  // A single explicit "*" opts in every authenticated, RBAC-verified workspace.
+  // Session storage stays partitioned by verified workspace and credentials.
+  // Merely installing the binding or omitting this setting never opts anyone in.
+  return allowlist.includes("*") || allowlist.includes(scoped.slice(10));
 }
 
 // Only middleware with authenticated RBAC may supply the verified connection.
