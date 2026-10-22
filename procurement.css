@@ -781,3 +781,11 @@
 .proc-line-list:has(.proc-view-line-head) .proc-line:nth-child(odd){background:#13212b}
 .proc-line-list:has(.proc-view-line-head) .proc-line:hover{background:#1a2b35}
 @media(max-width:600px){.proc-line-list .proc-view-line-head{display:none}}
+
+
+/* A fixed receipt total is useful during GRN entry; ordinary PR and quote
+   summaries remain in document flow so they never hide editable rows. */
+.proc-modal-wide .proc-modal-summary{position:static}
+.proc-modal-wide:has(#proc-receipt-lines) .proc-modal-summary{
+  position:sticky;bottom:62px;z-index:2
+}
