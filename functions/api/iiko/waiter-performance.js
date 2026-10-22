@@ -1,4 +1,4 @@
-import { clean, getOlapFields, iikoJson } from './_lib/iiko-client.js';
+import {clean, getOlapFields, iikoJson, bindIikoBroker } from './_lib/iiko-client.js';
 
 function corsHeaders(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type'};}
 function jsonResponse(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...corsHeaders()}});}
@@ -154,7 +154,7 @@ export async function onRequestPost(context){
   const requestId=crypto.randomUUID?.()||Date.now().toString(36);
   try{
     const body=await context.request.json();
-    const connection={ip:clean(body.ip),port:clean(body.port),login:clean(body.login),password:String(body.password??'')};
+    const connection=bindIikoBroker({ip:clean(body.ip),port:clean(body.port),login:clean(body.login),password:String(body.password??'')},context);
     if(!connection.ip||!connection.port||!connection.login||!connection.password)return jsonResponse({success:false,message:'Заполните данные подключения SH Server',requestId},400);
     const from=clean(body.from).slice(0,10),to=clean(body.to||body.from).slice(0,10);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to))return jsonResponse({success:false,message:'Укажите корректный период',requestId},400);
