@@ -58,5 +58,5 @@ test('UI supports RFQ return, multi-stage attachments and large receiving dialog
  assert.match(css,/\.proc-modal-backdrop \.proc-modal\.proc-modal-wide/);
  assert.match(css,/\.proc-file-list/);
  assert.match(ui,/body instanceof FormData/);
- assert.match(ui,/status:\s?'DRAFT'/m); // New RFQ is not auto-sent.
+ assert.match(source,/VALUES\(\?1,\?2,\?3,\?4,'DRAFT'/); // New RFQ is not auto-sent.
 });
