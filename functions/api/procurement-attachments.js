@@ -19,7 +19,7 @@ const wants=x=>["1","true"].includes(String(x));
 const PERMISSIONS={
   PR:["procurement.request.view_own","procurement.request.view_all","procurement.approve","procurement.sourcing","procurement.po.manage"],
   RFQ:["procurement.sourcing","procurement.approve"],
-  QUOTE:["procurement.sourcing","procurement.approve","procurement.prices.view","sensitive.cost.view"],
+  QUOTE:["procurement.sourcing","procurement.approve","procurement.po.manage","procurement.prices.view","sensitive.cost.view"],
   PO:["procurement.po.manage","procurement.receive","procurement.approve"],
   GRN:["procurement.receive","procurement.approve"],
   INVOICE:["procurement.receive","procurement.approve"]
