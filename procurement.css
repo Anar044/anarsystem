@@ -481,3 +481,48 @@
   .proc-quote-comparison .quote-price-cell{min-width:175px}
   .proc-quote-comparison .proc-quote-compare-wrap{max-height:67vh}
 }
+
+
+/* Bigger receiving and incoming-invoice dialogs: form logic remains untouched. */
+.proc-modal-backdrop .proc-modal.proc-modal-wide{display:flex;flex-direction:column;width:min(1510px,calc(100vw - 28px));height:min(95vh,1000px);max-height:95vh;overflow:hidden}
+.proc-modal-wide .proc-modal-head{flex:0 0 auto;padding:17px 24px}
+.proc-modal-wide .proc-modal-body{flex:1;min-height:0;overflow:auto;padding:20px 24px;scrollbar-gutter:stable}
+.proc-modal-wide .proc-edit-lines{overflow:auto}
+.proc-modal-wide .proc-edit-head{position:sticky;top:0;z-index:1}
+.proc-modal-wide .proc-form-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.proc-modal-wide .proc-receipt-choice{position:sticky;bottom:0;z-index:2;background:#101820;padding:15px 0 5px;border-top:1px solid #293a48}
+.proc-modal-wide .proc-modal-summary{position:sticky;bottom:62px;z-index:2}
+.proc-stage-attachments{display:flex;gap:9px;padding:8px 16px 0}
+.proc-attach-btn{white-space:nowrap}
+.quote-supplier-heading .proc-attach-btn{margin-top:5px;font-size:9px;min-height:27px}
+.proc-prior-quotes{padding:10px 14px;border-top:1px solid #263c46}
+.proc-prior-quotes>summary{cursor:pointer;color:#94b6c1;font-size:11px;font-weight:700}
+.proc-prior-quotes>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #20313e}
+.proc-prior-quotes>div:last-child{border-bottom:0}
+.proc-prior-quotes>div>span strong{display:block;color:#d8e6ec}
+.proc-prior-quotes>div>span small{display:block;margin-top:4px;color:#90a4b1}
+.proc-revision-warning{padding:12px;margin:0 0 12px;border-radius:9px;border:1px solid #4b3d2b;background:#292119;color:#f0c990;font-size:11px;line-height:1.5}
+.proc-file-list{display:grid;gap:8px;margin-top:11px}
+.proc-file-item{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:11px;border:1px solid #30414a;border-radius:9px;background:#0c171e}
+.proc-file-item>div:first-child{min-width:0;overflow-wrap:anywhere}
+.proc-file-item strong{display:block;font-size:12px;color:#eaf4f7}
+.proc-file-item small{display:block;margin-top:5px;color:#91a8b3;font-size:10px;line-height:1.45}
+.proc-file-item .proc-actions{display:flex;gap:5px;flex:none}
+.proc-file-upload{display:flex;align-items:end;gap:12px;margin-top:13px;padding:12px;border:1px dashed #3c5661;border-radius:9px;background:#101c24}
+.proc-file-upload .proc-field{min-width:0;flex:1}
+.proc-file-upload input{width:100%;max-width:100%;font-size:11px}
+.proc-file-preview{margin-top:14px;border:1px solid #334752;border-radius:8px;background:#0a141c;padding:12px}
+.proc-file-preview[hidden]{display:none}
+.proc-file-preview>strong{display:block;color:#e8f4f6;margin-bottom:9px}
+.proc-file-preview iframe{width:100%;height:min(70vh,700px);border:0;background:#fff}
+.proc-file-preview img{max-width:100%;max-height:70vh;display:block;margin:auto}
+@media(max-width:760px){
+ .proc-modal-backdrop .proc-modal.proc-modal-wide{width:calc(100vw - 12px);max-height:98vh;height:98vh}
+ .proc-modal-wide .proc-modal-head{padding:12px}
+ .proc-modal-wide .proc-modal-body{padding:12px}
+ .proc-modal-wide .proc-form-grid{grid-template-columns:1fr 1fr}
+ .proc-file-item{align-items:stretch;flex-direction:column}
+ .proc-file-item .proc-actions{flex-wrap:wrap}
+ .proc-file-upload{flex-direction:column;align-items:stretch}
+}
+@media(max-width:500px){.proc-modal-wide .proc-form-grid{grid-template-columns:1fr}}
