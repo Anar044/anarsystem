@@ -269,29 +269,37 @@ test("simultaneous stale token 401 responses trigger exactly one license refresh
 });
 
 test("bounded request admission rejects overload without allocating another token",async()=>{
- let reached=()=>{},release=()=>{},auth=0;
- const entered=new Promise(r=>{reached=r});
+ let auth=0;
+ const pending=[];
  const undo=installFetch(async url=>{
   if(new URL(String(url)).pathname.endsWith("/auth")){auth++;return new Response("one-token")}
-  reached();
-  return new Promise(resolve=>{release=()=>resolve(new Response("ok"))});
+  return new Promise(resolve=>pending.push(()=>resolve(new Response("ok"))));
  });
+ const waitUntil=async(predicate)=>{
+  for(let i=0;i<150;i++){
+   if(predicate())return;
+   await new Promise(resolve=>setTimeout(resolve,1));
+  }
+  throw Error("Test server did not reach expected state");
+ };
  try{
   const broker=new IikoSession({storage:storage()},{...env,
     IIKO_MAX_PARALLEL_REQUESTS:"1",IIKO_MAX_PENDING_REQUESTS:"1"});
-  const one=broker.fetch(request("request","/resto/api/first"));
-  await entered;
-  const two=broker.fetch(request("request","/resto/api/second"));
-  await Promise.resolve();
-  const three=await broker.fetch(request("request","/resto/api/third"));
-  assert.equal(three.status,429);
-  assert.equal((await three.json()).code,"BROKER_BUSY");
-  release();
-  assert.equal((await one).status,200);
-  // The queued request starts after the first releases its slot.
-  await new Promise(resolve=>setTimeout(resolve,1));
-  release();
-  assert.equal((await two).status,200);
+  const first=broker.fetch(request("request","/resto/api/first"));
+  await waitUntil(()=>pending.length===1);
+  const second=broker.fetch(request("request","/resto/api/second"));
+  await waitUntil(()=>broker.activities.size===2 && broker.waiting.length===1);
+  const overflow=await broker.fetch(request("request","/resto/api/third"));
+  assert.equal(overflow.status,429);
+  assert.equal((await overflow.json()).code,"BROKER_BUSY");
+  pending.shift()();
+  assert.equal((await first).status,200);
+  await waitUntil(()=>pending.length===1);
+  pending.shift()();
+  assert.equal((await second).status,200);
   assert.equal(auth,1);
- }finally{release();undo()}
+ }finally{
+  while(pending.length)pending.shift()();
+  undo();
+ }
 });
