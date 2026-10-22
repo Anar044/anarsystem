@@ -6,6 +6,7 @@ import {
   isServerPasswordMarker
 } from "./_lib/user-state.js";
 import { resolveRestaurantScope, applyDepartmentScopeToBody } from "./_lib/restaurant-scope.js";
+import { isIikoBrokerPilot } from "./_lib/iiko-client.js";
 import { resolveAccessForUser, hasPermission } from "../access/_lib/access-control.js";
 
 const REPORTS_DEPARTMENTS_COOKIE = "sh_reports_departments";
@@ -224,7 +225,27 @@ export async function onRequest(context) {
     // Never derive this value from JSON, cookies, query params or device inputs.
     context.data ??= {};
     if(access.workspace?.id) context.data.shBrokerTenantId="workspace:"+String(access.workspace.id);
-    else if(env.IIKO_SESSION_BROKER) return accessDenied("Рабочая область не определена.",403,"WORKSPACE_REQUIRED");
+    else if(env.IIKO_SESSION_BROKER || env.IIKO_BROKER_ENABLED_WORKSPACES)
+      return accessDenied("Рабочая область не определена.",403,"WORKSPACE_REQUIRED");
+  }
+
+  // Pilot selection is based exclusively on the verified RBAC workspace.
+  // Even GET requests can contain caller-supplied host/login parameters.
+  // Provide downstream handlers with the PRIVATE saved server connection.
+  // Connect/connection/chain are administration routes and stay on the
+  // explicit connection-management path, never the broker pilot.
+  const isBrokerPilot=isIikoBrokerPilot(env,context.data?.shBrokerTenantId);
+  const brokerManagementRoute=["/api/iiko/connect","/api/iiko/connection","/api/iiko/chain"]
+    .includes(url.pathname);
+  if(isBrokerPilot && brokerManagementRoute)context.data.shBrokerBypass=true;
+  if(isBrokerPilot && !brokerManagementRoute) {
+    if(!env.DB || !auth || !access)
+      return accessDenied("Не удалось проверить подключение iiko.",503,"BROKER_DB_REQUIRED");
+    const stored=await loadPrivateIikoState(env.DB,
+      access.storageUserId||access.ownerUserId||auth.user.id,env);
+    if(!stored?.found || !hasPrivateConnection(stored.state))
+      return accessDenied("Не найдено сохранённое подключение iiko.",409,"BROKER_STORED_CONNECTION_REQUIRED");
+    context.data.shBrokerVerifiedConnection=privateConnection(stored.state);
   }
 
   let body=null;
@@ -290,8 +311,7 @@ export async function onRequest(context) {
 
   // A brokered request MUST use the workspace's stored server credentials,
   // not IP/login/password supplied in an untrusted browser JSON body.
-  if (env.IIKO_SESSION_BROKER && storedConnection && url.pathname !== "/api/iiko/connect" &&
-      url.pathname !== "/api/iiko/connection" && url.pathname !== "/api/iiko/chain") {
+  if (isBrokerPilot && !brokerManagementRoute && storedConnection) {
     rewrittenBody = injectConnection(rewrittenBody, storedConnection);
   } else if (needsServerCredentials(rewrittenBody) && storedConnection) {
     rewrittenBody = injectConnection(rewrittenBody, storedConnection);
