@@ -560,7 +560,7 @@ function requesterActions(r){
   return a.join('');
 }
 function prLinesHtml(r,showPrices=true){
-  return '<div class="proc-line-list">'+(r.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.quantity)+' '+esc(l.unit)+'</strong><span>фас. '+qty(l.packageSize||1)+' × '+qty(l.packageCount||l.quantity)+' · НДС '+num(l.vatPercent)+'%'+(showPrices?(l.expectedPrice?' · '+money(l.expectedPrice)+'/уп.':' · цена уточняется'):'')+'</span></div>').join('')+'</div>';
+  return '<div class="proc-line-list"><div class="proc-view-line-head"><span>Товар</span><span>Количество</span><span>Фасовка'+(showPrices?' / цена':'')+'</span></div>'+(r.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.quantity)+' '+esc(l.unit)+'</strong><span>фас. '+qty(l.packageSize||1)+' × '+qty(l.packageCount||l.quantity)+' · НДС '+num(l.vatPercent)+'%'+(showPrices?(l.expectedPrice?' · '+money(l.expectedPrice)+'/уп.':' · цена уточняется'):'')+'</span></div>').join('')+'</div>';
 }
 function historyHtml(doc){
   const rows=doc?.history||[];
@@ -1036,7 +1036,7 @@ function orderCard(o,{receiving=false}={}){
   const lines=(o.lines||[]).map(l=>'<div class="proc-line"><span>'+esc(l.productName||l.productId)+'</span><strong>'+qty(l.orderedQty)+' '+esc(l.unit)+(receiving?'':' × '+money(l.unitPrice))+'</strong><span>по GRN '+qty(l.receivedQty)+' · осталось '+qty(l.remainingQty)+'</span></div>').join('');
   return '<article class="proc-doc-card '+(o.effectiveStatus==='COMPLETED'?'proc-done-card':'')+'"><div class="proc-doc-top"><div class="proc-doc-title"><strong>'+esc(o.number)+'</strong><span>'+esc(o.supplierName||o.supplierId)+' · '+esc(o.warehouseName||'Склад')+' · '+dateTimeLabel(o.createdAt)+' · Создал: '+esc(o.createdBy||'Пользователь')+'</span></div><span class="proc-status-badge '+statusTone(o.effectiveStatus)+'">'+esc(receiving&&o.effectiveStatus==='COMPLETED'?'Физически принято':statusLabel(o.effectiveStatus))+'</span></div>'+
     '<div class="proc-progress"><div class="proc-progress-track"><i style="width:'+Math.min(100,num(o.completionPercent))+'%"></i></div><div class="proc-progress-meta"><span>По GRN принято '+qty(o.receivedQty)+' из '+qty(o.orderedQty)+'</span><span>'+num(o.completionPercent).toFixed(1)+'%</span></div></div>'+
-    '<div class="proc-line-list">'+lines+'</div>'+
+    '<div class="proc-line-list"><div class="proc-view-line-head"><span>Товар</span><span>Заказано</span><span>По GRN / остаток</span></div>'+lines+'</div>'+
     threeWayPanelHtml(o)+
     '<div class="proc-doc-footer">'+(receiving?'<strong>'+((o.lines||[]).filter(x=>num(x.remainingQty)>0.0005).length)+' поз. к приёмке</strong>':'<strong>'+money(o.totalAmount)+'</strong>')+'<div class="proc-actions">'+attachmentButton('PO',o.id,'Файлы PO')+(o.quoteId?attachmentButton('QUOTE',o.quoteId,'Прайс поставщика'):'')+(receiving?receivingActions(o):buyerOrderActions(o))+((o.receipts||[]).length?'<a class="proc-btn small ghost" href="/nakladnye.html">Открыть накладные ↗</a>':'')+'</div></div></article>';
 }
