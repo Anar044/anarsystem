@@ -31,6 +31,25 @@ async function decrypt(env, item, aad) {
     await encryptionKey(env),new Uint8Array(item.bytes));
   return new TextDecoder().decode(result);
 }
+// Host-only entries intentionally permit any valid TCP port on that ONE exact
+// DNS host. Host:port entries continue to restrict to a single iiko endpoint.
+// Never interpret wildcards, URLs, suffix matches, IP ranges, or subdomains.
+function allowedIikoTarget(env, c) {
+  const host=c.ip.toLowerCase();
+  const exact=host+":"+c.port;
+  const entries=String(env.IIKO_ALLOWED_TARGETS||"")
+    .split(",").map(x=>x.trim().toLowerCase()).filter(Boolean);
+  return entries.some(entry=>{
+    if(entry===exact)return true;
+    if(entry!==host)return false;
+    // Restrict the broad all-ports form to exact DNS hostnames, not literal
+    // IPv4 addresses or local single-label names.
+    if(!host.includes(".") || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host))return false;
+    if(host==="localhost" || host.endsWith(".localhost") || host.endsWith(".local"))return false;
+    return /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])$/.test(host);
+  });
+}
+
 function connectionOf(item) {
   const ip=clean(item?.ip),port=clean(item?.port),login=clean(item?.login),password=String(item?.password ?? "");
   // Do not allow URI injection; an explicit enterprise allowlist should additionally
@@ -342,9 +361,8 @@ export default {
       if(!tenantId || tenantId.length>256)throw Error("Verified tenant required");
       // Fail closed against SSRF to arbitrary hosts if the service is
       // accidentally reachable from a trusted application route.
-      const allowed=String(env.IIKO_ALLOWED_TARGETS||"").split(",").map(x=>x.trim().toLowerCase()).filter(Boolean);
-      if(!allowed.includes((c.ip+":"+c.port).toLowerCase()))
-        return fail("TARGET_DENIED","iiko host is not registered in broker allowlist",403);
+      if(!allowedIikoTarget(env,c))
+        return fail("TARGET_DENIED","iiko host or port is not registered in broker allowlist",403);
       const idKey=await hash(JSON.stringify([tenantId,c.serverUrl,c.login,await hash(c.password)]));
       const object=env.IIKO_SESSIONS.get(env.IIKO_SESSIONS.idFromName(idKey));
       return object.fetch(new Request("https://broker.internal/request",{method:"POST",body:JSON.stringify(input),
