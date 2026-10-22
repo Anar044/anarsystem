@@ -213,3 +213,70 @@ test('Typed product changes cannot silently keep the old product ID',()=>{
  assert.match(ui,/function productOptions\(\)\{return state\.refs\.products\.map\(p=>'<option value="/);
  assert.doesNotMatch(ui,/id\.slice\(-6\)/);
 });
+
+test('existing invoice item editor uses one line while keeping all old invoice fields and actions',()=>{
+ const invoice = readFileSync(new URL('../nakladnye-write.js', import.meta.url),'utf8');
+ const html = readFileSync(new URL('../nakladnye.html', import.meta.url),'utf8');
+ const css = readFileSync(new URL('../nakladnye.css', import.meta.url),'utf8');
+ for(const field of ['product','packageChoice','packageSize','packages','actualAmount','vatPercent','price','sum','amountUnit','containerId']){
+   assert.ok(invoice.includes('data-f="'+field+'"'),'incoming invoice field changed: '+field);
+ }
+ for(const id of ['inc-items','inc-add','inc-save','inc-save-process']){
+   assert.ok(invoice.includes('id="'+id+'"'),'incoming invoice action changed: '+id);
+ }
+ assert.match(invoice,/class="inc-items-cols"/);
+ assert.match(invoice,/class="inc-items-scroll"/);
+ assert.match(invoice,/class="inc-vat-sum" data-vat-sum/);
+ assert.match(css,/#inc-editor \.inc-item\{/);
+ assert.match(css,/#inc-editor \.inc-items-grid/);
+ assert.match(html,/nakladnye-write\.js\?v=20261022-compact-items/);
+});
+test('outgoing invoice editor stays a compact table with original save selectors',()=>{
+ const html=readFileSync(new URL('../rashodnye-nakladnye.html',import.meta.url),'utf8');
+ const css=readFileSync(new URL('../rashodnye-nakladnye.css',import.meta.url),'utf8');
+ const js=readFileSync(new URL('../rashodnye-nakladnye.js',import.meta.url),'utf8');
+ for(const key of ['productId','amount','price','sum']){
+   assert.ok(js.includes('data-f="'+key+'"'),'outgoing invoice field changed '+key);
+ }
+ for(const id of ['oi-items-editor','oi-save','oi-add-item','oi-items-body']){
+   assert.ok(html.includes('id="'+id+'"'),'outgoing invoice element changed '+id);
+ }
+ assert.match(html,/class="oi-editor-cols"/);
+ assert.match(html,/class="oi-items-editor-scroll"/);
+ assert.match(css,/\.oi-item-row\{display:grid;grid-template-columns:/);
+ assert.match(js,/function formDocument\(\)/);
+});
+test('writeoffs and transfers display all products in a dense one-line table',()=>{
+ const js=readFileSync(new URL('../documents-page.js',import.meta.url),'utf8');
+ const css=readFileSync(new URL('../documents.css',import.meta.url),'utf8');
+ const writeoff=readFileSync(new URL('../akty-spisaniya.html',import.meta.url),'utf8');
+ const transfer=readFileSync(new URL('../vnutrennie-peremescheniya.html',import.meta.url),'utf8');
+ assert.match(js,/class="document-items-scroll"/);
+ assert.match(js,/class="document-items-table"/);
+ assert.match(js,/\(d\.items\|\|\[\]\)\.map/);
+ assert.match(js,/x\.productName\|\|x\.productId/);
+ assert.match(js,/x\.amount/);
+ assert.match(js,/x\.cost/);
+ assert.match(css,/\.document-details \.document-items-table/);
+ for(const html of [writeoff,transfer]){
+   assert.match(html,/documents-page\.js\?v=20261022-compact-items/);
+   assert.match(html,/documents\.css\?v=20261022-compact-items/);
+ }
+});
+test('internal order, approval, shipment keep row fields and actions',()=>{
+ const js=readFileSync(new URL('../internal-orders.js',import.meta.url),'utf8');
+ const html=readFileSync(new URL('../internal-orders.html',import.meta.url),'utf8');
+ const css=readFileSync(new URL('../internal-orders.css',import.meta.url),'utf8');
+ for(const field of ['product','packaging','count']){
+   assert.ok(js.includes('data-f="'+field+'"'),'internal order field changed '+field);
+ }
+ for(const selector of ['data-approve-id','data-ship-item','data-ship-qty','data-ship-cost','data-ship-available','io-shipment-form','io-save']){
+   assert.ok(js.includes(selector)||html.includes(selector),'internal order action changed '+selector);
+ }
+ assert.match(html,/class="io-line-head"/);
+ assert.match(html,/class="io-lines-scroll"/);
+ assert.match(js,/class="io-lines-table-scroll"/);
+ assert.match(css,/\.internal-orders-page #io-lines>\.io-line/);
+ assert.match(css,/\.internal-orders-page \.io-lines-table-scroll/);
+ assert.match(html,/internal-orders\.js\?v=20261022-compact-lines-v1/);
+});
