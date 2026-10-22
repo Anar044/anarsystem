@@ -202,7 +202,7 @@ test("slow OLAP request does not delay unrelated report on same licensed session
  }finally{releaseSlow();globalThis.fetch=originalFetch;undo()}
 });
 
-test("load: many requests share one auth and respect three concurrent upstream calls",async()=>{
+test("load: 100 independent report requests share one auth and a bounded parallel pool",async()=>{
  let auth=0,active=0,maxActive=0,completed=0;
  const undo=installFetch(async url=>{
   const u=new URL(String(url));
@@ -214,11 +214,11 @@ test("load: many requests share one auth and respect three concurrent upstream c
  });
  try{
   const broker=new IikoSession({storage:storage()},env);
-  const responses=await Promise.all(Array.from({length:24},(_,i)=>broker.fetch(
+  const responses=await Promise.all(Array.from({length:100},(_,i)=>broker.fetch(
     request("request","/resto/api/v2/reports/olap/unique-"+i))));
   assert.ok(responses.every(x=>x.status===200));
   assert.equal(auth,1);
-  assert.equal(completed,24);
+  assert.equal(completed,100);
   assert.ok(maxActive>1,"no meaningful upstream parallelism");
   assert.ok(maxActive<=3,"upstream concurrency ceiling exceeded");
   assert.equal(broker.active,0);
