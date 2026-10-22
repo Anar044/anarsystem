@@ -96,26 +96,26 @@ async function performAuthentication(connection, key) {
   const c = normalizeConnection(connection);
   const passwordHash = await sha1(c.password);
   const url = `${c.serverUrl}/resto/api/auth?login=${encodeURIComponent(c.login)}&pass=${passwordHash}`;
-  let lastResponse=null,lastToken="";
-  const delays=[0,350,1000];
-  for(let attempt=0;attempt<delays.length;attempt++){
-    if(delays[attempt])await sleep(delays[attempt]);
-    const response=await fetchWithTimeout(url,{method:"GET",cache:"no-store"},12000);
-    const token=(await response.text()).trim();
-    lastResponse=response;lastToken=token;
-    if(response.ok&&token){
-      tokenCache.set(key,{token});
-      return{serverUrl:c.serverUrl,token,cacheHit:false,connectionKey:key,authAttempts:attempt+1};
-    }
-    if(!authRetryableStatus(response.status))break;
+  // POST /auth occupies a licence slot. Never blindly retry a possibly
+  // successful authentication: a lost response or transient proxy 503 can
+  // leave the previous licence occupied, and extra attempts exhaust REST_API.
+  // Reattempt only on an explicit new user action / controlled lease recovery.
+  const response=await fetchWithTimeout(url,{
+    method:"POST",cache:"no-store"
+  },12000);
+  const body=(await response.text()).trim();
+  if(response.ok && body){
+    tokenCache.set(key,{token:body});
+    return{serverUrl:c.serverUrl,token:body,cacheHit:false,
+      connectionKey:key,authAttempts:1};
   }
   tokenCache.delete(key);
-  const cf=cloudflareDiagnostic(lastResponse,lastToken);
+  const cf=cloudflareDiagnostic(response,body);
   if(cf)throw new Error(cf);
-  const status=Number(lastResponse?.status)||0;
-  const preview=lastToken?` — ${lastToken.slice(0,240).replace(/\s+/g," ")}`:"";
+  const status=Number(response.status)||0;
+  const preview=body?` — ${body.slice(0,240).replace(/\\s+/g," ")}`:"";
   if(authRetryableStatus(status)){
-    throw new Error(`SH Server временно недоступен при авторизации: HTTP ${status}. Выполнено 3 попытки.${preview}`);
+    throw new Error(`SH Server не подтвердил авторизацию: HTTP ${status}. Новый вход автоматически не повторялся, чтобы не занять дополнительные лицензии.${preview}`);
   }
   throw new Error(`Ошибка авторизации iiko Server: HTTP ${status}${preview}`);
 }
