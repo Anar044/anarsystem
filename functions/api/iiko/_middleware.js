@@ -223,8 +223,8 @@ export async function onRequest(context) {
     // Request-scoped, server-verified tenant for the private session broker.
     // Never derive this value from JSON, cookies, query params or device inputs.
     context.data ??= {};
-    context.data.shBrokerTenantId="workspace:"+String(access.workspace?.id||"");
-    if(!access.workspace?.id) return accessDenied("Рабочая область не определена.",403,"WORKSPACE_REQUIRED");
+    if(access.workspace?.id) context.data.shBrokerTenantId="workspace:"+String(access.workspace.id);
+    else if(env.IIKO_SESSION_BROKER) return accessDenied("Рабочая область не определена.",403,"WORKSPACE_REQUIRED");
   }
 
   let body=null;
