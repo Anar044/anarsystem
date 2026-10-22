@@ -28,7 +28,7 @@ This private Cloudflare Worker provides one serialized, durable session per
    and `IIKO_BROKER_ENCRYPTION_KEY_B64` (base64 of 32 random bytes).
    Configure both with `wrangler secret put`; never publish or rotate the
    encryption key without a controlled session-drain procedure.
-3. Deploy Worker `sh-iiko-session-broker` with Durable Object SQLite migration.
+3. Configure `IIKO_ALLOWED_TARGETS` as a comma-separated allowlist of registered iiko hosts and ports (e.g. `restaurant.example:8080`); an empty list rejects all traffic. Do not expose local/cloud metadata endpoints. Deploy Worker `sh-iiko-session-broker` with Durable Object SQLite migration.
    Keep `workers_dev = false` and no public route.
 4. Add Pages service binding `IIKO_SESSION_BROKER` -> `sh-iiko-session-broker`;
    set Pages secret `IIKO_BROKER_SERVICE_SECRET` equal to Worker service secret.
