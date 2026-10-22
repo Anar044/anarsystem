@@ -60,3 +60,45 @@ test('UI supports RFQ return, multi-stage attachments and large receiving dialog
  assert.match(ui,/body instanceof FormData/);
  assert.match(source,/VALUES\(\?1,\?2,\?3,\?4,'DRAFT'/); // New RFQ is not auto-sent.
 });
+
+test('GRN receiving renders each item in a single table row without losing required fields',()=>{
+ const from=ui.indexOf('function receiptLineHtml(l){');
+ const to=ui.indexOf('\\nfunction recalcReceipt(){',from);
+ assert.ok(from>0&&to>from,'receipt row builder must exist');
+ const builder=new Function('num','esc','money','packagingChoiceHtml','vatOptions',
+   ui.slice(from,to)+';return receiptLineHtml;');
+ const render=builder((x,d=0)=>Number(x??d)||d,
+   x=>String(x??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'),
+   x=>Number(x).toFixed(2)+' ₼',()=>'<option value="__base__">Основная единица</option>',
+   ()=>'<option value="0">0%</option>');
+ const row=render({productId:'test-product',productName:'Говядина',remainingQty:10,
+   packageSize:2.5,unitPrice:5,unit:'кг',vatPercent:0});
+ assert.match(row,/data-receipt-line/);
+ assert.match(row,/proc-receipt-row/);
+ assert.match(row,/proc-receipt-product/);
+ assert.match(row,/Говядина/);
+ for(const field of ['packageChoice','packageSize','packageCount','quantity','vatPercent',
+   'price','locationId','lotCode','expiresOn','containerId','packageName','unit']){
+   assert.ok(row.includes('data-f="'+field+'"'),'Missing field '+field);
+ }
+ assert.match(row,/12\.50 ₼/);
+ assert.match(row,/aria-label="Годен до/);
+ assert.match(ui,/class="proc-receipt-scroll"/);
+ assert.match(ui,/class="proc-receipt-grid-head"/);
+ assert.match(ui,/lines\.map\(receiptLineHtml\)/);
+ assert.match(css,/\.proc-modal-wide \.proc-edit-row\.proc-pack-row\[data-receipt-line\]/);
+ assert.match(css,/grid-template-columns:var\(--receipt-columns\)/);
+ assert.match(css,/\.proc-receipt-scroll\{[^}]*overflow-x:auto/s);
+ assert.match(css,/\.proc-receipt-product\{[^}]*position:sticky/s);
+});
+
+test('GRN accounting still reads the exact original controls',()=>{
+ const lines=ui.split('function formLines(){')[1]?.split('async function ensureGrn(')[0];
+ assert.ok(lines,'Receipt document serializer must still exist');
+ for(const field of ['packageSize','packageCount','vatPercent','price','containerId',
+   'packageName','unit','locationId','lotCode','expiresOn']){
+   assert.ok(lines.includes('[data-f="'+field+'"]'),'Document serializer missing '+field);
+ }
+ assert.match(ui,/\['packageSize','packageCount','price'\]\.forEach/);
+ assert.match(ui,/applyPackagingChoice\(row\);recalcReceipt\(\)/);
+});
