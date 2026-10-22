@@ -23,24 +23,39 @@ export function departmentActivityMetadata(ctx, liveTopology = null) {
 
   const groupOwners=new Map();
   const groupsByDepartment=new Map(),cashByDepartment=new Map();
+  let groupScopeComplete=true,pointScopeComplete=true;
   for(const group of items(liveTopology.groups)) {
     const id=clean(group?.id), owner=clean(group?.departmentId);
-    if(!id || !metadata.has(owner) || !allowed.has(owner))continue;
-    if(groupOwners.has(id) && groupOwners.get(id)!==owner)continue;
+    if(!id||!owner){groupScopeComplete=false;continue;}
+    if(!metadata.has(owner) || !allowed.has(owner))continue;
+    if(groupOwners.has(id) && groupOwners.get(id)!==owner) {
+      groupScopeComplete=false;continue;
+    }
     groupOwners.set(id,owner);
     if(!groupsByDepartment.has(owner))groupsByDepartment.set(owner,new Set());
     groupsByDepartment.get(owner).add(id);
   }
   for(const point of items(liveTopology.pointsOfSale)) {
     const id=clean(point?.id), groupId=clean(point?.groupId);
-    const owner=groupOwners.get(groupId);
-    if(!id||!owner||!metadata.has(owner))continue;
+    const groupOwner=groupOwners.get(groupId);
+    const directOwner=clean(point?.departmentId);
+    if(groupOwner && directOwner && groupOwner!==directOwner) {
+      pointScopeComplete=false;continue;
+    }
+    const owner=groupOwner || (allowed.has(directOwner)?directOwner:"");
+    if(!id||!owner||!metadata.has(owner)){
+      pointScopeComplete=false;continue;
+    }
     if(!cashByDepartment.has(owner))cashByDepartment.set(owner,new Set());
     cashByDepartment.get(owner).add(id);
   }
   for(const [id,row] of metadata) {
-    row.groupCount=groupsByDepartment.get(id)?.size||0;
-    row.cashCount=cashByDepartment.get(id)?.size||0;
+    row.groupCount=groupsByDepartment.get(id)?.size ||
+      (groupScopeComplete?0:null);
+    row.cashCount=cashByDepartment.get(id)?.size ||
+      (groupScopeComplete && pointScopeComplete?0:null);
+    row.groupStatus=groupScopeComplete?"VERIFIED":"PARTIAL";
+    row.cashStatus=groupScopeComplete&&pointScopeComplete?"VERIFIED":"PARTIAL";
   }
   return [...metadata.values()];
 }
@@ -84,12 +99,13 @@ export async function recentScopedCashShifts(connection,ids,today,options={}) {
   const limit=Math.min(Math.max(Number(options.maxDepartments??8)||8,1),8);
   const chosen=uniq(ids).slice(0,limit);
   const result={};
+  const load=options.loadShifts || getShiftsForDateAndStatus;
   const runOne=async id=>{
     const oldOpen=dateAt(today,-89), recent=dateAt(today,-13),end=dateAt(today,0);
     const found=new Set();
     for(const [status,start] of [["OPEN",oldOpen],["CLOSED",recent]]) {
       try{
-        const reply=await getShiftsForDateAndStatus(connection,start,status,{
+        const reply=await load(connection,start,status,{
           departmentId:id,toDate:end
         });
         if(!reply?.ok||!Array.isArray(reply.shifts)) {
