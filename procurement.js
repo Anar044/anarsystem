@@ -115,10 +115,13 @@ function setStatus(text,kind=''){
   el.textContent=text||'';el.className='proc-status'+(text?' show':'')+(kind?' '+kind:'');
 }
 function setBusy(v){state.busy=!!v;document.querySelectorAll('.proc-btn').forEach(b=>{if(b.dataset.noBusy!=='1')b.disabled=!!v})}
-function closeModal(){$('proc-modal').hidden=true;$('proc-modal-body').innerHTML=''}
+function closeModal(){$('proc-modal').hidden=true;$('proc-modal-body').innerHTML='';document.querySelector('#proc-modal .proc-modal')?.classList.remove('proc-modal-wide')}
 function openModal(title,eyebrow,html){
   $('proc-modal-title').textContent=title;$('proc-modal-eyebrow').textContent=eyebrow||'ЗАКУПКИ';
-  $('proc-modal-body').innerHTML=html;$('proc-modal').hidden=false;
+  $('proc-modal-body').innerHTML=html;
+  document.querySelector('#proc-modal .proc-modal')?.classList.toggle('proc-modal-wide',
+    !!$('proc-receipt-lines')||!!$('proc-inv-lines')||!!$('proc-link-grn'));
+  $('proc-modal').hidden=false;
 }
 function toast(message,kind='ok'){setStatus(message,kind);if(kind==='ok')setTimeout(()=>{if($('proc-status')?.textContent===message)setStatus('')},3500)}
 
@@ -129,7 +132,7 @@ async function authToken(){
 }
 async function authFetch(url,options={}){
   const headers=new Headers(options.headers||{});headers.set('Authorization','Bearer '+state.token);
-  if(options.body&&!headers.has('Content-Type'))headers.set('Content-Type','application/json');
+  if(options.body&&!(options.body instanceof FormData)&&!headers.has('Content-Type'))headers.set('Content-Type','application/json');
   return (window.SH_IikoContext?.fetchWithTimeout||fetch)(url,{...options,headers},options.timeoutMs||45000);
 }
 async function procPost(action,payload={}){
@@ -669,6 +672,129 @@ function quoteComparisonHtml(r){
     (r.status==='APPROVED'?'<div class="proc-split-entry"><div><strong>Заказы по лучшим ценам</strong><small>Можно распределить один товар между несколькими поставщиками и создать отдельный PO для каждого.</small></div><button class="proc-btn primary" data-po-split="'+esc(r.id)+'">Распределить товары и создать PO</button></div>':'')+
     '<div class="proc-quote-legend"><span><i class="best-dot"></i> Зелёный — минимальная цена за единицу</span><span>Условия поставщиков — в заголовках колонок</span></div>'+
     '</div>';
+}
+function attachmentButton(type,id,label='Файлы'){
+  return '<button type="button" class="proc-btn small ghost proc-attach-btn" data-attachment-type="'+
+    esc(type)+'" data-attachment-id="'+esc(id)+'" data-attachment-label="'+esc(label)+'">📎 '+esc(label)+'</button>';
+}
+async function openProcurementAttachments(type,entityId,label){
+  const heading=label||type+' · '+entityId;
+  openModal('Файлы документа · '+heading,'АРХИВ ДОКУМЕНТОВ · SMART HORECA',
+    '<p class="proc-history-note">Прайс-листы, фотографии и документы поставщиков остаются внутри Smart Horeca. Доступ определяется правами на соответствующий документ.</p>'+
+    '<div id="proc-files-status" class="proc-history-note">Получаем файлы…</div>'+
+    '<div id="proc-files-list" class="proc-file-list"></div>'+
+    '<form id="proc-files-upload" class="proc-file-upload">'+
+    '<label class="proc-field"><span>Добавить фото или документ (до 6 МБ)</span><input id="proc-files-input" type="file" required accept=".pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls,.docx,.doc,.csv,.txt"></label>'+
+    '<button type="submit" class="proc-btn primary">Прикрепить</button></form>'+
+    '<div id="proc-file-preview" class="proc-file-preview" hidden></div>'+
+    '<div class="proc-modal-actions"><button id="proc-files-close" type="button" class="proc-btn secondary">Закрыть</button></div>');
+  const status=$('proc-files-status'),list=$('proc-files-list'),preview=$('proc-file-preview');
+  const endpoint='/api/procurement-attachments';
+  $('proc-files-close').onclick=closeModal;
+  const filesRequest=async(fileId='')=>{
+    const q=fileId?'?fileId='+encodeURIComponent(fileId):
+      '?entityType='+encodeURIComponent(type)+'&entityId='+encodeURIComponent(entityId);
+    return authFetch(endpoint+q,{method:'GET',cache:'no-store',timeoutMs:60000});
+  };
+  const load=async()=>{
+    const response=await filesRequest();
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok||data.success===false)throw Error(data.message||('HTTP '+response.status));
+    const files=data.files||[];
+    if(!document.getElementById('proc-files-list'))return;
+    status.textContent='Вложений: '+files.length+' · файлы сохраняются вместе с документом.';
+    list.innerHTML=files.map(file=>'<div class="proc-file-item">'+
+      '<div><strong>'+esc(file.name)+'</strong><small>'+esc(file.supplierName||heading)+
+      ' · '+(file.size/1024/1024).toFixed(2)+' МБ · '+esc(file.by||'')+
+      ' · '+esc(file.createdAt?new Date(file.createdAt).toLocaleString('ru-RU'):'')+'</small></div>'+
+      '<div class="proc-actions"><button type="button" class="proc-btn small secondary" data-proc-file-open="'+esc(file.id)+'">'+
+      'Открыть</button><button type="button" class="proc-btn small ghost" data-proc-file-save="'+esc(file.id)+'">Скачать</button></div></div>').join('')||
+      '<div class="proc-history-note">Вложений пока нет.</div>';
+    list.onclick=async event=>{
+      const button=event.target.closest('[data-proc-file-open],[data-proc-file-save]');
+      if(!button)return;
+      const item=files.find(f=>f.id===(button.dataset.procFileOpen||button.dataset.procFileSave));
+      if(!item)return;
+      button.disabled=true;status.textContent='Открываем '+item.name+'…';
+      try{
+        const response=await filesRequest(item.id);
+        if(!response.ok){const err=await response.json().catch(()=>({}));throw Error(err.message||('HTTP '+response.status));}
+        const blob=await response.blob(),url=URL.createObjectURL(blob);
+        const previewable=button.hasAttribute('data-proc-file-open')&&
+          (item.type==='application/pdf'||item.type.startsWith('image/'));
+        if(previewable){
+          const frame=item.type==='application/pdf'
+            ?'<iframe title="'+esc(item.name)+'" sandbox src="'+url+'"></iframe>'
+            :'<img alt="'+esc(item.name)+'" src="'+url+'">';
+          if(preview.dataset.blobUrl)URL.revokeObjectURL(preview.dataset.blobUrl);
+          preview.dataset.blobUrl=url;preview.innerHTML='<strong>'+esc(item.name)+'</strong>'+frame;
+          preview.hidden=false;
+        }else{
+          const a=document.createElement('a');a.href=url;a.download=item.name;
+          document.body.appendChild(a);a.click();a.remove();
+          setTimeout(()=>URL.revokeObjectURL(url),60000);
+        }
+        status.textContent='Вложение открыто: '+item.name;
+      }catch(e){status.textContent='Ошибка: '+(e.message||String(e))}
+      finally{button.disabled=false}
+    };
+  };
+  $('proc-files-upload').onsubmit=async e=>{
+    e.preventDefault();
+    const file=$('proc-files-input').files?.[0];
+    if(!file)return;
+    if(file.size>6*1024*1024){status.textContent='Файл не должен превышать 6 МБ.';return}
+    const btn=e.currentTarget.querySelector('button');btn.disabled=true;
+    status.textContent='Прикрепляем '+file.name+'…';
+    try{
+      const form=new FormData();
+      form.append('entityType',type);form.append('entityId',entityId);form.append('file',file,file.name);
+      const response=await authFetch(endpoint,{method:'POST',body:form,cache:'no-store',timeoutMs:90000});
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok||data.success===false)throw Error(data.message||('HTTP '+response.status));
+      $('proc-files-input').value='';
+      await load();
+    }catch(error){status.textContent='Ошибка: '+(error.message||String(error))}
+    finally{btn.disabled=false}
+  };
+  try{await load()}catch(e){status.textContent='Ошибка загрузки файлов: '+(e.message||String(e))}
+}
+function openRfqRevisionModal(r,rfq){
+  if(!rfq)return toast('Выберите RFQ, который нужно пересмотреть.','error');
+  const previously=new Set((rfq.supplierIds||[]).map(key));
+  const options=(state.refs.suppliers||[]).map(s=>{
+    const sid=key(s.id);
+    return '<label class="proc-rfq-supplier"><input type="checkbox" data-revision-supplier="'+esc(sid)+'" '+
+      (previously.has(sid)?'checked':'')+'><span><strong>'+esc(s.name||s.id)+'</strong>'+
+      '<small>'+esc(s.code||'')+'</small></span></label>';
+  }).join('');
+  openModal('Вернуть цены на доработку · '+rfq.number,'ПОВТОРНЫЙ ЗАПРОС ЦЕН',
+    '<div class="proc-revision-warning">Старые предложения сохранятся в архиве. Новый RFQ будет создан как черновик. По отклонённым ценам нельзя будет создавать PO.</div>'+
+    '<label class="proc-field"><span>Почему цены не подходят? *</span><textarea id="proc-revision-reason" placeholder="Например: цены слишком высокие; запросить новые у других поставщиков."></textarea></label>'+
+    '<div class="proc-form-grid"><label class="proc-field"><span>Новый срок ответа</span><input id="proc-revision-deadline" type="date" value="'+addDays(today(),3)+'"></label>'+
+    '<label class="proc-field wide"><span>Сообщение поставщикам</span><textarea id="proc-revision-message" placeholder="Просим повторно предоставить коммерческое предложение."></textarea></label></div>'+
+    '<div class="proc-edit-lines"><div class="proc-edit-head"><strong>У кого запросить новые цены</strong><small class="proc-history-note">Можно оставить прежних и добавить новых поставщиков</small></div>'+
+    '<div class="proc-rfq-supplier-grid">'+options+'</div></div>'+
+    '<div class="proc-modal-actions"><button type="button" class="proc-btn ghost" id="proc-revision-cancel">Отмена</button>'+
+    '<button type="button" class="proc-btn primary" id="proc-revision-confirm">Создать повторный RFQ</button></div>');
+  $('proc-revision-cancel').onclick=closeModal;
+  $('proc-revision-confirm').onclick=async()=>{
+    const reason=$('proc-revision-reason').value.trim();
+    const suppliers=[...document.querySelectorAll('[data-revision-supplier]:checked')].map(x=>{
+      const id=key(x.dataset.revisionSupplier),s=state.refs.suppliers.find(v=>key(v.id)===id);
+      return{id,name:s?.name||id};
+    });
+    if(reason.length<5||!suppliers.length){toast('Напишите причину (от 5 символов) и выберите поставщиков.','error');return}
+    try{
+      setBusy(true);
+      const result=await procPost('revise-rfq',{rfqId:rfq.id,reason,suppliers,
+        deadline:$('proc-revision-deadline').value,message:$('proc-revision-message').value});
+      closeModal();
+      await refreshSourcingDocument(r.id);
+      toast('Новый RFQ '+result.number+' создан. Отправьте его поставщикам.');
+    }catch(error){toast(error.message||String(error),'error')}
+    finally{setBusy(false)}
+  };
 }
 function rfqStatusLabel(s){
   return({DRAFT:'Черновик',SENT:'Отправлен',CLOSED:'Закрыт'}[String(s||'').toUpperCase()]||s||'—');
