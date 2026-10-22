@@ -1,4 +1,4 @@
-import { clean, iikoText } from "./_lib/iiko-client.js";
+import {clean, iikoText, bindIikoBroker } from "./_lib/iiko-client.js";
 import { resolveStoreScope } from "./_lib/store-scope.js";
 import { logAuditEvent, serverScopeFromConnection } from "../_lib/audit-log.js";
 import { enrichProcurementInvoicePackaging } from "./_lib/procurement-invoice-packaging.js";
@@ -365,12 +365,12 @@ export async function onRequestPost(context) {
     }
 
     const raw = body.connection || body;
-    const connection = {
+    const connection = bindIikoBroker({
       ip: clean(raw.ip),
       port: clean(raw.port),
       login: clean(raw.login),
       password: String(raw.password || "")
-    };
+    },context);
     if (!connection.ip || !connection.port || !connection.login || !connection.password) {
       return jsonResponse({ success: false, message: "Не найдено подключение к iiko Server" }, 400);
     }
