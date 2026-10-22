@@ -180,6 +180,11 @@ export default {
       const input=await request.json();
       const tenantId=clean(input?.tenantId), c=connectionOf(input?.connection);
       if(!tenantId || tenantId.length>256)throw Error("Verified tenant required");
+      // Fail closed against SSRF to arbitrary hosts if the service is
+      // accidentally reachable from a trusted application route.
+      const allowed=String(env.IIKO_ALLOWED_TARGETS||"").split(",").map(x=>x.trim().toLowerCase()).filter(Boolean);
+      if(!allowed.includes((c.ip+":"+c.port).toLowerCase()))
+        return fail("TARGET_DENIED","iiko host is not registered in broker allowlist",403);
       const idKey=await hash(JSON.stringify([tenantId,c.serverUrl,c.login,await hash(c.password)]));
       const object=env.IIKO_SESSIONS.get(env.IIKO_SESSIONS.idFromName(idKey));
       return object.fetch(new Request("https://broker.internal/request",{method:"POST",body:JSON.stringify(input),
