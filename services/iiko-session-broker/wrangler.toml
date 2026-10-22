@@ -1,0 +1,15 @@
+name = "sh-iiko-session-broker"
+main = "src/worker.mjs"
+compatibility_date = "2026-10-01"
+workers_dev = false
+
+[vars]
+# Existing production installations use GET /auth; test POST separately.
+IIKO_AUTH_METHOD = "GET"
+
+[durable_objects]
+bindings = [{ name = "IIKO_SESSIONS", class_name = "IikoSession" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["IikoSession"]
