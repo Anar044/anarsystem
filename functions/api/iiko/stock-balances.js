@@ -1,4 +1,4 @@
-import {clean, getIikoAuth, iikoJson, iikoText, bindIikoBroker } from "./_lib/iiko-client.js";
+import {clean, iikoReferenceScope, iikoJson, iikoText, bindIikoBroker } from "./_lib/iiko-client.js";
 
 const metaCache = new Map();
 const META_TTL_MS = 5 * 60 * 1000;
@@ -128,8 +128,7 @@ function normalizeProducts(payload,groupMap,categoryMap,unitMap){
 }
 
 async function loadMetadata(connection){
-  const auth=await getIikoAuth(connection);
-  const cacheKey=auth.serverUrl.toLowerCase();
+  const cacheKey=iikoReferenceScope(connection).toLowerCase();
   const cached=metaCache.get(cacheKey);
   if(cached&&cached.expiresAt>Date.now())return{...cached.data,cacheHit:true};
 
