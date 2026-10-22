@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
-import { IikoSession } from "../services/iiko-session-broker/src/worker.mjs";
+import brokerWorker, { IikoSession } from "../services/iiko-session-broker/src/worker.mjs";
 import { bindIikoBroker, iikoText, clearIikoClientCache } from "../functions/api/iiko/_lib/iiko-client.js";
 if(!globalThis.crypto)globalThis.crypto=webcrypto;
 
@@ -92,4 +92,33 @@ test("bridge carries verified tenant via private binding and does not expose tok
  assert.equal(r.ok,true);assert.equal(r.auth.cacheHit,true);
  assert.equal(payload.tenantId,"workspace:org-a");
  assert.equal(payload.request.path,"/resto/api/v2/reports/olap");
+});
+
+test("broker rejects unauthenticated callers and non-allowlisted egress",async()=>{
+ const workerEnv={...env,IIKO_BROKER_SERVICE_SECRET:"test-only-secret",
+  IIKO_SESSIONS:{idFromName:x=>x,get:()=>({fetch:async()=>new Response("should not call")})}};
+ const input={tenantId:"workspace:org-a",connection,action:"request",
+   request:{path:"/resto/api/demo",method:"GET"}};
+ const send=(secret,payload)=>brokerWorker.fetch(new Request("https://broker.internal/request",{
+   method:"POST",headers:{"content-type":"application/json","x-sh-broker-secret":secret},
+   body:JSON.stringify(payload)
+ }),workerEnv);
+ assert.equal((await send("incorrect",input)).status,403);
+ assert.equal((await send("test-only-secret",{...input,connection:{...connection,ip:"unregistered.example"}})).status,403);
+});
+
+test("broker uses distinct Durable Objects for separate authorized workspaces",async()=>{
+ const names=[];
+ const workerEnv={...env,IIKO_BROKER_SERVICE_SECRET:"test-only-secret",
+   IIKO_SESSIONS:{idFromName:key=>{names.push(key);return key},
+    get:()=>({fetch:async()=>new Response("ok")})}};
+ for(const tenantId of ["workspace:org-a","workspace:org-b"]){
+  const result=await brokerWorker.fetch(new Request("https://broker.internal/request",{
+    method:"POST",headers:{"x-sh-broker-secret":"test-only-secret"},
+    body:JSON.stringify({tenantId,connection,action:"request",request:{path:"/resto/api/demo",method:"GET"}})
+  }),workerEnv);
+  assert.equal(result.status,200);
+ }
+ assert.equal(names.length,2);
+ assert.notEqual(names[0],names[1]);
 });
