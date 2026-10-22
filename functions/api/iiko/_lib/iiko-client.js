@@ -111,6 +111,22 @@ export function bindIikoBroker(connection, context) {
   return bound;
 }
 
+// Server-side authorization helpers. The workspace MUST come from RBAC and
+// must never be accepted from request JSON or mobile client configuration.
+export function bindWorkspaceIikoBroker(connection, env, access) {
+  if(!env?.IIKO_SESSION_BROKER)return connection;
+  const workspaceId=clean(access?.workspace?.id);
+  if(!access?.allowed || !workspaceId)throw Error("Broker requires verified workspace access");
+  return bindIikoBroker(connection,{env,data:{shBrokerTenantId:"workspace:"+workspaceId}});
+}
+
+export function iikoReferenceScope(connection) {
+  const c=normalizeConnection(connection);
+  return connection?._shBroker
+    ? JSON.stringify(["workspace",connection._shBroker.tenantId,c.serverUrl,c.login])
+    : c.serverUrl;
+}
+
 async function brokerExchange(connection,action,path="",options={}) {
   const bridge=connection?._shBroker;
   if(!bridge)throw Error("SH central iiko broker not bound");
