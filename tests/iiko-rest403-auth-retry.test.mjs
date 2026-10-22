@@ -76,3 +76,16 @@ test("failed 403 request leaves cached token reusable in the same worker instanc
     assert.equal(calls.auth, 1);
   });
 });
+
+test("multiple calls share the existing licensed token", async () => {
+  await withServer([{status:200,body:"ok"}], async calls => {
+    const replies = await Promise.all([
+      iikoText(connection,"/resto/api/a"),
+      iikoText(connection,"/resto/api/b"),
+      iikoText(connection,"/resto/api/c")
+    ]);
+    assert.ok(replies.every(result=>result.status===200));
+    assert.equal(calls.auth,1);
+    assert.deepEqual(calls.tokens,["session-1","session-1","session-1"]);
+  });
+});
