@@ -3,11 +3,16 @@
 
 const tokenCache = new Map();
 const authInFlight = new Map();
+const requestQueue = new Map();
 const olapFieldsCache = new Map();
 const olapFieldsInFlight = new Map();
 
 const DEFAULT_TIMEOUT_MS = 20000;
-const TOKEN_TTL_MS = 4 * 60 * 1000;
+// iiko auth sessions consume a licensed slot. They remain usable until
+// the server returns 401 (the documented session idle timeout is normally
+// an hour). Never manufacture a new login every four minutes on active sites.
+// Cloudflare isolates still need a distributed token broker for global
+// sharing; this patch eliminates unnecessary logins inside each isolate.
 const OLAP_FIELDS_TTL_MS = 15 * 60 * 1000;
 
 export const clean = value => String(value ?? "").trim();
@@ -103,7 +108,7 @@ async function performAuthentication(connection, key) {
     const token=(await response.text()).trim();
     lastResponse=response;lastToken=token;
     if(response.ok&&token){
-      tokenCache.set(key,{token,expiresAt:Date.now()+TOKEN_TTL_MS});
+      tokenCache.set(key,{token});
       return{serverUrl:c.serverUrl,token,cacheHit:false,connectionKey:key,authAttempts:attempt+1};
     }
     if(!authRetryableStatus(response.status))break;
@@ -123,9 +128,7 @@ async function authenticate(connection, force = false) {
   const c = normalizeConnection(connection);
   const key = await connectionKey(c);
   const cached = tokenCache.get(key);
-  const now = Date.now();
-
-  if (!force && cached?.token && cached.expiresAt > now) {
+  if (!force && cached?.token) {
     return { serverUrl: c.serverUrl, token: cached.token, cacheHit: true, connectionKey: key };
   }
 
@@ -148,6 +151,23 @@ export async function getIikoAuth(connection, options = {}) {
   return authenticate(connection, options.force === true);
 }
 
+// iiko recommends sequential requests. The queue is scoped to one
+// server/login/password hash so unrelated customer tenants never block or
+// share credentials with each other. It is isolate-local, not a cross-Worker
+// distributed mutex; distributed license allocation requires separate setup.
+async function sequentialIikoCall(key, task) {
+  const previous=requestQueue.get(key);
+  let done;
+  const gate=new Promise(resolve => { done=resolve; });
+  requestQueue.set(key,gate);
+  if(previous) await previous;
+  try { return await task(); }
+  finally {
+    done();
+    if(requestQueue.get(key)===gate)requestQueue.delete(key);
+  }
+}
+
 export async function iikoFetch(connection, path, options = {}) {
   const {
     method = "GET",
@@ -157,24 +177,44 @@ export async function iikoFetch(connection, path, options = {}) {
     retryAuth = true,
     cache = "no-store"
   } = options;
+  const key=await connectionKey(connection);
+  return sequentialIikoCall(key,async()=>{
+    async function execute(forceAuth = false) {
+      const auth = await authenticate(connection, forceAuth);
+      const separator = path.includes("?") ? "&" : "?";
+      const url = `${auth.serverUrl}${path}${separator}key=${encodeURIComponent(auth.token)}`;
+      const response = await fetchWithTimeout(url,
+        { method, headers, body, cache }, timeoutMs);
+      return { response, auth };
+    }
+    let result = await execute(false);
+    // A license-exhaustion 403 must NEVER cause another auth attempt.
+    // Only 401 authorizes one re-login and one retry.
+    if (retryAuth && result.response.status === 401) {
+      result = await execute(true);
+    }
+    return result;
+  });
+}
 
-  async function execute(forceAuth = false) {
-    const auth = await authenticate(connection, forceAuth);
-    const separator = path.includes("?") ? "&" : "?";
-    const url = `${auth.serverUrl}${path}${separator}key=${encodeURIComponent(auth.token)}`;
-    const response = await fetchWithTimeout(url, { method, headers, body, cache }, timeoutMs);
-    return { response, auth };
-  }
-
-  let result = await execute(false);
-  // Only 401 proves an unauthenticated request. iiko can return HTTP 403
-  // when REST_API(2000) licensed connections are exhausted. Re-authenticating
-  // on 403 creates another iiko session and may worsen that shortage.
-  // Preserve the original 403 status/body for callers to handle explicitly.
-  if (retryAuth && result.response.status === 401) {
-    result = await execute(true);
-  }
-  return result;
+/// Release a licensed iiko session only on explicit server disconnect or
+/// credential replacement. Do not run after every request: many SH modules
+/// share the authenticated session and still need its key.
+export async function releaseIikoSession(connection) {
+  const key=await connectionKey(connection);
+  return sequentialIikoCall(key,async()=>{
+    const cached=tokenCache.get(key);
+    if(!cached?.token)return false;
+    const serverUrl=normalizeConnection(connection).serverUrl;
+    const url=`${serverUrl}/resto/api/logout?key=${encodeURIComponent(cached.token)}`;
+    const reply=await fetchWithTimeout(url,
+      {method:"GET",cache:"no-store"},12000);
+    if(reply.ok || reply.status===401){
+      tokenCache.delete(key);
+      return true;
+    }
+    throw Error(`iiko logout failed: HTTP ${reply.status}`);
+  });
 }
 
 export async function iikoText(connection, path, options = {}) {
@@ -286,6 +326,7 @@ export async function getOlapFields(connection, reportType, options = {}) {
 export function clearIikoClientCache() {
   tokenCache.clear();
   authInFlight.clear();
+  requestQueue.clear();
   olapFieldsCache.clear();
   olapFieldsInFlight.clear();
 }
