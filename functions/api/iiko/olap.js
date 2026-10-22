@@ -1,4 +1,4 @@
-import { clean, getOlapFields, iikoJson } from "./_lib/iiko-client.js";
+import { clean, getOlapFields, iikoJson, bindIikoBroker } from "./_lib/iiko-client.js";
 import {
   isServerPasswordMarker,
   loadRequestIikoState,
@@ -406,7 +406,7 @@ export async function onRequestGet(context) {
       password: url.searchParams.get("password") || "",
       reportType: url.searchParams.get("reportType") || "SALES"
     };
-    const connection = await resolveConnection(context, body);
+    const connection = bindIikoBroker(await resolveConnection(context, body),context);
     const reportType = clean(body.reportType).toUpperCase();
     const result = await getOlapColumns(connection, reportType, rid);
 
@@ -449,7 +449,7 @@ export async function onRequestPost(context) {
       }, 400);
     }
 
-    const connection = await resolveConnection(context, body);
+    const connection = bindIikoBroker(await resolveConnection(context, body),context);
     const reportType = clean(body.reportType || "SALES").toUpperCase();
     const action = clean(body.action || "query").toLowerCase();
 
