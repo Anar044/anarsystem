@@ -1,5 +1,6 @@
 // Private Cloudflare Worker, callable only through a Pages service binding.
-// Each Durable Object owns ONE tenant/credential pair and serializes all calls.
+// Each Durable Object owns ONE tenant/credential pair. Only authentication
+// is serialized; independent data calls use a bounded concurrent pool.
 // Never expose this Worker on a public route.
 const te = new TextEncoder();
 const json = (data, status = 500) => new Response(JSON.stringify(data), {
