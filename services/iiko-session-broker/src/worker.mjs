@@ -8,6 +8,8 @@ const json = (data, status = 500) => new Response(JSON.stringify(data), {
 const clean = value => String(value ?? "").trim();
 const hash = async value => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", te.encode(value))))
   .map(x=>x.toString(16).padStart(2,"0")).join("");
+const sha1 = async value => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-1", te.encode(value))))
+  .map(x=>x.toString(16).padStart(2,"0")).join("");
 const sleepAbort = (url, init, ms) => fetch(url, {...init, signal: AbortSignal.timeout(ms)});
 
 async function encryptionKey(env) {
@@ -84,7 +86,7 @@ export class IikoSession {
   async authenticate(c,scope) {
     const blocked=Number(await this.state.storage.get("authBlockedUntil")||0);
     if(blocked>Date.now())throw Object.assign(Error("Authorization cooldown after uncertain result"),{code:"AUTH_COOLDOWN"});
-    const pass=await hash(c.password);
+    const pass=await sha1(c.password);
     const url=`${c.serverUrl}/resto/api/auth?login=${encodeURIComponent(c.login)}&pass=${pass}`;
     const method=this.env.IIKO_AUTH_METHOD==="POST"?"POST":"GET"; // GET is currently used in production; change only after live compatibility test.
     let response, token;
@@ -92,12 +94,12 @@ export class IikoSession {
       response=await sleepAbort(url,{method,cache:"no-store"},12000);
       token=(await response.text()).trim();
     } catch {
-      await this.state.storage.put("authBlockedUntil",Date.now()+5*60_000);
+      await this.state.storage.put("authBlockedUntil",Date.now()+70*60_000);
       throw Object.assign(Error("iiko authentication result unknown; no retry attempted"),{code:"AUTH_UNCERTAIN"});
     }
     if(!response.ok || !token) {
       if([403,429,500,502,503,504].includes(response.status)||response.ok)
-        await this.state.storage.put("authBlockedUntil",Date.now()+5*60_000);
+        await this.state.storage.put("authBlockedUntil",Date.now()+70*60_000);
       throw Object.assign(Error(`iiko authentication HTTP ${response.status}; no retry attempted`),{code:"AUTH_FAILED"});
     }
     // Persist BEFORE using the new token. Durable storage survives object eviction.
@@ -156,7 +158,7 @@ export class IikoSession {
         // A newly allocated token rejected by iiko must not trigger a login
         // storm from subsequent independent requests.
         if(!wasCached || input.request.retryAuth!==false)
-          await this.state.storage.put("authBlockedUntil",Date.now()+5*60_000);
+          await this.state.storage.put("authBlockedUntil",Date.now()+70*60_000);
       }
       return outgoing(result.response,result.body,wasCached);
     } catch(error) {
