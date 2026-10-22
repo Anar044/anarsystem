@@ -764,3 +764,20 @@
   }
   .proc-modal-wide .proc-split-option{padding:7px}
 }
+
+
+/* Read-only PR and PO rows follow the same table hierarchy as editable GRN. */
+.proc-line-list .proc-view-line-head{
+  display:grid;grid-template-columns:minmax(180px,1fr) 150px 150px;
+  gap:10px;padding:9px;background:#172631;color:#95a8b5;
+  font-size:9.5px;font-weight:750;border:1px solid #293e4a;
+  border-radius:8px 8px 0 0
+}
+.proc-line-list:has(.proc-view-line-head){gap:0}
+.proc-line-list:has(.proc-view-line-head) .proc-line{
+  border-radius:0;border-bottom:1px solid #253643;min-height:30px;
+  background:#0e1921;align-items:center
+}
+.proc-line-list:has(.proc-view-line-head) .proc-line:nth-child(odd){background:#13212b}
+.proc-line-list:has(.proc-view-line-head) .proc-line:hover{background:#1a2b35}
+@media(max-width:600px){.proc-line-list .proc-view-line-head{display:none}}
