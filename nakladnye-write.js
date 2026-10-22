@@ -114,7 +114,9 @@
           '</div>' +
           '<label style="margin-top:12px">Комментарий<textarea id="inc-comment"></textarea></label>' +
           '<div class="inc-items-head"><strong>Позиции накладной</strong><span class="inc-total">Итого: <b id="inc-total">0,00</b> ₼</span></div>' +
-          '<div id="inc-items"></div>' +
+          '<div class="inc-items-scroll" role="region" tabindex="0" aria-label="Строки приходной накладной; горизонтальная прокрутка">' +
+            '<div class="inc-items-grid"><div class="inc-items-cols" aria-hidden="true"><span>Товар</span><span>Фасовка</span><span>Упаковок</span><span>Итого</span><span>НДС</span><span>Цена / упак.</span><span>Сумма с НДС</span><span></span></div>' +
+            '<div id="inc-items"></div></div></div>' +
           '<button id="inc-add" class="inc-btn" type="button" style="margin-top:10px">＋ Добавить позицию</button>' +
           '<datalist id="inc-product-options"></datalist>' +
           '<div class="inc-note">Фасовка × упаковок = итоговое количество. Цена указывается за упаковку с учётом выбранного НДС. «Сохранить» создаёт/обновляет накладную без проведения, «Сохранить и провести» сразу проводит её по складу.</div>' +
@@ -315,8 +317,7 @@
       '<label>Итого кол-во<input class="inc-readonly" data-f="actualAmount" type="number" readonly value="' + esc(actual) + '"></label>' +
       '<label>НДС<select data-f="vatPercent">' + vatOptions(vat) + '</select></label>' +
       '<label>Цена / упак.<input data-f="price" type="number" min="0" step="0.01" value="' + esc(price) + '"></label>' +
-      '<label>Сумма с НДС<input class="inc-readonly" data-f="sum" type="number" readonly value="' + esc(sum) + '"></label>' +
-      '<div class="inc-vat-sum" data-vat-sum></div>' +
+      '<label>Сумма с НДС<input class="inc-readonly" data-f="sum" type="number" readonly value="' + esc(sum) + '"><small class="inc-vat-sum" data-vat-sum></small></label>' +
       '<div class="inc-remove-wrap"><button class="inc-btn inc-danger" type="button">Удалить</button></div>' +
       '<input data-f="amountUnit" type="hidden" value="' + esc(item.amountUnit || '') + '">' +
       '<input data-f="containerId" type="hidden" value="' + esc(item.containerId || '') + '">';
