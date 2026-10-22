@@ -172,3 +172,44 @@ test('invoice, linked PO and allocation are compact while maintaining action sel
  assert.match(css,/\.proc-modal-wide \.proc-split-grid-head/);
  assert.match(css,/\.proc-modal-wide \.proc-compact-scroll/);
 });
+
+test('Product input labels hide technical IDs, but preserve exact iiko product identity',()=>{
+ const from=ui.indexOf('function buildProductDisplayLabels(){');
+ const end=ui.indexOf('function productRef(',from);
+ assert.ok(from>=0&&end>from,'Product display label registry must exist');
+ const state={refs:{products:[
+   {id:'abcdef12-3456-7890-aaaa-111111111111',name:'Döner',num:'100'},
+   {id:'abcdef12-3456-7890-aaaa-222222222222',name:'Pendir ağ',num:'210'},
+   {id:'abcdef12-3456-7890-aaaa-333333333333',name:'Pendir ağ',num:'211'},
+   {id:'abcdef12-3456-7890-aaaa-444444444444',name:'Yumurta',num:''},
+   {id:'abcdef12-3456-7890-aaaa-555555555555',name:'Yumurta',num:''}
+ ]},productById:new Map(),productDisplayLabels:new Map(),productLabelToId:new Map()};
+ const key=v=>String(v||'').trim().replace(/[{}]/g,'').toLowerCase();
+ state.productById=new Map(state.refs.products.map(p=>[key(p.id),p]));
+ const create=new Function('state','key',
+   ui.slice(from,end)+';return{buildProductDisplayLabels,productLabel};');
+ const {buildProductDisplayLabels,productLabel}=create(state,key);
+ buildProductDisplayLabels();
+ assert.equal(productLabel(state.refs.products[0].id),'Döner');
+ assert.equal(productLabel(state.refs.products[1].id),'Pendir ağ · арт. 210');
+ assert.equal(productLabel(state.refs.products[2].id),'Pendir ağ · арт. 211');
+ const codes=state.refs.products.map(p=>productLabel(p.id));
+ assert.equal(new Set(codes).size,5,'duplicate product names must remain selectable');
+ for(const p of state.refs.products){
+   const display=productLabel(p.id);
+   assert.ok(!display.includes('abcdef12'),'Technical ID leaked in '+display);
+   assert.ok(!display.includes(p.id.slice(-6)),'Technical ID suffix leaked in '+display);
+   assert.equal(state.productLabelToId.get(display),key(p.id));
+ }
+ assert.match(codes[3],/Yumurta · вариант/);
+ assert.match(codes[4],/Yumurta · вариант/);
+ assert.notEqual(codes[3],codes[4]);
+ assert.equal(productLabel('unknown-id'),'Номенклатура недоступна');
+});
+test('Typed product changes cannot silently keep the old product ID',()=>{
+ const body=ui.split('function collectPrLines(){')[1]?.split('function openPrModal(',1)[0];
+ assert.ok(body);
+ assert.match(body,/productLabel\(bound\)===label\?bound:key\(resolveProductLabel\(label\)\)/);
+ assert.match(ui,/function productOptions\(\)\{return state\.refs\.products\.map\(p=>'<option value="/);
+ assert.doesNotMatch(ui,/id\.slice\(-6\)/);
+});
