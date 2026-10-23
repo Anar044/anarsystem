@@ -120,7 +120,7 @@ function validate(body,kind,allowedStores){
 }
 function saleXml(doc){
  const rows=doc.items.map(x=>`<item>${elem("amount",x.amount)}${elem("storeId",doc.storeId)}${elem("productId",x.productId)}${elem("sum",x.sum)}${elem("discountSum",x.discountSum)}${elem("vatPercent",x.vatPercent)}</item>`).join("");
- return `<?xml version="1.0" encoding="UTF-8"?><document>${elem("status",doc.status)}${elem("accountToCode",doc.accountToCode)}${elem("revenueAccountCode",doc.revenueAccountCode)}${elem("documentNumber",doc.documentNumber)}${elem("dateIncoming",doc.dateIncoming)}<items>${rows}</items></document>`;
+ return `<?xml version="1.0" encoding="UTF-8"?><document>${elem("status",doc.status)}${elem("accountToCode",doc.accountToCode)}${elem("revenueAccountCode",doc.revenueAccountCode)}${elem("documentNumber",doc.documentNumber)}${elem("dateIncoming",doc.dateIncoming.length===16?doc.dateIncoming+":00":doc.dateIncoming)}<items>${rows}</items></document>`;
 }
 function tag(xml,name){
  const match=String(xml||"").match(new RegExp("<"+name+"(?:\\s[^>]*)?>([\\s\\S]*?)<\\/"+name+">","i"));
