@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authorizedCashPlugins, normalizePosOrders, cashFeedSnapshot } from '../functions/api/mobile/v1/cash.js';
+import { authorizedCashPlugins, normalizePosOrders, cashFeedSnapshot, settleCashBatched } from '../functions/api/mobile/v1/cash.js';
 
 test('server accepts only online plugins assigned to selected restaurants', () => {
   const items = authorizedCashPlugins({
@@ -131,4 +131,58 @@ test("historical snapshots for unselected restaurants never reach response",()=>
  const result=cashFeedSnapshot([],[],["r1"],old,{feedAvailable:false});
  assert.equal(result.registers.length,0);
  assert.equal(result.totals,null);
+});
+
+test('13 selected restaurants load without rejecting legitimate POS scope', async () => {
+  const ids = Array.from({length: 13}, (_, index) => 'RMS'+(index+1));
+  const payload = {plugins: ids.map((departmentId,index)=>({
+    pluginId: 'POS'+index, departmentId, online:true,
+    groupName: 'Register '+(index+1)
+  })).concat([{pluginId:'outsider',departmentId:'OTHER',online:true}])};
+  const authorized = authorizedCashPlugins(payload,ids);
+  assert.equal(authorized.length,13);
+  const collected=await settleCashBatched(authorized,async plugin=>({
+    ...plugin,orders:[{number:'1',status:'CLOSED',amount:10}],
+    totals:{closedSum:10,openSum:0,expectedSum:10,totalOrders:1}
+  }));
+  const output=cashFeedSnapshot(authorized,collected,ids);
+  assert.equal(output.registers.length,13);
+  assert.equal(output.partial,false);
+  assert.equal(output.totalsCoverage,'ALL_SELECTED_RESTAURANTS');
+  assert.equal(output.availableTotals.closedSum,130);
+  assert.equal(output.registers.some(p=>p.id==='outsider'),false);
+});
+
+test('25 POS use no more than five concurrent requests; rejected requests stay partial', async () => {
+  const ids=Array.from({length:25},(_,i)=>'POS'+i);
+  let active=0,maximum=0;
+  const result=await settleCashBatched(ids, async id=>{
+    active++;
+    maximum=Math.max(maximum,active);
+    await Promise.resolve();
+    active--;
+    if(id==='POS11')throw new Error('unavailable');
+    return {id,departmentId:id,name:id,orders:[]};
+  },20);
+  assert.equal(result.length,25);
+  assert.ok(maximum<=5);
+  assert.ok(maximum>1);
+  assert.equal(result[11].status,'rejected');
+  assert.equal(result[12].status,'fulfilled');
+  assert.equal(result[12].value.id,'POS12');
+  const snapshot=cashFeedSnapshot(ids.map(id=>({id,departmentId:id,name:id})),
+    result,ids);
+  assert.equal(snapshot.partial,true);
+  assert.equal(snapshot.count,24);
+  assert.equal(snapshot.totals,null);
+  assert.equal(snapshot.unavailableRegisters.length,1);
+  assert.equal(snapshot.unavailableRegisters[0].id,'POS11');
+});
+
+test('no fabricated live totals when a large POS selection has zero responses', async()=>{
+  const ids=Array.from({length:17},(_,i)=>'POS'+i);
+  const result=await settleCashBatched(ids,async()=>{throw Error('unavailable');});
+  assert.throws(()=>cashFeedSnapshot(
+    ids.map(id=>({id,departmentId:id,name:id})),result,ids
+  ),e=>e.code==='CASH_ALL_UNAVAILABLE');
 });
