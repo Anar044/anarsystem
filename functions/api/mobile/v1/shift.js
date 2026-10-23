@@ -1,4 +1,4 @@
-import { mobileContext, response, errorResponse, MobileError } from "../_lib/context.js";
+import { mobileContext, response, errorResponse, MobileError, ownerBrokerContext } from "../_lib/context.js";
 import { onRequestPost as sourceDetail } from "../../iiko/cash-shift-detail.js";
 import { departmentId, shiftId } from "./shifts.js";
 import { getShiftsForDateAndStatus } from "../../iiko/cash-shifts.js";
@@ -98,7 +98,7 @@ export async function onRequestGet({ request, env }) {
       // cannot filter by department; do not invoke its legacy CHAIN guard.
       body:JSON.stringify({...ctx.connection,sessionId:id})
     });
-    const upstream=await sourceDetail({request:internal});
+    const upstream=await sourceDetail({request:internal,...ownerBrokerContext(ctx,env)});
     if(!upstream.ok)throw new MobileError("SHIFT_UPSTREAM_FAILED",
       "Сервер не вернул детали смены.",502);
     const payload=await upstream.json().catch(()=>null);
