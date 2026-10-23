@@ -77,11 +77,6 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_M
   }
 }
 
-function authRetryableStatus(status){
-  return [429,502,503,504].includes(Number(status));
-}
-function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
-
 function cloudflareDiagnostic(response, body) {
   const cfType = clean(response?.headers?.get?.("cf-error-type"));
   const text = String(body || "");
@@ -92,32 +87,27 @@ function cloudflareDiagnostic(response, body) {
   return `Cloudflare HTTP ${response?.status || 530}${suffix}: проблема DNS/origin у адреса iiko Server`;
 }
 
+// Each successful /auth consumes one licensed REST_API(2000) session.
+// Never repeat an ambiguous 429/502/503/504 or timeout automatically:
+// the server might already have allocated a seat before losing its response.
+// Keep the documented GET /auth compatibility with the installed iiko Server.
 async function performAuthentication(connection, key) {
   const c = normalizeConnection(connection);
   const passwordHash = await sha1(c.password);
   const url = `${c.serverUrl}/resto/api/auth?login=${encodeURIComponent(c.login)}&pass=${passwordHash}`;
-  let lastResponse=null,lastToken="";
-  const delays=[0,350,1000];
-  for(let attempt=0;attempt<delays.length;attempt++){
-    if(delays[attempt])await sleep(delays[attempt]);
-    const response=await fetchWithTimeout(url,{method:"GET",cache:"no-store"},12000);
-    const token=(await response.text()).trim();
-    lastResponse=response;lastToken=token;
-    if(response.ok&&token){
-      tokenCache.set(key,{token});
-      return{serverUrl:c.serverUrl,token,cacheHit:false,connectionKey:key,authAttempts:attempt+1};
-    }
-    if(!authRetryableStatus(response.status))break;
+  const reply = await fetchWithTimeout(url,{method:"GET",cache:"no-store"},12000);
+  const token = (await reply.text()).trim();
+  if(reply.ok && token){
+    tokenCache.set(key,{token});
+    return {serverUrl:c.serverUrl,token,cacheHit:false,
+      connectionKey:key,authAttempts:1};
   }
   tokenCache.delete(key);
-  const cf=cloudflareDiagnostic(lastResponse,lastToken);
-  if(cf)throw new Error(cf);
-  const status=Number(lastResponse?.status)||0;
-  const preview=lastToken?` — ${lastToken.slice(0,240).replace(/\s+/g," ")}`:"";
-  if(authRetryableStatus(status)){
-    throw new Error(`SH Server временно недоступен при авторизации: HTTP ${status}. Выполнено 3 попытки.${preview}`);
-  }
-  throw new Error(`Ошибка авторизации iiko Server: HTTP ${status}${preview}`);
+  const diagnostic=cloudflareDiagnostic(reply,token);
+  if(diagnostic)throw Error(diagnostic);
+  const status=Number(reply.status)||0;
+  // Do not echo an upstream response: it may contain a token or credentials.
+  throw Error(`iiko /auth HTTP ${status}. Automatic authentication retries disabled to protect REST_API licences.`);
 }
 
 async function authenticate(connection, force = false) {

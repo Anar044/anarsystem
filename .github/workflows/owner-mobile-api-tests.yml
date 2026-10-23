@@ -46,3 +46,5 @@ jobs:
           node --experimental-default-type=module --check dashboard-optimized.js
       - name: Test summary normalization
         run: node --experimental-default-type=module --test tests/mobile-*.test.mjs tests/operational-day.test.mjs tests/owner-cash-shift-validation-diagnostics.test.mjs
+      - name: Verify REST_API license-safe single authentication
+        run: node --experimental-default-type=module --test tests/iiko-preview-single-auth.test.mjs
