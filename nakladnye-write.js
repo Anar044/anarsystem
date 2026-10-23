@@ -335,6 +335,13 @@
     });
     row.querySelector('[data-f="vatPercent"]').addEventListener('change', function () { recalcItem(row); recalc(); });
     $('inc-items').appendChild(row);
+    window.SHProductPicker?.attach(row.querySelector('[data-f="product"]'),{
+      getProducts:()=>refs.products,
+      valueFor:p=>productLabel(p.id,p.name),
+      getCode:p=>p.num||p.code,
+      getUnit:p=>p.unit||p.unitName||p.mainUnit?.name||'',
+      placeholder:'Поиск товара по названию или артикулу'
+    });
     applyInvoicePackaging(row);
     recalcItem(row);
     recalc();

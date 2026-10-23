@@ -1045,6 +1045,13 @@ function bindEditRows(root){
     ['packageSize','packageCount','price'].forEach(name=>{const el=row.querySelector('[data-f="'+name+'"]');if(el)el.oninput=recalcPrModal});
     const vat=row.querySelector('[data-f="vatPercent"]');if(vat)vat.onchange=recalcPrModal;
     applyPackagingChoice(row);
+    window.SHProductPicker?.attach(row.querySelector('[data-f="product"]'),{
+      getProducts:()=>state.refs.products,
+      valueFor:p=>productLabel(p.raw.id,p.raw.name),
+      getCode:p=>p.num||p.code,
+      getUnit:p=>p.unit||p.unitName||'',
+      placeholder:"Поиск товара по названию или артикулу"
+    });
   });
 }
 

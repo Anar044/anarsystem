@@ -483,6 +483,12 @@ function newLine(){
   w.querySelector("[data-f='count']").oninput=()=>updateTotal(w);
   w.querySelector(".io-remove").onclick=()=>w.remove();
   $("io-lines").appendChild(w);
+  window.SHProductPicker?.attach(w.querySelector('[data-f="product"]'),{
+    getProducts:()=>state.refs,valueFor:p=>productLabel(p.raw),
+    getCode:p=>p.num||p.code,
+    onSelect:()=>updateTotal(w),
+    placeholder:"Поиск товара по названию или артикулу"
+  });
 }
 function updateTotal(w){
   const p=state.refs.find(x=>x.id===w.querySelector("[data-f='product']").dataset.productId);
