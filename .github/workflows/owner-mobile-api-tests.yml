@@ -50,3 +50,5 @@ jobs:
         run: node --experimental-default-type=module --test tests/dashboard-summary-fields.test.mjs
       - name: Verify REST_API license-safe single authentication
         run: node --experimental-default-type=module --test tests/iiko-preview-single-auth.test.mjs
+      - name: Verify shared production iiko broker routing and tenant isolation
+        run: node --experimental-default-type=module --test tests/mobile-production-broker-routing.test.mjs tests/iiko-preview-single-auth.test.mjs
