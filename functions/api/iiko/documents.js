@@ -1,5 +1,6 @@
 import {iikoText, bindIikoBroker } from "./_lib/iiko-client.js";
 import { resolveStoreScope } from "./_lib/store-scope.js";
+import { warehouseLabels, warehouseLabel, warehouseKey } from "./_lib/warehouse-names.js";
 
 function corsHeaders(){return {"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type, Authorization","Content-Type":"application/json; charset=utf-8"};}
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{...corsHeaders(),"Cache-Control":"no-store"}});}
@@ -7,9 +8,13 @@ function date(v){const s=String(v??"").trim();if(/^\d{2}\.\d{2}\.\d{4}$/.test(s)
 async function requestIiko(connection,path){const r=await iikoText(connection,path,{headers:{Accept:"application/json, application/xml, text/xml, text/plain, */*"}});let body=null;try{body=JSON.parse(r.text);}catch{}return {...r,body};}
 function list(body){if(Array.isArray(body))return body;if(Array.isArray(body?.response))return body.response;if(Array.isArray(body?.data))return body.data;if(Array.isArray(body?.documents))return body.documents;return [];}
 function normalize(value){return String(value??"").trim();}
-function decorate(docs,storeMap,productMap){return docs.map(d=>({...d,storeFromName:storeMap.get(normalize(d.storeFromId))||normalize(d.storeFromId)||'—',storeToName:storeMap.get(normalize(d.storeToId))||normalize(d.storeToId)||'—',storeName:storeMap.get(normalize(d.storeId))||normalize(d.storeId)||'—',items:Array.isArray(d.items)?d.items.map(i=>({...i,productName:productMap.get(normalize(i.productId))||normalize(i.productId)||'—'})):[]}));}
+function decorate(docs,storeMap,productMap){return docs.map(d=>({...d,
+ storeFromName:warehouseLabel(d.storeFromId,storeMap),
+ storeToName:warehouseLabel(d.storeToId,storeMap),
+ storeName:warehouseLabel(d.storeId||d.defaultStoreId,storeMap),
+ items:Array.isArray(d.items)?d.items.map(i=>({...i,productName:productMap.get(normalize(i.productId))||'Товар'})):[]}));}
 async function referenceMap(connection,paths){const map=new Map();for(const path of paths){const r=await requestIiko(connection,path);if(!r.ok)continue;for(const x of list(r.body)){const id=normalize(x.id??x.uuid??x.entityId),name=normalize(x.name??x.title??x.description);if(id&&name)map.set(id,name);}if(map.size)break;}return map;}
-async function storeNames(connection){return referenceMap(connection,['/resto/api/corporation/stores','/resto/api/v2/entities/stores']);}
+async function storeNames(connection,scope){return warehouseLabels(connection,{scope});}
 async function productNames(connection){return referenceMap(connection,['/resto/api/v2/entities/products/list?includeDeleted=true','/resto/api/products']);}
 async function load(connection,type,from,to){const endpoint=type==='internalTransfer'?'/resto/api/v2/documents/internalTransfer':'/resto/api/v2/documents/writeoff';const qs=new URLSearchParams({dateFrom:date(from),dateTo:date(to)});const r=await requestIiko(connection,`${endpoint}?${qs}`);if(!r.ok)throw new Error(`${endpoint}: HTTP ${r.status}`);return {documents:list(r.body),revision:r.body?.revision??null,authCacheHit:r.auth?.cacheHit===true};}
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()});}
@@ -33,6 +38,6 @@ if(subsetRequested){
     return normalized.some(id=>wanted.has(id));
   });
 }
-const [stores,products]=await Promise.all([storeNames(connection),productNames(connection)]);
+const [stores,products]=await Promise.all([storeNames(connection,storeScope),productNames(connection)]);
 const documents=decorate(rawDocuments,stores,products);
 return json({success:true,type,from,to,count:documents.length,revision:result.revision,documents,referenceCounts:{stores:stores.size,products:products.size},meta:{sharedIikoClient:true,authCacheHit:result.authCacheHit,departmentIds,departmentScopeApplied:subsetRequested,storeIds:storeScope?.storeIds||[]}});}catch(e){return json({success:false,message:e?.message||'Ошибка получения документов'},502);}}
