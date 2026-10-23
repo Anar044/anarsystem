@@ -98,6 +98,7 @@ function validate(body,kind,allowedStores){
    if(!Number.isFinite(amount)||amount<=0||amount>10000000)throw failure("Строка "+(index+1)+": количество должно быть больше нуля.");
    const result={productId,amount};
    if(kind==="sales"){
+     if(row.sum===null||row.sum===undefined||clean(row.sum)==="")throw failure("Строка "+(index+1)+": введите сумму реализации.");
      const sum=Number(row.sum),discountSum=Number(row.discountSum||0);
      if(!Number.isFinite(sum)||sum<0||sum>100000000)throw failure("Строка "+(index+1)+": укажите сумму без скидки.");
      if(!Number.isFinite(discountSum)||discountSum<0||discountSum>sum)throw failure("Строка "+(index+1)+": скидка больше суммы.");
