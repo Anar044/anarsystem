@@ -221,6 +221,30 @@ async function fetchJson(url, options = {}) {
     clearTimeout(timeout);
   }
 }
+// Fetch large CHAIN selections with a bounded number of simultaneous POS
+// requests. 13+ online plugins are normal for multi-restaurant owners: never
+// reject legitimate scope simply because it exceeds a fixed plugin count.
+// allSettled-compatible output preserves each plugin's result and its index.
+export async function settleCashBatched(plugins, loadOne, maxConcurrent = 5) {
+  const items = Array.isArray(plugins) ? plugins : [];
+  const results = new Array(items.length);
+  const concurrency = Math.min(items.length, Math.max(1,
+    Math.min(5, Math.floor(Number(maxConcurrent) || 5))));
+  let next = 0;
+  await Promise.all(Array.from({length: concurrency}, async () => {
+    while (next < items.length) {
+      const index = next++;
+      try {
+        results[index] = {status: "fulfilled",
+          value: await loadOne(items[index], index)};
+      } catch (reason) {
+        results[index] = {status: "rejected", reason};
+      }
+    }
+  }));
+  return results;
+}
+
 export async function onRequestGet({request,env}) {
   try {
     const ctx=await mobileContext(request,env,{connectionRequired:true});
@@ -239,9 +263,9 @@ export async function onRequestGet({request,env}) {
       if(!historical.length) throw e;
       feedAvailable=false;
     }
-    if(plugins.length>12)throw new MobileError("CASH_TOO_MANY",
-      "Слишком много одновременно подключённых касс.",409);
-    const result=await Promise.allSettled(plugins.map(async plugin=>{
+    // Five concurrent requests at most, irrespective of how many online
+    // POS belong to the authenticated selected restaurant scope.
+    const result=await settleCashBatched(plugins,async plugin=>{
       const data=await fetchJson(VPS_API+"/api/plugin/request",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({action:"get_orders",
@@ -254,7 +278,7 @@ export async function onRequestGet({request,env}) {
         registerName:plugin.name
       }));
       return {...plugin,orders,totals:totals(orders)};
-    }));
+    });
     const seenAt=new Date().toISOString();
     const online=result.flatMap(entry=>
       entry.status==="fulfilled"?[entry.value]:[]);
