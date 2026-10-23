@@ -1047,7 +1047,7 @@ function bindEditRows(root){
     applyPackagingChoice(row);
     window.SHProductPicker?.attach(row.querySelector('[data-f="product"]'),{
       getProducts:()=>state.refs.products,
-      valueFor:p=>productLabel(p.id,p.name),
+      valueFor:p=>productLabel(p.raw.id,p.raw.name),
       getCode:p=>p.num||p.code,
       getUnit:p=>p.unit||p.unitName||'',
       placeholder:"Поиск товара по названию или артикулу"
