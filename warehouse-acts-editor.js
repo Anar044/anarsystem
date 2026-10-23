@@ -7,7 +7,7 @@
  const esc=x=>String(x??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
  const api="/api/iiko/warehouse-acts";
  const fmt=x=>Number(x||0).toLocaleString("ru-RU",{maximumFractionDigits:3});
- let data=null,busy=false;
+ let data=null,busy=false,writeUncertain=false;
  const createBtn=document.createElement("button");
  createBtn.type="button";createBtn.id="wa-open";createBtn.textContent="+ Новый акт "+typeTitle;
  const toolbar=$(".documents-toolbar");
@@ -144,13 +144,34 @@
  }
  const perform=(window.SH_IikoContext?.fetchWithTimeout||fetch).bind(window.SH_IikoContext?.fetchWithTimeout?window.SH_IikoContext:window);
  async function send(body){
-   const r=await perform(api,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({...body,departmentIds:await deps()})},60000);
-   let d;try{d=await r.json()}catch{throw Error("Некорректный ответ сервера: HTTP "+r.status)}
-   if(!r.ok||!d.success)throw Error(d.message||"HTTP "+r.status);
+   let r;
+   try{
+     r=await perform(api,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({...body,departmentIds:await deps()})},90000);
+   }catch(e){
+     const err=new Error(body.action==="create"
+       ?"Нет ответа от Smart Horeca. Неизвестно, получен ли документ сервером. Проверь список документов перед повторной отправкой."
+       :"Нет связи со Smart Horeca: "+String(e?.message||"сетевая ошибка"));
+     err.resultUnknown=body.action==="create";
+     throw err;
+   }
+   let d;
+   try{d=await r.json()}catch{
+     const err=new Error("Некорректный ответ Smart Horeca: HTTP "+r.status);
+     err.resultUnknown=body.action==="create";
+     throw err;
+   }
+   if(!r.ok||!d.success){
+     const err=new Error(d.message||"HTTP "+r.status);
+     err.resultUnknown=Boolean(d.resultUnknown);
+     err.code=d.code||"";
+     throw err;
+   }
    return d;
  }
  async function open(){
-   editor.hidden=false;createBtn.disabled=true;message("Загружаем справочники…");
+   editor.hidden=false;createBtn.disabled=true;writeUncertain=false;
+   $("#wa-draft").disabled=$("#wa-process").disabled=false;
+   message("Загружаем справочники…");
    $("#wa-date").value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);
    try{
      data=await send({kind,action:"bootstrap"});
@@ -180,7 +201,7 @@
    }));
  }
  async function save(status){
-   if(busy)return;
+   if(busy||writeUncertain)return;
    const items=extractRows();
    const doc={
      dateIncoming:$("#wa-date").value,documentNumber:$("#wa-number").value.trim(),
@@ -201,8 +222,16 @@
        editor.hidden=true;
        $("#documents-load")?.click();
      }
-   }catch(e){message(e.message+" Если ответ сервера оборвался, проверь документ на SH Server перед повторной отправкой.",true)}
-   finally{busy=false;$("#wa-draft").disabled=$("#wa-process").disabled=false}
+   }catch(e){
+     if(e.resultUnknown){
+       writeUncertain=true;
+       message(e.message+" Сохранение заблокировано до проверки, чтобы не создать дубликат. Список документов обновлён.",true);
+       $("#documents-load")?.click();
+     }else message(e.message,true);
+   }finally{
+     busy=false;
+     $("#wa-draft").disabled=$("#wa-process").disabled=writeUncertain;
+   }
  }
  createBtn.addEventListener("click",open);
  $("#wa-close").addEventListener("click",()=>{editor.hidden=true});
