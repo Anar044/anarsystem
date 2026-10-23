@@ -98,6 +98,7 @@
  }
  async function open(){
    editor.hidden=false;createBtn.disabled=true;message("Загружаем справочники…");
+   $("#wa-date").value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);
    try{
      data=await send({kind,action:"bootstrap"});
      if(!data.stores?.length)throw Error("Нет складов для выбранного ресторана.");
@@ -108,7 +109,6 @@
        fill($("#wa-account-out"),validAccounts.map(x=>({...x,id:x.code})),x=>x.code+" · "+x.name);
        fill($("#wa-account-income"),validAccounts.map(x=>({...x,id:x.code})),x=>x.code+" · "+x.name);
      }
-     $("#wa-date").value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);
      $("#wa-number").value="";
      $("#wa-rows").innerHTML="";
      createLine();message("Выбери склад, счёт и товары.");
