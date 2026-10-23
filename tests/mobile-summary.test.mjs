@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeSummary } from '../functions/api/mobile/v1/summary.js';
+import { normalizeSummary, ownerSummarySourceError } from '../functions/api/mobile/v1/summary.js';
 
 test('normalizes financial aggregates without assuming unavailable values are zero', () => {
   const actual = normalizeSummary({
@@ -63,4 +63,20 @@ test('dashboard never substitutes date-grouped discount for missing type/registe
   const value=normalizeSummary(obj);
   assert.equal(value.metrics.discounts,null);
   assert.equal(value.metrics.revenue,100);
+});
+
+test('Owner reports an actual exhausted licensed REST session without leaking upstream text',()=>{
+  for(const payload of [
+    {success:false,message:'License enhancement is required: no connections available for module REST_API(2000)'},
+    {success:true,reports:{daily:{success:false,error:'iiko OLAP HTTP 403: License enhancement is required: no connections available for module REST_API(2000)'}}}
+  ]) {
+    const err=ownerSummarySourceError(payload);
+    assert.equal(err?.code,'IIKO_LICENSE_SEATS_UNAVAILABLE');
+    assert.equal(err?.status,503);
+    assert.equal(err?.message.includes('REST_API'),false);
+    assert.equal(err?.message.includes('HTTP'),false);
+  }
+  assert.equal(ownerSummarySourceError({success:false,message:'Cloudflare temporary failure'}),null);
+  assert.equal(ownerSummarySourceError({success:true,reports:{daily:{success:false,error:'Permission denied'}}}),null);
+  assert.equal(ownerSummarySourceError(null),null);
 });

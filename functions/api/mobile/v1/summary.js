@@ -107,6 +107,23 @@ export function normalizeSummary(payload) {
   };
 }
 
+// Surface a safe, actionable license diagnostic without exposing iiko
+// upstream response bodies, usernames, session tokens, or other tenants.
+export function ownerSummarySourceError(payload) {
+  const descriptions = [
+    payload?.message,
+    payload?.reports?.daily?.error,
+    payload?.reports?.discountReport?.error,
+    payload?.reports?.surchargeReport?.error
+  ].filter(v => typeof v === "string");
+  if (descriptions.some(value =>
+      /license enhancement is required|no connections available for module/i.test(value))) {
+    return new MobileError("IIKO_LICENSE_SEATS_UNAVAILABLE",
+      "Все лицензированные подключения к серверу учёта заняты. Проверьте активные сеансы и лицензии.",503);
+  }
+  return null;
+}
+
 export async function onRequestGet({ request, env }) {
   try {
     const url = new URL(request.url);
@@ -133,6 +150,8 @@ export async function onRequestGet({ request, env }) {
     });
     const upstream = await dashboardSummary({ request: backendRequest });
     const payload = await upstream.json().catch(() => null);
+    const sourceError = ownerSummarySourceError(payload);
+    if (sourceError) throw sourceError;
     if (!upstream.ok || !payload?.success) {
       const code = String(payload?.code || "OLAP_FAILED");
       let message = typeof payload?.message === "string"
