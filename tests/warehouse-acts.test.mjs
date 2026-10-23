@@ -32,6 +32,7 @@ test("salesDocument is XML and contains correct accounts, totals and separate li
   "<productId>"+product+"</productId>"])
   assert.ok(xml.includes(expected),expected);
  assert.ok(xml.indexOf("<status>")<xml.indexOf("<items>"));
+ assert.match(xml,/<dateIncoming>2026-10-23T10:15:00<\/dateIncoming>/);
  assert.equal(extractValidationTag("<documentValidationResult><valid>true</valid><warning>false</warning></documentValidationResult>","valid"),"true");
  assert.equal(extractValidationTag("<documentValidationResult><valid>false</valid><errorMessage>reject</errorMessage></documentValidationResult>","valid"),"false");
 });
