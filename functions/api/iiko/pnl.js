@@ -57,7 +57,7 @@ function accountRoleTotal(list){return(list||[]).reduce((a,x)=>a+Number(x.value|
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
 
 export async function onRequestPost(context){
-  const {request,env}=context;{
+  const {request,env}=context;
   try{
     const auth=await getUser(request,env).catch(()=>null);
     const b=await request.json();
