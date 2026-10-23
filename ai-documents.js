@@ -253,6 +253,12 @@ function renderItems(){
     const recalc=()=>{const q=Number(qi.value||0),p=Number(pi.value||0);si.value=(q*p).toFixed(2);recalcTotal()};
     qi.oninput=recalc;pi.oninput=recalc;si.oninput=recalcTotal;
     sel.onchange=()=>rememberAlias(row).catch(console.error);
+    window.SHProductPicker?.attach(sel,{
+      getProducts:()=>refs?.products||[],
+      getCode:p=>p.num||p.code,
+      getUnit:p=>p.unit||p.unitName||'',
+      placeholder:"Найти товар из номенклатуры"
+    });
     row.querySelectorAll('.aid-suggestion').forEach(btn=>btn.onclick=()=>{
       sel.value=btn.dataset.productId||'';
       sel.dispatchEvent(new Event('change',{bubbles:true}));
