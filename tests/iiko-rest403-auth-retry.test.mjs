@@ -89,3 +89,25 @@ test("multiple calls share the existing licensed token", async () => {
     assert.deepEqual(calls.tokens,["session-1","session-1","session-1"]);
   });
 });
+
+test("unsuccessful iiko auth responses cannot expose upstream secrets in errors", async () => {
+  const originalFetch = globalThis.fetch;
+  clearIikoClientCache();
+  let attempts=0;
+  globalThis.fetch=async url=>{
+    assert.match(String(url),/\/resto\/api\/auth\?/);
+    attempts++;
+    return new Response("PRIVATE_IIKO_AUTH_BODY_SHOULD_NOT_LEAK",{status:503});
+  };
+  try {
+    await assert.rejects(
+      iikoText(connection,"/resto/api/test"),
+      e=>e.message.includes("iiko auth HTTP 503") &&
+        !e.message.includes("PRIVATE_IIKO_AUTH_BODY_SHOULD_NOT_LEAK")
+    );
+    assert.equal(attempts,1);
+  } finally {
+    globalThis.fetch=originalFetch;
+    clearIikoClientCache();
+  }
+});

@@ -212,8 +212,9 @@ async function performAuthentication(connection, key) {
   const cf=cloudflareDiagnostic(response,token);
   if(cf)throw Error(cf);
   const status=Number(response?.status)||0;
-  const preview=token?` — ${token.slice(0,240).replace(/\s+/g," ")}`:"";
-  throw Error(`iiko auth HTTP ${status}. Repeated authentication blocked to protect REST_API licences.${preview}`);
+  // Never copy an upstream auth response body into a user-facing error:
+  // it could contain a session key or confidential server information.
+  throw Error(`iiko auth HTTP ${status}. Repeated authentication blocked to protect REST_API licences.`);
 
 }
 

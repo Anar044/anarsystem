@@ -4,6 +4,34 @@ Test origin: `http://s01.smarthoreca.az:9132`. The screenshots from the
 test server show two active `REST_API(2000)` connections at the observation
 time, **not** proof that two seats are licensed in total.
 
+## Required Cloudflare Workers Builds configuration
+
+The private test Worker is a **different deployment target** from the Owner
+mobile Preview API. If the Cloudflare test-Worker project uses the Git branch
+`feature/owner-mobile-readonly-api-v1` with root `/` and the default
+`npx wrangler preview` command, this is **not** the source layout for the
+broker. Do not use **Retry build** before correcting the Worker Settings.
+
+Under `Workers & Pages > sh-iiko-session-broker-test > Settings > Build`:
+
+- **Git repository:** `Anar044/anarsystem`
+- **Production branch:** `main` (includes the broker files; a dedicated
+  release branch from main also works).
+- **Root directory:** `services/iiko-session-broker`
+- **Build command:** none required for the single-entry-point Worker
+- **Deploy command:** `npx wrangler deploy --config wrangler.staging.toml`
+- **Preview builds:** disable during the initial broker pilot; enabling
+  later requires a separately reviewed Preview command and Preview bindings.
+- **Runtime Worker secrets:** set `IIKO_BROKER_SERVICE_SECRET` and
+  `IIKO_BROKER_ENCRYPTION_KEY_B64` only under Runtime Variables/Secrets;
+  build variables alone do not configure the running Worker.
+
+Before linking this Worker to Pages Preview, verify the deployed script name
+and runtime secret presence. Do not enable production Pages bindings or the
+`IIKO_BROKER_ENABLED_WORKSPACES=*` opt-in. Confirm that the correct *verified
+test workspace ID* is present in the Preview allowlist. Monitor iiko sessions
+before each read-only request; make sure a spare licensed REST_API seat exists.
+
 ## Required gate before live test
 
 - Keep the production Pages service `smarthoreca.pages.dev` unchanged.

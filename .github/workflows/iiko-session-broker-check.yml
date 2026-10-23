@@ -26,3 +26,5 @@ jobs:
       - run: node --check services/iiko-session-broker/src/worker.mjs
       - run: node --check functions/api/iiko/_lib/iiko-client.js
       - run: node --test tests/iiko-session-broker.test.mjs tests/iiko-rest403-auth-retry.test.mjs tests/iiko-broker-route-coverage.test.mjs
+      - name: Validate staging Worker Wrangler bundle without deploying
+        run: npx --yes wrangler@4.152.0 deploy --config services/iiko-session-broker/wrangler.staging.toml --dry-run
