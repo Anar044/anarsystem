@@ -36,7 +36,7 @@
    const getCode=options.getCode||((x)=>x?.num||x?.code||x?.article||"");
    const getUnit=options.getUnit||((x)=>x?.unit||x?.unitName||x?.mainUnit?.name||"");
    const getProducts=options.getProducts||(()=>options.products||[]);
-   const valueFor=options.valueFor||((x)=>x.id);
+   const valueFor=options.valueFor||((x)=>x.raw?.id??x.id);
    const originalDisplay=original.style.display;
    const parent=original.parentNode;
    const wrap=document.createElement("div");wrap.className="sh-pick-wrap";
@@ -74,10 +74,12 @@
    }
    function show(){
      const words=search.value.toLocaleLowerCase().split(/\s+/).filter(Boolean);
-     const currentId=chosenId;
+     const selectedItem=items().find(p=>p.id===chosenId);
+     const effectiveWords=selectedItem&&search.value===textFor(selectedItem)
+       ?selectedItem.name.toLocaleLowerCase().split(/\\s+/).filter(Boolean):words;
      const found=items().filter(p=>{
        const s=(p.name+" "+p.code+" "+p.unit).toLocaleLowerCase();
-       return words.every(w=>s.includes(w));
+       return effectiveWords.every(w=>s.includes(w));
      }).slice(0,40);
      candidates=found;active=-1;
      list.innerHTML=found.length?found.map((p,i)=>'<button type="button" class="sh-pick-option" role="option" data-index="'+i+'">'+escape(p.name)+(p.code||p.unit?'<small>'+escape([p.code,p.unit].filter(Boolean).join(" · "))+'</small>':"")+'</button>').join("")
