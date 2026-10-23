@@ -27,6 +27,7 @@
      ${kind==="writeoff"?`<label class="wa-full">Комментарий <input id="wa-comment" maxlength="2000" placeholder="Причина списания"></label>`:""}
    </div>
    <div class="wa-items-head"><strong>Товары</strong><button type="button" id="wa-add">+ Добавить строку</button></div>
+   <div class="wa-columns"><span>Товар</span><span>Количество</span>${kind==="sales"?"<span>Сумма</span><span>Скидка</span><span>НДС %</span>":""}<span></span></div>
    <div id="wa-rows"></div>
    <div class="wa-actions"><span id="wa-message" role="status"></span><button type="button" id="wa-draft">Сохранить черновик</button><button type="button" id="wa-process" class="wa-process">Создать и провести</button></div>
    <div class="wa-hint">Проведение изменяет складской учёт SH Server. Для проверки сначала сохраняй черновик. Количество указывается в основных единицах товара.</div>`;
@@ -43,41 +44,93 @@
  .wa-form-grid .wa-full{grid-column:1/-1}
  .wa-editor input,.wa-editor select{box-sizing:border-box;background:#0c131b;border:1px solid #354454;color:#f0f7fa;padding:9px;border-radius:8px;min-width:0;width:100%;font:inherit}
  .wa-items-head{border-top:1px solid #273443;padding-top:15px}
- .wa-line{display:grid;grid-template-columns:minmax(180px,2.4fr) 105px ${kind==="sales"?"110px 105px 85px ":""} 36px;gap:8px;align-items:center;margin:6px 0}
- .wa-product-group{min-width:0;display:grid;grid-template-columns:minmax(100px,1fr);gap:5px}
- .wa-editor .wa-product-pick{width:100%;font-size:12px}.wa-editor .wa-product-search{width:100%}
+ .wa-columns,.wa-line{display:grid;grid-template-columns:minmax(220px,3fr) 105px ${kind==="sales"?"115px 105px 85px ":""} 36px;gap:8px;align-items:center;}
+ .wa-columns{font-size:11px;color:#90a7b7;margin:0 0 8px;padding:0 0 7px;border-bottom:1px solid #273443}
+ .wa-line{margin:7px 0;min-height:38px}
+ .wa-product-group{min-width:0;position:relative}
+ .wa-editor .wa-product-search{width:100%;padding:10px 12px}
+ .wa-editor .wa-product-search.wa-missing{border-color:#ec817d}
+ .wa-suggestions{position:absolute;top:calc(100% + 3px);left:0;right:0;z-index:250;max-height:245px;overflow:auto;background:#152635;border:1px solid #466476;border-radius:8px;box-shadow:0 12px 28px #0009}
+ .wa-suggestions[hidden]{display:none!important}
+ .wa-editor button.wa-suggestion{width:100%;border:none;border-radius:0;background:transparent;color:#eff7fa;padding:10px 12px;display:block;text-align:left;font-size:13px}
+ .wa-editor button.wa-suggestion:hover,.wa-editor button.wa-suggestion.wa-active{background:#1d4e59}
+ .wa-suggestion small{display:block;font-size:11px;color:#a4bccb;margin-top:2px}
+ .wa-suggestion-empty{padding:11px;color:#a7bccc;font-size:12px}
  .wa-line .wa-remove{padding:8px 6px;background:#36212a;border-color:#61414a}
  .wa-actions{display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:18px}
  .wa-actions #wa-message{flex:1;color:#98aabb;font-size:12px}
  .wa-actions .wa-process{background:#38c891;border-color:#38c891;color:#0a1c16;font-weight:750}
  .wa-hint{font-size:11px;color:#a0b5bf;margin-top:12px}
- @media(max-width:1000px){.wa-form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wa-line{grid-template-columns:1fr 100px ${kind==="sales"?"100px 80px 80px ":""} 36px}}
- @media(max-width:640px){.wa-form-grid{grid-template-columns:1fr}.wa-line{display:flex;flex-wrap:wrap;padding:10px;border:1px solid #354454;border-radius:9px}.wa-product-group{flex-basis:100%}.wa-line>input{flex:1;width:70px}.wa-actions{flex-wrap:wrap}.wa-actions #wa-message{flex-basis:100%}}
+ @media(max-width:1000px){.wa-form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wa-columns,.wa-line{grid-template-columns:minmax(180px,2fr) 88px ${kind==="sales"?"95px 78px 68px ":""} 32px;gap:5px}}
+ @media(max-width:640px){.wa-form-grid{grid-template-columns:1fr}.wa-columns{display:none}.wa-line{grid-template-columns:minmax(160px,1fr) 80px 30px;gap:7px;padding:8px;border:1px solid #354454;border-radius:8px}.wa-product-group{grid-column:1/-1}.wa-line>input{width:100%}.wa-line .wa-remove{grid-column:3;grid-row:2}.wa-actions{flex-wrap:wrap}.wa-actions #wa-message{flex-basis:100%}}
+
  `;
  document.head.appendChild(style);
  function message(v,isError=false){const el=$("#wa-message");if(el){el.textContent=v;el.style.color=isError?"#ffa6a0":"#9ee7c8"}}
  function fill(sel,values,label){
    sel.innerHTML='<option value="">Выберите</option>'+values.map(x=>`<option value="${esc(x.id||x.code)}">${esc(label(x))}</option>`).join("");
  }
+ function productLabel(p){
+   return String(p.name||"Товар")+(p.code?" · "+p.code:"")+(p.unit?" ("+p.unit+")":"");
+ }
  function createLine(item=null){
    if($("#wa-rows").children.length>=250){message("Максимум 250 строк",true);return}
    const row=document.createElement("div");row.className="wa-line";
-   row.innerHTML=`<div class="wa-product-group"><input class="wa-product-search" placeholder="Поиск товара по названию" autocomplete="off"><select class="wa-product-pick"><option value="">Выберите товар</option></select></div>
-     <input class="wa-qty" type="number" min="0.001" step="any" value="${esc(item?.amount??1)}" title="Количество" aria-label="Количество">
+   row.innerHTML=`<div class="wa-product-group"><input class="wa-product-search" placeholder="Поиск товара по названию или артикулу" autocomplete="off" aria-label="Товар" role="combobox" aria-expanded="false"><div class="wa-suggestions" hidden role="listbox"></div></div>
+     <input class="wa-qty" type="number" min="0.001" step="any" value="${esc(item?.amount??1)}" placeholder="Кол-во" title="Количество" aria-label="Количество">
      ${kind==="sales"?'<input class="wa-sum" type="number" min="0" step="0.01" placeholder="Сумма" title="Сумма без скидки" aria-label="Сумма"><input class="wa-discount" type="number" min="0" step="0.01" value="0" title="Скидка" aria-label="Скидка"><input class="wa-vat" type="number" min="0" max="100" step="any" placeholder="НДС %" title="НДС %" aria-label="НДС %">':""}
-     <button type="button" class="wa-remove" title="Удалить строку">×</button>`;
-   const search=row.querySelector(".wa-product-search"),select=row.querySelector(".wa-product-pick");
-   const refresh=()=>{
-     const q=search.value.trim().toLowerCase();
-     const matches=(data?.products||[]).filter(p=>!q||(p.name+" "+p.code).toLowerCase().includes(q)).slice(0,75);
-     const previous=select.value;
-     select.innerHTML='<option value="">Выберите товар</option>'+matches.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}${p.code?" · "+esc(p.code):""}${p.unit?" ("+esc(p.unit)+")":""}</option>`).join("");
-     if(matches.some(x=>x.id===previous))select.value=previous;
+     <button type="button" class="wa-remove" title="Удалить строку" aria-label="Удалить строку">×</button>`;
+   row.dataset.productId="";
+   const search=row.querySelector(".wa-product-search"),list=row.querySelector(".wa-suggestions");
+   let results=[],active=-1;
+   const hide=()=>{list.hidden=true;search.setAttribute("aria-expanded","false");active=-1};
+   const choose=p=>{
+     row.dataset.productId=p.id;
+     search.value=productLabel(p);
+     search.classList.remove("wa-missing");
+     hide();
    };
-   search.addEventListener("input",refresh);
-   select.addEventListener("change",()=>{const product=(data?.products||[]).find(x=>x.id===select.value);if(product)search.value=product.name;});
+   const highlight=()=>{
+     list.querySelectorAll("button").forEach((x,i)=>x.classList.toggle("wa-active",i===active));
+     if(active>=0)list.querySelectorAll("button")[active]?.scrollIntoView({block:"nearest"});
+   };
+   function suggest(){
+     for(const other of $("#wa-rows").querySelectorAll(".wa-suggestions"))if(other!==list)other.hidden=true;
+     const needle=search.value.trim().toLocaleLowerCase();
+     const tokens=needle.split(/\\s+/).filter(Boolean);
+     results=(data?.products||[]).filter(p=>{
+       const label=(p.name+" "+p.code+" "+(p.unit||"")).toLocaleLowerCase();
+       return tokens.every(token=>label.includes(token));
+     }).slice(0,40);
+     list.innerHTML=results.length?results.map((p,i)=>`<button type="button" class="wa-suggestion" data-index="${i}" role="option">${esc(p.name)}${p.code?"<small>"+esc(p.code)+(p.unit?" · "+esc(p.unit):"")+"</small>":p.unit?"<small>"+esc(p.unit)+"</small>":""}</button>`).join("")
+       :'<div class="wa-suggestion-empty">Товар не найден</div>';
+     list.hidden=false;search.setAttribute("aria-expanded","true");active=-1;
+   }
+   search.addEventListener("focus",suggest);
+   search.addEventListener("input",()=>{row.dataset.productId="";search.classList.remove("wa-missing");suggest()});
+   search.addEventListener("keydown",e=>{
+     if(e.key==="Escape"){hide();return}
+     if(e.key==="ArrowDown"||e.key==="ArrowUp"){
+       e.preventDefault();if(list.hidden)suggest();
+       active=(active+(e.key==="ArrowDown"?1:-1)+results.length)%Math.max(1,results.length);highlight();
+     } else if(e.key==="Enter"&&!list.hidden&&results.length){
+       e.preventDefault();choose(results[active>=0?active:0]);
+     }
+   });
+   list.addEventListener("pointerdown",e=>{
+     const button=e.target.closest("button[data-index]");
+     if(!button)return;
+     e.preventDefault();
+     const product=results[Number(button.dataset.index)];
+     if(product)choose(product);
+   });
+   search.addEventListener("blur",()=>{hide();if(!row.dataset.productId&&search.value.trim())search.classList.add("wa-missing")});
    row.querySelector(".wa-remove").addEventListener("click",()=>row.remove());
-   $("#wa-rows").appendChild(row);refresh();
+   $("#wa-rows").appendChild(row);
+   if(item?.productId){
+     const product=(data?.products||[]).find(p=>p.id===item.productId);
+     if(product)choose(product);
+   }
  }
  async function deps(){
    try{
@@ -117,7 +170,7 @@
  }
  function extractRows(){
    return [...$("#wa-rows").children].map(row=>({
-     productId:row.querySelector(".wa-product-pick").value,
+     productId:row.dataset.productId||"",
      amount:Number(row.querySelector(".wa-qty").value),
      ...(kind==="sales"?{
        sum:row.querySelector(".wa-sum").value.trim()===""?null:Number(row.querySelector(".wa-sum").value),
@@ -136,7 +189,7 @@
        {accountToCode:$("#wa-account-out").value,revenueAccountCode:$("#wa-account-income").value})
    };
    if(!doc.storeId||!items.length||items.some(x=>!x.productId||!(x.amount>0))){
-     message("Выбери склад и товары, укажи положительное количество.",true);return;
+     message("Выбери склад и товары из подсказок, укажи положительное количество.",true);return;
    }
    if(kind==="sales"&&items.some(x=>!Number.isFinite(x.sum)||x.sum<0)){message("Укажи суммы по всем строкам.",true);return}
    if(status==="PROCESSED"&&!window.confirm("Провести акт? Это изменит учёт. Подтверждаешь проведение?"))return;
