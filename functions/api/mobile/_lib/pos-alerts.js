@@ -9,7 +9,8 @@ const first = (o, keys) => {
 const object = v => v && typeof v === "object" && !Array.isArray(v) ? v : {};
 export const ALERT_KINDS = Object.freeze([
   "DISCOUNT_APPLIED","DISCOUNT_REMOVED","PRECHECK_CANCELLED",
-  "ITEM_REMOVED","RECEIPT_STORNO"
+  "ITEM_REMOVED","RECEIPT_STORNO",
+  "SURCHARGE_APPLIED","SURCHARGE_REMOVED"
 ]);
 export function classifyPosAlert(event, data = {}) {
   const type=clean(event).toLowerCase().replace(/[\s_.-]/g,"");
@@ -19,6 +20,10 @@ export function classifyPosAlert(event, data = {}) {
     return {kind:"RECEIPT_STORNO",title:"Сторнирование чека"};
   if(/cancelguestbill|cancellationofguestbill|guestbillcancel|cancelprecheck|precheckcancel|отменапречека/.test(type))
     return {kind:"PRECHECK_CANCELLED",title:"Отмена пречека"};
+  if(/removingsurcharge|removesurcharge|surchargeremoved|deletingsurcharge/.test(type))
+    return {kind:"SURCHARGE_REMOVED",title:"Удалена наценка"};
+  if(/addingsurcharge|addsurcharge|surchargeadded|surchargeapplied/.test(type))
+    return {kind:"SURCHARGE_APPLIED",title:"Добавлена наценка"};
   if(/removediscount|deletingdiscount|removingdiscount|discountdeleted/.test(type))
     return {kind:"DISCOUNT_REMOVED",title:"Удалена скидка"};
   if(/deletionofprinteditem|deleteprinteditem|deletedprinteditem|removedish|deleteorderitem|removeorderitem/.test(type))
@@ -49,14 +54,15 @@ export function posAlertDetails(envelope){
     "number","Number"]) ?? first(envelope,["orderNum","OrderNum",
     "orderNumber","OrderNumber"]));
   const dish=clean(first(data,["dishName","DishName","productName","ProductName","itemName","ItemName"]));
-  const discountName=clean(first(data,["name","Name","discountName",
-    "DiscountName"]));
+  const adjustmentName=clean(first(data,["name","Name","discountName",
+    "DiscountName","surchargeName","SurchargeName"]));
   const restaurant=clean(envelope?.departmentName ?? data?.departmentName)||"Ресторан";
   const description=[
     restaurant,
     order ? "заказ №"+order : null,
-    alert.kind==="DISCOUNT_APPLIED" || alert.kind==="DISCOUNT_REMOVED"
-      ? (discountName || null) : null,
+    ["DISCOUNT_APPLIED","DISCOUNT_REMOVED",
+     "SURCHARGE_APPLIED","SURCHARGE_REMOVED"].includes(alert.kind)
+      ? (adjustmentName || null) : null,
     alert.kind==="ITEM_REMOVED" && dish ? dish : null
   ].filter(Boolean).join(" · ");
   const sourceTime=first(envelope,["timestamp","receivedAt","ReceivedAt",
