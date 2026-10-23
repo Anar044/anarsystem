@@ -19,7 +19,7 @@ test("an ambiguous HTTP 503 during /auth performs only one licensed login attemp
     auth++;
     return new Response("Service unavailable",{status:503});
   },async()=>{
-    await assert.rejects(iikoText(config,"/resto/api/demo"),/iiko \/auth HTTP 503/);
+    await assert.rejects(iikoText(config,"/resto/api/demo"),/iiko (?:\/)?auth HTTP 503/);
     assert.equal(auth,1);
   });
 });

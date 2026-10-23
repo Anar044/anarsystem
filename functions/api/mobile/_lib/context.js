@@ -1,6 +1,7 @@
 import { getUser, loadPrivateIikoState, privateConnection, hasPrivateConnection } from "../../iiko/_lib/user-state.js";
 import { resolveAccessForUser, listUserWorkspaces } from "../../access/_lib/access-control.js";
 import { restaurantDirectory, allowedDepartmentIds } from "../../iiko/_lib/restaurant-scope.js";
+import { bindWorkspaceIikoBroker } from "../../iiko/_lib/iiko-client.js";
 
 const clean = value => String(value ?? "").trim();
 const unique = values => [...new Set((values || []).map(clean).filter(Boolean))];
@@ -166,6 +167,26 @@ export async function mobileContext(request, env, { connectionRequired = false }
   return {
     auth, access, state, stored,
     selectedIds, availableIds, restaurants, connectionReady,
-    connection: connectionRequired ? privateConnection(state) : null
+    connection: connectionRequired
+      ? bindWorkspaceIikoBroker(privateConnection(state),env,access) : null
+  };
+}
+
+
+/** Internal-only delegation metadata: never read workspace or iiko host
+ * from an untrusted JSON body, URL, or mobile header. mobileContext verified
+ * active workspace membership, role, restaurant scope and saved credentials. */
+export function ownerBrokerContext(ctx, env) {
+  const id = clean(ctx?.access?.workspace?.id);
+  if (!ctx?.access?.allowed || !id || !ctx?.connection) {
+    throw new MobileError("OWNER_BROKER_SCOPE_UNVERIFIED",
+      "Не удалось подтвердить подключение организации.", 403);
+  }
+  return {
+    env,
+    data:{
+      shBrokerTenantId:"workspace:"+id,
+      shBrokerVerifiedConnection:ctx.connection
+    }
   };
 }

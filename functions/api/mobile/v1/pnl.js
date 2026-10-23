@@ -1,4 +1,4 @@
-import { mobileContext, response, errorResponse, MobileError } from "../_lib/context.js";
+import { mobileContext, response, errorResponse, MobileError, ownerBrokerContext } from "../_lib/context.js";
 import { mobilePeriod, clean, safeNumber } from "../_lib/query-helpers.js";
 import { onRequestPost as pnlSource } from "../../iiko/pnl.js";
 import { restaurantDirectory } from "../../iiko/_lib/restaurant-scope.js";
@@ -46,7 +46,7 @@ export async function onRequestGet({request,env}){
         selectedDepartmentCodes:selected.map(x=>x.code).filter(Boolean),
         selectedDepartmentNames:selected.map(x=>x.name).filter(Boolean)}
     })});
-  const upstream=await pnlSource({request:internal,env});
+  const upstream=await pnlSource({request:internal,env,...ownerBrokerContext(ctx,env)});
   if(!upstream.ok)throw new MobileError("PNL_SOURCE_FAILED",
     "SH Server не вернул финансовый P&L выбранного ресторана.",502);
   return response({...normalizeMobilePnl(await upstream.json(),ctx.selectedIds),from,to});

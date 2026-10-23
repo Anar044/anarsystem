@@ -1,4 +1,4 @@
-import { mobileContext, response, errorResponse, MobileError } from "../_lib/context.js";
+import { mobileContext, response, errorResponse, MobileError, ownerBrokerContext } from "../_lib/context.js";
 import { onRequestPost as sourceBalance } from "../../iiko/stock-balances.js";
 import { clean, safeNumber, scopeMatches } from "../_lib/query-helpers.js";
 
@@ -41,7 +41,7 @@ export async function onRequestGet({request,env}){
       departmentIds:ctx.selectedIds,includeZero:false,
       chainScope:{mode:"CHAIN",allowedDepartmentIds:ctx.availableIds}
     })});
-  const upstream=await sourceBalance({request:internal});
+  const upstream=await sourceBalance({request:internal,...ownerBrokerContext(ctx,env)});
   if(!upstream.ok) throw new MobileError("ALERT_SOURCE_FAILED",
     "SH Server не вернул складские предупреждения.",502);
   const payload=await upstream.json().catch(()=>null);

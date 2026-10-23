@@ -1,4 +1,4 @@
-import { mobileContext, response, errorResponse, MobileError } from "../_lib/context.js";
+import { mobileContext, response, errorResponse, MobileError, ownerBrokerContext } from "../_lib/context.js";
 import { onRequestPost as sourceBalance } from "../../iiko/stock-balances.js";
 import { clean, scopeMatches, safeNumber, projectionFailure } from "../_lib/query-helpers.js";
 
@@ -60,7 +60,7 @@ export async function onRequestGet({ request, env }) {
     };
     const internal = new Request(request.url, {method:"POST",
       headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
-    const upstream = await sourceBalance({request:internal});
+    const upstream = await sourceBalance({request:internal,...ownerBrokerContext(ctx,env)});
     if (!upstream.ok) throw new MobileError("INVENTORY_SOURCE_FAILED", "SH Server не вернул остатки.", 502);
     const payload = await upstream.json().catch(() => null);
     return response(normalizeInventory(payload, ctx.selectedIds, {offset}));

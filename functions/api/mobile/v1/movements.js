@@ -1,4 +1,4 @@
-import { mobileContext, response, errorResponse, MobileError } from "../_lib/context.js";
+import { mobileContext, response, errorResponse, MobileError, ownerBrokerContext } from "../_lib/context.js";
 import { onRequestPost as sourceMovements } from "../../iiko/stock-movements.js";
 import { resolveStoreScope } from "../../iiko/_lib/store-scope.js";
 import { mobilePeriod, clean, safeNumber } from "../_lib/query-helpers.js";
@@ -72,7 +72,7 @@ export async function onRequestGet({request,env}) {
     chainScope:{mode:"CHAIN",allowedDepartmentIds:ctx.availableIds}};
   const internal=new Request(request.url,{method:"POST",
     headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-  const source=await sourceMovements({request:internal});
+  const source=await sourceMovements({request:internal,...ownerBrokerContext(ctx,env)});
   if(!source.ok)throw new MobileError("MOVEMENTS_SOURCE_FAILED","SH Server не вернул движения товаров.",502);
   const payload=await source.json().catch(()=>null);
   const statuses=Object.values(payload?.sourceStatus||{});
