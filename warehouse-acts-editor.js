@@ -105,8 +105,8 @@
      if(kind==="writeoff")fill($("#wa-account"),data.accounts,x=>[x.code,x.name].filter(Boolean).join(" · "));
      else{
        const validAccounts=data.accounts.filter(x=>x.code);
-       fill($("#wa-account-out"),validAccounts,x=>x.code+" · "+x.name);
-       fill($("#wa-account-income"),validAccounts,x=>x.code+" · "+x.name);
+       fill($("#wa-account-out"),validAccounts.map(x=>({...x,id:x.code})),x=>x.code+" · "+x.name);
+       fill($("#wa-account-income"),validAccounts.map(x=>({...x,id:x.code})),x=>x.code+" · "+x.name);
      }
      $("#wa-date").value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);
      $("#wa-number").value="";
