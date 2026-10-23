@@ -21,6 +21,25 @@ const toRows=payload=>{
 };
 const failure=(message,status=400,code="DOCUMENT_INVALID")=>Object.assign(new Error(message),{status,code});
 
+// The shared middleware uses an empty array for the entire CHAIN. Resolve
+// all/currently selected restaurants on the server from the stored workspace
+// and cookie, and apply RBAC here too. Caller JSON is NEVER a scope authority.
+export function selectedDepartmentsForActs(state,access,request){
+ let scope;
+ try{scope=resolveRestaurantScope({state,request,strict:true});}
+ catch(e){throw failure(e.message||"Недоступный ресторан.",Number(e.status)||403,e.code||"DEPARTMENT_FORBIDDEN");}
+ let selected=scope.selectedDepartmentIds.map(id).filter(Boolean);
+ if(access.scope?.mode==="SELECTED"){
+   const allowed=new Set((access.scope.departmentIds||[]).map(id).filter(Boolean));
+   if(!allowed.size)throw failure("Нет доступных подразделений.",403,"DEPARTMENT_FORBIDDEN");
+   if(cookieDepartmentIds(request).some(x=>!allowed.has(id(x))))
+     throw failure("Подразделение вне разрешённой области.",403,"DEPARTMENT_FORBIDDEN");
+   selected=selected.filter(x=>allowed.has(x));
+ }
+ if(!selected.length)throw failure("У выбранного подключения нет доступных ресторанов.",409,"DEPARTMENT_SCOPE_EMPTY");
+ return selected;
+}
+
 async function authorized(request,env,kind,write=false){
  if(!env?.DB)throw failure("Серверная база доступа недоступна.",503,"DB_MISSING");
  const auth=await getUser(request,env);
@@ -32,21 +51,7 @@ async function authorized(request,env,kind,write=false){
  const stored=await loadPrivateIikoState(env.DB,access.storageUserId||access.ownerUserId||auth.user.id,env);
  if(!stored?.found||!hasPrivateConnection(stored.state))throw failure("Подключите iiko Server в настройках.",409,"IIKO_NOT_CONNECTED");
  const connection=bindWorkspaceIikoBroker(privateConnection(stored.state),env,access);
- // The shared iiko middleware intentionally sends departmentIds=[] when the
- // entire CHAIN is selected. Recover the selected IDs from the trusted stored
- // server state and the restaurant-selection cookie, never from JSON body.
- let scope;
- try{scope=resolveRestaurantScope({state:stored.state,request,strict:true});}
- catch(e){throw failure(e.message||"Недоступный ресторан.",Number(e.status)||403,e.code||"DEPARTMENT_FORBIDDEN");}
- let selected=scope.selectedDepartmentIds.map(id).filter(Boolean);
- if(access.scope?.mode==="SELECTED"){
-   const allowed=new Set((access.scope.departmentIds||[]).map(id).filter(Boolean));
-   if(!allowed.size)throw failure("Нет доступных подразделений.",403,"DEPARTMENT_FORBIDDEN");
-   if(cookieDepartmentIds(request).some(x=>!allowed.has(id(x))))
-     throw failure("Подразделение вне разрешённой области.",403,"DEPARTMENT_FORBIDDEN");
-   selected=selected.filter(x=>allowed.has(x));
- }
- if(!selected.length)throw failure("У выбранного подключения нет доступных ресторанов.",409,"DEPARTMENT_SCOPE_EMPTY");
+ const selected=selectedDepartmentsForActs(stored.state,access,request);
  return{access,auth,connection,workspaceId:clean(access.workspace.id),departmentIds:selected};
 }
 function departmentSelection(ctx) { return ctx.departmentIds; }
