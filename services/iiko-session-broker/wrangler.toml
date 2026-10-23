@@ -10,9 +10,9 @@ IIKO_AUTH_METHOD = "GET"
 # No wildcard suffix/subdomain matching. Add each other registered iiko
 # hostname separately (comma separated) before enabling all workspaces.
 IIKO_ALLOWED_TARGETS = "s01.smarthoreca.az"
-# One licensed auth session. Up to three concurrent iiko data calls per
-# registered workspace/credential. Set to 1 for strict sequential mode.
-IIKO_MAX_PARALLEL_REQUESTS = "3"
+# One licensed auth session. Strictly sequential iiko data calls per
+# registered workspace/credential. Raise only after observing server licensing and capacity.
+IIKO_MAX_PARALLEL_REQUESTS = "1"
 # FIFO queue cap; overload returns 429, never starts another auth.
 IIKO_MAX_PENDING_REQUESTS = "100"
 
