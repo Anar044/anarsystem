@@ -25,7 +25,14 @@ export function findCostAggregateField(fields){
   });
   return semantic?.name||null;
 }
-async function query(connection,{dateField,revenueField,orderField,profitField,discountField,surchargeField,costField,departmentField,from,to,departmentIds,shiftField,shiftIds,rowFields=null}){const filters={};filters["OpenDate.Typed"]={filterType:"DateRange",periodType:"CUSTOM",from,to,includeLow:true,includeHigh:true};if(departmentIds.length&&departmentField)filters[departmentField]={filterType:"IncludeValues",values:[...new Set(departmentIds)]};if(shiftField&&shiftIds?.length)filters[shiftField]={filterType:"IncludeValues",values:shiftIds};filters.DeletedWithWriteoff={filterType:"IncludeValues",values:["NOT_DELETED"]};filters.OrderDeleted={filterType:"IncludeValues",values:["NOT_DELETED"]};const aggregateFields=[...new Set([revenueField,orderField,profitField,discountField,surchargeField,costField].filter(Boolean))];const req={reportType:"SALES",buildSummary:true,groupByRowFields:rowFields||[dateField],groupByColFields:[],aggregateFields,filters};const r=await iikoJson(connection,"/resto/api/v2/reports/olap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(req)});if(!r.ok || r.payload?.success===false || r.payload?.error===true ||
+// SH Owner calculates daily and financial metrics from the grouped data rows.
+// Per iiko recommendations, generating an extra total OLAP summary for each
+// large-network query is unnecessary and can overload the iiko Server.
+export function buildDashboardOlapRequest({rowFields,aggregateFields,filters}) {
+  return {reportType:"SALES",buildSummary:false,groupByRowFields:rowFields,
+    groupByColFields:[],aggregateFields,filters};
+}
+async function query(connection,{dateField,revenueField,orderField,profitField,discountField,surchargeField,costField,departmentField,from,to,departmentIds,shiftField,shiftIds,rowFields=null}){const filters={};filters["OpenDate.Typed"]={filterType:"DateRange",periodType:"CUSTOM",from,to,includeLow:true,includeHigh:true};if(departmentIds.length&&departmentField)filters[departmentField]={filterType:"IncludeValues",values:[...new Set(departmentIds)]};if(shiftField&&shiftIds?.length)filters[shiftField]={filterType:"IncludeValues",values:shiftIds};filters.DeletedWithWriteoff={filterType:"IncludeValues",values:["NOT_DELETED"]};filters.OrderDeleted={filterType:"IncludeValues",values:["NOT_DELETED"]};const aggregateFields=[...new Set([revenueField,orderField,profitField,discountField,surchargeField,costField].filter(Boolean))];const req=buildDashboardOlapRequest({rowFields:rowFields||[dateField],aggregateFields,filters});const r=await iikoJson(connection,"/resto/api/v2/reports/olap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(req)});if(!r.ok || r.payload?.success===false || r.payload?.error===true ||
     r.payload?.errorCode || r.payload?.errorMessage ||
     !(Array.isArray(r.payload)||Array.isArray(r.payload?.data))){
     const reason=String(r.payload?.message||r.payload?.errorMessage||
