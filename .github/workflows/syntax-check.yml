@@ -58,6 +58,7 @@ jobs:
           node --test tests/internal-order-iiko-lookup.test.mjs
           node --test tests/internal-order-license.test.mjs
           node --test tests/iiko-rest403-auth-retry.test.mjs
+          node --test tests/warehouse-acts.test.mjs
           node --test tests/internal-order-route.test.mjs
           node --test tests/internal-order-route-preview.test.mjs
           node --test tests/internal-order-pair-probe.test.mjs
