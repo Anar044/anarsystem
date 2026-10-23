@@ -86,7 +86,7 @@ function validate(body,kind,allowedStores){
  if(Number.isNaN(d.getTime()))throw failure("Неверная дата документа.");
  const storeId=id(input.storeId);
  if(!UUID.test(storeId)||!allowedStores.has(storeId))throw failure("Выбран склад другого подразделения или склад не определён.",403,"STORE_FORBIDDEN");
- const documentNumber=clean(input.documentNumber);
+ const documentNumber=clean(input.documentNumber)||(kind==="sales"?"SH-SALE-"+Date.now().toString(36)+"-"+crypto.randomUUID().slice(0,6):"");
  if(documentNumber.length>80)throw failure("Слишком длинный номер документа.");
  const comment=clean(input.comment);
  if(comment.length>2000)throw failure("Комментарий слишком длинный.");
@@ -150,7 +150,13 @@ async function create(ctx,body,kind){
  const departments=departmentSelection(body,ctx.access),scope=await scopedStores(ctx.connection,departments);
  const doc=validate(body,kind,new Set(scope.storeIds.map(id)));
  // Reject spoofed account codes/IDs before sending any write to iiko.
- const accounts=normalizeAccounts(await lookup(ctx.connection,"/resto/api/v2/entities/accounts/list?includeDeleted=false"));
+ const [accountRows,productRows]=await Promise.all([
+   lookup(ctx.connection,"/resto/api/v2/entities/accounts/list?includeDeleted=false"),
+   lookup(ctx.connection,"/resto/api/v2/entities/products/list?includeDeleted=false")
+ ]);
+ const accounts=normalizeAccounts(accountRows),products=normalizeProducts(productRows);
+ const productNames=new Map(products.map(x=>[x.id,x.name]));
+ if(doc.items.some(x=>!productNames.has(x.productId)))throw failure("В документе есть товар, отсутствующий в активной номенклатуре iiko.");
  if(kind==="writeoff"&&!accounts.some(a=>a.id===doc.accountId))throw failure("Счёт списания отсутствует в справочнике iiko.");
  if(kind==="sales"&&(!accounts.some(a=>a.code===doc.accountToCode)||!accounts.some(a=>a.code===doc.revenueAccountCode)))
    throw failure("Выбранного расходного или доходного счёта нет в iiko.");
@@ -187,7 +193,7 @@ async function create(ctx,body,kind){
       (id,workspace_id,document_number,date_incoming,store_id,status,items_json,accounts_json,actor_id,created_at)
       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)`).bind(
        documentId,ctx.workspaceId,documentNumber,doc.dateIncoming,doc.storeId,doc.status,
-       JSON.stringify(doc.items),JSON.stringify({accountToCode:doc.accountToCode,revenueAccountCode:doc.revenueAccountCode}),
+       JSON.stringify(doc.items.map(x=>({...x,productName:productNames.get(x.productId)||"Товар"}))),JSON.stringify({accountToCode:doc.accountToCode,revenueAccountCode:doc.revenueAccountCode}),
        clean(ctx.auth.user.id),new Date().toISOString()).run();
    }catch(error){registrySaved=false;console.error("[SALES-ACT-REGISTRY]",error);}
  }
