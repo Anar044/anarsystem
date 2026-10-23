@@ -416,3 +416,51 @@ test("specific host:port allowlist does not permit all ports",async()=>{
  assert.equal((await send("9132")).status,200);
  assert.equal((await send("8080")).status,403);
 });
+
+test("broker refuses invalid encryption keys BEFORE allocating a licensed session",async()=>{
+ let upstreamCalls=0;
+ const undo=installFetch(async()=>{upstreamCalls++;return new Response("token");});
+ try {
+  for(const key of ["bad-key",Buffer.alloc(16,1).toString("base64")]){
+   const badEnv={...env,IIKO_BROKER_ENCRYPTION_KEY_B64:key};
+   const reply=await new IikoSession({storage:storage()},badEnv).fetch(request());
+   assert.equal(reply.status,503);
+  }
+  assert.equal(upstreamCalls,0,"invalid encryption must not consume a license slot");
+ } finally {undo()}
+});
+
+test("outer private Worker validates encryption before entering the broker Durable Object",async()=>{
+ let innerCalls=0;
+ const badEnv={...env,IIKO_BROKER_SERVICE_SECRET:"auth-test-secret",
+  IIKO_BROKER_ENCRYPTION_KEY_B64:"invalid",
+  IIKO_SESSIONS:{idFromName:key=>key,get:()=>({
+   fetch:async()=>{innerCalls++;return new Response("unexpected")}})}};
+ const response=await brokerWorker.fetch(new Request("https://broker.internal/request",{
+   method:"POST",headers:{"x-sh-broker-secret":"auth-test-secret"},
+   body:JSON.stringify({tenantId:"workspace:org-a",connection,
+      action:"request",request:{path:"/resto/api/demo",method:"GET"}})
+ }),badEnv);
+ assert.equal(response.status,503);
+ assert.equal((await response.json()).code,"ENCRYPTION_CONFIG_INVALID");
+ assert.equal(innerCalls,0);
+});
+
+test("broker defaults to one sequential iiko data request per credential",async()=>{
+ let logins=0,active=0,max=0;
+ const undo=installFetch(async url=>{
+  const u=new URL(String(url));
+  if(u.pathname.endsWith("/auth")){logins++;return new Response("t-1")}
+  active++;max=Math.max(active,max);
+  await Promise.resolve();await Promise.resolve();
+  active--;return new Response("ok");
+ });
+ try {
+  const session=new IikoSession({storage:storage()},env);
+  const responses=await Promise.all(Array.from({length:10},()=>session.fetch(request())));
+  assert.ok(responses.every(x=>x.ok));
+  assert.equal(max,1);
+  assert.equal(logins,1);
+  assert.ok(responses.every(x=>x.headers.get("x-sh-broker-parallel")==="1"));
+ } finally {undo()}
+});
