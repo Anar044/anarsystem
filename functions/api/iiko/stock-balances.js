@@ -190,7 +190,7 @@ function buildTimestamp(date,time){
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
 
 export async function onRequestPost(context){
-  const {request}=context;{
+  const {request}=context;
   try{
     const b=await request.json();
     const connection=bindIikoBroker({ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??"")},context);
