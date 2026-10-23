@@ -225,3 +225,5 @@ export async function onRequestPost(context){
    return respond({success:false,code:error.code||"WAREHOUSE_ACT_ERROR",message:error.message||"Ошибка работы с актом"},error.status||502);
  }
 }
+
+export { validate as validateWarehouseAct, saleXml as buildSalesActXml, tag as extractValidationTag };
