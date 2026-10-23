@@ -186,7 +186,7 @@ async function create(ctx,body,kind){
    result=await iikoText(ctx.connection,path,{method:"POST",headers:{
      "Content-Type":kind==="writeoff"?"application/json":"application/xml; charset=utf-8",
      Accept:kind==="writeoff"?"application/json":"application/xml,text/xml,*/*"
-   },body:kind==="writeoff"?JSON.stringify(payload):payload,timeoutMs:45000,retryAuth:false});
+   },body:kind==="writeoff"?JSON.stringify(payload):payload,timeoutMs:45000});
  }catch(error){
    console.error("[WAREHOUSE-ACT-POST-UNCONFIRMED]",{
      documentType:kind,workspaceId:ctx.workspaceId,
