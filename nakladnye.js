@@ -1,5 +1,5 @@
 (function(){'use strict';
-function installPageStyles(){if(document.getElementById('nakladnye-page-style'))return;const l=document.createElement('link');l.id='nakladnye-page-style';l.rel='stylesheet';l.href='/nakladnye.css?v=5';document.head.appendChild(l)}installPageStyles();
+function installPageStyles(){if(document.getElementById('nakladnye-page-style'))return;const l=document.createElement('link');l.id='nakladnye-page-style';l.rel='stylesheet';l.href='/nakladnye.css?v=20261022-compact-items';document.head.appendChild(l)}installPageStyles();
 const PERIOD_KEY='shIncomingInvoicesPeriodV1';const $=id=>document.getElementById(id);const esc=v=>String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));let documents=[];
 async function connection(){if(!window.SH_IikoContext?.get)throw new Error('Единый iiko-контекст D1 не загружен.');const state=await window.SH_IikoContext.get();const c=state?.connection;if(!c?.ip||!c?.port||!c?.login||!c?.password)throw new Error('Нет сохранённого подключения к SH Server. Откройте «Настройки» и подключитесь.');return c}
 function isoDate(d){const x=new Date(d);if(Number.isNaN(x.getTime()))return'';return`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`}

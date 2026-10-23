@@ -481,3 +481,311 @@
   .proc-quote-comparison .quote-price-cell{min-width:175px}
   .proc-quote-comparison .proc-quote-compare-wrap{max-height:67vh}
 }
+
+
+/* Bigger receiving and incoming-invoice dialogs: form logic remains untouched. */
+.proc-modal-backdrop .proc-modal.proc-modal-wide{display:flex;flex-direction:column;width:min(1510px,calc(100vw - 28px));height:min(95vh,1000px);max-height:95vh;overflow:hidden}
+.proc-modal-wide .proc-modal-head{flex:0 0 auto;padding:17px 24px}
+.proc-modal-wide .proc-modal-body{flex:1;min-height:0;overflow:auto;padding:20px 24px;scrollbar-gutter:stable}
+.proc-modal-wide .proc-edit-lines{overflow:auto}
+.proc-modal-wide .proc-edit-head{position:sticky;top:0;z-index:1}
+.proc-modal-wide .proc-form-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.proc-modal-wide .proc-receipt-choice{position:sticky;bottom:0;z-index:2;background:#101820;padding:15px 0 5px;border-top:1px solid #293a48}
+.proc-modal-wide .proc-modal-summary{position:sticky;bottom:62px;z-index:2}
+.proc-stage-attachments{display:flex;gap:9px;padding:8px 16px 0}
+.proc-attach-btn{white-space:nowrap}
+.quote-supplier-heading .proc-attach-btn{margin-top:5px;font-size:9px;min-height:27px}
+.proc-prior-quotes{padding:10px 14px;border-top:1px solid #263c46}
+.proc-prior-quotes>summary{cursor:pointer;color:#94b6c1;font-size:11px;font-weight:700}
+.proc-prior-quotes>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #20313e}
+.proc-prior-quotes>div:last-child{border-bottom:0}
+.proc-prior-quotes>div>span strong{display:block;color:#d8e6ec}
+.proc-prior-quotes>div>span small{display:block;margin-top:4px;color:#90a4b1}
+.proc-revision-warning{padding:12px;margin:0 0 12px;border-radius:9px;border:1px solid #4b3d2b;background:#292119;color:#f0c990;font-size:11px;line-height:1.5}
+.proc-file-list{display:grid;gap:8px;margin-top:11px}
+.proc-file-item{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:11px;border:1px solid #30414a;border-radius:9px;background:#0c171e}
+.proc-file-item>div:first-child{min-width:0;overflow-wrap:anywhere}
+.proc-file-item strong{display:block;font-size:12px;color:#eaf4f7}
+.proc-file-item small{display:block;margin-top:5px;color:#91a8b3;font-size:10px;line-height:1.45}
+.proc-file-item .proc-actions{display:flex;gap:5px;flex:none}
+.proc-file-upload{display:flex;align-items:end;gap:12px;margin-top:13px;padding:12px;border:1px dashed #3c5661;border-radius:9px;background:#101c24}
+.proc-file-upload .proc-field{min-width:0;flex:1}
+.proc-file-upload input{width:100%;max-width:100%;font-size:11px}
+.proc-file-preview{margin-top:14px;border:1px solid #334752;border-radius:8px;background:#0a141c;padding:12px}
+.proc-file-preview[hidden]{display:none}
+.proc-file-preview>strong{display:block;color:#e8f4f6;margin-bottom:9px}
+.proc-file-preview iframe{width:100%;height:min(70vh,700px);border:0;background:#fff}
+.proc-file-preview img{max-width:100%;max-height:70vh;display:block;margin:auto}
+@media(max-width:760px){
+ .proc-modal-backdrop .proc-modal.proc-modal-wide{width:calc(100vw - 12px);max-height:98vh;height:98vh}
+ .proc-modal-wide .proc-modal-head{padding:12px}
+ .proc-modal-wide .proc-modal-body{padding:12px}
+ .proc-modal-wide .proc-form-grid{grid-template-columns:1fr 1fr}
+ .proc-file-item{align-items:stretch;flex-direction:column}
+ .proc-file-item .proc-actions{flex-wrap:wrap}
+ .proc-file-upload{flex-direction:column;align-items:stretch}
+}
+@media(max-width:500px){.proc-modal-wide .proc-form-grid{grid-template-columns:1fr}}
+
+
+/* Compact one-line goods receipt matrix (GRN). Each product occupies one row.
+   Horizontal scrolling retains all existing fields without stacking cards. */
+.proc-modal-wide .proc-receipt-table{overflow:visible}
+.proc-modal-wide .proc-receipt-table>.proc-edit-head{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  border:1px solid #29404b;border-bottom:0;border-radius:9px 9px 0 0
+}
+.proc-modal-wide .proc-receipt-table>.proc-edit-head .proc-history-note{
+  margin:0;color:#8ba8b7;font-size:10px
+}
+.proc-receipt-scroll{
+  overflow-x:auto;overflow-y:hidden;max-width:100%;border:1px solid #29404b;
+  border-radius:0 0 9px 9px;scrollbar-width:thin;scrollbar-color:#49616b #111c25;
+  overscroll-behavior-x:contain
+}
+.proc-receipt-scroll:focus-visible{outline:2px solid #46cea1;outline-offset:2px}
+.proc-receipt-grid{
+  --receipt-columns:minmax(210px,1.55fr) minmax(155px,1.2fr) 84px 86px 70px 102px
+      minmax(158px,1.2fr) 118px 134px 100px;
+  min-width:1320px;
+}
+.proc-receipt-grid-head,
+.proc-modal-wide .proc-edit-row.proc-pack-row[data-receipt-line]{
+  display:grid;grid-template-columns:var(--receipt-columns);
+  align-items:center;gap:8px;
+}
+.proc-receipt-grid-head{
+  position:relative;z-index:1;
+  padding:9px 12px;border-bottom:1px solid #304451;
+  color:#91a9b8;background:#152530;
+  font-size:10px;font-weight:750;line-height:1.3
+}
+.proc-receipt-grid-head span:first-child{
+  position:sticky;left:0;z-index:3;
+  margin:-9px 0 -9px -12px;padding:9px 12px;
+  background:#152530;border-right:1px solid #2d444f
+}
+.proc-modal-wide .proc-edit-row.proc-pack-row[data-receipt-line]{
+  padding:9px 12px;border-top:0;border-bottom:1px solid #243844;
+  background:#101b25;min-height:54px;
+}
+.proc-modal-wide #proc-receipt-lines>.proc-receipt-row:nth-child(even){background:#14222c}
+.proc-modal-wide #proc-receipt-lines>.proc-receipt-row:last-child{border-bottom:0}
+.proc-modal-wide #proc-receipt-lines>.proc-receipt-row:hover{background:#192c36}
+.proc-modal-wide .proc-edit-row.proc-pack-row[data-receipt-line]>.proc-field:first-child,
+.proc-modal-wide .proc-edit-row.proc-pack-row[data-receipt-line]>.proc-field:has([data-receipt-location]),
+.proc-modal-wide .proc-edit-row.proc-pack-row[data-receipt-line] .line-total{
+  grid-column:auto;
+}
+.proc-modal-wide .proc-receipt-row>.proc-field{min-width:0}
+.proc-modal-wide .proc-receipt-row>.proc-field>span{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.proc-modal-wide .proc-receipt-row input:not([type="hidden"]),
+.proc-modal-wide .proc-receipt-row select{
+  height:34px;min-height:34px;width:100%;min-width:0;
+  padding:0 7px;border-radius:7px;border:1px solid #314454;
+  background:#0d1821;color:#e5edf2;font-size:11px;line-height:1.2;
+  box-sizing:border-box
+}
+.proc-modal-wide .proc-receipt-row input[type="date"]{padding:0 4px;font-size:10.5px}
+.proc-modal-wide .proc-receipt-row input[readonly]{color:#a2b7c2;background:#15232c}
+.proc-modal-wide .proc-receipt-row .proc-package-locked{display:none!important}
+.proc-modal-wide .proc-receipt-row>.proc-receipt-product{
+  position:sticky;left:0;z-index:2;min-width:0;
+  height:100%;display:flex;flex-direction:column;justify-content:center;
+  padding-right:10px;border-right:1px solid #2c434d;
+  background:#101b25
+}
+.proc-modal-wide #proc-receipt-lines>.proc-receipt-row:nth-child(even)>.proc-receipt-product{background:#14222c}
+.proc-modal-wide #proc-receipt-lines>.proc-receipt-row:hover>.proc-receipt-product{background:#192c36}
+.proc-modal-wide .proc-receipt-product strong{
+  color:#e9f4f3;font-size:11.5px;line-height:1.35;
+  white-space:normal;overflow-wrap:anywhere
+}
+.proc-modal-wide .proc-receipt-product small{color:#8ba8b4;margin-top:3px;font-size:9px}
+.proc-modal-wide .proc-receipt-row .line-total{
+  display:block;margin:0;text-align:right;white-space:nowrap;
+  color:#75e6b7;font-size:11.5px;font-weight:850;
+  font-variant-numeric:tabular-nums
+}
+@media(max-width:780px){
+  .proc-modal-wide .proc-receipt-table>.proc-edit-head{align-items:flex-start;flex-direction:column}
+  .proc-modal-wide .proc-receipt-table>.proc-edit-head .proc-history-note{font-size:9.5px}
+}
+
+
+/* Compact procurement document tables: PR / supplier offer / invoice.
+   Presentation only: field names, data-f attributes, selectors and posting are unchanged. */
+.proc-modal-wide .proc-compact-table{overflow:visible;min-width:0}
+.proc-modal-wide .proc-compact-table>.proc-edit-head{border-radius:9px 9px 0 0;border:1px solid #2a4050;border-bottom:0;gap:12px}
+.proc-modal-wide .proc-compact-table>.proc-edit-head .proc-history-note{margin:0;line-height:1.4}
+.proc-modal-wide .proc-compact-scroll{
+  max-width:100%;overflow-x:auto;overflow-y:hidden;
+  border:1px solid #2a4050;border-radius:0 0 9px 9px;
+  scrollbar-width:thin;scrollbar-color:#49616b #111c25
+}
+.proc-modal-wide .proc-compact-scroll:focus-visible{outline:2px solid #51cea7;outline-offset:2px}
+.proc-modal-wide .proc-compact-grid{min-width:var(--compact-min-width);--compact-min-width:900px}
+.proc-modal-wide .proc-pr-compact-table .proc-compact-grid{
+  --compact-columns:minmax(255px,1.8fr) 155px 94px 91px 72px 112px 106px 37px;
+  --compact-min-width:990px
+}
+.proc-modal-wide .proc-pr-compact-table.proc-compact-without-prices .proc-compact-grid{
+  --compact-columns:minmax(250px,1.9fr) 160px 110px 110px 40px;
+  --compact-min-width:750px
+}
+.proc-modal-wide .proc-quote-compact-table .proc-compact-grid{
+  --compact-columns:minmax(240px,1.8fr) 155px 105px 82px 130px 110px;
+  --compact-min-width:910px
+}
+.proc-modal-wide .proc-invoice-compact-table .proc-compact-grid{
+  --compact-columns:minmax(235px,1.8fr) 145px 118px 100px 80px 130px 105px;
+  --compact-min-width:970px
+}
+.proc-modal-wide .proc-compact-grid-head,
+.proc-modal-wide .proc-compact-table .proc-compact-pr-row,
+.proc-modal-wide .proc-compact-table .proc-compact-quote-row,
+.proc-modal-wide .proc-compact-table .proc-compact-invoice-row{
+  display:grid;grid-template-columns:var(--compact-columns);
+  align-items:center;gap:8px;
+}
+.proc-modal-wide .proc-compact-grid-head{
+  padding:9px 12px;background:#142630;color:#91a8b5;
+  border-bottom:1px solid #304451;
+  font-size:9.5px;font-weight:750;line-height:1.4
+}
+.proc-modal-wide .proc-compact-grid-head span:first-child{
+  position:sticky;left:0;z-index:3;
+  margin:-9px 0 -9px -12px;padding:9px 12px;
+  border-right:1px solid #2b414d;background:#142630
+}
+.proc-modal-wide .proc-compact-table .proc-compact-pr-row,
+.proc-modal-wide .proc-compact-table .proc-compact-quote-row,
+.proc-modal-wide .proc-compact-table .proc-compact-invoice-row{
+  min-height:52px;padding:8px 12px;
+  border-top:0;border-bottom:1px solid #263845;background:#101b24
+}
+.proc-modal-wide .proc-compact-table .proc-compact-pr-row:nth-child(even),
+.proc-modal-wide .proc-compact-table .proc-compact-quote-row:nth-child(even),
+.proc-modal-wide .proc-compact-table .proc-compact-invoice-row:nth-child(even){background:#14222c}
+.proc-modal-wide .proc-compact-table .proc-compact-pr-row:last-child,
+.proc-modal-wide .proc-compact-table .proc-compact-quote-row:last-child,
+.proc-modal-wide .proc-compact-table .proc-compact-invoice-row:last-child{border-bottom:0}
+.proc-modal-wide .proc-compact-table .proc-compact-pr-row:hover,
+.proc-modal-wide .proc-compact-table .proc-compact-quote-row:hover,
+.proc-modal-wide .proc-compact-table .proc-compact-invoice-row:hover{background:#192c36}
+.proc-modal-wide .proc-compact-table .proc-edit-row>.proc-field{min-width:0}
+.proc-modal-wide .proc-compact-table .proc-edit-row>.proc-field>span{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0,0,0,0);white-space:nowrap;border:0
+}
+.proc-modal-wide .proc-compact-table .proc-edit-row input:not([type="hidden"]),
+.proc-modal-wide .proc-compact-table .proc-edit-row select{
+  width:100%;min-width:0;height:34px;min-height:34px;padding:0 7px;
+  box-sizing:border-box;border-radius:7px;border:1px solid #324655;
+  background:#0c1821;color:#e5eef4;font-size:11px;line-height:1.3
+}
+.proc-modal-wide .proc-compact-table .proc-edit-row input[readonly]{color:#a9bdc7;background:#152530}
+.proc-modal-wide .proc-compact-table .proc-edit-row .proc-package-locked{display:none!important}
+.proc-modal-wide .proc-compact-table .proc-edit-row>.proc-field:first-child{
+  position:sticky;left:0;z-index:2;
+  display:flex;flex-direction:column;justify-content:center;
+  height:100%;padding-right:8px;border-right:1px solid #2b414d;background:#101b24
+}
+.proc-modal-wide .proc-compact-table .proc-edit-row:nth-child(even)>.proc-field:first-child{background:#14222c}
+.proc-modal-wide .proc-compact-table .proc-edit-row:hover>.proc-field:first-child{background:#192c36}
+.proc-modal-wide .proc-quote-compact-table .proc-edit-row>.proc-field:first-child input[disabled],
+.proc-modal-wide .proc-invoice-compact-table .proc-edit-row>.proc-field:first-child input[disabled]{
+  height:auto;border:0;padding:0;background:transparent;
+  font-size:11.5px;font-weight:700;color:#eaf3f7;white-space:normal;
+  text-overflow:ellipsis
+}
+.proc-modal-wide .proc-invoice-compact-table .proc-edit-row .line-total,
+.proc-modal-wide .proc-pr-compact-table .proc-edit-row .line-total,
+.proc-modal-wide .proc-quote-compact-table .proc-edit-row .line-total{
+  grid-column:auto;white-space:nowrap;text-align:right;
+  align-self:center;font-size:11.5px;font-weight:850;color:#80e6ba;
+  font-variant-numeric:tabular-nums
+}
+.proc-modal-wide .proc-pr-compact-table .proc-edit-row .remove{
+  width:30px;height:34px;align-self:center;justify-self:center;
+  border-radius:7px
+}
+.proc-modal-wide .proc-invoice-compact-table .proc-edit-row>.proc-field:first-child,
+.proc-modal-wide .proc-quote-compact-table .proc-edit-row>.proc-field:first-child,
+.proc-modal-wide .proc-pr-compact-table .proc-edit-row>.proc-field:first-child{
+  grid-column:auto
+}
+.proc-modal-wide .proc-compact-table .proc-edit-row .proc-field small{
+  display:block;margin-top:3px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;font-size:9px;color:#8b9eae
+}
+.proc-modal-wide .proc-quote-compact-table .proc-edit-row .proc-field:nth-child(2) input[disabled],
+.proc-modal-wide .proc-invoice-compact-table .proc-edit-row .proc-field:nth-child(2) input[disabled]{
+  background:#142531;color:#b3cbd3
+}
+/* Split PO supplier allocation is a dense comparison, not a stack of large tiles. */
+.proc-modal-wide #proc-split-products{gap:8px}
+.proc-modal-wide .proc-split-product{
+  padding:0;overflow:hidden;border-radius:9px;
+  border:1px solid #304450;background:#101a23
+}
+.proc-modal-wide .proc-split-product>header{
+  padding:10px 13px;margin:0;gap:10px;
+  border-bottom:1px solid #283d4a;background:#162630
+}
+.proc-modal-wide .proc-split-product>header strong{font-size:12px;color:#eaf3f7}
+.proc-modal-wide .proc-split-product>header span{font-size:10px}
+.proc-modal-wide .proc-split-grid-head,
+.proc-modal-wide .proc-split-option{
+  display:grid;grid-template-columns:minmax(250px,1fr) 145px 105px;
+  align-items:center;gap:10px
+}
+.proc-modal-wide .proc-split-grid-head{
+  padding:6px 12px;font-size:9.5px;font-weight:700;
+  color:#819fae;background:#12212b
+}
+.proc-modal-wide .proc-split-option{
+  padding:6px 12px;margin:0;border-top:1px solid #233641;background:transparent
+}
+.proc-modal-wide .proc-split-option small{font-size:9.5px}
+.proc-modal-wide .proc-split-option input{height:32px;min-height:32px}
+.proc-modal-wide .proc-split-summary{padding:8px 12px;border-top:1px solid #29424e}
+.proc-modal-wide .proc-split-money{font-size:11px}
+.proc-modal-wide #proc-split-total{font-size:14px}
+.proc-modal-wide #proc-link-preview .proc-edit-head{padding:10px 12px}
+.proc-modal-wide #proc-link-preview .proc-link-match-row{padding:7px 12px;min-height:42px}
+.proc-modal-wide #proc-link-preview .proc-link-match-row>div>strong{font-size:11px}
+.proc-modal-wide #proc-link-preview .proc-link-match-row>div>span{font-size:9.5px}
+@media(max-width:710px){
+  .proc-modal-wide .proc-compact-table>.proc-edit-head{flex-direction:column;align-items:flex-start}
+  .proc-modal-wide .proc-split-product>header{align-items:flex-start}
+  .proc-modal-wide .proc-split-grid-head,.proc-modal-wide .proc-split-option{
+    grid-template-columns:minmax(155px,1fr) 95px 65px;gap:6px
+  }
+  .proc-modal-wide .proc-split-option{padding:7px}
+}
+
+
+/* Read-only PR and PO rows follow the same table hierarchy as editable GRN. */
+.proc-line-list .proc-view-line-head{
+  display:grid;grid-template-columns:minmax(180px,1fr) 150px 150px;
+  gap:10px;padding:9px;background:#172631;color:#95a8b5;
+  font-size:9.5px;font-weight:750;border:1px solid #293e4a;
+  border-radius:8px 8px 0 0
+}
+.proc-line-list:has(.proc-view-line-head){gap:0}
+.proc-line-list:has(.proc-view-line-head) .proc-line{
+  border-radius:0;border-bottom:1px solid #253643;min-height:30px;
+  background:#0e1921;align-items:center
+}
+.proc-line-list:has(.proc-view-line-head) .proc-line:nth-child(odd){background:#13212b}
+.proc-line-list:has(.proc-view-line-head) .proc-line:hover{background:#1a2b35}
+@media(max-width:600px){.proc-line-list .proc-view-line-head{display:none}}
+
+
+/* A fixed receipt total is useful during GRN entry; ordinary PR and quote
+   summaries remain in document flow so they never hide editable rows. */
+.proc-modal-wide .proc-modal-summary{position:static}
+.proc-modal-wide:has(#proc-receipt-lines) .proc-modal-summary{
+  position:sticky;bottom:62px;z-index:2
+}

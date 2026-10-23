@@ -151,12 +151,12 @@ function detail(o){
   body+='<p class="io-detail-comment">Дата поставки: '+esc(date(o.neededBy))+' · Автор: '+esc(o.createdByName)+' · Статус: '+esc(statusNames[o.status]||o.status)+'</p>';
   if(o.comment)body+='<p class="io-detail-comment">Комментарий: '+esc(o.comment)+'</p>';
   if(o.reviewComment)body+='<p class="io-detail-comment">Причина: '+esc(o.reviewComment)+'</p>';
-  body+='<table class="io-detail-lines"><thead><tr><th>Товар</th><th>Фасовка</th><th>Запрошено</th><th>Подтверждено</th></tr></thead><tbody>';
+  body+='<div class="io-lines-table-scroll" role="region" tabindex="0" aria-label="Товары внутреннего заказа"><table class="io-detail-lines"><thead><tr><th>Товар</th><th>Фасовка</th><th>Запрошено</th><th>Подтверждено</th></tr></thead><tbody>';
   for(const l of o.lines){
     const ap=o.approvedLines.find(x=>x.productId===l.productId);
     body+='<tr><td>'+esc(l.productName)+'</td><td>'+esc(l.packageName||"Основная единица")+' × '+number(l.packageSize)+'</td><td>'+number(l.packageCount)+' фас. / '+number(l.quantity)+' '+esc(l.unit)+'</td><td>'+(active?'<input type="number" min="0" max="'+esc(l.packageCount)+'" step="0.001" data-approve-id="'+esc(l.productId)+'" value="'+esc(l.packageCount)+'">':(ap?number(ap.packageCount)+' фас. / '+number(ap.quantity)+' '+esc(l.unit):"—"))+'</td></tr>';
   }
-  body+='</tbody></table><div class="io-detail-actions">';
+  body+='</tbody></table></div><div class="io-detail-actions">';
   if(canRequest&&o.status==="DRAFT")body+='<button class="io-btn io-primary" data-action="submit">Отправить на склад</button><button class="io-btn io-danger" data-action="cancel">Отменить</button>';
   if(canRequest&&o.status==="SUBMITTED")body+='<button class="io-btn io-danger" data-action="cancel">Отменить</button>';
   if(active)body+='<button class="io-btn io-primary" data-action="approve">Подтвердить количество</button><button class="io-btn io-danger" data-action="reject">Отклонить</button>';
@@ -172,7 +172,7 @@ function detail(o){
       body+='<p class="io-muted">Статус расходной: '+esc(verified.status)+' · '+(verified.partial?"Частичная отгрузка":"Количество соответствует заказу")+'</p>';
       body+='<p class="io-muted">Контрагент в iiko: '+esc(verified.counteragentId||"не указан")+'. Необходимо подтвердить, что это именно RMS-получатель.</p>';
       body+='<p class="io-muted">Связанная приходная в RMS получателя ещё не сверена. Статус заказа не изменён, остатки не затронуты.</p>';
-      body+='<table class="io-detail-lines"><thead><tr><th>Товар iiko ID</th><th>Согласовано</th><th>В расходной</th></tr></thead><tbody>'+verified.items.map(x=>'<tr><td>'+esc(x.productId)+'</td><td>'+number(x.approvedQty)+'</td><td>'+number(x.documentQty)+'</td></tr>').join("")+'</tbody></table>';
+      body+='<div class="io-lines-table-scroll" role="region" tabindex="0" aria-label="Проверка накладной"><table class="io-detail-lines"><thead><tr><th>Товар iiko ID</th><th>Согласовано</th><th>В расходной</th></tr></thead><tbody>'+verified.items.map(x=>'<tr><td>'+esc(x.productId)+'</td><td>'+number(x.approvedQty)+'</td><td>'+number(x.documentQty)+'</td></tr>').join("")+'</tbody></table></div>';
     }
     body+='</div>';
   }
@@ -283,12 +283,12 @@ function renderShipments(o,data){
     body+='<div class="io-ship-fields"><label>Дата расходной<input id="io-ship-date" type="date" required></label></div>';
     body+='<p id="io-cost-message" class="io-muted">Загружаем себестоимость склада отправителя из iiko…</p>';
     body+='<p class="io-muted">Укажите количество по каждой позиции. Пустые или нулевые количества не будут отправлены. Себестоимость будет проверена на складе отправителя.</p>';
-    body+='<table class="io-detail-lines"><thead><tr><th>Товар</th><th>Согласовано</th><th>Осталось</th><th>К отгрузке</th><th>Себестоимость за ед., ₼</th></tr></thead><tbody>';
+    body+='<div class="io-lines-table-scroll" role="region" tabindex="0" aria-label="Позиции отгрузки"><table class="io-detail-lines"><thead><tr><th>Товар</th><th>Согласовано</th><th>Осталось</th><th>К отгрузке</th><th>Себестоимость за ед., ₼</th></tr></thead><tbody>';
     for(const l of remaining){
       const original=o.approvedLines.find(x=>String(x.productId).toLowerCase()===String(l.productId).toLowerCase());
       body+='<tr data-ship-item="'+esc(l.productId)+'"><td>'+esc(original?.productName||l.productId)+'</td><td>'+number(l.approved)+'</td><td>'+number(l.remaining)+'</td><td><input type="number" min="0" max="'+l.remaining+'" step="0.001" value="'+l.remaining+'" data-ship-qty></td><td><strong data-ship-cost>Загрузка…</strong><small data-ship-available></small></td></tr>';
     }
-    body+='</tbody></table><p class="io-muted">Себестоимость берётся непосредственно из iikoChain по складу-отправителю, наценка 0%. Если себестоимость или остатки неизвестны, оформление будет заблокировано.</p>';
+    body+='</tbody></table></div><p class="io-muted">Себестоимость берётся непосредственно из iikoChain по складу-отправителю, наценка 0%. Если себестоимость или остатки неизвестны, оформление будет заблокировано.</p>';
     body+='<button class="io-btn io-primary" type="submit" disabled>Отгрузить</button></form>';
   }else if(!remaining.length&&shipments.some(x=>x.status!=="CANCELLED"))body+='<p class="io-muted">Все согласованные количества распределены по отгрузкам.</p>';
   else if(!data.canFulfill)body+='<p class="io-muted">Оформление отгрузок доступно сотрудникам RMS-отправителя.</p>';
