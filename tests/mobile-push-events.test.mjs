@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { classifyPosAlert,posAlertDetails,ALERT_KINDS }
   from "../functions/api/mobile/_lib/pos-alerts.js";
+import {normalizeEnvelope} from "../functions/api/plugin/ingest.js";
 import { validPushKinds,deviceIdForToken }
   from "../functions/api/mobile/_lib/push-devices.js";
 test("only explicit discount apply and remove events produce alerts",()=>{
@@ -98,4 +99,55 @@ test("real plugin discount events never confuse a surcharge for a discount", () 
  assert.equal(classifyPosAlert("removingSurcharge",discount.data),null);
  assert.equal(classifyPosAlert("addingDiscount",{}).kind,"DISCOUNT_APPLIED");
  assert.equal(classifyPosAlert("removingDiscount",{}).kind,"DISCOUNT_REMOVED");
+});
+
+
+// Regression fixtures derived from an actual SHPlagin 1.3.15 production log.
+// The trusted VPS bridge must supply pluginId and departmentId from its verified
+// registry: the raw pluginEventType payload alone does not contain both IDs.
+test("real SHPlagin 1.3.15 alerts match exactly five owner event kinds",()=>{
+ const samples=[
+  ["addingDiscount","DISCOUNT_APPLIED",{name:"Endirim 20%",orderNum:78,valuePercent:20}],
+  ["removingDiscount","DISCOUNT_REMOVED",{name:"Endirim 20%",orderNum:78}],
+  ["deletionOfPrintedItem","ITEM_REMOVED",{productName:"Doner",orderNum:78,sum:20}],
+  ["cancellationOfGuestBill","PRECHECK_CANCELLED",{orderNum:78}],
+  ["voidReceipt","RECEIPT_STORNO",{orderNum:81}]
+ ];
+ for(const [pluginEventType,expectedKind,data] of samples){
+  const raw={
+   pluginEventType,uuid:"4bd20755-61b9-4cec-b9ce-d773eb5091ae",
+   data:{...data,departmentName:"RMS 2",groupName:"TESTING KASSA",
+    updateTime:"2026-10-23T13:31:25.582+04:00"},
+   departmentId:"dd89e8e4-5c62-4be9-a66d-2b85d87ad107",
+   pluginId:"b557baad-f85c-4f40-a247-12f8855951ee"
+  };
+  const envelope=normalizeEnvelope(raw);
+  const alert=posAlertDetails(envelope);
+  assert.equal(envelope.event,pluginEventType);
+  assert.equal(alert?.kind,expectedKind);
+  assert.equal(alert?.eventId,raw.uuid);
+  assert.equal(alert?.occurredAt,raw.data.updateTime);
+  assert.ok(alert.body.includes("RMS 2"));
+ }
+});
+
+test("plugin UUID survives raw event normalization for reconnect deduplication",()=>{
+ const raw={pluginEventType:"voidReceipt",uuid:"ce18d1ac-9d1b-45f3-a728-fbe3db8985bc",
+  data:{orderNum:81,updateTime:"2026-10-23T13:33:09+04:00"},
+  pluginId:"1c9fbca3-f468-475e-9bd1-2c57c23d4111",
+  departmentId:"c7f86fd6-495c-4653-9c0a-c22526b18399"};
+ const first=posAlertDetails(normalizeEnvelope(raw));
+ const retry=posAlertDetails(normalizeEnvelope({...raw}));
+ assert.equal(first.eventId,raw.uuid);
+ assert.equal(retry.eventId,raw.uuid);
+ assert.equal(first.eventId,retry.eventId);
+});
+
+test("routine plugin events and unprinted item deletion do not become storno alerts",()=>{
+ for(const event of ["newOrder","closingOrder","orderGuestBill",
+   "openCashRegisterShift","closeCashRegisterShift",
+   "cashRegisterStart","employeesPersonalShiftOpen",
+   "severalOrderShifts","deletionOfNotPrintedItem"]){
+  assert.equal(classifyPosAlert(event,{}),null,event);
+ }
 });
