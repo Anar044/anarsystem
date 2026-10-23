@@ -82,7 +82,7 @@ function fail(code,message,status=503) {return json({success:false,code,message}
 
 function parallelism(env) {
   const n=Number(env.IIKO_MAX_PARALLEL_REQUESTS);
-  return Number.isInteger(n) && n>=1 && n<=5 ? n : 3;
+  return Number.isInteger(n) && n>=1 && n<=5 ? n : 1;
 }
 function queueCapacity(env) {
   const n=Number(env.IIKO_MAX_PENDING_REQUESTS);
@@ -168,6 +168,9 @@ export class IikoSession {
     return token;
   }
   async authenticate(c,scope) {
+    // Invalid/missing encryption keys MUST fail before licensed /auth.
+    // Otherwise iiko could allocate a REST_API(2000) seat that we cannot save.
+    await encryptionKey(this.env);
     const blocked=Number(await this.state.storage.get("authBlockedUntil")||0);
     if(blocked>Date.now())
       throw Object.assign(Error("Authorization cooldown after uncertain result"),{code:"AUTH_COOLDOWN"});
@@ -356,6 +359,9 @@ export default {
     if(!shared || !received || mismatch!==0)return fail("FORBIDDEN","Private service only",403);
     try {
       if(!env.IIKO_SESSIONS || !env.IIKO_BROKER_ENCRYPTION_KEY_B64)return fail("CONFIG_MISSING","Broker is not configured",503);
+      // Verify key material before entering the Durable Object. An invalid
+      // key must never trigger a new licensed iiko authentication attempt.
+      try {await encryptionKey(env)}catch{return fail("ENCRYPTION_CONFIG_INVALID","Broker encryption is invalid",503)}
       const input=await request.json();
       const tenantId=clean(input?.tenantId), c=connectionOf(input?.connection);
       if(!tenantId || tenantId.length>256)throw Error("Verified tenant required");
