@@ -120,7 +120,7 @@
      productId:row.querySelector(".wa-product-pick").value,
      amount:Number(row.querySelector(".wa-qty").value),
      ...(kind==="sales"?{
-       sum:Number(row.querySelector(".wa-sum").value),
+       sum:row.querySelector(".wa-sum").value.trim()===""?null:Number(row.querySelector(".wa-sum").value),
        discountSum:Number(row.querySelector(".wa-discount").value||0),
        vatPercent:row.querySelector(".wa-vat").value.trim()
      }:{})
