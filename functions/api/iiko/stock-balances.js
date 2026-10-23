@@ -72,7 +72,7 @@ function dedupeRefs(rows){
   return [...map.values()];
 }
 
-function normalizeStores(rawText,payload){
+export function normalizeStores(rawText,payload){
   const jsonRows=[];
   collectNamedRefs(payload,jsonRows);
   const direct=list(payload).map(x=>({

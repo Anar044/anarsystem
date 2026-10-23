@@ -2,6 +2,8 @@ import { iikoText, iikoJson, bindWorkspaceIikoBroker } from "./_lib/iiko-client.
 import { getUser, loadPrivateIikoState, hasPrivateConnection, privateConnection } from "./_lib/user-state.js";
 import { resolveAccessForUser, hasPermission } from "../access/_lib/access-control.js";
 import { resolveStoreScope } from "./_lib/store-scope.js";
+import { resolveRestaurantScope, cookieDepartmentIds } from "./_lib/restaurant-scope.js";
+import { warehouseLabels, warehouseLabel, warehouseKey } from "./_lib/warehouse-names.js";
 import { logAuditEvent } from "../_lib/audit-log.js";
 
 const clean=v=>String(v??"").trim();
@@ -19,6 +21,25 @@ const toRows=payload=>{
 };
 const failure=(message,status=400,code="DOCUMENT_INVALID")=>Object.assign(new Error(message),{status,code});
 
+// The shared middleware uses an empty array for the entire CHAIN. Resolve
+// all/currently selected restaurants on the server from the stored workspace
+// and cookie, and apply RBAC here too. Caller JSON is NEVER a scope authority.
+export function selectedDepartmentsForActs(state,access,request){
+ let scope;
+ try{scope=resolveRestaurantScope({state,request,strict:true});}
+ catch(e){throw failure(e.message||"Недоступный ресторан.",Number(e.status)||403,e.code||"DEPARTMENT_FORBIDDEN");}
+ let selected=scope.selectedDepartmentIds.map(id).filter(Boolean);
+ if(access.scope?.mode==="SELECTED"){
+   const allowed=new Set((access.scope.departmentIds||[]).map(id).filter(Boolean));
+   if(!allowed.size)throw failure("Нет доступных подразделений.",403,"DEPARTMENT_FORBIDDEN");
+   if(cookieDepartmentIds(request).some(x=>!allowed.has(id(x))))
+     throw failure("Подразделение вне разрешённой области.",403,"DEPARTMENT_FORBIDDEN");
+   selected=selected.filter(x=>allowed.has(x));
+ }
+ if(!selected.length)throw failure("У выбранного подключения нет доступных ресторанов.",409,"DEPARTMENT_SCOPE_EMPTY");
+ return selected;
+}
+
 async function authorized(request,env,kind,write=false){
  if(!env?.DB)throw failure("Серверная база доступа недоступна.",503,"DB_MISSING");
  const auth=await getUser(request,env);
@@ -30,22 +51,11 @@ async function authorized(request,env,kind,write=false){
  const stored=await loadPrivateIikoState(env.DB,access.storageUserId||access.ownerUserId||auth.user.id,env);
  if(!stored?.found||!hasPrivateConnection(stored.state))throw failure("Подключите iiko Server в настройках.",409,"IIKO_NOT_CONNECTED");
  const connection=bindWorkspaceIikoBroker(privateConnection(stored.state),env,access);
- return{access,auth,connection,workspaceId:clean(access.workspace.id)};
+ const selected=selectedDepartmentsForActs(stored.state,access,request);
+ return{access,auth,connection,workspaceId:clean(access.workspace.id),departmentIds:selected};
 }
-function departmentSelection(body,access) {
- const selected=Array.isArray(body?.departmentIds)?[...new Set(body.departmentIds.map(id).filter(Boolean))]:[];
- // A restricted manager may only access the departments assigned by RBAC,
- // irrespective of which department IDs a browser claims to have selected.
- if(access.scope?.mode==="SELECTED"){
-   const allowed=[...(access.scope.departmentIds||[]),...(access.scope.departmentCodes||[])].map(id).filter(Boolean);
-   const ids=new Set(allowed);
-   if(!ids.size)throw failure("Нет доступных подразделений.",403,"DEPARTMENT_FORBIDDEN");
-   if(selected.some(x=>!ids.has(x)))throw failure("Подразделение вне разрешённой области.",403,"DEPARTMENT_FORBIDDEN");
-   return selected.length?selected:allowed;
- }
- if(!selected.length)throw failure("Выберите ресторан для документа.",400,"DEPARTMENT_REQUIRED");
- return selected;
-}
+function departmentSelection(ctx) { return ctx.departmentIds; }
+
 async function scopedStores(connection,departmentIds){
  const scope=await resolveStoreScope(connection,departmentIds);
  if(!scope.resolved||!scope.storeIds?.length)throw failure("Не удалось определить склады выбранного ресторана. Создание заблокировано.",409,"STORE_SCOPE_UNAVAILABLE");
@@ -65,15 +75,16 @@ function normalizeAccounts(rows){
   .filter(x=>UUID.test(x.id)&&!x.deleted).sort((a,b)=>a.code.localeCompare(b.code,"ru",{numeric:true}));
 }
 async function bootstrap(ctx,body,kind){
- const departments=departmentSelection(body,ctx.access);
+ const departments=departmentSelection(ctx);
  const scope=await scopedStores(ctx.connection,departments);
  const [products,accounts]=await Promise.all([
    lookup(ctx.connection,"/resto/api/v2/entities/products/list?includeDeleted=false"),
    lookup(ctx.connection,"/resto/api/v2/entities/accounts/list?includeDeleted=false")
  ]);
- const storeIds=new Set(scope.storeIds.map(id));
- const stores=(scope.stores||[]).filter(s=>storeIds.has(id(s.id))).map(s=>({id:id(s.id),name:clean(s.name)||"Склад "+id(s.id).slice(-6)}));
- for(const storeId of storeIds)if(!stores.some(x=>x.id===storeId))stores.push({id:storeId,name:"Склад "+storeId.slice(-6)});
+ const names=await warehouseLabels(ctx.connection,{scope});
+ const stores=[...new Set(scope.storeIds.map(warehouseKey))].sort((a,b)=>
+    warehouseLabel(a,names).localeCompare(warehouseLabel(b,names),"ru"))
+    .map(storeId=>({id:storeId,name:warehouseLabel(storeId,names)}));
  return respond({success:true,kind,departments,stores,products:normalizeProducts(products),accounts:normalizeAccounts(accounts)});
 }
 function validate(body,kind,allowedStores){
@@ -135,20 +146,21 @@ async function salesTable(db){
 }
 async function localSalesList(ctx,body){
  await salesTable(ctx.env.DB);
- const deps=departmentSelection(body,ctx.access),scope=await scopedStores(ctx.connection,deps);
+ const deps=departmentSelection(ctx),scope=await scopedStores(ctx.connection,deps);
  const allowed=new Set(scope.storeIds.map(id));
  const from=clean(body.from),to=clean(body.to);
  if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to))throw failure("Укажите период.");
  const rows=await ctx.env.DB.prepare(`SELECT * FROM sh_sales_act_imports WHERE workspace_id=?1 AND substr(date_incoming,1,10)>=?2 AND substr(date_incoming,1,10)<=?3 ORDER BY created_at DESC LIMIT 200`).bind(ctx.workspaceId,from,to).all();
+ const names=await warehouseLabels(ctx.connection,{scope});
  const documents=(rows.results||[]).filter(x=>allowed.has(id(x.store_id))).map(x=>({
    id:x.id,documentNumber:x.document_number,dateIncoming:x.date_incoming,
-   storeId:x.store_id,storeName:(scope.stores||[]).find(s=>id(s.id)===id(x.store_id))?.name||"Склад",status:x.status,
+   storeId:x.store_id,storeName:warehouseLabel(x.store_id,names),status:x.status,
    items:JSON.parse(x.items_json||"[]"),source:"Smart Horeca → iiko"
  }));
  return respond({success:true,documents,count:documents.length,scope:"Workspace",note:"Показаны акты реализации, созданные через Smart Horeca."});
 }
 async function create(ctx,body,kind){
- const departments=departmentSelection(body,ctx.access),scope=await scopedStores(ctx.connection,departments);
+ const departments=departmentSelection(ctx),scope=await scopedStores(ctx.connection,departments);
  const doc=validate(body,kind,new Set(scope.storeIds.map(id)));
  // Reject spoofed account codes/IDs before sending any write to iiko.
  const [accountRows,productRows]=await Promise.all([

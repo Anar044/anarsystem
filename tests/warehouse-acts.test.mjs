@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { validateWarehouseAct,buildSalesActXml,extractValidationTag } from "../functions/api/iiko/warehouse-acts.js";
+import { validateWarehouseAct,buildSalesActXml,extractValidationTag,selectedDepartmentsForActs } from "../functions/api/iiko/warehouse-acts.js";
+import { normalizeStores } from "../functions/api/iiko/stock-balances.js";
+import { warehouseLabel, warehouseKey } from "../functions/api/iiko/_lib/warehouse-names.js";
 if(!globalThis.crypto)globalThis.crypto=webcrypto;
 const store="11111111-1111-4111-8111-111111111111";
 const other="11111111-1111-4111-8111-222222222222";
@@ -56,4 +58,40 @@ test("new UI and new handler are server-protected and linked into app shell",()=
  assert.match(sidebar,/akty-realizatsii.html/);
  assert.match(frontend,/wa-draft/);
  assert.match(frontend,/wa-process/);
+});
+
+test("all four restaurants are resolved from verified stored state even when client sends empty departmentIds",()=>{
+ const restaurantIds=[
+  "aaa00000-0000-4000-8000-000000000001",
+  "aaa00000-0000-4000-8000-000000000002",
+  "aaa00000-0000-4000-8000-000000000003",
+  "aaa00000-0000-4000-8000-000000000004"
+ ];
+ const state={identity:{mode:"CHAIN",departments:restaurantIds.map((id,i)=>({id,name:"RMS "+(i+1)}))}};
+ const allRequest=new Request("https://smarthoreca.pages.dev/api/iiko/warehouse-acts",{method:"POST",headers:{Cookie:"sh_selected_departments="}});
+ const ids=selectedDepartmentsForActs(state,{scope:{mode:"ALL"}},allRequest);
+ assert.deepEqual(ids,restaurantIds);
+ const subRequest=new Request("https://smarthoreca.pages.dev/api/iiko/warehouse-acts",{headers:{Cookie:"sh_selected_departments="+encodeURIComponent(restaurantIds[2])}});
+ assert.deepEqual(selectedDepartmentsForActs(state,{scope:{mode:"ALL"}},subRequest),[restaurantIds[2]]);
+ const limited={scope:{mode:"SELECTED",departmentIds:[restaurantIds[0]]}};
+ assert.deepEqual(selectedDepartmentsForActs(state,limited,allRequest),[restaurantIds[0]]);
+ assert.throws(()=>selectedDepartmentsForActs(state,limited,subRequest),/вне разрешённой области/);
+});
+test("existing warehouse reference parser turns corporation XML UUIDs into warehouse names",()=>{
+ const xml='<?xml version="1.0"?><corporateItemDtoList>'+
+  '<corporateItemDto><id>3ccff736-26aa-4596-9938-7c3e813131f4</id><name>Основной склад</name><type>STORE</type></corporateItemDto>'+
+  '<corporateItemDto><id>6a4df12c-d95e-42a8-9a92-c4e5e40c061e</id><name>Бар</name><type>STORE</type></corporateItemDto>'+
+  '</corporateItemDtoList>';
+ const parsed=normalizeStores(xml,null);
+ const map=new Map(parsed.map(x=>[warehouseKey(x.id),x.name]));
+ assert.equal(warehouseLabel("3ccff736-26aa-4596-9938-7c3e813131f4",map),"Основной склад");
+ assert.equal(warehouseLabel("6a4df12c-d95e-42a8-9a92-c4e5e40c061e",map),"Бар");
+ assert.ok(!warehouseLabel("33333333-3333-4333-8333-333333333333",map).includes("33333333-3333"));
+});
+test("document list no longer rejects empty selection for all-restaurants mode",()=>{
+ const js=readFileSync(new URL("../documents-page.js",import.meta.url),"utf8");
+ assert.doesNotMatch(js,/if\(!departmentIds.length\).*?return/);
+ const html=readFileSync(new URL("../akty-realizatsii.html",import.meta.url),"utf8");
+ assert.ok(html.includes("warehousefix-1"));
+ assert.ok(!html.includes("POST /resto/api"));
 });
