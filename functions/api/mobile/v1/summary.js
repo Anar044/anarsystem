@@ -1,4 +1,4 @@
-import { mobileContext, response, errorResponse, MobileError } from "../_lib/context.js";
+import { mobileContext, response, errorResponse, MobileError, ownerBrokerContext } from "../_lib/context.js";
 import { onRequestPost as dashboardSummary } from "../../iiko/dashboard-summary.js";
 
 const clean = value => String(value ?? "").trim();
@@ -148,7 +148,7 @@ export async function onRequestGet({ request, env }) {
         departmentIds: ctx.selectedIds
       })
     });
-    const upstream = await dashboardSummary({ request: backendRequest });
+    const upstream = await dashboardSummary({ request: backendRequest ,...ownerBrokerContext(ctx,env)});
     const payload = await upstream.json().catch(() => null);
     const sourceError = ownerSummarySourceError(payload);
     if (sourceError) throw sourceError;
