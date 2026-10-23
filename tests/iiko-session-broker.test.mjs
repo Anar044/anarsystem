@@ -188,7 +188,7 @@ test("slow OLAP request does not delay unrelated report on same licensed session
   return new Response("fast");
  };
  try{
-  const session=new IikoSession({storage:storage()},env);
+  const session=new IikoSession({storage:storage()}, {...env,IIKO_MAX_PARALLEL_REQUESTS:"3"});
   const slow=session.fetch(postOlap("slow"));
   await reached;
   const fast=session.fetch(postOlap("fast"));
@@ -214,7 +214,7 @@ test("load: 100 independent report requests share one auth and a bounded paralle
   return new Response("ok");
  });
  try{
-  const broker=new IikoSession({storage:storage()},env);
+  const broker=new IikoSession({storage:storage()}, {...env,IIKO_MAX_PARALLEL_REQUESTS:"3"});
   const responses=await Promise.all(Array.from({length:100},(_,i)=>broker.fetch(
     request("request","/resto/api/v2/reports/olap/unique-"+i))));
   assert.ok(responses.every(x=>x.status===200));
