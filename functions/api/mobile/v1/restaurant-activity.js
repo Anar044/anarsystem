@@ -1,6 +1,7 @@
 import { mobileContext, response, errorResponse } from "../_lib/context.js";
 import { getVerifiedRevenueComparison } from "../../iiko/_lib/assistant-revenue-comparison.js";
 import { privateConnection } from "../../iiko/_lib/user-state.js";
+import { bindWorkspaceIikoBroker } from "../../iiko/_lib/iiko-client.js";
 import { fetchChainGroupTopology } from "../../iiko/chain.js";
 import { getShiftsForDateAndStatus } from "../../iiko/cash-shifts.js";
 
@@ -152,7 +153,7 @@ export async function onRequestGet({request,env}) {
     let sourceCode="SH_CONNECTION_MISSING";
     let recentShifts={};
     if(ctx.connectionReady) {
-      const connection=privateConnection(ctx.state);
+      const connection=bindWorkspaceIikoBroker(privateConnection(ctx.state),env,ctx.access);
       // Both calls are read-only; no mutation to stored iiko/CHAIN state.
       const answers=await Promise.allSettled([
         fetchChainGroupTopology(connection),
