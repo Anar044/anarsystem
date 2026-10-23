@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { classifyPosAlert,posAlertDetails,ALERT_KINDS }
   from "../functions/api/mobile/_lib/pos-alerts.js";
+import {normalizeEnvelope} from "../functions/api/plugin/ingest.js";
 import { validPushKinds,deviceIdForToken }
   from "../functions/api/mobile/_lib/push-devices.js";
 test("only explicit discount apply and remove events produce alerts",()=>{
@@ -26,8 +27,10 @@ test("deleting printed dish is alertable, not ordinary bill update",()=>{
  assert.equal(payload.orderNum,"202");
  assert.ok(payload.body.includes("SC White City"));
 });
-test("notification preferences accept only the five requested POS alerts",()=>{
- assert.equal(ALERT_KINDS.length,5);
+test("notification preferences accept seven requested POS alerts",()=>{
+ assert.equal(ALERT_KINDS.length,7);
+ assert.ok(ALERT_KINDS.includes("SURCHARGE_APPLIED"));
+ assert.ok(ALERT_KINDS.includes("SURCHARGE_REMOVED"));
  assert.deepEqual(validPushKinds(["ITEM_REMOVED","ITEM_REMOVED",
    "ORDER_OPENED","DISCOUNT_REMOVED"]),["ITEM_REMOVED","DISCOUNT_REMOVED"]);
 });
@@ -94,8 +97,80 @@ test("real plugin discount events never confuse a surcharge for a discount", () 
  assert.ok(applied.body.includes("Endirim 10%"));
  const removed=posAlertDetails({...discount,pluginEventType:"removingDiscount"});
  assert.equal(removed.kind,"DISCOUNT_REMOVED");
- assert.equal(classifyPosAlert("addingSurcharge",discount.data),null);
- assert.equal(classifyPosAlert("removingSurcharge",discount.data),null);
+ assert.equal(classifyPosAlert("addingSurcharge",discount.data)?.kind,"SURCHARGE_APPLIED");
+ assert.equal(classifyPosAlert("removingSurcharge",discount.data)?.kind,"SURCHARGE_REMOVED");
  assert.equal(classifyPosAlert("addingDiscount",{}).kind,"DISCOUNT_APPLIED");
  assert.equal(classifyPosAlert("removingDiscount",{}).kind,"DISCOUNT_REMOVED");
+});
+
+
+// Regression fixtures derived from an actual SHPlagin 1.3.15 production log.
+// The trusted VPS bridge must supply pluginId and departmentId from its verified
+// registry: the raw pluginEventType payload alone does not contain both IDs.
+test("real SHPlagin 1.3.15 alerts match exactly seven owner event kinds",()=>{
+ const samples=[
+  ["addingDiscount","DISCOUNT_APPLIED",{name:"Endirim 20%",orderNum:78,valuePercent:20}],
+  ["removingDiscount","DISCOUNT_REMOVED",{name:"Endirim 20%",orderNum:78}],
+  ["deletionOfPrintedItem","ITEM_REMOVED",{productName:"Doner",orderNum:78,sum:20}],
+  ["cancellationOfGuestBill","PRECHECK_CANCELLED",{orderNum:78}],
+  ["voidReceipt","RECEIPT_STORNO",{orderNum:81}],
+  ["addingSurcharge","SURCHARGE_APPLIED",{name:"Service 10%",orderNum:82,valuePercent:10}],
+  ["removingSurcharge","SURCHARGE_REMOVED",{name:"Service 10%",orderNum:82,valuePercent:10}]
+ ];
+ for(const [pluginEventType,expectedKind,data] of samples){
+  const raw={
+   pluginEventType,uuid:"4bd20755-61b9-4cec-b9ce-d773eb5091ae",
+   data:{...data,departmentName:"Test Restaurant",groupName:"Test Register",
+    updateTime:"2026-10-23T13:31:25.582+04:00"},
+   departmentId:"a19d7cb0-36bb-4c1d-838b-7432d659cb99",
+   pluginId:"e653e557-2181-4c86-a94a-5a78ac0f15d3"
+  };
+  const envelope=normalizeEnvelope(raw);
+  const alert=posAlertDetails(envelope);
+  assert.equal(envelope.event,pluginEventType);
+  assert.equal(alert?.kind,expectedKind);
+  assert.equal(alert?.eventId,raw.uuid);
+  assert.equal(alert?.occurredAt,raw.data.updateTime);
+  assert.ok(alert.body.includes("Test Restaurant"));
+ }
+});
+
+test("plugin UUID survives raw event normalization for reconnect deduplication",()=>{
+ const raw={pluginEventType:"voidReceipt",uuid:"ce18d1ac-9d1b-45f3-a728-fbe3db8985bc",
+  data:{orderNum:81,updateTime:"2026-10-23T13:33:09+04:00"},
+  pluginId:"1c9fbca3-f468-475e-9bd1-2c57c23d4111",
+  departmentId:"c7f86fd6-495c-4653-9c0a-c22526b18399"};
+ const first=posAlertDetails(normalizeEnvelope(raw));
+ const retry=posAlertDetails(normalizeEnvelope({...raw}));
+ assert.equal(first.eventId,raw.uuid);
+ assert.equal(retry.eventId,raw.uuid);
+ assert.equal(first.eventId,retry.eventId);
+});
+
+test("routine plugin events and unprinted item deletion do not become storno alerts",()=>{
+ for(const event of ["newOrder","closingOrder","orderGuestBill",
+   "openCashRegisterShift","closeCashRegisterShift",
+   "cashRegisterStart","employeesPersonalShiftOpen",
+   "severalOrderShifts","deletionOfNotPrintedItem"]){
+  assert.equal(classifyPosAlert(event,{}),null,event);
+ }
+});
+
+
+test("surcharge notification title and body describe only a real surcharge",()=>{
+ for(const [source,kind,title] of [
+   ["addingSurcharge","SURCHARGE_APPLIED","Добавлена наценка"],
+   ["removingSurcharge","SURCHARGE_REMOVED","Удалена наценка"]
+ ]){
+   const alert=posAlertDetails({event:source,eventId:"evt-a1",
+     pluginId:"p1",departmentId:"r1",departmentName:"Test Restaurant",
+     data:{name:"Service 10%",orderNum:"45",valuePercent:10}});
+   assert.equal(alert.kind,kind);
+   assert.equal(alert.title,title);
+   assert.ok(alert.body.includes("Service 10%"));
+   assert.equal(validPushKinds([kind]).length,1);
+ }
+ assert.equal(classifyPosAlert("AddDiscountSurchargeItem",{isDiscount:false}),null);
+ assert.equal(classifyPosAlert("AddDiscountSurchargeItem",{}),null);
+ assert.equal(classifyPosAlert("newOrder",{}),null);
 });
