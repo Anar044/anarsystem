@@ -179,10 +179,23 @@ async function create(ctx,body,kind){
    ...(doc.documentNumber?{documentNumber:doc.documentNumber}:{}),...(doc.comment?{comment:doc.comment}:{}),
    items:doc.items.map(({productId,amount})=>({productId,amount}))
  } : saleXml(doc);
- const result=await iikoText(ctx.connection,path,{method:"POST",headers:{
-    "Content-Type":kind==="writeoff"?"application/json; charset=utf-8":"application/xml; charset=utf-8",
-    Accept:kind==="writeoff"?"application/json, */*":"application/xml,text/xml,*/*"
- },body:kind==="writeoff"?JSON.stringify(payload):payload,timeoutMs:30000});
+ // A write is NON-IDEMPOTENT: never re-send POST on network/timeout failures.
+ // The upstream may have committed the document even if the response was lost.
+ let result;
+ try{
+   result=await iikoText(ctx.connection,path,{method:"POST",headers:{
+     "Content-Type":kind==="writeoff"?"application/json":"application/xml; charset=utf-8",
+     Accept:kind==="writeoff"?"application/json":"application/xml,text/xml,*/*"
+   },body:kind==="writeoff"?JSON.stringify(payload):payload,timeoutMs:45000});
+ }catch(error){
+   console.error("[WAREHOUSE-ACT-POST-UNCONFIRMED]",{
+     documentType:kind,workspaceId:ctx.workspaceId,
+     status:doc.status,date:doc.dateIncoming.slice(0,10),documentNumber:doc.documentNumber||"(auto)",
+     name:clean(error?.name),reason:clean(error?.message).slice(0,180)
+   });
+   throw failure("Не удалось получить подтверждение от SH Server. Документ мог сохраниться. Обновите список документов и проверьте акт перед повторной отправкой. ("+
+     (clean(error?.message)||"Сетевая ошибка")+")",502,"DOCUMENT_RESULT_UNKNOWN");
+ }
  let response=null;try{response=JSON.parse(result.text)}catch{}
  if(!result.ok)throw failure("iiko Server HTTP "+result.status+": "+clean(result.text).slice(0,400),502,"IIKO_DOCUMENT_REJECTED");
  let documentId="",documentNumber=doc.documentNumber;
@@ -235,7 +248,7 @@ export async function onRequestPost(context){
    if(action==="list")return await localSalesList(ctx,body);
    return await create(ctx,body,kind);
  }catch(error){
-   return respond({success:false,code:error.code||"WAREHOUSE_ACT_ERROR",message:error.message||"Ошибка работы с актом"},error.status||502);
+   return respond({success:false,code:error.code||"WAREHOUSE_ACT_ERROR",message:error.message||"Ошибка работы с актом",resultUnknown:error.code==="DOCUMENT_RESULT_UNKNOWN"},error.status||502);
  }
 }
 

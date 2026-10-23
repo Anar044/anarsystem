@@ -92,6 +92,33 @@ test("document list no longer rejects empty selection for all-restaurants mode",
  const js=readFileSync(new URL("../documents-page.js",import.meta.url),"utf8");
  assert.doesNotMatch(js,/if\(!departmentIds.length\).*?return/);
  const html=readFileSync(new URL("../akty-realizatsii.html",import.meta.url),"utf8");
- assert.ok(html.includes("warehousefix-1"));
+ assert.ok(html.includes("warehouse-inline-2"));
  assert.ok(!html.includes("POST /resto/api"));
+});
+
+test("warehouse editor keeps one product field per row and an inline filtered suggestion list",()=>{
+ const editor=readFileSync(new URL("../warehouse-acts-editor.js",import.meta.url),"utf8");
+ assert.match(editor,/wa-product-search/);
+ assert.match(editor,/wa-suggestions/);
+ assert.match(editor,/data-index/);
+ assert.match(editor,/row\.dataset\.productId/);
+ assert.doesNotMatch(editor,/wa-product-pick/);
+ assert.match(editor,/wa-columns/);
+ assert.match(editor,/e\.key==="ArrowDown"/);
+ assert.match(editor,/addEventListener\("pointerdown"/);
+});
+test("financial document writes fail closed on unknown network result and never automatically retry POST",()=>{
+ const backend=readFileSync(new URL("../functions/api/iiko/warehouse-acts.js",import.meta.url),"utf8");
+ const editor=readFileSync(new URL("../warehouse-acts-editor.js",import.meta.url),"utf8");
+ assert.match(backend,/DOCUMENT_RESULT_UNKNOWN/);
+ assert.match(backend,/resultUnknown/);
+ assert.match(backend,/WAREHOUSE-ACT-POST-UNCONFIRMED/);
+ assert.match(editor,/writeUncertain=true/);
+ assert.match(editor,/disabled=writeUncertain/);
+ assert.match(editor,/\$\("#documents-load"\)\?\.click\(\)/);
+ assert.match(editor,/Нет ответа от Smart Horeca/);
+});
+test("realization detail labels sales totals as sums, not costs",()=>{
+ const js=readFileSync(new URL("../documents-page.js",import.meta.url),"utf8");
+ assert.match(js,/type==="sales"\?"Сумма":"Себестоимость"/);
 });
