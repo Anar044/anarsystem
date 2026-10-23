@@ -76,7 +76,7 @@
      const words=search.value.toLocaleLowerCase().split(/\s+/).filter(Boolean);
      const selectedItem=items().find(p=>p.id===chosenId);
      const effectiveWords=selectedItem&&search.value===textFor(selectedItem)
-       ?selectedItem.name.toLocaleLowerCase().split(/\\s+/).filter(Boolean):words;
+       ?selectedItem.name.toLocaleLowerCase().split(/\s+/).filter(Boolean):words;
      const found=items().filter(p=>{
        const s=(p.name+" "+p.code+" "+p.unit).toLocaleLowerCase();
        return effectiveWords.every(w=>s.includes(w));
