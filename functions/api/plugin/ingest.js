@@ -19,13 +19,13 @@ function jsonResponse(data, status = 200) {
 
 const stringOrNull = value => value == null ? null : String(value);
 
-function normalizeEnvelope(body) {
+export function normalizeEnvelope(body) {
   const source = body && typeof body === "object" ? body : {};
   const data = source.data && typeof source.data === "object" ? source.data : source;
   return {
-    event: stringOrNull(source.event || source.eventType || source.type),
-    eventId: stringOrNull(source.eventId || source.id),
-    timestamp: stringOrNull(source.timestamp || source.createdAt || source.time),
+    event: stringOrNull(source.event || source.pluginEventType || source.eventType || source.type),
+    eventId: stringOrNull(source.eventId || source.uuid || source.id),
+    timestamp: stringOrNull(source.timestamp || source.createdAt || source.time || data.updateTime),
     departmentId: stringOrNull(source.departmentId || source.organizationId || data.departmentId),
     departmentName: stringOrNull(source.departmentName || data.departmentName),
     pluginId: stringOrNull(source.pluginId || source.pluginID || data.pluginId),
@@ -105,11 +105,11 @@ export async function onRequestPost(context) {
 
     const identity=await verifyPluginIngress(context.request,context.env,{pluginId:envelope.pluginId,departmentId:envelope.departmentId});
     const storage = await persistEvent(envelope, context.env);
-    // FCM dispatch is best-effort and MUST NOT delay or fail the validated
-    // plugin ingestion. Deduplication is enforced independently in D1.
+    // Incoming event is authenticated with VPS-only X-Plugin-Token and
+    // checked against the live plugin registry before notifications.
+    // Background dispatch must never block the existing event ingestion.
     if (storage.stored && typeof context.waitUntil === "function") {
-      context.waitUntil(dispatchOwnerPosPush(context.env,envelope)
-        .catch(()=>{}));
+      context.waitUntil(dispatchOwnerPosPush(context.env, envelope).catch(() => {}));
     }
     return jsonResponse({
       success: storage.stored,
