@@ -10,7 +10,7 @@
 // Account.Name is display-only.
 // ============================================================
 
-import { clean, getOlapFields, iikoJson } from './_lib/iiko-client.js';
+import { clean, getOlapFields, iikoJson, bindIikoBroker } from './_lib/iiko-client.js';
 import { getUser } from './_lib/user-state.js';
 import { listAccountingJournal } from '../hr/_lib/payroll-accounting.js';
 
@@ -56,14 +56,15 @@ function accountRoleTotal(list){return(list||[]).reduce((a,x)=>a+Number(x.value|
 
 export async function onRequestOptions(){return new Response(null,{status:204,headers:corsHeaders()})}
 
-export async function onRequestPost({request,env}){
+export async function onRequestPost(context){
+  const {request,env}=context;{
   try{
     const auth=await getUser(request,env).catch(()=>null);
     const b=await request.json();
     const from=clean(b.from).slice(0,10),to=clean(b.to||b.from).slice(0,10);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return json({success:false,message:'Укажите корректный период'},400);
 
-    const connection={ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??'')};
+    const connection=bindIikoBroker({ip:clean(b.ip),port:clean(b.port),login:clean(b.login),password:String(b.password??'')},context);
     if(!connection.ip||!connection.port||!connection.login||!connection.password)return json({success:false,message:'Заполните IP, порт, логин и пароль iiko'},400);
     const departmentIds=Array.isArray(b.departmentIds)?[...new Set(b.departmentIds.map(String).filter(Boolean))]:[];
 
