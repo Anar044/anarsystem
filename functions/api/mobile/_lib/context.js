@@ -1,6 +1,7 @@
 import { getUser, loadPrivateIikoState, privateConnection, hasPrivateConnection } from "../../iiko/_lib/user-state.js";
 import { resolveAccessForUser, listUserWorkspaces } from "../../access/_lib/access-control.js";
 import { restaurantDirectory, allowedDepartmentIds } from "../../iiko/_lib/restaurant-scope.js";
+import { bindWorkspaceIikoBroker } from "../../iiko/_lib/iiko-client.js";
 
 const clean = value => String(value ?? "").trim();
 const unique = values => [...new Set((values || []).map(clean).filter(Boolean))];
@@ -166,6 +167,7 @@ export async function mobileContext(request, env, { connectionRequired = false }
   return {
     auth, access, state, stored,
     selectedIds, availableIds, restaurants, connectionReady,
-    connection: connectionRequired ? privateConnection(state) : null
+    connection: connectionRequired
+      ? bindWorkspaceIikoBroker(privateConnection(state),env,access) : null
   };
 }
