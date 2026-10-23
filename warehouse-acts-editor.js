@@ -28,8 +28,8 @@
    </div>
    <div class="wa-items-head"><strong>Товары</strong><button type="button" id="wa-add">+ Добавить строку</button></div>
    <div id="wa-rows"></div>
-   <div class="wa-actions"><span id="wa-message" role="status"></span><button type="button" id="wa-draft">Сохранить черновик</button><button type="button" id="wa-process" class="wa-process">Создать и провести в iiko</button></div>
-   <div class="wa-hint">Проведение изменяет складской учёт iiko. Для проверки сначала сохраняй черновик. Количество указывается в основных единицах товара.</div>`;
+   <div class="wa-actions"><span id="wa-message" role="status"></span><button type="button" id="wa-draft">Сохранить черновик</button><button type="button" id="wa-process" class="wa-process">Создать и провести</button></div>
+   <div class="wa-hint">Проведение изменяет складской учёт SH Server. Для проверки сначала сохраняй черновик. Количество указывается в основных единицах товара.</div>`;
  const panel=$(".documents-panel");
  panel?.parentNode.insertBefore(editor,panel);
  const style=document.createElement("style");style.id="wa-form-style";
@@ -139,8 +139,8 @@
      message("Выбери склад и товары, укажи положительное количество.",true);return;
    }
    if(kind==="sales"&&items.some(x=>!Number.isFinite(x.sum)||x.sum<0)){message("Укажи суммы по всем строкам.",true);return}
-   if(status==="PROCESSED"&&!window.confirm("Провести акт в iiko? Это изменит учёт. Подтверждаешь проведение?"))return;
-   busy=true;$("#wa-draft").disabled=$("#wa-process").disabled=true;message("Отправляем документ в iiko… Не повторяй отправку.");
+   if(status==="PROCESSED"&&!window.confirm("Провести акт? Это изменит учёт. Подтверждаешь проведение?"))return;
+   busy=true;$("#wa-draft").disabled=$("#wa-process").disabled=true;message("Отправляем документ на SH Server… Не повторяй отправку.");
    try{
      const response=await send({action:"create",kind,document:doc});
      message(response.message+(response.warning?" "+response.warning:""));
@@ -148,7 +148,7 @@
        editor.hidden=true;
        $("#documents-load")?.click();
      }
-   }catch(e){message(e.message+" Если ответ сервера оборвался, проверь документ в iiko перед повторной отправкой.",true)}
+   }catch(e){message(e.message+" Если ответ сервера оборвался, проверь документ на SH Server перед повторной отправкой.",true)}
    finally{busy=false;$("#wa-draft").disabled=$("#wa-process").disabled=false}
  }
  createBtn.addEventListener("click",open);
