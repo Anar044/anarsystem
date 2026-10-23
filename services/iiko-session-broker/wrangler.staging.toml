@@ -9,7 +9,9 @@ workers_dev = false
 
 [vars]
 IIKO_AUTH_METHOD = "GET"
-IIKO_MAX_PARALLEL_REQUESTS = "3"
+# Documentation requires sequential iikoServer requests. Start with strict FIFO on staging.
+# Increase only after recording REST_API seats and passing the read-only load test.
+IIKO_MAX_PARALLEL_REQUESTS = "1"
 IIKO_MAX_PENDING_REQUESTS = "20"
 IIKO_ALLOWED_TARGETS = "s01.smarthoreca.az:9132"
 
