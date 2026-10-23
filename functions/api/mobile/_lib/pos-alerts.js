@@ -51,7 +51,7 @@ export function posAlertDetails(envelope){
   const dish=clean(first(data,["dishName","DishName","productName","ProductName","itemName","ItemName"]));
   const discountName=clean(first(data,["name","Name","discountName",
     "DiscountName"]));
-  const restaurant=clean(envelope?.departmentName)||"Ресторан";
+  const restaurant=clean(envelope?.departmentName ?? data?.departmentName)||"Ресторан";
   const description=[
     restaurant,
     order ? "заказ №"+order : null,
@@ -60,10 +60,11 @@ export function posAlertDetails(envelope){
     alert.kind==="ITEM_REMOVED" && dish ? dish : null
   ].filter(Boolean).join(" · ");
   const sourceTime=first(envelope,["timestamp","receivedAt","ReceivedAt",
-    "occurredAt","OccurredAt","dateTime","DateTime"]);
+    "occurredAt","OccurredAt","dateTime","DateTime"]) ??
+    first(data,["updateTime","UpdateTime","occurredAt","OccurredAt"]);
   return {...alert,departmentId:clean(envelope?.departmentId),
     pluginId:clean(envelope?.pluginId),orderNum:order,title:alert.title,
     body:description.slice(0,180),
-    eventId:clean(first(envelope,["eventId","EventId","id","Id"])),
+    eventId:clean(first(envelope,["eventId","EventId","uuid","Uuid","id","Id"])),
     occurredAt:clean(sourceTime)};
 }
