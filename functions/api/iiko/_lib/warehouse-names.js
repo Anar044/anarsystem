@@ -5,7 +5,7 @@ import { iikoText } from "./iiko-client.js";
 import { normalizeStores } from "../stock-balances.js";
 
 const clean=v=>String(v??"").trim();
-export const warehouseKey=v=>clean(v).replace(/^\\{+|\\}+$/g,"").toLowerCase();
+export const warehouseKey=v=>clean(v).replace(/^\{+|\}+$/g,"").toLowerCase();
 const guid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const meaningful=v=>{const s=clean(v);return s&&!guid.test(s)?s:"";};
 export function warehouseLabel(key,map){
