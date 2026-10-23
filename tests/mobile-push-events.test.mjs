@@ -116,10 +116,10 @@ test("real SHPlagin 1.3.15 alerts match exactly five owner event kinds",()=>{
  for(const [pluginEventType,expectedKind,data] of samples){
   const raw={
    pluginEventType,uuid:"4bd20755-61b9-4cec-b9ce-d773eb5091ae",
-   data:{...data,departmentName:"RMS 2",groupName:"TESTING KASSA",
+   data:{...data,departmentName:"Test Restaurant",groupName:"Test Register",
     updateTime:"2026-10-23T13:31:25.582+04:00"},
-   departmentId:"dd89e8e4-5c62-4be9-a66d-2b85d87ad107",
-   pluginId:"b557baad-f85c-4f40-a247-12f8855951ee"
+   departmentId:"a19d7cb0-36bb-4c1d-838b-7432d659cb99",
+   pluginId:"e653e557-2181-4c86-a94a-5a78ac0f15d3"
   };
   const envelope=normalizeEnvelope(raw);
   const alert=posAlertDetails(envelope);
@@ -127,7 +127,7 @@ test("real SHPlagin 1.3.15 alerts match exactly five owner event kinds",()=>{
   assert.equal(alert?.kind,expectedKind);
   assert.equal(alert?.eventId,raw.uuid);
   assert.equal(alert?.occurredAt,raw.data.updateTime);
-  assert.ok(alert.body.includes("RMS 2"));
+  assert.ok(alert.body.includes("Test Restaurant"));
  }
 });
 
