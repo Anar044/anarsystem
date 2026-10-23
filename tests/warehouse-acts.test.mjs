@@ -39,7 +39,7 @@ test("sales validation blocks incorrect amount and discount",()=>{
  assert.throws(()=>validateWarehouseAct({document:{...sales,items:[{productId:product,amount:0,sum:10}]}},"sales",stores),/количество/);
  assert.throws(()=>validateWarehouseAct({document:{...sales,items:[{productId:product,amount:1,sum:10,discountSum:11}]}},"sales",stores),/скидка/i);
  assert.throws(()=>validateWarehouseAct({document:{...sales,items:[{productId:product,amount:1,sum:10,vatPercent:150}]}},"sales",stores),/НДС/);
- assert.throws(()=>validateWarehouseAct({document:{...sales,accountToCode:""}},"sales",stores),/счёта/);
+ assert.throws(()=>validateWarehouseAct({document:{...sales,accountToCode:""}},"sales",stores),/счет[а-я]*|счёт[а-я]*/i);
 });
 test("new UI and new handler are server-protected and linked into app shell",()=>{
  const backend=readFileSync(new URL("../functions/api/iiko/warehouse-acts.js",import.meta.url),"utf8");
