@@ -37,7 +37,7 @@
    const getUnit=options.getUnit||((x)=>x?.unit||x?.unitName||x?.mainUnit?.name||"");
    const getProducts=options.getProducts||(()=>options.products||[]);
    const valueFor=options.valueFor||((x)=>x.raw?.id??x.id);
-   const originalDisplay=original.style.display;
+   const originalDisplay=original.style.display,wasRequired=original.required;
    const parent=original.parentNode;
    const wrap=document.createElement("div");wrap.className="sh-pick-wrap";
    const search=document.createElement("input");search.type="text";search.className="sh-pick-field";
@@ -46,7 +46,7 @@
    search.setAttribute("aria-label",options.label||"Выберите товар");
    const list=document.createElement("div");list.className="sh-pick-list";list.hidden=true;list.setAttribute("role","listbox");
    wrap.append(search,list);parent.insertBefore(wrap,original.nextSibling);
-   original.style.display="none";
+   original.style.display="none";if(original.required)original.required=false;
    let candidates=[],active=-1,chosenId="",ignoreChange=false;
    const items=()=>{const raw=getProducts();return (Array.isArray(raw)?raw:[]).map(x=>productFrom(x,getId,getName,getCode,getUnit)).filter(x=>x.id&&x.name)};
    const textFor=x=>x.name+(x.code?" · "+x.code:"")+(x.unit?" ("+x.unit+")":"");
@@ -118,7 +118,7 @@
    original.addEventListener("change",()=>{if(!ignoreChange)sync()});
    sync();
    const api={refresh:sync,get selectedId(){return chosenId},get input(){return search},destroy(){
-     original.style.display=originalDisplay;wrap.remove();delete original._shProductPicker;
+     original.style.display=originalDisplay;original.required=wasRequired;wrap.remove();delete original._shProductPicker;
    }};
    original._shProductPicker=api;
    return api;
