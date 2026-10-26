@@ -62,3 +62,27 @@ test("only reference data comes from the server; raw IDs are never shown as the 
  assert.match(widget,/getProducts/);
  assert.doesNotMatch(widget,/search\.value\s*=\s*item\.id/);
 });
+
+test("search popup is mounted on document.body to escape clipped procurement/internal/invoice modals",()=>{
+ const widget=src("sh-product-picker.js");
+ assert.match(widget,/document\.body\.appendChild\(list\)/);
+ assert.match(widget,/\.sh-pick-list\{position:fixed/);
+ assert.match(widget,/z-index:2147483000/);
+ assert.match(widget,/positionPopup/);
+ assert.match(widget,/window\.addEventListener\("scroll",positionPopup,true\)/);
+ assert.match(widget,/const openUp=below<150&&above>below/);
+ assert.match(widget,/Math\.min\(264/);
+ assert.match(widget,/list\.remove\(\)/);
+ assert.doesNotMatch(widget,/wrap\.append\(search,list\)/);
+ for(const page of ["nakladnye.html","procurement.html","internal-orders.html"]){
+   assert.match(src(page),/sh-product-picker\.js\?v=20261026-popup-1/);
+ }
+});
+test("document modal sizes allow one-row product and package editing at desktop widths",()=>{
+ const procurement=src("procurement.css");
+ const internal=src("internal-orders.css");
+ const incoming=src("nakladnye-write.js");
+ assert.match(procurement,/\.proc-modal\{width:min\(1280px,98vw\)/);
+ assert.match(internal,/\.io-modal-dialog\{position:relative;width:min\(1250px,100%\)/);
+ assert.match(incoming,/\.inc-dialog\{width:min\(1380px,98vw\)/);
+});
