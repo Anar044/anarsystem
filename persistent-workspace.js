@@ -145,6 +145,34 @@
     empty.textContent=message;
     empty.hidden=false;
   }
+  // This does not grant permissions or skip authentication. It only makes a
+  // stalled protected-shell bootstrap recoverable instead of showing a blank
+  // screen indefinitely. The classic Dashboard applies its own existing RBAC.
+  function showStartupRecovery(){
+    if(currentFrame||document.getElementById('sh-access-denied'))return;
+    const checking=window.SHAccess?.context;
+    const message=checking?.allowed===false
+      ?'Не удалось подтвердить доступ к рабочему разделу.'
+      :'Smart Horeca не завершил открытие рабочего кабинета. Авторизация или проверка доступа могла остановиться.';
+    showEmpty(message);
+    if(!empty||empty.querySelector('[data-sh-shell-retry]'))return;
+    const actions=document.createElement('div');
+    actions.style.cssText='display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:18px';
+    const retry=document.createElement('a');
+    retry.href=location.pathname+location.search;
+    retry.textContent='Повторить открытие';
+    retry.dataset.shShellRetry='1';
+    const classic=document.createElement('a');
+    classic.href='/dashboard.html?classic=1';
+    classic.textContent='Открыть обычный Dashboard';
+    classic.dataset.shShellClassic='1';
+    for(const link of [retry,classic]){
+      link.style.cssText='display:inline-flex;align-items:center;justify-content:center;padding:10px 13px;border:1px solid #34604c;border-radius:10px;background:#142820;color:#b9f5d7;text-decoration:none;font-size:13px;cursor:pointer';
+      actions.appendChild(link);
+    }
+    empty.appendChild(actions);
+    setStatus('Не удалось завершить открытие');
+  }
   function isNavigableLink(link,event){
     return link&&(!event||!(event.ctrlKey||event.shiftKey||event.altKey||event.metaKey))
       &&(!link.target||link.target==='_self');
@@ -573,4 +601,15 @@
   // No automatic redirect from production Dashboard: only this opt-in URL
   // activates a persistent workspace. Browser Back is handled on the parent.
   if(window.SHAccess?.context?.allowed)start();
+  // A slow/suspended auth SDK or an iframe that never fires "load" previously
+  // left the protected shell at "Открываем доступный раздел..." forever.
+  // The watchdog only adds recovery controls; it never exposes protected data.
+  setTimeout(()=>{
+    if(currentFrame||document.getElementById('sh-access-denied'))return;
+    if(pendingFrame){
+      const stalled=pendingFrame;
+      frameFailure(stalled,'Не удалось завершить загрузку раздела.');
+    }
+    showStartupRecovery();
+  },18000);
 })();
