@@ -241,15 +241,15 @@
         reportEmbeddedAccessStage('access-request');
         // The access API may stall in an upstream auth/database dependency.
         // Never leave protected pages waiting indefinitely or infer lost RBAC.
-        const accessAbort=new AbortController();
-        const accessTimer=setTimeout(()=>accessAbort.abort(),15000);
+        const accessAbort=typeof AbortController==='function'?new AbortController():null;
+        const accessTimer=accessAbort?setTimeout(()=>accessAbort.abort(),15000):null;
         let response;
         try{
           response=await fetch(measuredEndpoint,{
             headers:{Authorization:'Bearer '+t,Accept:'application/json'},
-            cache:'no-store',signal:accessAbort.signal
+            cache:'no-store',...(accessAbort?{signal:accessAbort.signal}:{})
           });
-        }finally{clearTimeout(accessTimer)}
+        }finally{if(accessTimer!==null)clearTimeout(accessTimer)}
         reportEmbeddedAccessStage('access-response');
         if(navDebug){
           const timing=response.headers.get('Server-Timing')||'';
