@@ -76,7 +76,7 @@
     style.id = 'incoming-entry-v2-style';
     style.textContent =
       '.inc-editor{position:fixed;inset:0;z-index:9999;background:rgba(3,7,11,.72);backdrop-filter:blur(8px);display:grid;place-items:center;padding:18px}' +
-      '.inc-editor[hidden]{display:none}.inc-dialog{width:min(1180px,97vw);max-height:94vh;overflow:auto;background:#111923;border:1px solid rgba(255,255,255,.1);border-radius:18px;box-shadow:0 30px 90px rgba(0,0,0,.5);color:#e8edf2}' +
+      '.inc-editor[hidden]{display:none}.inc-dialog{width:min(1380px,98vw);max-height:95vh;overflow:auto;background:#111923;border:1px solid rgba(255,255,255,.1);border-radius:18px;box-shadow:0 30px 90px rgba(0,0,0,.5);color:#e8edf2}' +
       '.inc-head{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.08);position:sticky;top:0;background:#111923;z-index:2}.inc-head strong{font-size:16px}.inc-head button{font-size:20px}' +
       '.inc-body{padding:18px}.inc-entry-status{min-height:18px;margin-bottom:12px;color:#91a0af;font-size:12px}.inc-entry-status.loading{color:#e7c86f}.inc-entry-status.error{color:#ff8a8a}.inc-entry-status.success{color:#61dda0}' +
       '.inc-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.inc-body label{display:flex;flex-direction:column;gap:6px;color:#8995a5;font-size:11px;font-weight:700}' +
