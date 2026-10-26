@@ -1,4 +1,4 @@
-import { mobileContext, response, errorResponse, MobileError, ownerBrokerContext } from "../_lib/context.js";
+import { mobileContext, response, errorResponse, MobileError, ownerBrokerContext, ownerBrokerFailure } from "../_lib/context.js";
 import { onRequestPost as dashboardSummary } from "../../iiko/dashboard-summary.js";
 
 const clean = value => String(value ?? "").trim();
@@ -152,6 +152,10 @@ export async function onRequestGet({ request, env }) {
     const payload = await upstream.json().catch(() => null);
     const sourceError = ownerSummarySourceError(payload);
     if (sourceError) throw sourceError;
+    // A broker's safe error code travels through the internal dashboard
+    // handler as payload.message. Map it BEFORE the generic 502 wrapper.
+    const brokerError = ownerBrokerFailure(payload?.message);
+    if (brokerError) throw brokerError;
     if (!upstream.ok || !payload?.success) {
       const code = String(payload?.code || "OLAP_FAILED");
       let message = typeof payload?.message === "string"

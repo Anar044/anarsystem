@@ -26,7 +26,35 @@ export function response(data, status = 200) {
   });
 }
 
+// The private broker never exposes credentials in its error code. When
+// Owner mobile has opted into the shared session, do not hide actionable
+// configuration failures behind the generic 502 banner. Never echo the
+// raw upstream error, which may contain private iiko data.
+export function ownerBrokerFailure(source) {
+  const text=String(source?.message ?? source ?? "");
+  const match=text.match(/\bSH central iiko broker\s+([A-Z][A-Z0-9_]+)(?:\s|\(|$)/i);
+  const code=match?.[1]?.toUpperCase();
+  const messages={
+    FORBIDDEN:"Подключение приложения к общему серверу не подтверждено. Администратору нужно проверить совпадение секретов.",
+    CONFIG_MISSING:"Не завершена настройка общего сервера подключений. Проверьте его параметры.",
+    ENCRYPTION_CONFIG_INVALID:"Общий сервер подключений имеет неверный ключ шифрования.",
+    TARGET_DENIED:"Сохранённый адрес сервера учёта не разрешён в общем подключении.",
+    BAD_REQUEST:"Общий сервер отклонил формат служебного запроса.",
+    UNAVAILABLE:"Не удалось связаться с общим сервером подключений.",
+    BROKER_BUSY:"Общий сервер подключений перегружен. Повторите запрос.",
+    BROKER_DRAINING:"Общий сервер подключений временно завершает активные операции.",
+    BROKER_ERROR:"Общий сервер подключений не смог обработать запрос.",
+    AUTH_UNCERTAIN:"Статус авторизации сервера учёта не подтверждён. Повторный вход автоматически заблокирован.",
+    AUTH_COOLDOWN:"Повторный вход в сервер учёта временно ограничен для защиты лицензий.",
+    AUTH_FAILED:"Не удалось авторизоваться в сервере учёта через общее подключение."
+  };
+  if(!code || !Object.prototype.hasOwnProperty.call(messages,code))return null;
+  return new MobileError("IIKO_BROKER_"+code,messages[code],502);
+}
+
 export function errorResponse(error) {
+  const mapped=ownerBrokerFailure(error);
+  if(mapped)error=mapped;
   const status = Number(error?.status) || 500;
   return response({
     success: false,
