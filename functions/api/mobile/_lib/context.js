@@ -32,7 +32,7 @@ export function response(data, status = 200) {
 // raw upstream error, which may contain private iiko data.
 export function ownerBrokerFailure(source) {
   const text=String(source?.message ?? source ?? "");
-  const match=text.match(/\\bSH central iiko broker\\s+([A-Z][A-Z0-9_]+)(?:\\s|\\(|$)/i);
+  const match=text.match(/\bSH central iiko broker\s+([A-Z][A-Z0-9_]+)(?:\s|\(|$)/i);
   const code=match?.[1]?.toUpperCase();
   const messages={
     FORBIDDEN:"Подключение приложения к общему серверу не подтверждено. Администратору нужно проверить совпадение секретов.",
