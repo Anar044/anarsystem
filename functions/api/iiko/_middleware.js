@@ -48,6 +48,7 @@ function routePermissions(path,body=null){
   if(p.endsWith("/accounts")||p.endsWith("/account-postings")||p.endsWith("/contractors")||p.endsWith("/finance-data"))return["finance.view"];
   if(p.endsWith("/orders"))return["cash.view","reports.olap"];
   if(p.endsWith("/qr-image")||p.endsWith("/qr-menu"))return["qr.manage"];
+  if(p.endsWith("/broker-status"))return["settings.manage"];
   if(p.endsWith("/connect")||p.endsWith("/connection")||p.endsWith("/chain")||p.endsWith("/debug"))return["settings.manage"];
   return[];
 }
