@@ -11,6 +11,10 @@
     const host=location.hostname.toLowerCase();
     if(host!=='smarthoreca.pages.dev'&&!host.endsWith('.smarthoreca.pages.dev'))return;
     const p=new URLSearchParams(location.search);
+    // Explicit emergency fallback only. The original protected Dashboard
+    // still runs Supabase authentication, site-access RBAC and API checks.
+    // It does not grant any additional permission or disable authorization.
+    if(p.get('classic')==='1')return;
     if(p.has('code')||p.has('invite')||p.has('token_hash')||
       /\b(?:access_token|refresh_token|error_description)=/.test(location.hash))return;
     const target=location.pathname+location.search+location.hash;

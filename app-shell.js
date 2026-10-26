@@ -73,6 +73,9 @@
     // currentPage uses index.html as a fallback for both Dashboard and unknown
     // admin/auth pages. Only the actual Dashboard is a workspace destination.
     const isDashboard=path==='/dashboard'||path==='/dashboard.html';
+    // Only an explicit user recovery link may use the old protected Dashboard
+    // when the parent shell cannot initialize. Normal navigation is unchanged.
+    if(isDashboard&&new URLSearchParams(location.search).get('classic')==='1')return null;
     if((page==='index.html'&&!isDashboard)||page==='settings.html'||page==='cash.html')return null;
     // Permission filtering still happens only in the parent unified menu.
     const url=new URL('/persistent-workspace.html',location.origin);

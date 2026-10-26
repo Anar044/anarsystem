@@ -45,6 +45,19 @@ test('never redirect the protected embedded child or legacy/auxiliary routes',()
   assert.equal(resolve({sidebar:false}),null);
   assert.equal(resolve({authPage:true}),null);
 });
+test('stalled shell offers an explicitly requested protected classic Dashboard',()=>{
+  const shell=load('persistent-workspace.js');
+  const dashboard=load('dashboard.html');
+  assert.equal(resolve({page:'index.html',path:'/dashboard.html',query:'?classic=1'}),null,
+    'an explicit classic Dashboard never bounces back into the persistent shell');
+  assert.match(dashboard,/if\(p\.get\('classic'\)==='1'\)return;/);
+  assert.match(dashboard,/data-protected="true"/);
+  assert.match(shell,/showStartupRecovery\(\)/);
+  assert.match(shell,/data-sh-shell-retry/);
+  assert.match(shell,/dashboard\.html\?classic=1/);
+  assert.match(shell,/setTimeout\(\(\)=>\{/);
+  assert.doesNotMatch(shell,/shBrokerBypass/);
+});
 test('language controls remain in the same persistent menu and are pinned for long sidebars',()=>{
   assert.match(html,/body\.sh-workspace-page \.sidebar>\.sh-language-picker\{[\s\S]*?position:fixed!important/);
   assert.match(html,/bottom:0!important;left:0!important/);
