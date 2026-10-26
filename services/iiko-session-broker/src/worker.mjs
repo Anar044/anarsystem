@@ -369,6 +369,15 @@ export default {
       // accidentally reachable from a trusted application route.
       if(!allowedIikoTarget(env,c))
         return fail("TARGET_DENIED","iiko host or port is not registered in broker allowlist",403);
+      // Private, license-free readiness probe. It validates the exact server
+      // target, service secret, SQLite Durable Object binding and AES key.
+      // It MUST NOT create a Durable Object, authorize to iiko, use a token,
+      // or return the server address or credentials to the Pages caller.
+      if(input.action==="status"){
+        try {await encryptionKey(env)}
+        catch {return fail("ENCRYPTION_CONFIG_INVALID","Broker encryption key is invalid",503)}
+        return json({success:true,code:"BROKER_READY",readOnly:true},200);
+      }
       const idKey=await hash(JSON.stringify([tenantId,c.serverUrl,c.login,await hash(c.password)]));
       const object=env.IIKO_SESSIONS.get(env.IIKO_SESSIONS.idFromName(idKey));
       return object.fetch(new Request("https://broker.internal/request",{method:"POST",body:JSON.stringify(input),

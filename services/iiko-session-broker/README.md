@@ -1,4 +1,4 @@
-# SH Central iiko Session Broker — **production not activated**
+# SH Central iiko Session Broker — private Worker deployed; Pages activation gated
 
 The iiko REST API consumes a limited licensed slot for each new session. Cloudflare
 Pages isolates currently use different token maps and can independently log in.
@@ -8,9 +8,9 @@ This private Cloudflare Worker provides one shared, durable licensed session per
 ## Guarantees
 
 - The Worker is private (no workers.dev route). Pages accesses it via a **service binding**.
-- Each Durable Object serializes **authentication and token rotation only**; data requests use a bounded parallel pool. The token is encrypted with AES-256-GCM
+- Each Durable Object serializes **authentication and token rotation**; data requests use a bounded FIFO queue with an independently configurable worker pool. The token is encrypted with AES-256-GCM
   using a secret that is **not committed** to GitHub; the record survives evictions.
-- Defaults to 3 concurrent upstream calls per workspace/credential, configurable via `IIKO_MAX_PARALLEL_REQUESTS` (1–5). `1` restores strict sequential operation for iiko servers with limited capacity. The bounded FIFO queue rejects overload (HTTP 429) without creating a new login.
+- Defaults to **one** sequential upstream call per workspace/credential, configurable via `IIKO_MAX_PARALLEL_REQUESTS` (1–5). Increase only with verified iiko Server licensing and capacity. The bounded FIFO queue rejects overload (HTTP 429) without creating a new login.
 - Identical concurrent GET metadata/report requests and POST SALES OLAP reads are coalesced in flight; **no persistent/stale sales cache** is introduced. Write operations never coalesce or retry automatically.
 - Responses provide internal-only `x-sh-broker-wait-ms`, `x-sh-broker-upstream-ms`, `x-sh-broker-parallel` and `x-sh-broker-coalesced` headers to measure bottlenecks, not consumer-visible token data.
 - A successful auth token is stored before being used. After a cached-token **401**,
@@ -69,6 +69,28 @@ The previously tested Preview workspace needs its own explicit Preview
 `IIKO_BROKER_ENABLED_WORKSPACES` value to remain brokered after this
 safety gate is deployed. This must be configured only with the actual
 verified workspace ID; do not guess one from screen labels.
+
+## One admin-only, license-free readiness check
+
+After the main `sh-iiko-session-broker` Worker has deployed, use the
+authenticated `GET /api/iiko/broker-status` endpoint for a user who holds
+`settings.manage` in the relevant workspace. It returns only:
+
+- `serviceBindingPresent`: Production Pages has the `IIKO_SESSION_BROKER`
+  Service binding to the **main** Worker.
+- `serviceSecretPresent`: the Pages environment includes
+  `IIKO_BROKER_SERVICE_SECRET` (no value is exposed).
+- `workerReady`: the private Worker accepted the caller secret and validated
+  its Durable Object binding, AES key and the exact D1-saved iiko target.
+- `workspaceSelected`: the server-verified workspace is included in
+  `IIKO_BROKER_ENABLED_WORKSPACES`.
+- `readyForActivation` plus a safe diagnostic `code`. Do not enable
+  a workspace unless `readyForActivation=true`.
+
+This private diagnostic never issues an iiko REST request, `/auth`, `/logout`,
+or creates a Durable Object. It does not free old iiko sessions. Keep
+`IIKO_BROKER_ENABLED_WORKSPACES` empty until a specific verified workspace
+has been checked. The Worker has no public URL (`workers_dev=false`).
 
 ## One-switch activation after production prerequisites
 
@@ -139,7 +161,7 @@ older deployments. The shared secret authenticates the private service caller,
 not the end user: Pages must continue its existing authentication, tenant
 isolation and RBAC checks. Never accept tenant ID or credentials directly
 from the mobile client. Cloudflare encryption key loss prevents recovery of
-saved tokens and must fail closed. No production deployment has been made.
+saved tokens and must fail closed. The private Worker may be deployed, but per-workspace Pages routing is not activated until its binding, secrets and opt-in are configured.
 
 ## Latency and throughput
 
