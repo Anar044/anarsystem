@@ -161,7 +161,7 @@ older deployments. The shared secret authenticates the private service caller,
 not the end user: Pages must continue its existing authentication, tenant
 isolation and RBAC checks. Never accept tenant ID or credentials directly
 from the mobile client. Cloudflare encryption key loss prevents recovery of
-saved tokens and must fail closed. No production deployment has been made.
+saved tokens and must fail closed. The private Worker may be deployed, but per-workspace Pages routing is not activated until its binding, secrets and opt-in are configured.
 
 ## Latency and throughput
 
