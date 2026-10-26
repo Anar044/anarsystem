@@ -38,7 +38,7 @@
       const status=document.getElementById("status");
       const button=document.getElementById("check");
       const login=document.getElementById("login");
-      // No global protected-page init or sh-auth-ready dependency: start explicitly.
+      // No protected-page initialization or event dependency: start explicitly.
       // In Preview a browser session can differ from the Production session.
       function limit(promise,ms){
         return Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(Error("AUTH_OR_NETWORK_TIMEOUT")),ms))]);
