@@ -39,6 +39,7 @@ jobs:
           node --experimental-default-type=module --check functions/api/mobile/v1/movements.js
           node --experimental-default-type=module --check functions/api/mobile/v1/pnl.js
           node --experimental-default-type=module --check functions/api/mobile/v1/assistant.js
+          node --experimental-default-type=module --check functions/api/mobile/v1/transcribe.js
           node --experimental-default-type=module --check functions/api/mobile/v1/alerts.js
           node --experimental-default-type=module --check functions/api/iiko/_lib/operational-day.js
           node --experimental-default-type=module --check functions/api/iiko/dashboard.js
