@@ -239,7 +239,17 @@
         try{navDebug=window.frameElement?.dataset?.shNavDebug==='1'}catch(_){}
         const measuredEndpoint=navDebug?endpoint+(invite?'&':'?')+'navDebug=1':endpoint;
         reportEmbeddedAccessStage('access-request');
-        const response=await fetch(measuredEndpoint,{headers:{Authorization:'Bearer '+t,Accept:'application/json'},cache:'no-store'});
+        // The access API may stall in an upstream auth/database dependency.
+        // Never leave protected pages waiting indefinitely or infer lost RBAC.
+        const accessAbort=new AbortController();
+        const accessTimer=setTimeout(()=>accessAbort.abort(),15000);
+        let response;
+        try{
+          response=await fetch(measuredEndpoint,{
+            headers:{Authorization:'Bearer '+t,Accept:'application/json'},
+            cache:'no-store',signal:accessAbort.signal
+          });
+        }finally{clearTimeout(accessTimer)}
         reportEmbeddedAccessStage('access-response');
         if(navDebug){
           const timing=response.headers.get('Server-Timing')||'';
@@ -302,7 +312,8 @@
         return context;
       }catch(error){
         console.error('Smart Horeca access error',error);
-        const temporary=Boolean(error?.temporary)||/fetch|network|timeout|connection/i.test(String(error?.message||''));
+        const temporary=Boolean(error?.temporary)||error?.name==='AbortError'||
+          /fetch|network|timeout|connection/i.test(String(error?.message||''));
         denyScreen(temporary?(error?.message||'Временный сбой проверки прав. Повторите попытку.'):(error?.message||'Не удалось проверить права доступа.'),{temporary});
         return{allowed:false,reason:temporary?'ACCESS_SERVICE_UNAVAILABLE':'ERROR'};
       }
