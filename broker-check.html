@@ -22,13 +22,14 @@
   <script src="/auth-config.js"></script>
   <script src="/auth.js"></script>
 </head>
-<body data-protected="true">
+<body>
   <main>
     <h1>Проверка основного iiko Broker</h1>
     <p>Проверка соединения с Worker без запроса к iiko, авторизации /auth и расходования REST API лицензий.</p>
     <div id="status" role="status" aria-live="polite">Проверяем авторизацию…</div>
     <button id="check" type="button">Проверить ещё раз</button>
     <p class="muted">Показываются только безопасные параметры. Пароли, токены и адрес подключения не отображаются.</p>
+    <p><a id="login" href="/login.html?next=%2Fbroker-check.html" hidden>Войти для проверки</a></p>
     <p><a href="/index.html">Вернуться в Smart Horeca</a></p>
   </main>
   <script>
@@ -36,27 +37,32 @@
       "use strict";
       const status=document.getElementById("status");
       const button=document.getElementById("check");
-      let started=false;
+      const login=document.getElementById("login");
+      // No protected-page initialization or event dependency: start explicitly.
+      // In Preview a browser session can differ from the Production session.
+      function limit(promise,ms){
+        return Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(Error("AUTH_OR_NETWORK_TIMEOUT")),ms))]);
+      }
       async function run() {
         button.disabled=true;
-        status.textContent="Проверяем основной брокер…";
+        login.hidden=true;
+        status.textContent="Проверяем авторизацию и основной брокер…";
         try {
           if(!window.SHAuth?.createClient) throw Error("Не загружена авторизация сайта.");
-          const client=await window.SHAuth.createClient();
-          const {data,error}=await client.auth.getSession();
+          const client=await limit(window.SHAuth.createClient(),10000);
+          if(!client)throw Error("AUTH_LIBRARY_UNAVAILABLE");
+          const {data,error}=await limit(client.auth.getSession(),12000);
           if(error) throw Error("Не удалось проверить авторизацию.");
           const token=data?.session?.access_token;
           if(!token) {
-            status.textContent="Для диагностики нужен вход в Smart Horeca. Откройте страницу входа.";
-            const login=new URL("/login.html",location.origin);
-            login.searchParams.set("next","/broker-check.html");
-            location.replace(login.pathname+login.search);
+            status.textContent="На этом Preview-адресе нет активного входа. Нажми «Войти для проверки».";
+            login.hidden=false;
             return;
           }
-          const response=await fetch("/api/iiko/broker-status",{
+          const response=await limit(fetch("/api/iiko/broker-status",{
             method:"GET",cache:"no-store",credentials:"same-origin",
             headers:{"Authorization":"Bearer "+token,"Accept":"application/json"}
-          });
+          }),15000);
           const data=await response.json().catch(()=>({code:"INVALID_RESPONSE"}));
           const allow=new Set(["BROKER_READY_NOT_SELECTED","BROKER_ACTIVE","NOT_CONFIGURED",
             "PRIVATE_IIKO_CONNECTION_REQUIRED","BROKER_UNREACHABLE","FORBIDDEN",
@@ -74,15 +80,14 @@
           status.textContent="HTTP "+response.status+" | "+code+"\n"+
             checks.map(([k,v])=>k+": "+v).join("\n");
         } catch {
-          status.textContent="Не удалось проверить соединение. Код: BROKER_CHECK_NETWORK_ERROR";
+          status.textContent="Проверка авторизации или подключения не завершилась. Проверь вход на Preview и нажми «Проверить ещё раз». Код: BROKER_CHECK_NETWORK_ERROR";
         } finally {
           button.disabled=false;
         }
       }
       button.addEventListener("click",run);
-      document.addEventListener("sh-auth-ready",()=>{if(!started){started=true;run()}});
-      // The auth module emits sh-auth-ready after checking the logged-in user.
-      // In authenticated browsing sessions this will occur automatically.
+      // Run once when the page has loaded: independent of auth.js protected-page events.
+      run();
     })();
   </script>
 </body>
