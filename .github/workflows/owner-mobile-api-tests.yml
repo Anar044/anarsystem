@@ -55,3 +55,5 @@ jobs:
         run: node --experimental-default-type=module --test tests/mobile-production-broker-routing.test.mjs tests/iiko-preview-single-auth.test.mjs
       - name: Verify safe license-free main broker readiness
         run: node --experimental-default-type=module --test tests/mobile-broker-readiness.test.mjs
+      - name: Verify authenticated broker readiness page
+        run: node --experimental-default-type=module --test tests/mobile-broker-check-page.test.mjs
