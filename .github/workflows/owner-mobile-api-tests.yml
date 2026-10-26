@@ -43,6 +43,7 @@ jobs:
           node --experimental-default-type=module --check functions/api/iiko/_lib/operational-day.js
           node --experimental-default-type=module --check functions/api/iiko/dashboard.js
           node --experimental-default-type=module --check functions/api/iiko/dashboard-summary.js
+          node --experimental-default-type=module --check functions/api/iiko/broker-status.js
           node --experimental-default-type=module --check dashboard-optimized.js
       - name: Test summary normalization
         run: node --experimental-default-type=module --test tests/mobile-*.test.mjs tests/operational-day.test.mjs tests/owner-cash-shift-validation-diagnostics.test.mjs
@@ -52,3 +53,5 @@ jobs:
         run: node --experimental-default-type=module --test tests/iiko-preview-single-auth.test.mjs
       - name: Verify shared production iiko broker routing and tenant isolation
         run: node --experimental-default-type=module --test tests/mobile-production-broker-routing.test.mjs tests/iiko-preview-single-auth.test.mjs
+      - name: Verify safe license-free main broker readiness
+        run: node --experimental-default-type=module --test tests/mobile-broker-readiness.test.mjs
