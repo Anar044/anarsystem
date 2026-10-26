@@ -587,13 +587,27 @@
   }
   function start(){
     if(started||!window.SHAccess?.context?.allowed)return;
-    started=true;
-    if(ensureMenu())return;
-    navObserver=new MutationObserver(()=>ensureMenu());
-    navObserver.observe(document.body,{subtree:true,childList:true});
+    // The access event may fire before the sidebar is mounted. Do not mark
+    // startup finished until the authorized menu has really been installed.
+    try{
+      if(ensureMenu()){
+        started=true;
+        return;
+      }
+    }catch(_){
+      showStartupRecovery();
+      return;
+    }
+    if(!navObserver){
+      navObserver=new MutationObserver(()=>start());
+      navObserver.observe(document.body,{subtree:true,childList:true});
+    }
   }
   window.addEventListener('sh:access-visibility-ready',start);
   document.addEventListener('sh-access-ready',()=>setTimeout(start,0));
+  // Auth and sidebar scripts are independently loaded. Re-check the verified
+  // access context after window load even if the original ready event was lost.
+  window.addEventListener('load',start);
   window.addEventListener('popstate',()=>{
     const route=chooseLandingRoute();
     if(route)openRoute(route,{historyMode:'none'});
@@ -605,6 +619,8 @@
   // left the protected shell at "Открываем доступный раздел..." forever.
   // The watchdog only adds recovery controls; it never exposes protected data.
   setTimeout(()=>{
+    // One final authorization-aware attempt before showing recovery.
+    if(!started&&window.SHAccess?.context?.allowed)start();
     if(currentFrame||document.getElementById('sh-access-denied'))return;
     if(pendingFrame){
       const stalled=pendingFrame;

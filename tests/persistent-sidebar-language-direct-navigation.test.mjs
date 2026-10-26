@@ -58,6 +58,15 @@ test('stalled shell offers an explicitly requested protected classic Dashboard',
   assert.match(shell,/setTimeout\(\(\)=>\{/);
   assert.doesNotMatch(shell,/shBrokerBypass/);
 });
+test('persistent workspace can resume after a missed authorized-access event',()=>{
+  const source=load('persistent-workspace.js');
+  assert.match(source,/if\(started\|\|!window\.SHAccess\?\.context\?\.allowed\)return;/);
+  assert.match(source,/if\(ensureMenu\(\)\)\{\s*started=true;/);
+  assert.match(source,/window\.addEventListener\('load',start\)/);
+  assert.match(source,/if\(!started&&window\.SHAccess\?\.context\?\.allowed\)start\(\)/);
+  assert.match(source,/new MutationObserver\(\(\)=>start\(\)\)/);
+  assert.match(source,/showStartupRecovery\(\)/);
+});
 test('language controls remain in the same persistent menu and are pinned for long sidebars',()=>{
   assert.match(html,/body\.sh-workspace-page \.sidebar>\.sh-language-picker\{[\s\S]*?position:fixed!important/);
   assert.match(html,/bottom:0!important;left:0!important/);
