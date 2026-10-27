@@ -22,6 +22,13 @@ export function scopedRequest(request, ctx, { method = "GET", body } = {}) {
   });
 }
 
+// Preserve the structured diagrams returned by the verified web AI.
+export function mobileAssistantCharts(meta) {
+  return Array.isArray(meta?.charts)
+    ? meta.charts.filter(item=>item&&typeof item==="object"&&
+        Array.isArray(item.series)).slice(0,3) : [];
+}
+
 export async function onRequestGet({ request, env }) {
   try {
     const ctx = await mobileContext(request,env);
@@ -83,10 +90,7 @@ export async function onRequestPost({request,env}) {
       chart:payload.meta?.chart||null,
       // The web AI produces up to three structured charts in meta.charts.
       // Previously this mobile adapter silently discarded every one of them.
-      charts:Array.isArray(payload.meta?.charts)
-        ? payload.meta.charts
-            .filter(item=>item&&typeof item==="object"&&Array.isArray(item.series))
-            .slice(0,3) : [],
+      charts:mobileAssistantCharts(payload.meta),
       sourceWarnings:Array.isArray(payload.meta?.sourceWarnings)
         ? payload.meta.sourceWarnings.slice(0,5).map(item=>({
             name:clean(item?.name).slice(0,80),
