@@ -79,7 +79,14 @@ export async function onRequestPost({request,env}) {
       success:true, conversationId:clean(payload.conversationId),
       answer:clean(payload.answer),
       kind:clean(payload.meta?.kind||"text"),
-      report:payload.meta?.report||null, chart:payload.meta?.chart||null,
+      report:payload.meta?.report||null,
+      chart:payload.meta?.chart||null,
+      // The web AI produces up to three structured charts in meta.charts.
+      // Previously this mobile adapter silently discarded every one of them.
+      charts:Array.isArray(payload.meta?.charts)
+        ? payload.meta.charts
+            .filter(item=>item&&typeof item==="object"&&Array.isArray(item.series))
+            .slice(0,3) : [],
       sourceWarnings:Array.isArray(payload.meta?.sourceWarnings)
         ? payload.meta.sourceWarnings.slice(0,5).map(item=>({
             name:clean(item?.name).slice(0,80),
