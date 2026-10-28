@@ -56,6 +56,11 @@ test('external procurement never performs an interim destructive second initial 
   assert.match(body,/finally\{[\s\S]*?window\.SHModuleBootstrap\?\.ready\(\)/);
   assert.doesNotMatch(procurement,/function goProcurementView\(view\)\{location\.href=/);
   assert.match(procurement,/window\.SHProcurementNavigation=\{go:goProcurementView\}/);
+  assert.match(procurement,/if\(state\.loadingData\)return/);
+  assert.match(procurement,/if\(!PROCUREMENT_VIEWS\.has\(view\)\|\|state\.loadingData\)return false/);
+  assert.match(procurement,/state\.busy=!!v\|\|state\.loadingData/);
+  assert.match(procurement,/state\.loadingData=false;[\s\S]*?window\.SHModuleBootstrap\?\.ready\(\)/);
+
 });
 
 test('internal orders and warehouse pages notify after their first full fetch',()=>{
