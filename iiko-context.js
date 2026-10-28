@@ -194,6 +194,7 @@
       #sh-global-restaurant-filter .sh-rf-tabs button.active{border-color:#35c9a9;background:#184439;color:#e1fff3}
       #sh-global-restaurant-filter .sh-rf-list{max-height:340px}
       #sh-global-restaurant-filter .sh-rf-list label{align-items:flex-start}
+      #sh-global-restaurant-filter .sh-rf-list label[hidden]{display:none!important}
       #sh-global-restaurant-filter .sh-rf-rest-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
       #sh-global-restaurant-filter .sh-rf-rest-name{font-size:12.5px;font-weight:650;line-height:1.35;overflow-wrap:anywhere}
       #sh-global-restaurant-filter .sh-rf-rest-proof{color:#96afbf;font-size:10.5px;line-height:1.4;overflow-wrap:anywhere}
@@ -220,7 +221,7 @@
       </button>
       <div class="sh-rf-menu" role="dialog" aria-label="Выбор ресторанов">
         <div class="sh-rf-head"><span class="sh-rf-title">Показать в отчётах</span><span class="sh-rf-status"></span></div>
-        <input type="search" class="sh-rf-search" placeholder="Поиск предприятия" aria-label="Поиск предприятия">
+        <input type="search" class="sh-rf-search" placeholder="Поиск предприятия" data-sh-i18n-placeholder="Поиск предприятия" aria-label="Поиск предприятия">
         <div class="sh-rf-tabs" role="group" aria-label="Фильтр по активности">
           <button type="button" data-rf-view="all" class="active">Все</button>
           <button type="button" data-rf-view="working">С признаками работы</button>
