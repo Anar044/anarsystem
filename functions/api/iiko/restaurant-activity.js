@@ -5,6 +5,7 @@ import {bindWorkspaceIikoBroker} from "./_lib/iiko-client.js";
 import {fetchChainGroupTopology} from "./chain.js";
 import {getVerifiedRevenueComparison} from "./_lib/assistant-revenue-comparison.js";
 import {departmentActivityMetadata,classifyDepartmentActivity} from "./_lib/department-activity.js";
+import {recentScopedCashShifts} from "./_lib/recent-scoped-cash-shifts.js";
 
 const clean=value=>String(value??"").trim();
 const items=value=>Array.isArray(value)?value:[];
@@ -47,9 +48,17 @@ export async function onRequestGet({request,env}) {
     if(!ids.length)return respond({success:true,departments:[],sourceStatus:"UNAVAILABLE",
       topology:{sourceStatus:"UNAVAILABLE"}});
     const today=todayBaku(),from=dayBack(today,29);
-    const ctx={availableIds:ids,restaurants};
+    const cookies=String(request.headers.get("cookie")||"");
+    const selectedMatch=cookies.match(/(?:^|;\\s*)sh_selected_departments=([^;]*)/);
+    let selected=[];
+    if(selectedMatch){
+      try{selected=decodeURIComponent(selectedMatch[1]).split(",").map(clean)
+        .filter(id=>ids.includes(id));}catch(_){}
+    }
+    const ctx={availableIds:ids,selectedIds:selected,restaurants};
     let topology={verified:false,groups:[],pointsOfSale:[],code:"TOPOLOGY_UNAVAILABLE"};
     let revenue=null;
+    let recentShifts={};
     if(hasPrivateConnection(stored.state)){
       const connection=bindWorkspaceIikoBroker(privateConnection(stored.state),env,access);
       // Group discovery is read-only. Never substitute cached connection
@@ -59,8 +68,20 @@ export async function onRequestGet({request,env}) {
         mobileStrict:true,selectedDepartmentIds:ids,
         allowedDepartmentIds:ids,selectedRestaurants:restaurants
       },from,today)}catch(_){}
+      const preliminary=classifyDepartmentActivity(
+        departmentActivityMetadata(ctx,topology),revenue);
+      const unresolved=new Set(preliminary.filter(x=>x.activity==="UNVERIFIED")
+        .map(x=>x.id));
+      const priority=uniq([...selected,...ids]).filter(id=>unresolved.has(id));
+      if(priority.length){
+        try{recentShifts=await recentScopedCashShifts(
+          connection,priority,today,{maxDepartments:8});}catch(_){}
+      }
     }
     const metadata=departmentActivityMetadata(ctx,topology);
+    const assessed=classifyDepartmentActivity(metadata,revenue,recentShifts);
+    const incomplete=assessed.some(row=>row.activity==="UNVERIFIED" &&
+      recentShifts[row.id]?.verified!==true);
     return respond({
       success:true,lookbackDays:30,period:{from,to:today},
       sourceStatus:revenue?.success===true?"VERIFIED":"UNAVAILABLE",
@@ -71,10 +92,9 @@ export async function onRequestGet({request,env}) {
         sourceStatus:topology.verified!==true?"UNAVAILABLE":
           metadata.every(x=>x.groupCount!==null&&x.cashCount!==null)?"VERIFIED":"PARTIAL"
       },
-      // Cash-shift proof is not yet provided by this web endpoint. Never
-      // infer closed/inactive from a missing shift count or sales row.
-      shiftChecks:{checked:0,incomplete:true},
-      departments:classifyDepartmentActivity(metadata,revenue)
+      shiftChecks:{checked:Object.keys(recentShifts).length,
+        incomplete,maxPerRequest:8},
+      departments:assessed
     });
   }catch(e){
     return respond({success:false,code:"ACTIVITY_CHECK_FAILED",
