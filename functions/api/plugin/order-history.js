@@ -1,5 +1,5 @@
 import { resolvePluginChainScope } from "./_lib/chain-scope.js";
-const VPS_API = "http://68-233-120-197.nip.io";
+import { pluginBackendUrl, pluginBackendHeaders } from "./_lib/backend-upstream.js";
 
 function corsHeaders() {
   return {
@@ -27,12 +27,12 @@ function pluginRows(data){
   if(Array.isArray(data?.items))return data.items;
   return [];
 }
-async function pluginAllowed(scoped,pluginId){
+async function pluginAllowed(scoped,pluginId,env){
   if(!pluginId)return true;
-  const url=new URL(`${VPS_API}/api/plugin/data`);
+  const url=new URL(pluginBackendUrl(env, "/api/plugin/data"));
   if(scoped.departmentIds.length)url.searchParams.set("departmentIds",scoped.departmentIds.join(","));
   if(scoped.serverUrl)url.searchParams.set("serverUrl",scoped.serverUrl);
-  const r=await fetch(url.toString(),{headers:{Accept:"application/json"}});
+  const r=await fetch(url.toString(),{headers:pluginBackendHeaders(env,{Accept:"application/json"})});
   const data=await r.json().catch(()=>null);
   if(!r.ok||!data)return false;
   return pluginRows(data).some(item=>{
@@ -56,11 +56,11 @@ export async function onRequestGet(context) {
       return jsonResponse({ success: false, error: "orderNum is required" }, 400);
     }
 
-    if(pluginId&&!(await pluginAllowed(scoped,pluginId))){
+    if(pluginId&&!(await pluginAllowed(scoped,pluginId,context.env))){
       return jsonResponse({success:false,code:"PLUGIN_SCOPE_FORBIDDEN",error:"Выбранная касса не относится к текущему ресторану."},403);
     }
 
-    const target = new URL(`${VPS_API}/api/plugin/order-history`);
+    const target = new URL(pluginBackendUrl(context.env, "/api/plugin/order-history"));
     target.searchParams.set("orderNum", orderNum);
     if (pluginId) target.searchParams.set("pluginId", pluginId);
     if (scoped.departmentIds.length) target.searchParams.set("departmentIds", scoped.departmentIds.join(","));
@@ -68,7 +68,7 @@ export async function onRequestGet(context) {
 
     const response = await fetch(target.toString(), {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: pluginBackendHeaders(context.env, { Accept: "application/json" }),
       redirect: "follow"
     });
 

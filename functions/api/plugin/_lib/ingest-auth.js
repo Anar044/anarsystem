@@ -1,4 +1,4 @@
-const VPS_API="http://68-233-120-197.nip.io";
+import {pluginBackendUrl,pluginBackendHeaders} from "./backend-upstream.js";
 const REGISTRY_CACHE_TTL_MS=60000;
 const registryCache=new Map();
 
@@ -25,16 +25,16 @@ function suppliedToken(request){
   if(/^Bearer\s+/i.test(auth))return auth.replace(/^Bearer\s+/i,"").trim();
   return clean(request.headers.get("X-Plugin-Token"));
 }
-async function fetchRegistry(departmentId){
+async function fetchRegistry(departmentId,env){
   const key=clean(departmentId).toLowerCase();
   const cached=registryCache.get(key);
   if(cached&&cached.expiresAt>Date.now())return cached.rows;
-  const url=new URL(`${VPS_API}/api/plugin/data`);
+  const url=new URL(pluginBackendUrl(env, "/api/plugin/data"));
   url.searchParams.set("departmentIds",departmentId);
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),10000);
   try{
-    const r=await fetch(url.toString(),{headers:{Accept:"application/json"},signal:controller.signal});
+    const r=await fetch(url.toString(),{headers:pluginBackendHeaders(env,{Accept:"application/json"}),signal:controller.signal});
     const data=await r.json().catch(()=>null);
     if(!r.ok||!data)throw new Error(`Plugin registry HTTP ${r.status}`);
     const rows=pluginRows(data).map(item=>item?.data&&typeof item.data==="object"?{...item,...item.data}:item);
@@ -60,7 +60,7 @@ export async function verifyPluginIngress(request,env,{pluginId,departmentId}={}
     e.status=400;e.code="PLUGIN_IDENTITY_REQUIRED";throw e;
   }
   let rows;
-  try{rows=await fetchRegistry(did)}
+  try{rows=await fetchRegistry(did,env)}
   catch(error){
     const e=new Error("Не удалось проверить plugin registry: "+(error?.message||error));
     e.status=502;e.code="PLUGIN_REGISTRY_UNAVAILABLE";throw e;
