@@ -532,6 +532,7 @@ async function start(){
     await load();note("Список внутренних заказов загружен.","ok");
   }catch(e){note(e.message,"error")}
   document.documentElement.style.visibility="visible";
+  window.SHModuleBootstrap?.ready();
 }
 async function handleCreate(e){
   e.preventDefault();
