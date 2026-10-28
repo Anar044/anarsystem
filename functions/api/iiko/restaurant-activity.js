@@ -21,9 +21,11 @@ export function availableActivityRestaurants(state) {
   // The input must already be filtered by stateForAccess, which also handles
   // per-user scope and department codes. Never accept department IDs from URL.
   const id=state?.identity||{},conn=state?.connection||{};
-  const records=items(id.departments).length?id.departments:
-    items(id.organizations).length?id.organizations:
-    items(conn.departments).length?conn.departments:conn.organizations;
+  // A scoped member's filtered identity may be deliberately empty.
+  // Never fall back to the unfiltered connection directory in that case.
+  const records=Array.isArray(id.departments)?id.departments:
+    Array.isArray(id.organizations)?id.organizations:
+    Array.isArray(conn.departments)?conn.departments:conn.organizations;
   const seen=new Set();
   return items(records).map(x=>({id:clean(x?.id),name:clean(x?.name||x?.code||x?.id)}))
     .filter(x=>x.id && !seen.has(x.id) && seen.add(x.id));
