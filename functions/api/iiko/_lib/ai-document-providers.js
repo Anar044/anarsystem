@@ -240,7 +240,9 @@ export function evaluateLocalDocumentQuality(data) {
   // that cannot prove no rows were missed. New local OCR responses include
   // the independently read total from the physical document.
   const ocrDeclared = numeric(data.ocrDeclaredTotal);
-  if (data.totalSource === "CALCULATED") reasons.push("DOCUMENT_TOTAL_NOT_VERIFIED");
+  // Legacy Local services that do not report an independently seen
+  // total cannot prove the table is complete; escalate conservatively.
+  if (data.totalSource !== "OCR") reasons.push("DOCUMENT_TOTAL_NOT_VERIFIED");
   if (data.totalSource === "OCR" &&
       (ocrDeclared === null || declared === null || !approxMoney(ocrDeclared, declared))) {
     reasons.push("OCR_TOTAL_MISMATCH");
