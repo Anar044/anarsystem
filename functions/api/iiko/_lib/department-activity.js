@@ -8,14 +8,16 @@ export function departmentActivityMetadata(ctx, liveTopology = null) {
   const metadata=new Map(ctx.restaurants.filter(r=>allowed.has(clean(r.id)))
     .map(r=>[clean(r.id),{
       id:clean(r.id),name:clean(r.name),
-      groupCount:verified?0:null,cashCount:verified?0:null,
+      groupCount:verified?0:null,cashCount:verified?0:null,sectionCount:verified?0:null,
       groupStatus:verified?"VERIFIED":"UNAVAILABLE",
-      cashStatus:verified?"VERIFIED":"UNAVAILABLE"
+      cashStatus:verified?"VERIFIED":"UNAVAILABLE",
+      sectionStatus:verified?"VERIFIED":"UNAVAILABLE"
     }]));
   if(!verified)return [...metadata.values()];
 
   const groupOwners=new Map();
   const groupsByDepartment=new Map(),cashByDepartment=new Map();
+  const pointOwners=new Map(),sectionsByDepartment=new Map();
   let groupScopeComplete=true,pointScopeComplete=true;
   for(const group of items(liveTopology.groups)) {
     const id=clean(group?.id), owner=clean(group?.departmentId);
@@ -39,14 +41,33 @@ export function departmentActivityMetadata(ctx, liveTopology = null) {
     if(!id||!owner||!metadata.has(owner)){
       pointScopeComplete=false;continue;
     }
+    pointOwners.set(id,owner);
     if(!cashByDepartment.has(owner))cashByDepartment.set(owner,new Set());
     cashByDepartment.get(owner).add(id);
+  }
+  let sectionScopeComplete=groupScopeComplete && pointScopeComplete;
+  for(const section of items(liveTopology.restaurantSections)){
+    const id=clean(section?.id);
+    const groupOwner=groupOwners.get(clean(section?.groupId));
+    const pointOwner=pointOwners.get(clean(section?.pointOfSaleId));
+    const owner=groupOwner||pointOwner;
+    if(groupOwner&&pointOwner&&groupOwner!==pointOwner){
+      sectionScopeComplete=false;continue;
+    }
+    if(!id||!owner||!metadata.has(owner)){
+      sectionScopeComplete=false;continue;
+    }
+    if(!sectionsByDepartment.has(owner))sectionsByDepartment.set(owner,new Set());
+    sectionsByDepartment.get(owner).add(id);
   }
   for(const [id,row] of metadata) {
     row.groupCount=groupsByDepartment.get(id)?.size ||
       (groupScopeComplete?0:null);
     row.cashCount=cashByDepartment.get(id)?.size ||
       (groupScopeComplete && pointScopeComplete?0:null);
+    row.sectionCount=sectionsByDepartment.get(id)?.size ||
+      (sectionScopeComplete?0:null);
+    row.sectionStatus=sectionScopeComplete?"VERIFIED":"PARTIAL";
     row.groupStatus=groupScopeComplete?"VERIFIED":"PARTIAL";
     row.cashStatus=groupScopeComplete&&pointScopeComplete?"VERIFIED":"PARTIAL";
   }
