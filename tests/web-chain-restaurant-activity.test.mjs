@@ -56,6 +56,24 @@ test("uncertain group ownership cannot prove zero groups or zero cash",()=>{
   assert.equal(list.find(x=>x.id==="r1").cashCount,null);
   assert.equal(list.find(x=>x.id==="r1").groupStatus,"PARTIAL");
 });
+test("restaurant sections map to owning CHAIN group; unknown section owners never mean zero",()=>{
+  const known=departmentActivityMetadata(ctx,{
+    verified:true,
+    groups:[{id:"g1",departmentId:"r1"}],
+    pointsOfSale:[{id:"p1",groupId:"g1"}],
+    restaurantSections:[{id:"kitchen",groupId:"g1",pointOfSaleId:null}]
+  });
+  assert.equal(known.find(x=>x.id==="r1").sectionCount,1);
+  assert.equal(known.find(x=>x.id==="r2").sectionCount,0);
+  const partial=departmentActivityMetadata(ctx,{
+    verified:true,
+    groups:[{id:"g1",departmentId:"r1"}],
+    pointsOfSale:[],
+    restaurantSections:[{id:"unmapped",groupId:"missing"}]
+  });
+  assert.equal(partial.find(x=>x.id==="r2").sectionCount,null);
+  assert.equal(partial.find(x=>x.id==="r2").sectionStatus,"PARTIAL");
+});
 test("sales and verified cash shifts prove activity independently",()=>{
   const list=classifyDepartmentActivity(departmentActivityMetadata(ctx,topology),{
     success:true,rows:[{departmentId:"r1",revenue:145},
