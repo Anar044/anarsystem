@@ -27,7 +27,7 @@ async function accessContext(request,env){
   if(!access.allowed)return{error:json({success:false,message:"Доступ к Smart Horeca не назначен.",reason:access.reason},403)};
   return{auth,access,storageUserId:access.storageUserId||access.ownerUserId||auth.user.id};
 }
-function stateForAccess(state,access){
+export function stateForAccess(state,access){
   const out=publicState(state);
   if(!out||access?.isOwner||access?.scope?.mode!=="SELECTED")return out;
   const ids=new Set((access.scope.departmentIds||[]).map(clean).filter(Boolean));
