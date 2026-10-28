@@ -67,6 +67,6 @@ test('Cloudflare root serves the entry document instead of the old Dashboard',()
   const rules=redirects.split(/\r?\n/).filter(line=>line&&!line.startsWith('#'));
   assert.ok(rules.includes('/ /index.html 200'));
   assert.ok(!rules.some(line=>line.includes(' /dashboard.html ')));
-  assert.doesNotMatch(html,/<meta\\s+http-equiv=["']refresh["']/i,
+  assert.doesNotMatch(html,/<meta\s+http-equiv=["']refresh["']/i,
     'a second meta-refresh must not override the JS callback/invitation routing');
 });
