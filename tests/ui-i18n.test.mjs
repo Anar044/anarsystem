@@ -96,7 +96,7 @@ test('sidebar menu translations cover all main user navigation categories',()=>{
 });
 test('language switch is limited to the shell and never changes route/permission identifiers',()=>{
   const parent=readFileSync(resolve(root,'persistent-workspace.html'),'utf8');
-  assert.match(parent,/sh-i18n\.js\?v=20261028-brand-1/);
+  assert.match(parent,/sh-i18n\.js\?v=20261028-segmented-c1/);
   assert.match(parent,/\.sh-language-picker/);
   assert.match(parent,/sh-sidebar-collapsed \.sidebar \.sh-language-select/);
   assert.match(script,/\.unified-main-nav a\[href\]/);

@@ -32,7 +32,7 @@ test('Smart Horeca website uses the approved SH Owner neon mark and business slo
 test('new branding survives language switching and does not replace navigation', () => {
   assert.match(i18n, /'Управлять бизнесом легко':\['Biznesinizi asanlıqla idarə edin','Manage your business with ease'\]/);
   assert.match(html, /smart-horeca-sidebar-brand\.js\?v=20261028-premium-b-2/);
-  assert.match(html, /sh-i18n\.js\?v=20261028-brand-1/);
+  assert.match(html, /sh-i18n\.js\?v=20261028-segmented-c1/);
   assert.match(script, /const brand=side\?\.querySelector\('\.unified-brand'\)/);
   assert.doesNotMatch(script, /side\.innerHTML=/);
   assert.doesNotMatch(script, /sidebar\.innerHTML=/);

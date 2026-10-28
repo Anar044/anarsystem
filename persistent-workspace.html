@@ -140,51 +140,144 @@
     @media (max-width:760px){
       body.sh-workspace-page > .sh-sidebar-collapse-btn{display:none!important}
     }
-    /* Language control is independent of menu role filtering and navigation. */
+    /* Premium B sidebar scrollbar: 8-10px glass rail with restrained glow.
+       Only the sidebar scroll element is affected; content tables, the main
+       frame, the mini-handle and saved scroll positions remain unchanged. */
+    body.sh-workspace-page .app-shell>.sidebar{
+      scrollbar-width:thin;
+      scrollbar-color:#149f8c #0b1925;
+    }
+    body.sh-workspace-page .app-shell>.sidebar::-webkit-scrollbar{
+      width:10px!important;height:10px!important;
+      background:transparent!important;
+    }
+    body.sh-workspace-page .app-shell>.sidebar::-webkit-scrollbar-track{
+      background:linear-gradient(180deg,#0a1924,#102332 55%,#091922)!important;
+      border:1px solid rgba(79,151,170,.20)!important;
+      border-radius:999px!important;
+      box-shadow:inset 0 0 5px rgba(0,0,0,.33)!important;
+    }
+    body.sh-workspace-page .app-shell>.sidebar::-webkit-scrollbar-thumb{
+      background:linear-gradient(180deg,#16d0ed,#24d3a4 55%,#0e9f93)!important;
+      background-clip:padding-box!important;
+      border:2px solid #0b1d29!important;
+      border-radius:999px!important;
+      min-height:46px!important;
+      box-shadow:0 0 8px rgba(17,211,168,.23),inset 0 1px 1px rgba(231,255,252,.35)!important;
+    }
+    body.sh-workspace-page .app-shell>.sidebar::-webkit-scrollbar-thumb:hover{
+      background:linear-gradient(180deg,#45e2fb,#43f5bf 58%,#16c5ac)!important;
+      background-clip:padding-box!important;
+      box-shadow:0 0 11px rgba(25,241,180,.38)!important;
+    }
+    body.sh-workspace-page .app-shell>.sidebar::-webkit-scrollbar-thumb:active{
+      background:#47f2c5!important;
+      background-clip:padding-box!important;
+    }
+    body.sh-workspace-page .app-shell>.sidebar::-webkit-scrollbar-button{
+      display:none!important;width:0!important;height:0!important;
+    }
+    body.sh-workspace-page.sh-sidebar-collapsed .app-shell>.sidebar::-webkit-scrollbar{
+      width:6px!important;
+    }
+
+    /* Premium language option C: three real native buttons, same language
+       state and ARIA semantics. The select survives in the narrow rail. */
     body.sh-workspace-page .sidebar .sh-language-picker{
       display:flex;align-items:center;gap:9px;flex:0 0 auto;
       position:sticky;bottom:0;z-index:20;
-      padding:8px 8px;margin:8px 0 2px;border-top:1px solid #263341;
-      background:#0d1219;min-width:0;
+      padding:8px 10px;margin:8px 0 2px;
+      border-top:1px solid rgba(58,137,156,.23);
+      background:linear-gradient(120deg,#0d1e2b,#091723);
+      box-shadow:0 -7px 22px rgba(0,0,0,.13),inset 0 1px 0 rgba(132,209,233,.04);
+      min-width:0;
     }
     body.sh-workspace-page .sidebar .sh-language-label{
-      color:#9fb2c4;font-size:16px;flex:0 0 20px;line-height:1;text-align:center;
+      color:#41d7e8;
+      font-size:17px;flex:0 0 20px;
+      line-height:1;text-align:center;
+      filter:drop-shadow(0 0 5px rgba(18,212,204,.14));
     }
+    body.sh-workspace-page .sidebar .sh-language-segments{
+      display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));
+      align-items:stretch;gap:3px;flex:1 1 auto;
+      width:100%;min-width:0;padding:3px;
+      box-sizing:border-box;
+      border:1px solid rgba(54,131,156,.54);border-radius:14px;
+      background:linear-gradient(130deg,rgba(15,37,56,.97),rgba(10,23,39,.97));
+      box-shadow:inset 0 2px 7px rgba(0,0,0,.20),0 2px 10px rgba(5,20,36,.16);
+    }
+    body.sh-workspace-page .sidebar .sh-language-segment{
+      display:flex!important;align-items:center!important;justify-content:center!important;
+      appearance:none!important;-webkit-appearance:none!important;
+      min-width:0!important;min-height:37px!important;
+      padding:0 4px!important;
+      border:1px solid transparent!important;border-radius:11px!important;
+      background:transparent!important;color:#b8cfde!important;
+      font-family:"Space Grotesk",Inter,ui-sans-serif,system-ui,sans-serif!important;
+      font-size:12px!important;font-weight:700!important;letter-spacing:.15px!important;
+      line-height:1!important;cursor:pointer!important;
+      box-shadow:none!important;
+      transition:background .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease!important;
+    }
+    body.sh-workspace-page .sidebar .sh-language-segment:hover:not(.is-active){
+      background:rgba(33,99,117,.34)!important;color:#f4fcff!important;
+    }
+    body.sh-workspace-page .sidebar .sh-language-segment.is-active{
+      color:#e5fff5!important;
+      border-color:rgba(63,239,186,.76)!important;
+      background:linear-gradient(132deg,rgba(12,103,104,.66),rgba(14,66,80,.88))!important;
+      box-shadow:0 0 13px rgba(17,223,167,.19),inset 0 1px 0 rgba(160,255,223,.11)!important;
+      text-shadow:0 0 8px rgba(40,229,190,.26)!important;
+    }
+    body.sh-workspace-page .sidebar .sh-language-segment:focus-visible{
+      outline:2px solid #75fbe0!important;outline-offset:2px!important;
+    }
+    /* Do not delete the native select: it is used by the 70px collapsed mode
+       and kept in sync when languages change in another tab or iframe. */
     body.sh-workspace-page .sidebar .sh-language-select{
-      color:#dbe9f2;background:#13202a;border:1px solid #2a3a46;
-      border-radius:9px;height:34px;min-width:0;width:100%;padding:0 9px;
+      display:none!important;
+      color:#dff9f4!important;
+      background:linear-gradient(120deg,#11283b,#0c2530)!important;
+      border:1px solid rgba(55,214,184,.52)!important;
+      border-radius:11px!important;
+      height:40px;min-width:0;width:100%;padding:0 5px;
       font-size:12px;font-weight:700;cursor:pointer;
     }
     body.sh-workspace-page .sidebar .sh-language-select:focus-visible{
-      outline:2px solid #42d392;outline-offset:2px;
+      outline:2px solid #75fbe0;outline-offset:2px;
     }
     @media (min-width:761px){
-      /* The sidebar scrolls through dozens of authorized modules. Pin the
-         language picker to the visible bottom instead of placing it AFTER the
-         long scrollable navigation where it disappears offscreen. */
+      /* Keep language selection visible even in a long authorized sidebar. */
       body.sh-workspace-page .app-shell>.sidebar{
         padding-bottom:72px!important;
       }
       body.sh-workspace-page .sidebar>.sh-language-picker{
         position:fixed!important;bottom:0!important;left:0!important;
-        width:248px!important;max-width:248px!important;min-height:56px;
-        box-sizing:border-box!important;margin:0!important;padding:10px 12px!important;
-        z-index:160!important;border-right:1px solid #263341;
+        width:248px!important;max-width:248px!important;min-height:62px;
+        box-sizing:border-box!important;margin:0!important;padding:8px 11px!important;
+        z-index:160!important;border-right:1px solid rgba(55,125,142,.26);
       }
       body.sh-workspace-page.sh-sidebar-collapsed .app-shell>.sidebar{
         padding-bottom:72px!important;
       }
       body.sh-workspace-page.sh-sidebar-collapsed .sidebar>.sh-language-picker{
         width:70px!important;max-width:70px!important;
+        justify-content:center!important;padding:9px 11px!important;
+        min-height:62px!important;
       }
-      body.sh-workspace-page.sh-sidebar-collapsed .sidebar .sh-language-picker{
-        width:100%;justify-content:center;padding:8px 0 0;margin:8px 0 2px;
+      body.sh-workspace-page.sh-sidebar-collapsed .sidebar .sh-language-label,
+      body.sh-workspace-page.sh-sidebar-collapsed .sidebar .sh-language-segments{
+        display:none!important;
       }
-      body.sh-workspace-page.sh-sidebar-collapsed .sidebar .sh-language-label{display:none}
       body.sh-workspace-page.sh-sidebar-collapsed .sidebar .sh-language-select{
-        width:46px;max-width:46px;height:40px;padding:0 1px;text-align:center;
-        font-size:11px;border-radius:10px;
+        display:block!important;width:46px!important;max-width:46px!important;
+        height:40px!important;padding:0 1px!important;text-align:center!important;
+        font-size:11px!important;border-radius:10px!important;
       }
+    }
+    @media (prefers-reduced-motion:reduce){
+      body.sh-workspace-page .sidebar .sh-language-segment{transition:none!important}
     }
 
   </style>
@@ -218,6 +311,6 @@
   <script src="/documents-nav.js?v=20261012-nav-stable1"></script>
   <script src="/persistent-workspace.js?v=20261028-mini-handle-04"></script>
   <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script>
-<script src="/sh-i18n.js?v=20261028-brand-1"></script>
+<script src="/sh-i18n.js?v=20261028-segmented-c1"></script>
 </body>
 </html>
