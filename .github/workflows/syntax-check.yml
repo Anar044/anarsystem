@@ -41,6 +41,7 @@ jobs:
           node --test tests/access-outage.test.mjs
           node --test tests/mobile-navigation-access.test.mjs
           node --test tests/sidebar-navigation-persistence.test.mjs
+          node --test tests/module-initial-render-stability.test.mjs
           node --test tests/sidebar-branding-owner-parity.test.mjs
           node --test tests/persistent-sidebar-language-direct-navigation.test.mjs
           node --test tests/platform-organizations-access.test.mjs
