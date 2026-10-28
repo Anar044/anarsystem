@@ -71,6 +71,7 @@ jobs:
           node --test tests/internal-order-account-codes.test.mjs
           node --test tests/chain-department-discovery.test.mjs
           node --test tests/web-chain-restaurant-activity.test.mjs
+          node --test tests/chain-restaurant-selector-viewport.test.mjs
 
       - name: Verify compact RFQ quote comparison UI
         shell: bash
