@@ -667,7 +667,10 @@ export async function onRequestPost({request,env}){
         const result=await enrich(env,a.connection,a.documentUserId,raw,scope);
         result.provider=current.provider||null;
         const matching=result.matching||{};
-        const status=matching.ready?"READY":"REVIEW";
+        // A weak Local draft must not be marked automatically ready even
+        // when its product names happen to match the reference catalog.
+        const localReviewRequired=current.provider?.usage?.autoDecision?.route==="LOCAL_REVIEW";
+        const status=matching.ready&&!localReviewRequired?"READY":"REVIEW";
         await env.DB.prepare(`UPDATE ai_documents SET status=?1,supplier_name=?2,supplier_id=?3,result_json=?4,error_message=NULL,updated_at=?5 WHERE id=?6 AND user_id=?7`)
           .bind(status,clean(matching.supplierName||raw.supplierName),clean(matching.supplierId),JSON.stringify(result),new Date().toISOString(),docId,a.documentUserId).run();
         return json({success:true,document:publicRow(await rowById(env.DB,a.documentUserId,docId))});
