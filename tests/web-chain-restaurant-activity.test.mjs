@@ -4,6 +4,7 @@ import {
   departmentActivityMetadata,classifyDepartmentActivity
 } from "../functions/api/iiko/_lib/department-activity.js";
 import {availableActivityRestaurants} from "../functions/api/iiko/restaurant-activity.js";
+import {recentScopedCashShifts} from "../functions/api/iiko/_lib/recent-scoped-cash-shifts.js";
 
 const ctx={
   availableIds:["r1","r2","r3","r4"],
@@ -89,4 +90,41 @@ test("web CHAIN activity respects filtered identity even if connection stores al
     identity:{departments:[]},
     connection:{departments:[{id:"r3",name:"Forbidden"}]}
   }),[]);
+});
+
+test("cash shift probes always require per-department, range and scope validation",async()=>{
+  const calls=[];
+  const loadShifts=async(_connection,start,status,options)=>{
+    calls.push({status,id:options.departmentId,from:start,to:options.toDate});
+    return {ok:true,shifts:status==="OPEN"
+      ?[{_sessionId:"s1",_scopedDepartmentId:options.departmentId,
+          departmentId:options.departmentId}]:[]};
+  };
+  const info=await recentScopedCashShifts({},["r2","r1"],"2026-10-22",{
+    loadShifts,maxDepartments:8
+  });
+  assert.equal(calls.length,2); // Once OPEN is verified, no CLOSED request.
+  assert.deepEqual(new Set(calls.map(x=>x.id)),new Set(["r1","r2"]));
+  assert.ok(calls.every(x=>x.from instanceof Date&&x.to instanceof Date));
+  assert.equal(info.r1.count,1);
+  assert.equal(info.r2.verified,true);
+});
+test("unscoped or mismatched shifts are excluded, not 'confirmed'",async()=>{
+  const info=await recentScopedCashShifts({},["r1"],"2026-10-22",{
+    loadShifts:async()=>({ok:true,shifts:[
+      {_sessionId:"foreign",departmentId:"r3",_scopedDepartmentId:"r1"}
+    ]})
+  });
+  assert.equal(info.r1.verified,false);
+  assert.equal(info.r1.count,null);
+});
+test("shift probe failures do not mark departments as closed",async()=>{
+  const info=await recentScopedCashShifts({},["r1","r2"],"2026-10-22",{
+    loadShifts:async(_,__,status,options)=>options.departmentId==="r2"?
+      {ok:false,status:503} : {ok:true,shifts:[]}
+  });
+  assert.equal(info.r1.verified,true);
+  assert.equal(info.r1.count,0);
+  assert.equal(info.r2.verified,false);
+  assert.equal(info.r2.count,null);
 });
