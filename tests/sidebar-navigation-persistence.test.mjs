@@ -283,7 +283,7 @@ test("desktop control is a fixed border mini-handle, not the original hamburger"
   assert.match(html,/body\.sh-workspace-page\.sh-sidebar-collapsed > \.sh-sidebar-collapse-btn \.sh-sidebar-edge-chevron\{/);
   assert.match(html,/transform:rotate\(180deg\)/);
   assert.match(html,/@media \(max-width:760px\)\{[\s\S]*?body\.sh-workspace-page > \.sh-sidebar-collapse-btn\{display:none!important\}/);
-  assert.match(html,/persistent-workspace\.js\?v=20261028-module-stable1/);
+  assert.match(html,/persistent-workspace\.js\?v=20261028-fast-module-open1/);
 });
 test("edge handle keeps compact proportions and preserves navigation scroll area",()=>{
   const html=readFileSync(resolve(root,"persistent-workspace.html"),"utf8");
