@@ -187,6 +187,24 @@
       #sh-global-restaurant-filter .sh-rf-actions button.primary{background:#42d392;color:#06110b}
       #sh-global-restaurant-filter .sh-rf-actions button.primary:hover{filter:brightness(1.05)}
       #sh-global-restaurant-filter .sh-rf-actions button:disabled{opacity:.45;cursor:not-allowed}
+      #sh-global-restaurant-filter .sh-rf-menu{width:min(440px,calc(100vw - 24px));max-width:440px}
+      #sh-global-restaurant-filter .sh-rf-search{width:100%;box-sizing:border-box;min-height:36px;padding:8px 10px;margin:5px 0 9px;background:#0d1925;color:#eff9fc;border:1px solid #284154;border-radius:10px;font:500 12px/1.4 inherit}
+      #sh-global-restaurant-filter .sh-rf-tabs{display:flex;gap:4px;flex-wrap:wrap;padding:2px 0 9px}
+      #sh-global-restaurant-filter .sh-rf-tabs button{padding:7px 10px;border:1px solid #2c4351;border-radius:9px;background:#132535;color:#bdceda;font:600 11px/1.2 inherit;cursor:pointer}
+      #sh-global-restaurant-filter .sh-rf-tabs button.active{border-color:#35c9a9;background:#184439;color:#e1fff3}
+      #sh-global-restaurant-filter .sh-rf-list{max-height:340px}
+      #sh-global-restaurant-filter .sh-rf-list label{align-items:flex-start}
+      #sh-global-restaurant-filter .sh-rf-list label[hidden]{display:none!important}
+      #sh-global-restaurant-filter .sh-rf-rest-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+      #sh-global-restaurant-filter .sh-rf-rest-name{font-size:12.5px;font-weight:650;line-height:1.35;overflow-wrap:anywhere}
+      #sh-global-restaurant-filter .sh-rf-rest-proof{color:#96afbf;font-size:10.5px;line-height:1.4;overflow-wrap:anywhere}
+      #sh-global-restaurant-filter .sh-rf-rest-proof.has-proof{color:#58e2bc}
+      #sh-global-restaurant-filter .sh-rf-activity-note{margin:5px 3px 9px;color:#a7bdca;font:500 10.5px/1.4 inherit}
+      #sh-global-restaurant-filter .sh-rf-working{width:100%;margin:4px 0 10px;padding:9px;border:1px solid rgba(41,192,150,.46);border-radius:9px;background:#14342f;color:#8ef6d8;font:650 11px/1.2 inherit;cursor:pointer}
+      #sh-global-restaurant-filter .sh-rf-working:disabled{cursor:not-allowed;opacity:.52}
+      #sh-global-restaurant-filter .sh-rf-empty{padding:12px;color:#9eb4c5;font-size:12px}
+      @media(max-width:760px){#sh-global-restaurant-filter .sh-rf-menu{width:min(440px,calc(100vw - 24px))}}
+
       @media(max-width:760px){#sh-global-restaurant-filter{margin-left:0}#sh-global-restaurant-filter .sh-rf-button{min-width:150px;max-width:190px}#sh-global-restaurant-filter .sh-rf-menu{position:fixed;right:12px;top:58px;width:min(306px,calc(100vw - 24px))}}
     `;
     document.head.appendChild(style);
@@ -203,6 +221,14 @@
       </button>
       <div class="sh-rf-menu" role="dialog" aria-label="Выбор ресторанов">
         <div class="sh-rf-head"><span class="sh-rf-title">Показать в отчётах</span><span class="sh-rf-status"></span></div>
+        <input type="search" class="sh-rf-search" placeholder="Поиск предприятия" data-sh-i18n-placeholder="Поиск предприятия" aria-label="Поиск предприятия">
+        <div class="sh-rf-tabs" role="group" aria-label="Фильтр по активности">
+          <button type="button" data-rf-view="all" class="active">Все</button>
+          <button type="button" data-rf-view="working">С признаками работы</button>
+          <button type="button" data-rf-view="unverified">Без подтверждения</button>
+        </div>
+        <div class="sh-rf-activity-note" role="status">Активность ещё не проверена. Все подразделения доступны для ручного выбора.</div>
+        <button type="button" class="sh-rf-working" disabled title="Требуется подтверждение всех источников">Выбрать с признаками работы</button>
         <div class="sh-rf-tools"><button type="button" data-rf-all>✓ Выбрать все</button><button type="button" data-rf-none>Снять все</button></div>
         <div class="sh-rf-list"></div>
         <div class="sh-rf-actions"><button type="button" data-rf-cancel>Отмена</button><button type="button" class="primary" data-rf-apply>Применить</button></div>
@@ -215,9 +241,17 @@
       checkbox.type = "checkbox";
       checkbox.value = r.id;
       checkbox.checked = selected.includes(r.id);
-      const span = document.createElement("span");
-      span.textContent = r.name;
-      label.append(checkbox, span);
+      const info=document.createElement("span");
+      info.className="sh-rf-rest-text";
+      const span=document.createElement("span");
+      span.className="sh-rf-rest-name";
+      span.textContent=r.name;
+      const proof=document.createElement("span");
+      proof.className="sh-rf-rest-proof";
+      proof.textContent="Активность не проверена · Групп: — · Касс: —";
+      info.append(span,proof);
+      label.dataset.restaurantId=r.id;
+      label.append(checkbox,info);
       listEl.appendChild(label);
     });
 
@@ -226,6 +260,118 @@
     const statusEl = wrap.querySelector(".sh-rf-status");
     const applyButton = wrap.querySelector("[data-rf-apply]");
     let appliedIds = [...selected];
+    // Activity proof is always fetched for the signed-in workspace from our
+    // scoped server endpoint. No local cached topology can prove inactivity.
+    const evidence=new Map();
+    let checkComplete=false,activityLoaded=false,activityBusy=false;
+    let filterMode="all";
+    const filterSearch=wrap.querySelector(".sh-rf-search");
+    const note=wrap.querySelector(".sh-rf-activity-note");
+    const workingButton=wrap.querySelector(".sh-rf-working");
+    const tr=value=>window.SH_I18N?.t?.(value)||value;
+    const unknown=tr("Активность не подтверждена");
+    const n=v=>typeof v==="number"&&Number.isFinite(v)?String(v):"—";
+    function statusText(row){
+      if(!row)return tr("Активность не проверена");
+      if(row.activity==="SALES_CONFIRMED")return tr("Есть продажи за 30 дней");
+      if(row.activity==="SHIFTS_CONFIRMED")return tr("Есть кассовые смены");
+      if((row.cashCount??0)>0)return tr("Есть касса / точка продаж");
+      if((row.groupCount??0)>0)return tr("Есть группа");
+      return tr("Активность не подтверждена");
+    }
+    function renderActivity(){
+      const search=filterSearch.value.trim().toLocaleLowerCase();
+      let visible=0;
+      for(const label of listEl.querySelectorAll("label[data-restaurant-id]")){
+        const id=label.dataset.restaurantId;
+        const row=evidence.get(id);
+        const work=row&&["SALES_CONFIRMED","SHIFTS_CONFIRMED","POS_CONFIGURED"].includes(row.activity);
+        const pass=filterMode==="all" || (filterMode==="working"?work:!work);
+        const name=label.querySelector(".sh-rf-rest-name")?.textContent||"";
+        label.hidden=!pass||!name.toLocaleLowerCase().includes(search);
+        if(!label.hidden)visible++;
+        const proof=label.querySelector(".sh-rf-rest-proof");
+        if(proof){
+          proof.classList.toggle("has-proof",Boolean(work));
+          proof.textContent=statusText(row)+" · "+
+            tr("Групп:")+" "+n(row?.groupCount)+" · "+
+            tr("Касс/точек:")+" "+n(row?.cashCount)+" · "+
+            tr("Отделений:")+" "+n(row?.sectionCount)+
+            (typeof row?.recentRevenueAZN==="number" && row.recentSalesVerified===true
+              ?" · "+row.recentRevenueAZN.toLocaleString("ru-RU",{maximumFractionDigits:2})+" AZN":"");
+        }
+      }
+      const empty=listEl.querySelector(".sh-rf-empty");
+      if(!visible){
+        if(!empty){
+          const el=document.createElement("div");el.className="sh-rf-empty";
+          el.textContent=tr("Не найдено подразделений");
+          listEl.appendChild(el);
+        }
+      }else empty?.remove();
+      wrap.querySelectorAll("[data-rf-view]").forEach(b=>{
+        const active=b.dataset.rfView===filterMode;
+        b.classList.toggle("active",active);
+        b.setAttribute("aria-pressed",String(active));
+      });
+      const positive=[...evidence.values()].filter(x=>
+        ["SALES_CONFIRMED","SHIFTS_CONFIRMED","POS_CONFIGURED"].includes(x.activity));
+      // A bulk selection is safe only when all evidence sources are complete.
+      // Missing cash-shift checks must never silently exclude active sites.
+      workingButton.disabled=!checkComplete||!positive.length;
+      workingButton.title=checkComplete?"":tr("Недостаточно данных для массового выбора");
+    }
+    async function loadActivity(){
+      if(activityLoaded||activityBusy)return;
+      activityBusy=true;
+      note.textContent=tr("Проверяем продажи, группы и кассы…");
+      try{
+        const client=await getClient();
+        const result=await client.auth.getSession();
+        const token=result?.data?.session?.access_token;
+        if(!token)throw Error("AUTH_REQUIRED");
+        const response=await fetchWithTimeout("/api/iiko/restaurant-activity",{
+          headers:{Accept:"application/json",Authorization:"Bearer "+token},cache:"no-store"
+        },60000);
+        const payload=await response.json();
+        if(!response.ok||payload.success!==true)throw Error("UNAVAILABLE");
+        const allowed=new Set(list.map(x=>x.id));
+        for(const row of Array.isArray(payload.departments)?payload.departments:[]){
+          const id=String(row?.id||"");
+          if(allowed.has(id))evidence.set(id,row);
+        }
+        activityLoaded=true;
+        const complete=payload.sourceStatus==="VERIFIED" &&
+          payload.topology?.groupsKnown===true &&
+          payload.topology?.cashKnown===true &&
+          payload.topology?.sectionsKnown===true &&
+          payload.shiftChecks?.incomplete===false &&
+          evidence.size===list.length;
+        checkComplete=complete;
+        note.textContent=complete?
+          tr("Проверка активности завершена. Можно выбрать работающие предприятия."):
+          tr("Некоторые источники недоступны. Непроверенные предприятия не исключаются.");
+      }catch(_){
+        note.textContent=tr("Не удалось проверить активность. Ручной выбор сохранён.");
+      }finally{
+        activityBusy=false;renderActivity();
+      }
+    }
+    wrap.querySelectorAll("[data-rf-view]").forEach(b=>b.addEventListener("click",()=>{
+      filterMode=b.dataset.rfView;renderActivity();
+    }));
+    filterSearch.addEventListener("input",renderActivity);
+    workingButton.addEventListener("click",()=>{
+      if(!checkComplete)return;
+      const ids=new Set([...evidence.values()]
+        .filter(row=>["SALES_CONFIRMED","SHIFTS_CONFIRMED","POS_CONFIGURED"].includes(row.activity))
+        .map(row=>String(row.id)));
+      if(!ids.size)return;
+      listEl.querySelectorAll("label[data-restaurant-id] input").forEach(input=>{
+        input.checked=ids.has(input.value);
+      });
+      updateCount();
+    });
 
     function updateCount() {
       const n = listEl.querySelectorAll("input:checked").length;
@@ -244,7 +390,7 @@
       const open = !wrap.classList.contains("open");
       wrap.classList.toggle("open", open);
       button.setAttribute("aria-expanded", open ? "true" : "false");
-      if (open) restoreApplied();
+      if (open){restoreApplied();loadActivity();}
     });
     wrap.querySelector("[data-rf-all]").addEventListener("click", () => {
       listEl.querySelectorAll("input").forEach(x => x.checked = true);
@@ -271,6 +417,8 @@
     listEl.addEventListener("change", updateCount);
     document.addEventListener("click", e => { if (!wrap.contains(e.target)) { wrap.classList.remove("open"); button.setAttribute("aria-expanded", "false"); } });
     updateCount();
+    renderActivity();
+    window.addEventListener("sh:language-change",renderActivity);
 
     const topbar = document.querySelector(".topbar");
     if (topbar) topbar.appendChild(wrap);
