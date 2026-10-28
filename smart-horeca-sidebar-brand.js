@@ -132,6 +132,9 @@
         min-width:40px!important;min-height:40px!important;
         box-shadow:0 0 11px rgba(12,186,226,.12)!important;
       }
+      html body.sh-workspace-page.sh-sidebar-collapsed[data-protected="true"] .sidebar .unified-brand .sh-exact-brand-copy{
+        display:none!important;
+      }
       @media(max-width:760px){
         .sidebar .unified-brand{grid-template-columns:64px minmax(0,1fr)!important;min-height:94px!important}
       }
