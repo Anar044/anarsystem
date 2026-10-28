@@ -295,7 +295,8 @@
           proof.classList.toggle("has-proof",Boolean(work));
           proof.textContent=statusText(row)+" · "+
             tr("Групп:")+" "+n(row?.groupCount)+" · "+
-            tr("Касс/точек:")+" "+n(row?.cashCount)+
+            tr("Касс/точек:")+" "+n(row?.cashCount)+" · "+
+            tr("Отделений:")+" "+n(row?.sectionCount)+
             (typeof row?.recentRevenueAZN==="number" && row.recentSalesVerified===true
               ?" · "+row.recentRevenueAZN.toLocaleString("ru-RU",{maximumFractionDigits:2})+" AZN":"");
         }
@@ -343,6 +344,7 @@
         const complete=payload.sourceStatus==="VERIFIED" &&
           payload.topology?.groupsKnown===true &&
           payload.topology?.cashKnown===true &&
+          payload.topology?.sectionsKnown===true &&
           payload.shiftChecks?.incomplete===false &&
           evidence.size===list.length;
         checkComplete=complete;
