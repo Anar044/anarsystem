@@ -302,8 +302,19 @@
   function childLocation(frame){
     try{return new URL(frame.contentWindow.location.href)}catch(_){return null}
   }
+  const BOOTSTRAPPED_MODULES=new Set([
+    '/procurement.html','/internal-orders.html','/stock-balances.html',
+    '/stock-movements.html','/nomenclature.html'
+  ]);
+  function waitForModuleInitialRender(frame,route){
+    const path=canonicalPagePath(new URL(route.href,location.origin).pathname);
+    if(!BOOTSTRAPPED_MODULES.has(path))return false;
+    // Auth was verified, but the module may still be loading products,
+    // warehouses or documents. A visible form cannot be reset later.
+    return frame.contentWindow?.__SH_MODULE_INITIAL_RENDER_READY__!==true;
+  }
   function revealFrame(frame,route,mode){
-    if(pendingFrame!==frame)return;
+    if(pendingFrame!==frame||waitForModuleInitialRender(frame,route))return;
     pendingFrame=null;
     pendingMode=null;
     host.classList.remove('sh-is-loading');
@@ -360,6 +371,17 @@
     revealFrame(frame,route,pendingMode||'push');
   }
   window.addEventListener('message',onAccessReadyMessage);
+  window.addEventListener('message',event=>{
+    if(event.origin!==location.origin||event.data?.type!=='sh:embedded-module-ready')return;
+    const frame=pendingFrame;
+    if(!frame||event.source!==frame.contentWindow)return;
+    // Never trust the message alone: RBAC, URL and same-origin document are
+    // still verified by the existing access-ready handler.
+    onAccessReadyMessage({
+      origin:event.origin,source:event.source,
+      data:{type:'sh:embedded-access-ready'}
+    });
+  });
   function onFrameLoad(frame,intendedRoute,mode){
     const url=childLocation(frame);
     if(!url){
@@ -626,8 +648,21 @@
     if(!started&&window.SHAccess?.context?.allowed)start();
     if(currentFrame||document.getElementById('sh-access-denied'))return;
     if(pendingFrame){
-      const stalled=pendingFrame;
-      frameFailure(stalled,'Не удалось завершить загрузку раздела.');
+      const frame=pendingFrame,route=childLocation(frame);
+      const waiting=route&&BOOTSTRAPPED_MODULES.has(canonicalPagePath(route.pathname));
+      if(waiting){
+        // Protected long-running stock / purchasing APIs may legitimately
+        // need more than 18 seconds. Keep the document mounted and hidden;
+        // never expose a half-built form. Bounded final recovery follows.
+        setStatus('Загружаем данные раздела…');
+        setTimeout(()=>{
+          if(pendingFrame!==frame||currentFrame)return;
+          frameFailure(frame,'Модуль не завершил первоначальную загрузку. Проверьте сервер и повторите открытие раздела.');
+          showStartupRecovery();
+        },75000);
+        return;
+      }
+      frameFailure(frame,'Не удалось завершить загрузку раздела.');
     }
     showStartupRecovery();
   },18000);
