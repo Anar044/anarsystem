@@ -169,8 +169,9 @@
       #sh-global-restaurant-filter .sh-rf-count{color:#f1f5f9;font-weight:700}
       #sh-global-restaurant-filter .sh-rf-chevron{margin-left:auto;color:#8f9bab;font-size:12px;transition:transform .18s ease}
       #sh-global-restaurant-filter.open .sh-rf-chevron{transform:rotate(180deg)}
-      #sh-global-restaurant-filter .sh-rf-menu{position:absolute;right:0;top:46px;width:306px;padding:10px;border:1px solid rgba(255,255,255,.11);border-radius:15px;background:#121923;box-shadow:0 20px 55px rgba(0,0,0,.45);display:none;overflow:hidden}
-      #sh-global-restaurant-filter.open .sh-rf-menu{display:block;animation:shRfIn .14s ease-out}
+      /* Viewport-bound popover: never allow a long CHAIN list to push Apply below the screen. */
+      #sh-global-restaurant-filter .sh-rf-menu{position:fixed;right:auto;top:var(--sh-rf-top,12px);left:var(--sh-rf-left,12px);width:var(--sh-rf-width,min(440px,calc(100vw - 24px)));max-width:calc(100vw - 24px);max-height:var(--sh-rf-height,calc(100dvh - 24px));min-height:0;box-sizing:border-box;padding:10px;border:1px solid rgba(255,255,255,.11);border-radius:15px;background:#121923;box-shadow:0 20px 55px rgba(0,0,0,.45);display:none;flex-direction:column;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#277f79 #152230}
+      #sh-global-restaurant-filter.open .sh-rf-menu{display:flex;animation:shRfIn .14s ease-out}
       @keyframes shRfIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
       #sh-global-restaurant-filter .sh-rf-head{display:flex;align-items:center;justify-content:space-between;padding:3px 4px 10px}
       #sh-global-restaurant-filter .sh-rf-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#8f9bab}
@@ -182,17 +183,17 @@
       #sh-global-restaurant-filter label{display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:9px;color:#e9eef4;font-size:13px;cursor:pointer;transition:background .12s ease}
       #sh-global-restaurant-filter label:hover{background:rgba(255,255,255,.045)}
       #sh-global-restaurant-filter input{width:16px;height:16px;margin:0;accent-color:#42d392;cursor:pointer;flex:0 0 16px}
-      #sh-global-restaurant-filter .sh-rf-actions{display:flex;gap:8px;padding-top:10px;margin-top:7px;border-top:1px solid rgba(255,255,255,.08)}
+      #sh-global-restaurant-filter .sh-rf-actions{display:flex;gap:8px;flex:0 0 auto;position:sticky;bottom:0;z-index:2;padding:10px 0 2px;margin-top:7px;border-top:1px solid rgba(255,255,255,.08);background:#121923;box-shadow:0 -6px 10px rgba(18,25,35,.94)}
       #sh-global-restaurant-filter .sh-rf-actions button{flex:1;border:0;border-radius:9px;padding:9px 10px;background:#202b38;color:#dfe7ef;font:700 12px/1 inherit;cursor:pointer}
       #sh-global-restaurant-filter .sh-rf-actions button.primary{background:#42d392;color:#06110b}
       #sh-global-restaurant-filter .sh-rf-actions button.primary:hover{filter:brightness(1.05)}
       #sh-global-restaurant-filter .sh-rf-actions button:disabled{opacity:.45;cursor:not-allowed}
-      #sh-global-restaurant-filter .sh-rf-menu{width:min(440px,calc(100vw - 24px));max-width:440px}
+      #sh-global-restaurant-filter .sh-rf-menu{max-width:440px}
       #sh-global-restaurant-filter .sh-rf-search{width:100%;box-sizing:border-box;min-height:36px;padding:8px 10px;margin:5px 0 9px;background:#0d1925;color:#eff9fc;border:1px solid #284154;border-radius:10px;font:500 12px/1.4 inherit}
       #sh-global-restaurant-filter .sh-rf-tabs{display:flex;gap:4px;flex-wrap:wrap;padding:2px 0 9px}
       #sh-global-restaurant-filter .sh-rf-tabs button{padding:7px 10px;border:1px solid #2c4351;border-radius:9px;background:#132535;color:#bdceda;font:600 11px/1.2 inherit;cursor:pointer}
       #sh-global-restaurant-filter .sh-rf-tabs button.active{border-color:#35c9a9;background:#184439;color:#e1fff3}
-      #sh-global-restaurant-filter .sh-rf-list{max-height:340px}
+      #sh-global-restaurant-filter .sh-rf-list{flex:1 1 180px;min-height:60px;max-height:none;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#267f77 #141e2a}
       #sh-global-restaurant-filter .sh-rf-list label{align-items:flex-start}
       #sh-global-restaurant-filter .sh-rf-list label[hidden]{display:none!important}
       #sh-global-restaurant-filter .sh-rf-rest-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
@@ -205,7 +206,7 @@
       #sh-global-restaurant-filter .sh-rf-empty{padding:12px;color:#9eb4c5;font-size:12px}
       @media(max-width:760px){#sh-global-restaurant-filter .sh-rf-menu{width:min(440px,calc(100vw - 24px))}}
 
-      @media(max-width:760px){#sh-global-restaurant-filter{margin-left:0}#sh-global-restaurant-filter .sh-rf-button{min-width:150px;max-width:190px}#sh-global-restaurant-filter .sh-rf-menu{position:fixed;right:12px;top:58px;width:min(306px,calc(100vw - 24px))}}
+      @media(max-width:760px){#sh-global-restaurant-filter{margin-left:0}#sh-global-restaurant-filter .sh-rf-button{min-width:150px;max-width:190px}#sh-global-restaurant-filter .sh-rf-menu{max-width:calc(100vw - 24px)}}
     `;
     document.head.appendChild(style);
 
@@ -256,6 +257,26 @@
     });
 
     const button = wrap.querySelector(".sh-rf-button");
+    const menu = wrap.querySelector(".sh-rf-menu");
+    function placeMenu(){
+      if(!wrap.classList.contains("open"))return;
+      const rect=button.getBoundingClientRect();
+      const vw=window.innerWidth, vh=window.innerHeight;
+      const gap=8, pad=12;
+      const width=Math.min(440,Math.max(100,vw-2*pad));
+      // On short screens and high browser zoom, move to the top so all
+      // controls remain within the viewport instead of being cut off.
+      let top=rect.bottom+gap;
+      if(vh-top-pad<330)top=pad;
+      const left=Math.max(pad,Math.min(rect.right-width,vw-width-pad));
+      menu.style.setProperty("--sh-rf-top",top+"px");
+      menu.style.setProperty("--sh-rf-left",left+"px");
+      menu.style.setProperty("--sh-rf-width",width+"px");
+      menu.style.setProperty("--sh-rf-height",Math.max(0,vh-top-pad)+"px");
+    }
+    window.addEventListener("resize",placeMenu);
+    window.visualViewport?.addEventListener("resize",placeMenu);
+    window.addEventListener("scroll",placeMenu,true);
     const countEl = wrap.querySelector(".sh-rf-count");
     const statusEl = wrap.querySelector(".sh-rf-status");
     const applyButton = wrap.querySelector("[data-rf-apply]");
@@ -390,7 +411,14 @@
       const open = !wrap.classList.contains("open");
       wrap.classList.toggle("open", open);
       button.setAttribute("aria-expanded", open ? "true" : "false");
-      if (open){restoreApplied();loadActivity();}
+      if (open){restoreApplied();placeMenu();loadActivity();}
+    });
+    menu.addEventListener("keydown",event=>{
+      if(event.key==="Escape"){
+        wrap.classList.remove("open");
+        button.setAttribute("aria-expanded","false");
+        button.focus();
+      }
     });
     wrap.querySelector("[data-rf-all]").addEventListener("click", () => {
       listEl.querySelectorAll("input").forEach(x => x.checked = true);
