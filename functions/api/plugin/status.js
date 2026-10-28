@@ -1,4 +1,4 @@
-const VPS_API = "http://68.233.120.197";
+import { pluginBackendUrl, pluginBackendHeaders } from "./_lib/backend-upstream.js";
 
 function corsHeaders() {
   return {
@@ -26,13 +26,11 @@ export async function onRequestOptions() {
   });
 }
 
-export async function onRequestGet() {
+export async function onRequestGet(context) {
   try {
-    const response = await fetch(`${VPS_API}/api/plugin/status`, {
+    const response = await fetch(pluginBackendUrl(context.env, "/api/plugin/status", "http://68.233.120.197"), {
       method: "GET",
-      headers: {
-        "Accept": "application/json"
-      }
+      headers: pluginBackendHeaders(context.env, { "Accept": "application/json" })
     });
 
     const text = await response.text();

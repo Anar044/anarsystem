@@ -1,5 +1,5 @@
 import { resolvePluginChainScope, pluginScopeMeta } from "./_lib/chain-scope.js";
-const VPS_API = "http://68-233-120-197.nip.io";
+import { pluginBackendUrl, pluginBackendHeaders } from "./_lib/backend-upstream.js";
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -16,13 +16,13 @@ export async function onRequestGet(context) {
   try {
     const scoped=await resolvePluginChainScope(context.request,context.env);
     const incoming = new URL(context.request.url);
-    const target = new URL(`${VPS_API}/api/plugin/data`);
+    const target = new URL(pluginBackendUrl(context.env, "/api/plugin/data"));
     if(scoped.departmentIds.length)target.searchParams.set("departmentIds",scoped.departmentIds.join(","));
     if(scoped.serverUrl)target.searchParams.set("serverUrl",scoped.serverUrl);
 
     const response = await fetch(target.toString(), {
       method: "GET",
-      headers: { "Accept": "application/json" }
+      headers: pluginBackendHeaders(context.env, { "Accept": "application/json" })
     });
 
     const text = await response.text();

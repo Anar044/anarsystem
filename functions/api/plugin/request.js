@@ -1,5 +1,5 @@
 import { resolvePluginChainScope } from "./_lib/chain-scope.js";
-const VPS_API = "http://68-233-120-197.nip.io";
+import { pluginBackendUrl, pluginBackendHeaders } from "./_lib/backend-upstream.js";
 
 function corsHeaders() {
   return {
@@ -28,12 +28,12 @@ function pluginRows(data){
   return [];
 }
 
-async function ensurePluginAllowed(scoped,pluginId){
+async function ensurePluginAllowed(scoped,pluginId,env){
   if(!pluginId)return;
-  const url=new URL(`${VPS_API}/api/plugin/data`);
+  const url=new URL(pluginBackendUrl(env, "/api/plugin/data"));
   if(scoped.departmentIds.length)url.searchParams.set("departmentIds",scoped.departmentIds.join(","));
   if(scoped.serverUrl)url.searchParams.set("serverUrl",scoped.serverUrl);
-  const r=await fetch(url.toString(),{headers:{Accept:"application/json"}});
+  const r=await fetch(url.toString(),{headers:pluginBackendHeaders(env,{Accept:"application/json"})});
   const data=await r.json().catch(()=>null);
   if(!r.ok||!data)throw new Error("Не удалось проверить принадлежность кассы выбранному ресторану.");
   const allowed=pluginRows(data).some(item=>{
@@ -90,7 +90,7 @@ export async function onRequestPost(context) {
     const body = normalizeRequestBody(await context.request.json());
     body.departmentIds=[...scoped.departmentIds];
     if(scoped.serverUrl)body.serverUrl=scoped.serverUrl;
-    await ensurePluginAllowed(scoped,body.pluginId);
+    await ensurePluginAllowed(scoped,body.pluginId,context.env);
 
     if (!body?.action) {
       return jsonResponse({
@@ -99,12 +99,12 @@ export async function onRequestPost(context) {
       }, 400);
     }
 
-    const response = await fetch(`${VPS_API}/api/plugin/request`, {
+    const response = await fetch(pluginBackendUrl(context.env, "/api/plugin/request"), {
       method: "POST",
-      headers: {
+      headers: pluginBackendHeaders(context.env, {
         "Content-Type": "application/json",
         "Accept": "application/json"
-      },
+      }),
       body: JSON.stringify(body)
     });
 
