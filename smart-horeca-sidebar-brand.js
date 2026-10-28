@@ -23,120 +23,184 @@
     const style=document.createElement('style');
     style.id='sh-exact-brand-style';
     style.textContent=`
-      /* Smart Horeca / SH Owner shared identity. The panel is scoped to the
-         sidebar: no changes to documents, access, nav or other modules. */
+      /* Variant B: compact glass brand card. The strong selectors below
+         override app-shell's broad .brand span font-size:11px!important;
+         otherwise title letters shrink, despite the correct parent style. */
       .sidebar .unified-brand{
         display:grid!important;
-        grid-template-columns:64px minmax(0,1fr)!important;
-        column-gap:11px!important;
-        row-gap:0!important;
+        grid-template-columns:54px minmax(0,1fr)!important;
+        grid-template-rows:auto!important;
         align-items:center!important;
+        justify-items:stretch!important;
+        column-gap:12px!important;
         width:100%!important;
         min-width:0!important;
-        min-height:104px!important;
         height:auto!important;
-        margin:3px 0 15px!important;
-        padding:11px 9px 13px!important;
+        min-height:84px!important;
+        margin:2px 0 15px!important;
+        padding:12px!important;
         box-sizing:border-box!important;
-        border:1px solid rgba(93,143,167,.22)!important;
-        border-radius:16px!important;
-        background:linear-gradient(130deg,rgba(22,40,58,.76),rgba(13,27,36,.24))!important;
-        box-shadow:inset 0 1px 0 rgba(255,255,255,.04)!important;
-        gap:11px!important;
+        position:relative!important;
+        isolation:isolate!important;
+        border-radius:17px!important;
+        border:1px solid rgba(43,154,210,.42)!important;
+        background:linear-gradient(117deg,rgba(17,42,68,.98) 0%,rgba(10,28,46,.94) 57%,rgba(8,47,46,.66) 100%)!important;
+        box-shadow:0 8px 25px rgba(0,0,0,.16),inset 0 1px 0 rgba(160,229,255,.09),0 0 14px rgba(0,143,255,.07)!important;
+        overflow:hidden!important;
+        gap:12px!important;
       }
-      .sidebar .unified-brand:before{display:none!important;content:none!important}
-      .sidebar .sh-exact-brand-logo{
+      .sidebar .unified-brand:before{
+        content:none!important;
+        display:none!important;
+      }
+      .sidebar .unified-brand:after{
+        content:""!important;
         display:block!important;
-        width:64px!important;
-        height:64px!important;
-        min-width:64px!important;
-        min-height:64px!important;
-        max-width:64px!important;
+        position:absolute!important;
+        inset:0!important;
+        border-radius:inherit!important;
+        pointer-events:none!important;
+        z-index:-1!important;
+        background:radial-gradient(circle at 10% 55%,rgba(11,160,241,.18),transparent 53%),radial-gradient(circle at 94% 45%,rgba(32,213,156,.10),transparent 52%)!important;
+      }
+      .sidebar .unified-brand > .sh-exact-brand-logo{
+        display:block!important;
+        grid-column:1!important;
+        width:54px!important;
+        height:54px!important;
+        min-width:54px!important;
+        min-height:54px!important;
+        max-width:54px!important;
+        max-height:54px!important;
         object-fit:contain!important;
         object-position:center!important;
+        align-self:center!important;
+        justify-self:center!important;
+        flex:none!important;
+        position:relative!important;
         margin:0!important;
         padding:0!important;
         border:0!important;
-        border-radius:13px!important;
-        box-shadow:0 0 17px rgba(10,175,238,.13)!important;
+        border-radius:12px!important;
         background:transparent!important;
+        box-shadow:0 0 15px rgba(9,175,247,.21),0 0 8px rgba(34,238,162,.10)!important;
       }
-      html body[data-protected="true"] .sidebar .unified-brand .sh-exact-brand-copy{
+      html body[data-protected="true"] .sidebar .unified-brand > .sh-exact-brand-copy{
         display:flex!important;
+        grid-column:2!important;
         flex-direction:column!important;
         align-items:flex-start!important;
         justify-content:center!important;
         min-width:0!important;
-        max-width:100%!important;
-        margin:0!important;
-        padding:0!important;
-        position:static!important;
-        left:auto!important;
-        transform:none!important;
-        overflow:visible!important;
-        line-height:1.1!important;
-      }
-      .sidebar .sh-exact-brand-copy strong{
-        display:flex!important;
-        align-items:baseline!important;
-        max-width:100%!important;
-        margin:0!important;
-        padding:0!important;
-        white-space:nowrap!important;
-        overflow:visible!important;
-        font-family:"Space Grotesk",Inter,ui-sans-serif,system-ui,sans-serif!important;
-        font-size:15px!important;
-        font-weight:700!important;
-        letter-spacing:-.62px!important;
-        line-height:1.08!important;
-        text-shadow:0 1px 14px rgba(255,255,255,.06)!important;
-      }
-      .sidebar .sh-exact-brand-copy .smart{color:#f7fbff!important}
-      .sidebar .sh-exact-brand-copy .horeca{
-        margin-left:3px!important;
-        color:#37e9c2!important;
-        background:linear-gradient(90deg,#16ceff 0%,#43efc6 60%,#8cffba 100%)!important;
-        -webkit-background-clip:text!important;
-        background-clip:text!important;
-        -webkit-text-fill-color:transparent!important;
-        filter:drop-shadow(0 0 8px rgba(54,232,203,.14))!important;
-      }
-      .sidebar .sh-exact-brand-copy small{
-        display:block!important;
         width:100%!important;
         max-width:100%!important;
-        margin:8px 0 0!important;
+        align-self:center!important;
+        justify-self:stretch!important;
+        position:relative!important;
+        left:auto!important;
+        top:auto!important;
+        transform:none!important;
+        margin:0!important;
         padding:0!important;
-        color:#afc5d4!important;
-        font-family:"Space Grotesk",Inter,ui-sans-serif,system-ui,sans-serif!important;
-        font-size:10.6px!important;
-        font-weight:500!important;
-        line-height:1.4!important;
-        letter-spacing:-.06px!important;
-        white-space:normal!important;
-        overflow-wrap:normal!important;
-        overflow:visible!important;
-        text-overflow:clip!important;
-        opacity:1!important;
+        gap:5px!important;
+        overflow:hidden!important;
+        line-height:1.15!important;
       }
-      /* The compact 70px mode keeps its icon and never takes 104px of space. */
-      body.sh-workspace-page.sh-sidebar-collapsed .sidebar .unified-brand{
+      .sidebar .unified-brand .sh-exact-brand-copy > strong{
+        display:flex!important;
+        align-items:baseline!important;
+        flex-wrap:nowrap!important;
+        width:100%!important;
+        min-width:0!important;
+        max-width:100%!important;
+        margin:0!important;
+        padding:0!important;
+        color:#f4fbff!important;
+        font-family:"Space Grotesk",Inter,ui-sans-serif,system-ui,sans-serif!important;
+        font-size:16px!important;
+        line-height:1.15!important;
+        font-weight:700!important;
+        letter-spacing:-.65px!important;
+        white-space:nowrap!important;
+        text-shadow:0 0 11px rgba(66,179,226,.06)!important;
+      }
+      /* .brand span has its own important font-size in app-shell.css. */
+      .sidebar .unified-brand .sh-exact-brand-copy > strong > span{
+        display:inline!important;
+        position:static!important;
+        margin:0!important;
+        padding:0!important;
+        font:700 16px/1.15 "Space Grotesk",Inter,ui-sans-serif,system-ui,sans-serif!important;
+        letter-spacing:-.65px!important;
+        white-space:nowrap!important;
+      }
+      .sidebar .unified-brand .sh-exact-brand-copy > strong > .smart{
+        color:#f4fbff!important;
+      }
+      .sidebar .unified-brand .sh-exact-brand-copy > strong > .horeca{
+        margin-left:4px!important;
+        color:#42eeca!important;
+        background:linear-gradient(90deg,#25c9ff,#4af4bc)!important;
+        background-clip:text!important;
+        -webkit-background-clip:text!important;
+        -webkit-text-fill-color:transparent!important;
+      }
+      .sidebar .unified-brand .sh-exact-brand-copy > small{
+        display:block!important;
+        width:100%!important;
+        min-width:0!important;
+        max-width:100%!important;
+        margin:0!important;
+        padding:0!important;
+        color:#b9d0de!important;
+        opacity:1!important;
+        font-family:"Space Grotesk",Inter,ui-sans-serif,system-ui,sans-serif!important;
+        font-size:10.5px!important;
+        line-height:1.35!important;
+        font-weight:500!important;
+        letter-spacing:-.10px!important;
+        white-space:normal!important;
+        overflow-wrap:break-word!important;
+        word-break:normal!important;
+        text-overflow:clip!important;
+        overflow:visible!important;
+      }
+      @media (max-width:760px){
+        .sidebar .unified-brand{
+          grid-template-columns:54px minmax(0,1fr)!important;
+          min-height:84px!important;
+        }
+      }
+      /* Collapsed mode: polished 46px neon tile, no empty glass panel. */
+      html body.sh-workspace-page.sh-sidebar-collapsed .sidebar .unified-brand{
+        display:flex!important;
+        justify-content:center!important;
+        align-items:center!important;
+        width:100%!important;
+        min-height:54px!important;
+        height:auto!important;
         margin:0 auto 12px!important;
-        min-height:0!important;
-        border-color:transparent!important;
+        padding:5px 0 9px!important;
+        border:0!important;
         background:transparent!important;
         box-shadow:none!important;
-        padding:4px 0 10px!important;
+        overflow:visible!important;
       }
-      body.sh-workspace-page.sh-sidebar-collapsed .sidebar .sh-exact-brand-logo{
-        min-width:40px!important;min-height:40px!important;
-        box-shadow:0 0 11px rgba(12,186,226,.12)!important;
-      }
-      html body.sh-workspace-page.sh-sidebar-collapsed[data-protected="true"] .sidebar .unified-brand .sh-exact-brand-copy{
+      html body.sh-workspace-page.sh-sidebar-collapsed .sidebar .unified-brand:after{
         display:none!important;
       }
-      @media(max-width:760px){
-        .sidebar .unified-brand{grid-template-columns:64px minmax(0,1fr)!important;min-height:94px!important}
+      html body.sh-workspace-page.sh-sidebar-collapsed .sidebar .unified-brand > .sh-exact-brand-logo{
+        width:44px!important;
+        height:44px!important;
+        min-width:44px!important;
+        min-height:44px!important;
+        max-width:44px!important;
+        max-height:44px!important;
+        border-radius:11px!important;
+        box-shadow:0 0 13px rgba(0,166,238,.18),0 0 8px rgba(25,241,160,.10)!important;
+      }
+      html body.sh-workspace-page.sh-sidebar-collapsed[data-protected="true"] .sidebar .unified-brand > .sh-exact-brand-copy{
+        display:none!important;
       }
       .sidebar .sh-theme-toggle{margin-top:14px!important;width:calc(100% - 16px)!important;margin-left:8px!important;margin-right:8px!important;min-height:46px!important;border-radius:12px!important;display:flex!important;align-items:center!important;gap:9px!important;justify-content:flex-start!important;cursor:pointer!important}
       .sidebar .sh-theme-toggle .theme-arrow{margin-left:auto!important;font-size:20px!important}
