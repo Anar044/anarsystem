@@ -452,6 +452,29 @@
       activateMenu(route);
       return;
     }
+    // Switching tabs inside the same mounted module is not navigation to
+    // another HTML document. Keep the iframe, fetched references, and user's
+    // in-progress state. Each module validates whether an unsaved form is open.
+    if(currentFrame&&!pendingFrame&&currentRoute
+      &&currentFrame.contentWindow?.SHAccess?.context?.allowed===true){
+      const nowPath=canonicalPagePath(new URL(currentRoute.href,location.origin).pathname);
+      const nextPath=canonicalPagePath(new URL(route.href,location.origin).pathname);
+      const win=currentFrame.contentWindow;
+      const handler=nowPath===nextPath
+        ?(nextPath==='/procurement.html'?win.SHProcurementNavigation
+          :nextPath==='/internal-orders.html'?win.SHInternalOrdersNavigation:null)
+        :null;
+      if(handler&&typeof handler.go==='function'){
+        const view=new URL(route.href,location.origin).searchParams.get('view');
+        if(handler.go(view)===true){
+          currentRoute=route;
+          activateMenu(route);
+          syncAddress(route,historyMode);
+          setStatus('Открыто: '+route.label);
+        }
+        return;
+      }
+    }
     // Re-clicking a pending route must not discard its already-in-progress
     // document, Supabase session check and API requests.
     if(pendingFrame?.getAttribute('src')===route.href){
