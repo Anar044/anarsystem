@@ -25,6 +25,19 @@
       try{window.parent.postMessage({type:'sh:embedded-access-ready'},location.origin)}catch(_){}
     });
   }
+  // The persistent workspace must not expose an unfinished business module.
+  // Only opt-in modules publish a one-time initial-render-ready signal.
+  // It never changes authorization, scope, navigation or user documents.
+  let moduleInitialReady=false;
+  window.SHModuleBootstrap={
+    ready(){
+      if(moduleInitialReady)return;
+      moduleInitialReady=true;
+      window.__SH_MODULE_INITIAL_RENDER_READY__=true;
+      if(!root.classList.contains('sh-pilot-embedded'))return;
+      try{window.parent.postMessage({type:'sh:embedded-module-ready'},location.origin)}catch(_){}
+    }
+  };
   function syncChainScopeCookie(ids=null){
     let values=Array.isArray(ids)?ids:null;
     if(!values){
