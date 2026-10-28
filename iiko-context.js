@@ -133,6 +133,14 @@
       .filter(x => x.id && !seen.has(x.id) && seen.add(x.id));
   }
 
+  // Treat the selection as a set; merely changing checkbox order is not a
+  // restaurant-scope change and must not discard a user's open document.
+  function sameSelectedDepartments(first, second) {
+    const a = new Set((first || []).map(String));
+    const b = new Set((second || []).map(String));
+    return a.size === b.size && [...a].every(id => b.has(id));
+  }
+
   function setSelectedDepartmentIds(ids, options = {}) {
     const state = cache;
     if (!state) return [];
@@ -436,10 +444,13 @@
     applyButton.addEventListener("click", () => {
       const ids = [...listEl.querySelectorAll("input:checked")].map(x => x.value);
       if (!ids.length) return;
-      appliedIds = [...ids];
-      setSelectedDepartmentIds(ids,{silent:true,silentSelection:true});
+      const unchanged = sameSelectedDepartments(ids, departmentIds(cache));
       wrap.classList.remove("open");
       button.setAttribute("aria-expanded", "false");
+      // No scope change: keep the active form, fetched reports and iframe alive.
+      if (unchanged) return;
+      appliedIds = [...ids];
+      setSelectedDepartmentIds(ids,{silent:true,silentSelection:true});
       location.reload();
     });
     listEl.addEventListener("change", updateCount);
