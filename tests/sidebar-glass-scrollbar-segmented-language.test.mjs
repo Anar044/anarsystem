@@ -23,7 +23,7 @@ test('premium C language selector is compact and accessible',()=>{
   assert.match(html,/\.sh-language-segment:focus-visible\{/);
   assert.match(html,/sh-sidebar-collapsed \.sidebar \.sh-language-segments\{/);
   assert.match(html,/sh-sidebar-collapsed \.sidebar \.sh-language-select\{/);
-  assert.match(html,/sh-i18n\.js\?v=20261028-segmented-c1/);
+  assert.match(html,/src=["']\/sh-i18n\.js["']/);
   assert.doesNotMatch(i18n,/localStorage\.clear\(/);
   assert.doesNotMatch(i18n,/window\.location\s*=/);
 });
