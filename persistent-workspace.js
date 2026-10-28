@@ -302,19 +302,13 @@
   function childLocation(frame){
     try{return new URL(frame.contentWindow.location.href)}catch(_){return null}
   }
-  const BOOTSTRAPPED_MODULES=new Set([
-    '/procurement.html','/internal-orders.html','/stock-balances.html',
-    '/stock-movements.html','/nomenclature.html'
-  ]);
-  function waitForModuleInitialRender(frame,route){
-    const path=canonicalPagePath(new URL(route.href,location.origin).pathname);
-    if(!BOOTSTRAPPED_MODULES.has(path))return false;
-    // Auth was verified, but the module may still be loading products,
-    // warehouses or documents. A visible form cannot be reset later.
-    return frame.contentWindow?.__SH_MODULE_INITIAL_RENDER_READY__!==true;
-  }
+  // Show the first-party module as soon as same-origin RBAC is verified.
+  // Each business page already presents its own loading state and controls.
+  // Waiting for long-running stock/reference API calls here made ordinary
+  // navigation appear frozen for 60-90 seconds. This shell never authorizes
+  // operations: data and edit controls remain guarded by each module.
   function revealFrame(frame,route,mode){
-    if(pendingFrame!==frame||waitForModuleInitialRender(frame,route))return;
+    if(pendingFrame!==frame)return;
     pendingFrame=null;
     pendingMode=null;
     host.classList.remove('sh-is-loading');
@@ -671,21 +665,10 @@
     if(!started&&window.SHAccess?.context?.allowed)start();
     if(currentFrame||document.getElementById('sh-access-denied'))return;
     if(pendingFrame){
-      const frame=pendingFrame,route=childLocation(frame);
-      const waiting=route&&BOOTSTRAPPED_MODULES.has(canonicalPagePath(route.pathname));
-      if(waiting){
-        // Protected long-running stock / purchasing APIs may legitimately
-        // need more than 18 seconds. Keep the document mounted and hidden;
-        // never expose a half-built form. Bounded final recovery follows.
-        setStatus('Загружаем данные раздела…');
-        setTimeout(()=>{
-          if(pendingFrame!==frame||currentFrame)return;
-          frameFailure(frame,'Модуль не завершил первоначальную загрузку. Проверьте сервер и повторите открытие раздела.');
-          showStartupRecovery();
-        },75000);
-        return;
-      }
-      frameFailure(frame,'Не удалось завершить загрузку раздела.');
+      // A frame still pending here has not completed its protected access
+      // handshake. Data API latency is handled inside an already opened
+      // module, not by a hidden iframe or a second 75-second watchdog.
+      frameFailure(pendingFrame,'Не удалось подтвердить доступ к разделу. Повторите переход.');
     }
     showStartupRecovery();
   },18000);

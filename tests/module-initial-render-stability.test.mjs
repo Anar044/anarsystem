@@ -11,28 +11,14 @@ const stock=read('stock-balances.js');
 const movement=read('stock-movements.js');
 const nomenclature=read('nomenclature.js');
 
-test('site shell holds high-risk modules until first stable authenticated render',()=>{
-  const begin=workspace.indexOf('  const BOOTSTRAPPED_MODULES=new Set(');
-  const end=workspace.indexOf('  function revealFrame(',begin);
-  assert.ok(begin>0 && end>begin);
-  const snippet=workspace.slice(begin,end);
-  const fn=new Function('canonicalPagePath','location',snippet+
-    '\nreturn waitForModuleInitialRender;')(
-    path=>path,{origin:'https://smarthoreca.pages.dev'}
-  );
-  for(const href of ['procurement.html?view=requests','internal-orders.html?view=my',
-    'stock-balances.html','stock-movements.html','nomenclature.html']){
-    const route={href:'/'+href};
-    const child={contentWindow:{__SH_MODULE_INITIAL_RENDER_READY__:false}};
-    assert.equal(fn(child,route),true,href+' before ready');
-    child.contentWindow.__SH_MODULE_INITIAL_RENDER_READY__=true;
-    assert.equal(fn(child,route),false,href+' after ready');
-  }
-  assert.equal(fn({contentWindow:{}},{href:'/dashboard.html'}),false);
-  assert.match(workspace,/if\(pendingFrame!==frame\|\|waitForModuleInitialRender\(frame,route\)\)return/);
-  assert.match(workspace,/event\.data\?\.type!=='sh:embedded-module-ready'/);
+test('authenticated business pages open without awaiting slow optional server reports',()=>{
+  assert.doesNotMatch(workspace,/waitForModuleInitialRender|BOOTSTRAPPED_MODULES/);
+  assert.match(workspace,/function revealFrame\(frame,route,mode\)\{\s*if\(pendingFrame!==frame\)return/);
+  assert.match(workspace,/event\.data\?\.type!=='sh:embedded-access-ready'/);
   assert.match(workspace,/frame\.contentWindow\.SHAccess\?\.context\?\.allowed!==true/);
-  assert.match(workspace,/currentFrame\)/);
+  assert.match(workspace,/frame\.contentDocument\?\.getElementById\('sh-access-denied'\)/);
+  assert.doesNotMatch(workspace,/,75000\)/);
+  assert.match(workspace,/frameFailure\(pendingFrame,'Не удалось подтвердить доступ/);
 });
 
 test('module ready is one-time and cannot authorize access by itself',()=>{
@@ -69,11 +55,17 @@ test('internal orders and warehouse pages notify after their first full fetch',(
   for(const source of [stock,movement]){
     assert.match(source,/finally\{btn\.disabled=false;window\.SHModuleBootstrap\?\.ready\(\)\}/);
   }
-  assert.match(nomenclature,/finally\{window\.SHModuleBootstrap\?\.ready\(\)\}/);
+  assert.match(nomenclature,/finally\{setInitialCatalogActionsReady\(initialCatalogLoaded\);window\.SHModuleBootstrap\?\.ready\(\)\}/);
   assert.match(internal,/window\.SHInternalOrdersNavigation=\{go:selectView\}/);
   assert.match(workspace,/nextPath==='\/procurement\.html'/);
   assert.match(workspace,/nextPath==='\/internal-orders\.html'/);
   assert.match(workspace,/if\(handler\.go\(view\)===true\)/);
+});
+
+test('nomenclature remains non-editable before first catalog fetch succeeds',()=>{
+  assert.match(nomenclature,/function init\(\)\{setInitialCatalogActionsReady\(false\)/);
+  assert.match(nomenclature,/initialCatalogLoaded=true/);
+  assert.match(nomenclature,/setInitialCatalogActionsReady\(initialCatalogLoaded\)/);
 });
 
 test('fresh JS filenames activate ready signaling without stale HTML caches',()=>{
@@ -83,10 +75,11 @@ test('fresh JS filenames activate ready signaling without stale HTML caches',()=
     const html=read(page);
     assert.match(html,/app-shell\.js\?v=20261028-module-stable1/,page);
     if(page==='persistent-workspace.html')
-      assert.match(html,/persistent-workspace\.js\?v=20261028-module-stable1/);
+      assert.match(html,/persistent-workspace\.js\?v=20261028-fast-module-open1/);
     else{
       const js=page.replace('.html','.js');
-      assert.ok(html.includes(js+'?v=20261028-module-stable1'),page);
+      const version=page==='nomenclature.html'?'20261028-fast-module-open1':'20261028-module-stable1';
+      assert.ok(html.includes(js+'?v='+version),page);
     }
   }
 });
