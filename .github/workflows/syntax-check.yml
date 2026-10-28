@@ -42,6 +42,7 @@ jobs:
           node --test tests/ui-i18n.test.mjs
           node --test tests/sidebar-glass-scrollbar-segmented-language.test.mjs
           node --test tests/dashboard-default-shell.test.mjs
+          node --test tests/dashboard-theme-single-owner.test.mjs
           node --test tests/access-db-performance.test.mjs
           node --test tests/access-outage.test.mjs
           node --test tests/mobile-navigation-access.test.mjs
