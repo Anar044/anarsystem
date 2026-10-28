@@ -98,10 +98,10 @@
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
 
 /hr-compensation.css
-  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+  Cache-Control: no-cache, max-age=0, must-revalidate
 
 /hr-compensation-v2.js
-  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+  Cache-Control: no-cache, max-age=0, must-revalidate
 
 /hr-payroll
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
@@ -110,7 +110,7 @@
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
 
 /hr-payroll.js
-  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+  Cache-Control: no-cache, max-age=0, must-revalidate
 
 /hr-payroll-adjustments
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
@@ -119,10 +119,10 @@
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
 
 /hr-payroll-adjustments.js
-  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+  Cache-Control: no-cache, max-age=0, must-revalidate
 
 /hr-payroll-adjustments.css
-  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+  Cache-Control: no-cache, max-age=0, must-revalidate
 
 /api/hr/payroll
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
@@ -139,16 +139,16 @@
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
 
 /site-users.css
-  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+  Cache-Control: no-cache, max-age=0, must-revalidate
 
 /site-users.js
-  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+  Cache-Control: no-cache, max-age=0, must-revalidate
 
 /site-access.js
-  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+  Cache-Control: no-cache, max-age=0, must-revalidate
 
 /auth.js
-  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+  Cache-Control: no-cache, max-age=0, must-revalidate
 
 /api/access/*
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
@@ -157,7 +157,7 @@
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
 
 /rfq-response.js
-  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
+  Cache-Control: no-cache, max-age=0, must-revalidate
 
 /api/procurement-rfq
   Cache-Control: no-store, no-cache, max-age=0, must-revalidate
