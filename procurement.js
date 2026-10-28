@@ -6,7 +6,7 @@ const state={
   token:'',binding:null,data:null,refs:{suppliers:[],warehouses:[],products:[]},
   stockRows:[],purchaseRows:[],needs:[],historyDocs:[],supplierBalances:new Map(),latestByProduct:new Map(),priceBySupplierProduct:new Map(),
   productById:new Map(),productLabelToId:new Map(),selectedNeeds:new Set(),
-  normDrafts:new Map(),dirtyNorms:new Set(),busy:false,tab:'needs',view:'catalog',cacheWarnings:[]
+  normDrafts:new Map(),dirtyNorms:new Set(),busy:false,loadingData:false,tab:'needs',view:'catalog',cacheWarnings:[]
 };
 
 const key=v=>String(v??'').trim().replace(/^\{+|\}+$/g,'').toLowerCase();
@@ -109,7 +109,7 @@ function applyProcurementView(){
   setTimeout(ensureProcurementSidebarOpen,100);
 }
 function goProcurementView(view){
-  if(!PROCUREMENT_VIEWS.has(view))return false;
+  if(!PROCUREMENT_VIEWS.has(view)||state.loadingData)return false;
   if(state.view===view)return true;
   // Draft input is never discarded by a late navigation side effect.
   // A direct user switch must first close or save their open form.
@@ -132,7 +132,7 @@ function setStatus(text,kind=''){
   const el=$('proc-status');if(!el)return;
   el.textContent=text||'';el.className='proc-status'+(text?' show':'')+(kind?' '+kind:'');
 }
-function setBusy(v){state.busy=!!v;document.querySelectorAll('.proc-btn').forEach(b=>{if(b.dataset.noBusy!=='1')b.disabled=!!v})}
+function setBusy(v){state.busy=!!v||state.loadingData;document.querySelectorAll('.proc-btn').forEach(b=>{if(b.dataset.noBusy!=='1')b.disabled=state.busy})}
 function closeModal(){$('proc-modal').hidden=true;$('proc-modal-body').innerHTML=''}
 function openModal(title,eyebrow,html){
   $('proc-modal-title').textContent=title;$('proc-modal-eyebrow').textContent=eyebrow||'ЗАКУПКИ';
@@ -1712,6 +1712,8 @@ async function reloadProc(){
   restoreProcurementViewState(saved);
 }
 async function loadAll(){
+  if(state.loadingData)return;
+  state.loadingData=true;
   try{
     setBusy(true);state.cacheWarnings=[];setStatus('Загружаем закупки…');
     state.token=await authToken();state.binding=await window.SH_IikoContext.getBinding();
@@ -1757,6 +1759,7 @@ async function loadAll(){
     }
     document.documentElement.style.visibility='visible';
   }finally{
+    state.loadingData=false;
     setBusy(false);
     document.documentElement.style.visibility='visible';
     window.SHModuleBootstrap?.ready();
