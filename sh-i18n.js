@@ -10,6 +10,7 @@
     'ОСНОВНОЕ':['ƏSAS','MAIN'],
     'Restaurant Management':['Restoran idarəetməsi','Restaurant management'],
     'Управляй рестораном легко':['Restoranını asanlıqla idarə et','Manage your restaurant easily'],
+    'Управлять бизнесом легко':['Biznesinizi asanlıqla idarə edin','Manage your business with ease'],
     'Dashboard':['İdarə paneli','Dashboard'],
     'AI Smart Horeca Assistent':['AI Smart Horeca Assistant','AI Smart Horeca Assistant'],
     'Кассы':['Kassalar','Cash registers'],
