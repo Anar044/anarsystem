@@ -222,7 +222,7 @@ test("desktop sidebar collapse is scoped to workspace and keeps RBAC visibility"
   assert.match(css,/\.documents-subnav\{\s*display:none!important/);
   assert.doesNotMatch(css,/\.unified-main-nav>a[^{}]*\{[^}]*display:flex!important/);
   assert.doesNotMatch(css,/\.documents-nav-group,\s*body[^{}]+\{[^}]*display:block!important/);
-  assert.match(js,/sidebar\.insertBefore\(button,sidebar\.firstChild\)/);
+  assert.match(js,/document\.body\.appendChild\(button\)/);
   assert.match(js,/SIDEBAR_COLLAPSE_KEY='shPersistentSidebarCollapsedV1'/);
   assert.match(js,/group\)setGroupExpansion\(group,false\)/);
 });
@@ -232,22 +232,20 @@ test("sidebar collapse button persists its state and restores expanded scroll",(
   const end=source.indexOf("  function setGroupExpansion(",begin);
   assert.ok(begin>0&&end>begin);
   const active=new Set();
-  const elements={
-    ".sh-sidebar-collapse-icon":{textContent:""},
-    ".sh-sidebar-collapse-label":{textContent:""}
-  };
+  // The toggle is a fixed body child, not inside the clipped rail.
   const attributes={};
   const button={
-    setAttribute(key,value){attributes[key]=value},
-    querySelector(sel){return elements[sel]||null}
+    setAttribute(key,value){attributes[key]=value}
   };
-  const sidebar={scrollTop:142,querySelector(sel){
-    return sel===".sh-sidebar-collapse-btn"?button:null;
-  }};
+  const sidebar={scrollTop:142};
   const doc={body:{classList:{
     contains(k){return active.has(k)},
     toggle(k,on){if(on)active.add(k);else active.delete(k)}
-  }},querySelector(sel){return sel===".sidebar"?sidebar:null}};
+  }},querySelector(sel){
+    if(sel===".sidebar")return sidebar;
+    if(sel==="body > .sh-sidebar-collapse-btn")return button;
+    return null;
+  }};
   const saved=new Map();
   const storage={setItem(k,v){saved.set(k,v)},getItem(k){return saved.get(k)||null}};
   const make=new Function("document","sessionStorage","sidebarNav",source.slice(begin,end)+
@@ -266,30 +264,41 @@ test("sidebar collapse button persists its state and restores expanded scroll",(
   assert.equal(attributes["aria-expanded"],"true");
 });
 
-test("collapse control uses only an accessible three-bar hamburger, never a text button",()=>{
+test("desktop control is a fixed border mini-handle, not the original hamburger",()=>{
   const workspace=readFileSync(resolve(root,"persistent-workspace.js"),"utf8");
   const html=readFileSync(resolve(root,"persistent-workspace.html"),"utf8");
-  assert.match(workspace,/button\.innerHTML='<span class="sh-sidebar-hamburger" aria-hidden="true"><span><\/span><span><\/span><span><\/span><\/span>'/);
-  assert.doesNotMatch(workspace,/sh-sidebar-collapse-icon|sh-sidebar-collapse-label/);
+  assert.match(workspace,/button\.innerHTML='<svg class="sh-sidebar-edge-svg" viewBox="0 0 30 70"/);
+  assert.match(workspace,/class="sh-sidebar-edge-shape"/);
+  assert.match(workspace,/class="sh-sidebar-edge-chevron"/);
+  assert.match(workspace,/document\.body\.appendChild\(button\)/);
+  assert.match(workspace,/document\.querySelector\('body > \.sh-sidebar-collapse-btn'\)/);
+  assert.doesNotMatch(workspace,/sh-sidebar-hamburger/);
   assert.match(workspace,/button\.setAttribute\('aria-expanded',String\(!collapsed\)\)/);
   assert.match(workspace,/button\.setAttribute\('aria-label',text\)/);
   assert.match(workspace,/button\.setAttribute\('aria-controls',navForControl\.id\)/);
-  assert.match(html,/\.sh-sidebar-hamburger>span\{/);
-  assert.match(html,/\.sh-sidebar-hamburger\{\s*display:flex!important;flex-direction:column!important/);
-  assert.doesNotMatch(html,/\.sh-sidebar-collapse-icon\{/);
-  assert.match(html,/@media \(max-width:760px\)\{/);
+  assert.match(html,/body\.sh-workspace-page > \.sh-sidebar-collapse-btn\{/);
+  assert.match(html,/position:fixed!important/);
+  assert.match(html,/left:calc\(var\(--sidebar-w\) - 2px\)!important/);
+  assert.match(html,/z-index:220!important/);
+  assert.match(html,/body\.sh-workspace-page\.sh-sidebar-collapsed > \.sh-sidebar-collapse-btn \.sh-sidebar-edge-chevron\{/);
+  assert.match(html,/transform:rotate\(180deg\)/);
+  assert.match(html,/@media \(max-width:760px\)\{[\s\S]*?body\.sh-workspace-page > \.sh-sidebar-collapse-btn\{display:none!important\}/);
+  assert.match(html,/persistent-workspace\.js\?v=20261028-mini-handle-04/);
 });
-
-test("compact hamburger matches sidebar icon scale without persistent highlighted border",()=>{
+test("edge handle keeps compact proportions and preserves navigation scroll area",()=>{
   const html=readFileSync(resolve(root,"persistent-workspace.html"),"utf8");
-  const button=html.slice(html.indexOf("body.sh-workspace-page .sidebar>.sh-sidebar-collapse-btn{"),html.indexOf("body.sh-workspace-page .sidebar>.sh-sidebar-collapse-btn:hover"));
-  assert.match(button,/width:40px!important/);
-  assert.match(button,/height:40px!important/);
-  assert.match(button,/border:1px solid transparent!important/);
+  const button=html.slice(
+    html.indexOf("body.sh-workspace-page > .sh-sidebar-collapse-btn{"),
+    html.indexOf("body.sh-workspace-page > .sh-sidebar-collapse-btn:hover")
+  );
+  assert.match(button,/width:30px!important/);
+  assert.match(button,/height:70px!important/);
+  assert.match(button,/top:clamp\(125px,38vh,440px\)!important/);
   assert.match(button,/background:transparent!important/);
-  const compact=html.slice(html.indexOf("body.sh-workspace-page.sh-sidebar-collapsed .sidebar>.sh-sidebar-collapse-btn{"),html.indexOf("body.sh-workspace-page.sh-sidebar-collapsed .sidebar>.sh-sidebar-collapse-label",html.indexOf("body.sh-workspace-page.sh-sidebar-collapsed .sidebar>.sh-sidebar-collapse-btn{"))<0?html.length:html.indexOf("body.sh-workspace-page.sh-sidebar-collapsed .sh-sidebar-collapse-label"));
-  assert.match(compact,/width:40px!important/);
-  assert.match(html,/display:block!important;width:18px!important;height:2px!important/);
+  assert.doesNotMatch(html,/\.sidebar>\.sh-sidebar-collapse-btn\{/);
+  assert.match(html,/body\.sh-workspace-page\.sh-sidebar-collapsed\{--sidebar-w:70px\}/);
+  assert.match(html,/\.sh-sidebar-edge-chevron\{[\s\S]*?stroke-width:2\.5!important/);
+  assert.match(html,/prefers-reduced-motion:reduce/);
 });
 
 test("repeated clicks do not restart the same in-flight iframe or authorization",()=>{
