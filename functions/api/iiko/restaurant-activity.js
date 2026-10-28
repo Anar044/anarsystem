@@ -89,8 +89,10 @@ export async function onRequestGet({request,env}) {
       topology:{
         groupsKnown:topology.verified===true&&metadata.every(x=>x.groupCount!==null),
         cashKnown:topology.verified===true&&metadata.every(x=>x.cashCount!==null),
+        sectionsKnown:topology.verified===true&&metadata.every(x=>x.sectionCount!==null),
         sourceStatus:topology.verified!==true?"UNAVAILABLE":
-          metadata.every(x=>x.groupCount!==null&&x.cashCount!==null)?"VERIFIED":"PARTIAL"
+          metadata.every(x=>x.groupCount!==null&&x.cashCount!==null&&x.sectionCount!==null)
+            ?"VERIFIED":"PARTIAL"
       },
       shiftChecks:{checked:Object.keys(recentShifts).length,
         incomplete,maxPerRequest:8},
