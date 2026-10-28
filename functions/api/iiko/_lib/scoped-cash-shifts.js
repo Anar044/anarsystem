@@ -1,0 +1,249 @@
+// A separately scoped, read-only cash shift helper used for CHAIN activity.
+// Do not alter the established cash-shifts API used by reports.
+import { iikoJson } from "./iiko-client.js";
+
+function corsHeaders() {
+    return {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+    };
+}
+
+function jsonResponse(data, status = 200) {
+    return new Response(JSON.stringify(data), {
+        status,
+        headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+            ...corsHeaders()
+        }
+    });
+}
+
+function parseDate(value) {
+    const s = String(value || "").trim();
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    if (d.getUTCFullYear() !== Number(m[1]) || d.getUTCMonth() !== Number(m[2]) - 1 || d.getUTCDate() !== Number(m[3])) return null;
+    return d;
+}
+
+function isoDate(date) {
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+function addDays(date, days) {
+    const d = new Date(date.getTime());
+    d.setUTCDate(d.getUTCDate() + days);
+    return d;
+}
+
+function extractList(payload) {
+    if (Array.isArray(payload)) return payload;
+    for (const key of ["items", "sessions", "cashShifts", "cashSessions", "data", "rows"]) {
+        if (Array.isArray(payload?.[key])) return payload[key];
+    }
+    return [];
+}
+
+function sessionId(item) {
+    return String(item?.id ?? item?.sessionId ?? item?.sessionID ?? item?.uuid ?? item?.UUID ?? "").trim();
+}
+
+function firstValue(item, keys) {
+    for (const key of keys) {
+        const value = item?.[key];
+        if (value !== undefined && value !== null && value !== "") return value;
+    }
+    return "";
+}
+
+function shiftDateKey(item, fallback) {
+    const raw = firstValue(item, [
+        "businessDate", "operatingDay", "operationalDay", "date",
+        "openDate", "openedAt", "openTime", "startDate", "startTime"
+    ]);
+    if (!raw) return fallback;
+    const input = String(raw).trim();
+    const iso = input.match(/(\d{4})[-.](\d{2})[-.](\d{2})/);
+    // Older servers can return the Azerbaijan/Russian dd.MM.yyyy format.
+    const local = input.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:[ T]|$)/);
+    const candidate = iso ? `${iso[1]}-${iso[2]}-${iso[3]}`
+        : local ? `${local[3]}-${local[2]}-${local[1]}` : "";
+    return candidate && parseDate(candidate) ? candidate : fallback;
+}
+
+function normalizeShift(item, requestedDate, requestedStatus) {
+    if (!item || typeof item !== "object") return null;
+    return {
+        ...item,
+        _sessionId: sessionId(item),
+        _dateKey: shiftDateKey(item, requestedDate),
+        _requestedStatus: requestedStatus
+    };
+}
+function shiftDepartmentId(item) {
+    for (const value of [
+        item?.departmentId,item?.departmentID,item?.department?.id,item?.department?.uuid,item?.department?.guid,item?.departmentGuid,
+        item?.organizationId,item?.organisationId,item?.restaurantId,item?.organization?.id,item?.organisation?.id,item?.restaurant?.id
+    ]) {
+        const id=String(value??"").trim();
+        if(id)return id;
+    }
+    return "";
+}
+
+// iiko's standard CashShiftSessionDto does not necessarily contain
+// departmentId, but /cashshifts/list supports an authoritative departmentId
+// filter. Only label a missing department when it came from that scoped query;
+// do not guess from the user's CHAIN selection on an unscoped response.
+export function normalizeDepartmentCashShifts(payload, from, to, status, departmentId) {
+    const list = extractList(payload);
+    const validEnvelope = Array.isArray(payload) ||
+        ["items", "sessions", "cashShifts", "cashSessions", "data", "rows"]
+            .some(key => Array.isArray(payload?.[key]));
+    if (!validEnvelope || payload?.success === false || payload?.result === "ERROR" ||
+        payload?.error || payload?.errorCode) {
+        throw new Error("SH Server не вернул список кассовых смен в ожидаемом формате.");
+    }
+    const fromDay = isoDate(from), toDay = isoDate(to);
+    const result = [];
+    for (const [index, row] of list.entries()) {
+        const normalized = normalizeShift(row, "", status);
+        if (!normalized) continue;
+        const explicitDepartment = shiftDepartmentId(row);
+        if (explicitDepartment && explicitDepartment !== departmentId) {
+            throw new Error("SH Server вернул чужую кассовую смену несмотря на фильтр departmentId.");
+        }
+        // The filter is by physical OPEN DATE, but the business date can
+        // belong to an earlier operating day when a shift crosses midnight.
+        // Never use the requested date to invent an unverified open date.
+        const businessDate = normalized._dateKey;
+        const rawOpen = firstValue(row, [
+            "openDate", "openedAt", "openTime", "startDate", "startTime"
+        ]);
+        const openedDate = rawOpen
+            ? shiftDateKey({openDate: rawOpen}, "")
+            : businessDate;
+        const rowLabel = ` (запись ${index + 1}, статус ${status})`;
+        if (!normalized._sessionId) {
+            throw new Error("SH Server не передал ID кассовой смены" + rowLabel + ".");
+        }
+        if (!businessDate || !openedDate) {
+            throw new Error("SH Server не передал распознаваемую дату кассовой смены" + rowLabel + ".");
+        }
+        if (openedDate < fromDay || openedDate > toDay) {
+            // The server sometimes returns historical CLOSED sessions that
+            // are outside the requested opening-date window. Only discard
+            // a CLOSED row if BOTH its verified opening date and its verified
+            // business date precede the window. A session opened long ago
+            // but belonging to a recent operating day may still contribute
+            // to the selected restaurant's current sales.
+            //
+            // Never discard OPEN sessions: old active registers can still
+            // have sales. Never accept unexpected future dates or a missing
+            // immutable ID as valid revenue evidence.
+            if (status === "CLOSED" &&
+                openedDate < fromDay && businessDate < fromDay) {
+                continue;
+            }
+            if (status !== "CLOSED" ||
+                openedDate > toDay ||
+                businessDate < fromDay || businessDate > toDay) {
+                throw new Error("Дата открытия кассовой смены вне запрошенного диапазона" + rowLabel + ".");
+            }
+        }
+        if (status === "OPEN" && (row.closeDate || row.closedAt || row.closeTime)) {
+            throw new Error("SH Server вернул закрытую смену при фильтре OPEN.");
+        }
+        result.push({
+            ...normalized,
+            departmentId: explicitDepartment || departmentId,
+            _scopedDepartmentId: departmentId,
+            _departmentScopeSource: "cashshifts.departmentId"
+        });
+    }
+    return result;
+}
+
+export async function getShiftsForDateAndStatus(connection, date, status, options = {}) {
+    const departmentId = String(options?.departmentId || "").trim();
+    if (departmentId) {
+        // For operating-day calculations use one bounded date range per
+        // restaurant and status instead of one unscoped request per day.
+        const to = options.toDate instanceof Date ? options.toDate : date;
+        const fromParam = encodeURIComponent(isoDate(date));
+        const toParam = encodeURIComponent(isoDate(to));
+        const departmentParam = encodeURIComponent(departmentId);
+        const statusParam = encodeURIComponent(status);
+        const scoped = await iikoJson(connection,
+            `/resto/api/v2/cashshifts/list?openDateFrom=${fromParam}&openDateTo=${toParam}&status=${statusParam}&departmentId=${departmentParam}`);
+        try {
+            if (!scoped.ok) throw new Error("HTTP " + scoped.status);
+            const shifts = normalizeDepartmentCashShifts(scoped.payload, date, to, status, departmentId);
+            return {
+                ok: true, status: scoped.status, shifts,
+                format: "GET openDateFrom/openDateTo + status + departmentId",
+                authCacheHit: scoped.auth?.cacheHit === true
+            };
+        } catch (e) {
+            return {
+                ok: false, status: scoped.status,
+                text: String(e?.message || "Не подтверждён фильтр кассовых смен."),
+                shifts: [], formatsTried: ["GET scoped cashshifts/list"],
+                authCacheHit: scoped.auth?.cacheHit === true
+            };
+        }
+    }
+
+    const requestedDate = isoDate(date);
+    const dateParam = encodeURIComponent(requestedDate);
+    const statusParam = encodeURIComponent(status);
+
+    const primary = await iikoJson(
+        connection,
+        `/resto/api/v2/cashshifts/list?date=${dateParam}&status=${statusParam}`
+    );
+
+    if (primary.ok) {
+        return {
+            ok: true,
+            status: primary.status,
+            shifts: extractList(primary.payload).map(item => normalizeShift(item, requestedDate, status)).filter(Boolean),
+            format: `GET date + status=${status}`,
+            authCacheHit: primary.auth?.cacheHit === true
+        };
+    }
+
+    const fallback = await iikoJson(
+        connection,
+        `/resto/api/v2/cashshifts/list?openDateFrom=${dateParam}&openDateTo=${dateParam}&status=${statusParam}`
+    );
+
+    if (fallback.ok) {
+        return {
+            ok: true,
+            status: fallback.status,
+            shifts: extractList(fallback.payload).map(item => normalizeShift(item, requestedDate, status)).filter(Boolean),
+            format: `GET openDateFrom/openDateTo + status=${status}`,
+            authCacheHit: fallback.auth?.cacheHit === true
+        };
+    }
+
+    return {
+        ok: false,
+        status: primary.status,
+        text: primary.text || "iiko Server не вернул текст ошибки",
+        fallbackStatus: fallback.status,
+        fallbackText: fallback.text,
+        shifts: [],
+        formatsTried: [
+            `GET date + status=${status}`,
+            `GET openDateFrom/openDateTo + status=${status}`
+        ],
+        authCacheHit: primary.auth?.cacheHit === true || fallback.auth?.cacheHit === true
+    };
+}
+
