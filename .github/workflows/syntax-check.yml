@@ -33,6 +33,7 @@ jobs:
           set -euo pipefail
           node --test tests/plugin-events-auth.test.mjs
           node --test tests/plugin-backend-proxy-config.test.mjs
+          node --test tests/static-code-cache-policy.test.mjs
           node --test tests/access-navigation-visibility.test.mjs
           node --test tests/default-workspace-entry.test.mjs
           node --test tests/ui-i18n.test.mjs
