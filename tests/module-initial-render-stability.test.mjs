@@ -31,7 +31,7 @@ test('site shell holds high-risk modules until first stable authenticated render
   assert.equal(fn({contentWindow:{}},{href:'/dashboard.html'}),false);
   assert.match(workspace,/if\(pendingFrame!==frame\|\|waitForModuleInitialRender\(frame,route\)\)return/);
   assert.match(workspace,/event\.data\?\.type!=='sh:embedded-module-ready'/);
-  assert.match(workspace,/frame\.contentWindow\?\.SHAccess\?\.context/);
+  assert.match(workspace,/frame\.contentWindow\.SHAccess\?\.context\?\.allowed!==true/);
   assert.match(workspace,/currentFrame\)/);
 });
 
