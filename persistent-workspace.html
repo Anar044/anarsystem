@@ -27,28 +27,60 @@
     @media(max-width:820px){body.sh-workspace-page .sh-workspace-topbar{padding:0 12px!important}.sh-workspace-pilot-tag{display:none}}
     /* Desktop-only compact sidebar: scoped to the opt-in workspace. */
     @media (min-width:761px){
-      body.sh-workspace-page .sidebar>.sh-sidebar-collapse-btn{
+      /* Option 04 — slim neon handle fixed outside the scrollable rail. */
+      body.sh-workspace-page > .sh-sidebar-collapse-btn{
         display:flex!important;align-items:center!important;justify-content:center!important;
-        flex:0 0 40px!important;min-width:40px!important;min-height:40px!important;height:40px!important;
-        width:40px!important;margin:0 8px 10px!important;padding:0!important;
-        position:sticky!important;top:0!important;z-index:15!important;
-        border:1px solid transparent!important;border-radius:10px!important;
-        background:transparent!important;color:#92a9bd!important;cursor:pointer!important;
+        position:fixed!important;
+        top:clamp(125px,38vh,440px)!important;
+        left:calc(var(--sidebar-w) - 2px)!important;
+        z-index:220!important;
+        box-sizing:border-box!important;
+        width:30px!important;min-width:30px!important;
+        height:70px!important;min-height:70px!important;
+        margin:0!important;padding:0!important;
+        border:0!important;border-radius:0!important;
+        background:transparent!important;
+        outline:none!important;
+        color:#45f0d5!important;cursor:pointer!important;
         box-shadow:none!important;
+        filter:drop-shadow(0 0 7px rgba(8,211,154,.24))!important;
+        transition:left .2s ease,filter .2s ease!important;
+        -webkit-tap-highlight-color:transparent;
       }
-      body.sh-workspace-page .sidebar>.sh-sidebar-collapse-btn:hover{
-        background:#14232b!important;border-color:#253a43!important;color:#d4efe3!important;
+      body.sh-workspace-page > .sh-sidebar-collapse-btn:hover{
+        filter:drop-shadow(0 0 10px rgba(27,240,181,.52))!important;
       }
-      body.sh-workspace-page .sidebar>.sh-sidebar-collapse-btn:focus-visible{
-        outline:2px solid #42d392!important;outline-offset:2px!important;
+      body.sh-workspace-page > .sh-sidebar-collapse-btn:focus-visible{
+        outline:2px solid #6afbd2!important;outline-offset:3px!important;
+        border-radius:8px!important;
       }
-      body.sh-workspace-page .sh-sidebar-hamburger{
-        display:flex!important;flex-direction:column!important;align-items:center!important;
-        justify-content:center!important;gap:3.5px!important;width:20px!important;height:20px!important;
+      body.sh-workspace-page .sh-sidebar-edge-svg{
+        display:block!important;
+        flex:none!important;width:30px!important;height:70px!important;
+        overflow:visible!important;
       }
-      body.sh-workspace-page .sh-sidebar-hamburger>span{
-        display:block!important;width:18px!important;height:2px!important;
-        flex:0 0 2px!important;border-radius:2px!important;background:currentColor!important;
+      body.sh-workspace-page .sh-sidebar-edge-shape{
+        fill:#0d2330!important;
+        stroke:#17dba5!important;
+        stroke-width:1.35!important;
+        stroke-linejoin:round!important;
+      }
+      body.sh-workspace-page .sh-sidebar-edge-chevron{
+        fill:none!important;
+        stroke:#72ffe1!important;
+        stroke-width:2.5!important;
+        stroke-linecap:round!important;
+        stroke-linejoin:round!important;
+        transform-box:fill-box;
+        transform-origin:center;
+        transition:transform .2s ease!important;
+      }
+      body.sh-workspace-page.sh-sidebar-collapsed > .sh-sidebar-collapse-btn .sh-sidebar-edge-chevron{
+        transform:rotate(180deg);
+      }
+      @media (prefers-reduced-motion:reduce){
+        body.sh-workspace-page > .sh-sidebar-collapse-btn,
+        body.sh-workspace-page .sh-sidebar-edge-chevron{transition:none!important}
       }
       body.sh-workspace-page.sh-sidebar-collapsed{--sidebar-w:70px}
       body.sh-workspace-page.sh-sidebar-collapsed .app-shell>.sidebar{
@@ -57,10 +89,6 @@
       }
       body.sh-workspace-page.sh-sidebar-collapsed .app-shell>.main{
         margin-left:70px!important;width:calc(100% - 70px)!important;min-width:0!important;
-      }
-      body.sh-workspace-page.sh-sidebar-collapsed .sidebar>.sh-sidebar-collapse-btn{
-        flex:0 0 40px!important;width:40px!important;min-width:40px!important;
-        height:40px!important;min-height:40px!important;margin:0 auto 10px!important;padding:0!important;
       }
       body.sh-workspace-page.sh-sidebar-collapsed .sidebar .nav-title,
       body.sh-workspace-page.sh-sidebar-collapsed .sidebar .sh-exact-brand-copy,
@@ -110,7 +138,7 @@
       }
     }
     @media (max-width:760px){
-      body.sh-workspace-page .sidebar>.sh-sidebar-collapse-btn{display:none!important}
+      body.sh-workspace-page > .sh-sidebar-collapse-btn{display:none!important}
     }
     /* Language control is independent of menu role filtering and navigation. */
     body.sh-workspace-page .sidebar .sh-language-picker{
