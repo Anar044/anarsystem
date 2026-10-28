@@ -93,3 +93,39 @@ For production, use a named Cloudflare Tunnel with a stable hostname.
 - Temporary OCR files are deleted after each request.
 - The source document uploaded to SmartHoreca remains in the configured R2 bucket.
 - The local service returns OCR text, positions, confidence, and a best-effort invoice structure.
+
+## Smart Horeca AUTO (Local-first)
+
+In the AI Documents screen, **Auto** now calls this Local OCR endpoint first.
+Smart Horeca checks the OCR and all extracted invoice rows before it considers
+using the paid OpenAI API: supplier/date, OCR and row confidence, quantity x
+unit price, sum of rows, and an independently recognized document total.
+
+This Local OCR version exposes `data.ocrDeclaredTotal` and
+`data.totalSource` (`OCR` or `CALCULATED`) so that Smart Horeca can
+distinguish a real printed total from a total guessed by summing detected rows.
+Deploy this updated Local service when enabling AUTO in production.
+
+- If Local quality passes, OpenAI is **not called**.
+- If Local OCR fails or the checks fail, OpenAI is called at most once
+  **only if** `OPENAI_API_KEY` is configured in Cloudflare Pages.
+- When there is no paid key, or OpenAI fails after low-quality Local OCR, the
+  Local draft remains available for mandatory manual review.
+- If `LOCAL_DOCUMENT_AI_URL` is **not** configured, AUTO returns a clear
+  setup error; it does not silently bill OpenAI. Users can still explicitly
+  select **External AI**.
+- Explicit **Local AI** never calls OpenAI; explicit **External AI** calls
+  only OpenAI.
+
+The Pages processing request has a 120s browser timeout. AUTO uses a 50s
+Local budget plus up to 60s for OpenAI fallback. Direct Local and External AI
+calls keep their previous 105s / 90s timeouts.
+
+Routing decisions are saved in the document result under
+`provider.usage.autoDecision`. No API token or OCR text is logged in this
+metadata. The existing document upload size limit is 20 MB.
+
+For production with multiple restaurants, provision sufficient Local OCR
+workers, secure the endpoint with `LOCAL_DOCUMENT_AI_TOKEN`, and warm the OCR
+model after deployment. Automatic per-restaurant rate limits, job queues,
+and spend quotas are a separate scaling task; this update does not add them.

@@ -108,7 +108,7 @@ function parseJsonText(text) {
   throw new Error("AI вернул некорректный JSON.");
 }
 
-async function openAiProvider(env, file) {
+async function openAiProvider(env, file, timeoutMs = 90000) {
   const key = clean(env.OPENAI_API_KEY);
   if (!key) throw new Error("OPENAI_API_KEY не настроен.");
   const model = clean(env.OPENAI_DOCUMENT_MODEL) || "gpt-5.6-luna";
@@ -139,7 +139,7 @@ async function openAiProvider(env, file) {
         }
       }
     })
-  }, 90000);
+  }, timeoutMs);
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
@@ -194,17 +194,115 @@ export function aiProviderStatus(env = {}) {
   };
 }
 
+// Quality checks are deterministic and run on the server: never use OCR's
+// confidence score alone as proof that all invoice rows were extracted.
+// Missing/incorrect rows, headers and totals escalate to External AI.
+function numeric(value) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+function approxMoney(a, b) {
+  return Math.abs(a - b) <= Math.max(0.10, Math.abs(b) * 0.01);
+}
+export function evaluateLocalDocumentQuality(data) {
+  const reasons = [];
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { accepted: false, reasons: ["INVALID_DOCUMENT"], itemCount: 0, confidence: null };
+  }
+  const confidence = numeric(data.confidence);
+  if (confidence === null || confidence < 0.80 || confidence > 1) reasons.push("LOW_OCR_CONFIDENCE");
+  if (String(data.supplierName || "").trim().length < 3) reasons.push("SUPPLIER_MISSING");
+  const date = String(data.date || "");
+  const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(date + "T00:00:00Z") : null;
+  if (!parsedDate || !Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) {
+    reasons.push("DOCUMENT_DATE_MISSING");
+  }
+  const items = Array.isArray(data.items) ? data.items : [];
+  if (!items.length) reasons.push("NO_PRODUCT_ROWS");
+  let sum = 0;
+  for (const item of items) {
+    const quantity = numeric(item?.quantity), price = numeric(item?.unitPrice), total = numeric(item?.total);
+    const lineConfidence = numeric(item?.confidence);
+    if (String(item?.sourceName || "").trim().length < 2 || quantity === null || quantity <= 0 ||
+        price === null || price < 0 || total === null || total < 0) {
+      reasons.push("INCOMPLETE_PRODUCT_ROW");
+      continue;
+    }
+    if (lineConfidence === null || lineConfidence < 0.72 || lineConfidence > 1) reasons.push("LOW_ROW_CONFIDENCE");
+    if (!approxMoney(quantity * price, total)) reasons.push("ROW_TOTAL_MISMATCH");
+    sum += total;
+  }
+  const declared = numeric(data.total);
+  if (declared === null || declared <= 0) reasons.push("DOCUMENT_TOTAL_MISSING");
+  else if (items.length && !approxMoney(sum, declared)) reasons.push("DOCUMENT_TOTAL_MISMATCH");
+  // Our local heuristic may fill 'total' from the *same extracted rows*;
+  // that cannot prove no rows were missed. New local OCR responses include
+  // the independently read total from the physical document.
+  const ocrDeclared = numeric(data.ocrDeclaredTotal);
+  // Legacy Local services that do not report an independently seen
+  // total cannot prove the table is complete; escalate conservatively.
+  if (data.totalSource !== "OCR") reasons.push("DOCUMENT_TOTAL_NOT_VERIFIED");
+  if (data.totalSource === "OCR" &&
+      (ocrDeclared === null || declared === null || !approxMoney(ocrDeclared, declared))) {
+    reasons.push("OCR_TOTAL_MISMATCH");
+  }
+  const uniqueReasons = [...new Set(reasons)];
+  return { accepted: uniqueReasons.length === 0, reasons: uniqueReasons,
+    itemCount: items.length, confidence, total: declared };
+}
+function withAutoDecision(result, decision) {
+  const usage = result.usage && typeof result.usage === "object" && !Array.isArray(result.usage)
+    ? result.usage : {};
+  return {...result, usage: {...usage, autoDecision: decision}};
+}
+
 export async function processPurchaseDocument(env, file, requestedProvider = "AUTO") {
   const provider = clean(requestedProvider || "AUTO").toUpperCase();
   const status = aiProviderStatus(env);
 
+  // Explicit provider choices remain explicit. A forced Local scan cannot
+  // silently spend API credit, nor can forced OpenAI route through Local.
   if (provider === "OPENAI") return openAiProvider(env, file);
   if (provider === "LOCAL") return localProvider(env, file, 105000);
   if (provider !== "AUTO") throw new Error("Неизвестный AI-провайдер.");
 
-  // A single Pages request must not chain two expensive AI providers.
-  // AUTO is deterministic: OpenAI first choice when configured, otherwise Local.
-  if (status.openai.configured) return openAiProvider(env, file);
-  if (status.local.configured) return localProvider(env, file, 105000);
-  throw new Error("AI-провайдер не настроен. Настройте Local AI или OPENAI_API_KEY.");
+  // AUTO always attempts free Local OCR before any paid provider call.
+  // Fail closed when Local is not set up, rather than silently billing for
+  // every document. The user can deliberately choose External AI instead.
+  if (!status.local.configured) {
+    throw new Error("Для режима Auto сначала настройте Local AI (LOCAL_DOCUMENT_AI_URL) либо вручную выберите External AI.");
+  }
+  let local = null, localError = false;
+  try {
+    // The browser has a 120s process timeout. Bound both sequential steps.
+    local = await localProvider(env, file, 50000);
+  } catch (_) {
+    localError = true;
+  }
+  const quality = local ? evaluateLocalDocumentQuality(local.data) : null;
+  if (quality?.accepted) {
+    return withAutoDecision(local, {mode: "AUTO", route: "LOCAL_ACCEPTED",
+      localAttempted: true, openaiAttempted: false, quality});
+  }
+  const reasons = quality?.reasons || ["LOCAL_UNAVAILABLE"];
+  if (!status.openai.configured) {
+    if (local) return withAutoDecision(local, {mode: "AUTO", route: "LOCAL_REVIEW",
+      localAttempted: true, openaiAttempted: false, quality});
+    throw new Error("Local AI недоступен, а OpenAI не настроен. Повторите распознавание позже.");
+  }
+  try {
+    // Paid escalation ONLY for real Local failures or rejected quality.
+    const external = await openAiProvider(env, file, 60000);
+    return withAutoDecision(external, {mode: "AUTO", route: "OPENAI_FALLBACK",
+      localAttempted: true, openaiAttempted: true,
+      reasons, localConfidence: quality?.confidence ?? null, localItemCount: quality?.itemCount ?? 0,
+      localFailed: localError});
+  } catch (error) {
+    // Don't discard an extracted (but weak) draft if the paid provider has
+    // a rate limit/outage. Keep it for human review with a warning.
+    if (local) return withAutoDecision(local, {mode: "AUTO", route: "LOCAL_REVIEW",
+      localAttempted: true, openaiAttempted: true, openaiFailed: true, quality});
+    throw error;
+  }
 }
