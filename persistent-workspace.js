@@ -187,7 +187,9 @@
   }
   function setSidebarCollapsed(collapsed,{save=true}={}){
     const sidebar=document.querySelector('.sidebar');
-    const button=sidebar?.querySelector('.sh-sidebar-collapse-btn');
+    // The edge handle lives on <body> so the sidebar's overflow:hidden
+    // cannot clip it while the navigation scrolls.
+    const button=document.querySelector('body > .sh-sidebar-collapse-btn');
     if(!sidebar||!button)return;
     const wasCollapsed=isSidebarCollapsed();
     if(collapsed&&!wasCollapsed){
@@ -200,19 +202,20 @@
     button.setAttribute('aria-label',text);
     button.setAttribute('title',text);
     button.setAttribute('aria-expanded',String(!collapsed));
-    // Keep the three-bar icon unchanged in both states. The tooltip,
-    // accessible label and aria-expanded communicate the action.
+    // CSS rotates the chevron towards the open direction when collapsed.
+    // Keep focus, tooltip and aria-expanded usable by keyboard/screen reader.
     if(save){
       try{sessionStorage.setItem(SIDEBAR_COLLAPSE_KEY,collapsed?'1':'0')}catch(_){}
     }
   }
   function installSidebarCollapse(sidebar){
-    if(!sidebar||sidebar.querySelector('.sh-sidebar-collapse-btn'))return;
+    if(!sidebar||document.querySelector('body > .sh-sidebar-collapse-btn'))return;
     const button=document.createElement('button');
     button.type='button';
     button.className='sh-sidebar-collapse-btn';
-    button.innerHTML='<span class="sh-sidebar-hamburger" aria-hidden="true"><span></span><span></span><span></span></span>';
-    sidebar.insertBefore(button,sidebar.firstChild);
+    button.innerHTML='<svg class="sh-sidebar-edge-svg" viewBox="0 0 30 70" aria-hidden="true" focusable="false"><path class="sh-sidebar-edge-shape" d="M1 1H6Q11 1 15 8L26 23Q29 27 29 32V38Q29 43 26 47L15 62Q11 69 6 69H1Z"/><path class="sh-sidebar-edge-chevron" d="M19 28L12 35L19 42"/></svg>';
+    // Place outside the clipped sidebar: the tab straddles its right border.
+    document.body.appendChild(button);
     const navForControl=sidebarNav();
     if(navForControl){
       navForControl.id ||= 'sh-primary-sidebar-navigation';
