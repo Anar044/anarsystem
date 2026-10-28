@@ -110,7 +110,12 @@ function applyProcurementView(){
 }
 function goProcurementView(view){
   if(!PROCUREMENT_VIEWS.has(view)||state.loadingData)return false;
-  if(state.view===view)return true;
+  if(state.view===view){
+    // After creating a PR while already on Requests, refresh its list
+    // in place; the old full-page navigation also refreshed it.
+    if($('proc-modal')?.hidden)void loadAll();
+    return true;
+  }
   // Draft input is never discarded by a late navigation side effect.
   // A direct user switch must first close or save their open form.
   if(!$('proc-modal')?.hidden)return false;
