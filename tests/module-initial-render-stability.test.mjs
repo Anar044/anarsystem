@@ -18,7 +18,7 @@ test('site shell holds high-risk modules until first stable authenticated render
   const snippet=workspace.slice(begin,end);
   const fn=new Function('canonicalPagePath','location',snippet+
     '\nreturn waitForModuleInitialRender;')(
-    path=>path,'https://smarthoreca.pages.dev'
+    path=>path,{origin:'https://smarthoreca.pages.dev'}
   );
   for(const href of ['procurement.html?view=requests','internal-orders.html?view=my',
     'stock-balances.html','stock-movements.html','nomenclature.html']){
