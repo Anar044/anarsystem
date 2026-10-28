@@ -90,7 +90,7 @@ export async function fetchChainGroupTopology(connection) {
     };
     return {
       verified:true,groups:parsed.groups,pointsOfSale:parsed.pointsOfSale,
-      code:null
+      restaurantSections:parsed.restaurantSections,code:null
     };
   } catch (_) {
     return {verified:false,groups:[],pointsOfSale:[],code:"GROUPS_REQUEST_FAILED"};
