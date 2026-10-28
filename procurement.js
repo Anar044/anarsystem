@@ -108,7 +108,25 @@ function applyProcurementView(){
   ensureProcurementSidebarOpen();
   setTimeout(ensureProcurementSidebarOpen,100);
 }
-function goProcurementView(view){location.href='/procurement.html?view='+encodeURIComponent(view)}
+function goProcurementView(view){
+  if(!PROCUREMENT_VIEWS.has(view))return false;
+  if(state.view===view)return true;
+  // Draft input is never discarded by a late navigation side effect.
+  // A direct user switch must first close or save their open form.
+  if(!$('proc-modal')?.hidden)return false;
+  state.view=view;
+  const url=new URL(location.href);
+  url.searchParams.set('view',view);
+  // The parent owns browser history for embedded tabs; keep the iframe
+  // document mounted and update its URL without re-executing scripts.
+  const mode=document.documentElement.classList.contains('sh-pilot-embedded')
+    ?'replaceState':'pushState';
+  history[mode]({shProcurementView:view},'',url.pathname+url.search);
+  // Reload the relevant scoped dataset once, not the entire HTML document.
+  void loadAll();
+  return true;
+}
+window.SHProcurementNavigation={go:goProcurementView};
 
 function setStatus(text,kind=''){
   const el=$('proc-status');if(!el)return;
