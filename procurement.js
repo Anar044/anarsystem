@@ -1701,9 +1701,9 @@ async function loadAll(){
 
     // D1 procurement data must stay usable even if one heavy SH Server report is slow.
     await loadProcurement();
-    renderAll();applyProcurementView();
-    document.documentElement.style.visibility='visible';
-
+    // Initial load is a single atomic render. Previously we rendered once
+    // with D1-only data, exposed the New PR button, then replaced the screen
+    // when references, stock and prices arrived. That interrupted editing.
     const view=state.view||currentProcurementView(),canCost=canViewProcurementPrices();
     const tasks=[];
     if(['catalog','requests','approvals','sourcing','suppliers','receiving','norms'].includes(view))tasks.push(['Справочники',loadReferences]);
@@ -1738,7 +1738,11 @@ async function loadAll(){
       if(box)box.innerHTML='<div class="proc-empty">Не удалось загрузить документы ('+esc(message)+'). Это не означает, что они удалены. Нажмите «Обновить».</div>';
     }
     document.documentElement.style.visibility='visible';
-  }finally{setBusy(false);document.documentElement.style.visibility='visible'}
+  }finally{
+    setBusy(false);
+    document.documentElement.style.visibility='visible';
+    window.SHModuleBootstrap?.ready();
+  }
 }
 async function saveSettings(e){
   e.preventDefault();try{setBusy(true);const m=num($('proc-limit-manager').value),d=num($('proc-limit-director').value);if(d<m)throw Error('Лимит директора должен быть не меньше лимита менеджера.');const settings={approvalTiers:[{code:'MANAGER',name:'Менеджер',maxAmount:m},{code:'DIRECTOR',name:'Директор',maxAmount:d},{code:'OWNER',name:'Владелец',maxAmount:null}],autoNeedEnabled:$('proc-auto-needs').checked,defaultLeadDays:Math.max(0,Math.round(num($('proc-lead-days').value))),allowOverReceipt:$('proc-over-receipt').checked,targetMode:'MAX_OR_MIN'};await procPost('save-settings',{settings});await reloadProc();toast('Настройки закупок сохранены.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}
