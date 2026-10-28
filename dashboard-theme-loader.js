@@ -16,6 +16,12 @@
   }
 
   function addStyles(){
+    // The same 15 KB of CSS was being re-injected on DOM ready, two timers
+    // and every theme mutation. These selectors cover both themes already.
+    const existing=document.getElementById('dashboard-sketch-style');
+    if(existing?.dataset?.shCssReady==='1'
+       &&document.getElementById('dashboard-theme-css')
+       &&document.getElementById('sh-brand-theme'))return;
     let link=document.getElementById('dashboard-theme-css');
     if(!link){link=document.createElement('link');link.id='dashboard-theme-css';link.rel='stylesheet';document.head.appendChild(link)}
     link.href='/dashboard.css?v=20260917-10';
@@ -130,6 +136,7 @@
       html[data-theme="dark"] body.dashboard-page .main,
       html[data-theme="dark"] body.dashboard-page .content{background:#0b1017!important;color:#f4f7fa!important}
     `;
+    s.dataset.shCssReady='1';
   }
 
   function sync(){addStyles();installBrand();installThemeToggle();requestAnimationFrame(()=>window.dispatchEvent(new Event('resize')))}
