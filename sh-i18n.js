@@ -582,6 +582,13 @@
     schedule();
     const select=document.querySelector('#sh-language-select');
     if(select&&select.value!==language)select.value=language;
+    // Keep expanded segmented buttons and compact select synchronized,
+    // including storage events, iframe updates and changes from other pages.
+    for(const button of document.querySelectorAll('.sh-language-segment')){
+      const active=button.dataset.shLanguage===language;
+      button.classList.toggle('is-active',active);
+      button.setAttribute('aria-pressed',String(active));
+    }
     if(changed){
       window.dispatchEvent(new CustomEvent('sh:language-change',{detail:{language}}));
       if(document.body?.classList.contains('sh-workspace-page')){
@@ -612,7 +619,25 @@
     }
     select.value=language;
     select.addEventListener('change',()=>update(select.value));
-    wrap.append(label,select);
+    const segments=document.createElement('div');
+    segments.className='sh-language-segments';
+    segments.setAttribute('role','group');
+    segments.setAttribute('aria-label','Language / Dil / Язык');
+    // The approved premium segmented control is ordered RU | AZ | EN.
+    // Buttons use the existing update() and never alter routing or access.
+    for(const code of ['ru','az','en']){
+      const button=document.createElement('button');
+      button.type='button';
+      button.className='sh-language-segment'+(code===language?' is-active':'');
+      button.dataset.shLanguage=code;
+      button.textContent=code.toUpperCase();
+      button.title=code==='ru'?'Русский':code==='az'?'Azərbaycan dili':'English';
+      button.setAttribute('aria-label',button.title);
+      button.setAttribute('aria-pressed',String(code===language));
+      button.addEventListener('click',()=>update(code));
+      segments.appendChild(button);
+    }
+    wrap.append(label,segments,select);
     sidebar.appendChild(wrap);
   }
   let observer=null;
