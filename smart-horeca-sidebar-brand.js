@@ -11,6 +11,14 @@
   }
 
   function ensureStyle(){
+    // Space Grotesk matches SH Owner. Font loading must never block the menu.
+    if(!document.getElementById('sh-sidebar-space-grotesk-font')){
+      const font=document.createElement('link');
+      font.id='sh-sidebar-space-grotesk-font';
+      font.rel='stylesheet';
+      font.href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap';
+      document.head.appendChild(font);
+    }
     if(document.getElementById('sh-exact-brand-style'))return;
     const style=document.createElement('style');
     style.id='sh-exact-brand-style';
