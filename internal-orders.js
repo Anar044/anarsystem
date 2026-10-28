@@ -118,6 +118,8 @@ function selectView(view){
   const url=new URL(location.href);url.searchParams.set("view",view);history.replaceState(null,"",url);
   state.selected=null;$("io-detail").hidden=true;
   updateView();render();
+  // Update the persistent sidebar immediately without reloading this page.
+  if(window.parent!==window)window.parent.postMessage({type:'sh:embedded-route-changed'},location.origin);
   return true;
 }
 window.SHInternalOrdersNavigation={go:selectView};

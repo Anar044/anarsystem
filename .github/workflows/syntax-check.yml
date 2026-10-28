@@ -48,6 +48,7 @@ jobs:
           node --test tests/sidebar-navigation-persistence.test.mjs
           node --test tests/module-initial-render-stability.test.mjs
           node --test tests/restaurant-selection-noop.test.mjs
+          node --test tests/embedded-route-events.test.mjs
           node --test tests/sidebar-branding-owner-parity.test.mjs
           node --test tests/persistent-sidebar-language-direct-navigation.test.mjs
           node --test tests/platform-organizations-access.test.mjs
