@@ -112,11 +112,15 @@ function updateView(){
   if(viewHeading)viewHeading.textContent="Внутренние заказы · "+(titles[state.view]||"Заявки");
 }
 function selectView(view){
+  if(!["my","incoming","preparing","shipments","receiving","all","settings"].includes(view))return false;
+  if(!$("io-modal").hidden)return false;
   state.view=view;
   const url=new URL(location.href);url.searchParams.set("view",view);history.replaceState(null,"",url);
   state.selected=null;$("io-detail").hidden=true;
   updateView();render();
+  return true;
 }
+window.SHInternalOrdersNavigation={go:selectView};
 function render(){
   const d=state.data;if(!d)return;
   const query=$("io-query").value.trim().toLocaleLowerCase(),status=$("io-status-filter").value;
