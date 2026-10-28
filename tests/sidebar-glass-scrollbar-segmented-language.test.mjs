@@ -73,7 +73,7 @@ test('segmented RU/AZ/EN buttons update shared language state and compact select
   const window={dispatchEvent(e){events.push(e.detail.language)}};
   const CustomEvent=class {constructor(name,options){this.name=name;this.detail=options.detail}};
   const create=new Function('document','window','localStorage','CustomEvent','location','schedule',
-    "let language='ru';const LANGUAGES=['az','ru','en'];\n"+
+    "let language='ru';const LANGUAGES=['az','ru','en'];const STORAGE_KEY='shUiLanguage';\n"+
     i18n.slice(begin,end)+"\nreturn {createSwitcher,update,getLanguage:()=>language};");
   const api=create(document,window,localStorage,CustomEvent,{origin:'https://smarthoreca.pages.dev'},()=>{});
   api.createSwitcher();
