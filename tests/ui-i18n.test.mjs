@@ -96,7 +96,7 @@ test('sidebar menu translations cover all main user navigation categories',()=>{
 });
 test('language switch is limited to the shell and never changes route/permission identifiers',()=>{
   const parent=readFileSync(resolve(root,'persistent-workspace.html'),'utf8');
-  assert.match(parent,/sh-i18n\.js\?v=20261028-segmented-c1/);
+  assert.match(parent,/src=["']\/sh-i18n\.js["']/);
   assert.match(parent,/\.sh-language-picker/);
   assert.match(parent,/sh-sidebar-collapsed \.sidebar \.sh-language-select/);
   assert.match(script,/\.unified-main-nav a\[href\]/);
@@ -108,7 +108,7 @@ test('language switch is limited to the shell and never changes route/permission
 test('annotated module UI loads same language but excludes user names and mutable live status',()=>{
   for(const path of ['dashboard.html','procurement.html','internal-orders.html']){
     const html=readFileSync(resolve(root,path),'utf8');
-    assert.match(html,/sh-i18n\.js\?v=20261012-ui-i18n-v1/);
+    assert.match(html,/src=["']\/sh-i18n\.js["']/);
     assert.match(html,/data-sh-i18n=/);
     assert.doesNotMatch(html,/<[^>]*data-auth-name[^>]*data-sh-i18n=/);
     assert.doesNotMatch(html,/<[^>]*data-sh-i18n=[^>]*data-auth-name/);
