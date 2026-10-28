@@ -19,6 +19,7 @@
     'Активность не подтверждена':['Fəaliyyət təsdiqlənməyib','Activity unverified'],
     'Групп:':['Qruplar:','Groups:'],
     'Касс/точек:':['Kassalar/nöqtələr:','Registers/points:'],
+    'Отделений:':['Bölmələr:','Sections:'],
     'Есть продажи за 30 дней':['Son 30 gündə satış var','Sales in last 30 days'],
     'Есть кассовые смены':['Kassa növbələri var','Cash shifts detected'],
     'Есть касса / точка продаж':['Kassa / satış nöqtəsi var','Register / POS configured'],
