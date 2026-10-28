@@ -518,22 +518,34 @@
       setStatus('Открыто: '+route.label);
     }
   }
+  function syncEmbeddedRoute(frame){
+    // The child only signals that its location might have changed. Never use
+    // route data from the message; re-read the authorized same-origin iframe.
+    if(!frame||frame!==currentFrame||pendingFrame)return;
+    const url=childLocation(frame);
+    const route=url?resolvePilotRoute(url.href):null;
+    if(!route||!permitted(route)||frame.contentWindow.SHAccess?.context?.allowed!==true)return;
+    if(frame.contentDocument?.getElementById('sh-access-denied'))return;
+    if(route.href===currentRoute?.href)return;
+    currentRoute=route;
+    activateMenu(route);
+    syncAddress(route,'replace');
+    setStatus('Открыто: '+route.label);
+  }
+  window.addEventListener('message',event=>{
+    if(event.origin!==location.origin||event.data?.type!=='sh:embedded-route-changed')return;
+    if(!currentFrame||event.source!==currentFrame.contentWindow)return;
+    syncEmbeddedRoute(currentFrame);
+  });
   function observeChildHistory(){
-    // Internal Orders updates its own URL via history.replaceState without
-    // a frame load. Read the URL only (no polling of restaurant/API data).
+    // Event-driven for updated internal orders and procurement; a low-rate
+    // fallback keeps old modules' history.replaceState links compatible.
+    // No API request, page reload or global history monkey patch.
     if(routeWatch)clearInterval(routeWatch);
     routeWatch=setInterval(()=>{
-      if(!currentFrame||pendingFrame)return;
-      const url=childLocation(currentFrame);
-      const route=url?resolvePilotRoute(url.href):null;
-      if(route&&permitted(route)&&currentFrame.contentWindow.SHAccess?.context?.allowed
-        &&route.href!==currentRoute?.href){
-        currentRoute=route;
-        activateMenu(route);
-        syncAddress(route,'replace');
-        setStatus('Открыто: '+route.label);
-      }
-    },750);
+      if(document.hidden)return;
+      syncEmbeddedRoute(currentFrame);
+    },5000);
   }
   // Warm the next document's PUBLIC, static HTML on deliberate pointer
   // intent. The browser handles this at low priority; prefetch neither

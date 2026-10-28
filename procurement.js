@@ -129,6 +129,8 @@ function goProcurementView(view){
   history[mode]({shProcurementView:view},'',url.pathname+url.search);
   // Reload the relevant scoped dataset once, not the entire HTML document.
   void loadAll();
+  // Parent verifies the actual iframe URL and effective RBAC independently.
+  if(window.parent!==window)window.parent.postMessage({type:'sh:embedded-route-changed'},location.origin);
   return true;
 }
 window.SHProcurementNavigation={go:goProcurementView};
