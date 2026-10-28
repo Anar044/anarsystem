@@ -79,5 +79,5 @@ test('video regression pages use a cache-busted sidebar script',()=>{
   for (const path of ['hr-timeclock.html','hr-payroll-accounting.html','hr-payroll.html','dashboard.html']){
     assert.match(load(path),/app-shell\.js\?v=20261014-persistent-entry1/);
   }
-  assert.match(html,/app-shell\.js\?v=20261014-persistent-entry1/);
+  assert.match(html,/app-shell\.js\?v=20261028-module-stable1/);
 });

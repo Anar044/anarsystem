@@ -6,7 +6,7 @@ const state={
   token:'',binding:null,data:null,refs:{suppliers:[],warehouses:[],products:[]},
   stockRows:[],purchaseRows:[],needs:[],historyDocs:[],supplierBalances:new Map(),latestByProduct:new Map(),priceBySupplierProduct:new Map(),
   productById:new Map(),productLabelToId:new Map(),selectedNeeds:new Set(),
-  normDrafts:new Map(),dirtyNorms:new Set(),busy:false,tab:'needs',view:'catalog',cacheWarnings:[]
+  normDrafts:new Map(),dirtyNorms:new Set(),busy:false,loadingData:false,tab:'needs',view:'catalog',cacheWarnings:[]
 };
 
 const key=v=>String(v??'').trim().replace(/^\{+|\}+$/g,'').toLowerCase();
@@ -108,13 +108,36 @@ function applyProcurementView(){
   ensureProcurementSidebarOpen();
   setTimeout(ensureProcurementSidebarOpen,100);
 }
-function goProcurementView(view){location.href='/procurement.html?view='+encodeURIComponent(view)}
+function goProcurementView(view){
+  if(!PROCUREMENT_VIEWS.has(view)||state.loadingData)return false;
+  if(state.view===view){
+    // After creating a PR while already on Requests, refresh its list
+    // in place; the old full-page navigation also refreshed it.
+    if($('proc-modal')?.hidden)void loadAll();
+    return true;
+  }
+  // Draft input is never discarded by a late navigation side effect.
+  // A direct user switch must first close or save their open form.
+  if(!$('proc-modal')?.hidden)return false;
+  state.view=view;
+  const url=new URL(location.href);
+  url.searchParams.set('view',view);
+  // The parent owns browser history for embedded tabs; keep the iframe
+  // document mounted and update its URL without re-executing scripts.
+  const mode=document.documentElement.classList.contains('sh-pilot-embedded')
+    ?'replaceState':'pushState';
+  history[mode]({shProcurementView:view},'',url.pathname+url.search);
+  // Reload the relevant scoped dataset once, not the entire HTML document.
+  void loadAll();
+  return true;
+}
+window.SHProcurementNavigation={go:goProcurementView};
 
 function setStatus(text,kind=''){
   const el=$('proc-status');if(!el)return;
   el.textContent=text||'';el.className='proc-status'+(text?' show':'')+(kind?' '+kind:'');
 }
-function setBusy(v){state.busy=!!v;document.querySelectorAll('.proc-btn').forEach(b=>{if(b.dataset.noBusy!=='1')b.disabled=!!v})}
+function setBusy(v){state.busy=!!v||state.loadingData;document.querySelectorAll('.proc-btn').forEach(b=>{if(b.dataset.noBusy!=='1')b.disabled=state.busy})}
 function closeModal(){$('proc-modal').hidden=true;$('proc-modal-body').innerHTML=''}
 function openModal(title,eyebrow,html){
   $('proc-modal-title').textContent=title;$('proc-modal-eyebrow').textContent=eyebrow||'ЗАКУПКИ';
@@ -1694,6 +1717,8 @@ async function reloadProc(){
   restoreProcurementViewState(saved);
 }
 async function loadAll(){
+  if(state.loadingData)return;
+  state.loadingData=true;
   try{
     setBusy(true);state.cacheWarnings=[];setStatus('Загружаем закупки…');
     state.token=await authToken();state.binding=await window.SH_IikoContext.getBinding();
@@ -1701,9 +1726,9 @@ async function loadAll(){
 
     // D1 procurement data must stay usable even if one heavy SH Server report is slow.
     await loadProcurement();
-    renderAll();applyProcurementView();
-    document.documentElement.style.visibility='visible';
-
+    // Initial load is a single atomic render. Previously we rendered once
+    // with D1-only data, exposed the New PR button, then replaced the screen
+    // when references, stock and prices arrived. That interrupted editing.
     const view=state.view||currentProcurementView(),canCost=canViewProcurementPrices();
     const tasks=[];
     if(['catalog','requests','approvals','sourcing','suppliers','receiving','norms'].includes(view))tasks.push(['Справочники',loadReferences]);
@@ -1738,7 +1763,12 @@ async function loadAll(){
       if(box)box.innerHTML='<div class="proc-empty">Не удалось загрузить документы ('+esc(message)+'). Это не означает, что они удалены. Нажмите «Обновить».</div>';
     }
     document.documentElement.style.visibility='visible';
-  }finally{setBusy(false);document.documentElement.style.visibility='visible'}
+  }finally{
+    state.loadingData=false;
+    setBusy(false);
+    document.documentElement.style.visibility='visible';
+    window.SHModuleBootstrap?.ready();
+  }
 }
 async function saveSettings(e){
   e.preventDefault();try{setBusy(true);const m=num($('proc-limit-manager').value),d=num($('proc-limit-director').value);if(d<m)throw Error('Лимит директора должен быть не меньше лимита менеджера.');const settings={approvalTiers:[{code:'MANAGER',name:'Менеджер',maxAmount:m},{code:'DIRECTOR',name:'Директор',maxAmount:d},{code:'OWNER',name:'Владелец',maxAmount:null}],autoNeedEnabled:$('proc-auto-needs').checked,defaultLeadDays:Math.max(0,Math.round(num($('proc-lead-days').value))),allowOverReceipt:$('proc-over-receipt').checked,targetMode:'MAX_OR_MIN'};await procPost('save-settings',{settings});await reloadProc();toast('Настройки закупок сохранены.')}catch(err){toast(err.message||String(err),'error')}finally{setBusy(false)}

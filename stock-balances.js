@@ -224,7 +224,7 @@ async function load(){
     render();
   }catch(e){
     rows=[];render();setStatus('Ошибка');setMessage(e.message||String(e),true);
-  }finally{btn.disabled=false}
+  }finally{btn.disabled=false;window.SHModuleBootstrap?.ready()}
 }
 
 function bind(){
