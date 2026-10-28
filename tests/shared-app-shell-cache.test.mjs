@@ -6,8 +6,8 @@ const canonical="/app-shell.js?v=20261028-module-stable1";
 const keyPages=["persistent-workspace.html","dashboard.html","procurement.html",
   "internal-orders.html","stock-balances.html","stock-movements.html",
   "nomenclature.html","reports.html","hr-timesheet.html","hr-payroll.html",
-  "hr-employees.html","finance.html"];
-test("core screens reuse the same cache key for their permission-aware app shell",()=>{
+  "hr-employees.html","finance.html","hr-timeclock.html","hr-payroll-accounting.html"];
+test("14 core screens reuse the same cache key for their permission-aware app shell",()=>{
   for(const page of keyPages){
     const html=read(page);
     const urls=[...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']*app-shell\.js[^"']*)["']/gi)].map(x=>x[1]);
