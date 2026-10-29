@@ -1,21 +1,19 @@
 (() => {
   'use strict';
 
-  const MENU_KEY = 'horeca_qr_menu_v1';
   let publishing = false;
   const scriptLoads = new Map();
 
-  function readMenuState() {
-    try {
-      const parsed = JSON.parse(localStorage.getItem(MENU_KEY) || 'null');
-      return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch (_) {
-      return null;
-    }
+  // The editor owns the restaurant-scoped state. Never use the old global
+  // localStorage key: it can contain another restaurant's obsolete menu.
+  async function readMenuState(binding) {
+    if (!window.SH_QRMenuState?.read) throw new Error('QR Menu ещё загружается. Обновите страницу.');
+    return window.SH_QRMenuState.read(binding);
   }
 
-  function saveMenuState(state) {
-    try { localStorage.setItem(MENU_KEY, JSON.stringify(state)); } catch (_) {}
+  async function saveMenuState(binding, updater) {
+    if (!window.SH_QRMenuState?.update) throw new Error('QR Menu ещё загружается. Обновите страницу.');
+    return window.SH_QRMenuState.update(binding, updater);
   }
 
   function loadScript(src, id) {
@@ -36,11 +34,8 @@
 
   async function ensureSyncController() {
     if (window.SH_QRMenuSyncContextLoaded) return;
-    const before = localStorage.getItem(MENU_KEY) || '';
     try {
-      await loadScript('/qr-menu-sync-context.js?v=20260915-2', 'qr-menu-sync-context-loader');
-      const after = localStorage.getItem(MENU_KEY) || '';
-      if (before !== after && document.readyState !== 'loading') location.reload();
+      await loadScript('/qr-menu-sync-context.js?v=20261029-restaurant-scoped1', 'qr-menu-sync-context-loader');
     } catch (error) {
       console.warn('QR Menu sync controller failed to load', error);
     }
@@ -179,7 +174,7 @@
       const binding = await window.SH_IikoContext.getBinding(true);
       if (!binding?.connection) throw new Error('Подключение SH Server не настроено. Откройте «Настройки».');
 
-      const state = readMenuState();
+      const state = await readMenuState(binding);
       if (!state || !Array.isArray(state.categories) || !Array.isArray(state.dishes)) {
         throw new Error('Данные QR Menu не найдены. Обновите страницу и попробуйте снова.');
       }
@@ -206,9 +201,11 @@
       const data = await response.json().catch(() => ({ success: false, message: 'Некорректный ответ API' }));
       if (!response.ok || !data.success) throw new Error(data.message || `HTTP ${response.status}`);
 
-      state.publicUrl = data.publicUrl;
-      state.organizationId = data.organizationId;
-      saveMenuState(state);
+      await saveMenuState(binding, current => ({
+        ...current,
+        publicUrl: data.publicUrl,
+        organizationId: data.organizationId
+      }));
       await renderPublished(data.publicUrl);
     } catch (error) {
       alert(`Ошибка публикации:\n${error?.message || error}`);
@@ -219,9 +216,15 @@
     }
   }
 
-  function restorePublishedResult() {
-    const state = readMenuState();
-    if (state?.publicUrl) renderPublished(state.publicUrl).catch(error => console.warn('Published QR restore failed', error));
+  async function restorePublishedResult() {
+    try {
+      const binding = await window.SH_IikoContext?.getBinding?.(true);
+      if (!binding?.connection) return;
+      const state = await readMenuState(binding);
+      if (state?.publicUrl) await renderPublished(state.publicUrl);
+    } catch (error) {
+      console.warn('Published QR restore failed', error);
+    }
   }
 
   ensureSyncController();
