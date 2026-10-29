@@ -16,19 +16,24 @@ export async function onRequestGet({request,env}){
     ]);
     if(cfg&&(cfg.owner_id!==ctx.ownerId||cfg.restaurant_id!==ctx.restaurantId))
       throw fail('CROSS_WORKSPACE_FORBIDDEN','QR Menu принадлежит другому рабочему пространству',403);
-    const posReady=cfg?.pos_plugin_id
-      ?await env.DB.prepare(`SELECT last_seen_at FROM qr_pos_bridge_capabilities
-        WHERE restaurant_id=?1 AND plugin_id=?2 AND contract_version=1
-          AND can_create_order=1 AND can_ack_fiscal=1 AND can_print_kitchen=1 LIMIT 1`)
+    const posStatus=cfg?.pos_plugin_id
+      ?await env.DB.prepare(`SELECT last_seen_at,can_create_order,can_ack_fiscal,can_print_kitchen
+        FROM qr_pos_bridge_capabilities
+        WHERE restaurant_id=?1 AND plugin_id=?2 AND contract_version=1 LIMIT 1`)
         .bind(ctx.restaurantId,cfg.pos_plugin_id).first()
       :null;
-    const bridgeReady=Boolean(posReady&&Date.now()-Date.parse(posReady.last_seen_at)<5*60*1000&&Date.now()>=Date.parse(posReady.last_seen_at));
+    const lastSeen=Date.parse(posStatus?.last_seen_at||'');
+    const bridgeConnected=Boolean(posStatus&&Number.isFinite(lastSeen)&&
+      lastSeen<=Date.now()&&Date.now()-lastSeen<5*60*1000);
+    const bridgeReady=bridgeConnected&&Number(posStatus.can_create_order)===1&&
+      Number(posStatus.can_ack_fiscal)===1&&Number(posStatus.can_print_kitchen)===1;
     const origin=new URL(request.url).origin;
     const url=origin+'/menu.html?id='+encodeURIComponent(ctx.menu.public_slug);
     return response({success:true,restaurantId:ctx.restaurantId,menuName:ctx.menu.restaurant_name,
       menuUrl:url,
       settings:{serviceMode:cfg?.service_mode||'TABLE',
-        orderingEnabled:Boolean(cfg?.ordering_enabled),posPluginId:cfg?.pos_plugin_id||'',posBridgeReady:bridgeReady,
+        orderingEnabled:Boolean(cfg?.ordering_enabled),posPluginId:cfg?.pos_plugin_id||'',
+        posBridgeConnected:bridgeConnected,posBridgeReady:bridgeReady,
         onlinePaymentEnabled:false},
       tables:(tables.results||[]).map(t=>({...t,active:Boolean(t.active),
         url:url+'&table='+encodeURIComponent(t.table_key)})),
@@ -79,7 +84,7 @@ export async function onRequestPost({request,env}){
           ordering_enabled=excluded.ordering_enabled,pos_plugin_id=excluded.pos_plugin_id,
           updated_at=excluded.updated_at`)
         .bind(ctx.ownerId,ctx.menu.id,ctx.restaurantId,mode,enabled,pluginId,now).run();
-      return response({success:true,notice:enabled?'Приём QR-заказов включён. Без расширения POS-плагина они остаются ожидающими.':'Приём заказов выключен.'});
+      return response({success:true,notice:enabled?'Приём тестовых QR-заказов включён: POS-мост подтвердил полную готовность.':'Приём заказов выключен.'});
     }
     if(action==='addTable'){
       const name=clean(body.label,48),posId=clean(body.posTableId,120);
