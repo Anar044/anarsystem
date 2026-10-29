@@ -71,7 +71,7 @@ function fixture({response={success:true,validation:{documentNumber:"SH-2026-102
   const fetchStub=async()=>{sends++;
     if(slowResponse)await slowResponse.promise;
     if(networkError)throw networkError;
-    return {ok:response.success!==false,status:response.success===false?422:200,json:async()=>response};
+    return {ok:response.success!==false,status:response.httpStatus||(response.success===false?422:200),json:async()=>response};
   };
   const scope={document:doc,window:{SH_IikoContext:{}},fetch:fetchStub,
     console:{warn(){}},Date,Number,JSON,Error,Set,Map,Array,Object,String,URL,
@@ -140,7 +140,7 @@ test("Network ambiguity and markImported errors never silently authorize a secon
   }
 });
 test("Gateway failures after submission are treated as ambiguous to prevent duplicate invoices",async()=>{
-  const h=fixture({response:{success:false,message:"Gateway timeout"}});
+  const h=fixture({response:{success:false,httpStatus:502,message:"Gateway timeout"}});
   await h.api.importToIiko(false);
   assert.equal(h.overlay.dataset.state,"warning");
   assert.equal(h.api.isUncertain("doc-1"),true);
