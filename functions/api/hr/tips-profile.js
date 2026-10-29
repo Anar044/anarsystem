@@ -96,9 +96,37 @@ export async function onRequestOptions(){return new Response(null,{status:204,he
 export async function onRequestGet({request,env}){
   try{
     const ctx=await context(request,env);
-    const employeeId=clean(new URL(request.url).searchParams.get('id'));
-    if(!employeeId)return fail(400,'MISSING_ID','Не указан сотрудник');
+    const params=new URL(request.url).searchParams;
+    const employeeId=clean(params.get('id'));
     await ensure(env.DB);
+    if(params.get('list')==='1'){
+      if(!ctx.canViewBank)return fail(403,'TIPS_FINANCE_REQUIRED','Требуется доступ к финансам');
+      const restaurant=(ctx.scope.selectedRestaurants||[]).find(r=>String(r.id)===String(ctx.restaurantId));
+      const deptCode=restaurant?.code||ctx.restaurantId;
+      const rows=await env.DB.prepare(`SELECT e.iiko_employee_id AS id,e.display_name,e.first_name,e.last_name,
+        e.role_name,e.role_code,e.employee_code,e.is_deleted,e.fire_date,
+        s.personal_code,s.card_last4,s.payout_status,s.recipient_ref,
+        r.pos_waiter_id,r.guest_enabled
+        FROM hr_employees e
+        LEFT JOIN qr_tip_staff s ON s.owner_id=e.user_id AND s.employee_id=e.iiko_employee_id
+        LEFT JOIN qr_tip_staff_restaurants r ON r.owner_id=e.user_id AND r.employee_id=e.iiko_employee_id AND r.restaurant_id=?2
+        WHERE e.user_id=?1 AND TRIM(e.employee_code)<>'' AND
+          (?3=0 OR UPPER(e.department_code)=UPPER(?4) OR UPPER(e.department_code)=UPPER(?2)
+          OR EXISTS (SELECT 1 FROM hr_employee_departments m
+            WHERE m.user_id=e.user_id AND m.iiko_employee_id=e.iiko_employee_id
+              AND (UPPER(m.department_code)=UPPER(?4) OR UPPER(m.department_code)=UPPER(?2))))
+        ORDER BY e.is_deleted ASC,e.last_name COLLATE NOCASE,e.first_name COLLATE NOCASE
+        LIMIT 500`).bind(ctx.owner,ctx.restaurantId,ctx.scope.isChain?1:0,deptCode).all();
+      return json({success:true,restaurantId:ctx.restaurantId,items:(rows.results||[]).map(e=>({
+        id:e.id,name:[e.last_name,e.first_name].filter(Boolean).join(' ')||e.display_name||e.employee_code,
+        code:e.employee_code,roleName:e.role_name||e.role_code,
+        active:!e.is_deleted&&!e.fire_date,guestEnabled:Boolean(e.guest_enabled),
+        cardLast4:e.card_last4||'',payoutStatus:e.payout_status||'NOT_LINKED',
+        cardConnected:Boolean(e.recipient_ref&&e.payout_status==='VERIFIED'),
+        hasPersonalCode:Boolean(e.personal_code),posWaiterId:e.pos_waiter_id||''
+      }))});
+    }
+    if(!employeeId)return fail(400,'MISSING_ID','Не указан сотрудник');
     const employee=await findEmployee(env.DB,ctx,employeeId);
     const config=await profile(env.DB,ctx,employee);
     return json(dto(employee,config,ctx.restaurantId,ctx.canEdit,ctx.canViewBank));
@@ -151,10 +179,7 @@ export async function onRequestPost({request,env}){
       if(cardHolder&&!/^[A-Z\s.'-]{3,80}$/.test(cardHolder))return fail(400,'INVALID_CARD_HOLDER','Имя владельца карты должно быть латиницей, как на карте');
       if(posWaiterId&&!/^[\w.:/-]{1,120}$/.test(posWaiterId))return fail(400,'INVALID_POS_ID','Некорректный ID официанта на кассе');
       if(enabled&&(employee.is_deleted||employee.fire_date))return fail(409,'EMPLOYEE_INACTIVE','Уволенному сотруднику нельзя включить чаевые');
-      // Metadata cannot mark a bank card verified. Only a future authenticated provider flow can do this.
-      await env.DB.prepare(`UPDATE qr_tip_staff SET card_holder=?1,card_last4=?2,bank_name=?3,
-        updated_at=?4 WHERE owner_id=?5 AND employee_id=?6`)
-        .bind(cardHolder,last4,bankName,t,ctx.owner,id).run();
+      // The POS mapping is unique per restaurant; do not mutate card metadata if it conflicts.
       try{
         await env.DB.prepare(`INSERT INTO qr_tip_staff_restaurants
           (owner_id,restaurant_id,employee_id,pos_waiter_id,guest_enabled,created_at,updated_at)
@@ -166,6 +191,10 @@ export async function onRequestPost({request,env}){
         if(/UNIQUE|constraint/i.test(String(e.message)))return fail(409,'DUPLICATE_POS_ID','Этот ID кассы уже назначен другому сотруднику');
         throw e;
       }
+      // Metadata is informational only and cannot activate payouts. Never accept PAN/CVV.
+      await env.DB.prepare(`UPDATE qr_tip_staff SET card_holder=?1,card_last4=?2,bank_name=?3,
+        updated_at=?4 WHERE owner_id=?5 AND employee_id=?6`)
+        .bind(cardHolder,last4,bankName,t,ctx.owner,id).run();
     }
     const updated=await profile(env.DB,ctx,employee);
     await logAuditEvent({request,env,connection:privateConnection(ctx.auth.state),action:'UPDATE',
