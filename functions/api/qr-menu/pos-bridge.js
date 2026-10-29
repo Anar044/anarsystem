@@ -25,13 +25,13 @@ export async function onRequestPost({request,env}){
     const action=clean(body.action,32);
     const t=iso();
     if(action==='hello'){
-      if(body.contractVersion!==1||body.canCreateOrder!==true||body.canAcknowledgeFiscal!==true)
+      if(body.contractVersion!==1||body.canCreateOrder!==true||body.canAcknowledgeFiscal!==true||body.canPrintKitchen!==true)
         throw fail('QR_BRIDGE_VERSION_UNSUPPORTED','Плагин должен подтвердить контракт версии 1 для заказов и фискальных подтверждений',409);
       await env.DB.prepare(`INSERT INTO qr_pos_bridge_capabilities(
-        restaurant_id,plugin_id,contract_version,can_create_order,can_ack_fiscal,last_seen_at)
-        VALUES(?1,?2,1,1,1,?3)
+        restaurant_id,plugin_id,contract_version,can_create_order,can_ack_fiscal,can_print_kitchen,last_seen_at)
+        VALUES(?1,?2,1,1,1,1,?3)
         ON CONFLICT(restaurant_id,plugin_id) DO UPDATE SET
-        contract_version=excluded.contract_version,can_create_order=1,can_ack_fiscal=1,
+        contract_version=excluded.contract_version,can_create_order=1,can_ack_fiscal=1,can_print_kitchen=1,
         last_seen_at=excluded.last_seen_at`)
         .bind(identity.departmentId,identity.pluginId,t).run();
       return response({success:true,contractVersion:1,accepted:true});
