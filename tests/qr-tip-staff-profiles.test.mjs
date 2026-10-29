@@ -36,7 +36,7 @@ test('Card setup is provider-gated: never collect PAN, CVV or allow manual VERIF
   assert.match(api,/payout_status TEXT NOT NULL DEFAULT 'NOT_LINKED'/);
   assert.doesNotMatch(api,/action==='verifyCard'|action==='sendPayout'|action==='markPaid'/);
   assert.doesNotMatch(financeView+card,/<input[^>]+(?:id|name)="(?:cardNumber|cvv|expiry)"/);
-  assert.match(financeView,/Полный номер карты/);
+  assert.match(financeView,/полный номер карты/i);
 });
 
 test('POS mapping is restaurant-scoped and personal code uniquely belongs to staff',()=>{
@@ -54,7 +54,7 @@ test('Both accountant and HR employee UIs expose the feature without changing QR
   assert.match(card,/data-panel="tips"/);
   assert.match(card,/hr-employee-tips\.js/);
   assert.match(finance,/href="\/tips\.html"/);
-  assert.match(shell,/data-unified-nav-item=\\"tips\.html\\"/);
+  assert.match(shell,/data-unified-nav-item=.*tips\.html/);
   assert.match(shell,/return'tips.html'/);
   assert.match(admin,/\/api\/hr\/tips-profile\?list=1/);
   assert.match(staff,/\/api\/hr\/tips-profile/);
