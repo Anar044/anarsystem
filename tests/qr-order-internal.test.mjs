@@ -100,7 +100,7 @@ test('Kitchen dispatch is separate from POS creation and real fiscal closure',()
   assert.match(bridge,/prev\.pos_order_id!==posId/);
   assert.match(bridge,/prev\.kitchen_status!=='NOT_SENT'/);
   assert.match(bridge,/kitchen_status='NOT_SENT'/);
-  assert.match(bridge,/canPrintKitchen!==true/);
+  assert.match(bridge,/body\.canPrintKitchen!==canCreate/);
   assert.match(publicApi,/can_print_kitchen=1/);
   assert.match(adminApi,/can_print_kitchen=1/);
   assert.match(guest,/order\.kitchenStatus==='PRINTED'/);
@@ -131,4 +131,71 @@ test('Reloading a QR menu cannot re-submit an already confirmed basket',()=>{
   assert.match(guest,/if\(submitting\|\|!enabled\|\|receiptTicket\)return/);
   assert.match(guest,/sessionStorage\.removeItem\(key\(\)\)/);
   assert.match(guest,/Начать новый заказ/);
+});
+
+
+test('Diagnostic HTTPS hello cannot receive or dispatch POS orders',async()=>{
+  const mockedDB={cap:null,writes:[],prepare(sql){
+    return{bind:(...params)=>({
+      run:async()=>{this.writes.push({sql,params});if(sql.includes('INSERT INTO qr_pos_bridge_capabilities'))this.cap={
+        can_create_order:params[2],can_ack_fiscal:params[2],can_print_kitchen:params[2],last_seen_at:params[3]
+      };return{success:true}},
+      first:async()=>{
+        if(sql.includes('SELECT can_create_order,can_ack_fiscal,can_print_kitchen,last_seen_at'))
+          return this.cap;
+        return null
+      }
+    })}
+  }};
+  const json=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'Content-Type':'application/json'}});
+  const invalid=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
+  const source=bridge.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
+  const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
+    source+';return{onRequestPost};')(
+    async()=>{},json,(status,code,message)=>json({success:false,code,message},status),
+    invalid,(v,n=180)=>String(v??'').trim().slice(0,n),async()=>({verified:true})
+  );
+  const env={QR_POS_BRIDGE_TOKEN:'test-secret',DB:mockedDB};
+  async function send(action,options={},secret='test-secret'){
+    const request=new Request('https://qr-staging.example/api/qr-menu/pos-bridge',{
+      method:'POST',headers:{'Content-Type':'application/json','X-QR-Bridge-Token':secret},
+      body:JSON.stringify({action,pluginId:'test-plugin',departmentId:'test-department',...options})
+    });
+    const res=await onRequestPost({request,env});
+    return{status:res.status,body:await res.json()};
+  }
+  const diagnostics=await send('hello',{
+    contractVersion:1,canCreateOrder:false,canAcknowledgeFiscal:false,canPrintKitchen:false
+  });
+  assert.equal(diagnostics.status,200);
+  assert.equal(diagnostics.body.accepted,true);
+  assert.equal(diagnostics.body.orderingReady,false);
+  assert.equal(mockedDB.cap.can_create_order,0);
+  const blockedPull=await send('pull');
+  assert.equal(blockedPull.status,409);
+  assert.equal(blockedPull.body.code,'QR_POS_NOT_READY');
+  assert.equal(mockedDB.writes.filter(x=>x.sql.includes('UPDATE qr_guest_orders')).length,0);
+  const inconsistent=await send('hello',{
+    contractVersion:1,canCreateOrder:true,canAcknowledgeFiscal:true,canPrintKitchen:false
+  });
+  assert.equal(inconsistent.status,409);
+  assert.equal(inconsistent.body.code,'QR_BRIDGE_VERSION_UNSUPPORTED');
+  const full=await send('hello',{
+    contractVersion:1,canCreateOrder:true,canAcknowledgeFiscal:true,canPrintKitchen:true
+  });
+  assert.equal(full.status,200);
+  assert.equal(full.body.orderingReady,true);
+  assert.equal(mockedDB.cap.can_create_order,1);
+  const wrongSecret=await send('hello',{
+    contractVersion:1,canCreateOrder:false,canAcknowledgeFiscal:false,canPrintKitchen:false
+  },'wrong-secret');
+  assert.equal(wrongSecret.status,401);
+  assert.equal(wrongSecret.body.code,'QR_BRIDGE_FORBIDDEN');
+});
+test('Admin explicitly distinguishes diagnostic connection from POS readiness',()=>{
+  assert.match(adminApi,/posBridgeConnected:bridgeConnected,posBridgeReady:bridgeReady/);
+  assert.match(admin,/state\.settings\.posBridgeConnected/);
+  assert.match(admin,/Режим диагностики: заказы и печать отключены/);
+  assert.match(bridge,/Number\(caps\.can_create_order\)!==1/);
+  assert.match(bridge,/QR_POS_NOT_READY/);
 });
