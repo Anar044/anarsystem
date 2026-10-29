@@ -61,6 +61,7 @@ function fixture({response={success:true,validation:{documentNumber:"SH-2026-102
     "function validateDraftArithmetic(){const blocked=saveBusy||saveUncertainIds.has(current?.id)||current?.status==='IMPORTED';$('saveDraftBtn').disabled=blocked;$('saveProcessBtn').disabled=blocked;return {valid:true}}");
   source=replaceBetween(source,"function collectDraft(){","async function importToIiko(",
     "function collectDraft(){if(globalThis.__badDraft)throw Error('Не выбран склад');return {documentNumber:'SH-2026-1029',documentTotal:60,items:[{amount:1,price:60}]}}");
+  source=source.trimEnd();
   assert.ok(source.endsWith("})();"));
   source=source.slice(0,-5)+"globalThis.__api={importToIiko,setCurrent:d=>current=d,closeSaveDialog,getBusy:()=>saveBusy,isUncertain:id=>saveUncertainIds.has(id)};})();";
   const doc={readyState:"loading",getElementById:id=>{
