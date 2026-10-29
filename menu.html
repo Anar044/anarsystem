@@ -111,6 +111,8 @@ body[data-menu-theme="dark"] .detail-composition{background:#222;color:#ddd}
 body[data-menu-theme="dark"] .spotlight-open{border-color:#555;color:#eee}
 body[data-menu-theme="dark"] .guest-float button{background:#f2f2f2;color:#171717}
 @media(max-width:720px){
+ .layout{grid-template-columns:1fr}
+ .sidebar{display:none}
  .page{max-width:none;box-shadow:none}
  .hero{min-height:51svh!important;max-height:590px}
  .hero-content{min-height:51svh;max-height:590px;padding:21px 17px 20px}
@@ -167,7 +169,82 @@ let MENU_DATA=null,DESIGN_DATA=null;
 function openDish(id){const x=(MENU_DATA?.dishes||[]).find(d=>String(d.id)===String(id));if(!x)return;const d=DESIGN_DATA||DEFAULT;const o=document.getElementById('detailOverlay'),p=document.getElementById('detailPhoto');if(x.photo)setImage(p,x.photo,x.name);else p.textContent='🍽️';document.getElementById('detailName').textContent=x.name||'';document.getElementById('detailDesc').textContent=(d.showDescriptions?x.desc:'')||'';const c=document.getElementById('detailComposition');c.textContent=x.composition?'Состав: '+x.composition:'';c.style.display=d.showComposition&&x.composition?'block':'none';const pr=document.getElementById('detailPrice');pr.textContent=d.showPrices?Number(x.price||0).toFixed(2)+' '+(x.currency||'AZN'):'';o.classList.add('show');o.setAttribute('aria-hidden','false');document.body.style.overflow='hidden'}
 function closeDish(){const o=document.getElementById('detailOverlay');o.classList.remove('show');o.setAttribute('aria-hidden','true');document.body.style.overflow=''}
 document.getElementById('detailClose').onclick=closeDish;document.getElementById('detailOverlay').addEventListener('click',e=>{if(e.target.id==='detailOverlay')closeDish()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDish()});
-async function load(){const id=new URLSearchParams(location.search).get('id');const content=document.getElementById('content');if(!id){content.innerHTML='<div class="error">Ссылка на меню неполная.</div>';return}try{const r=await fetch('/api/qr-menu/public?id='+encodeURIComponent(id),{cache:'no-store'});const data=await r.json();if(!r.ok||!data.success)throw new Error(data.message||'Меню не найдено');DESIGN_DATA=applyDesign(data.design);MENU_DATA=data.menu||{};if(data.updatedAt)document.getElementById('updated').textContent='Обновлено '+new Date(data.updatedAt).toLocaleString('ru-RU');const cats=MENU_DATA.categories||[],dishes=(MENU_DATA.dishes||[]).filter(x=>x.isAvailable!==false);const nav=document.getElementById('catNav');nav.innerHTML=cats.map(c=>'<a href="#cat-'+encodeURIComponent(c.id)+'">'+(c.photo?'<img src="'+esc(c.photo)+'" class="cat-photo" alt="">':'')+esc(c.name)+'</a>').join('');const used=new Set();let html='';for(const c of cats){const list=dishes.filter(x=>String(x.cat)===String(c.id));if(!list.length)continue;used.add(String(c.id));html+='<h2 class="cat" id="cat-'+encodeURIComponent(c.id)+'">'+(c.photo?'<img src="'+esc(c.photo)+'" class="cat-photo" alt="">':'')+'<span>'+esc(c.name)+'</span><span class="cat-count">'+list.length+'</span></h2>'+list.map(x=>dishHtml(x,DESIGN_DATA)).join('')}const uncategorized=dishes.filter(x=>!used.has(String(x.cat)));if(uncategorized.length)html+='<h2 class="cat" id="cat-other"><span>Меню</span><span class="cat-count">'+uncategorized.length+'</span></h2>'+uncategorized.map(x=>dishHtml(x,DESIGN_DATA)).join('');content.innerHTML=html||'<div class="loading">В меню пока нет доступных блюд.</div>';content.querySelectorAll('.dish').forEach(el=>el.addEventListener('click',()=>openDish(el.dataset.dishId)));document.getElementById('feedback').style.display='block'}catch(e){content.innerHTML='<div class="error">Не удалось загрузить меню.<br><br>'+esc(e.message)+'</div>'}}
+document.getElementById('detailBack').onclick=closeDish;
+// Presentation-only enhancements. Menu data, public fetch, publishing, prices,
+// inventory and ordering APIs are not altered by this guest UI layer.
+function enhanceGuestView(dishes,d){
+  const feature=dishes.find(x=>x.photo)||dishes[0];
+  const spotlight=document.getElementById('spotlight');
+  if(feature){
+    spotlight.classList.add('visible');
+    document.getElementById('spotlightName').textContent=feature.name||'';
+    const featurePrice=document.getElementById('spotlightPrice');
+    featurePrice.textContent=d.showPrices?Number(feature.price||0).toFixed(2)+' '+(feature.currency||'AZN'):'';
+    featurePrice.hidden=!d.showPrices;
+    document.getElementById('spotlightOpen').onclick=()=>openDish(feature.id);
+    // Prefer the restaurant's configured banner; use a real menu photo only
+    // when no custom banner is set, never introduce placeholder stock photos.
+    if(!d.hero&&feature.photo){
+      const photo=document.getElementById('heroPhoto');
+      setImage(photo,feature.photo,feature.name||'Блюдо ресторана');
+      photo.classList.add('show');
+    }
+  }else spotlight.classList.remove('visible');
+  document.getElementById('menuItemCount').textContent=dishes.length?String(dishes.length)+' поз.':'';
+  document.getElementById('floatMenuText').textContent='Меню';
+  const searchButton=document.getElementById('menuSearchButton');
+  const searchWrap=document.getElementById('menuSearchWrap');
+  const searchInput=document.getElementById('menuSearchInput');
+  function applySearch(){
+    const term=searchInput.value.trim().toLocaleLowerCase();
+    const cards=[...document.querySelectorAll('#content .dish')];
+    cards.forEach(card=>{
+      card.hidden=!!term&&!card.textContent.toLocaleLowerCase().includes(term);
+      card.style.display=card.hidden?'none':'';
+    });
+    for(const heading of document.querySelectorAll('#content .cat')){
+      let next=heading.nextElementSibling,visible=false;
+      while(next&&!next.classList.contains('cat')){
+        if(next.classList.contains('dish')&&!next.hidden)visible=true;
+        next=next.nextElementSibling;
+      }
+      heading.hidden=!visible;
+      heading.style.display=visible?'':'none';
+    }
+    let empty=document.getElementById('menuSearchEmpty');
+    if(!empty){empty=document.createElement('p');empty.id='menuSearchEmpty';empty.className='search-empty';empty.hidden=true;document.getElementById('content').appendChild(empty)}
+    empty.hidden=!term||cards.some(card=>!card.hidden);
+    empty.textContent='По вашему запросу блюд не найдено.';
+  }
+  function openSearch(){
+    const show=!searchWrap.classList.contains('show');
+    searchWrap.classList.toggle('show',show);
+    searchButton.setAttribute('aria-expanded',String(show));
+    if(show){searchInput.focus();searchWrap.scrollIntoView({block:'nearest',behavior:'smooth'})}
+    else{searchInput.value='';applySearch()}
+  }
+  searchButton.onclick=openSearch;
+  document.getElementById('floatSearch').onclick=()=>{
+    if(!searchWrap.classList.contains('show'))openSearch();
+    else{searchInput.focus();searchWrap.scrollIntoView({block:'center',behavior:'smooth'})}
+  };
+  searchInput.oninput=applySearch;
+  document.getElementById('floatMenu').onclick=()=>document.getElementById('catNav').scrollIntoView({block:'start',behavior:'smooth'});
+  const nav=document.getElementById('catNav');
+  const links=[...nav.querySelectorAll('a')];
+  function activeLink(link){links.forEach(a=>a.classList.toggle('active',a===link));if(link)link.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'})}
+  if(links.length)activeLink(links[0]);
+  links.forEach(link=>link.addEventListener('click',()=>activeLink(link)));
+  for(const card of document.querySelectorAll('#content .dish')){
+    card.tabIndex=0;card.setAttribute('role','button');
+    card.setAttribute('aria-label','Подробнее: '+(card.querySelector('.name')?.textContent||'Блюдо'));
+    card.addEventListener('keydown',e=>{
+      if(e.key==='Enter'||e.key===' '){e.preventDefault();openDish(card.dataset.dishId)}
+    });
+  }
+}
+
+async function load(){const id=new URLSearchParams(location.search).get('id');const content=document.getElementById('content');if(!id){content.innerHTML='<div class="error">Ссылка на меню неполная.</div>';return}try{const r=await fetch('/api/qr-menu/public?id='+encodeURIComponent(id),{cache:'no-store'});const data=await r.json();if(!r.ok||!data.success)throw new Error(data.message||'Меню не найдено');DESIGN_DATA=applyDesign(data.design);MENU_DATA=data.menu||{};if(data.updatedAt)document.getElementById('updated').textContent='Обновлено '+new Date(data.updatedAt).toLocaleString('ru-RU');const cats=MENU_DATA.categories||[],dishes=(MENU_DATA.dishes||[]).filter(x=>x.isAvailable!==false);const nav=document.getElementById('catNav');nav.innerHTML=cats.map(c=>'<a href="#cat-'+encodeURIComponent(c.id)+'">'+(c.photo?'<img src="'+esc(c.photo)+'" class="cat-photo" alt="">':'')+esc(c.name)+'</a>').join('');const used=new Set();let html='';for(const c of cats){const list=dishes.filter(x=>String(x.cat)===String(c.id));if(!list.length)continue;used.add(String(c.id));html+='<h2 class="cat" id="cat-'+encodeURIComponent(c.id)+'">'+(c.photo?'<img src="'+esc(c.photo)+'" class="cat-photo" alt="">':'')+'<span>'+esc(c.name)+'</span><span class="cat-count">'+list.length+'</span></h2>'+list.map(x=>dishHtml(x,DESIGN_DATA)).join('')}const uncategorized=dishes.filter(x=>!used.has(String(x.cat)));if(uncategorized.length)html+='<h2 class="cat" id="cat-other"><span>Меню</span><span class="cat-count">'+uncategorized.length+'</span></h2>'+uncategorized.map(x=>dishHtml(x,DESIGN_DATA)).join('');content.innerHTML=html||'<div class="loading">В меню пока нет доступных блюд.</div>';content.querySelectorAll('.dish').forEach(el=>el.addEventListener('click',()=>openDish(el.dataset.dishId)));document.getElementById('feedback').style.display='block';enhanceGuestView(dishes,DESIGN_DATA)}catch(e){content.innerHTML='<div class="error">Не удалось загрузить меню.<br><br>'+esc(e.message)+'</div>'}}
 load();
 </script>
 </body>
