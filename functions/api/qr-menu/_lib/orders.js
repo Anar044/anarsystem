@@ -42,7 +42,7 @@ export async function ensureOrders(db){
       table_label TEXT NOT NULL DEFAULT '',pos_table_id TEXT NOT NULL DEFAULT '',
       service_mode TEXT NOT NULL,items_json TEXT NOT NULL,
       total_minor INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'AZN',
-      guest_note TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'AWAITING_POS',
+      guest_note TEXT NOT NULL DEFAULT '',origin_hash TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'AWAITING_POS',
       payment_state TEXT NOT NULL DEFAULT 'UNPAID',payment_method TEXT NOT NULL DEFAULT 'PAY_AT_POS',
       pos_plugin_id TEXT NOT NULL DEFAULT '',pos_order_id TEXT NOT NULL DEFAULT '',
       pos_order_number TEXT NOT NULL DEFAULT '',
@@ -63,7 +63,7 @@ export async function ensureOrders(db){
 }
 export async function adminContext(request,env){
   const state=await loadRequestIikoState(request,env);
-  if(!state?.user)return fail('AUTH_REQUIRED','Требуется авторизация',401);
+  if(!state?.user)throw fail('AUTH_REQUIRED','Требуется авторизация',401);
   if(!state.access?.allowed||!hasPermission(state.access,'qr.manage'))
     throw fail('QR_MANAGE_FORBIDDEN','Нет разрешения управлять QR Menu',403);
   const ownerId=state.storageUserId||state.user.id;
