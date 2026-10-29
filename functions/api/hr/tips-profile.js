@@ -91,7 +91,7 @@ async function profile(db,ctx,employee){
     LEFT JOIN qr_tip_staff_restaurants r ON r.owner_id=s.owner_id AND r.employee_id=s.employee_id AND r.restaurant_id=?3
     WHERE s.owner_id=?1 AND s.employee_id=?2 LIMIT 1`).bind(ctx.owner,employee.iiko_employee_id,ctx.restaurantId).first();
 }
-const illegalBankInput=body=>Object.keys(body||{}).some(k=>/^(pan|cardNumber|fullCard|cvv|cvc|expiry|expiration|cardData)$/i.test(k));
+const illegalBankInput=body=>Object.keys(body||{}).some(k=>/^(?:pan|card[_-]?number|full[_-]?card|cvv|cvc|expiry|expiration|cardData)$/i.test(k));
 export async function onRequestOptions(){return new Response(null,{status:204,headers})}
 export async function onRequestGet({request,env}){
   try{
@@ -171,7 +171,7 @@ export async function onRequestPost({request,env}){
       if(!rotated)return fail(503,'CODE_COLLISION','Не удалось обновить персональный код');
     }else{
       const cardHolder=clean(body.cardHolder,80).toUpperCase();
-      const last4=clean(body.cardLast4,4);
+      const last4=String(body.cardLast4??'').trim();
       const bankName=clean(body.bankName,80);
       const posWaiterId=clean(body.posWaiterId,120);
       const enabled=body.guestEnabled===true;
