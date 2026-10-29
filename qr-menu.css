@@ -47,3 +47,70 @@
 .shqr-preview-dock{position:absolute;z-index:5;bottom:13px;left:50%;transform:translateX(-50%);width:83%;display:flex;justify-content:space-between;align-items:center;gap:7px}
 .shqr-preview-round{background:#151515;color:white;width:30px;height:30px;display:grid;place-items:center;border-radius:50%;font-size:15px}
 .shqr-preview-pill{border-radius:22px;background:#151515;color:#fff;padding:8px 15px;font:650 10px Inter,system-ui;white-space:nowrap}
+
+
+/* QR editor preview only: fixed photo + title + category strip.
+   Exactly the dish list scrolls; public menu.html and QR business logic unchanged.
+   This block is intentionally last to override legacy .phone-screen min-height. */
+.q-card.preview .phone-screen{
+  display:flex!important;
+  flex-direction:column!important;
+  height:clamp(445px,70dvh,640px)!important;
+  min-height:0!important;
+  max-height:640px!important;
+  padding-bottom:0!important;
+  overflow:hidden!important;
+  overscroll-behavior:contain;
+}
+.q-card.preview .phone-top{
+  flex:0 0 auto!important;
+}
+.q-card.preview .shqr-preview-categories{
+  flex:0 0 auto!important;
+  overflow-x:auto!important;
+  overflow-y:hidden!important;
+  scrollbar-width:none;
+}
+.q-card.preview .shqr-preview-categories::-webkit-scrollbar{
+  display:none;
+}
+.q-card.preview .phone-body{
+  flex:1 1 auto!important;
+  min-height:0!important;
+  max-height:none!important;
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+  align-content:start!important;
+  overscroll-behavior-y:contain;
+  -webkit-overflow-scrolling:touch;
+  scroll-behavior:smooth;
+  scrollbar-width:thin;
+  scrollbar-color:#c6cbd1 transparent;
+  padding-bottom:58px!important; /* Last dishes remain visible above fixed dock. */
+}
+.q-card.preview .phone-body::-webkit-scrollbar{
+  width:5px;
+}
+.q-card.preview .phone-body::-webkit-scrollbar-track{
+  background:transparent;
+}
+.q-card.preview .phone-body::-webkit-scrollbar-thumb{
+  background:#c6cbd1;
+  border-radius:999px;
+}
+.q-card.preview .phone-body::-webkit-scrollbar-thumb:hover{
+  background:#979fa9;
+}
+.q-card.preview .shqr-preview-dock{
+  flex:none;
+}
+@media(max-height:700px){
+  .q-card.preview .phone-hero{
+    height:190px!important;
+  }
+}
+@media(prefers-reduced-motion:reduce){
+  .q-card.preview .phone-body{
+    scroll-behavior:auto;
+  }
+}
