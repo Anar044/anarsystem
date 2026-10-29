@@ -56,6 +56,7 @@ export async function onRequestGet({request,env}){
         ORDER BY l.created_at ASC,l.liability_id ASC LIMIT 201`)
         .bind(ctx.owner,ctx.restaurantId).all(),
       env.DB.prepare(`SELECT COUNT(*) AS count_all,
+        COUNT(CASE WHEN state NOT IN ('PAID','CANCELLED') THEN 1 END) AS count_unpaid,
         COALESCE(SUM(CASE WHEN state NOT IN ('PAID','CANCELLED') THEN amount_minor ELSE 0 END),0) AS unpaid_minor,
         COALESCE(SUM(CASE WHEN state='PAID' THEN amount_minor ELSE 0 END),0) AS paid_minor
         FROM qr_tip_liabilities WHERE owner_id=?1 AND restaurant_id=?2`)
@@ -73,7 +74,7 @@ export async function onRequestGet({request,env}){
         providerBalanceVerified:false,payoutsEnabled:false},
       summary:{...evaluated.summary,
         unpaidMinor,paidMinor:Number(totals?.paid_minor||0),
-        unpaidCount:Number(totals?.count_all||0), // see total count separately for paid entries
+        unpaidCount:Number(totals?.count_unpaid||0),
         totalRecords:Number(totals?.count_all||0),
         shortfallMinor:account?.balance_minor===null||account?.balance_minor===undefined?null:Math.max(0,unpaidMinor-Number(account.balance_minor)),
         previewOnly:truncated},
