@@ -101,9 +101,9 @@ export async function onRequestPost({request,env}){
       const id=clean(body.orderId,100);
       const result=await env.DB.prepare(`UPDATE qr_guest_orders
         SET state='CANCELLED',updated_at=?1
-        WHERE id=?2 AND owner_id=?3 AND restaurant_id=?4 AND state IN ('AWAITING_POS','POS_FAILED')
+        WHERE id=?2 AND owner_id=?3 AND restaurant_id=?4 AND state='AWAITING_POS'
         RETURNING id`).bind(now,id,ctx.ownerId,ctx.restaurantId).first();
-      if(!result)throw fail('CANNOT_CANCEL','Заказ уже отправлен на кассу либо не найден. Отменяйте его через кассу.',409);
+      if(!result)throw fail('CANNOT_CANCEL','Заказ уже затронут кассовым обменом или не найден. Требуется проверка на кассе.',409);
       await env.DB.prepare(`INSERT INTO qr_order_events(id,order_id,owner_id,event_type,actor,created_at)
         VALUES(?1,?2,?3,'CANCELLED_BY_ADMIN','STAFF',?4)`)
         .bind(crypto.randomUUID(),id,ctx.ownerId,now).run();
