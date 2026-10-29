@@ -49,6 +49,7 @@
             <button class="hep-tab active" type="button" data-tab="basic">Основное</button>
             <button class="hep-tab" type="button" data-tab="work">Работа</button>
             <button class="hep-tab" type="button" data-tab="pay">Оплата</button>
+            <button class="hep-tab" type="button" data-tab="tips">Чаевые и карта</button>
             <button class="hep-tab" type="button" data-tab="schedule">Учёт времени</button>
             <button class="hep-tab" type="button" data-tab="leave">Отпуска</button>
             <button class="hep-tab" type="button" data-tab="history">История</button>
@@ -181,6 +182,43 @@
             </div>
           </section>
 
+          <section class="hep-panel" data-panel="tips" hidden>
+            <div class="hep-grid">
+              <article class="hep-card full">
+                <div class="hep-card-head">
+                  <div><div class="hep-card-title">Чаевые · QR Menu</div>
+                    <div class="hep-card-sub">Официант сопоставляется с ID сотрудника HR. Для каждого ресторана CHAIN настраивается видимость и ID на кассе; персональный код принадлежит сотруднику.</div></div>
+                  <span class="hep-source smart">Smart Horeca</span>
+                </div>
+                <div class="hep-fields">
+                  <label class="hep-field"><span>Персональный код официанта</span><div class="hep-readonly" id="shTipsCode">—</div>
+                    <small>Создаётся при первой настройке; действует для этого сотрудника во всех его ресторанах.</small></label>
+                  <label class="hep-field"><span>ID официанта на кассе (необязательно)</span>
+                    <input id="shTipsPos" autocomplete="off" maxlength="120" placeholder="Если отличается от HR ID">
+                    <small>Не вводите имя вместо идентификатора. Проверка соответствия на кассе будет добавлена с POS-интеграцией.</small></label>
+                  <label class="hep-field"><span>Владелец карты латиницей</span>
+                    <input id="shTipsHolder" autocomplete="off" maxlength="80" placeholder="NAME SURNAME"></label>
+                  <label class="hep-field"><span>Последние 4 цифры карты</span>
+                    <input id="shTipsLast4" inputmode="numeric" autocomplete="off" maxlength="4" placeholder="1234">
+                    <small>Полный номер карты, CVV и срок действия здесь не вводятся.</small></label>
+                  <label class="hep-field"><span>Банк (для справки)</span>
+                    <input id="shTipsBank" autocomplete="off" maxlength="80" placeholder="Название банка"></label>
+                  <label class="hep-field"><span>Привязка Payriff</span>
+                    <div class="hep-readonly" id="shTipsPayoutStatus">Не подключена</div>
+                    <small>Пока нет проверенной привязки Payriff, автоматические выплаты отключены. Чаевые должны ожидать подключения.</small></label>
+                  <label class="hep-field span2"><span>Отображать официанта гостям этого ресторана</span>
+                    <div><label><input type="checkbox" id="shTipsGuest"> Разрешить выбор в QR Menu (после запуска заказов)</label></div></label>
+                </div>
+                <div class="hep-links">
+                  <button type="button" class="hr-primary" id="shTipsSave">Сохранить настройки чаевых</button>
+                  <button type="button" class="hr-link-button" id="shTipsRotate">Выпустить новый персональный код</button>
+                  <span class="hr-status" id="shTipsMessage" role="status" aria-live="polite"></span>
+                </div>
+                <p class="hr-muted">Настоящие выплаты и подтверждение карты станут доступны только после интеграции Payriff. Это не форма ввода платёжных реквизитов.</p>
+              </article>
+            </div>
+          </section>
+
           <section class="hep-panel" data-panel="schedule" hidden>
             <div class="hep-grid">
               <article class="hep-card full">
@@ -306,6 +344,7 @@
   <script src="mobile-responsive.js?v=20261009-role-aware-v2"></script>
   <script src="/documents-nav.js"></script>
   <script src="/hr-employee.js?v=20261008-clean-pay-1"></script><script src="/hr-employee-schedule.js?v=20261008-clean-hr-1"></script>
+<script src="/hr-employee-tips.js?v=20261029-tips-v1"></script>
 <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script>
 <script src="/sh-i18n.js"></script>
 </body>
