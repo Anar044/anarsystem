@@ -235,8 +235,10 @@ export async function ensureTables(db) {
   try { return await initialize; }
   catch(error) { ASSISTANT_SCHEMA_READY.delete(db); throw error; }
 }
-// v2 tenant key always includes verified workspace, server identity and selection.
-// Never open v1 conversations: they lacked server identity and might belong to another tenant.
+// v3 rotates conversation scope after strict organization/restaurant enforcement.
+// Legacy v1/v2 chats may contain reports produced without verified OLAP department
+// ownership; never reuse their answers as input to new analysis. Data remains in
+// storage for administrators' explicit retention policy, but is no longer shown.
 function validateAiRequestId(value){
   const valueText=clean(value);
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(valueText)?valueText:"";
@@ -273,9 +275,9 @@ async function conversationScopeKey(iiko){
     const error=new Error("Не удалось определить разрешённые рестораны выбранной сети.");
     error.status=403;error.code="ASSISTANT_DEPARTMENT_SCOPE_EMPTY";throw error;
   }
-  const identity=JSON.stringify(["ai-v2",workspaceId,storageId,clean(connection.ip).toLowerCase(),clean(connection.port),clean(connection.login),String(connection.password||""),iiko.scope?.mode||"RMS",ids]);
+  const identity=JSON.stringify(["ai-v3",workspaceId,storageId,clean(connection.ip).toLowerCase(),clean(connection.port),clean(connection.login),String(connection.password||""),iiko.scope?.mode||"RMS",ids]);
   const hash=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(identity));
-  return "ai-v2:"+[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("");
+  return "ai-v3:"+[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 async function conversationById(db, userId, conversationId, scopeKey="") {
   return db.prepare(`SELECT id,title,created_at,updated_at
