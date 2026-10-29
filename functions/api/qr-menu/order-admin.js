@@ -16,12 +16,19 @@ export async function onRequestGet({request,env}){
     ]);
     if(cfg&&(cfg.owner_id!==ctx.ownerId||cfg.restaurant_id!==ctx.restaurantId))
       throw fail('CROSS_WORKSPACE_FORBIDDEN','QR Menu принадлежит другому рабочему пространству',403);
+    const posReady=cfg?.pos_plugin_id
+      ?await env.DB.prepare(`SELECT last_seen_at FROM qr_pos_bridge_capabilities
+        WHERE restaurant_id=?1 AND plugin_id=?2 AND contract_version=1
+          AND can_create_order=1 AND can_ack_fiscal=1 LIMIT 1`)
+        .bind(ctx.restaurantId,cfg.pos_plugin_id).first()
+      :null;
+    const bridgeReady=Boolean(posReady&&Date.now()-Date.parse(posReady.last_seen_at)<5*60*1000&&Date.now()>=Date.parse(posReady.last_seen_at));
     const origin=new URL(request.url).origin;
     const url=origin+'/menu.html?id='+encodeURIComponent(ctx.menu.public_slug);
     return response({success:true,restaurantId:ctx.restaurantId,menuName:ctx.menu.restaurant_name,
       menuUrl:url,
       settings:{serviceMode:cfg?.service_mode||'TABLE',
-        orderingEnabled:Boolean(cfg?.ordering_enabled),posPluginId:cfg?.pos_plugin_id||'',
+        orderingEnabled:Boolean(cfg?.ordering_enabled),posPluginId:cfg?.pos_plugin_id||'',posBridgeReady:bridgeReady,
         onlinePaymentEnabled:false},
       tables:(tables.results||[]).map(t=>({...t,active:Boolean(t.active),
         url:url+'&table='+encodeURIComponent(t.table_key)})),
@@ -54,6 +61,17 @@ export async function onRequestPost({request,env}){
       const enabled=body.orderingEnabled===true?1:0;
       if(enabled&&!clean(env.QR_ORDER_RATE_SECRET))
         throw fail('QR_RATE_NOT_CONFIGURED','Перед включением заказов настройте QR_ORDER_RATE_SECRET в Cloudflare Pages',409);
+      if(enabled){
+        if(!clean(env.QR_POS_BRIDGE_TOKEN)||!clean(env.PLUGIN_INGEST_TOKEN)||!pluginId)
+          throw fail('POS_BRIDGE_NOT_CONFIGURED','Не настроены POS Bridge и ID кассового плагина',409);
+        const ready=await env.DB.prepare(`SELECT last_seen_at FROM qr_pos_bridge_capabilities
+          WHERE restaurant_id=?1 AND plugin_id=?2 AND contract_version=1
+            AND can_create_order=1 AND can_ack_fiscal=1 LIMIT 1`)
+          .bind(ctx.restaurantId,pluginId).first();
+        const recent=Date.parse(ready?.last_seen_at||'');
+        if(!Number.isFinite(recent)||recent>Date.now()||Date.now()-recent>=5*60000)
+          throw fail('POS_BRIDGE_NOT_READY','Кассовый плагин не подтвердил поддержку QR-заказов за последние 5 минут',409);
+      }
       await env.DB.prepare(`INSERT INTO qr_order_settings
         (owner_id,menu_id,restaurant_id,service_mode,ordering_enabled,pos_plugin_id,created_at,updated_at)
         VALUES(?1,?2,?3,?4,?5,?6,?7,?7)
