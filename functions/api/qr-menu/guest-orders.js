@@ -55,12 +55,15 @@ export async function onRequestPost({request,env}){
     const secret=clean(env.QR_ORDER_RATE_SECRET,256);
     const ip=clean(request.headers.get('CF-Connecting-IP'),100);
     if(!secret||!ip)throw fail('QR_RATE_PROTECTION_REQUIRED','Защита публичных заказов не настроена',503);
-    const originHash=await sha(secret+':'+menu.id+':'+ip);
+    // Guests share restaurant Wi-Fi. TABLE throttles per table+IP, not the whole restaurant;
+    // FAST_FOOD permits higher throughput but should also use edge WAF/Turnstile at scale.
+    const originHash=await sha(secret+':'+menu.id+':'+(table.id||'FAST_FOOD')+':'+ip);
+    const limit=configured.service_mode==='TABLE'?8:80;
     const cutoff=new Date(Date.now()-20*60000).toISOString();
     const usage=await env.DB.prepare(`SELECT COUNT(*) AS n FROM qr_guest_orders
       WHERE menu_id=?1 AND origin_hash=?2 AND created_at>=?3`)
       .bind(menu.id,originHash,cutoff).first();
-    if(Number(usage?.n||0)>=8)throw fail('ORDER_RATE_LIMIT','Слишком много заказов. Обратитесь к сотруднику ресторана',429);
+    if(Number(usage?.n||0)>=limit)throw fail('ORDER_RATE_LIMIT','Слишком много заказов. Обратитесь к сотруднику ресторана',429);
     const orderId=crypto.randomUUID(),receiptToken=token(32),created=new Date().toISOString();
     const row={id:orderId,owner_id:configured.owner_id};
     // All writes in a D1 batch are atomic; a retry with the same clientKey cannot duplicate items.
