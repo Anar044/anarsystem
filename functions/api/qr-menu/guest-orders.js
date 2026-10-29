@@ -5,7 +5,7 @@ async function isPosReady(db,cfg){
   if(!cfg?.pos_plugin_id)return false;
   const row=await db.prepare(`SELECT last_seen_at FROM qr_pos_bridge_capabilities
     WHERE restaurant_id=?1 AND plugin_id=?2 AND contract_version=1
-    AND can_create_order=1 AND can_ack_fiscal=1 LIMIT 1`)
+    AND can_create_order=1 AND can_ack_fiscal=1 AND can_print_kitchen=1 LIMIT 1`)
     .bind(cfg.restaurant_id,cfg.pos_plugin_id).first();
   const t=Date.parse(row?.last_seen_at||'');
   return Number.isFinite(t)&&t<=Date.now()&&Date.now()-t<5*60000;
@@ -19,7 +19,7 @@ export async function onRequestGet({request,env}){
       const ticket=clean(url.searchParams.get('ticket'),128);
       if(!/^[0-9a-f]{48,64}$/.test(ticket))return bad(400,'BAD_TICKET','Некорректный номер отслеживания');
       const order=await env.DB.prepare(`SELECT id,service_mode,table_label,total_minor,currency,state,
-        payment_state,pos_order_number,pos_receipt_number,created_at
+        payment_state,pos_order_number,pos_receipt_number,kitchen_status,created_at
         FROM qr_guest_orders WHERE receipt_token=?1 LIMIT 1`).bind(ticket).first();
       return order?response({success:true,order:publicState(order)}):bad(404,'NOT_FOUND','Заказ не найден');
     }
