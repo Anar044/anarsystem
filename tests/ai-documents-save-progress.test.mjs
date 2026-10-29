@@ -1,157 +1,145 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { runInNewContext } from "node:vm";
+import {readFileSync} from "node:fs";
 
-const read = path => readFileSync(new URL("../" + path, import.meta.url), "utf8");
-const html = read("ai-documents.html");
-const css = read("ai-documents.css");
-const original = read("ai-documents.js");
+const js=readFileSync(new URL("../ai-documents.js",import.meta.url),"utf8");
+const html=readFileSync(new URL("../ai-documents.html",import.meta.url),"utf8");
+const css=readFileSync(new URL("../ai-documents.css",import.meta.url),"utf8");
+function section(start,end){
+  const a=js.indexOf(start),b=js.indexOf(end,a+start.length);
+  assert.ok(a>=0&&b>a,"missing function boundaries: "+start+" -> "+end);
+  return js.slice(a,b);
+}
+function fnv32(s){
+  let h=2166136261;
+  for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}
+  return(h>>>0).toString(16).padStart(8,"0");
+}
+const arithmetic=section("function validateDraftArithmetic(){","function recalcTotal()");
+const draft=section("function collectDraft(){","async function importToIiko(");
+const originalImport=section("async function importToIiko(","function explainSaveError(");
+const modal=section("function showSaveDialog(processed){","async function loadAll(");
+const feedback=section("function explainSaveError(message){","function bindUpload(){");
 
-test("AI invoice save shows an accessible modal with explicit stages and success details", () => {
+test("the three original business operations are byte-for-byte unchanged",()=>{
+  // Golden fingerprints are from main before UI-only work (commit c2a4e9b).
+  assert.deepEqual([arithmetic.length,fnv32(arithmetic)],[2852,"0a53d285"]);
+  assert.deepEqual([draft.length,fnv32(draft)],[1476,"b80fa40e"]);
+  assert.deepEqual([originalImport.length,fnv32(originalImport)],[1812,"535ec86d"]);
+  assert.match(originalImport,/const action=processed\?'save-and-process':'save'/);
+  assert.match(originalImport,/\/api\/iiko\/document-action/);
+  assert.match(originalImport,/action,document:documentData/);
+  assert.match(originalImport,/action:'markImported'/);
+  assert.doesNotMatch(originalImport,/saveDialogBusy|saveUncertainIds|saveBusy/);
+});
+
+test("UI adds an accessible modal without changing server contracts or document numbering",()=>{
   assert.match(html,/id="saveOverlay"[\s\S]*role="dialog" aria-modal="true"/);
-  assert.match(html,/id="saveModalTitle"/);
-  assert.match(html,/id="saveServerStep"/);
-  assert.match(html,/id="saveResultNumber"/);
-  assert.match(html,/id="saveResultAmount"/);
   assert.match(html,/id="saveModalClose"/);
-  assert.match(html,/ai-documents\.js\?v=20261029-arithmetic-save-fix1/);
+  assert.match(html,/ai-documents\.js\?v=20261029-save-ui-only1/);
   assert.match(css,/\.aid-save-overlay\[hidden\]/);
   assert.match(css,/@media\(max-width:520px\)/);
   assert.match(css,/prefers-reduced-motion/);
-  assert.match(original,/if\(saveBusy\)return;/);
-  assert.match(original,/if\(current\.status==='IMPORTED'\)/);
+  assert.match(feedback,/await importToIiko\(processed\)/);
+  assert.doesNotMatch(feedback,/\/api\/iiko\/document-action|\/api\/ai-documents|autoDocumentNumber\(/);
+  assert.match(js,/\$\('saveDraftBtn'\)\.onclick=\(\)=>saveWithFeedback\(false\)/);
+  assert.match(js,/\$\('saveProcessBtn'\)\.onclick=\(\)=>saveWithFeedback\(true\)/);
 });
 
-function replaceBetween(source,start,end,replacement) {
-  const a=source.indexOf(start),b=source.indexOf(end,a+start.length);
-  assert.ok(a>=0 && b>a,start+" -> "+end);
-  return source.slice(0,a)+replacement+"\n"+source.slice(b);
-}
-function fixture({response={success:true,validation:{documentNumber:"SH-2026-1029"}},
-  networkError=null,markError=null,badDraft=false,slowResponse=null}={}) {
-  const items=[0,1,2].map(i=>({
-    dataset:{saveStep:String(i),state:"pending"},
+function fixture({error=null,slowPromise=null,number="SH-AI-9"}={}){
+  const steps=[0,1,2].map(x=>({
+    dataset:{saveStep:String(x),state:"pending"},
     mark:{textContent:""},
     querySelector(){return this.mark}
   }));
-  const overlay={hidden:true,dataset:{},dialog:{
-    attributes:{},setAttribute(key,value){this.attributes[key]=value}
-  },querySelector(){return this.dialog}};
-  const steps={querySelectorAll(){return items}};
-  const elements=new Map([["saveOverlay",overlay],["saveSteps",steps]]);
+  const overlay={hidden:true,dataset:{},
+    dialog:{attributes:{},setAttribute(key,val){this.attributes[key]=val}},
+    querySelector(){return this.dialog}};
+  const elements=new Map([["saveOverlay",overlay],["saveSteps",{querySelectorAll(){return steps}}]]);
   for(const id of ["saveOutcomeIcon","saveModalTitle","saveModalSubtitle","saveServerStep",
     "saveResultDetails","saveResultNumber","saveResultState","saveResultAmount",
-    "saveErrorDetail","saveModalHint","saveModalClose","reviewStatus","saveDraftBtn",
-    "saveProcessBtn","providerState"]){
-    elements.set(id,{textContent:"",innerHTML:"",hidden:false,disabled:false,className:"",
-      focus(){this.focused=true}});
+    "saveErrorDetail","saveModalHint","saveModalClose","draftNumber","draftDeclaredTotal"]){
+    elements.set(id,{textContent:"",innerHTML:"",hidden:false,value:"",focus(){this.focused=true}});
   }
-  let source=original;
-  source=replaceBetween(source,"async function token(){","async function aiGet(","async function token(){return 'token'}");
-  source=replaceBetween(source,"async function aiGet(","async function aiPost(body)",
-    "async function aiGet(){return {documents:[{id:'doc-1',status:'IMPORTED'}],providers:{openai:{configured:true},local:{configured:true}}}}");
-  source=replaceBetween(source,"async function aiPost(body){","async function binding()",
-    "async function aiPost(body){if(body.action==='markImported' && globalThis.__markError)throw new Error('DB unavailable');return {success:true}}");
-  source=replaceBetween(source,"async function requireSingleRestaurant(){","async function loadRefs()",
-    "async function requireSingleRestaurant(){return {connection:{ip:'192.0.2.1',port:'8080',login:'api'},departmentIds:['restaurant-1']}}");
-  source=replaceBetween(source,"function renderList(){","function setUploadStatus(",
-    "function renderList(){globalThis.__listRenders=(globalThis.__listRenders||0)+1}");
-  source=replaceBetween(source,"function validateDraftArithmetic(){","function recalcTotal()",
-    "function validateDraftArithmetic(){const blocked=saveBusy||saveUncertainIds.has(current?.id)||current?.status==='IMPORTED';$('saveDraftBtn').disabled=blocked;$('saveProcessBtn').disabled=blocked;return {valid:true}}");
-  source=replaceBetween(source,"function collectDraft(){","async function importToIiko(",
-    "function collectDraft(){if(globalThis.__badDraft)throw Error('Не выбран склад');return {documentNumber:'SH-2026-1029',documentTotal:60,items:[{amount:1,price:60}]}}");
-  source=source.trimEnd();
-  assert.ok(source.endsWith("})();"));
-  source=source.slice(0,-5)+"globalThis.__api={importToIiko,setCurrent:d=>current=d,closeSaveDialog,getBusy:()=>saveBusy,isUncertain:id=>saveUncertainIds.has(id)};})();";
-  const doc={readyState:"loading",getElementById:id=>{
-    assert.ok(elements.has(id),"unknown element "+id);return elements.get(id);
-  },addEventListener(){}};
-  let sends=0;
-  const fetchStub=async()=>{sends++;
-    if(slowResponse)await slowResponse.promise;
-    if(networkError)throw networkError;
-    return {ok:response.success!==false,status:response.httpStatus||(response.success===false?422:200),json:async()=>response};
+  elements.get("draftNumber").value="1024";
+  elements.get("draftDeclaredTotal").value="60";
+  let calls=0;
+  const importToIiko=async(processed)=>{
+    calls++;
+    if(slowPromise)await slowPromise;
+    if(error)throw error;
   };
-  const scope={document:doc,window:{SH_IikoContext:{}},fetch:fetchStub,
-    console:{warn(){}},Date,Number,JSON,Error,Set,Map,Array,Object,String,URL,
-    __badDraft:badDraft,__markError:markError};
-  runInNewContext(source,scope);
-  scope.__api.setCurrent({id:"doc-1",status:"REVIEW",result:{}});
-  return {api:scope.__api,elements,items,overlay,get sends(){return sends}};
+  const $=id=>{
+    assert.ok(elements.has(id),"Missing UI element: "+id);
+    return elements.get(id);
+  };
+  const money=n=>Number(n).toFixed(2);
+  const inputNumber=v=>{
+    if(v===null||v===undefined||String(v).trim()==="")return null;
+    return Number(v);
+  };
+  const api=new Function("$","money","inputNumber","importToIiko",
+    "let saveDialogBusy=false;let saveDialogStage=0;let current={id:'doc1',result:{imported:{documentNumber:'"+number+"'}}};\n"+
+    modal+"\n"+feedback+"\nreturn {saveWithFeedback,closeSaveDialog,getBusy:()=>saveDialogBusy,explainSaveError};"
+  )($,money,inputNumber,importToIiko);
+  return{...api,overlay,elements,steps,get calls(){return calls}};
 }
 
-test("Successful save has server-confirmed number and a clear receipt; no duplicate operation", async () => {
+test("success confirmation is visual-only and reports server-confirmed document",async()=>{
   const h=fixture();
-  await h.api.importToIiko(false);
-  assert.equal(h.sends,1);
+  await h.saveWithFeedback(false);
+  assert.equal(h.calls,1);
   assert.equal(h.overlay.dataset.state,"success");
   assert.equal(h.elements.get("saveModalTitle").textContent,"Накладная успешно сохранена");
-  assert.equal(h.elements.get("saveResultNumber").textContent,"SH-2026-1029");
-  assert.equal(h.elements.get("saveResultAmount").textContent,"60,00 ₼");
+  assert.equal(h.elements.get("saveResultNumber").textContent,"SH-AI-9");
   assert.equal(h.elements.get("saveModalClose").hidden,false);
-  assert.equal(h.overlay.dialog.attributes["aria-busy"],"false");
-  assert.ok(h.items.every(i=>i.dataset.state==="done"));
-  await h.api.importToIiko(false);
-  assert.equal(h.sends,1);
-  h.api.closeSaveDialog();
+  h.closeSaveDialog();
   assert.equal(h.overlay.hidden,true);
 });
-test("Save and process preserves distinct success label",async()=>{
-  const h=fixture();await h.api.importToIiko(true);
+
+test("save and process keeps the original processed option and success wording",async()=>{
+  const h=fixture();
+  await h.saveWithFeedback(true);
+  assert.equal(h.calls,1);
   assert.equal(h.elements.get("saveModalTitle").textContent,"Накладная сохранена и проведена");
   assert.equal(h.elements.get("saveResultState").textContent,"Сохранена и проведена");
 });
-test("Concurrent clicks cannot submit more than one invoice while server is working",async()=>{
+
+test("double-click cannot trigger simultaneous server requests in UI",async()=>{
   let resolve;
-  const promise=new Promise(r=>{resolve=r});
-  const h=fixture({slowResponse:{promise}});
-  const first=h.api.importToIiko(false);
-  await Promise.resolve();await Promise.resolve();await Promise.resolve();
-  const second=h.api.importToIiko(true);
-  assert.equal(h.api.getBusy(),true);
-  assert.equal(h.overlay.dataset.state,"busy");
-  assert.equal(h.elements.get("saveModalClose").hidden,true);
-  h.api.closeSaveDialog();
+  const wait=new Promise(ok=>{resolve=ok});
+  const h=fixture({slowPromise:wait});
+  const first=h.saveWithFeedback(false);
+  const second=h.saveWithFeedback(true);
+  assert.equal(h.getBusy(),true);
+  assert.equal(h.calls,1);
+  h.closeSaveDialog();
   assert.equal(h.overlay.hidden,false);
   resolve();
   await Promise.all([first,second]);
-  assert.equal(h.sends,1);
+  assert.equal(h.calls,1);
   assert.equal(h.overlay.dataset.state,"success");
 });
-test("Partial save error clearly warns, blocks blind re-submit and does not say success",async()=>{
-  const h=fixture({response:{success:false,saved:true,stage:"process",message:"not processed",validation:{documentNumber:"INV-456"}}});
-  await h.api.importToIiko(true);
-  assert.equal(h.overlay.dataset.state,"warning");
-  assert.match(h.elements.get("saveModalSubtitle").textContent,/Накладная создана, но провести её не удалось/);
-  assert.equal(h.elements.get("saveResultNumber").textContent,"INV-456");
-  assert.equal(h.api.isUncertain("doc-1"),true);
-  await h.api.importToIiko(true);
-  assert.equal(h.sends,1);
-});
-test("Network ambiguity and markImported errors never silently authorize a second creation",async()=>{
-  for(const setup of [{networkError:new TypeError("Failed to fetch")},{markError:true}]){
-    const h=fixture(setup);
-    await h.api.importToIiko(false);
-    assert.equal(h.overlay.dataset.state,"warning");
-    assert.equal(h.api.isUncertain("doc-1"),true);
-    await h.api.importToIiko(false);
-    assert.equal(h.sends,1);
-  }
-});
-test("Gateway failures after submission are treated as ambiguous to prevent duplicate invoices",async()=>{
-  const h=fixture({response:{success:false,httpStatus:502,message:"Gateway timeout"}});
-  await h.api.importToIiko(false);
-  assert.equal(h.overlay.dataset.state,"warning");
-  assert.equal(h.api.isUncertain("doc-1"),true);
-  await h.api.importToIiko(false);
-  assert.equal(h.sends,1);
-});
-test("Validation errors explain failure without making a server call",async()=>{
-  const h=fixture({badDraft:true});
-  await h.api.importToIiko(false);
-  assert.equal(h.sends,0);
+
+test("existing processed invoice error is translated without changing number or retry rules",async()=>{
+  const error=new Error("Changing processed or deleted document is not allowed: existing #1024 of 01.10.2026 00:00 is in status PROCESSED");
+  const h=fixture({error});
+  await h.saveWithFeedback(true);
   assert.equal(h.overlay.dataset.state,"error");
-  assert.match(h.elements.get("saveErrorDetail").textContent,/Не выбран склад/);
+  assert.match(h.elements.get("saveErrorDetail").textContent,/Накладная №1024 от 01\.10\.2026 уже проведена/);
+  assert.match(h.elements.get("saveErrorDetail").textContent,/Проверьте номер/);
+  assert.equal(h.elements.get("draftNumber").value,"1024");
+  assert.equal(h.calls,1);
+  // An application-level duplicate status error must not alter business retry
+  // behaviour; it is the source accounting server's responsibility to reject.
+  await h.saveWithFeedback(true);
+  assert.equal(h.calls,2);
+});
+
+test("validation errors from original save operation remain errors",async()=>{
+  const h=fixture({error:new Error("Выберите склад.")});
+  await h.saveWithFeedback(false);
+  assert.equal(h.overlay.dataset.state,"error");
+  assert.match(h.elements.get("saveErrorDetail").textContent,/Выберите склад/);
   assert.equal(h.elements.get("saveModalClose").hidden,false);
 });
