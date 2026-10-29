@@ -31,7 +31,7 @@
 
 Весь запрос включает `pluginId`, `departmentId`; Cloudflare проверяет зарегистрированную кассу на текущем SH backend, а ресторан должен совпадать с QR заказом. Из публичного меню POS Bridge недоступен.
 
-0. После загрузки плагина и затем не реже одного раза в две минуты: `{"action":"hello","pluginId":"...","departmentId":"...","contractVersion":1,"canCreateOrder":true,"canAcknowledgeFiscal":true}` → `accepted:true`. Только зарегистрированный плагин с двумя секретами может подтвердить наличие нового контракта. Гостевое оформление нельзя включить без свежего hello (5 минут). Это программная готовность, **не** замена реального POS-тестирования.
+0. После загрузки плагина и затем не реже одного раза в две минуты: `{"action":"hello","pluginId":"...","departmentId":"...","contractVersion":1,"canCreateOrder":true,"canAcknowledgeFiscal":true,"canPrintKitchen":true}` → `accepted:true`. Только зарегистрированный плагин с двумя секретами может подтвердить наличие нового контракта. Гостевое оформление нельзя включить без свежего hello (5 минут). Это программная готовность, **не** замена реального POS-тестирования.
 1. `{"action":"pull","pluginId":"...","departmentId":"..."}` → `job` или `null`.
    - `job.externalOrderId` — **неизменный UUID** QR-заказа, используемый как idempotency key в плагине и/или `OrderExternalData`.
    - `job.items[]` — `productId` из iiko, `qty`, `unitMinor`, `lineMinor`; суммы в гяпиках. `job.mode`, `tableLabel`, `posTableId`, `totalMinor`, `currency`, `guestNote`.
@@ -44,7 +44,14 @@
 `{"action":"ackFailed","pluginId":"...","departmentId":"...","externalOrderId":"...","errorCode":"..."}`
    → статус `POS_FAILED`, ошибка остаётся у администратора.
    Если запрос к POS завершился по таймауту, а создание могло произойти, плагин должен проверить наличие заказа по `externalOrderId`; **не** слать `ackFailed` без проверки.
-4. После оплаты и фактического фискального закрытия на кассе:
+4. После создания POS-заказа и сервисной печати кухни:
+`{"action":"ackKitchen","pluginId":"...","departmentId":"...","externalOrderId":"...","posOrderId":"...","kitchenStatus":"PRINTED"}` либо `"CHECK_REQUIRED"`, если результат печати неизвестен.
+   - Статус кухни отдельно от POS_OPEN/CLOSED. Повторное подтверждение идемпотентно, конфликтные статусы запрещены.
+   - Касса не должна печатать до подтверждённого POS Order ID.
+   - Hello требует `"canPrintKitchen":true`; плагин объявляет это только при явной настройке `AllowKitchenPrint=true`.
+   - При неизвестном исходе печати запрещён автоматический повтор — нужна ручная сверка.
+
+5. После оплаты и фактического фискального закрытия на кассе:
 `{"action":"ackFiscalized","pluginId":"...","departmentId":"...","externalOrderId":"...","posOrderId":"...","receiptNumber":"...","fiscalReference":"...","paymentKind":"POS_CARD","rrn":"..."}`
    → `CLOSED` и `PAID_AT_POS`. Для `POS_CASH` RRN отсутствует. HTTP 200 из нашего QR API **не** является основанием для закрытия чека.
 
