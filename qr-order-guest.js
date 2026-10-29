@@ -36,7 +36,7 @@ function showReceipt(order){
   const box=$('qroGuestReceipt');if(!box)return;box.hidden=false;box.replaceChildren();
   const head=document.createElement('b');head.textContent='Заказ № '+order.orderNumber;
   const label=document.createElement('small');
-  label.textContent=orderText(order.status)+' · '+order.totalAZN+' ₼';
+  label.textContent=orderText(order.status)+' · '+order.totalAZN+' ₼'+(order.kitchenStatus==='PRINTED'?' · На кухню отправлено':'');
   const refresh=document.createElement('button');refresh.className='qro-submit';refresh.type='button';
   refresh.textContent='Проверить статус';refresh.style.background='#2a6445';refresh.onclick=refreshStatus;
   box.append(head,label,refresh);
