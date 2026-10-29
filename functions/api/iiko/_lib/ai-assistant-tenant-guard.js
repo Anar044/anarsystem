@@ -17,7 +17,9 @@ function normalized(value) {
 }
 const words = value => normalized(value).split(" ").filter(Boolean);
 const generic = new Set(["chain","set","seti","network","organization","organizasiya","organizatsiya",
-  "office","ofis","restaurant","restoran","company","kompaniya","the","and","smart","horeca"]);
+  "restaurant","restoran","company","kompaniya","the","and","smart","horeca"]);
+// "Test Office Chain" is a legitimate two-token brand in user shorthand
+// "test ofis"; don't discard "office/ofis" in matching names.
 function mentionsName(message, name) {
   const nameWords=words(name),textWords=words(message);
   if(!nameWords.length||!textWords.length)return false;
