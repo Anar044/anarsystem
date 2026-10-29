@@ -90,3 +90,27 @@ test('Read-only reference guest view stays unmodified visually and online checko
   assert.match(guest,/if\(!enabled\)return;setup\(\)/);
   assert.match(guest,/Заказ зарегистрирован\. Это ещё не подтверждение создания заказа на кассе/);
 });
+
+test('Kitchen dispatch is separate from POS creation and real fiscal closure',()=>{
+  assert.match(core,/kitchen_status TEXT NOT NULL DEFAULT 'NOT_SENT'/);
+  assert.match(core,/can_print_kitchen INTEGER NOT NULL DEFAULT 0/);
+  assert.match(core,/ALTER TABLE qr_guest_orders ADD COLUMN kitchen_status/);
+  assert.match(bridge,/action==='ackKitchen'/);
+  assert.match(bridge,/\['PRINTED','CHECK_REQUIRED'\]/);
+  assert.match(bridge,/prev\.pos_order_id!==posId/);
+  assert.match(bridge,/prev\.kitchen_status!=='NOT_SENT'/);
+  assert.match(bridge,/kitchen_status='NOT_SENT'/);
+  assert.match(bridge,/canPrintKitchen!==true/);
+  assert.match(publicApi,/can_print_kitchen=1/);
+  assert.match(adminApi,/can_print_kitchen=1/);
+  assert.match(guest,/order\.kitchenStatus==='PRINTED'/);
+  assert.match(admin,/kitchen_status==='CHECK_REQUIRED'/);
+});
+
+test('Physical kitchen printing cannot be acknowledged by an arbitrary guest request',()=>{
+  assert.doesNotMatch(publicApi,/ackKitchen|kitchenStatus\s*:\s*body\./);
+  assert.match(bridge,/verifyPluginIngress\(request,env/);
+  assert.match(bridge,/X-QR-Bridge-Token/);
+  assert.match(bridge,/KITCHEN_ORDER_MISMATCH/);
+  assert.match(bridge,/KITCHEN_STATUS_CONFLICT/);
+});
