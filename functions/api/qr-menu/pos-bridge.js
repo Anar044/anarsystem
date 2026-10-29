@@ -25,18 +25,37 @@ export async function onRequestPost({request,env}){
     const action=clean(body.action,32);
     const t=iso();
     if(action==='hello'){
-      if(body.contractVersion!==1||body.canCreateOrder!==true||body.canAcknowledgeFiscal!==true||body.canPrintKitchen!==true)
-        throw fail('QR_BRIDGE_VERSION_UNSUPPORTED','Плагин должен подтвердить контракт версии 1 для заказов и фискальных подтверждений',409);
+      // The diagnostic handshake proves HTTPS connectivity only. It must never
+      // mark this POS ready for guest orders or allow pull/kitchen/fiscal operations.
+      const canCreate=body.canCreateOrder===true;
+      if(body.contractVersion!==1||typeof body.canCreateOrder!=='boolean'||
+          typeof body.canAcknowledgeFiscal!=='boolean'||
+          typeof body.canPrintKitchen!=='boolean'||
+          body.canAcknowledgeFiscal!==canCreate||body.canPrintKitchen!==canCreate)
+        throw fail('QR_BRIDGE_VERSION_UNSUPPORTED','Плагин должен подтвердить контракт версии 1 и допустимые функции',409);
+      const allowed=canCreate?1:0;
       await env.DB.prepare(`INSERT INTO qr_pos_bridge_capabilities(
         restaurant_id,plugin_id,contract_version,can_create_order,can_ack_fiscal,can_print_kitchen,last_seen_at)
-        VALUES(?1,?2,1,1,1,1,?3)
+        VALUES(?1,?2,1,?3,?3,?3,?4)
         ON CONFLICT(restaurant_id,plugin_id) DO UPDATE SET
-        contract_version=excluded.contract_version,can_create_order=1,can_ack_fiscal=1,can_print_kitchen=1,
+        contract_version=excluded.contract_version,
+        can_create_order=excluded.can_create_order,
+        can_ack_fiscal=excluded.can_ack_fiscal,
+        can_print_kitchen=excluded.can_print_kitchen,
         last_seen_at=excluded.last_seen_at`)
-        .bind(identity.departmentId,identity.pluginId,t).run();
-      return response({success:true,contractVersion:1,accepted:true});
+        .bind(identity.departmentId,identity.pluginId,allowed,t).run();
+      return response({success:true,contractVersion:1,accepted:true,orderingReady:canCreate});
     }
     if(action==='pull'){
+      // A diagnostic-only POS must not receive an order even if it sends pull.
+      const caps=await env.DB.prepare(`SELECT can_create_order,can_ack_fiscal,can_print_kitchen,last_seen_at
+        FROM qr_pos_bridge_capabilities WHERE restaurant_id=?1 AND plugin_id=?2 LIMIT 1`)
+        .bind(identity.departmentId,identity.pluginId).first();
+      const seen=Date.parse(caps?.last_seen_at||'');
+      if(!caps||Number(caps.can_create_order)!==1||
+          Number(caps.can_ack_fiscal)!==1||Number(caps.can_print_kitchen)!==1||
+          !Number.isFinite(seen)||seen>Date.now()||Date.now()-seen>=5*60000)
+        throw fail('QR_POS_NOT_READY','Касса работает в режиме диагностики или не подтверждала готовность',409);
       const nextLease=new Date(Date.now()+90000).toISOString();
       // Atomic leasing: two tills cannot both claim the same order.
       // pluginId is pinned to the currently configured plugin AND to the order when set.
