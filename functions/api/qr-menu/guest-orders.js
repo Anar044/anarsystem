@@ -1,6 +1,15 @@
 import {ensureOrders,publishedMenu,settings,validateTable,priceBasket,sha,token,response,bad,fail,clean,publicState,eventStmt} from './_lib/orders.js';
 
 const reply=e=>bad(e.status||500,e.code||'QR_ORDER_ERROR',e.status?e.message:'Не удалось обработать QR-заказ');
+async function isPosReady(db,cfg){
+  if(!cfg?.pos_plugin_id)return false;
+  const row=await db.prepare(`SELECT last_seen_at FROM qr_pos_bridge_capabilities
+    WHERE restaurant_id=?1 AND plugin_id=?2 AND contract_version=1
+    AND can_create_order=1 AND can_ack_fiscal=1 LIMIT 1`)
+    .bind(cfg.restaurant_id,cfg.pos_plugin_id).first();
+  const t=Date.parse(row?.last_seen_at||'');
+  return Number.isFinite(t)&&t<=Date.now()&&Date.now()-t<5*60000;
+}
 export async function onRequestOptions(){return new Response(null,{status:204,headers:{'Allow':'GET,POST,OPTIONS'}})}
 export async function onRequestGet({request,env}){
   try{
@@ -17,7 +26,8 @@ export async function onRequestGet({request,env}){
     const menu=await publishedMenu(env.DB,url.searchParams.get('id'));
     const configured=await settings(env.DB,menu.id);
     const mode=configured?.service_mode||'TABLE';
-    const enabled=Boolean(configured?.ordering_enabled);
+    const bridgeReady=await isPosReady(env.DB,configured);
+    const enabled=Boolean(configured?.ordering_enabled)&&bridgeReady;
     let table=null,tableValid=false;
     if(enabled){
       try{table=await validateTable(env.DB,configured,url.searchParams.get('table'));tableValid=true}
@@ -25,9 +35,9 @@ export async function onRequestGet({request,env}){
     }
     return response({success:true,orderingEnabled:enabled&&tableValid,
       mode,tableLabel:tableValid?table?.table_label||'':'',
-      posBridgeConfigured:Boolean(configured?.pos_plugin_id),
+      posBridgeConfigured:Boolean(configured?.pos_plugin_id),posBridgeReady:bridgeReady,
       paymentMethod:'PAY_AT_POS',onlinePaymentEnabled:false,
-      hint:!enabled?'Онлайн-заказы ещё не включены рестораном':!tableValid?'Нужен действующий QR-код стола':'Заказ будет направлен в Smart Horeca, оплата — на кассе'});
+      hint:!enabled?'QR-заказы временно недоступны: касса не подтвердила готовность':!tableValid?'Нужен действующий QR-код стола':'Заказ будет направлен в Smart Horeca, оплата — на кассе'});
   }catch(e){return reply(e)}
 }
 export async function onRequestPost({request,env}){
@@ -39,6 +49,8 @@ export async function onRequestPost({request,env}){
     const configured=await settings(env.DB,menu.id);
     if(!configured?.ordering_enabled||configured.restaurant_id!==menu.organization_id)
       throw fail('ORDERING_DISABLED','Ресторан пока не принимает QR-заказы',409);
+    if(!(await isPosReady(env.DB,configured)))
+      throw fail('POS_OFFLINE','Касса сейчас недоступна для новых QR-заказов',503);
     const table=await validateTable(env.DB,configured,body.table||'');
     const clientKey=clean(body.clientKey,100);
     if(!/^[a-f0-9-]{32,40}$/i.test(clientKey))throw fail('BAD_CLIENT_KEY','Неверный идентификатор отправки',400);
