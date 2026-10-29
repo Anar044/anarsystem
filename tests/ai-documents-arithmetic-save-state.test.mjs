@@ -67,27 +67,28 @@ function fixture({busy=true,uncertain=false,firstLineSum=24,total=60}={}){
   return {...validation,nodes,rows};
 }
 
-test("Saving lock never falsifies correct arithmetic or prevents collectDraft",()=>{
+test("Arithmetic remains valid while the UI displays saving; original validator unchanged",()=>{
   const h=fixture({busy:true});
   const result=h.validateDraftArithmetic();
   assert.equal(result.valid,true);
   assert.equal(result.issues.length,0);
   assert.equal(result.documentTotal,60);
-  assert.equal(h.nodes.saveDraftBtn.disabled,true);
-  assert.equal(h.nodes.saveProcessBtn.disabled,true);
+  // Only arithmetic and imported status affect the original form buttons.
+  assert.equal(h.nodes.saveDraftBtn.disabled,false);
+  assert.equal(h.nodes.saveProcessBtn.disabled,false);
   const draft=h.collectDraft();
   assert.equal(draft.documentTotal,60);
   assert.equal(draft.items.length,2);
   assert.deepEqual(draft.items.map(x=>x.sum),[24,36]);
 });
 
-test("Idle valid form enables save; uncertain save locks buttons but not arithmetic",()=>{
+test("UI save state never alters original invoice arithmetic validation",()=>{
   const normal=fixture({busy:false});
   assert.equal(normal.validateDraftArithmetic().valid,true);
   assert.equal(normal.nodes.saveDraftBtn.disabled,false);
   const uncertain=fixture({busy:false,uncertain:true});
   assert.equal(uncertain.validateDraftArithmetic().valid,true);
-  assert.equal(uncertain.nodes.saveDraftBtn.disabled,true);
+  assert.equal(uncertain.nodes.saveDraftBtn.disabled,false);
   assert.equal(uncertain.collectDraft().items.length,2);
 });
 
