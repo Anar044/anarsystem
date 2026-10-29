@@ -62,7 +62,7 @@ function renderOrders(){
     cell(new Date(o.created_at).toLocaleString('ru-RU'));
     cell(o.id.slice(0,8).toUpperCase()+' · '+(o.table_label||'Фастфуд'));
     cell(o.totalAZN+' ₼');
-    cell((labels[o.state]||o.state)+(o.pos_order_number?' · №'+o.pos_order_number:'')+(o.last_error?' · '+o.last_error:''));
+    cell((labels[o.state]||o.state)+(o.pos_order_number?' · №'+o.pos_order_number:'')+(o.kitchen_status==='PRINTED'?' · Кухня: отправлено':o.kitchen_status==='CHECK_REQUIRED'?' · Кухня: требуется сверка':' · Кухня: не подтверждена')+(o.last_error?' · '+o.last_error:''));
     const last=cell('');
     if(o.state==='AWAITING_POS'){
       const btn=document.createElement('button');btn.className='qro-btn danger';btn.textContent='Отменить';
