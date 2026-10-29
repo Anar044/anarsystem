@@ -15,7 +15,7 @@ function newCode(){
   const bytes=new Uint8Array(CODE_SIZE);crypto.getRandomValues(bytes);
   return [...bytes].map(n=>CODE_ALPHABET[n%CODE_ALPHABET.length]).join('');
 }
-async function ensure(db){
+export async function ensureTipStaffTables(db){
   if(!db)throw Object.assign(new Error('D1 не настроена'),{status:503});
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS qr_tip_staff (
@@ -98,7 +98,7 @@ export async function onRequestGet({request,env}){
     const ctx=await context(request,env);
     const params=new URL(request.url).searchParams;
     const employeeId=clean(params.get('id'));
-    await ensure(env.DB);
+    await ensureTipStaffTables(env.DB);
     if(params.get('list')==='1'){
       if(!ctx.canViewBank)return fail(403,'TIPS_FINANCE_REQUIRED','Требуется доступ к финансам');
       const restaurant=(ctx.scope.selectedRestaurants||[]).find(r=>String(r.id)===String(ctx.restaurantId));
@@ -141,7 +141,7 @@ export async function onRequestPost({request,env}){
     if(!['save','rotateCode'].includes(body.action))return fail(400,'BAD_ACTION','Неверное действие');
     const id=clean(body.employeeId);
     if(!id)return fail(400,'MISSING_ID','Не указан сотрудник');
-    await ensure(env.DB);
+    await ensureTipStaffTables(env.DB);
     const employee=await findEmployee(env.DB,ctx,id);
     const old=await profile(env.DB,ctx,employee);
     const t=now();
