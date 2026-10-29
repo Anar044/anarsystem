@@ -1,21 +1,33 @@
 (() => {
   'use strict';
 
-  const MENU_KEY = 'horeca_qr_menu_v1';
   let publishing = false;
   const scriptLoads = new Map();
 
   function readMenuState() {
-    try {
-      const parsed = JSON.parse(localStorage.getItem(MENU_KEY) || 'null');
-      return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch (_) {
-      return null;
-    }
+    const state = window.SH_QRMenuEditor?.getState?.();
+    return state && Array.isArray(state.categories) && Array.isArray(state.dishes) ? state : null;
   }
 
   function saveMenuState(state) {
-    try { localStorage.setItem(MENU_KEY, JSON.stringify(state)); } catch (_) {}
+    const editor = window.SH_QRMenuEditor;
+    if (!editor?.setPublishedInfo) throw new Error('QR Menu ещё не загружено.');
+    editor.setPublishedInfo({ publicUrl: state.publicUrl, organizationId: state.organizationId });
+  }
+
+  function confirmCurrentRestaurant(binding) {
+    const editor = window.SH_QRMenuEditor;
+    const scope = editor?.getScope?.();
+    if (!scope || !scope.restaurantId) throw new Error('Контекст QR Menu ещё не загружен. Откройте раздел повторно.');
+    const mode = String(binding?.identity?.mode || binding?.connection?.connectionType || 'RMS').toUpperCase();
+    const ids = [...new Set((binding?.departmentIds || []).map(String).filter(Boolean))].sort();
+    if (mode === 'CHAIN' && ids.length !== 1) throw new Error('Для публикации QR Menu выберите ровно один ресторан.');
+    const restaurantId = ids[0] || String(binding?.identity?.organizationId || binding?.connection?.organizationId || '').trim();
+    if (scope.mode !== mode || String(scope.restaurantId) !== restaurantId ||
+        (mode === 'CHAIN' && scope.departmentIds.slice().sort().join(',') !== ids.join(','))) {
+      throw new Error('Выбор ресторана изменился. Обновите QR Menu перед публикацией.');
+    }
+    return editor;
   }
 
   function loadScript(src, id) {
@@ -36,11 +48,8 @@
 
   async function ensureSyncController() {
     if (window.SH_QRMenuSyncContextLoaded) return;
-    const before = localStorage.getItem(MENU_KEY) || '';
     try {
-      await loadScript('/qr-menu-sync-context.js?v=20260915-2', 'qr-menu-sync-context-loader');
-      const after = localStorage.getItem(MENU_KEY) || '';
-      if (before !== after && document.readyState !== 'loading') location.reload();
+      await loadScript('/qr-menu-sync-context.js?v=20261029-scoped-state1', 'qr-menu-sync-context-loader');
     } catch (error) {
       console.warn('QR Menu sync controller failed to load', error);
     }
@@ -178,11 +187,18 @@
       if (!window.SH_IikoContext?.getBinding) throw new Error('Единое подключение SH Server не готово. Обновите страницу.');
       const binding = await window.SH_IikoContext.getBinding(true);
       if (!binding?.connection) throw new Error('Подключение SH Server не настроено. Откройте «Настройки».');
+      const editor = confirmCurrentRestaurant(binding);
 
       const state = readMenuState();
       if (!state || !Array.isArray(state.categories) || !Array.isArray(state.dishes)) {
         throw new Error('Данные QR Menu не найдены. Обновите страницу и попробуйте снова.');
       }
+
+      // Recheck before publishing so an outdated editor cannot publish a
+      // menu for a different selected CHAIN restaurant.
+      if (window.SH_QRMenuEditor !== editor) throw new Error('QR Menu переключено на другой ресторан.');
+      const latestBinding = await window.SH_IikoContext.getBinding(true);
+      confirmCurrentRestaurant(latestBinding);
 
       const token = await accessToken();
       const response = await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/qr-menu/publish', {
@@ -226,11 +242,10 @@
 
   ensureSyncController();
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', restorePublishedResult, { once: true });
-  } else {
-    restorePublishedResult();
-  }
+  // Editor initializes asynchronously after restaurant binding is known.
+  // Restore only from the active restaurant state, never from the global key.
+  window.addEventListener('sh:qr-menu-editor-ready', restorePublishedResult);
+  if (window.SH_QRMenuEditor) restorePublishedResult();
 
   document.addEventListener('click', event => {
     const button = event.target?.closest?.('#publishBtn');
