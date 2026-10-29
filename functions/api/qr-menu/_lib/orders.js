@@ -119,6 +119,9 @@ export async function priceBasket(db,menuId,raw){
   for(const [id,count] of qty){
     const dish=lookup.get(id);
     if(!dish||!clean(dish.iiko_id))throw fail('DISH_UNAVAILABLE','Одна из позиций больше не доступна',409);
+    // A manually created QR-only dish cannot be silently sent to iikoFront as a real product.
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean(dish.iiko_id)))
+      throw fail('DISH_NOT_MAPPED_TO_POS','Блюдо не сопоставлено с товаром на кассе. Обратитесь к сотруднику ресторана',409);
     if(clean(dish.currency).toUpperCase()!=='AZN')throw fail('CURRENCY_UNSUPPORTED','QR-заказ поддерживает только AZN',409);
     const unitMinor=cents(dish.price),lineMinor=unitMinor*count;
     total+=lineMinor;quantity+=count;
