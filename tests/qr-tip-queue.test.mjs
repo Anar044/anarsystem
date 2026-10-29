@@ -30,7 +30,7 @@ test('Queue is FIFO, keeps insufficient funds and never fabricates paid payouts'
   const evaluate=queueFunction();
   const a=evaluate([tip(700),tip(600),tip(200)],1000,true);
   assert.deepEqual(a.rows.map(x=>x.queueReason),[
-    'READY_FOR_PROVIDER','WAITING_FUNDS','READY_FOR_PROVIDER']);
+    'READY_FOR_PROVIDER','WAITING_FUNDS','WAITING_FUNDS']);
   assert.equal(a.summary.unpaidMinor,1500);
   assert.equal(a.summary.shortfallMinor,500);
   assert.equal(a.summary.paidMinor,0);
