@@ -197,3 +197,8 @@ html[data-theme="light"] .aid-save-message{background:#fff1ec!important;color:#a
 html[data-theme="light"] .aid-save-footer{border-color:#e0e9f0}
 html[data-theme="light"] .aid-save-footer>span{color:#698095}
 @media(max-width:520px){.aid-save-dialog{padding:22px 18px 16px}.aid-save-dialog h2{font-size:19px}.aid-save-footer{align-items:stretch;flex-direction:column}#saveModalClose{width:100%}}
+
+/* The saved-document state must remain obvious when the document is reopened. */
+.aid-review-status{font-size:12px;line-height:1.5;padding:12px 14px}
+.aid-review-status.ok{border:1px solid #367c57;background:#123e2a;color:#adf8cd;font-weight:750}
+html[data-theme="light"] .aid-review-status.ok{background:#e8f8ef;color:#16613c;border-color:#9dddb9}
