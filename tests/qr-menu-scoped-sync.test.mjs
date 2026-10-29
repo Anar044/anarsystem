@@ -117,7 +117,7 @@ test("Publication also uses verified editor state, never legacy global menu stor
   assert.match(publisher,/window\.SH_QRMenuState\.update\(binding, updater\)/);
   assert.doesNotMatch(publisher,/localStorage\.getItem\(MENU_KEY\)|localStorage\.setItem\(MENU_KEY|location\.reload\(\)/);
   assert.doesNotMatch(syncSource,/localStorage\.getItem|localStorage\.setItem|location\.reload\(\)/);
-  assert.match(html,/qr-menu\.js\?v=20261029-scoped-menu1/);
+  assert.match(html,/qr-menu\.js\?v=20261029-video-match-v2/);
   assert.match(html,/qr-menu-publish-context\.js\?v=20261029-scoped-menu1/);
   assert.match(publisher,/qr-menu-sync-context\.js\?v=20261029-restaurant-scoped1/);
 });
