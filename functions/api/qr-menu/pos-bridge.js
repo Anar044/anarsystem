@@ -104,6 +104,33 @@ export async function onRequestPost({request,env}){
         .bind(crypto.randomUUID(),id,owner.owner_id,JSON.stringify({errorCode:reason}),t).run();
       return response({success:true,orderState:'POS_FAILED'});
     }
+    if(action==='ackKitchen'){
+      const id=clean(body.externalOrderId,100),posId=clean(body.posOrderId,128);
+      const status=clean(body.kitchenStatus,32);
+      if(!id||!posId||!['PRINTED','CHECK_REQUIRED'].includes(status))
+        throw fail('KITCHEN_ACK_REQUIRED','Укажите ID заказа на кассе и статус кухонной отправки',400);
+      const prev=await env.DB.prepare(`SELECT id,owner_id,state,pos_order_id,kitchen_status
+        FROM qr_guest_orders WHERE id=?1 AND restaurant_id=?2 AND pos_plugin_id=?3 LIMIT 1`)
+        .bind(id,identity.departmentId,identity.pluginId).first();
+      if(!prev||prev.pos_order_id!==posId)
+        throw fail('KITCHEN_ORDER_MISMATCH','Чужой заказ или неверный ID кассы',403);
+      if(!['POS_OPEN','CLOSED'].includes(prev.state))
+        throw fail('KITCHEN_POS_NOT_CREATED','Сначала подтвердите создание заказа на кассе',409);
+      if(prev.kitchen_status===status)return response({success:true,duplicate:true,kitchenStatus:status});
+      if(prev.kitchen_status!=='NOT_SENT')
+        throw fail('KITCHEN_STATUS_CONFLICT','Предыдущий результат кухонной печати требует ручной сверки',409);
+      const saved=await env.DB.prepare(`UPDATE qr_guest_orders
+        SET kitchen_status=?1,kitchen_updated_at=?2,updated_at=?2
+        WHERE id=?3 AND restaurant_id=?4 AND pos_plugin_id=?5
+          AND pos_order_id=?6 AND kitchen_status='NOT_SENT'
+        RETURNING id`).bind(status,t,id,identity.departmentId,identity.pluginId,posId).first();
+      if(!saved)throw fail('KITCHEN_ACK_RACE','Состояние кухонной печати уже изменено',409);
+      await env.DB.prepare(`INSERT INTO qr_order_events
+        (id,order_id,owner_id,event_type,actor,details_json,created_at)
+        VALUES(?1,?2,?3,'KITCHEN_STATUS','PLUGIN',?4,?5)`)
+        .bind(crypto.randomUUID(),id,prev.owner_id,JSON.stringify({kitchenStatus:status}),t).run();
+      return response({success:true,kitchenStatus:status});
+    }
     if(action==='ackFiscalized'){
       const id=clean(body.externalOrderId,100),
         posId=clean(body.posOrderId,128),receipt=clean(body.receiptNumber,100),
