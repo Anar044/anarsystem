@@ -51,6 +51,13 @@ export async function resolveAssistantIiko(env, request, requestedIds = null) {
   if (outside.length) {
     throw forbidden("AI запрос содержит ресторан вне текущего выбора Smart Horeca.", "CHAIN_SCOPE_SELECTION_FORBIDDEN");
   }
+  // The browser may have a stale department selection after switching networks.
+  // Never silently broaden an AI report to the cookie/default scope when the
+  // request identifies a narrower set; require exact agreement and a refresh.
+  if (scope.isChain && bodyIds.length &&
+      (bodyIds.length !== selected.size || bodyIds.some(id => !selected.has(id)))) {
+    throw forbidden("Выбор ресторанов изменился. Обновите страницу Smart Horeca и повторите запрос.", "CHAIN_SCOPE_SELECTION_MISMATCH");
+  }
 
   return {
     connected: true,
