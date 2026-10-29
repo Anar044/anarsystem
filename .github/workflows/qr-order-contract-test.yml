@@ -1,0 +1,44 @@
+name: QR Order Contract Tests
+
+on:
+  push:
+    branches:
+      - feature/qr-order-internal-core-20261029
+    paths:
+      - 'functions/api/qr-menu/**'
+      - 'functions/api/plugin/_lib/ingest-auth.js'
+      - 'tests/qr-order-internal.test.mjs'
+      - 'qr-order-admin.js'
+      - 'qr-order-guest.js'
+      - 'qr-menu-reference-v2.js'
+      - 'qr-menu.html'
+      - 'menu.html'
+      - 'app-shell.js'
+      - '.github/workflows/qr-order-contract-test.yml'
+  pull_request:
+    paths:
+      - 'functions/api/qr-menu/**'
+      - 'functions/api/plugin/_lib/ingest-auth.js'
+      - 'tests/qr-order-internal.test.mjs'
+      - 'qr-order-admin.js'
+      - 'qr-order-guest.js'
+      - 'qr-menu-reference-v2.js'
+      - 'qr-menu.html'
+      - 'menu.html'
+      - 'app-shell.js'
+      - '.github/workflows/qr-order-contract-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qr-order-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify QR API and diagnostic-only handshake
+        run: node --test tests/qr-order-internal.test.mjs
