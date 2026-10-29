@@ -64,7 +64,7 @@ function renderOrders(){
     cell(o.totalAZN+' ₼');
     cell((labels[o.state]||o.state)+(o.pos_order_number?' · №'+o.pos_order_number:'')+(o.last_error?' · '+o.last_error:''));
     const last=cell('');
-    if(['AWAITING_POS','POS_FAILED'].includes(o.state)){
+    if(o.state==='AWAITING_POS'){
       const btn=document.createElement('button');btn.className='qro-btn danger';btn.textContent='Отменить';
       btn.onclick=()=>{if(confirm('Отменить этот заказ, который ещё не создан на кассе?'))action({action:'cancelPending',orderId:o.id})};
       last.append(btn);
