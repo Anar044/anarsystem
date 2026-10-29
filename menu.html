@@ -11,13 +11,153 @@ body[data-menu-theme="dark"] .cat-nav{background:rgba(11,14,14,.94);border-color
 .detail-overlay{position:fixed;inset:0;background:rgba(0,0,0,.68);z-index:100;display:none;align-items:center;justify-content:center;padding:18px;backdrop-filter:blur(8px)}.detail-overlay.show{display:flex}.detail-card{width:min(620px,100%);max-height:92vh;overflow:auto;background:var(--surface,#fff);color:var(--text,#17202a);border-radius:24px;box-shadow:0 25px 80px #0008;position:relative}.detail-close{position:absolute;right:14px;top:14px;width:38px;height:38px;border:0;border-radius:50%;background:#0008;color:#fff;font-size:25px;z-index:3;cursor:pointer}.detail-photo{width:100%;height:min(48vh,360px);background:#e9edf0;overflow:hidden}.detail-photo img{width:100%;height:100%;object-fit:cover;display:block}.detail-body{padding:24px}.detail-body h2{font-family:Georgia,serif;font-size:28px;margin:0 42px 8px 0}.detail-desc{font-size:14px;line-height:1.6;color:#68717a;margin-top:12px}.detail-composition{margin-top:15px;padding:13px;border-radius:13px;background:#f5f7f8;font-size:12px;line-height:1.6;color:#68717a}.detail-price{margin-top:18px;font-size:20px;font-weight:800;color:var(--accent,#c6a45a)}body[data-menu-theme="dark"] .detail-composition{background:#151919;color:#aaa}@media(max-width:720px){.layout{grid-template-columns:1fr}.sidebar{display:none}.hero{min-height:330px}.hero-content{min-height:330px;padding:24px 20px}.hero h1{font-size:34px}.menu{padding:8px 16px 30px}.dish{grid-template-columns:82px minmax(0,1fr) auto;gap:11px}.photo{width:82px;height:68px}.name{font-size:14px}.price{font-size:12px}.cat{font-size:19px}.cat-nav{padding-left:12px;padding-right:12px}.detail-overlay{padding:0}.detail-card{max-height:100vh;height:100%;border-radius:0}.detail-photo{height:42vh}.detail-body{padding:20px}}
 @media(min-width:721px){.hero-content{max-width:760px;margin:auto}.hero-logo{width:86px;height:86px}.hero h1{font-size:48px}}
 </style>
+<style id="sh-qr-guest-reference-style">
+
+/* Smart Horeca QR Menu — guest-only visual layer, inspired by the supplied
+   mobile reference. No changes to menu storage, orders or payment behavior. */
+:root{color-scheme:light}
+html{scroll-padding-top:76px}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Arial,sans-serif}
+.page{width:min(1180px,100%);box-shadow:0 0 65px #101b1f09}
+.hero{isolation:isolate;min-height:490px;background:#171a1c!important}
+.hero-photo{inset:0;filter:none}
+.hero-photo img{object-position:center 50%}
+.hero-photo:after{background:linear-gradient(180deg,rgba(0,0,0,.60) 0%,transparent 34%,rgba(0,0,0,.08) 60%,rgba(0,0,0,.62) 100%)}
+.hero-content{min-height:490px;justify-content:flex-start;padding:27px 30px 32px;gap:4px}
+.hero-logo{width:46px;height:46px;margin:0 0 12px;border:1.5px solid #fff7;background:#ffffffef;color:#131313;border-radius:50%;font:750 19px Inter,system-ui}
+.hero .eyebrow{font:650 10px Inter,system-ui;letter-spacing:.18em;color:#ececec;text-transform:uppercase;margin:3px 0 7px}
+.hero h1{font:760 27px/1.2 Inter,system-ui,sans-serif;letter-spacing:-.045em;color:#fff;max-width:500px;text-shadow:0 2px 12px #0007}
+.hero p{font-size:12px;color:#fffdf1;margin-top:5px;text-shadow:0 1px 8px #0008}
+.hero .updated{margin-top:auto;padding:6px 10px;border:1px solid #ffffff5c;border-radius:24px;background:#16161668;color:#f8f8f8;font-size:10px;backdrop-filter:blur(8px)}
+.spotlight{display:none;align-items:center;justify-content:space-between;gap:14px;padding:23px 30px 21px;background:var(--surface,#fff);border-bottom:1px solid #ececec;color:var(--text,#171717)}
+.spotlight.visible{display:flex}
+.spotlight-kicker{font:650 10px Inter,system-ui;letter-spacing:.12em;text-transform:uppercase;color:#737373}
+.spotlight h2{font:780 clamp(20px,2.6vw,31px)/1.17 Inter,system-ui;margin:8px 0 8px;letter-spacing:-.046em;max-width:610px}
+.spotlight-price{font:680 13px Inter,system-ui;color:#767676}
+.spotlight-open{flex:none;border:1px solid #d7d7d7;background:transparent;color:var(--text,#111);border-radius:999px;font:680 12px Inter,system-ui;padding:11px 17px;cursor:pointer}
+.spotlight-open:hover,.spotlight-open:focus-visible{border-color:var(--accent,#171717);background:#111;color:#fff}
+.layout{grid-template-columns:220px minmax(0,1fr)}
+.sidebar{background:var(--surface,#fff);border-right:1px solid #f0f0f0;padding:36px 22px}
+.brand-title{font:780 20px/1.25 Inter,system-ui;letter-spacing:-.03em;color:var(--text,#171717)}
+.brand-sub{font:670 10px Inter,system-ui;letter-spacing:.15em;color:#8c8c8c}
+.about,.contact{font:400 12px/1.65 Inter,system-ui;color:#737373}
+.side-title{font:700 10px Inter,system-ui;letter-spacing:.15em;color:#555}
+.wifi{border-radius:12px}
+.main{min-width:0;background:var(--surface,#fff)}
+.cat-nav{top:0;z-index:24;gap:25px;padding:0 30px;min-height:60px;align-items:center;border-bottom:1px solid #ededed;background:color-mix(in srgb,var(--surface,#fff) 94%,transparent);box-shadow:0 3px 18px #11111106;scroll-snap-type:x proximity}
+.cat-nav a{border:0!important;border-radius:0!important;background:transparent!important;color:#868686!important;font:650 13px/1.2 Inter,system-ui!important;padding:19px 0 18px!important;white-space:nowrap;position:relative;scroll-snap-align:start;transition:color .15s}
+.cat-nav a.active,.cat-nav a:hover,.cat-nav a:focus-visible{color:var(--text,#171717)!important}
+.cat-nav a.active:after{content:"";position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--accent,#171717);border-radius:2px}
+.cat-nav .cat-photo{display:none}
+.menu{padding:10px 30px 56px}
+.menu-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:17px 0 4px}
+.menu-toolbar-title{font:790 23px Inter,system-ui;letter-spacing:-.04em;margin:0;color:var(--text,#191919)}
+.menu-toolbar-count{font:450 12px Inter,system-ui;color:#8b8b8b;margin-left:8px;letter-spacing:0}
+.menu-search-button{border:1px solid #e7e7e7;border-radius:50%;background:var(--surface,#fff);display:grid;place-items:center;width:39px;height:39px;cursor:pointer;color:var(--text,#161616)}
+.menu-search-button:hover,.menu-search-button:focus-visible{border-color:#888}
+.menu-search-button svg{width:18px;height:18px;display:block}
+.menu-search-wrap{display:none;margin:10px 0 12px}
+.menu-search-wrap.show{display:block}
+.menu-search-wrap input{width:100%;height:44px;padding:0 17px;border:1px solid #ddd;border-radius:12px;background:var(--surface,#fff);color:var(--text,#171717);outline:none;font:450 14px Inter,system-ui}
+.menu-search-wrap input:focus{border-color:var(--accent,#444)}
+#content{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 14px}
+#content .loading,#content .error,#content .search-empty{grid-column:1/-1;padding:36px 12px;text-align:center;color:#8a8a8a;font-size:14px}
+.cat{grid-column:1/-1;margin:22px 0 0;scroll-margin-top:75px;font:790 19px/1.3 Inter,system-ui;letter-spacing:-.035em}
+.cat:after{background:linear-gradient(90deg,#d7d7d7,transparent);opacity:.65}
+.cat-count{font:600 11px Inter,system-ui;color:#939393}
+.cat .cat-photo{width:27px;height:27px;border-radius:8px}
+.dish{display:flex;flex-direction:column;align-items:stretch;gap:0;min-width:0;padding:0 0 8px;border:0;border-radius:15px;background:var(--surface,#fff);cursor:pointer;overflow:hidden;box-shadow:none;transition:transform .18s,box-shadow .18s}
+.dish:hover{transform:translateY(-3px);box-shadow:0 9px 22px #11111112}
+.dish:focus-visible{outline:3px solid var(--accent,#999);outline-offset:2px}
+.photo{position:relative;width:100%;height:auto;aspect-ratio:1/1;border-radius:15px;background:#161616;overflow:hidden;color:#f7f7f7;font-size:34px}
+.photo img{width:100%;height:100%;object-fit:cover;object-position:center;transition:transform .3s}
+.dish:hover .photo img{transform:scale(1.045)}
+.photo:after{content:"↗";position:absolute;right:8px;bottom:8px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#141414f0;color:#fff;box-shadow:0 3px 12px #0003;font:550 18px Inter,system-ui}
+.dish>div:nth-child(2){min-width:0;padding:10px 2px 0;flex:1}
+.name{font:700 13px/1.3 Inter,system-ui;letter-spacing:-.02em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:34px}
+.desc{font:440 11px/1.45 Inter,system-ui;color:#838383;margin:5px 0 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.composition{font:410 10px/1.5 Inter,system-ui;color:#919191;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.price{align-self:auto;padding:7px 2px 3px;font:780 12px/1.2 Inter,system-ui;color:var(--text,#151515);letter-spacing:-.02em}
+.info-block,.feedback{border:0;border-radius:14px;background:color-mix(in srgb,var(--surface,#fff) 92%,#dadada);margin:18px 0}
+.info-block h3,.feedback strong{font:700 15px Inter,system-ui;color:var(--text,#171717)}
+.info-block p,.feedback{font:450 12px/1.6 Inter,system-ui;color:#858585}
+.feedback{padding:18px}
+.footer{padding:20px 12px 95px;border-color:#f0f0f0;letter-spacing:.13em;color:#888;background:var(--surface,#fff)}
+.guest-float{display:none;position:fixed;bottom:calc(16px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:27;gap:8px;align-items:center;justify-content:center;pointer-events:none;max-width:calc(100vw - 28px)}
+.guest-float button{pointer-events:auto;height:42px;border:0;border-radius:999px;background:#141414;color:#fff;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 18px;white-space:nowrap;box-shadow:0 9px 26px #0003;font:680 12px Inter,system-ui;cursor:pointer}
+.guest-float .float-search{width:42px;padding:0;font-size:20px}
+.guest-float button:focus-visible{outline:3px solid var(--accent,#ffc);outline-offset:2px}
+.detail-overlay{z-index:1000;background:#000b;padding:22px;backdrop-filter:blur(12px)}
+.detail-card{width:min(630px,100%);height:min(92dvh,900px);max-height:none;border-radius:21px;overflow:auto;display:flex;flex-direction:column;background:var(--surface,#fff);color:var(--text,#171717)}
+.detail-close{left:16px;right:auto;top:16px;width:42px;height:42px;border-radius:50%;background:#101010a8;display:grid;place-items:center;font:450 27px Inter,system-ui}
+.detail-photo{height:54%;min-height:320px;flex:0 0 auto;background:#181818;color:#eee;display:grid;place-items:center;font-size:55px}
+.detail-photo img{width:100%;height:100%;object-fit:cover}
+.detail-body{padding:24px 27px 18px;flex:1}
+.detail-body h2{font:790 clamp(23px,3.2vw,31px)/1.16 Inter,system-ui;letter-spacing:-.04em;margin:0 0 9px}
+.detail-desc{font:450 14px/1.65 Inter,system-ui;color:#848484;margin-top:15px}
+.detail-composition{background:#f6f6f6;color:#6e6e6e;padding:14px;font:430 12px/1.65 Inter,system-ui;border-radius:13px}
+.detail-bottom{position:sticky;bottom:0;background:var(--surface,#fff);display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px 27px max(18px,env(safe-area-inset-bottom));border-top:1px solid #ececec;margin-top:auto}
+.detail-price{margin:0;padding:0;font:800 20px Inter,system-ui;color:var(--text,#111)}
+.detail-back{background:#151515;color:#fff;border:0;border-radius:99px;padding:13px 22px;cursor:pointer;font:700 13px Inter,system-ui}
+.detail-back:focus-visible{outline:3px solid var(--accent,#888);outline-offset:3px}
+body[data-menu-theme="dark"] .cat-nav{background:rgba(15,17,17,.94);border-color:#fff2}
+body[data-menu-theme="dark"] .cat-nav a{color:#999!important}
+body[data-menu-theme="dark"] .cat-nav a.active,body[data-menu-theme="dark"] .cat-nav a:hover{color:#f5f5f5!important}
+body[data-menu-theme="dark"] .main,body[data-menu-theme="dark"] .dish,body[data-menu-theme="dark"] .spotlight,body[data-menu-theme="dark"] .detail-bottom{background:var(--surface,#101313)}
+body[data-menu-theme="dark"] .spotlight,body[data-menu-theme="dark"] .detail-bottom,body[data-menu-theme="dark"] .sidebar,body[data-menu-theme="dark"] .footer{border-color:#fff2}
+body[data-menu-theme="dark"] .spotlight-price,body[data-menu-theme="dark"] .desc,body[data-menu-theme="dark"] .detail-desc,body[data-menu-theme="dark"] .composition{color:#a0a0a0}
+body[data-menu-theme="dark"] .menu-search-button,body[data-menu-theme="dark"] .menu-search-wrap input{background:#1a2020;color:#eee;border-color:#394040}
+body[data-menu-theme="dark"] .detail-composition{background:#222;color:#ddd}
+body[data-menu-theme="dark"] .spotlight-open{border-color:#555;color:#eee}
+body[data-menu-theme="dark"] .guest-float button{background:#f2f2f2;color:#171717}
+@media(max-width:720px){
+ .layout{grid-template-columns:1fr}
+ .sidebar{display:none}
+ .page{max-width:none;box-shadow:none}
+ .hero{min-height:51svh!important;max-height:590px}
+ .hero-content{min-height:51svh;max-height:590px;padding:21px 17px 20px}
+ .hero-logo{width:37px;height:37px;font-size:15px;margin:0 0 8px}
+ .hero .eyebrow{font-size:9px}
+ .hero h1{font-size:21px}
+ .hero p{font-size:11px}
+ .hero .updated{font-size:9px}
+ .spotlight{padding:19px 16px 17px;gap:12px}
+ .spotlight h2{font-size:22px;margin:6px 0}
+ .spotlight-open{padding:10px 12px;font-size:11px}
+ .menu{padding:7px 12px 38px}
+ .menu-toolbar{margin:13px 0 5px}
+ .menu-toolbar-title{font-size:21px}
+ .cat-nav{min-height:53px;gap:21px;padding:0 12px}
+ .cat-nav a{font-size:12px!important;padding:17px 0 16px!important}
+ #content{gap:12px 11px}
+ .cat{font-size:17px;margin:20px 0 0}
+ .dish{padding-bottom:5px}
+ .photo{border-radius:12px}
+ .photo:after{width:28px;height:28px;font-size:16px;right:7px;bottom:7px}
+ .name{font-size:12px;min-height:32px}
+ .desc{font-size:10px}
+ .price{font-size:12px}
+ .guest-float{display:flex}
+ .footer{padding-bottom:96px}
+ .detail-overlay{padding:0}
+ .detail-card{width:100%;height:100dvh;max-height:none;border-radius:0}
+ .detail-photo{height:52svh;min-height:0}
+ .detail-body{padding:21px 17px}
+ .detail-body h2{font-size:24px}
+ .detail-bottom{padding:13px 17px calc(15px + env(safe-area-inset-bottom))}
+}
+@media(max-width:350px){.spotlight-open{display:none}.cat-nav{gap:17px}.menu-toolbar-title{font-size:19px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+</style>
 </head>
 <body>
 <div class="page">
 <header class="hero"><div class="hero-photo" id="heroPhoto"></div><div class="hero-content"><div class="hero-logo" id="heroLogo">A</div><div class="eyebrow">Restaurant &amp; Lounge</div><h1 id="restaurant">Anar Restaurant</h1><p id="tagline">Семейный ресторан</p><span class="updated" id="updated"></span></div></header>
+<section class="spotlight" id="spotlight" aria-label="Рекомендуемое блюдо"><div class="spotlight-copy"><span class="spotlight-kicker">Из нашего меню</span><h2 id="spotlightName"></h2><span class="spotlight-price" id="spotlightPrice"></span></div><button type="button" class="spotlight-open" id="spotlightOpen">Подробнее ↗</button></section>
 <div class="layout"><aside class="sidebar"><div class="brand-title" id="sideBrand">Anar Restaurant</div><div class="brand-sub">QR DIGITAL MENU</div><div class="about" id="sideAbout">Добро пожаловать в наш ресторан. Здесь собраны актуальные блюда и напитки.</div><div class="side-title">Информация</div><div class="contact" id="sideContact"></div><div class="wifi" id="sideWifi" style="display:none"></div></aside>
-<main class="main"><nav class="cat-nav" id="catNav"></nav><section class="menu"><div id="aboutBlock" class="info-block" style="display:none"></div><div id="content"><div class="loading">Загрузка меню…</div></div><div id="feedback" class="feedback" style="display:none"><strong>Спасибо, что вы с нами</strong><span>Ваше мнение помогает нам становиться лучше.</span></div></section><footer class="footer">DIGITAL MENU • <span id="footerName">ANAR RESTAURANT</span></footer></main></div></div>
-<div id="detailOverlay" class="detail-overlay" aria-hidden="true"><article class="detail-card"><button class="detail-close" id="detailClose" type="button">×</button><div class="detail-photo" id="detailPhoto">🍽️</div><div class="detail-body"><h2 id="detailName"></h2><div class="detail-desc" id="detailDesc"></div><div class="detail-composition" id="detailComposition" style="display:none"></div><div class="detail-price" id="detailPrice"></div></div></article></div>
+<main class="main"><nav class="cat-nav" id="catNav" aria-label="Категории меню"></nav><section class="menu"><div class="menu-toolbar"><h2 class="menu-toolbar-title">Меню <span class="menu-toolbar-count" id="menuItemCount"></span></h2><button type="button" id="menuSearchButton" class="menu-search-button" aria-expanded="false" aria-label="Поиск по блюдам"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="10.9" cy="10.9" r="7.5"/><path d="m16.5 16.5 5 5"/></svg></button></div><div class="menu-search-wrap" id="menuSearchWrap"><input id="menuSearchInput" type="search" placeholder="Найти блюдо или напиток" aria-label="Поиск по блюдам"></div><div id="aboutBlock" class="info-block" style="display:none"></div><div id="content"><div class="loading">Загрузка меню…</div></div><div id="feedback" class="feedback" style="display:none"><strong>Спасибо, что вы с нами</strong><span>Ваше мнение помогает нам становиться лучше.</span></div></section><footer class="footer">DIGITAL MENU • <span id="footerName">ANAR RESTAURANT</span></footer></main></div></div>
+<div id="detailOverlay" class="detail-overlay" aria-hidden="true"><article class="detail-card"><button class="detail-close" id="detailClose" type="button">×</button><div class="detail-photo" id="detailPhoto">🍽️</div><div class="detail-body"><h2 id="detailName"></h2><div class="detail-desc" id="detailDesc"></div><div class="detail-composition" id="detailComposition" style="display:none"></div></div><div class="detail-bottom"><div class="detail-price" id="detailPrice"></div><button type="button" class="detail-back" id="detailBack">К меню</button></div></article></div><div class="guest-float" aria-label="Навигация по меню"><button type="button" id="floatSearch" class="float-search" aria-label="Поиск">⌕</button><button type="button" id="floatMenu">☷ <span id="floatMenuText">Меню</span></button></div>
 <script>
 const DEFAULT={name:'Anar Restaurant',tagline:'Семейный ресторан',about:'Добро пожаловать в наш ресторан.',accent:'#c6a45a',text:'#17202a',bg:'#f5f7fa',surface:'#ffffff',theme:'light',font:'Inter',radius:'12px',hero:'',logo:'',phone:'',address:'',hours:'',social:'',wifi:'',showPrices:true,showDescriptions:true,showComposition:true,showAbout:true,showContacts:true};
 const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
@@ -29,7 +169,82 @@ let MENU_DATA=null,DESIGN_DATA=null;
 function openDish(id){const x=(MENU_DATA?.dishes||[]).find(d=>String(d.id)===String(id));if(!x)return;const d=DESIGN_DATA||DEFAULT;const o=document.getElementById('detailOverlay'),p=document.getElementById('detailPhoto');if(x.photo)setImage(p,x.photo,x.name);else p.textContent='🍽️';document.getElementById('detailName').textContent=x.name||'';document.getElementById('detailDesc').textContent=(d.showDescriptions?x.desc:'')||'';const c=document.getElementById('detailComposition');c.textContent=x.composition?'Состав: '+x.composition:'';c.style.display=d.showComposition&&x.composition?'block':'none';const pr=document.getElementById('detailPrice');pr.textContent=d.showPrices?Number(x.price||0).toFixed(2)+' '+(x.currency||'AZN'):'';o.classList.add('show');o.setAttribute('aria-hidden','false');document.body.style.overflow='hidden'}
 function closeDish(){const o=document.getElementById('detailOverlay');o.classList.remove('show');o.setAttribute('aria-hidden','true');document.body.style.overflow=''}
 document.getElementById('detailClose').onclick=closeDish;document.getElementById('detailOverlay').addEventListener('click',e=>{if(e.target.id==='detailOverlay')closeDish()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDish()});
-async function load(){const id=new URLSearchParams(location.search).get('id');const content=document.getElementById('content');if(!id){content.innerHTML='<div class="error">Ссылка на меню неполная.</div>';return}try{const r=await fetch('/api/qr-menu/public?id='+encodeURIComponent(id),{cache:'no-store'});const data=await r.json();if(!r.ok||!data.success)throw new Error(data.message||'Меню не найдено');DESIGN_DATA=applyDesign(data.design);MENU_DATA=data.menu||{};if(data.updatedAt)document.getElementById('updated').textContent='Обновлено '+new Date(data.updatedAt).toLocaleString('ru-RU');const cats=MENU_DATA.categories||[],dishes=(MENU_DATA.dishes||[]).filter(x=>x.isAvailable!==false);const nav=document.getElementById('catNav');nav.innerHTML=cats.map(c=>'<a href="#cat-'+encodeURIComponent(c.id)+'">'+(c.photo?'<img src="'+esc(c.photo)+'" class="cat-photo" alt="">':'')+esc(c.name)+'</a>').join('');const used=new Set();let html='';for(const c of cats){const list=dishes.filter(x=>String(x.cat)===String(c.id));if(!list.length)continue;used.add(String(c.id));html+='<h2 class="cat" id="cat-'+encodeURIComponent(c.id)+'">'+(c.photo?'<img src="'+esc(c.photo)+'" class="cat-photo" alt="">':'')+'<span>'+esc(c.name)+'</span><span class="cat-count">'+list.length+'</span></h2>'+list.map(x=>dishHtml(x,DESIGN_DATA)).join('')}const uncategorized=dishes.filter(x=>!used.has(String(x.cat)));if(uncategorized.length)html+='<h2 class="cat" id="cat-other"><span>Меню</span><span class="cat-count">'+uncategorized.length+'</span></h2>'+uncategorized.map(x=>dishHtml(x,DESIGN_DATA)).join('');content.innerHTML=html||'<div class="loading">В меню пока нет доступных блюд.</div>';content.querySelectorAll('.dish').forEach(el=>el.addEventListener('click',()=>openDish(el.dataset.dishId)));document.getElementById('feedback').style.display='block'}catch(e){content.innerHTML='<div class="error">Не удалось загрузить меню.<br><br>'+esc(e.message)+'</div>'}}
+document.getElementById('detailBack').onclick=closeDish;
+// Presentation-only enhancements. Menu data, public fetch, publishing, prices,
+// inventory and ordering APIs are not altered by this guest UI layer.
+function enhanceGuestView(dishes,d){
+  const feature=dishes.find(x=>x.photo)||dishes[0];
+  const spotlight=document.getElementById('spotlight');
+  if(feature){
+    spotlight.classList.add('visible');
+    document.getElementById('spotlightName').textContent=feature.name||'';
+    const featurePrice=document.getElementById('spotlightPrice');
+    featurePrice.textContent=d.showPrices?Number(feature.price||0).toFixed(2)+' '+(feature.currency||'AZN'):'';
+    featurePrice.hidden=!d.showPrices;
+    document.getElementById('spotlightOpen').onclick=()=>openDish(feature.id);
+    // Prefer the restaurant's configured banner; use a real menu photo only
+    // when no custom banner is set, never introduce placeholder stock photos.
+    if(!d.hero&&feature.photo){
+      const photo=document.getElementById('heroPhoto');
+      setImage(photo,feature.photo,feature.name||'Блюдо ресторана');
+      photo.classList.add('show');
+    }
+  }else spotlight.classList.remove('visible');
+  document.getElementById('menuItemCount').textContent=dishes.length?String(dishes.length)+' поз.':'';
+  document.getElementById('floatMenuText').textContent='Меню';
+  const searchButton=document.getElementById('menuSearchButton');
+  const searchWrap=document.getElementById('menuSearchWrap');
+  const searchInput=document.getElementById('menuSearchInput');
+  function applySearch(){
+    const term=searchInput.value.trim().toLocaleLowerCase();
+    const cards=[...document.querySelectorAll('#content .dish')];
+    cards.forEach(card=>{
+      card.hidden=!!term&&!card.textContent.toLocaleLowerCase().includes(term);
+      card.style.display=card.hidden?'none':'';
+    });
+    for(const heading of document.querySelectorAll('#content .cat')){
+      let next=heading.nextElementSibling,visible=false;
+      while(next&&!next.classList.contains('cat')){
+        if(next.classList.contains('dish')&&!next.hidden)visible=true;
+        next=next.nextElementSibling;
+      }
+      heading.hidden=!visible;
+      heading.style.display=visible?'':'none';
+    }
+    let empty=document.getElementById('menuSearchEmpty');
+    if(!empty){empty=document.createElement('p');empty.id='menuSearchEmpty';empty.className='search-empty';empty.hidden=true;document.getElementById('content').appendChild(empty)}
+    empty.hidden=!term||cards.some(card=>!card.hidden);
+    empty.textContent='По вашему запросу блюд не найдено.';
+  }
+  function openSearch(){
+    const show=!searchWrap.classList.contains('show');
+    searchWrap.classList.toggle('show',show);
+    searchButton.setAttribute('aria-expanded',String(show));
+    if(show){searchInput.focus();searchWrap.scrollIntoView({block:'nearest',behavior:'smooth'})}
+    else{searchInput.value='';applySearch()}
+  }
+  searchButton.onclick=openSearch;
+  document.getElementById('floatSearch').onclick=()=>{
+    if(!searchWrap.classList.contains('show'))openSearch();
+    else{searchInput.focus();searchWrap.scrollIntoView({block:'center',behavior:'smooth'})}
+  };
+  searchInput.oninput=applySearch;
+  document.getElementById('floatMenu').onclick=()=>document.getElementById('catNav').scrollIntoView({block:'start',behavior:'smooth'});
+  const nav=document.getElementById('catNav');
+  const links=[...nav.querySelectorAll('a')];
+  function activeLink(link,scroll=false){links.forEach(a=>a.classList.toggle('active',a===link));if(scroll&&link)link.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'})}
+  if(links.length)activeLink(links[0]); // Keep cinematic header visible on first load.
+  links.forEach(link=>link.addEventListener('click',()=>activeLink(link,true)));
+  for(const card of document.querySelectorAll('#content .dish')){
+    card.tabIndex=0;card.setAttribute('role','button');
+    card.setAttribute('aria-label','Подробнее: '+(card.querySelector('.name')?.textContent||'Блюдо'));
+    card.addEventListener('keydown',e=>{
+      if(e.key==='Enter'||e.key===' '){e.preventDefault();openDish(card.dataset.dishId)}
+    });
+  }
+}
+
+async function load(){const id=new URLSearchParams(location.search).get('id');const content=document.getElementById('content');if(!id){content.innerHTML='<div class="error">Ссылка на меню неполная.</div>';return}try{const r=await fetch('/api/qr-menu/public?id='+encodeURIComponent(id),{cache:'no-store'});const data=await r.json();if(!r.ok||!data.success)throw new Error(data.message||'Меню не найдено');DESIGN_DATA=applyDesign(data.design);MENU_DATA=data.menu||{};if(data.updatedAt)document.getElementById('updated').textContent='Обновлено '+new Date(data.updatedAt).toLocaleString('ru-RU');const cats=MENU_DATA.categories||[],dishes=(MENU_DATA.dishes||[]).filter(x=>x.isAvailable!==false);const nav=document.getElementById('catNav');nav.innerHTML=cats.map(c=>'<a href="#cat-'+encodeURIComponent(c.id)+'">'+(c.photo?'<img src="'+esc(c.photo)+'" class="cat-photo" alt="">':'')+esc(c.name)+'</a>').join('');const used=new Set();let html='';for(const c of cats){const list=dishes.filter(x=>String(x.cat)===String(c.id));if(!list.length)continue;used.add(String(c.id));html+='<h2 class="cat" id="cat-'+encodeURIComponent(c.id)+'">'+(c.photo?'<img src="'+esc(c.photo)+'" class="cat-photo" alt="">':'')+'<span>'+esc(c.name)+'</span><span class="cat-count">'+list.length+'</span></h2>'+list.map(x=>dishHtml(x,DESIGN_DATA)).join('')}const uncategorized=dishes.filter(x=>!used.has(String(x.cat)));if(uncategorized.length)html+='<h2 class="cat" id="cat-other"><span>Меню</span><span class="cat-count">'+uncategorized.length+'</span></h2>'+uncategorized.map(x=>dishHtml(x,DESIGN_DATA)).join('');content.innerHTML=html||'<div class="loading">В меню пока нет доступных блюд.</div>';content.querySelectorAll('.dish').forEach(el=>el.addEventListener('click',()=>openDish(el.dataset.dishId)));document.getElementById('feedback').style.display='block';enhanceGuestView(dishes,DESIGN_DATA)}catch(e){content.innerHTML='<div class="error">Не удалось загрузить меню.<br><br>'+esc(e.message)+'</div>'}}
 load();
 </script>
 </body>
