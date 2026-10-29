@@ -94,6 +94,16 @@ test('Rejects a restaurant outside an employee grant even if it is in the origin
     error => error.status === 403 && error.code === 'CHAIN_SCOPE_SELECTION_FORBIDDEN');
 });
 
+test('AI rejects a stale narrower browser scope instead of using all cookie-selected restaurants', async () => {
+  const h = harness();
+  await assert.rejects(() => h.resolveAssistantIiko({}, request('sh_selected_departments=r1%2Cr2'), ['r1']),
+    error => error.status === 403 && error.code === 'CHAIN_SCOPE_SELECTION_MISMATCH');
+  await assert.rejects(() => h.resolveAssistantIiko({}, request(), ['r1']),
+    error => error.status === 403 && error.code === 'CHAIN_SCOPE_SELECTION_MISMATCH');
+  const matched = await h.resolveAssistantIiko({}, request('sh_selected_departments=r2'), ['r2']);
+  assert.deepEqual(Array.from(matched.scope.selectedDepartmentIds), ['r2']);
+});
+
 test('Workspace switch rejects the previous organization selection instead of using its data', async () => {
   const otherState = structuredClone(savedState);
   otherState.identity.departmentIds = ['other'];
