@@ -115,6 +115,25 @@ export async function onRequestPost({request,env}){
       await env.DB.prepare(query).bind(...bindings).run();
       return response({success:true,notice:'Стол обновлён'});
     }
+    if(action==='retryValidationFailure'){
+      const id=clean(body.orderId,100);
+      // Only a strictly pre-SubmitChanges validation error is safely retryable.
+      // POS_RESULT_UNKNOWN means a real iikoFront order may already exist.
+      const changed=await env.DB.prepare(`UPDATE qr_guest_orders
+        SET state='AWAITING_POS',last_error='',lease_until='',updated_at=?1
+        WHERE id=?2 AND owner_id=?3 AND restaurant_id=?4
+          AND state='POS_FAILED' AND last_error='POS_VALIDATION_FAILED'
+          AND pos_order_id='' AND payment_state='UNPAID'
+        RETURNING id`)
+        .bind(now,id,ctx.ownerId,ctx.restaurantId).first();
+      if(!changed)
+        throw fail('QR_RETRY_UNSAFE','Повтор запрещён: заказ мог быть создан на кассе. Проверьте его вручную.',409);
+      await env.DB.prepare(`INSERT INTO qr_order_events
+        (id,order_id,owner_id,event_type,actor,details_json,created_at)
+        VALUES(?1,?2,?3,'SAFE_RETRY_REQUESTED','STAFF','{}',?4)`)
+        .bind(crypto.randomUUID(),id,ctx.ownerId,now).run();
+      return response({success:true,notice:'Заказ возвращён в очередь после исправления причины отказа.'});
+    }
     if(action==='cancelPending'){
       const id=clean(body.orderId,100);
       const result=await env.DB.prepare(`UPDATE qr_guest_orders
