@@ -52,6 +52,8 @@ export async function onRequestPost({request,env}){
         if(outstanding)throw fail('PLUGIN_CHANGE_LOCKED','Нельзя менять кассовый плагин при незавершённых заказах',409);
       }
       const enabled=body.orderingEnabled===true?1:0;
+      if(enabled&&!clean(env.QR_ORDER_RATE_SECRET))
+        throw fail('QR_RATE_NOT_CONFIGURED','Перед включением заказов настройте QR_ORDER_RATE_SECRET в Cloudflare Pages',409);
       await env.DB.prepare(`INSERT INTO qr_order_settings
         (owner_id,menu_id,restaurant_id,service_mode,ordering_enabled,pos_plugin_id,created_at,updated_at)
         VALUES(?1,?2,?3,?4,?5,?6,?7,?7)
