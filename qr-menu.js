@@ -38,6 +38,65 @@
     $('dHero')?.addEventListener('change',async e=>{if(e.target.files[0]){state.design.hero=await resizeImage(e.target.files[0]);save();renderPreview()}});$('dLogo')?.addEventListener('change',async e=>{if(e.target.files[0]){state.design.logo=await resizeImage(e.target.files[0]);save();renderPreview()}});
     $('resetDesign')?.addEventListener('click',()=>{if(confirm('Сбросить настройки дизайна?')){state.design={...DEFAULT_DESIGN};save();fillDesignForm();renderPreview()}});$('saveDesign')?.addEventListener('click',()=>{readDesignForm();$('settingsModal').classList.remove('show');alert('Дизайн сохранён. Нажмите «Опубликовать меню», чтобы применить его в публичном QR Menu.')});
   }
+  // A single source of truth for the QR editor and its companion sync/publish
+  // controllers. Previously those controllers read the global legacy KEY,
+  // while the editor stored a separate key for each selected restaurant.
+  function scopedStorageKey(binding){
+    const mode=String(binding?.identity?.mode||binding?.connection?.connectionType||'RMS').toUpperCase();
+    const ids=[...new Set((binding?.departmentIds||[]).map(String).filter(Boolean))].sort();
+    if(mode==='CHAIN'){
+      if(ids.length!==1)throw new Error('Для QR Menu выберите ровно один ресторан в верхнем фильтре и повторите действие.');
+      return KEY+':chain:'+ids[0].toLowerCase();
+    }
+    const id=ids[0]||String(binding?.identity?.organizationId||binding?.connection?.organizationId||'').trim();
+    if(!id)throw new Error('Ресторан QR Menu не определён. Проверьте подключение Smart Horeca Server.');
+    return KEY+':'+String(id).toLowerCase();
+  }
+  let initReady=null;
+  async function ensureScopedMenu(binding){
+    if(initReady)await initReady;
+    const expected=scopedStorageKey(binding);
+    if(storageKey!==expected){
+      // Initial binding can arrive later than the first paint. In that case
+      // recover the matching scoped editor state, without importing data from
+      // a generic/other-restaurant key.
+      if(storageKey===KEY+':unscoped'&&!localStorage.getItem(storageKey)){
+        storageKey=expected;loadState();render();
+      }else{
+        throw new Error('Выбранный ресторан изменился. Обновите QR Menu после выбора нужного ресторана.');
+      }
+    }
+    if(!state||!Array.isArray(state.categories)||!Array.isArray(state.dishes)){
+      throw new Error('QR Menu ещё загружается. Обновите страницу и повторите действие.');
+    }
+    return expected;
+  }
+  function copyMenu(value){return JSON.parse(JSON.stringify(value))}
+  window.SH_QRMenuState={
+    async read(binding){
+      await ensureScopedMenu(binding);
+      return copyMenu(state);
+    },
+    async update(binding,transform){
+      const expected=await ensureScopedMenu(binding);
+      // Switching organization/restaurant while a remote request is pending
+      // must not save the response into the previous restaurant's menu.
+      const currentBinding=await window.SH_IikoContext?.getBinding?.(true);
+      if(scopedStorageKey(currentBinding)!==expected){
+        throw new Error('Ресторан изменился во время операции. Обновите QR Menu и повторите действие.');
+      }
+      const result=typeof transform==='function'?transform(copyMenu(state)):transform;
+      if(!result||!Array.isArray(result.categories)||!Array.isArray(result.dishes)){
+        throw new Error('Получены некорректные данные QR Menu.');
+      }
+      state=result;save();render();
+      return copyMenu(state);
+    },
+    // Used only for observing the active menu; never exposes another stored
+    // restaurant's draft or a legacy global fallback.
+    getStorageKey:()=>storageKey
+  };
+
   async function init(){try{
     if(!$('addDishBtn'))return;
     try{
@@ -63,5 +122,5 @@
     }
     loadState();bind();render();console.info('QR Menu initialized',{storageKey,restaurantId:activeRestaurant?.id||null});
   }catch(e){console.error('QR Menu initialization failed',e);alert('QR Menu не удалось загрузить: '+(e.message||e))}}
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>init(),{once:true});else init();
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{initReady=init()},{once:true});else initReady=init();
 })();
