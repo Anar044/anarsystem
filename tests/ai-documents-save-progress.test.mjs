@@ -15,7 +15,7 @@ test("AI invoice save shows an accessible modal with explicit stages and success
   assert.match(html,/id="saveResultNumber"/);
   assert.match(html,/id="saveResultAmount"/);
   assert.match(html,/id="saveModalClose"/);
-  assert.match(html,/ai-documents\.js\?v=20261029-clear-save-progress1/);
+  assert.match(html,/ai-documents\.js\?v=20261029-arithmetic-save-fix1/);
   assert.match(css,/\.aid-save-overlay\[hidden\]/);
   assert.match(css,/@media\(max-width:520px\)/);
   assert.match(css,/prefers-reduced-motion/);
