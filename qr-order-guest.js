@@ -24,7 +24,12 @@ function setup(){
   const oldNote=basket.querySelector('.shqr-basket-note');
   if(oldNote)oldNote.textContent='Это оформление настоящего QR-заказа в Smart Horeca. Кассовая передача и оплата подтверждаются отдельно.';
   basket.append(info,note,button,msg,receipt);
-  if(receiptTicket)refreshStatus();
+  if(receiptTicket){
+    button.disabled=true;
+    button.textContent='Заказ уже зарегистрирован';
+    window.SHQRReference?.clearSelectedItems?.();
+    refreshStatus();
+  }
 }
 function orderText(code){
   return ({AWAITING_POS:'Заказ зарегистрирован в Smart Horeca и ожидает кассу',
@@ -39,7 +44,20 @@ function showReceipt(order){
   label.textContent=orderText(order.status)+' · '+order.totalAZN+' ₼'+(order.kitchenStatus==='PRINTED'?' · На кухню отправлено':'');
   const refresh=document.createElement('button');refresh.className='qro-submit';refresh.type='button';
   refresh.textContent='Проверить статус';refresh.style.background='#2a6445';refresh.onclick=refreshStatus;
-  box.append(head,label,refresh);
+  const newOrder=document.createElement('button');newOrder.type='button';
+  newOrder.className='qro-submit';newOrder.style.background='#5e6975';
+  newOrder.textContent='Начать новый заказ';
+  newOrder.onclick=()=>{
+    if(!confirm('Новый заказ создаётся отдельно от предыдущего. Продолжить?'))return;
+    receiptTicket='';cartKey='';fingerprint='';
+    try{sessionStorage.removeItem(key())}catch(_){}
+    window.SHQRReference?.clearSelectedItems?.();
+    const button=$('qroOrderButton');
+    if(button){button.disabled=false;button.textContent='Оформить заказ · оплатить на кассе'}
+    const note=$('qroGuestNote');if(note)note.value='';
+    box.hidden=true;status('Выберите блюда для нового заказа.');
+  };
+  box.append(head,label,refresh,newOrder);
 }
 async function refreshStatus(){
   if(!receiptTicket)return;
@@ -51,7 +69,7 @@ async function refreshStatus(){
   }catch(e){status(e.message||String(e),true)}
 }
 async function submit(){
-  if(submitting||!enabled)return;
+  if(submitting||!enabled||receiptTicket)return;
   const items=snapshot();
   if(!items.length){status('Выберите хотя бы одно блюдо',true);return}
   const note=$('qroGuestNote')?.value.trim()||'';
@@ -69,6 +87,7 @@ async function submit(){
     showReceipt(j.order);
     status('Заказ зарегистрирован. Это ещё не подтверждение создания заказа на кассе.');
     b.textContent='Заказ зарегистрирован';b.disabled=true;
+    window.SHQRReference?.clearSelectedItems?.();
   }catch(e){status(e.message||String(e),true);b.disabled=false}
   finally{submitting=false}
 }
