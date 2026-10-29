@@ -57,6 +57,7 @@ export async function ensureOrders(db){
     db.prepare(`CREATE TABLE IF NOT EXISTS qr_pos_bridge_capabilities (
       restaurant_id TEXT NOT NULL,plugin_id TEXT NOT NULL,contract_version INTEGER NOT NULL,
       can_create_order INTEGER NOT NULL DEFAULT 0,can_ack_fiscal INTEGER NOT NULL DEFAULT 0,
+      can_print_kitchen INTEGER NOT NULL DEFAULT 0,
       last_seen_at TEXT NOT NULL,PRIMARY KEY(restaurant_id,plugin_id)
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_qr_orders_restaurant ON qr_guest_orders(owner_id,restaurant_id,created_at DESC)`),
@@ -67,7 +68,19 @@ export async function ensureOrders(db){
       created_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_qr_order_events_order ON qr_order_events(order_id,created_at)`)
-  ]).catch(e=>{ORDERS_SCHEMA_READY.delete(db);throw e});
+  ]).then(async()=>{
+    // Safe additive migration for staging D1 databases created by an earlier draft.
+    const columns=async table=>new Set(((await db.prepare('PRAGMA table_info('+table+')').all()).results||[])
+      .map(row=>String(row.name)));
+    const orderColumns=await columns('qr_guest_orders');
+    if(!orderColumns.has('kitchen_status'))
+      await db.prepare("ALTER TABLE qr_guest_orders ADD COLUMN kitchen_status TEXT NOT NULL DEFAULT 'NOT_SENT'").run();
+    if(!orderColumns.has('kitchen_updated_at'))
+      await db.prepare("ALTER TABLE qr_guest_orders ADD COLUMN kitchen_updated_at TEXT NOT NULL DEFAULT ''").run();
+    const bridgeColumns=await columns('qr_pos_bridge_capabilities');
+    if(!bridgeColumns.has('can_print_kitchen'))
+      await db.prepare("ALTER TABLE qr_pos_bridge_capabilities ADD COLUMN can_print_kitchen INTEGER NOT NULL DEFAULT 0").run();
+  }).catch(e=>{ORDERS_SCHEMA_READY.delete(db);throw e});
   ORDERS_SCHEMA_READY.set(db,initialization);
   return initialization;
 }
@@ -151,6 +164,7 @@ export const publicState=order=>({
   orderNumber:order.id.slice(0,8).toUpperCase(),totalAZN:(order.total_minor/100).toFixed(2),
   currency:order.currency,status:order.state,paymentStatus:order.payment_state,
   posOrderNumber:order.pos_order_number||'',receiptNumber:order.pos_receipt_number||'',
+  kitchenStatus:order.kitchen_status||'NOT_SENT',
   createdAt:order.created_at
 });
 export const eventStmt=(db,row,type,actor,details={})=>
