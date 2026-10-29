@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Horeca — QR-заказы</title>
+<link rel="stylesheet" href="/app-shell.css">
+<style id="qr-orders-style">
+.qro{max-width:1220px;margin:0 auto;padding:24px;color:#e7edf5;font-family:Inter,system-ui,sans-serif}
+.qro *{box-sizing:border-box}
+.qro h1{font-size:25px;letter-spacing:-.03em;margin:0 0 8px}
+.qro h2{font-size:17px;margin:0 0 12px}
+.qro p,.qro small{color:#95a4b4;line-height:1.55}
+.qro-panels{display:grid;grid-template-columns:minmax(320px,420px) minmax(0,1fr);gap:16px;align-items:start}
+.qro-panel{background:#111b26;border:1px solid #263443;border-radius:15px;padding:20px;margin-top:15px;min-width:0}
+.qro-field{display:grid;gap:7px;margin:13px 0;font-size:12px;font-weight:650}
+.qro input,.qro select{width:100%;height:39px;padding:9px 11px;border:1px solid #334357;border-radius:9px;background:#09141e;color:#e8eff4}
+.qro input[type=checkbox]{width:18px;height:18px}
+.qro-btn{border:1px solid #39576b;background:#1b2c3b;color:#edf4f7;padding:9px 13px;border-radius:9px;cursor:pointer;font-weight:700;font-size:12px}
+.qro-btn.primary{color:#062217;background:#42d392;border-color:#42d392}
+.qro-btn.danger{color:#f7b3b3;border-color:#6d3b3b;background:#291b20}
+.qro-btn:disabled{opacity:.45;cursor:not-allowed}
+.qro-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.qro-table{width:100%;border-collapse:collapse;font-size:12px}
+.qro-table th,.qro-table td{text-align:left;border-bottom:1px solid #263443;padding:11px 8px;vertical-align:top}
+.qro-table th{color:#899eae;font-weight:700}
+.qro-scroll{overflow-x:auto}
+.qro a{color:#64dda9;word-break:break-all}
+.qro-status{font-size:12px;color:#a2b6c6;margin-top:9px;min-height:18px}
+.qro-chip{display:inline-flex;padding:4px 7px;border:1px solid #3e5264;border-radius:7px;font-size:11px;white-space:nowrap}
+.qro-warning{background:#2a2115;border:1px solid #70532e;padding:13px 15px;border-radius:11px;color:#ffe0b2}
+.qro-warning strong{color:#ffd19a}
+.qro-qr-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:13px;margin-top:15px}
+.qro-qr-card{border:1px solid #334357;border-radius:13px;padding:12px;background:#0d1620;overflow:hidden}
+.qro-qr-card .qro-qr{width:136px;height:136px;display:grid;place-items:center;background:white;padding:7px;margin:8px auto;border-radius:8px}
+.qro-qr img,.qro-qr canvas{max-width:100%!important}
+.qro-muted{font-size:11px;color:#91a0ae}
+@media(max-width:950px){.qro-panels{grid-template-columns:minmax(0,1fr)}.qro{padding:15px}.qro-panel{padding:15px}}
+</style>
+</head><body data-protected="true" style="background:#0b1017">
+<div class="app-shell"><aside class="sidebar"></aside><main class="main">
+<header class="topbar"><div class="topbar-left"><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><div><span class="topbar-title">QR-заказы</span><div class="topbar-sub">Столы · фастфуд · кассы · статусы</div></div></div></header>
+<section class="qro">
+<div class="qro-actions"><a href="/qr-menu.html">← Редактор QR Menu</a><button class="qro-btn" id="qrOrderReload">↻ Обновить</button></div>
+<h1>Управление QR-заказами</h1>
+<p>Внутренняя логика Smart Horeca: каждый стол имеет собственный QR; в фастфуде используется один QR. Продукты и суммы сверяются с опубликованным меню на сервере.</p>
+<div class="qro-warning"><strong>Подготовка POS-интеграции.</strong> Заказы можно регистрировать в Smart Horeca. Передача на кассу заработает только после расширения установленного плагина. Онлайн-оплата и автоматическое фискальное закрытие здесь не включены.</div>
+<div id="qrOrderError" class="qro-status" role="alert"></div>
+<div class="qro-panels">
+<div>
+<section class="qro-panel">
+<h2>Режим работы</h2><div class="qro-field">Обслуживание
+<select id="qrOrderMode"><option value="TABLE">Ресторан — QR каждого стола</option><option value="FAST_FOOD">Фастфуд — один общий QR</option></select></div>
+<div class="qro-field">ID плагина кассы
+<input id="qrOrderPlugin" placeholder="ID подключённого плагина" autocomplete="off">
+<small>Не вводите его наугад: нужно зарегистрированное устройство из вашей кассовой сети.</small></div>
+<label class="qro-actions" style="font-size:12px"><input id="qrOrderEnabled" type="checkbox"> Разрешить гостям оформлять QR-заказы</label>
+<p>Оплата сейчас только на кассе; включение сбора QR-заказов не доказывает создание заказа в POS.</p>
+<div class="qro-actions"><button class="qro-btn primary" id="qrOrderSave">Сохранить режим</button></div>
+<div class="qro-status" id="qrOrderSaveStatus"></div>
+</section>
+<section class="qro-panel" id="qrTablePanel"><h2>Столы и индивидуальные QR</h2>
+<div class="qro-actions"><input id="qrTableName" placeholder="Например: Стол 12" style="flex:1;min-width:110px">
+<input id="qrPosTable" placeholder="POS ID стола (если известен)" style="flex:1;min-width:110px">
+<button class="qro-btn primary" id="qrAddTable">Добавить</button></div>
+<div id="qrOrderTables" class="qro-qr-cards"></div>
+</section>
+</div>
+<div>
+<section class="qro-panel"><h2>Ссылка для гостей</h2><div id="qrOrderGlobalLink"></div>
+<p>Ссылки на столы отличаются защищённым токеном. Отображаемый номер стола в запросе гостя не является доверенным.</p></section>
+<section class="qro-panel"><h2>Журнал QR-заказов</h2>
+<div class="qro-scroll"><table class="qro-table"><thead><tr><th>Создан</th><th>№ / стол</th><th>Сумма</th><th>Касса / статус</th><th>Действие</th></tr></thead><tbody id="qrOrderRows"></tbody></table></div>
+<div class="qro-muted">Последние 100 заказов. Заказы не помечаются фискализированными без подтверждения POS.</div>
+</section>
+</div></div></section>
+</main></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth-config.js"></script><script src="/auth.js"></script>
+<script src="/iiko-context.js?v=20261003-chain-3"></script>
+<script src="/app-shell.js?v=20261028-module-stable1"></script>
+<script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
+<script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script>
+<script src="/documents-nav.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="/qr-order-admin.js?v=20261029-internal1"></script>
+<script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script><script src="/sh-i18n.js"></script>
+</body></html>
