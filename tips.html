@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru" data-theme="dark" style="background:#0b1017;visibility:hidden">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Horeca — Чаевые и сотрудники</title>
+<link rel="stylesheet" href="/app-shell.css">
+<link rel="stylesheet" href="/hr-pnl.css?v=20261008-hr-access-merged">
+<link rel="stylesheet" href="/hr-employee.css?v=20261008-free-shift-1">
+</head>
+<body data-protected="true" style="background:#0b1017">
+<div class="app-shell"><aside class="sidebar"></aside><main class="main">
+<header class="topbar"><div class="topbar-left"><button class="icon-btn mobile-menu" data-mobile-menu>☰</button><div><span class="topbar-title">Чаевые</span><div class="topbar-sub">Получатели · кассовые ID · карты Payriff</div></div></div></header>
+<div class="app-content">
+<section class="hr-page hep-page">
+<a href="/finance.html" class="hep-back">← Финансы</a>
+<div class="hr-head"><div><h1>Чаевые официантам</h1>
+<p>Настройка получателей для QR Menu. Используется единый справочник HR; привязка официантов к столам не требуется.</p></div>
+<div class="hr-actions"><button class="hr-primary" id="tipRefresh" type="button">↻ Обновить</button></div></div>
+<div class="hr-card" style="padding:16px;margin:12px 0">
+  <strong>Подготовка Payriff</strong>
+  <p style="margin:6px 0 0;line-height:1.6">Здесь сохраняются только безопасные справочные данные карты и соответствие сотрудника кассе. Настоящие выплаты, очередь переводов и верификация карт пока не подключены. Не вводите полный номер карты, CVV или срок действия.</p>
+</div>
+<div class="hr-error" id="tipError" hidden></div>
+<div class="hr-status" id="tipStatus" role="status" aria-live="polite">Загрузка…</div>
+<div class="hep-grid" style="margin-top:16px">
+<article class="hep-card full">
+<div class="hep-card-head"><div><div class="hep-card-title">Сотрудники выбранного ресторана</div>
+<div class="hep-card-sub">В сети CHAIN выберите ровно один ресторан в верхнем фильтре.</div></div></div>
+<div class="hep-fields"><label class="hep-field span2"><span>Поиск сотрудника</span><input id="tipSearch" type="search" placeholder="Фамилия, имя, табельный номер"></label></div>
+<div class="hr-table-scroll"><table class="hr-table" style="width:100%"><thead><tr><th>Сотрудник</th><th>Должность</th><th>QR Menu</th><th>Payriff</th><th></th></tr></thead><tbody id="tipRows"><tr><td colspan="5">Загрузка…</td></tr></tbody></table></div>
+</article>
+<article class="hep-card full" id="tipEditor" hidden>
+<div class="hep-card-head"><div><div class="hep-card-title" id="tipEmployee">Получатель</div>
+<div class="hep-card-sub">Карточка сохраняется для сотрудника HR, а видимость — отдельно для ресторана.</div></div></div>
+<div class="hep-fields">
+<label class="hep-field"><span>Персональный код</span><div class="hep-readonly" id="tipCode">—</div></label>
+<label class="hep-field"><span>ID официанта на кассе</span><input id="tipPos" maxlength="120" placeholder="Необязательно"></label>
+<label class="hep-field"><span>Имя на карте (латиницей)</span><input id="tipHolder" maxlength="80" autocomplete="off" placeholder="NAME SURNAME"></label>
+<label class="hep-field"><span>Последние 4 цифры карты</span><input id="tipLast4" maxlength="4" inputmode="numeric" autocomplete="off" placeholder="1234"></label>
+<label class="hep-field"><span>Банк</span><input id="tipBank" maxlength="80" autocomplete="off"></label>
+<div class="hep-field"><span>Выплаты Payriff</span><div class="hep-readonly" id="tipBankStatus">Не подключены</div></div>
+<label class="hep-field span2"><span>QR Menu</span><div><label><input id="tipGuest" type="checkbox"> Показывать официанта гостям этого ресторана после запуска QR-заказов</label></div></label>
+</div>
+<div class="hep-links">
+<button class="hr-primary" type="button" id="tipSave">Сохранить настройки</button>
+<button class="hr-link-button" type="button" id="tipRotate">Сменить персональный код</button>
+<span class="hr-status" id="tipSaveStatus" aria-live="polite"></span>
+</div></article>
+</div>
+</section></div>
+</main></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth-config.js"></script><script src="/auth.js"></script>
+<script src="/iiko-context.js?v=20261003-chain-3"></script>
+<script src="/app-shell.js?v=20261028-module-stable1"></script>
+<script src="/smart-horeca-sidebar-brand.js?v=20260917-7"></script>
+<script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script>
+<script src="/documents-nav.js"></script>
+<script src="/tips-staff.js?v=20261029-tips-v1"></script>
+<script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script><script src="/sh-i18n.js"></script>
+</body></html>
