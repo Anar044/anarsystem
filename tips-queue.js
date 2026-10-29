@@ -7,7 +7,7 @@
   const labels={
     WAITING_CARD:'Ожидает привязки карты',WAITING_PROVIDER:'Ожидает настройки Payriff',
     WAITING_BALANCE:'Ожидает данных о балансе',WAITING_FUNDS:'Недостаточно средств',
-    READY_FOR_PROVIDER:'Средства есть · перевод не включён',RECONCILE:'Требуется сверка',
+    READY_FOR_PROVIDER:'Средства есть · перевод не включён',RECONCILE:'Требуется сверка',BLOCKED_BY_RECONCILIATION:'Ожидает проверки предыдущего перевода',
     PAID:'Выплачено',CANCELLED:'Отменено'
   };
   async function api(path,body){
