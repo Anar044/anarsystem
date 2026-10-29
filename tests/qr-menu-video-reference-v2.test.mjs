@@ -17,7 +17,7 @@ test("QR Menu reference video is implemented only in guest/editor visual assets"
   assert.match(guest,/qr-menu-reference-v2\.css\?v=20261029-video-match-v2/);
   assert.match(guest,/qr-menu-reference-v2\.js\?v=20261029-video-match-v2/);
   assert.match(editor,/qr-menu-preview-reference-v2\.js\?v=20261029-video-match-v2/);
-  assert.match(editor,/qr-menu\.css\?v=20261029-video-match-v2/);
+  assert.match(editor,/qr-menu\.css\?v=20261029-preview-scroll-v1/);
   assert.match(editorJs,/SHQRMenuPreviewVideo\?\.refresh\?\.\(state\)/);
 });
 test("Public menu matches video composition: photo hero, centered name, chips, 2-column grid, immersive detail, floating basket",()=>{
@@ -74,4 +74,22 @@ test("Guest reference JS can bootstrap in a read-only sandbox without issuing re
   assert.equal(typeof window.SHQRReference?.onDishOpen,"function");
   assert.equal(typeof window.SHQRReference?.onDishClose,"function");
   assert.doesNotThrow(()=>window.SHQRReference.onLoaded([],{showPrices:true}));
+});
+
+
+test("Editor preview: photo, title, category strip and floating dock stay fixed while only dishes scroll",()=>{
+  const previewRules=editorCss.slice(editorCss.indexOf("/* QR editor preview only: fixed photo"));
+  assert.ok(previewRules.length>500,"Preview-only scrolling CSS is present");
+  assert.match(previewRules,/\.q-card\.preview \.phone-screen\{\s*display:flex!important;\s*flex-direction:column!important;/);
+  assert.match(previewRules,/height:clamp\(445px,70dvh,640px\)!important;/);
+  assert.match(previewRules,/min-height:0!important;/);
+  assert.match(previewRules,/\.q-card\.preview \.phone-top\{\s*flex:0 0 auto!important;/);
+  assert.match(previewRules,/\.q-card\.preview \.shqr-preview-categories\{\s*flex:0 0 auto!important;/);
+  assert.match(previewRules,/\.q-card\.preview \.phone-body\{\s*flex:1 1 auto!important;\s*min-height:0!important;/);
+  assert.match(previewRules,/overflow-y:auto!important;/);
+  assert.match(previewRules,/align-content:start!important;/);
+  assert.match(previewRules,/padding-bottom:58px!important;/);
+  assert.match(previewRules,/\.q-card\.preview \.phone-body::-webkit-scrollbar\{/);
+  assert.match(previewRules,/\.q-card\.preview \.shqr-preview-dock\{\s*flex:none;/);
+  assert.doesNotMatch(previewRules,/(?:^|\n)\s*\.phone-body\{/,"Only QR editor phone preview is affected");
 });
