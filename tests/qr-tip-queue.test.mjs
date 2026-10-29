@@ -55,7 +55,7 @@ test('Paid items never consume manual available balance and reconciliation is ex
 test('Only future verified Payriff server lookup can register a durable liability',()=>{
   assert.match(ledger,/verifiedBy!=='SERVER_ORDER_LOOKUP'/);
   assert.match(ledger,/payment.status!=='PAID'/);
-  assert.match(ledger,/merchantId!==merchantId/);
+  assert.match(ledger,/account\.receiving_merchant_id!==merchantId/);
   assert.match(ledger,/amountMinor>totalMinor/);
   assert.match(ledger,/ON CONFLICT\(owner_id,restaurant_id,payriff_payment_id\) DO NOTHING/);
   assert.match(ledger,/PAYMENT_ID_CONFLICT/);
@@ -81,7 +81,7 @@ test('Accountant UI shows queue, two accounts and manual balance warning',()=>{
   assert.match(page,/id="tipQueueRows"/);
   assert.match(page,/tips-queue\.js\?/);
   assert.match(ui,/Недостаточно средств/);
-  assert.match(ui,/providerBalanceVerified/);
+  assert.match(ui,/payouts?\s+не\s+отправляются|выплаты\s+не\s+отправляются/i);
   assert.match(ui,/сумма, указанная бухгалтером|введён бухгалтером|Баланс введён бухгалтером/i);
   assert.match(api,/COUNT\(CASE WHEN state NOT IN/);
   assert.match(api,/ORDER BY l.created_at ASC/);
