@@ -10,7 +10,7 @@ export async function onRequestGet({request,env}){
       env.DB.prepare(`SELECT id,table_label,table_key,pos_table_id,active FROM qr_order_tables
         WHERE menu_id=?1 ORDER BY table_label COLLATE NOCASE LIMIT 250`).bind(ctx.menu.id).all(),
       env.DB.prepare(`SELECT id,service_mode,table_label,state,payment_state,items_json,total_minor,
-        currency,created_at,updated_at,pos_order_number,pos_receipt_number,last_error,guest_note
+        currency,created_at,updated_at,pos_order_number,pos_receipt_number,last_error,guest_note,kitchen_status
         FROM qr_guest_orders WHERE owner_id=?1 AND restaurant_id=?2
         ORDER BY created_at DESC LIMIT 100`).bind(ctx.ownerId,ctx.restaurantId).all()
     ]);
@@ -19,7 +19,7 @@ export async function onRequestGet({request,env}){
     const posReady=cfg?.pos_plugin_id
       ?await env.DB.prepare(`SELECT last_seen_at FROM qr_pos_bridge_capabilities
         WHERE restaurant_id=?1 AND plugin_id=?2 AND contract_version=1
-          AND can_create_order=1 AND can_ack_fiscal=1 LIMIT 1`)
+          AND can_create_order=1 AND can_ack_fiscal=1 AND can_print_kitchen=1 LIMIT 1`)
         .bind(ctx.restaurantId,cfg.pos_plugin_id).first()
       :null;
     const bridgeReady=Boolean(posReady&&Date.now()-Date.parse(posReady.last_seen_at)<5*60*1000&&Date.now()>=Date.parse(posReady.last_seen_at));
@@ -66,7 +66,7 @@ export async function onRequestPost({request,env}){
           throw fail('POS_BRIDGE_NOT_CONFIGURED','Не настроены POS Bridge и ID кассового плагина',409);
         const ready=await env.DB.prepare(`SELECT last_seen_at FROM qr_pos_bridge_capabilities
           WHERE restaurant_id=?1 AND plugin_id=?2 AND contract_version=1
-            AND can_create_order=1 AND can_ack_fiscal=1 LIMIT 1`)
+            AND can_create_order=1 AND can_ack_fiscal=1 AND can_print_kitchen=1 LIMIT 1`)
           .bind(ctx.restaurantId,pluginId).first();
         const recent=Date.parse(ready?.last_seen_at||'');
         if(!Number.isFinite(recent)||recent>Date.now()||Date.now()-recent>=5*60000)
