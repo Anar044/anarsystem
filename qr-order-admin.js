@@ -87,8 +87,10 @@ async function reload(){
     $('qrOrderEnabled').checked=state.settings.orderingEnabled;
     $('qrOrderPlugin').value=state.settings.posPluginId;
     $('qrPosBridgeReady').textContent=state.settings.posBridgeReady
-      ?'✓ Касса подтвердила поддержку QR-заказов (действительно 5 минут)'
-      :'POS-мост не подтверждён. Гостевые QR-заказы включить нельзя.';
+      ?'✓ Касса подключена: приём заказов и печать кухни разрешены (5 минут)'
+      :state.settings.posBridgeConnected
+        ?'✓ Касса подключена к тестовому QR API. Режим диагностики: заказы и печать отключены.'
+        :'POS-мост не подключён. Настройте тестовый HTTPS API и проверьте авторизацию.';
     const global=$('qrOrderGlobalLink');global.replaceChildren();
     const a=document.createElement('a');a.href=state.menuUrl;a.target='_blank';a.rel='noopener';a.textContent=state.menuUrl;global.append(a);
     if(state.settings.serviceMode==='FAST_FOOD'){
