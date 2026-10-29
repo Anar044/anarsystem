@@ -47,6 +47,45 @@
 <span class="hr-status" id="tipSaveStatus" aria-live="polite"></span>
 </div></article>
 </div>
+<article class="hep-card full" style="margin-top:18px" id="tipPayoutAccounts">
+<div class="hep-card-head"><div>
+<div class="hep-card-title">Payriff · два счёта ресторана</div>
+<div class="hep-card-sub">Первый — принимает всю оплату гостя, второй — служит для выплаты чаевых. Доступ к настоящим переводам пока отключён.</div>
+</div></div>
+<div class="hep-fields">
+<label class="hep-field"><span>ID приложения Payriff для приёма оплат</span>
+<input id="tipReceivingMerchant" maxlength="80" autocomplete="off" placeholder="Merchant ID"></label>
+<label class="hep-field"><span>ID приложения Payriff для выплат</span>
+<input id="tipPayoutMerchant" maxlength="80" autocomplete="off" placeholder="Merchant ID"></label>
+<label class="hep-field"><span>Остаток второго счёта, AZN</span>
+<input id="tipBalance" inputmode="decimal" autocomplete="off" placeholder="Например: 150.00"></label>
+<div class="hep-field"><span>Источник остатка</span>
+<div class="hep-readonly" id="tipBalanceSource">Не указан</div>
+<small>Это сумма, указанная бухгалтером, не онлайн-баланс Payriff.</small></div>
+</div>
+<div class="hep-links">
+<button class="hr-primary" id="tipAccountsSave" type="button">Сохранить настройки счетов</button>
+<button class="hr-link-button" id="tipQueueRefresh" type="button">↻ Обновить очередь</button>
+<span class="hr-status" id="tipAccountMessage" role="status" aria-live="polite"></span>
+</div>
+<p class="hr-muted">Здесь нельзя вводить секретные ключи API или номера карт. Настройки Merchant ID предварительные, до согласования формата двух счетов с Payriff.</p>
+</article>
+<article class="hep-card full" style="margin-top:18px">
+<div class="hep-card-head"><div>
+<div class="hep-card-title">Очередь чаевых</div>
+<div class="hep-card-sub">Обязательства возникают только после серверного подтверждения оплаты Payriff. Отсутствие денег не удаляет запись.</div>
+</div></div>
+<div class="hep-grid" style="margin:8px 0 18px">
+<div class="hr-card" style="padding:14px"><div class="hr-muted">Невыплаченные чаевые</div><strong id="tipQueueTotal">—</strong></div>
+<div class="hr-card" style="padding:14px"><div class="hr-muted">Недостаток средств (по ручному остатку)</div><strong id="tipQueueShortfall">—</strong></div>
+<div class="hr-card" style="padding:14px"><div class="hr-muted">Количество записей</div><strong id="tipQueueCount">—</strong></div>
+</div>
+<div class="hr-table-scroll"><table class="hr-table" style="width:100%">
+<thead><tr><th>Заказ</th><th>Официант</th><th>Сумма</th><th>Статус</th><th>Дата</th></tr></thead>
+<tbody id="tipQueueRows"><tr><td colspan="5">Загрузка…</td></tr></tbody>
+</table></div>
+<div class="hr-muted" id="tipQueueNote" style="margin-top:10px">Фактические выплаты через Payriff пока отключены.</div>
+</article>
 </section></div>
 </main></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -57,5 +96,6 @@
 <script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script>
 <script src="/documents-nav.js"></script>
 <script src="/tips-staff.js?v=20261029-tips-v1"></script>
+<script src="/tips-queue.js?v=20261029-ledger1"></script>
 <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script><script src="/sh-i18n.js"></script>
 </body></html>
