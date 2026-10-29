@@ -53,6 +53,7 @@ function makeHarness(source,{id="r1",configured=true,api={success:true,categorie
     readyState:"loading",
     getElementById(key){
       if(key==="saveStatus")return saveStatus;
+      if(key==="qr-publish-result-style")return {id:key}; // existing styling in the DOM
       return null
     },
     addEventListener(name,handler){listeners[name]=handler},
