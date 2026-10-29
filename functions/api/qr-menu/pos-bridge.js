@@ -29,7 +29,7 @@ export async function onRequestPost({request,env}){
       // Atomic leasing: two tills cannot both claim the same order.
       // pluginId is pinned to the currently configured plugin AND to the order when set.
       const item=await env.DB.prepare(`UPDATE qr_guest_orders
-        SET state='LEASED',lease_until=?1,updated_at=?2
+        SET state='LEASED',lease_until=?1,updated_at=?2,pos_plugin_id=?4
         WHERE id=(
           SELECT o.id FROM qr_guest_orders o JOIN qr_order_settings s ON s.menu_id=o.menu_id
           WHERE o.restaurant_id=?3 AND o.payment_state='UNPAID'
@@ -61,7 +61,7 @@ export async function onRequestPost({request,env}){
         posId=clean(body.posOrderId,128),posNumber=clean(body.posOrderNumber,64);
       if(!id||!posId)throw fail('POS_ACK_REQUIRED','Не указан ID QR-заказа или кассового заказа',400);
       const order=await env.DB.prepare(`SELECT * FROM qr_guest_orders WHERE id=?1 AND restaurant_id=?2
-        AND (pos_plugin_id=?3 OR pos_plugin_id='') LIMIT 1`)
+        AND pos_plugin_id=?3 LIMIT 1`)
         .bind(id,identity.departmentId,identity.pluginId).first();
       if(!order)throw fail('QR_JOB_NOT_FOUND','Заказ не принадлежит данной кассе',404);
       if(order.state==='POS_OPEN'&&order.pos_order_id===posId)return response({success:true,duplicate:true});
@@ -82,7 +82,7 @@ export async function onRequestPost({request,env}){
       const record=await env.DB.prepare(`UPDATE qr_guest_orders SET state='POS_FAILED',
         last_error=?1,lease_until='',updated_at=?2
         WHERE id=?3 AND restaurant_id=?4 AND state='LEASED'
-        AND (pos_plugin_id=?5 OR pos_plugin_id='') RETURNING id`)
+        AND pos_plugin_id=?5 RETURNING id`)
         .bind(reason,t,id,identity.departmentId,identity.pluginId).first();
       if(!record)throw fail('POS_JOB_STATE','Заказ не может быть помечен ошибочным',409);
       const owner=await env.DB.prepare(`SELECT owner_id FROM qr_guest_orders WHERE id=?1`).bind(id).first();
