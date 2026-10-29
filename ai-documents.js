@@ -65,7 +65,7 @@ function finishSaveDialog(kind, title, description, details=null){
 }
 function closeSaveDialog(){if(saveBusy)return;$('saveOverlay').hidden=true}
 
-async function loadAll(selectId){const j=await aiGet();documents=j.documents||[];providerStatus(j.providers);renderList();if(selectId){const d=documents.find(x=>x.id===selectId);if(d)await selectDocument(d.id)}}
+async function loadAll(selectId){const j=await aiGet();documents=j.documents||[];providerStatus(j.providers);renderList();if(selectId){const d=documents.find(x=>x.id===selectId);if(d)await fillReview(d)}}
 function selectOptions(rows,selected,placeholder){return `<option value="">${esc(placeholder)}</option>`+rows.map(x=>`<option value="${esc(x.id)}" ${String(x.id)===String(selected)?'selected':''}>${esc(x.name)}</option>`).join('')}
 async function loadPreview(doc){
   if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=''}
