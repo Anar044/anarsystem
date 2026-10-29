@@ -61,7 +61,28 @@
       console.warn('QR Menu restaurant scope unavailable',error);
       storageKey=`${KEY}:unscoped`;
     }
-    loadState();bind();render();console.info('QR Menu initialized',{storageKey,restaurantId:activeRestaurant?.id||null});
+    loadState();bind();render();
+    // The QR Menu editor is the sole owner of active restaurant-scoped state.
+    // Public sync/publish helpers must NEVER read the legacy global storage key.
+    window.SH_QRMenuEditor=Object.freeze({
+      getState:()=>state,
+      getScope:()=>({restaurantId:activeRestaurant?.id||'',
+        departmentIds:[...(activeRestaurant?.binding?.departmentIds||[])].map(String).filter(Boolean),
+        mode:String(activeRestaurant?.binding?.identity?.mode||activeRestaurant?.binding?.connection?.connectionType||'RMS').toUpperCase(),
+        storageKey}),
+      replaceFromSync(next){
+        if(!next||!Array.isArray(next.categories)||!Array.isArray(next.dishes))throw new Error('Неверный формат QR Menu.');
+        state={...next};save();render();
+      },
+      setPublishedInfo({publicUrl,organizationId}){
+        if(!state)throw new Error('QR Menu не загружено.');
+        state.publicUrl=publicUrl;
+        state.organizationId=organizationId;
+        save();
+      }
+    });
+    window.dispatchEvent(new Event('sh:qr-menu-editor-ready'));
+    console.info('QR Menu initialized',{storageKey,restaurantId:activeRestaurant?.id||null});
   }catch(e){console.error('QR Menu initialization failed',e);alert('QR Menu не удалось загрузить: '+(e.message||e))}}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>init(),{once:true});else init();
 })();
