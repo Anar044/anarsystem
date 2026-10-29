@@ -56,18 +56,27 @@ export async function ensureTipLedger(db){
 export function evaluateQueue(items,balanceMinor,hasPayoutMerchant=false){
   const isBalanceKnown=Number.isSafeInteger(balanceMinor)&&balanceMinor>=0;
   let available=isBalanceKnown?balanceMinor:0;
+  let earlierTransferUnknown=false,earlierNeedsFunds=false;
+  // FIFO for payable items; reconcile first when any previous transfer is unknown.
   const rows=(items||[]).map(row=>{
     const amount=Number(row.amount_minor);
     const state=str(row.state,30);
     const linked=Boolean(row.recipient_ref&&row.payout_status==='VERIFIED');
     let reason=state;
     if(state==='PAID')reason='PAID';
-    else if(state==='RECONCILE'||state==='DISPATCHING')reason='RECONCILE';
     else if(state==='CANCELLED')reason='CANCELLED';
+    else if(state==='RECONCILE'||state==='DISPATCHING'){
+      reason='RECONCILE';
+      earlierTransferUnknown=true;
+    }
     else if(!linked)reason='WAITING_CARD';
+    else if(earlierTransferUnknown)reason='BLOCKED_BY_RECONCILIATION';
     else if(!hasPayoutMerchant)reason='WAITING_PROVIDER';
     else if(!isBalanceKnown)reason='WAITING_BALANCE';
-    else if(available<amount)reason='WAITING_FUNDS';
+    else if(earlierNeedsFunds||available<amount){
+      reason='WAITING_FUNDS';
+      earlierNeedsFunds=true;
+    }
     else {reason='READY_FOR_PROVIDER';available-=amount}
     return {...row,queueReason:reason};
   });
@@ -98,7 +107,7 @@ export async function recordVerifiedTip(db,source){
   const amountMinor=integer(source?.tipMinor);
   if(!ownerId||!restaurantId||!employeeId||!qrOrderId||!paymentId||!merchantId)
     throw new Error('Missing trusted identity, QR order or Payriff identifiers');
-  if(payment.verifiedBy!=='SERVER_ORDER_LOOKUP'||payment.status!=='PAID'||
+  if(payment.verifiedBy!=='SERVER_ORDER_LOOKUP'||payment.status!=='PAID'||payment.currency!=='AZN'||
      !Number.isFinite(Date.parse(payment.verifiedAt||''))||
      Math.abs(Date.now()-Date.parse(payment.verifiedAt))>15*60*1000)
     throw new Error('Payriff payment must be confirmed by a recent server-side status lookup');
