@@ -106,7 +106,7 @@ test("Search operates locally without API or document mutation",()=>{
 });
 
 test("Editor phone preview reflects new guest card style, no editor data logic changed",()=>{
-  assert.match(editor,/qr-menu\.css\?v=20261029-immersive-guest1/);
+  assert.match(editor,/qr-menu\.css\?v=20261029-video-match-v2/);
   assert.match(editorCss,/\.phone-body\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(editorCss,/\.p-photo\{width:100%;height:auto;aspect-ratio:1\/1/);
   assert.match(editorCss,/\.p-cat\{grid-column:1\/-1/);
