@@ -2,7 +2,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 let documents=[],current=null,refs=null,chosenFile=null,previewUrl='',previewKind='',previewZoom=100,previewFitMode=true;
-let saveBusy=false;const saveUncertainIds=new Set();
+let saveDialogBusy=false;let saveDialogStage=0;
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 const money=v=>Number(v||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
 const inputNumber=v=>{if(v===null||v===undefined||String(v).trim()==='')return null;const n=Number(v);return Number.isFinite(n)?n:null};
@@ -23,7 +23,12 @@ async function loadRefs(){if(refs)return refs;const b=await requireSingleRestaur
 function providerStatus(p){const o=p?.openai,l=p?.local;const parts=[`External AI: ${o?.configured?'готов':'не настроен'}`,`Local AI: ${l?.configured?'готов':'не настроен'}`];$('providerState').textContent=parts.join(' · ');$('providerState').className='aid-provider-state '+(o?.configured||l?.configured?'ok':'warn')}
 function renderList(){const host=$('documentList');$('docCount').textContent=documents.length;$('documentEmpty').hidden=documents.length>0;host.innerHTML=documents.map(d=>`<button class="aid-doc ${current?.id===d.id?'active':''}" data-id="${esc(d.id)}"><div class="aid-doc-top"><span class="aid-doc-name">${esc(d.fileName)}</span><span class="aid-badge ${esc(d.status)}">${esc(statusText[d.status]||d.status)}</span></div><div class="aid-doc-meta"><span>${esc(d.supplierName||d.documentType||'Не распознано')}</span><span>${esc((d.createdAt||'').slice(0,16).replace('T',' '))}</span></div></button>`).join('');host.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>selectDocument(b.dataset.id))}
 function setUploadStatus(text,kind=''){$('uploadStatus').textContent=text||'';$('uploadStatus').className='aid-progress '+kind}
-function setReviewStatus(text,kind=''){$('reviewStatus').textContent=text||'';$('reviewStatus').className='aid-review-status '+kind}
+function setReviewStatus(text,kind=''){
+  $('reviewStatus').textContent=text||'';$('reviewStatus').className='aid-review-status '+kind;
+  // Observe the original save handler's messages; don't modify the operation.
+  if(saveDialogBusy&&/^Сохраняем/.test(String(text||''))){saveDialogStage=1;setSaveStage(1)}
+  if(saveDialogBusy&&/^Готово:/.test(String(text||''))){saveDialogStage=2;setSaveStage(2)}
+}
 function showSaveDialog(processed){
   const overlay=$('saveOverlay'),dialog=overlay.querySelector('[role="dialog"]');
   overlay.hidden=false;overlay.dataset.state='busy';dialog.setAttribute('aria-busy','true');
@@ -63,9 +68,9 @@ function finishSaveDialog(kind, title, description, details=null){
     :'Исправьте данные и повторите операцию.';
   $('saveModalClose').hidden=false;$('saveModalClose').focus();
 }
-function closeSaveDialog(){if(saveBusy)return;$('saveOverlay').hidden=true}
+function closeSaveDialog(){if(saveDialogBusy)return;$('saveOverlay').hidden=true}
 
-async function loadAll(selectId){const j=await aiGet();documents=j.documents||[];providerStatus(j.providers);renderList();if(selectId){const d=documents.find(x=>x.id===selectId);if(d)await fillReview(d)}}
+async function loadAll(selectId){const j=await aiGet();documents=j.documents||[];providerStatus(j.providers);renderList();if(selectId){const d=documents.find(x=>x.id===selectId);if(d)await selectDocument(d.id)}}
 function selectOptions(rows,selected,placeholder){return `<option value="">${esc(placeholder)}</option>`+rows.map(x=>`<option value="${esc(x.id)}" ${String(x.id)===String(selected)?'selected':''}>${esc(x.name)}</option>`).join('')}
 async function loadPreview(doc){
   if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=''}
@@ -377,17 +382,13 @@ function validateDraftArithmetic(){
     }
   }
 
-  // A busy save is not an arithmetic discrepancy. The save workflow locks
-  // the buttons before validating the draft; combining these conditions made
-  // EVERY save fail with a fictitious arithmetic error.
-  const arithmeticInvalid=issues.length>0;
   const imported=current?.status==='IMPORTED';
-  const actionLocked=saveBusy||saveUncertainIds.has(current?.id);
-  $('saveDraftBtn').disabled=imported||arithmeticInvalid||actionLocked;
-  $('saveProcessBtn').disabled=imported||arithmeticInvalid||actionLocked;
+  const blocked=issues.length>0;
+  $('saveDraftBtn').disabled=imported||blocked;
+  $('saveProcessBtn').disabled=imported||blocked;
 
   return {
-    valid:!arithmeticInvalid,
+    valid:!blocked,
     issues,
     documentTotal:declaredCents===null?null:declaredCents/100,
     rowsTotal:sourceRowsCents/100,
@@ -407,114 +408,89 @@ function recalcTotal(){
 }
 async function rememberAlias(row){if(!current)return;const i=Number(row.dataset.index),item=currentMatching().items?.[i],sel=row.querySelector('[data-f="product"]');const product=(refs?.products||[]).find(x=>String(x.id)===String(sel.value));if(!item?.sourceName||!product)return;await aiPost({action:'saveAlias',sourceName:item.sourceName,productId:product.id,productName:product.name,supplierId:$('draftSupplier').value})}
 async function fillReview(doc){let refsWarning='';try{await loadRefs()}catch(e){refsWarning=e?.message||'Справочники Smart Horeca временно недоступны';refs={suppliers:[],warehouses:[],products:[]}}current=doc;renderList();$('reviewEmpty').hidden=true;$('reviewContent').hidden=false;$('reviewTitle').textContent=doc.fileName;$('reviewMeta').textContent=(statusText[doc.status]||doc.status)+(doc.providerUsed?' · '+doc.providerUsed+(doc.model?' / '+doc.model:''):'')+(doc.result?.provider?.usage?.autoDecision?.route==='OPENAI_FALLBACK'?' · Local AI: качество недостаточно':doc.result?.provider?.usage?.autoDecision?.route==='LOCAL_ACCEPTED'?' · Local AI: проверка пройдена':'');const raw=doc.result?.extracted||{},saved=doc.result?.confirmedDraft||null,m=currentMatching();$('draftNumber').value=saved?.documentNumber||raw.documentNumber||doc.documentNumber||autoDocumentNumber();$('draftDate').value=String(saved?.dateIncoming||raw.date||doc.documentDate||today()).slice(0,10);const supplierFallback=saved?.supplierId||m.supplierId||doc.supplierId||supplierClientMatch(raw.supplierName||doc.supplierName||'',refs.suppliers)?.id||'';$('draftSupplier').innerHTML=selectOptions(refs.suppliers,supplierFallback,'Выберите поставщика');renderSupplierSuggestions({...m,supplierId:supplierFallback});$('draftSupplier').onchange=()=>renderSupplierSuggestions({...m,supplierId:$('draftSupplier').value});const trustedStore=saved?.defaultStore||(m.storeSelectionRequired===false?m.defaultStoreId:'');$('draftStore').innerHTML=selectOptions(refs.warehouses,trustedStore,refs.warehouses.length?'Выберите склад':'Склады не загружены');$('draftInvoice').value=saved?.invoice||raw.invoiceNumber||doc.invoiceNumber||'';$('draftIncoming').value=saved?.incomingDocumentNumber||raw.incomingNumber||doc.incomingNumber||raw.invoiceNumber||doc.invoiceNumber||'';$('draftDue').value=String(saved?.dueDate||raw.dueDate||doc.dueDate||'').slice(0,10);$('draftCurrency').value=raw.currency||doc.currency||'AZN';const savedTotal=saved?.documentTotal;$('draftDeclaredTotal').value=Number.isFinite(Number(savedTotal))?Number(savedTotal).toFixed(2):(Number.isFinite(Number(raw.total))?Number(raw.total).toFixed(2):'');$('draftDeclaredTotal').oninput=recalcTotal;renderItems();const arithmetic=validateDraftArithmetic();if(doc.status==='ERROR')setReviewStatus(doc.errorMessage||'Ошибка AI','error');else if(doc.status==='IMPORTED')setReviewStatus('✓ Накладная '+(doc.result?.imported?.processed?'сохранена и проведена':'успешно сохранена')+' в Smart Horeca'+(doc.result?.imported?.documentNumber?' · № '+doc.result.imported.documentNumber:''),'ok');else if(doc.result?.provider?.usage?.autoDecision?.route==='LOCAL_REVIEW')setReviewStatus('Local AI распознал документ неуверенно. '+(doc.result.provider.usage.autoDecision.openaiFailed?'OpenAI недоступен. ':'')+'Обязательно проверьте каждую строку перед сохранением.','error');else if(!arithmetic.valid)setReviewStatus('Обнаружено арифметическое расхождение. Исправьте данные перед сохранением.','error');else if(refsWarning)setReviewStatus('Документ распознан. '+refsWarning,'error');else if(m.ready)setReviewStatus('Все обязательные данные сопоставлены. Можно создавать накладную в Smart Horeca.','ok');else setReviewStatus('Проверьте поставщика, склад и строки, отмеченные как несопоставленные.','');await loadPreview(doc)}
-async function selectDocument(id){if(saveBusy)return;const d=documents.find(x=>x.id===id);if(!d)return;await fillReview(d)}
+async function selectDocument(id){const d=documents.find(x=>x.id===id);if(!d)return;await fillReview(d)}
 async function uploadAndProcess(){if(!chosenFile)throw new Error('Сначала выберите PDF или фото.');await requireSingleRestaurant();const provider=$('providerSelect').value;const t=await token();const form=new FormData();form.set('file',chosenFile,chosenFile.name);form.set('provider',provider);$('uploadBtn').disabled=true;setUploadStatus('Загружаем документ…');try{const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/ai-documents',{method:'POST',headers:{Authorization:`Bearer ${t}`},body:form},120000);const raw=await r.text();let up={};try{up=raw?JSON.parse(raw):{}}catch(_){const preview=raw.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,180);throw new Error(`AI upload HTTP ${r.status}${preview?' · '+preview:''}`)}if(!r.ok||!up.success)throw new Error(up.message||`HTTP ${r.status}`);setUploadStatus('AI распознаёт документ…');const processed=await aiPost({action:'process',id:up.document.id,provider});let matchWarning='';setUploadStatus('Готовим справочники Smart Horeca…');try{await loadRefs()}catch(e){console.warn('AI references:',e?.message||e)}setUploadStatus('Сопоставляем со справочниками Smart Horeca…');try{await aiPost({action:'match',id:up.document.id})}catch(e){matchWarning=e?.message||'Сопоставление не выполнено'}chosenFile=null;$('fileInput').value='';setUploadStatus(matchWarning?'Документ распознан. '+matchWarning:'Распознано и подготовлено к проверке.',matchWarning?'':'success');await loadAll(up.document.id)}finally{$('uploadBtn').disabled=false}}
-async function reprocess(){if(saveBusy||!current)return;setReviewStatus('AI повторно распознаёт документ…');const j=await aiPost({action:'process',id:current.id,provider:$('providerSelect').value});let warning='';setReviewStatus('Готовим справочники Smart Horeca…');try{await loadRefs()}catch(e){console.warn('AI references:',e?.message||e)}setReviewStatus('Сопоставляем со справочниками Smart Horeca…');try{await aiPost({action:'match',id:current.id})}catch(e){warning=e?.message||'Сопоставление не выполнено'}await loadAll(j.document.id);if(warning)setReviewStatus('Документ распознан. '+warning,'error')}
-async function deleteCurrent(){if(saveBusy||!current||!confirm('Удалить документ из AI Inbox?'))return;await aiPost({action:'delete',id:current.id});current=null;$('reviewContent').hidden=true;$('reviewEmpty').hidden=false;await loadAll()}
-function collectDraft(){const supplierId=$('draftSupplier').value,storeId=$('draftStore').value;if(!supplierId)throw new Error('Выберите поставщика.');if(!storeId)throw new Error('Выберите склад.');const arithmetic=validateDraftArithmetic();if(!arithmetic.valid)throw new Error('Исправьте арифметические расхождения перед сохранением: '+arithmetic.issues.slice(0,3).join('; '));const items=[...document.querySelectorAll('.aid-item')].map((row,i)=>{const productId=row.querySelector('[data-f="product"]').value,amount=Number(row.querySelector('[data-f="quantity"]').value||0),price=Number(row.querySelector('[data-f="price"]').value||0),sum=Number(row.querySelector('[data-f="sum"]').value||0);if(!productId)throw new Error('Строка '+(i+1)+': выберите товар iiko.');if(!(amount>0))throw new Error('Строка '+(i+1)+': количество должно быть больше 0.');const product=(refs?.products||[]).find(x=>String(x.id)===String(productId));const sourceName=currentMatching().items?.[i]?.sourceName||'';return{num:i+1,sourceName,productId,productName:product?.name||'',amount,actualAmount:amount,price,sum}});if(!items.length)throw new Error('В документе нет товарных строк.');return{documentNumber:$('draftNumber').value||undefined,dateIncoming:($('draftDate').value||today())+'T00:00:00',supplierId,defaultStore:storeId,invoice:$('draftInvoice').value,incomingDocumentNumber:$('draftIncoming').value,dueDate:$('draftDue').value,documentTotal:arithmetic.documentTotal,comment:'Создано через SmartHoreca AI Document Inbox',items}}
+async function reprocess(){if(!current)return;setReviewStatus('AI повторно распознаёт документ…');const j=await aiPost({action:'process',id:current.id,provider:$('providerSelect').value});let warning='';setReviewStatus('Готовим справочники Smart Horeca…');try{await loadRefs()}catch(e){console.warn('AI references:',e?.message||e)}setReviewStatus('Сопоставляем со справочниками Smart Horeca…');try{await aiPost({action:'match',id:current.id})}catch(e){warning=e?.message||'Сопоставление не выполнено'}await loadAll(j.document.id);if(warning)setReviewStatus('Документ распознан. '+warning,'error')}
+async function deleteCurrent(){if(!current||!confirm('Удалить документ из AI Inbox?'))return;await aiPost({action:'delete',id:current.id});current=null;$('reviewContent').hidden=true;$('reviewEmpty').hidden=false;await loadAll()}
+function collectDraft(){const supplierId=$('draftSupplier').value,storeId=$('draftStore').value;if(!supplierId)throw new Error('Выберите поставщика.');if(!storeId)throw new Error('Выберите склад.');const arithmetic=validateDraftArithmetic();if(!arithmetic.valid)throw new Error('Исправьте арифметические расхождения перед сохранением.');const items=[...document.querySelectorAll('.aid-item')].map((row,i)=>{const productId=row.querySelector('[data-f="product"]').value,amount=Number(row.querySelector('[data-f="quantity"]').value||0),price=Number(row.querySelector('[data-f="price"]').value||0),sum=Number(row.querySelector('[data-f="sum"]').value||0);if(!productId)throw new Error('Строка '+(i+1)+': выберите товар iiko.');if(!(amount>0))throw new Error('Строка '+(i+1)+': количество должно быть больше 0.');const product=(refs?.products||[]).find(x=>String(x.id)===String(productId));const sourceName=currentMatching().items?.[i]?.sourceName||'';return{num:i+1,sourceName,productId,productName:product?.name||'',amount,actualAmount:amount,price,sum}});if(!items.length)throw new Error('В документе нет товарных строк.');return{documentNumber:$('draftNumber').value||undefined,dateIncoming:($('draftDate').value||today())+'T00:00:00',supplierId,defaultStore:storeId,invoice:$('draftInvoice').value,incomingDocumentNumber:$('draftIncoming').value,dueDate:$('draftDue').value,documentTotal:arithmetic.documentTotal,comment:'Создано через SmartHoreca AI Document Inbox',items}}
 async function importToIiko(processed){
-  // Prevent double requests, including clicks on both save buttons.
-  if(saveBusy)return;
-  if(!current){setReviewStatus('Сначала выберите накладную.','error');return}
-  const docId=current.id;
-  if(current.status==='IMPORTED'){setReviewStatus('Эта накладная уже сохранена в Smart Horeca.','ok');return}
-  if(saveUncertainIds.has(docId)){
-    showSaveDialog(processed);setSaveStage(2,true);
-    finishSaveDialog('warning','Проверьте уже выполненную операцию',
-      'Предыдущий запрос мог создать накладную. Перед повторным сохранением проверьте её в Smart Horeca, чтобы избежать дубля.');
-    return;
-  }
-  saveBusy=true;showSaveDialog(processed);
-  let created=false,partialSaved=false,requestSent=false,number='',documentData=null;
-  let stage=0;
   try{
-    const target=current;
-    documentData=collectDraft();
+    if(!current)throw new Error('Документ не выбран.');
+    if(current.status==='IMPORTED')throw new Error('Этот документ уже импортирован в iiko.');
+
+    const documentData=collectDraft();
     const b=await requireSingleRestaurant();
     const c=b.connection;
-    if(!c?.ip||!c?.login)throw new Error('Подключение Smart Horeca Server не найдено.');
-    stage=1;setSaveStage(stage);
     const action=processed?'save-and-process':'save';
-    setReviewStatus(processed?'Сохраняем и проводим накладную…':'Сохраняем накладную…');
-    const authToken=await token();
-    requestSent=true;
+
+    setReviewStatus(processed?'Сохраняем и проводим в iiko…':'Сохраняем в iiko…');
+    $('saveDraftBtn').disabled=true;
+    $('saveProcessBtn').disabled=true;
+
     const r=await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/document-action',{
       method:'POST',
-      headers:{'Content-Type':'application/json',Authorization:'Bearer '+authToken},
+      headers:{'Content-Type':'application/json',Authorization:`Bearer ${await token()}`},
       body:JSON.stringify({connection:c,departmentIds:b.departmentIds||[],type:'incoming',action,document:documentData}),
       cache:'no-store'
     },90000);
-    let j={};
-    try{j=await r.json()}catch(_){
-      const error=new Error('Сервер вернул неполный ответ. Не сохраняйте документ повторно, пока не проверите результат.');
-      error.uncertain=true;throw error;
-    }
-    number=j.validation&&(j.validation.documentNumber||j.validation.otherSuggestedNumber)||documentData.documentNumber||'';
+    const j=await r.json().catch(()=>({}));
     if(!r.ok||j.success===false){
       const detail=j.validation&&(j.validation.errorMessage||j.validation.additionalInfo);
-      const reason=detail||j.message||'HTTP '+r.status;
-      const error=new Error(j.saved&&j.stage==='process'
-        ?'Накладная создана, но провести её не удалось: '+reason:reason);
-      if(j.saved&&j.stage==='process'){partialSaved=true;error.uncertain=true}
-      // A gateway/server failure after submission can hide a successful save.
-      if(r.status>=500||r.status===408)error.uncertain=true;
-      throw error;
+      const reason=detail||j.message||`HTTP ${r.status}`;
+      if(j.saved&&j.stage==='process')throw new Error('Накладная сохранена в iiko, но провести её не удалось: '+reason);
+      throw new Error(reason);
     }
-    created=true;stage=2;setSaveStage(stage);
-    setReviewStatus('Накладная создана. Подтверждаем её сохранение в Smart Horeca…');
-    try{
-      await aiPost({action:'markImported',id:docId,documentNumber:number,processed,draft:documentData});
-    }catch(error){
-      const warning=new Error('Накладная создана на сервере, но обновить её статус в AI Документах не удалось: '+(error?.message||'неизвестная ошибка'));
-      warning.uncertain=true;throw warning;
-    }
-    target.status='IMPORTED';
-    target.result={...(target.result||{}),imported:{documentNumber:number,processed}};
-    renderList();validateDraftArithmetic();setSaveStage(3);
-    setReviewStatus('Накладная успешно сохранена в Smart Horeca'+(number?' · № '+number:''),'ok');
-    finishSaveDialog('success',processed?'Накладная сохранена и проведена':'Накладная успешно сохранена',
-      'Сервер подтвердил выполнение операции. Документ доступен в Smart Horeca.',
-      {number,state:processed?'Сохранена и проведена':'Сохранена',amount:documentData.documentTotal});
-    // The save is complete; never block dismissing the success dialog on an
-    // unrelated document list/preview refresh.
-    saveBusy=false;
-    try{
-      const latest=await aiGet();
-      if(!saveBusy&&current?.id===docId){
-        documents=latest.documents||[];
-        current=documents.find(d=>d.id===docId)||target;
-        providerStatus(latest.providers);
-        renderList();
-      }
-    }catch(error){
-      console.warn('AI document list refresh after save:',error?.message||error);
-      setReviewStatus('Накладная сохранена. Список документов можно обновить позже.','ok');
-    }
-  }catch(error){
-    const uncertain=created||partialSaved||error?.uncertain===true||
-      (requestSent&&/abort|timeout|timed out|network|failed to fetch/i.test(String(error?.message||error)));
-    if(uncertain)saveUncertainIds.add(docId);
-    setSaveStage(stage,true);
-    const message=error?.message||'Не удалось сохранить накладную.';
-    setReviewStatus(message,'error');
-    finishSaveDialog(uncertain?'warning':'error',
-      uncertain?'Требуется проверить результат':'Не удалось сохранить накладную',
-      uncertain?message+' Проверьте документ в Smart Horeca до повторного сохранения.':message,
-      partialSaved||created?{number,state:partialSaved?'Создана, проведение не подтверждено':'Создана, статус не синхронизирован',amount:documentData?.documentTotal}:null);
+
+    const number=j.validation&&(j.validation.documentNumber||j.validation.otherSuggestedNumber)||documentData.documentNumber||'';
+    await aiPost({action:'markImported',id:current.id,documentNumber:number,processed,draft:documentData});
+    setReviewStatus('Готово: накладная создана в iiko'+(number?' · № '+number:''),'ok');
+    await loadAll(current.id);
+  }catch(e){
+    setReviewStatus(e?.message||'Ошибка iiko','error');
+    throw e;
   }finally{
-    saveBusy=false;
-    if(current?.status!=='IMPORTED')validateDraftArithmetic();
+    if(current?.status!=='IMPORTED'){
+      validateDraftArithmetic();
+    }
+  }
+}
+function explainSaveError(message){
+  const raw=String(message||'Не удалось сохранить накладную.');
+  // Translate the known accounting-server refusal for an already-processed
+  // document. Do not generate another number or bypass status enforcement.
+  const match=raw.match(/Changing processed or deleted document is not allowed:\s*existing\s+#([^\s]+)\s+of\s+(\d{2}\.\d{2}\.\d{4})[^\n]*status\s+PROCESSED/i);
+  if(match)return 'Накладная №'+match[1]+' от '+match[2]+' уже проведена. Smart Horeca не может изменить проведённый документ. Проверьте номер в поле «Номер документа» и существующую накладную, прежде чем сохранять новый документ.';
+  return raw;
+}
+async function saveWithFeedback(processed){
+  if(saveDialogBusy)return; // Only prevents double clicks in the UI.
+  saveDialogBusy=true;saveDialogStage=0;
+  const initialNumber=$('draftNumber')?.value||'';
+  const initialAmount=inputNumber($('draftDeclaredTotal')?.value);
+  showSaveDialog(processed);
+  try{
+    // This is the original, unchanged save workflow from before the modal.
+    await importToIiko(processed);
+    setSaveStage(3);
+    finishSaveDialog('success',processed?'Накладная сохранена и проведена':'Накладная успешно сохранена',
+      'Сервер подтвердил сохранение. Документ доступен в Smart Horeca.',
+      {number:current?.result?.imported?.documentNumber||initialNumber,
+       state:processed?'Сохранена и проведена':'Сохранена',amount:initialAmount});
+  }catch(error){
+    setSaveStage(saveDialogStage,true);
+    finishSaveDialog('error','Не удалось сохранить накладную',explainSaveError(error?.message||error));
+  }finally{
+    saveDialogBusy=false;
   }
 }
 function bindUpload(){const dz=$('dropzone'),input=$('fileInput');dz.onclick=()=>input.click();input.onchange=()=>{chosenFile=input.files?.[0]||null;if(chosenFile){dz.querySelector('strong').textContent=chosenFile.name;dz.querySelector('span').textContent=(chosenFile.size/1024/1024).toFixed(2)+' МБ'}};['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag')}));['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag')}));dz.addEventListener('drop',e=>{const f=e.dataTransfer?.files?.[0];if(f){chosenFile=f;dz.querySelector('strong').textContent=f.name;dz.querySelector('span').textContent=(f.size/1024/1024).toFixed(2)+' МБ'}})}
 function bind(){bindUpload();bindReviewWorkspace();$('saveModalClose').onclick=closeSaveDialog;
   window.addEventListener('sh:iiko-selection-changed',()=>{
-    if(saveBusy)return;
     refs=null;current=null;documents=[];renderList();
     $('reviewContent').hidden=true;$('reviewEmpty').hidden=false;
     loadAll().catch(e=>setUploadStatus(e.message||String(e),'error'));
   });
-$('uploadBtn').onclick=()=>uploadAndProcess().catch(e=>setUploadStatus(e.message,'error'));$('refreshBtn').onclick=()=>loadAll().catch(e=>setUploadStatus(e.message,'error'));$('reprocessBtn').onclick=()=>reprocess().catch(e=>setReviewStatus(e.message,'error'));$('deleteBtn').onclick=()=>deleteCurrent().catch(e=>setReviewStatus(e.message,'error'));$('saveDraftBtn').onclick=()=>importToIiko(false).catch(()=>{});$('saveProcessBtn').onclick=()=>importToIiko(true).catch(()=>{})}
+$('uploadBtn').onclick=()=>uploadAndProcess().catch(e=>setUploadStatus(e.message,'error'));$('refreshBtn').onclick=()=>loadAll().catch(e=>setUploadStatus(e.message,'error'));$('reprocessBtn').onclick=()=>reprocess().catch(e=>setReviewStatus(e.message,'error'));$('deleteBtn').onclick=()=>deleteCurrent().catch(e=>setReviewStatus(e.message,'error'));$('saveDraftBtn').onclick=()=>saveWithFeedback(false);$('saveProcessBtn').onclick=()=>saveWithFeedback(true)}
 async function init(){try{bind();await loadAll();loadRefs().catch(e=>console.warn('AI references:',e?.message||e))}catch(e){setUploadStatus(e.message||String(e),'error')}}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
