@@ -99,7 +99,7 @@ test("True row mismatch remains blocking and describes exact position",()=>{
   assert.ok(result.issues.some(x=>x.includes("Товар 1")));
   assert.equal(h.nodes.arithmeticWarning.hidden,false);
   assert.equal(h.nodes.saveDraftBtn.disabled,true);
-  assert.throws(()=>h.collectDraft(),/Товар 1/);
+  assert.throws(()=>h.collectDraft(),/Исправьте арифметические расхождения/);
 });
 
 test("True document-total mismatch remains blocking with actionable amount",()=>{
@@ -108,5 +108,5 @@ test("True document-total mismatch remains blocking with actionable amount",()=>
   assert.equal(result.valid,false);
   assert.ok(result.issues.some(x=>x.includes("Итого документа")));
   assert.equal(h.nodes.saveProcessBtn.disabled,true);
-  assert.throws(()=>h.collectDraft(),/Итого документа/);
+  assert.throws(()=>h.collectDraft(),/Исправьте арифметические расхождения/);
 });
