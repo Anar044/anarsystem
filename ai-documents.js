@@ -469,9 +469,19 @@ async function importToIiko(processed){
     finishSaveDialog('success',processed?'Накладная сохранена и проведена':'Накладная успешно сохранена',
       'Сервер подтвердил выполнение операции. Документ доступен в Smart Horeca.',
       {number,state:processed?'Сохранена и проведена':'Сохранена',amount:documentData.documentTotal});
-    // A slow/failed list refresh does not mean the save failed.
-    try{await loadAll(docId)}catch(error){
-      console.warn('AI document refresh after save:',error?.message||error);
+    // The save is complete; never block dismissing the success dialog on an
+    // unrelated document list/preview refresh.
+    saveBusy=false;
+    try{
+      const latest=await aiGet();
+      if(!saveBusy&&current?.id===docId){
+        documents=latest.documents||[];
+        current=documents.find(d=>d.id===docId)||target;
+        providerStatus(latest.providers);
+        renderList();
+      }
+    }catch(error){
+      console.warn('AI document list refresh after save:',error?.message||error);
       setReviewStatus('Накладная сохранена. Список документов можно обновить позже.','ok');
     }
   }catch(error){
