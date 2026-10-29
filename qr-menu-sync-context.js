@@ -3,7 +3,6 @@
 
   window.SH_QRMenuSyncContextLoaded = true;
 
-  const MENU_KEY = 'horeca_qr_menu_v1';
   const DEFAULT_LOCAL_CATEGORY_IDS = new Set(['main', 'salads', 'pizza', 'drinks', 'desserts']);
   let syncing = false;
 
@@ -27,19 +26,6 @@
       String(dish.id || '').startsWith('iiko_')
     )
   );
-
-  function readState() {
-    try {
-      const parsed = JSON.parse(localStorage.getItem(MENU_KEY) || 'null');
-      return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function saveState(state) {
-    localStorage.setItem(MENU_KEY, JSON.stringify(state));
-  }
 
   function normalizeState(state) {
     if (!state || !Array.isArray(state.categories) || !Array.isArray(state.dishes)) return state;
@@ -137,13 +123,6 @@
     };
   }
 
-  function normalizeStoredState() {
-    const state = readState();
-    if (!state) return;
-    const normalized = normalizeState(state);
-    if (JSON.stringify(normalized) !== JSON.stringify(state)) saveState(normalized);
-  }
-
   async function sync(button) {
     if (syncing) return;
     syncing = true;
@@ -155,6 +134,10 @@
       if (!window.SH_IikoContext?.getBinding) throw new Error('Единое подключение SH Server не готово. Обновите страницу.');
       const binding = await window.SH_IikoContext.getBinding(true);
       if (!binding?.connection) throw new Error('Подключение SH Server не настроено. Откройте «Настройки».');
+      const editor = window.SH_QRMenuState;
+      if (!editor?.read || !editor?.update) throw new Error('QR Menu ещё загружается. Обновите страницу.');
+      // Verify a single selected restaurant before running any sync.
+      await editor.read(binding);
 
       const response = await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/qr-menu', {
         method: 'POST',
@@ -164,44 +147,42 @@
       const data = await response.json().catch(() => ({ success: false, message: 'Некорректный ответ API' }));
       if (!response.ok || !data.success) throw new Error(data.message || `HTTP ${response.status}`);
 
-      const state = readState();
-      if (!state) throw new Error('Локальное состояние QR Menu не найдено. Обновите страницу.');
-
-      const localCategories = (state.categories || []).filter(category => !isIikoCategory(category));
-      const localDishes = (state.dishes || []).filter(dish => !isIikoDish(dish));
-
-      const iikoCategories = (data.categories || []).map(category => ({
-        id: `iiko_cat_${category.iikoId}`,
-        iikoId: category.iikoId,
-        name: category.name,
-        source: 'iiko',
-        sortOrder: category.sortOrder ?? 0
-      }));
-
-      const iikoDishes = (data.products || []).map(product => ({
-        id: `iiko_${product.id}`,
-        iikoId: product.id,
-        cat: `iiko_cat_${product.categoryId}`,
-        name: product.name,
-        price: product.price ?? 0,
-        desc: product.description || '',
-        source: 'iiko',
-        code: product.code || '',
-        num: product.num || '',
-        frontImageId: product.frontImageId || null,
-        photo: product.photo || '',
-        sortOrder: product.sortOrder ?? 0
-      }));
-
-      const normalized = normalizeState({
-        ...state,
-        categories: [...localCategories, ...iikoCategories],
-        dishes: [...localDishes, ...iikoDishes]
+      // Use current live scoped data, preserving the current restaurant's
+      // local edits; never read or overwrite global legacy menu storage.
+      await editor.update(binding, current => {
+        const localCategories = (current.categories || []).filter(category => !isIikoCategory(category));
+        const localDishes = (current.dishes || []).filter(dish => !isIikoDish(dish));
+        const iikoCategories = (data.categories || []).map(category => ({
+          id: 'iiko_cat_' + category.iikoId,
+          iikoId: category.iikoId,
+          name: category.name,
+          source: 'iiko',
+          sortOrder: category.sortOrder ?? 0
+        }));
+        const iikoDishes = (data.products || []).map(product => ({
+          id: 'iiko_' + product.id,
+          iikoId: product.id,
+          cat: 'iiko_cat_' + product.categoryId,
+          name: product.name,
+          price: product.price ?? 0,
+          desc: product.description || '',
+          source: 'iiko',
+          code: product.code || '',
+          num: product.num || '',
+          frontImageId: product.frontImageId || null,
+          photo: product.photo || '',
+          sortOrder: product.sortOrder ?? 0
+        }));
+        return normalizeState({
+          ...current,
+          categories: [...localCategories, ...iikoCategories],
+          dishes: [...localDishes, ...iikoDishes]
+        });
       });
-
-      saveState(normalized);
-      button.textContent = `✓ ${data.productCount ?? iikoDishes.length} блюд`;
-      setTimeout(() => location.reload(), 350);
+      button.textContent = '✓ ' + (data.productCount ?? (data.products || []).length) + ' блюд';
+      // Render already happens inside editor.update. No disruptive reload.
+      syncing = false;
+      button.disabled = false;
     } catch (error) {
       alert(`Не удалось синхронизировать меню SH:\n${error?.message || error}`);
       button.disabled = false;
@@ -209,8 +190,6 @@
       syncing = false;
     }
   }
-
-  normalizeStoredState();
 
   document.addEventListener('click', event => {
     const button = event.target?.closest?.('#syncBtn');
