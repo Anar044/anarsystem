@@ -20,9 +20,11 @@ const cents=n=>{
   return Math.round(x*100);
 };
 export const ALLOWED_ORDER_MODES=new Set(['TABLE','FAST_FOOD']);
+const ORDERS_SCHEMA_READY=new WeakMap();
 export async function ensureOrders(db){
   if(!db)throw fail('QR_ORDER_DB_UNAVAILABLE','База D1 не подключена',503);
-  await db.batch([
+  const cached=ORDERS_SCHEMA_READY.get(db);if(cached)return cached;
+  const initialization=db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS qr_order_settings (
       owner_id TEXT NOT NULL,menu_id TEXT NOT NULL,restaurant_id TEXT NOT NULL,
       service_mode TEXT NOT NULL DEFAULT 'TABLE',ordering_enabled INTEGER NOT NULL DEFAULT 0,
@@ -59,7 +61,9 @@ export async function ensureOrders(db){
       created_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_qr_order_events_order ON qr_order_events(order_id,created_at)`)
-  ]);
+  ]).catch(e=>{ORDERS_SCHEMA_READY.delete(db);throw e});
+  ORDERS_SCHEMA_READY.set(db,initialization);
+  return initialization;
 }
 export async function adminContext(request,env){
   const state=await loadRequestIikoState(request,env);
