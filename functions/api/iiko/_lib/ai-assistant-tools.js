@@ -360,6 +360,32 @@ function olapFieldRows(raw) {
   return out;
 }
 
+// OLAP's Department filter is not sufficient proof: a misconfigured server,
+// cached response or unsupported filter may still contain other restaurants.
+// Never let an AI model see a CHAIN row until its ownership is verified.
+export function verifiedAssistantOlapRows(payload, selectedDepartmentIds, field) {
+  const allowed = new Set((selectedDepartmentIds || []).map(key).filter(Boolean));
+  if (!allowed.size) return {ok:false, code:"AI_OLAP_SCOPE_EMPTY"};
+  const data = Array.isArray(payload) ? payload :
+    (payload && typeof payload === "object" &&
+      ["data","rows","items","records","result"].map(name=>payload[name]).find(Array.isArray));
+  if (!Array.isArray(data)) return {ok:false, code:"AI_OLAP_SCOPE_UNVERIFIED"};
+  const rows = [];
+  for (const row of data) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      return {ok:false, code:"AI_OLAP_SCOPE_UNVERIFIED"};
+    }
+    const fieldValue = row[field] ?? row["Department.Id"] ?? row.DepartmentId ?? row["Department.ID"];
+    const departmentId = key(fieldValue && typeof fieldValue === "object" ? fieldValue.id : fieldValue);
+    if (!departmentId) return {ok:false, code:"AI_OLAP_SCOPE_UNVERIFIED"};
+    if (!allowed.has(departmentId)) return {ok:false, code:"AI_OLAP_SCOPE_OUTSIDE_SELECTION"};
+    rows.push(row);
+  }
+  // Intentionally discard unverified server totals/metadata. The AI may only
+  // calculate totals from rows that passed the department ownership test.
+  return {ok:true, rows};
+}
+
 export const assistantToolDefinitions = [
   {
     type: "function",
@@ -469,8 +495,10 @@ export async function executeAssistantTool(name, args, context) {
   const { env, connection, scope, access } = context;
   const selectedDepartmentIds=Array.isArray(scope?.selectedDepartmentIds)?scope.selectedDepartmentIds:[];
   const allowedDepartmentIds=Array.isArray(scope?.allowedDepartmentIds)?scope.allowedDepartmentIds:[];
-  const subsetChainScope=scope?.isChain===true && selectedDepartmentIds.length>0 && selectedDepartmentIds.length<allowedDepartmentIds.length;
-  const effectiveDepartmentIds=subsetChainScope?selectedDepartmentIds:[];
+  // Every CHAIN request is always scoped, even when every *known* restaurant
+  // is selected; the remote server may have additional unrelated departments.
+  const strictChainScope=scope?.isChain===true;
+  const effectiveDepartmentIds=strictChainScope?selectedDepartmentIds:[];
   if(!access?.allowed||!clean(access?.workspace?.id)||!clean(access?.storageUserId)||!connection?.ip||!connection?.login){
     return {error:"Организация или её Smart Horeca Server не подтверждены.",code:"ASSISTANT_TENANT_UNVERIFIED"};
   }
@@ -513,7 +541,7 @@ export async function executeAssistantTool(name, args, context) {
     if (!productIds.size && matchedProducts[0]) productIds.add(matchedProducts[0].id);
 
     const loaded = await loadInvoices(connection, range.from, range.to);
-    if(subsetChainScope){
+    if(strictChainScope){
       const storeScope=await resolveStoreScope(connection,selectedDepartmentIds);
       if(!storeScope.resolved||!storeScope.storeIds.length){
         return {error:"Не удалось определить склады выбранного ресторана. AI не будет смешивать закупки разных подразделений.",code:"CHAIN_SCOPE_STORE_UNAVAILABLE",departmentIds:selectedDepartmentIds};
@@ -593,7 +621,7 @@ export async function executeAssistantTool(name, args, context) {
     const date = clean(args.timestamp) || (new Date().toISOString().slice(0, 10) + "T23:59:59");
     let result;
     try{
-      result = await supplierBalances(connection, date, effectiveDepartmentIds, subsetChainScope);
+      result = await supplierBalances(connection, date, effectiveDepartmentIds, strictChainScope);
     }catch(error){
       return {error:String(error?.message||error),code:error?.code||"CHAIN_SCOPE_UNAVAILABLE_SUPPLIER_BALANCE",departmentIds:selectedDepartmentIds};
     }
@@ -659,16 +687,20 @@ export async function executeAssistantTool(name, args, context) {
         includeHigh: true
       };
     }
-    if(effectiveDepartmentIds.length){
-      const departmentField=["Department.Id","DepartmentId","Department.ID"].find(name=>available.has(name));
+    let departmentField="";
+    if(strictChainScope){
+      departmentField=["Department.Id","DepartmentId","Department.ID"].find(name=>available.has(name))||"";
       if(!departmentField){
-        return {success:false,code:"CHAIN_SCOPE_FIELD_MISSING",message:"OLAP не отдаёт Department.Id — нельзя безопасно ограничить AI отчёт выбранным рестораном.",departmentIds:selectedDepartmentIds};
+        return {success:false,code:"CHAIN_SCOPE_FIELD_MISSING",message:"OLAP не отдаёт Department.Id — AI блокирует отчёт без подтверждённого ограничения по ресторанам."};
       }
+      // Override any model-supplied department filter. Explicit grouping
+      // allows us to verify each row instead of trusting filtering alone.
       filters[departmentField]={filterType:"IncludeValues",values:[...effectiveDepartmentIds]};
+      if(!rows.includes(departmentField)&&!columns.includes(departmentField))rows.unshift(departmentField);
     }
     const request = {
       reportType,
-      buildSummary: true,
+      buildSummary: !strictChainScope,
       groupByRowFields: rows,
       groupByColFields: columns,
       aggregateFields: measures,
@@ -686,7 +718,16 @@ export async function executeAssistantTool(name, args, context) {
     if (!result.ok) {
       return { success: false, status: result.status, message: result.text.slice(0, 1200), request };
     }
-    return { success: true, request, departmentIds:selectedDepartmentIds, effectiveDepartmentIds, departmentScopeApplied:effectiveDepartmentIds.length>0, report: compactForAi(result.payload) };
+    if(strictChainScope){
+      const verified=verifiedAssistantOlapRows(result.payload,effectiveDepartmentIds,departmentField);
+      if(!verified.ok) return {success:false,code:verified.code,
+        message:"Источник OLAP не подтвердил принадлежность всех строк выбранным ресторанам. Отчёт заблокирован."};
+      return {success:true,request,departmentIds:selectedDepartmentIds,
+        effectiveDepartmentIds,departmentScopeApplied:true,departmentRowsVerified:true,
+        report:compactForAi(verified.rows)};
+    }
+    return {success:true,request,departmentIds:selectedDepartmentIds,effectiveDepartmentIds,
+      departmentScopeApplied:false,report:compactForAi(result.payload)};
   }
 
   throw new Error(`Неизвестный инструмент AI: ${name}`);
