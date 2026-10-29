@@ -60,6 +60,10 @@ test('Public route is anti-replay, disabled by default and payment cannot be for
   assert.match(publicApi,/request_digest!==digest/);
   assert.match(publicApi,/QR_ORDER_RATE_SECRET/);
   assert.match(publicApi,/CF-Connecting-IP/);
+  assert.match(publicApi,/isPosReady\(env.DB,configured\)/);
+  assert.match(publicApi,/POS_OFFLINE/);
+  assert.match(adminApi,/POS_BRIDGE_NOT_READY/);
+  assert.match(bridge,/action==='hello'/);
   assert.match(publicApi,/priceBasket\(env.DB,menu.id,body.items\)/);
   assert.match(publicApi,/INSERT OR IGNORE INTO qr_guest_orders/);
   assert.match(publicApi,/paymentMethod:'PAY_AT_POS'/);
