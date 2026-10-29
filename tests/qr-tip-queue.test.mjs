@@ -34,7 +34,7 @@ test('Queue is FIFO, keeps insufficient funds and never fabricates paid payouts'
   assert.equal(a.summary.unpaidMinor,1500);
   assert.equal(a.summary.shortfallMinor,500);
   assert.equal(a.summary.paidMinor,0);
-  assert.equal(a.summary.readyMinor,900);
+  assert.equal(a.summary.readyMinor,700);
   const b=evaluate([tip(500,{recipient_ref:''}),tip(600)],800,true);
   assert.deepEqual(b.rows.map(x=>x.queueReason),['WAITING_CARD','READY_FOR_PROVIDER']);
   const c=evaluate([tip(400)],null,true);
@@ -46,7 +46,7 @@ test('Queue is FIFO, keeps insufficient funds and never fabricates paid payouts'
 test('Paid items never consume manual available balance and reconciliation is explicit',()=>{
   const evaluate=queueFunction();
   const x=evaluate([tip(900,{state:'PAID'}),tip(300,{state:'RECONCILE'}),tip(450)],500,true);
-  assert.deepEqual(x.rows.map(v=>v.queueReason),['PAID','RECONCILE','READY_FOR_PROVIDER']);
+  assert.deepEqual(x.rows.map(v=>v.queueReason),['PAID','RECONCILE','BLOCKED_BY_RECONCILIATION']);
   assert.equal(x.summary.paidMinor,900);
   assert.equal(x.summary.inReconciliationMinor,300);
   assert.equal(x.summary.unpaidMinor,750);
@@ -55,6 +55,7 @@ test('Paid items never consume manual available balance and reconciliation is ex
 test('Only future verified Payriff server lookup can register a durable liability',()=>{
   assert.match(ledger,/verifiedBy!=='SERVER_ORDER_LOOKUP'/);
   assert.match(ledger,/payment.status!=='PAID'/);
+  assert.match(ledger,/payment.currency!=='AZN'/);
   assert.match(ledger,/account\.receiving_merchant_id!==merchantId/);
   assert.match(ledger,/amountMinor>totalMinor/);
   assert.match(ledger,/ON CONFLICT\(owner_id,restaurant_id,payriff_payment_id\) DO NOTHING/);
