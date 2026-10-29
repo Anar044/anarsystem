@@ -34,7 +34,7 @@ export async function onRequestPost({request,env}){
           SELECT o.id FROM qr_guest_orders o JOIN qr_order_settings s ON s.menu_id=o.menu_id
           WHERE o.restaurant_id=?3 AND o.payment_state='UNPAID'
             AND o.payment_method='PAY_AT_POS'
-            AND s.ordering_enabled=1 AND s.pos_plugin_id=?4
+            AND s.pos_plugin_id=?4
             AND (o.pos_plugin_id='' OR o.pos_plugin_id=?4)
             AND (o.state='AWAITING_POS' OR (o.state='LEASED' AND o.lease_until<?2))
           ORDER BY o.created_at ASC LIMIT 1
@@ -85,6 +85,11 @@ export async function onRequestPost({request,env}){
         AND (pos_plugin_id=?5 OR pos_plugin_id='') RETURNING id`)
         .bind(reason,t,id,identity.departmentId,identity.pluginId).first();
       if(!record)throw fail('POS_JOB_STATE','Заказ не может быть помечен ошибочным',409);
+      const owner=await env.DB.prepare(`SELECT owner_id FROM qr_guest_orders WHERE id=?1`).bind(id).first();
+      if(owner)await env.DB.prepare(`INSERT INTO qr_order_events
+        (id,order_id,owner_id,event_type,actor,details_json,created_at)
+        VALUES(?1,?2,?3,'POS_FAILED','PLUGIN',?4,?5)`)
+        .bind(crypto.randomUUID(),id,owner.owner_id,JSON.stringify({errorCode:reason}),t).run();
       return response({success:true,orderState:'POS_FAILED'});
     }
     if(action==='ackFiscalized'){
