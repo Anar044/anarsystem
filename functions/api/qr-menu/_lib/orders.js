@@ -53,6 +53,11 @@ export async function ensureOrders(db){
       lease_until TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
       UNIQUE(menu_id,client_key)
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS qr_pos_bridge_capabilities (
+      restaurant_id TEXT NOT NULL,plugin_id TEXT NOT NULL,contract_version INTEGER NOT NULL,
+      can_create_order INTEGER NOT NULL DEFAULT 0,can_ack_fiscal INTEGER NOT NULL DEFAULT 0,
+      last_seen_at TEXT NOT NULL,PRIMARY KEY(restaurant_id,plugin_id)
+    )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_qr_orders_restaurant ON qr_guest_orders(owner_id,restaurant_id,created_at DESC)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_qr_orders_pos ON qr_guest_orders(restaurant_id,pos_plugin_id,state,lease_until)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS qr_order_events (
