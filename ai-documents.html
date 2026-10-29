@@ -6,7 +6,7 @@
 <title>Smart Horeca Control — AI Документы</title>
 <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem('shReportsTheme')==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})();</script>
 <link rel="stylesheet" href="/app-shell.css?v=20260911-7">
-<link rel="stylesheet" href="/ai-documents.css?v=20261001-arithmetic-2">
+<link rel="stylesheet" href="/ai-documents.css?v=20261029-clear-save-progress1">
 </head>
 <body data-protected="true">
 <div class="app-shell">
@@ -128,7 +128,7 @@
                 <div id="draftItems" class="aid-items"></div>
 
                 <div class="aid-review-actions">
-                  <button id="saveDraftBtn" type="button">Сохранить в iiko</button>
+                  <button id="saveDraftBtn" type="button">Сохранить накладную</button>
                   <button id="saveProcessBtn" class="aid-primary" type="button">Сохранить и провести</button>
                 </div>
               </div>
@@ -140,6 +140,30 @@
   </main>
 </div>
 
+
+<div id="saveOverlay" class="aid-save-overlay" data-state="busy" hidden>
+  <section class="aid-save-dialog" role="dialog" aria-modal="true" aria-labelledby="saveModalTitle" aria-describedby="saveModalSubtitle" aria-busy="true">
+    <div class="aid-save-icon" id="saveOutcomeIcon" aria-hidden="true"><span class="aid-save-spinner"></span></div>
+    <h2 id="saveModalTitle">Сохраняем накладную</h2>
+    <p id="saveModalSubtitle">Проверяем документ и отправляем его в Smart Horeca. Не нажимайте кнопку повторно.</p>
+    <ol class="aid-save-steps" id="saveSteps" aria-label="Этапы сохранения">
+      <li data-save-step="0" data-state="pending"><span class="aid-save-step-mark" aria-hidden="true">1</span><span>Проверка документа</span></li>
+      <li data-save-step="1" data-state="pending"><span class="aid-save-step-mark" aria-hidden="true">2</span><span id="saveServerStep">Создание накладной</span></li>
+      <li data-save-step="2" data-state="pending"><span class="aid-save-step-mark" aria-hidden="true">3</span><span>Подтверждение результата</span></li>
+    </ol>
+    <div class="aid-save-result" id="saveResultDetails" hidden>
+      <div><span>Номер накладной</span><strong id="saveResultNumber">—</strong></div>
+      <div><span>Результат</span><strong id="saveResultState">—</strong></div>
+      <div><span>Сумма</span><strong id="saveResultAmount">—</strong></div>
+    </div>
+    <p id="saveErrorDetail" class="aid-save-message" hidden role="alert"></p>
+    <div class="aid-save-footer">
+      <span id="saveModalHint">Операция может занять некоторое время.</span>
+      <button id="saveModalClose" type="button" hidden>Понятно</button>
+    </div>
+  </section>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/auth-config.js?v=20260911-2"></script>
 <script src="/auth.js?v=20260911-3"></script>
@@ -149,7 +173,7 @@
 <script src="/documents-nav.js"></script>
 <script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script>
 <script src="/sh-product-picker.js?v=20261023-unified-1"></script>
-<script src="/ai-documents.js?v=20261028-local-first1"></script>
+<script src="/ai-documents.js?v=20261029-clear-save-progress1"></script>
 <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script>
 <script src="/sh-i18n.js"></script>
 </body>

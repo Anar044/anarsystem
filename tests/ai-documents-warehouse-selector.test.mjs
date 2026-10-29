@@ -71,5 +71,5 @@ test('AI Document form surfaces missing warehouses instead of silently caching a
   assert.match(page,/if\(!warehouses\.length\)throw new Error/);
   assert.match(page,/Склады не загружены/);
   assert.match(page,/else if\(refsWarning\).*else if\(m\.ready\)/);
-  assert.match(html,/ai-documents\.js\?v=20261028-local-first1/);
+  assert.match(html,/ai-documents\.js\?v=20261029-clear-save-progress1/);
 });

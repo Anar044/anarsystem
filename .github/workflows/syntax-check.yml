@@ -65,6 +65,7 @@ jobs:
           node --test tests/ai-documents-workspace-connection.test.mjs
           node --test tests/ai-document-local-first.test.mjs
           node --test tests/ai-documents-warehouse-selector.test.mjs
+          node --test tests/ai-documents-save-progress.test.mjs
           node --test tests/workspace-assets-audit.test.mjs
           node --test tests/platform-only-server-settings.test.mjs
           node --test tests/internal-orders-core.test.mjs
