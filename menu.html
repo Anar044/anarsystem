@@ -232,9 +232,9 @@ function enhanceGuestView(dishes,d){
   document.getElementById('floatMenu').onclick=()=>document.getElementById('catNav').scrollIntoView({block:'start',behavior:'smooth'});
   const nav=document.getElementById('catNav');
   const links=[...nav.querySelectorAll('a')];
-  function activeLink(link){links.forEach(a=>a.classList.toggle('active',a===link));if(link)link.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'})}
-  if(links.length)activeLink(links[0]);
-  links.forEach(link=>link.addEventListener('click',()=>activeLink(link)));
+  function activeLink(link,scroll=false){links.forEach(a=>a.classList.toggle('active',a===link));if(scroll&&link)link.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'})}
+  if(links.length)activeLink(links[0]); // Keep cinematic header visible on first load.
+  links.forEach(link=>link.addEventListener('click',()=>activeLink(link,true)));
   for(const card of document.querySelectorAll('#content .dish')){
     card.tabIndex=0;card.setAttribute('role','button');
     card.setAttribute('aria-label','Подробнее: '+(card.querySelector('.name')?.textContent||'Блюдо'));
