@@ -1,3 +1,4 @@
+import {ensureTipStaffTables} from '../../hr/tips-profile.js';
 // Smart Horeca QR tipping ledger. INTERNAL-ONLY recording contract.
 // Never call recordVerifiedTip from a public browser request or directly from an
 // unverified Payriff callback. Payment status/amount must be retrieved server-side.
@@ -8,6 +9,7 @@ export const TIP_CURRENCY='AZN';
 
 export async function ensureTipLedger(db){
   if(!db)throw new Error('D1 binding DB unavailable');
+  await ensureTipStaffTables(db);
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS qr_tip_payout_accounts (
       owner_id TEXT NOT NULL, restaurant_id TEXT NOT NULL,
