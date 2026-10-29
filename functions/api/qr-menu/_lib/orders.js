@@ -45,6 +45,7 @@ export async function ensureOrders(db){
       service_mode TEXT NOT NULL,items_json TEXT NOT NULL,
       total_minor INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'AZN',
       guest_note TEXT NOT NULL DEFAULT '',origin_hash TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'AWAITING_POS',
+      kitchen_status TEXT NOT NULL DEFAULT 'NOT_SENT',kitchen_updated_at TEXT NOT NULL DEFAULT '',
       payment_state TEXT NOT NULL DEFAULT 'UNPAID',payment_method TEXT NOT NULL DEFAULT 'PAY_AT_POS',
       pos_plugin_id TEXT NOT NULL DEFAULT '',pos_order_id TEXT NOT NULL DEFAULT '',
       pos_order_number TEXT NOT NULL DEFAULT '',
