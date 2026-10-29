@@ -68,6 +68,14 @@ function renderOrders(){
       const btn=document.createElement('button');btn.className='qro-btn danger';btn.textContent='Отменить';
       btn.onclick=()=>{if(confirm('Отменить этот заказ, который ещё не создан на кассе?'))action({action:'cancelPending',orderId:o.id})};
       last.append(btn);
+    }else if(o.state==='POS_FAILED'&&o.last_error==='POS_VALIDATION_FAILED'){
+      const btn=document.createElement('button');btn.className='qro-btn';btn.textContent='Повторить';
+      btn.title='Только после исправления причины ошибки на кассе';
+      btn.onclick=()=>{if(confirm('После исправления цены или товара вернуть заказ в очередь?'))action({action:'retryValidationFailure',orderId:o.id})};
+      last.append(btn);
+    }else if(o.state==='POS_FAILED'){
+      const warning=document.createElement('small');
+      warning.textContent='Требуется сверка с кассой';last.append(warning);
     }
     host.append(tr);
   }
