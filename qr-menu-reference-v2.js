@@ -194,7 +194,7 @@
   function onDishClose(){active=null;qty=1}
   window.SHQRReference={onLoaded,onDishOpen,onDishClose};
   // Read-only basket snapshot consumed by the separate, opt-in ordering module.
-  // This reference-video visual layer still never sends orders or payments.
+  // This reference-video visual layer remains read-only and free of network calls.
   window.SHQRReference.getSelectedItems=()=>[...selected.values()]
     .map(({item,qty})=>({dishId:String(item.id),qty}));
 
