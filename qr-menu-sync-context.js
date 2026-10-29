@@ -28,17 +28,38 @@
     )
   );
 
+  // Read the editor's CURRENT restaurant-scoped in-memory state. The editor
+  // may display a brand-new menu before it has ever written to localStorage.
+  // Never read the old shared MENU_KEY or fall back to another restaurant.
   function readState() {
-    try {
-      const parsed = JSON.parse(localStorage.getItem(MENU_KEY) || 'null');
-      return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch (_) {
-      return null;
-    }
+    const editor = window.SH_QRMenuEditor;
+    const state = editor?.getState?.();
+    return state && Array.isArray(state.categories) && Array.isArray(state.dishes) ? state : null;
   }
 
   function saveState(state) {
-    localStorage.setItem(MENU_KEY, JSON.stringify(state));
+    const editor = window.SH_QRMenuEditor;
+    if (!editor?.replaceFromSync) throw new Error('QR Menu ещё не готово. Откройте раздел повторно.');
+    editor.replaceFromSync(state);
+  }
+
+  function confirmCurrentRestaurant(binding) {
+    const editor = window.SH_QRMenuEditor;
+    const scope = editor?.getScope?.();
+    if (!scope || !scope.restaurantId) {
+      throw new Error('Контекст QR Menu ещё не загружен. Откройте раздел повторно.');
+    }
+    const mode = String(binding?.identity?.mode || binding?.connection?.connectionType || 'RMS').toUpperCase();
+    const ids = [...new Set((binding?.departmentIds || []).map(String).filter(Boolean))].sort();
+    if (mode === 'CHAIN' && ids.length !== 1) {
+      throw new Error('Для QR Menu выберите ровно один ресторан в верхнем фильтре.');
+    }
+    const restaurantId = ids[0] || String(binding?.identity?.organizationId || binding?.connection?.organizationId || '').trim();
+    if (scope.mode !== mode || String(scope.restaurantId) !== restaurantId ||
+        (mode === 'CHAIN' && scope.departmentIds.slice().sort().join(',') !== ids.join(','))) {
+      throw new Error('Выбор ресторана изменился. Обновите QR Menu и повторите синхронизацию.');
+    }
+    return editor;
   }
 
   function normalizeState(state) {
@@ -155,6 +176,9 @@
       if (!window.SH_IikoContext?.getBinding) throw new Error('Единое подключение SH Server не готово. Обновите страницу.');
       const binding = await window.SH_IikoContext.getBinding(true);
       if (!binding?.connection) throw new Error('Подключение SH Server не настроено. Откройте «Настройки».');
+      const editor = confirmCurrentRestaurant(binding);
+      const state = readState();
+      if (!state) throw new Error('QR Menu ещё не готово. Откройте раздел повторно.');
 
       const response = await (window.SH_IikoContext?.fetchWithTimeout||fetch)('/api/iiko/qr-menu', {
         method: 'POST',
@@ -164,8 +188,11 @@
       const data = await response.json().catch(() => ({ success: false, message: 'Некорректный ответ API' }));
       if (!response.ok || !data.success) throw new Error(data.message || `HTTP ${response.status}`);
 
-      const state = readState();
-      if (!state) throw new Error('Локальное состояние QR Menu не найдено. Обновите страницу.');
+      // If the restaurant selection changes while the API is working, stop
+      // instead of overwriting a different organization's menu.
+      const latestBinding = await window.SH_IikoContext.getBinding(true);
+      if (window.SH_QRMenuEditor !== editor) throw new Error('QR Menu переключено на другой ресторан.');
+      confirmCurrentRestaurant(latestBinding);
 
       const localCategories = (state.categories || []).filter(category => !isIikoCategory(category));
       const localDishes = (state.dishes || []).filter(dish => !isIikoDish(dish));
@@ -201,16 +228,20 @@
 
       saveState(normalized);
       button.textContent = `✓ ${data.productCount ?? iikoDishes.length} блюд`;
-      setTimeout(() => location.reload(), 350);
+      const status = document.getElementById('saveStatus');
+      if (status) status.textContent = '● Меню синхронизировано с Smart Horeca Server';
+      // Editor rerenders in place. Never reload a form after synchronization.
     } catch (error) {
       alert(`Не удалось синхронизировать меню SH:\n${error?.message || error}`);
-      button.disabled = false;
       button.textContent = oldText;
+    } finally {
+      button.disabled = false;
       syncing = false;
     }
   }
 
-  normalizeStoredState();
+  // No startup normalization of legacy global storage: it may belong
+  // to a different organization. Normalize only the active editor on sync.
 
   document.addEventListener('click', event => {
     const button = event.target?.closest?.('#syncBtn');
