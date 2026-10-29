@@ -116,5 +116,6 @@ test('Frontend uses explicit auth for invoice references and document posting, a
   assert.match(frontend,/sh:iiko-selection-changed/);
   assert.match(frontend,/async function loadRefs\(\).*requireSingleRestaurant/);
   assert.match(frontend,/invoice-reference-data[^\n]+Authorization:/);
-  assert.match(frontend,/Authorization:`Bearer \$\{await token\(\)\}`/);
+  assert.match(frontend,/const authToken=await token\(\)/);
+  assert.match(frontend,/Authorization:'Bearer '\+authToken/);
 });
