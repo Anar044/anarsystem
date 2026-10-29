@@ -29,16 +29,18 @@ test('All new QR order APIs and client scripts are syntactically valid',()=>{
 test('Published D1 dishes always set the price; guest cannot send custom prices',async()=>{
   const {priceBasket}=getCore();
   const db={prepare:sql=>({bind:()=>({all:async()=>({results:[
-    {id:'dish1',iiko_id:'prod1',name:'Суп',price:12.40,currency:'AZN'},
-    {id:'dish2',iiko_id:'prod2',name:'Чай',price:2.75,currency:'AZN'}
+    {id:'dish1',iiko_id:'11111111-1111-4111-8111-111111111111',name:'Суп',price:12.40,currency:'AZN'},
+    {id:'dish2',iiko_id:'22222222-2222-4222-8222-222222222222',name:'Чай',price:2.75,currency:'AZN'}
   ]})})})};
   const basket=await priceBasket(db,'menu1',[{dishId:'dish1',qty:2,price:0.01},{dishId:'dish2',qty:1}]);
   assert.equal(basket.totalMinor,2755);
   assert.equal(basket.items[0].unitMinor,1240);
-  assert.deepEqual(basket.items.map(x=>x.productId),['prod1','prod2']);
+  assert.deepEqual(basket.items.map(x=>x.productId),['11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222']);
   await assert.rejects(priceBasket(db,'menu1',[{dishId:'dish1',qty:0}]),/Некорректная строка/);
   await assert.rejects(priceBasket(db,'menu1',[{dishId:'dish1',qty:1},{dishId:'dish1',qty:1}]),/Некорректная строка/);
   await assert.rejects(priceBasket(db,'menu1',[{dishId:'unknown',qty:1}]),/больше не доступна/);
+  const unmapped={prepare:()=>({bind:()=>({all:async()=>({results:[{id:'custom',iiko_id:'local-1',name:'Custom',price:3,currency:'AZN'}]})})})};
+  await assert.rejects(priceBasket(unmapped,'menu1',[{dishId:'custom',qty:1}]),/не сопоставлено/);
 });
 test('Table QR keys are verified on server; fast food uses one generic QR',async()=>{
   const {validateTable}=getCore();
@@ -69,6 +71,7 @@ test('POS bridge requires dual secret and known plugin, uses an idempotent lease
   assert.match(bridge,/verifyPluginIngress/);
   assert.match(bridge,/externalOrderId:item.id/);
   assert.match(bridge,/state='LEASED'/);
+  assert.match(bridge,/pos_plugin_id=\?4/);
   assert.match(bridge,/lease_until/);
   assert.match(bridge,/ackCreated/);
   assert.match(bridge,/ackFiscalized/);
