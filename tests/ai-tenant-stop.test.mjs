@@ -27,7 +27,7 @@ test("same user in different organizations and servers has isolated conversation
   const d=await key(make({scope:{isChain:true,mode:"CHAIN",selectedDepartmentIds:["rest2"]}}));
   const equivalent=await key(make({scope:{isChain:true,mode:"CHAIN",selectedDepartmentIds:["rest2","rest1","rest1"]}}));
   const equivalentReverse=await key(make({scope:{isChain:true,mode:"CHAIN",selectedDepartmentIds:["rest1","rest2"]}}));
-  assert.match(a,/^ai-v2:[0-9a-f]{64}$/);
+  assert.match(a,/^ai-v3:[0-9a-f]{64}$/);
   assert.equal(new Set([a,b,c,d,rotated]).size,5);
   assert.equal(equivalent,equivalentReverse);
   assert.ok(!a.includes("secret"));
