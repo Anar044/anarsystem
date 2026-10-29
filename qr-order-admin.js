@@ -78,6 +78,9 @@ async function reload(){
     $('qrOrderMode').value=state.settings.serviceMode;
     $('qrOrderEnabled').checked=state.settings.orderingEnabled;
     $('qrOrderPlugin').value=state.settings.posPluginId;
+    $('qrPosBridgeReady').textContent=state.settings.posBridgeReady
+      ?'✓ Касса подтвердила поддержку QR-заказов (действительно 5 минут)'
+      :'POS-мост не подтверждён. Гостевые QR-заказы включить нельзя.';
     const global=$('qrOrderGlobalLink');global.replaceChildren();
     const a=document.createElement('a');a.href=state.menuUrl;a.target='_blank';a.rel='noopener';a.textContent=state.menuUrl;global.append(a);
     if(state.settings.serviceMode==='FAST_FOOD'){
