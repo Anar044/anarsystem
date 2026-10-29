@@ -221,6 +221,10 @@
 
       const data = await response.json().catch(() => ({ success: false, message: 'Некорректный ответ API' }));
       if (!response.ok || !data.success) throw new Error(data.message || `HTTP ${response.status}`);
+      if (window.SH_QRMenuEditor !== editor) {
+        throw new Error('QR Menu переключено на другой ресторан. Ссылка публикации не сохранена локально.');
+      }
+      confirmCurrentRestaurant(await window.SH_IikoContext.getBinding(true));
 
       state.publicUrl = data.publicUrl;
       state.organizationId = data.organizationId;
