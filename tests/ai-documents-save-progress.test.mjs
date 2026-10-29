@@ -139,6 +139,14 @@ test("Network ambiguity and markImported errors never silently authorize a secon
     assert.equal(h.sends,1);
   }
 });
+test("Gateway failures after submission are treated as ambiguous to prevent duplicate invoices",async()=>{
+  const h=fixture({response:{success:false,message:"Gateway timeout"}});
+  await h.api.importToIiko(false);
+  assert.equal(h.overlay.dataset.state,"warning");
+  assert.equal(h.api.isUncertain("doc-1"),true);
+  await h.api.importToIiko(false);
+  assert.equal(h.sends,1);
+});
 test("Validation errors explain failure without making a server call",async()=>{
   const h=fixture({badDraft:true});
   await h.api.importToIiko(false);
