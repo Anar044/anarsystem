@@ -21,6 +21,8 @@ function setup(){
   const msg=document.createElement('div');msg.id='qroGuestStatus';msg.className='qro-guest-status';msg.setAttribute('role','status');
   const receipt=document.createElement('div');receipt.id='qroGuestReceipt';receipt.hidden=true;receipt.className='qro-guest-receipt';
   button.onclick=submit;
+  const oldNote=basket.querySelector('.shqr-basket-note');
+  if(oldNote)oldNote.textContent='Это оформление настоящего QR-заказа в Smart Horeca. Кассовая передача и оплата подтверждаются отдельно.';
   basket.append(info,note,button,msg,receipt);
   if(receiptTicket)refreshStatus();
 }
