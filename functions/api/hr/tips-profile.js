@@ -192,7 +192,10 @@ export async function onRequestPost({request,env}){
         throw e;
       }
       // Metadata is informational only and cannot activate payouts. Never accept PAN/CVV.
-      await env.DB.prepare(`UPDATE qr_tip_staff SET card_holder=?1,card_last4=?2,bank_name=?3,
+      await env.DB.prepare(`UPDATE qr_tip_staff SET
+        recipient_ref=CASE WHEN card_holder<>?1 OR card_last4<>?2 OR bank_name<>?3 THEN '' ELSE recipient_ref END,
+        payout_status=CASE WHEN card_holder<>?1 OR card_last4<>?2 OR bank_name<>?3 THEN 'NOT_LINKED' ELSE payout_status END,
+        card_holder=?1,card_last4=?2,bank_name=?3,
         updated_at=?4 WHERE owner_id=?5 AND employee_id=?6`)
         .bind(cardHolder,last4,bankName,t,ctx.owner,id).run();
     }
