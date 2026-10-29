@@ -114,3 +114,21 @@ test('Physical kitchen printing cannot be acknowledged by an arbitrary guest req
   assert.match(bridge,/KITCHEN_ORDER_MISMATCH/);
   assert.match(bridge,/KITCHEN_STATUS_CONFLICT/);
 });
+
+test('Cashier can retry only a known pre-creation validation failure',()=>{
+  assert.match(adminApi,/action==='retryValidationFailure'/);
+  assert.match(adminApi,/last_error='POS_VALIDATION_FAILED'/);
+  assert.match(adminApi,/pos_order_id='' AND payment_state='UNPAID'/);
+  assert.match(adminApi,/QR_RETRY_UNSAFE/);
+  assert.match(adminApi,/owner_id=\?3 AND restaurant_id=\?4/);
+  assert.match(admin,/o\.last_error==='POS_VALIDATION_FAILED'/);
+  assert.match(admin,/Требуется сверка с кассой/);
+  assert.doesNotMatch(publicApi,/retryValidationFailure/);
+});
+test('Reloading a QR menu cannot re-submit an already confirmed basket',()=>{
+  assert.match(reference,/clearSelectedItems/);
+  assert.match(guest,/receiptTicket\)\{/);
+  assert.match(guest,/if\(submitting\|\|!enabled\|\|receiptTicket\)return/);
+  assert.match(guest,/sessionStorage\.removeItem\(key\(\)\)/);
+  assert.match(guest,/Начать новый заказ/);
+});
