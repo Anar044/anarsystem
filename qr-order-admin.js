@@ -278,7 +278,8 @@ async function reload(){
         ?'✓ Касса подключена. Режим диагностики: заказы и печать отключены.'
         :'POS-мост не подключён. Настройте HTTPS API и проверьте авторизацию.';
     const cfg=state.settings.backendSetup||{};
-    const hasConfig=Boolean(cfg.bridgeTokenConfigured&&cfg.ingressTokenConfigured);
+    const hasConfig=Boolean(cfg.bridgeTokenConfigured&&
+      (cfg.singleKeyDiagnosticMode||cfg.ingressTokenConfigured));
     const tableAllowed=cfg.tableSyncAllowed===true;
     const sharedTest=cfg.tableSyncMode==='shared-test';
     $('qrPosRestaurantName').textContent=state.menuName||'Ресторан не определён';
@@ -299,13 +300,15 @@ async function reload(){
       :'Тестовая касса разрешена; заказы выключены';
     const missing=[
       !cfg.bridgeTokenConfigured?'QR_POS_BRIDGE_TOKEN':null,
-      !cfg.ingressTokenConfigured?'PLUGIN_INGEST_TOKEN':null
+      !cfg.singleKeyDiagnosticMode&&!cfg.ingressTokenConfigured?'PLUGIN_INGEST_TOKEN':null
     ].filter(Boolean);
     $('qrPosServerHint').textContent=!tableAllowed
       ?'Нужны серверные разрешения QR_TABLE_SYNC_MODE=shared-test и точные ID тестового ресторана, плагина и preview-хоста.'
       :missing.length
         ?'Отсутствуют: '+missing.join(', ')+'. Значения задаются только на сервере.'
-        :'Ключи не показываются. Импорт ограничен выбранным тестовым рестораном и кассой.';
+        :cfg.singleKeyDiagnosticMode
+          ?'Для тестовой синхронизации нужен только QR_POS_BRIDGE_TOKEN. Старый PLUGIN_INGEST_TOKEN менять и копировать не нужно.'
+          :'Ключи не показываются. Импорт ограничен выбранным тестовым рестораном и кассой.';
     $('qrPosNextStep').textContent=!state.settings.posPluginId
       ?'Шаг 1: выберите и сохраните тестовую кассу, не включая гостевые заказы.'
       :!tableAllowed
