@@ -21,8 +21,17 @@ export async function onRequestPost({request,env}){
     const body=await request.json().catch(()=>null);
     if(!body||typeof body!=='object'||Array.isArray(body))throw fail('BAD_BODY','Неверный запрос');
     const identity=await authorize(request,env,body);
-    await ensureOrders(env.DB);
     const action=clean(body.action,32);
+    // Gate BEFORE schema creation: ensureOrders may write D1 even for a
+    // diagnostic request. No POS table data may touch an unverified database.
+    if(action==='tablesSnapshot'){
+      const hostname=new URL(request.url).hostname.toLowerCase();
+      if(String(env.QR_TEST_D1_ISOLATED||'')!=='confirmed'||
+          hostname==='smarthoreca.pages.dev'||hostname==='web.smarthoreca.az')
+        throw fail('QR_TEST_DB_UNCONFIRMED',
+          'Сначала подтвердите отдельную тестовую D1 в preview. Импорт столов заблокирован.',409);
+    }
+    await ensureOrders(env.DB);
     const t=iso();
     if(action==='hello'){
       // The diagnostic handshake proves HTTPS connectivity only. It must never
@@ -47,14 +56,6 @@ export async function onRequestPost({request,env}){
       return response({success:true,contractVersion:1,accepted:true,orderingReady:canCreate});
     }
     if(action==='tablesSnapshot'){
-      // Only a separately verified preview D1 may store POS table snapshots.
-      // Runtime flag is an operator attestation, not proof of DB isolation:
-      // Cloudflare binding must be independently checked before enabling it.
-      const hostname=new URL(request.url).hostname.toLowerCase();
-      if(String(env.QR_TEST_D1_ISOLATED||'')!=='confirmed'||
-          hostname==='smarthoreca.pages.dev'||hostname==='web.smarthoreca.az')
-        throw fail('QR_TEST_DB_UNCONFIRMED',
-          'Сначала подтвердите отдельную тестовую D1 в preview. Импорт столов заблокирован.',409);
       // Read-only POS catalog available even during the diagnostic hello mode:
       // uploading table names/IDs never authorizes a POS order or kitchen print.
       const list=body.tables;
