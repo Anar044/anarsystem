@@ -110,6 +110,17 @@
 @media(max-width:1050px){.qro-settings-grid{grid-template-columns:minmax(170px,1fr) minmax(190px,1.5fr)}.qro-settings-grid>.qro-btn{justify-self:start}.qro-workspace{grid-template-columns:1fr}.qro-list-scroll{height:clamp(280px,46vh,510px)}}
 @media(max-width:620px){.qro{padding:13px}.qro-setup-grid,.qro-settings-grid,.qro-bottom-grid,.qro-qr-controls{grid-template-columns:1fr}.qro-panel{padding:12px}.qro-qr-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.qro-qr-card .qro-qr{width:110px;height:110px}.qro-list-scroll{height:43vh}}
 
+
+.qro-payment{margin-top:12px}
+.qro-payment .qro-panel-summary{display:list-item;padding:3px 0}
+.qro-pay-grid{display:grid;grid-template-columns:minmax(150px,.65fr) minmax(195px,1.2fr) minmax(180px,1fr) minmax(230px,1.4fr);gap:12px;margin-top:12px}
+.qro-pay-grid .qro-field{margin:0}
+.qro-pay-status{font-size:12px;padding:9px 11px;background:#122435;border:1px solid #284154;border-radius:8px;margin-top:12px}
+.qro-pay-settlement{padding:12px 14px;border-radius:10px;background:#0d1720;border:1px solid #2b3c4a;margin-top:14px}
+.qro-pay-settlement strong{color:#d8f5e7;font-size:13px}
+.qro-pay-settlement p{margin:8px 0;font-size:12px}
+@media(max-width:1200px){.qro-pay-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:620px){.qro-pay-grid{grid-template-columns:1fr}}
 </style>
 </head><body data-protected="true" style="background:#0b1017">
 <div class="app-shell"><aside class="sidebar"></aside><main class="main">
@@ -136,7 +147,7 @@
 <div class="qro-actions" style="margin-top:10px">
 <button type="button" class="qro-btn" id="qrOrderCheckConnection">Проверить связь</button>
 <small id="qrPosBridgeReady">POS-мост ещё не проверен</small>
-<div id="qrPayriffTestStatus" class="qro-status" role="status">Payriff Development: проверяем настройки…</div>
+<div class="qro-muted">Настройки Payriff доступны в разделе «QR Pay — платежи и перечисления» ниже.</div>
 </div>
 <p class="qro-muted" id="qrPosNextStep">Сначала выберите тестовую кассу.</p>
 </details>
@@ -159,6 +170,38 @@
 </div>
 <div class="qro-status" id="qrOrderSaveStatus" role="status"></div>
 </section>
+<details class="qro-panel qro-payment" id="qrPaymentPanel">
+  <summary class="qro-panel-summary">QR Pay — платежи и перечисления <span id="qrPaymentSummary" class="qro-muted">· Проверяем подключение</span></summary>
+  <p class="qro-panel-desc">Настройка действует только для выбранного ресторана в текущей организации Smart Horeca. Не нужно добавлять отдельные Merchant ID или Secret Key в Cloudflare для каждого ресторана.</p>
+  <div class="qro-pay-status" id="qrPaymentContext" role="status">Загружаем ресторан…</div>
+  <div class="qro-pay-grid">
+    <label class="qro-field">Платёжный провайдер
+      <select id="qrPaymentProvider" disabled><option value="PAYRIFF">Payriff</option></select>
+    </label>
+    <label class="qro-field">Режим работы
+      <select id="qrPaymentEnvironment"><option value="development">Development — тестирование</option><option value="production" disabled>Production — после проверки</option></select>
+    </label>
+    <label class="qro-field">Merchant ID
+      <input id="qrPaymentMerchantId" autocomplete="off" spellcheck="false" placeholder="Например, ES1095709" maxlength="80"/>
+    </label>
+    <label class="qro-field">Secret Key
+      <input id="qrPaymentSecret" type="password" autocomplete="new-password" spellcheck="false" placeholder="Вставить Secret Key для подключения" maxlength="1024"/>
+    </label>
+  </div>
+  <p class="qro-muted">Secret Key сохраняется на сервере в зашифрованном виде и никогда не показывается повторно. При изменении только других полей его можно оставить пустым.</p>
+  <div class="qro-actions">
+    <button id="qrPaymentSave" class="qro-btn primary" type="button" disabled>Сохранить Payriff</button>
+    <button id="qrPaymentDisconnect" class="qro-btn danger" type="button" disabled>Отключить провайдера</button>
+    <span class="qro-muted" id="qrPaymentVerification">Проверка реального платежа пока не активирована</span>
+  </div>
+  <div class="qro-status" id="qrPaymentFeedback" role="status"></div>
+  <div class="qro-pay-settlement">
+    <strong>Перечисление денег ресторану</strong>
+    <p>Деньги поступают в Payriff Wallet, а банковские реквизиты и вывод средств управляются в Payriff → Applications → ⋯ → Edit withdraw method / Payouts. Smart Horeca пока не меняет банковский счёт в Payriff и не выполняет выплат.</p>
+    <a href="https://dashboard.payriff.com/" target="_blank" rel="noopener noreferrer">Открыть Payriff для настройки счёта и выплат ↗</a>
+  </div>
+  <p class="qro-muted">Создание заказов в iikoFront и печать кухни останутся заблокированы до полноценной проверки успешной онлайн-оплаты.</p>
+</details>
 <div class="qro-workspace">
 <section class="qro-panel qro-workspace-panel" id="qrTablePanel">
 <div class="qro-panel-head"><h2>Столы из кассы</h2><span class="qro-muted">Выбор по залам</span></div>
@@ -207,6 +250,6 @@
 <script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script>
 <script src="/documents-nav.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script src="/qr-order-admin.js?v=20261030-payriff-readiness1"></script>
+<script src="/qr-order-admin.js?v=20261030-payriff-manager1"></script>
 <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script><script src="/sh-i18n.js"></script>
 </body></html>
