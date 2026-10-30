@@ -798,7 +798,7 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-payriff-manager1/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-payriff-sandbox2/);
 });
 
 test('QR management offers independently scrollable desktop panels and a mobile layout',()=>{
