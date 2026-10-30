@@ -467,6 +467,9 @@ test('Payriff previous-attempt history is scoped and never creates a new charge'
   assert.match(paymentAttempts,/body.expectedRestaurantId!==scope.restaurantId/);
   assert.match(paymentAttempts,/readPayriffByReference/);
   assert.match(paymentAttempts,/last_checked_at/);
+  assert.match(paymentAttempts,/lookupCode==='PAYRIFF_HTTP_400_CODE_01000'/);
+  assert.match(paymentAttempts,/providerRequestRejected:providerRejected/);
+  assert.match(paymentAttempts,/Это НЕ означает отмену оплаты/);
   assert.match(paymentAttempts,/sqlite_master/);
   assert.match(paymentAttempts,/storageReady:false/);
   assert.match(paymentAttempts,/storageReady:true/);
