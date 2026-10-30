@@ -104,5 +104,107 @@ async function init(){
     observer.observe(document.body,{childList:true,subtree:true});
   }catch(e){console.warn('[QR order mode] unavailable',e?.message||e)}
 }
+
+let sandboxEnabled=false,sandboxBusy=false,sandboxTicket='',sandboxKey='';
+function sandboxTicketKey(){return 'shqr_payriff_test:'+slug+':'+table}
+function paymentBanner(){
+  let box=$('shqrPayriffStatusBox');
+  if(box)return box;
+  box=document.createElement('aside');
+  box.id='shqrPayriffStatusBox';
+  box.style.cssText='position:fixed;z-index:150;bottom:16px;left:12px;right:12px;max-width:620px;'+
+    'margin:auto;padding:14px 16px;background:#102d26;color:#fff;border:1px solid #49d2a2;'+
+    'border-radius:14px;box-shadow:0 12px 32px #0007;font:14px system-ui';
+  const text=document.createElement('div');text.id='shqrPayriffStatusText';
+  text.textContent='Тестовая оплата Payriff: проверяем состояние…';
+  const actions=document.createElement('div');actions.style.cssText='display:flex;flex-wrap:wrap;gap:8px;margin-top:9px';
+  const check=document.createElement('button');check.type='button';check.id='shqrPayriffCheck';
+  check.textContent='Проверить оплату';check.style.cssText='background:#43d19a;color:#063426;border:0;border-radius:8px;padding:9px 13px;font-weight:700';
+  check.onclick=checkSandboxPayment;
+  const hide=document.createElement('button');hide.type='button';hide.textContent='Свернуть';
+  hide.style.cssText='background:#2c4640;color:white;border:1px solid #8db9a4;border-radius:8px;padding:9px 13px';
+  hide.onclick=()=>{box.hidden=true};
+  actions.append(check,hide);box.append(text,actions);document.body.append(box);
+  return box;
+}
+async function checkSandboxPayment(){
+  if(!sandboxTicket)return;
+  const box=paymentBanner();box.hidden=false;
+  const text=$('shqrPayriffStatusText');
+  text.textContent='Проверяем у Payriff, был ли платёж успешно проведён…';
+  try{
+    const response=await fetch('/api/qr-menu/payment-checkout?ticket='+encodeURIComponent(sandboxTicket),
+      {cache:'no-store',headers:{Accept:'application/json'}});
+    const json=await response.json().catch(()=>({}));
+    if(!response.ok||!json.success)throw Error(json.message||'Проверка оплаты недоступна');
+    const p=json.payment;
+    text.textContent=p.paidVerified
+      ?'✓ Тестовая оплата '+p.amountAZN+' AZN подтверждена. Кассовый заказ НЕ создан, кухонная печать выключена.'
+      :p.notice+' · '+p.amountAZN+' AZN. Кассовый заказ не создавался.';
+  }catch(e){
+    text.textContent='Не удалось подтвердить платёж: '+e.message+
+      '. Не начинайте повторную оплату без проверки.';
+  }
+}
+function setupSandboxPayment(){
+  if(!sandboxEnabled||$('shqrPayriffButton'))return;
+  const basket=$('shqrBasketOverlay')?.querySelector('.shqr-basket-sheet');
+  if(!basket)return;
+  const btn=document.createElement('button');
+  btn.id='shqrPayriffButton';btn.className='qro-submit';btn.type='button';
+  btn.style.cssText='background:#21ad7b;color:#fff;width:100%;border:0;border-radius:12px;padding:14px;font-weight:800;margin-top:12px';
+  btn.textContent='Оплатить через Payriff (тест)';
+  btn.disabled=Boolean(sandboxTicket);
+  btn.onclick=submitSandboxPayment;
+  const note=basket.querySelector('.shqr-basket-note');
+  if(note)note.textContent='Тестовый Payriff Development. До подтверждённой оплаты касса и кухня не получают заказ.';
+  const hint=document.createElement('div');hint.style.cssText='font:12px system-ui;color:#697b70;margin-top:7px';
+  hint.textContent='Только тестовая оплата · никаких заказов и кухонной печати.';
+  basket.append(btn,hint);
+}
+async function submitSandboxPayment(){
+  if(!sandboxEnabled||sandboxBusy||sandboxTicket)return;
+  const items=snapshot();
+  if(!items.length){alert('Сначала добавьте блюда в корзину');return}
+  sandboxBusy=true;
+  const btn=$('shqrPayriffButton');if(btn){btn.disabled=true;btn.textContent='Готовим тестовую оплату…'}
+  try{
+    const note=$('qroGuestNote')?.value.trim()||'';
+    if(!sandboxKey)sandboxKey=crypto.randomUUID();
+    const r=await fetch('/api/qr-menu/payment-checkout',{
+      method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
+      body:JSON.stringify({id:slug,table,items,note,clientKey:sandboxKey})});
+    const res=await r.json().catch(()=>({}));
+    if(!r.ok||!res.success)throw Error(res.message||'Не удалось открыть тестовый платёж');
+    const u=new URL(res.paymentUrl);
+    if(u.protocol!=='https:'||!(u.hostname==='pay.payriff.com'||u.hostname.endsWith('.payriff.com')))
+      throw Error('Неверный адрес страницы оплаты');
+    sandboxTicket=res.ticket;
+    try{sessionStorage.setItem(sandboxTicketKey(),sandboxTicket)}catch{}
+    location.assign(u.href);
+  }catch(e){
+    alert(e.message||String(e));
+    if(btn){btn.disabled=false;btn.textContent='Оплатить через Payriff (тест)'}
+  }finally{sandboxBusy=false}
+}
+async function initSandboxPayment(){
+  if(!slug)return;
+  try{
+    const fromReturn=params.get('qrPaymentTicket');
+    sandboxTicket=fromReturn||sessionStorage.getItem(sandboxTicketKey())||'';
+  }catch{}
+  if(sandboxTicket){paymentBanner();checkSandboxPayment()}
+  try{
+    const res=await fetch('/api/qr-menu/payment-checkout?id='+encodeURIComponent(slug)+
+      '&table='+encodeURIComponent(table),{cache:'no-store'});
+    const json=await res.json().catch(()=>({}));
+    sandboxEnabled=Boolean(res.ok&&json.testCheckoutEnabled);
+    if(!sandboxEnabled)return;
+    setupSandboxPayment();
+    const observer=new MutationObserver(()=>{if(!$('shqrPayriffButton'))setupSandboxPayment()});
+    observer.observe(document.body,{childList:true,subtree:true});
+  }catch(e){console.warn('[QR Pay] sandbox not ready')}
+}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initSandboxPayment);else initSandboxPayment();
 })();
