@@ -1,4 +1,5 @@
 import {ensureOrders,adminContext,settings,token,response,bad,fail,clean,eventStmt} from './_lib/orders.js';
+import {registeredPosRegisters} from './_lib/pos-registers.js';
 const error=e=>bad(e.status||500,e.code||'QR_ADMIN_ERROR',e.status?e.message:'Не удалось обработать запрос');
 export async function onRequestOptions(){return new Response(null,{status:204,headers:{Allow:'GET,POST,OPTIONS'}})}
 export async function onRequestGet({request,env}){
@@ -61,8 +62,15 @@ export async function onRequestPost({request,env}){
     if(action==='saveSettings'){
       const mode=clean(body.serviceMode,30),pluginId=clean(body.posPluginId,100);
       if(!['TABLE','FAST_FOOD'].includes(mode))throw fail('BAD_MODE','Выберите режим столов или фастфуд');
-      if(pluginId&&!/^[A-Za-z0-9_.:-]{4,100}$/.test(pluginId))
-        throw fail('BAD_PLUGIN_ID','Неверный идентификатор кассового плагина');
+      if(pluginId&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pluginId))
+        throw fail('BAD_PLUGIN_ID','Выберите зарегистрированную кассу из списка');
+      // An arbitrary plugin ID in a browser request must never route
+      // orders to another restaurant, even if the UI list was modified.
+      if(pluginId && pluginId.toLowerCase()!==clean(existing?.pos_plugin_id,100).toLowerCase()){
+        const devices=await registeredPosRegisters(env,ctx.restaurantId);
+        if(!devices.some(x=>x.pluginId.toLowerCase()===pluginId.toLowerCase()))
+          throw fail('QR_POS_NOT_IN_RESTAURANT','Выбранная касса не зарегистрирована в этом ресторане',403);
+      }
       if(existing?.pos_plugin_id&&existing.pos_plugin_id!==pluginId){
         const outstanding=await env.DB.prepare(`SELECT id FROM qr_guest_orders
           WHERE menu_id=?1 AND state IN ('AWAITING_POS','LEASED','POS_OPEN','POS_FAILED') LIMIT 1`)
