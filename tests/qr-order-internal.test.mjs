@@ -11,6 +11,8 @@ const admin=read('qr-order-admin.js');
 const menu=read('menu.html');
 const editor=read('qr-menu.html');
 const managementPage=read('qr-order-admin.html');
+const registryHelper=read('functions/api/qr-menu/_lib/pos-registers.js');
+const registryEndpoint=read('functions/api/qr-menu/pos-registers.js');
 const reference=read('qr-menu-reference-v2.js');
 const shell=read('app-shell.js');
 const modules=[core,publicApi,adminApi,bridge];
@@ -217,4 +219,74 @@ test('In-app test POS setup never exposes secrets and preserves protected worksp
   assert.match(admin,/\$\('qrOrderEnabled'\)\.disabled=!state\.settings\.posBridgeReady/);
   assert.match(admin,/\$\('qrPosRestaurantId'\)\.textContent/);
   assert.match(admin,/\$\('qrOrderCheckConnection'\)\.onclick=reload/);
+});
+
+test('POS selector is server-scoped and strips raw backend event data',async()=>{
+  const restaurantId='28a38f52-9b1b-01a7-019f-8455da3a0010';
+  const pluginId='0638669c-67e2-4f14-be2d-567404352a7c';
+  let target='',requestHeaders={};
+  const rows=[
+    {pluginId,departmentId:restaurantId,pluginName:'TEST POS',groupName:'Test Group',version:'1.3.50',online:true,
+      data:{rawPersonalGuestData:'must-not-leak'},privilegedToken:'must-not-leak'},
+    {pluginId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      departmentId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',pluginName:'OTHER RESTAURANT',online:true},
+    {pluginId:'not-a-guid',departmentId:restaurantId,pluginName:'INVALID'}
+  ];
+  const code=registryHelper.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
+  const {registeredPosRegisters}=new Function('pluginBackendUrl','pluginBackendHeaders','fail','clean','fetch',
+    code+';return{registeredPosRegisters};')(
+      (_env,path)=>'https://test-backend.example'+path,
+      (_env,headers)=>({...headers,'X-SH-Backend-Token':'private-backend-token'}),
+      (code,message,status=400)=>Object.assign(new Error(message),{code,status}),
+      (x,n=180)=>String(x??'').trim().slice(0,n),
+      async(url,options)=>{
+        target=url;requestHeaders=options.headers;
+        return{ok:true,json:async()=>({success:true,plugins:rows})};
+      }
+    );
+  const results=await registeredPosRegisters({},restaurantId);
+  assert.equal(new URL(target).searchParams.get('departmentIds'),restaurantId);
+  assert.equal(requestHeaders['X-SH-Backend-Token'],'private-backend-token');
+  assert.equal(results.length,1);
+  assert.equal(results[0].pluginId,pluginId);
+  assert.equal(results[0].online,true);
+  assert.doesNotMatch(JSON.stringify(results),/rawPersonalGuestData|must-not-leak|private-backend-token|OTHER RESTAURANT/);
+});
+test('QR settings POST rejects a cashier not registered in the selected restaurant',async()=>{
+  const source=adminApi.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
+  let writes=0,lookups=0;
+  const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
+  const json=(value,status=200)=>new Response(JSON.stringify(value),{status});
+  const {onRequestPost}=new Function(
+    'ensureOrders','adminContext','settings','registeredPosRegisters','response','bad','fail','clean','token','eventStmt',
+    source+';return{onRequestPost};'
+  )(
+    async()=>{},
+    async()=>({ownerId:'test-owner',restaurantId:'28a38f52-9b1b-01a7-019f-8455da3a0010',menu:{id:'m'}}),
+    async()=>null,
+    async()=>{lookups++;return[{pluginId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'}]},
+    json,(status,code,message)=>json({success:false,code,message},status),
+    fail,(x,n=180)=>String(x??'').trim().slice(0,n),()=>'token',()=>({})
+  );
+  const request=new Request('https://test.example/api/qr-menu/order-admin',{method:'POST',body:JSON.stringify({
+    action:'saveSettings',serviceMode:'TABLE',posPluginId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    orderingEnabled:false
+  })});
+  const db={prepare:()=>{writes++;throw Error('A cross-tenant selection must never perform D1 writes')}};
+  const res=await onRequestPost({request,env:{DB:db}});
+  assert.equal(res.status,403);
+  assert.equal((await res.json()).code,'QR_POS_NOT_IN_RESTAURANT');
+  assert.equal(lookups,1);
+  assert.equal(writes,0);
+});
+test('Cashier picker is a select backed by server-validated POS registry, not free-form ID',()=>{
+  assert.match(managementPage,/<select id="qrOrderPlugin"/);
+  assert.doesNotMatch(managementPage,/<input id="qrOrderPlugin"/);
+  assert.match(managementPage,/id="qrPosListReload"/);
+  assert.match(admin,/\/api\/qr-menu\/pos-registers/);
+  assert.match(admin,/loadRegisters/);
+  assert.match(registryEndpoint,/adminContext\(request,env\)/);
+  assert.match(registryEndpoint,/registeredPosRegisters\(env,ctx\.restaurantId\)/);
+  assert.match(adminApi,/QR_POS_NOT_IN_RESTAURANT/);
+  assert.match(adminApi,/registeredPosRegisters\(env,ctx\.restaurantId\)/);
 });
