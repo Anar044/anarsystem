@@ -34,6 +34,12 @@ export async function onRequestGet({request,env}){
       settings:{serviceMode:cfg?.service_mode||'TABLE',
         orderingEnabled:Boolean(cfg?.ordering_enabled),posPluginId:cfg?.pos_plugin_id||'',
         posBridgeConnected:bridgeConnected,posBridgeReady:bridgeReady,
+        posBridgeLastSeen:bridgeConnected?posStatus.last_seen_at:null,
+        backendSetup:{
+          bridgeTokenConfigured:Boolean(clean(env.QR_POS_BRIDGE_TOKEN)),
+          ingressTokenConfigured:Boolean(clean(env.PLUGIN_INGEST_TOKEN)),
+          rateSecretConfigured:Boolean(clean(env.QR_ORDER_RATE_SECRET))
+        },
         onlinePaymentEnabled:false},
       tables:(tables.results||[]).map(t=>({...t,active:Boolean(t.active),
         url:url+'&table='+encodeURIComponent(t.table_key)})),
