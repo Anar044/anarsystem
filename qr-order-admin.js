@@ -2,6 +2,7 @@
 'use strict';
 const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let state=null,busy=false,reloadSequence=0;
+const paymentAttemptResults=new Map(); // Brief, non-sensitive per-attempt verification outcomes
 let selectedPosTables=new Set(),catalogScope="",expandedSections=null;
 async function api(body,path='/api/qr-menu/order-admin'){
   const auth=await window.SHAuth?.createClient?.();
@@ -151,20 +152,47 @@ async function loadPaymentAttempts(){
       cell(attempt.table);cell(attempt.amountAZN+' AZN');
       const status=cell(attempt.state);
       status.style.color=attempt.state==='PAID_VERIFIED'?'#86e3bb':attempt.state==='UNKNOWN'?'#ffd29b':'';
+      const last=paymentAttemptResults.get(attempt.id);
+      if(last){
+        const feedback=document.createElement('div');
+        feedback.style.cssText='margin-top:6px;max-width:390px;font-size:11px;line-height:1.45;white-space:normal;overflow-wrap:anywhere';
+        feedback.style.color=last.ok?'#c9e4d9':'#ffd29b';
+        feedback.textContent=last.summary;
+        status.append(feedback);
+      }
       const td=document.createElement('td'),button=document.createElement('button');
-      button.className='qro-btn';button.type='button';button.textContent='Проверить';
+      button.className='qro-btn';button.type='button';
+      button.textContent=last?'Проверить ещё раз':'Проверить';
       button.disabled=['PAID_VERIFIED','FAILED'].includes(attempt.state);
       button.onclick=async()=>{
-        button.disabled=true;message.textContent='Сверяем существующую попытку через Payriff (без повторного списания)…';
+        button.disabled=true;
+        button.textContent='Проверяем…';
+        const rowLabel=attempt.amountAZN+' AZN, '+attempt.table;
+        const prefix='Попытка '+rowLabel+': ';
+        message.style.color='#dce8ef';
+        message.textContent=prefix+'сверяем исходную операцию Payriff без создания нового платежа…';
         try{
           const result=await api({action:'reconcile',intentId:attempt.id,
             expectedRestaurantId:expected},'/api/qr-menu/payment-attempts');
-          message.textContent=result.notice||'Проверка завершена.';
+          if(!state||state.restaurantId!==expected)return;
+          const outcome=result.reconciliation?.outcome||result.attempt?.state||'UNKNOWN';
+          const code=result.reconciliation?.code||'PAYRIFF_STATUS_NOT_CONFIRMED';
+          const time=result.reconciliation?.checkedAt
+            ?new Date(result.reconciliation.checkedAt).toLocaleString('ru-RU'):'сейчас';
+          const summary=prefix+outcome+' ('+code+'), проверено: '+time+'. '+
+            (result.notice||'Повторную оплату не создавайте до сверки.');
+          paymentAttemptResults.set(attempt.id,{summary,ok:outcome==='PAID_VERIFIED'||outcome==='FAILED'});
           await loadPaymentAttempts();
+          message.style.color=outcome==='PAID_VERIFIED'?'#86e3bb':'#ffd29b';
+          message.textContent=summary;
         }catch(e){
-          message.textContent='Проверка не завершилась: '+(e.message||'ошибка сервера')+
-            '. Не создавайте вторую оплату до сверки.';
-          button.disabled=false;
+          if(!state||state.restaurantId!==expected)return;
+          const summary=prefix+'проверка не завершилась ('+(e.code||'NETWORK_ERROR')+'): '+
+            (e.message||'нет ответа сервера')+'. Не повторяйте оплату до сверки.';
+          paymentAttemptResults.set(attempt.id,{summary,ok:false});
+          await loadPaymentAttempts();
+          message.style.color='#ffd29b';
+          message.textContent=summary;
         }
       };
       td.append(button);tr.append(td);table.append(tr);
