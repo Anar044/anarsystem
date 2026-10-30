@@ -600,9 +600,31 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-shared-d1-save2/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-compact-workspace1/);
 });
 
+test('QR management offers independently scrollable desktop panels and a mobile layout',()=>{
+  assert.match(managementPage,/class="qro-workspace"/);
+  assert.match(managementPage,/class="qro-list-scroll" id="qrPosCatalogScroll"/);
+  assert.match(managementPage,/class="qro-list-scroll" id="qrQrScroll"/);
+  assert.match(managementPage,/id="qrQrPanel"/);
+  assert.match(managementPage,/\.qro-workspace\{display:grid/);
+  assert.match(managementPage,/@media\(max-width:1050px\)/);
+  assert.match(managementPage,/id="qrPosSetup"/);
+  assert.match(managementPage,/class="qro-panel qro-journal"/);
+});
+test('QR hall accordions and bulk selection ignore inactive and already linked POS tables',()=>{
+  for(const id of ['qrTableSelectAll','qrTableSelectNone','qrCatalogSelectionSummary',
+    'qrQrSectionFilter','qrQrSearch'])assert.match(managementPage,new RegExp('id="'+id+'"'));
+  assert.match(admin,/document\.createElement\('details'\)/);
+  assert.match(admin,/checkbox\.disabled=!table\.isActive\|\|linked/);
+  assert.match(admin,/updateCatalogSelection\(\)/);
+  assert.match(admin,/expandedSections/);
+  assert.match(admin,/selectSection\.addEventListener\('click'/);
+  assert.match(admin,/\$\('qrQrSectionFilter'\)\.onchange=renderTables/);
+  assert.match(admin,/\$\('qrQrSearch'\)\.oninput=renderTables/);
+  assert.match(admin,/className='qro-qr-more'/);
+});
 test('One-key QR preview bridge verifies registered POS while never requiring or replacing global ingress token',async()=>{
   const plugin='0638669c-67e2-4f14-be2d-567404352a7c';
   const department='28a38f52-9b1b-01a7-019f-8455da3a0010';
