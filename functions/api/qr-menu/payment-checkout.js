@@ -24,6 +24,16 @@ const checkoutAllowed=request=>new URL(request.url).hostname===preview;
 const goodKey=x=>/^[a-f0-9-]{32,40}$/i.test(x);
 const amount=x=>(Number(x)/100).toFixed(2);
 const now=()=>new Date().toISOString();
+const readOnlyStep=async(code,operation)=>{
+  try{return await operation()}
+  catch(e){
+    if(e?.status)throw e;
+    // Expose only stable, non-sensitive stage codes, never SQL or credentials.
+    console.error('[QR Pay] read-only '+code,{type:e?.name||'Error'});
+    throw fail('QR_PAYMENT_'+code+'_UNAVAILABLE',
+      'Ошибка проверки QR Pay ('+code+'). Сообщите код администратору ресторана.',503);
+  }
+};
 async function ensureIntents(db){
   await db.prepare(`CREATE TABLE IF NOT EXISTS qr_payment_intents (
     id TEXT PRIMARY KEY,receipt_token TEXT NOT NULL UNIQUE,
@@ -47,20 +57,20 @@ async function ensureIntents(db){
   )`).run();
 }
 async function loadScope(db,menu){
-  // Read-only guest status. Settings tables are created when the owner saves
-  // Payriff in the admin panel, not by every guest scanning a QR.
-  const binding=await db.prepare(`SELECT b.workspace_id,b.restaurant_id,b.owner_id
+  // Public readiness must remain read-only. Owner-side settings setup creates
+  // provider tables; this path only checks the restaurant's existing records.
+  const binding=await readOnlyStep('MENU_BINDING',()=>db.prepare(`SELECT b.workspace_id,b.restaurant_id,b.owner_id
     FROM qr_payment_menu_bindings b
     JOIN qr_payment_provider_settings p
     ON p.workspace_id=b.workspace_id AND p.restaurant_id=b.restaurant_id
       AND p.provider='PAYRIFF'
     WHERE b.menu_id=?1 AND b.restaurant_id=?2 LIMIT 1`)
-    .bind(menu.id,menu.organization_id).first();
+    .bind(menu.id,menu.organization_id).first());
   if(!binding)return null;
-  const cfg=await fetchPaymentSettings(db,binding);
-  if(!cfg||cfg.environment!=='development'||cfg.enabled!==1||
+  const cfg=await readOnlyStep('PROVIDER_SETTINGS',()=>fetchPaymentSettings(db,binding));
+  if(!cfg||cfg.environment!=='development'||Number(cfg.enabled)!==1||
       !cfg.merchant_id||!cfg.secret_encrypted)return null;
-  const orderSettings=await settings(db,menu.id);
+  const orderSettings=await readOnlyStep('TABLE_SETTINGS',()=>settings(db,menu.id));
   if(!orderSettings||orderSettings.restaurant_id!==binding.restaurant_id||
       orderSettings.owner_id!==binding.owner_id)return null;
   return {...binding,cfg,orderSettings};
@@ -128,11 +138,13 @@ export async function onRequestGet({request,env}){
       }
       return response({success:true,payment:publicIntent(intent)});
     }
-    const menu=await publishedMenu(env.DB,url.searchParams.get('id'));
+    const menu=await readOnlyStep('PUBLISHED_MENU',()=>
+      publishedMenu(env.DB,url.searchParams.get('id')));
     const scope=await loadScope(env.DB,menu);
     let tableLabel='';
     if(scope){
-      const table=await validateTable(env.DB,scope.orderSettings,url.searchParams.get('table'));
+      const table=await readOnlyStep('TABLE_LOOKUP',()=>
+        validateTable(env.DB,scope.orderSettings,url.searchParams.get('table')));
       tableLabel=table.table_label||'';
     }
     return response({success:true,testCheckoutEnabled:Boolean(scope),
