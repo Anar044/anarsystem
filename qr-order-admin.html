@@ -223,7 +223,11 @@
 <button class="qro-btn" id="qrAddTable" type="button">Добавить</button></div></details>
 </section>
 <section class="qro-panel qro-workspace-panel" id="qrQrPanel">
-<div class="qro-panel-head"><h2>Готовые QR-коды</h2><span id="qrQrCount" class="qro-muted">0 столов</span></div>
+<div class="qro-panel-head"><h2>Готовые QR-коды</h2>
+  <div class="qro-actions"><span id="qrQrCount" class="qro-muted">0 столов</span>
+    <button type="button" id="qrGuestPayCheck" class="qro-btn">Проверить оплату для гостя</button>
+  </div>
+</div>
 <p class="qro-panel-desc">Коды сохраняются после импорта. Для тестовой оплаты сканируй QR только с этой Preview-страницы.</p>
 <div id="qrTestCheckoutReadiness" class="qro-status" role="status">Проверяем тестовую ссылку и привязку к ресторану…</div>
 <div id="qrPaymentQrOriginWarning" class="qro-warning" role="status" style="margin:7px 0 10px">
@@ -256,6 +260,6 @@
 <script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script>
 <script src="/documents-nav.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script src="/qr-order-admin.js?v=20261030-payment-qr-readiness4"></script>
+<script src="/qr-order-admin.js?v=20261030-readonly-guest-check5"></script>
 <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script><script src="/sh-i18n.js"></script>
 </body></html>
