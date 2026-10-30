@@ -10,26 +10,43 @@ const money=x=>{
   const n=Number(w)*100+Number(f.padEnd(2,'0'));
   return Number.isSafeInteger(n)?n:null;
 };
-async function requestPayriff(secret,url,{method='GET',body,fetcher=fetch}={}){
+async function requestPayriff(secret,url,{method='GET',body,reference,fetcher=fetch}={}){
   const controller=new AbortController();
-  const kill=setTimeout(()=>controller.abort(),12000);
+  // Payriff's official SDK allows substantial time for bank operations.
+  // Never automatically repeat a POST after an uncertain result.
+  const kill=setTimeout(()=>controller.abort(),45000);
   try{
     const r=await fetcher(url,{
       method,signal:controller.signal,redirect:'error',
       headers:{Authorization:secret,Accept:'application/json',
-        ...(body?{'Content-Type':'application/json'}:{})},
+        ...(body?{'Content-Type':'application/json'}:{}),
+        ...(reference?{'X-REQUEST-RRN':reference}:{})},
       ...(body?{body:JSON.stringify(body)}:{})
     });
-    if(!r.ok)throw fail('PAYRIFF_GATEWAY_UNAVAILABLE',
-      'Payriff не подтвердил запрос. Не повторяйте оплату до сверки',502);
+    if(!r.ok){
+      // Safe diagnostics: never log the auth header or the response body.
+      console.error('[QR Pay] gateway HTTP error',{method,httpStatus:r.status});
+      throw fail('PAYRIFF_HTTP_'+r.status,
+        'Payriff вернул HTTP '+r.status+'. Проверьте приложение и ключи в настройках QR Pay.',502);
+    }
     const result=await r.json().catch(()=>null);
-    if(!result||typeof result!=='object'||result.code!=='00000')
-      throw fail('PAYRIFF_GATEWAY_REJECTED','Payriff отклонил запрос',502);
+    if(!result||typeof result!=='object')
+      throw fail('PAYRIFF_RESPONSE_INVALID',
+        'Payriff не вернул читаемый ответ. Проверьте предыдущую попытку.',502);
+    if(result.code!=='00000'){
+      const providerCode=String(result.code||'UNKNOWN').replace(/[^A-Za-z0-9_-]/g,'').slice(0,25);
+      const responseId=String(result.responseId||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,70);
+      console.error('[QR Pay] gateway rejected',{method,providerCode,responseId});
+      throw fail('PAYRIFF_REJECTED_'+providerCode,
+        'Payriff отклонил запрос (код '+providerCode+'). Сверьте операцию в Payriff.',502);
+    }
     return result.payload;
   }catch(e){
     if(e?.status)throw e;
+    console.error('[QR Pay] gateway transport uncertain',
+      {method,type:e?.name||'Error'});
     throw fail('PAYRIFF_NETWORK_UNKNOWN',
-      'Нет подтверждения от Payriff. Проверьте предыдущую попытку, не создавайте повторную оплату',503);
+      'Нет ответа Payriff (возможен тайм-аут). Не запускайте новый платёж до проверки предыдущего.',503);
   }finally{clearTimeout(kill)}
 }
 export async function createPayriffCheckout({secret,amountMinor,reference,callbackUrl,redirectUrl,fetcher=fetch}){
@@ -37,10 +54,10 @@ export async function createPayriffCheckout({secret,amountMinor,reference,callba
     !/^[a-f0-9-]{36}$/i.test(reference))
     throw fail('PAYMENT_INTENT_INVALID','Неверная сумма или номер платежа',400);
   const payload=await requestPayriff(secret,API+'/orders',{
-    method:'POST',fetcher,
+    method:'POST',fetcher,reference,
     body:{amount:amountMinor/100,currency:'AZN',language:'RU',
       operation:'PURCHASE',description:'Smart Horeca QR '+reference.slice(0,8),
-      requestRRN:reference,callbackUrl,redirectUrl,cardSave:false}
+      callbackUrl,redirectUrl,cardSave:false}
   });
   const orderId=String(payload?.orderId||'');
   const paymentUrl=String(payload?.paymentUrl||'');
@@ -49,6 +66,13 @@ export async function createPayriffCheckout({secret,amountMinor,reference,callba
       (u.hostname!=='pay.payriff.com'&&!u.hostname.endsWith('.payriff.com')))
     throw fail('PAYRIFF_CHECKOUT_INVALID','Payriff вернул неподтверждённую платёжную ссылку',502);
   return {orderId,paymentUrl};
+}
+// Official Payriff SDK supports GET /orders/{requestRRN}/rrn.
+// This is READ-ONLY: safe for recovering a timed-out create request.
+export async function readPayriffByReference({secret,reference,fetcher=fetch}){
+  if(!uuid.test(String(reference||'')))
+    throw fail('PAYRIFF_REFERENCE_INVALID','Неверный идентификатор сверки',400);
+  return requestPayriff(secret,API+'/orders/'+encodeURIComponent(reference)+'/rrn',{fetcher});
 }
 export async function readPayriffPayment({secret,orderId,fetcher=fetch}){
   if(!uuid.test(orderId))throw fail('PAYRIFF_ORDER_ID_INVALID','Неверный ID транзакции',400);
