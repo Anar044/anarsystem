@@ -2,12 +2,12 @@
 'use strict';
 const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let state=null,busy=false;
-async function api(body){
+async function api(body,path='/api/qr-menu/order-admin'){
   const auth=await window.SHAuth?.createClient?.();
   const session=await auth?.auth.getSession();
   const key=session?.data?.session?.access_token;
   if(!key)throw Error('Сессия Smart Horeca отсутствует');
-  const r=await fetch('/api/qr-menu/order-admin',{method:body?'POST':'GET',cache:'no-store',headers:{
+  const r=await fetch(path,{method:body?'POST':'GET',cache:'no-store',headers:{
     Authorization:'Bearer '+key,Accept:'application/json',...(body?{'Content-Type':'application/json'}:{})
   },...(body?{body:JSON.stringify(body)}:{})});
   const j=await r.json().catch(()=>({}));
@@ -15,6 +15,47 @@ async function api(body){
   return j;
 }
 const status=(v,id='qrOrderError')=>{$(id).textContent=v||''};
+
+function registerOption(value,label){
+  const option=document.createElement('option');option.value=value;option.textContent=label;
+  return option;
+}
+async function loadRegisters(){
+  const select=$('qrOrderPlugin'),hint=$('qrPosListStatus');
+  if(!select||!state)return;
+  const restaurant=state.restaurantId;
+  const saved=state.settings.posPluginId||'';
+  const selected=select.value||saved;
+  hint.textContent='Обновляем зарегистрированные кассы выбранного ресторана…';
+  try{
+    const payload=await api(null,'/api/qr-menu/pos-registers');
+    // Do not render a late response from a previously selected restaurant.
+    if(!state||payload.restaurantId!==state.restaurantId||restaurant!==state.restaurantId)return;
+    const devices=Array.isArray(payload.registers)?payload.registers:[];
+    select.replaceChildren(registerOption('','— Выберите кассу —'));
+    for(const pos of devices){
+      const name=String(pos.name||'Касса без имени');
+      const group=pos.groupName?' · '+pos.groupName:'';
+      const version=pos.version?' · v'+pos.version:'';
+      select.append(registerOption(pos.pluginId,(pos.online?'● Онлайн · ':'○ Офлайн · ')+name+group+version));
+    }
+    // Keep an existing selection visible until the operator intentionally
+    // unlinks it; never silently reassign to an arbitrary online device.
+    if(saved&&!devices.some(x=>x.pluginId.toLowerCase()===saved.toLowerCase()))
+      select.append(registerOption(saved,'Сохранённый плагин (сейчас нет в реестре) · '+saved));
+    select.value=Array.from(select.options).some(o=>o.value===selected)?selected:saved||'';
+    hint.textContent=devices.length
+      ?'Найдено касс в этом ресторане: '+devices.length+'. Сохранение дополнительно проверяет принадлежность на сервере.'
+      :'Зарегистрированных касс этого ресторана пока не найдено.';
+    $('qrPosSelectedPlugin').textContent=select.value||'Плагин не выбран';
+  }catch(err){
+    select.replaceChildren(registerOption('','— Нет связи с реестром —'));
+    if(saved)select.append(registerOption(saved,'Сохранённый плагин · '+saved));
+    select.value=saved;
+    hint.textContent=err.message||'Не удалось загрузить реестр касс';
+    $('qrPosSelectedPlugin').textContent=saved||'Плагин не выбран';
+  }
+}
 async function action(data){
   if(busy)return;
   busy=true;try{await api(data);await reload()}catch(e){status(e.message||String(e))}
@@ -85,7 +126,7 @@ async function reload(){
   try{state=await api();$('qrOrderError').textContent='';
     $('qrOrderMode').value=state.settings.serviceMode;
     $('qrOrderEnabled').checked=state.settings.orderingEnabled;
-    $('qrOrderPlugin').value=state.settings.posPluginId;
+    $('qrOrderPlugin').replaceChildren(registerOption(state.settings.posPluginId||'',state.settings.posPluginId||'— Выберите кассу —'));
     $('qrPosBridgeReady').textContent=state.settings.posBridgeReady
       ?'✓ Касса подключена: приём заказов и печать кухни разрешены (5 минут)'
       :state.settings.posBridgeConnected
@@ -138,11 +179,14 @@ async function reload(){
       const note=document.createElement('p');note.textContent='В режиме ресторана используются QR-коды конкретных столов ниже.';global.append(note);
     }
     renderTables();renderOrders();
+    await loadRegisters();
   }catch(e){status(e.message||String(e))}
 }
 function bind(){
   $('qrOrderReload').onclick=reload;
   $('qrOrderCheckConnection').onclick=reload;
+  $('qrPosListReload').onclick=loadRegisters;
+  $('qrOrderPlugin').onchange=()=>{$('qrPosSelectedPlugin').textContent=$('qrOrderPlugin').value||'Плагин не выбран'};
   $('qrOrderSave').onclick=()=>action({action:'saveSettings',serviceMode:$('qrOrderMode').value,
     orderingEnabled:$('qrOrderEnabled').checked,posPluginId:$('qrOrderPlugin').value.trim()});
   $('qrAddTable').onclick=()=>action({action:'addTable',label:$('qrTableName').value.trim(),posTableId:$('qrPosTable').value.trim()});
