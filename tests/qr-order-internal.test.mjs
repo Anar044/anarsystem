@@ -98,7 +98,7 @@ test('Payriff API refuses foreign restaurant, external origin, non-owner and pro
   const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
   let owner=true, writes=0, encrypted='', merchantId='';
   const adminContext=async()=>({
-    restaurantId:'r-1',
+    restaurantId:'r-1',menu:{id:'m-1'},ownerId:'u-1',
     state:{access:{isOwner:owner,workspace:{id:'w-1'}},user:{id:'user-1'}}
   });
   const {onRequestGet,onRequestPost}=new Function('adminContext','response','bad','fail','clean',
