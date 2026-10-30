@@ -77,6 +77,42 @@ function paymentEditable(allowed){
     const item=$(id);if(item)item.disabled=!allowed||paymentBusy;
   }
 }
+async function checkGuestCheckout(){
+  const btn=$('qrGuestPayCheck'),hint=$('qrTestCheckoutReadiness');
+  if(!btn||!hint||!state)return;
+  btn.disabled=true;
+  hint.textContent='Проверяем тот же QR-адрес, который откроет телефон…';
+  try{
+    const first=(state.tables||[]).find(t=>t.active&&t.url);
+    if(!first)throw Error('Нет активного QR-стола для проверки.');
+    const link=new URL(first.url);
+    if(link.origin!==location.origin)
+      throw Error('QR-код ведёт на другой домен. Создайте тестовый QR в Preview.');
+    const slug=link.searchParams.get('id'),table=link.searchParams.get('table');
+    if(!slug||!table)throw Error('Ссылка не содержит ресторан или ключ стола.');
+    const endpoint=new URL('/api/qr-menu/payment-checkout',location.origin);
+    endpoint.searchParams.set('id',slug);
+    endpoint.searchParams.set('table',table);
+    const res=await fetch(endpoint.href,{cache:'no-store',credentials:'same-origin',
+      headers:{Accept:'application/json'}});
+    const result=await res.json().catch(()=>null);
+    if(!res.ok||!result?.success){
+      const code=String(result?.code||'PAYMENT_STATUS_UNAVAILABLE').slice(0,80);
+      const message=String(result?.message||'Сервер не смог проверить QR Pay').slice(0,240);
+      hint.textContent='Ошибка гостевой оплаты ('+code+'): '+message;
+      hint.style.color='#ffd29b';
+      return;
+    }
+    hint.textContent=result.testCheckoutEnabled
+      ?'✓ Проверка пройдена: '+(result.tableLabel||'стол')+
+        '. Тестовая кнопка Payriff должна появляться в корзине гостя.'
+      :'Тестовый Payriff отключён или не привязан к этому QR. Проверьте настройки и сохраните Merchant ID.';
+    hint.style.color=result.testCheckoutEnabled?'#85ecc0':'#ffd29b';
+  }catch(e){
+    hint.textContent='Не удалось проверить гостевую оплату: '+(e.message||'ошибка сети');
+    hint.style.color='#ffd29b';
+  }finally{btn.disabled=false}
+}
 async function loadPaymentSettings(){
   const msg=$('qrPaymentSummary');
   if(!msg||!state)return;
@@ -528,6 +564,7 @@ function bind(){
   $('qrPaymentSave').onclick=savePaymentSettings;
   $('qrPaymentDisconnect').onclick=disconnectPaymentSettings;
   $('qrPaymentToggleTest').onclick=toggleTestCheckout;
+  $('qrGuestPayCheck').onclick=checkGuestCheckout;
   $('qrOrderCheckConnection').onclick=reload;
   $('qrOrderRetry').onclick=reload;
   $('qrTableRefresh').onclick=reload;
