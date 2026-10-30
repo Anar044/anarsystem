@@ -10,6 +10,7 @@ const guest=read('qr-order-guest.js');
 const admin=read('qr-order-admin.js');
 const menu=read('menu.html');
 const editor=read('qr-menu.html');
+const managementPage=read('qr-order-admin.html');
 const reference=read('qr-menu-reference-v2.js');
 const shell=read('app-shell.js');
 const modules=[core,publicApi,adminApi,bridge];
@@ -198,4 +199,22 @@ test('Admin explicitly distinguishes diagnostic connection from POS readiness',(
   assert.match(admin,/Режим диагностики: заказы и печать отключены/);
   assert.match(bridge,/Number\(caps\.can_create_order\)!==1/);
   assert.match(bridge,/QR_POS_NOT_READY/);
+});
+
+test('In-app test POS setup never exposes secrets and preserves protected workspace scope',()=>{
+  assert.match(managementPage,/Подключение кассы из Smart Horeca/);
+  assert.match(managementPage,/id="qrPosConnectionState"/);
+  assert.match(managementPage,/id="qrPosServerState"/);
+  assert.match(managementPage,/id="qrOrderCheckConnection"/);
+  assert.match(adminApi,/backendSetup:\{/);
+  assert.match(adminApi,/bridgeTokenConfigured:Boolean\(clean\(env.QR_POS_BRIDGE_TOKEN\)\)/);
+  assert.match(adminApi,/ingressTokenConfigured:Boolean\(clean\(env.PLUGIN_INGEST_TOKEN\)\)/);
+  assert.match(adminApi,/posBridgeLastSeen:bridgeConnected\?posStatus.last_seen_at:null/);
+  assert.doesNotMatch(adminApi,/bridgeToken:\s*env\.QR_POS_BRIDGE_TOKEN/);
+  assert.doesNotMatch(adminApi,/ingressToken:\s*env\.PLUGIN_INGEST_TOKEN/);
+  assert.match(adminApi,/adminContext\(request,env\)/);
+  assert.match(adminApi,/restaurant_id=\?1 AND plugin_id=\?2/);
+  assert.match(admin,/\$\('qrOrderEnabled'\)\.disabled=!state\.settings\.posBridgeReady/);
+  assert.match(admin,/\$\('qrPosRestaurantId'\)\.textContent/);
+  assert.match(admin,/\$\('qrOrderCheckConnection'\)\.onclick=reload/);
 });
