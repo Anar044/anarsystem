@@ -41,6 +41,15 @@
 .qro-qr-card .qro-qr{width:136px;height:136px;display:grid;place-items:center;background:white;padding:7px;margin:8px auto;border-radius:8px}
 .qro-qr img,.qro-qr canvas{max-width:100%!important}
 .qro-muted{font-size:11px;color:#91a0ae}
+.qro-section-title{margin:20px 0 8px!important;font-size:15px!important;color:#b5e9d2}
+.qro-catalog-groups{display:grid;gap:10px;margin-top:10px}
+.qro-catalog-group{background:#0d1620;border:1px solid #324256;padding:12px;border-radius:10px}
+.qro-catalog-heading{font-size:13px;font-weight:750;margin-bottom:9px;color:#dcf1e7}
+.qro-catalog-items{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px}
+.qro-catalog-item{display:flex;align-items:center;gap:7px;font-size:12px;color:#dfeaf2;cursor:pointer}
+.qro-catalog-item input{height:16px;width:16px;flex:none}
+.qro-catalog-item small{color:#8eabb7;margin-left:auto}
+.qro-catalog-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 @media(max-width:950px){.qro-panels{grid-template-columns:minmax(0,1fr)}.qro{padding:15px}.qro-panel{padding:15px}}
 </style>
 </head><body data-protected="true" style="background:#0b1017">
@@ -106,9 +115,19 @@
 <div class="qro-status" id="qrOrderSaveStatus"></div>
 </section>
 <section class="qro-panel" id="qrTablePanel"><h2>Столы и индивидуальные QR</h2>
-<div class="qro-actions"><input id="qrTableName" placeholder="Например: Стол 12" style="flex:1;min-width:110px">
+<p>Получаем столы и названия залов напрямую от выбранной кассы. После импорта каждому столу автоматически присваивается постоянный QR-код.</p>
+<div class="qro-catalog-toolbar">
+  <button type="button" class="qro-btn" id="qrTableRefresh">↻ Обновить список с кассы</button>
+  <button type="button" class="qro-btn primary" id="qrTableImport" disabled>Добавить выбранные столы</button>
+</div>
+<div id="qrPosCatalogStatus" class="qro-status" role="status">Ожидаем синхронизацию с кассой…</div>
+<div id="qrPosCatalogGroups" class="qro-catalog-groups"></div>
+<details id="qrTableManual" style="margin-top:15px"><summary class="qro-muted" style="cursor:pointer">Добавить стол вручную (если его нет в кассе)</summary>
+<div class="qro-actions" style="margin-top:10px">
+<input id="qrTableName" placeholder="Например: Стол 12" style="flex:1;min-width:110px">
 <input id="qrPosTable" placeholder="POS ID стола (если известен)" style="flex:1;min-width:110px">
-<button class="qro-btn primary" id="qrAddTable">Добавить</button></div>
+<button class="qro-btn" id="qrAddTable">Добавить</button></div></details>
+<h3 class="qro-section-title">Готовые QR-коды столов</h3>
 <div id="qrOrderTables" class="qro-qr-cards"></div>
 </section>
 </div>
@@ -129,6 +148,6 @@
 <script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script>
 <script src="/documents-nav.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script src="/qr-order-admin.js?v=20261030-unpublished1"></script>
+<script src="/qr-order-admin.js?v=20261030-pos-tables1"></script>
 <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script><script src="/sh-i18n.js"></script>
 </body></html>
