@@ -89,10 +89,13 @@ export async function onRequestPost({request,env}){
       // failed or never existed. Return a safe, precise lookup code.
       const lookupCode=/^PAYRIFF_[A-Z0-9_]{1,55}$/.test(String(e?.code||''))
         ?e.code:'PAYRIFF_STATUS_UNAVAILABLE';
-      console.warn('[QR Pay] admin reconciliation unresolved',{kind:lookupCode});
+      const responseId=/^[A-Za-z0-9_-]{1,80}$/.test(String(e?.providerResponseId||''))
+        ?String(e.providerResponseId):null;
+      console.warn('[QR Pay] admin reconciliation unresolved',{kind:lookupCode,responseId});
       return response({success:true,attempt:safe(intent),
-        reconciliation:{outcome:'UNCONFIRMED',code:lookupCode,checkedAt},
+        reconciliation:{outcome:'UNCONFIRMED',code:lookupCode,checkedAt,responseId},
         notice:'Статус не подтверждён Payriff ('+lookupCode+
+          (responseId?', responseId '+responseId:'')+
           '). Это не означает отказ или отсутствие платежа. Проверьте Transactions в Payriff; не создавайте вторую оплату.'});
     }
     const providerOrderId=String(info?.orderId||'');
