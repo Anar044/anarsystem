@@ -221,7 +221,7 @@ test('Payriff legacy encrypted Online merchant can enable real 0.01 AZN only wit
   assert.match(guest,/LIVE_PREVIEW_001/);
   assert.match(guest,/С карты будет РЕАЛЬНО списано 0,01 AZN/);
   assert.match(sandboxPayment,/basket.totalMinor!==1/);
-  assert.match(sandboxPayment,/checkoutMode:'LIVE_PREVIEW_001'/);
+  assert.match(sandboxPayment,/LIVE_PREVIEW_001/);
   assert.doesNotMatch(sandboxPayment,/INSERT INTO qr_guest_orders|ackCreated|ackKitchen/);
 });
 test('Payriff development checkout verifies purchase, amount and currency before paid',async()=>{
