@@ -245,7 +245,8 @@ async function loadPaymentSettings(){
     if(!state||cfg.restaurantId!==state.restaurantId||cfg.restaurantId!==restaurant)return;
     msg.textContent=cfg.configured?'· Payriff сохранён':'· Не подключён';
     $('qrPaymentContext').textContent='Ресторан: '+(state.menuName||cfg.restaurantId)+
-      ' · среда: '+(cfg.environment==='development'?'Development':'Production')+
+      ' · оплата: '+(cfg.livePreviewEnabled?'Payriff Online, РЕАЛЬНАЯ 0,01 AZN'
+        :cfg.checkoutEnabled?'Development':'выключена')+
       (cfg.configured?' · Merchant '+cfg.merchantMasked:' · ключей нет');
     $('qrPaymentMerchantId').value=cfg.canManage?cfg.merchantId:'';
     $('qrPaymentSecret').value='';
