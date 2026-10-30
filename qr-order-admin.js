@@ -114,6 +114,34 @@ async function checkGuestCheckout(){
     hint.style.color='#ffd29b';
   }finally{btn.disabled=false}
 }
+async function checkPayriffConnectivity(){
+  const button=$('qrPayriffConnectivityCheck'),statusBox=$('qrPayriffConnectivityStatus');
+  if(!button||!statusBox)return;
+  button.disabled=true;
+  statusBox.style.color='#d4e1e8';
+  statusBox.textContent='Проверяем исходящее HTTPS-соединение Cloudflare → Payriff. Платежи не создаются…';
+  try{
+    const data=await api(null,'/api/qr-menu/payment-connectivity');
+    if(data.reachedHttp){
+      statusBox.style.color=data.redirected?'#ffd29b':'#8fe2bc';
+      statusBox.textContent='Payriff ответил на тестовый GET: HTTP '+data.httpStatus+
+        ' ('+data.elapsedMs+' мс). '+(data.redirected
+          ?'Сервер перенаправляет запрос: требуется проверка маршрута.'
+          :'HTTPS-доступ подтверждён. Это не подтверждение успешного платежа или Merchant Key.')+
+        ' Попытки 0,01 и 15 AZN не изменены.';
+    }else{
+      statusBox.style.color='#ffd29b';
+      statusBox.textContent='Нет HTTP-ответа от Payriff: '+data.kind+
+        (data.causeCode?' / '+data.causeCode:'')+
+        ' ('+data.elapsedMs+' мс). Вероятна проблема сетевого соединения Cloudflare → Payriff, а не нажатия кнопки. '+
+        'Не создавайте новый платёж до сверки предыдущих попыток.';
+    }
+  }catch(e){
+    statusBox.style.color='#ffd29b';
+    statusBox.textContent='Проверка связи не завершилась ('+(e.code||'HTTP_ERROR')+'): '+
+      (e.message||'ошибка сервера')+'. Не начинайте повторную оплату.';
+  }finally{button.disabled=false}
+}
 async function loadPaymentAttempts(){
   const message=$('qrPayriffAttemptsMessage'),table=$('qrPayriffAttemptsRows');
   if(!message||!table)return;
@@ -664,6 +692,7 @@ function bind(){
   $('qrPaymentDisconnect').onclick=disconnectPaymentSettings;
   $('qrPaymentToggleTest').onclick=toggleTestCheckout;
   $('qrPayriffAttemptsRefresh').onclick=loadPaymentAttempts;
+  $('qrPayriffConnectivityCheck').onclick=checkPayriffConnectivity;
   $('qrPaymentAttemptsPanel').ontoggle=()=>{
     if($('qrPaymentAttemptsPanel').open)loadPaymentAttempts();
   };
