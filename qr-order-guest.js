@@ -204,6 +204,24 @@ async function submitSandboxPayment(){
     if(btn){btn.disabled=false;btn.textContent='Оплатить через Payriff (тест)'}
   }finally{sandboxBusy=false}
 }
+function explainSandboxAvailability(message){
+  const previewHost='feature-qr-order-internal-co.smarthoreca.pages.dev';
+  if(location.hostname!==previewHost)return;
+  const noticeId='shqrPayriffAvailability';
+  const insert=()=>{
+    const basket=$('shqrBasketOverlay')?.querySelector('.shqr-basket-sheet');
+    if(!basket||$(noticeId))return Boolean(basket);
+    const messageBox=document.createElement('p');messageBox.id=noticeId;
+    messageBox.style.cssText='font:12px/1.45 system-ui;background:#fff6e5;color:#553f1d;'+
+      'border:1px solid #d9c39c;border-radius:9px;padding:10px;margin-top:12px';
+    messageBox.textContent=message;
+    basket.append(messageBox);
+    return true;
+  };
+  if(insert())return;
+  const observer=new MutationObserver(()=>{if(insert())observer.disconnect()});
+  observer.observe(document.body,{childList:true,subtree:true});
+}
 async function initSandboxPayment(){
   if(!slug)return;
   try{
@@ -216,11 +234,19 @@ async function initSandboxPayment(){
       '&table='+encodeURIComponent(table),{cache:'no-store'});
     const json=await res.json().catch(()=>({}));
     sandboxEnabled=Boolean(res.ok&&json.testCheckoutEnabled);
-    if(!sandboxEnabled)return;
+    if(!sandboxEnabled){
+      explainSandboxAvailability(res.ok
+        ?'Тестовая оплата для этого QR пока недоступна. Проверьте, что QR выпущен на Preview и Payriff включён для данного ресторана.'
+        :'Payriff не смог проверить этот QR: '+String(json.message||'проверьте привязку QR к ресторану'));
+      return;
+    }
     setupSandboxPayment();
     const observer=new MutationObserver(()=>{if(!$('shqrPayriffButton'))setupSandboxPayment()});
     observer.observe(document.body,{childList:true,subtree:true});
-  }catch(e){console.warn('[QR Pay] sandbox not ready')}
+  }catch(e){
+    console.warn('[QR Pay] sandbox not ready');
+    explainSandboxAvailability('Не удалось проверить тестовую оплату. Попробуйте обновить меню, либо проверьте настройки QR Pay.');
+  }
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initSandboxPayment);else initSandboxPayment();
