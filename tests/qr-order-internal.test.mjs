@@ -427,6 +427,7 @@ test('QR table importer only accepts a fresh authenticated POS catalog and keeps
   const batched=[];
   const db={
     prepare(sql){return{bind:(...params)=>({
+      __sql:sql,
       first:async()=>sql.includes('qr_pos_table_snapshots')?{
         tables_json:JSON.stringify(catalog),last_seen_at:new Date().toISOString()
       }:null,
