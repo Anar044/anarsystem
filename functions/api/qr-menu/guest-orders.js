@@ -1,4 +1,5 @@
 import {ensureOrders,publishedMenu,settings,validateTable,priceBasket,sha,token,response,bad,fail,clean,publicState,eventStmt} from './_lib/orders.js';
+import {isSharedD1Test} from './_lib/table-sync-policy.js';
 
 const reply=e=>bad(e.status||500,e.code||'QR_ORDER_ERROR',e.status?e.message:'Не удалось обработать QR-заказ');
 async function isPosReady(db,cfg){
@@ -26,8 +27,8 @@ export async function onRequestGet({request,env}){
     const menu=await publishedMenu(env.DB,url.searchParams.get('id'));
     const configured=await settings(env.DB,menu.id);
     const mode=configured?.service_mode||'TABLE';
-    const bridgeReady=await isPosReady(env.DB,configured);
-    const enabled=Boolean(configured?.ordering_enabled)&&bridgeReady;
+    const bridgeReady=!isSharedD1Test(env)&&await isPosReady(env.DB,configured);
+    const enabled=!isSharedD1Test(env)&&Boolean(configured?.ordering_enabled)&&bridgeReady;
     let table=null,tableValid=false;
     if(enabled){
       try{table=await validateTable(env.DB,configured,url.searchParams.get('table'));tableValid=true}
@@ -42,6 +43,9 @@ export async function onRequestGet({request,env}){
 }
 export async function onRequestPost({request,env}){
   try{
+    if(isSharedD1Test(env))
+      throw fail('QR_SHARED_D1_ORDERS_DISABLED',
+        'На общей D1 сейчас разрешена только синхронизация столов без приёма заказов',409);
     await ensureOrders(env.DB);
     const body=await request.json().catch(()=>null);
     if(!body||typeof body!=='object'||Array.isArray(body))throw fail('BAD_REQUEST','Некорректный заказ');
