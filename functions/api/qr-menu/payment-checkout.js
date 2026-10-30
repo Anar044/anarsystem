@@ -3,6 +3,7 @@
 import {publishedMenu,settings,validateTable,priceBasket,sha,token,response,bad,fail,clean} from './_lib/orders.js';
 import {ensurePaymentSettings,fetchPaymentSettings,decryptPaymentSecret} from './_lib/payment-provider-settings.js';
 import {createPayriffCheckout,readPayriffPayment,readPayriffByReference,classifyPayriffPayment} from './_lib/payriff-checkout.js';
+import {fetchCheckoutPolicy,isLivePreview} from './_lib/checkout-policy.js';
 
 const error=(e,stage='request')=>{
   // Never expose SQL, credentials, or stack traces to an unauthenticated guest.
@@ -72,12 +73,20 @@ async function loadScope(db,menu){
   const cfg=await readOnlyStep('PROVIDER_SETTINGS',()=>fetchPaymentSettings(db,{
     workspaceId:binding.workspace_id,restaurantId:binding.restaurant_id
   }));
-  if(!cfg||cfg.environment!=='development'||Number(cfg.enabled)!==1||
-      !cfg.merchant_id||!cfg.secret_encrypted)return null;
+  if(!cfg?.merchant_id||!cfg.secret_encrypted)return null;
+  const policy=await readOnlyStep('CHECKOUT_POLICY',()=>fetchCheckoutPolicy(db,{
+    workspaceId:binding.workspace_id,restaurantId:binding.restaurant_id
+  }));
+  const live=isLivePreview(policy);
+  // The explicit REAL charge is tightly limited to one kopek in Preview.
+  // Legacy Development checkout remains available only with separate opt-in.
+  if(!live&&!(cfg.environment==='development'&&Number(cfg.enabled)===1))
+    return null;
   const orderSettings=await readOnlyStep('TABLE_SETTINGS',()=>settings(db,menu.id));
   if(!orderSettings||orderSettings.restaurant_id!==binding.restaurant_id||
       orderSettings.owner_id!==binding.owner_id)return null;
-  return {...binding,cfg,orderSettings};
+  return {...binding,cfg,orderSettings,
+    checkoutMode:live?'LIVE_PREVIEW_001':'DEVELOPMENT'};
 }
 function publicIntent(intent){
   return {state:intent.state,amountAZN:amount(intent.total_minor),currency:'AZN',
@@ -121,10 +130,10 @@ export async function onRequestGet({request,env}){
       // Retain immutable intent scope even if the published menu changes.
       const cfg=await fetchPaymentSettings(env.DB,{workspaceId:intent.workspace_id,
         restaurantId:intent.restaurant_id});
-      if(!cfg||cfg.merchant_id!==intent.merchant_id||cfg.environment!=='development')
+      if(!cfg||cfg.merchant_id!==intent.merchant_id)
         throw fail('PAYMENT_CONFIG_CHANGED','Реквизиты Payriff изменились. Нужна ручная сверка',409);
       const secret=await decryptPaymentSecret(env,{workspaceId:intent.workspace_id,
-        restaurantId:intent.restaurant_id,environment:'development',
+        restaurantId:intent.restaurant_id,environment:cfg.environment,
         envelope:cfg.secret_encrypted});
       const data=await readPayriffPayment({secret,orderId:intent.provider_order_id});
       const outcome=data.merchantId&&String(data.merchantId)!==intent.merchant_id
@@ -175,7 +184,7 @@ export async function onRequestGet({request,env}){
               try{
                 const secret=await decryptPaymentSecret(env,{
                   workspaceId:scope.workspace_id,restaurantId:scope.restaurant_id,
-                  environment:'development',envelope:scope.cfg.secret_encrypted});
+                  environment:scope.cfg.environment,envelope:scope.cfg.secret_encrypted});
                 const data=await readPayriffByReference({secret,reference:saved.id});
                 const match=(!data?.merchantId||String(data.merchantId)===saved.merchant_id)
                   &&data?.currencyType==='AZN'
@@ -203,8 +212,13 @@ export async function onRequestGet({request,env}){
       }
     }
     return response({success:true,testCheckoutEnabled:Boolean(scope),
-      tableLabel,provider:'PAYRIFF',environment:'development',
-      ordersEnabled:false,notice:'Тестовая оплата без создания заказа и кухонной печати'});
+      checkoutMode:scope?.checkoutMode||'DISABLED',
+      livePayment:Boolean(scope?.checkoutMode==='LIVE_PREVIEW_001'),
+      maxLiveAmountAZN:'0.01',
+      tableLabel,provider:'PAYRIFF',environment:scope?.checkoutMode==='LIVE_PREVIEW_001'?'online':'development',
+      ordersEnabled:false,notice:scope?.checkoutMode==='LIVE_PREVIEW_001'
+        ?'РЕАЛЬНАЯ оплата 0,01 AZN через действующий Merchant Payriff. Касса и кухня пока не получают заказ.'
+        :'Оплата без создания заказа и кухонной печати'});
   }catch(e){return error(e,'availability')}
 }
 export async function onRequestPost({request,env}){
@@ -230,6 +244,9 @@ export async function onRequestPost({request,env}){
     if(!scope)throw fail('PAYRIFF_TEST_DISABLED','Тестовая оплата пока не включена владельцем ресторана',409);
     const table=await validateTable(env.DB,scope.orderSettings,body.table||'');
     const basket=await priceBasket(env.DB,menu.id,body.items);
+    if(scope.checkoutMode==='LIVE_PREVIEW_001'&&basket.totalMinor!==1)
+      throw fail('PAYRIFF_LIVE_AMOUNT_LIMIT',
+        'Тест действующей картой ограничен суммой РОВНО 0,01 AZN. Измените состав корзины.',409);
     const note=clean(body.note,280);
     if(/[\u0000-\u001f\u007f]/.test(note))
       throw fail('PAYMENT_NOTE_INVALID','Некорректный комментарий',400);
@@ -273,7 +290,7 @@ export async function onRequestPost({request,env}){
     if(!inserted)throw fail('PAYMENT_ALREADY_STARTING',
       'Платёжная попытка уже существует. Проверьте статус, не платите повторно',409);
     const secret=await decryptPaymentSecret(env,{workspaceId:scope.workspace_id,
-      restaurantId:scope.restaurant_id,environment:'development',
+      restaurantId:scope.restaurant_id,environment:scope.cfg.environment,
       envelope:scope.cfg.secret_encrypted});
     const origin=new URL(request.url).origin;
     const ret=origin+'/menu.html?id='+encodeURIComponent(menu.public_slug)+
@@ -289,9 +306,12 @@ export async function onRequestPost({request,env}){
         WHERE id=?4 AND state='CREATING'`)
         .bind(created.orderId,created.paymentUrl,now(),id).run();
       return response({success:true,ticket:receipt,paymentUrl:created.paymentUrl,
+        checkoutMode:scope.checkoutMode,
         payment:{state:'CHECKOUT',amountAZN:amount(basket.totalMinor),
           tableLabel:table.table_label,
-          notice:'Откройте тестовую оплату Payriff. Касса и печать отключены.'}},201);
+          notice:scope.checkoutMode==='LIVE_PREVIEW_001'
+            ?'Оплата с реальной карты: 0,01 AZN. Не повторяйте платёж при ошибке.'
+            :'Откройте страницу Payriff. Касса и печать отключены.'}},201);
     }catch(e){
       try{
         await env.DB.prepare(`UPDATE qr_payment_intents SET state='UNKNOWN',
