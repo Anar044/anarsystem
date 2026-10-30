@@ -42,11 +42,13 @@ async function requestPayriff(secret,url,{method='GET',body,reference,fetcher=fe
       console.warn('[QR Pay] gateway HTTP error',{
         method,httpStatus:r.status,providerCode,responseId
       });
-      throw fail('PAYRIFF_HTTP_'+r.status+(providerCode?'_CODE_'+providerCode:''),
+      const lookupError=fail('PAYRIFF_HTTP_'+r.status+(providerCode?'_CODE_'+providerCode:''),
         'Payriff вернул HTTP '+r.status+
         (providerCode?', код '+providerCode:'')+
         (responseId?', responseId '+responseId:'')+
         '. Это не подтверждает отсутствие операции; проверьте Transactions.',502);
+      lookupError.providerResponseId=responseId;
+      throw lookupError;
     }
     if(!result||typeof result!=='object')
       throw fail('PAYRIFF_RESPONSE_INVALID',
