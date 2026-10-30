@@ -46,6 +46,37 @@ export async function onRequestPost({request,env}){
         .bind(identity.departmentId,identity.pluginId,allowed,t).run();
       return response({success:true,contractVersion:1,accepted:true,orderingReady:canCreate});
     }
+    if(action==='tablesSnapshot'){
+      // Read-only POS catalog available even during the diagnostic hello mode:
+      // uploading table names/IDs never authorizes a POS order or kitchen print.
+      const list=body.tables;
+      const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if(!Array.isArray(list)||list.length>400)
+        throw fail('POS_TABLE_CATALOG_LIMIT','Снимок столов должен содержать не более 400 записей',400);
+      const unique=new Set(),normalized=[];
+      for(const item of list){
+        const tableId=clean(item?.posTableId,90);
+        const sectionId=clean(item?.sectionId,90);
+        const name=clean(item?.name,70),section=clean(item?.sectionName,70);
+        const number=Number(item?.number);
+        if(!uuid.test(tableId)||!uuid.test(sectionId)||!name||!section||
+          !Number.isInteger(number)||number<0||number>999999||
+          typeof item?.isActive!=='boolean'||unique.has(tableId.toLowerCase()))
+          throw fail('POS_TABLE_CATALOG_INVALID','Касса отправила некорректный список столов',400);
+        unique.add(tableId.toLowerCase());
+        normalized.push({posTableId:tableId,sectionId,name,sectionName:section,
+          number,isActive:item.isActive});
+      }
+      await env.DB.prepare(`INSERT INTO qr_pos_table_snapshots
+        (restaurant_id,plugin_id,table_count,tables_json,last_seen_at)
+        VALUES(?1,?2,?3,?4,?5)
+        ON CONFLICT(restaurant_id,plugin_id) DO UPDATE SET
+        table_count=excluded.table_count,tables_json=excluded.tables_json,
+        last_seen_at=excluded.last_seen_at`)
+        .bind(identity.departmentId,identity.pluginId,normalized.length,
+          JSON.stringify(normalized),t).run();
+      return response({success:true,accepted:true,tableCount:normalized.length});
+    }
     if(action==='pull'){
       // A diagnostic-only POS must not receive an order even if it sends pull.
       const caps=await env.DB.prepare(`SELECT can_create_order,can_ack_fiscal,can_print_kitchen,last_seen_at
