@@ -51,6 +51,9 @@ function showPrerequisite(error){
   $('qrOrderGlobalLink').replaceChildren();
   $('qrOrderTables').replaceChildren();
   $('qrOrderRows').replaceChildren();
+  $('qrPosCatalogGroups').replaceChildren();
+  $('qrPosCatalogStatus').textContent='Ожидаем подключения кассы…';
+  $('qrTableImport').disabled=true;
   status(needsMenu?'':(error?.message||'Не удалось загрузить QR-заказы.'));
 }
 
@@ -108,10 +111,82 @@ async function copy(value){
   try{await navigator.clipboard.writeText(value);status('Ссылка скопирована','qrOrderSaveStatus')}
   catch{status('Не удалось скопировать ссылку','qrOrderSaveStatus')}
 }
+function renderPosCatalog(){
+  const host=$('qrPosCatalogGroups'),hint=$('qrPosCatalogStatus'),importBtn=$('qrTableImport');
+  host.replaceChildren();importBtn.disabled=true;
+  if(!state||state.settings.serviceMode!=='TABLE')return;
+  if(!state.settings.posPluginId){
+    hint.textContent='Сначала выберите кассу ресторана и нажмите «Сохранить режим».';
+    return;
+  }
+  const snapshot=state.posTableCatalog||{};
+  if(!snapshot.available){
+    hint.textContent='Нет свежего списка столов от кассы. Установите QR Bridge с поддержкой столов, включите безопасную диагностику и проверьте подключение.';
+    return;
+  }
+  const tables=Array.isArray(snapshot.tables)?snapshot.tables:[];
+  const imported=new Set((state.tables||[]).map(t=>String(t.pos_table_id||'').toLowerCase()));
+  const grouped=new Map();
+  for(const t of tables){
+    const section=String(t.sectionName||'Зал');
+    const id=String(t.sectionId||'');
+    const key=id||section;
+    if(!grouped.has(key))grouped.set(key,{section,tables:[]});
+    grouped.get(key).tables.push(t);
+  }
+  const countExisting=tables.filter(t=>imported.has(String(t.posTableId).toLowerCase())).length;
+  hint.textContent='Касса передала '+tables.length+' столов · уже добавлено '+countExisting+
+    ' · обновлено '+new Date(snapshot.lastSeenAt).toLocaleString('ru-RU')+
+    '. Выберите столы, затем нажмите «Добавить выбранные столы».';
+  if(!tables.length){
+    host.textContent='На выбранной кассе нет столов. Проверьте настройки залов в POS.';
+    return;
+  }
+  for(const {section,tables:sectionTables} of [...grouped.values()].sort((a,b)=>
+    a.section.localeCompare(b.section,'ru'))){
+    const group=document.createElement('section');group.className='qro-catalog-group';
+    const head=document.createElement('div');head.className='qro-catalog-heading';
+    head.textContent=section+' · '+sectionTables.length;
+    group.append(head);
+    const items=document.createElement('div');items.className='qro-catalog-items';
+    for(const table of sectionTables.sort((a,b)=>a.number-b.number||
+        a.name.localeCompare(b.name,'ru'))){
+      const label=document.createElement('label');label.className='qro-catalog-item';
+      const checkbox=document.createElement('input');checkbox.type='checkbox';
+      checkbox.dataset.posTableId=table.posTableId;
+      const linked=imported.has(String(table.posTableId).toLowerCase());
+      checkbox.checked=table.isActive&&!linked;
+      checkbox.disabled=!table.isActive;
+      const name=document.createElement('span');name.textContent=table.name||'Стол '+table.number;
+      const note=document.createElement('small');
+      note.textContent=!table.isActive?'Неактивен':linked?'QR готов':'Новый';
+      label.append(checkbox,name,note);
+      items.append(label);
+    }
+    group.append(items);host.append(group);
+  }
+  const update=()=>{
+    importBtn.disabled=!host.querySelector('input[type="checkbox"]:checked');
+  };
+  host.addEventListener('change',update,{once:false});
+  update();
+}
 function renderTables(){
   const container=$('qrOrderTables');container.replaceChildren();
   $('qrTablePanel').hidden=state.settings.serviceMode!=='TABLE';
-  for(const t of state.tables||[]){
+  let currentSection=null;
+  for(const t of [...(state.tables||[])].sort((a,b)=>
+    String(a.section_name||'').localeCompare(String(b.section_name||''),'ru')||
+    String(a.table_label).localeCompare(String(b.table_label),'ru'))){
+    const section=String(t.section_name||'Без указанного зала');
+    if(section!==currentSection){
+      currentSection=section;
+      const sectionTitle=document.createElement('h3');
+      sectionTitle.className='qro-section-title';
+      sectionTitle.style.gridColumn='1/-1';
+      sectionTitle.textContent=section;
+      container.append(sectionTitle);
+    }
     const card=document.createElement('article');card.className='qro-qr-card';
     const name=document.createElement('strong');name.textContent=t.table_label;
     const badge=document.createElement('div');badge.className='qro-muted';
@@ -223,7 +298,7 @@ async function reload(){
     }else{
       const note=document.createElement('p');note.textContent='В режиме ресторана используются QR-коды конкретных столов ниже.';global.append(note);
     }
-    renderTables();renderOrders();
+    renderTables();renderOrders();renderPosCatalog();
     await loadRegisters();
   }catch(e){if(sequence===reloadSequence)showPrerequisite(e)}
 }
@@ -231,6 +306,13 @@ function bind(){
   $('qrOrderReload').onclick=reload;
   $('qrOrderCheckConnection').onclick=reload;
   $('qrOrderRetry').onclick=reload;
+  $('qrTableRefresh').onclick=reload;
+  $('qrTableImport').onclick=()=>{
+    const selected=[...$('qrPosCatalogGroups').querySelectorAll('input[type="checkbox"]:checked')]
+      .map(x=>x.dataset.posTableId);
+    if(!selected.length)return;
+    action({action:'syncPosTables',posTableIds:selected});
+  };
   $('qrPosListReload').onclick=loadRegisters;
   $('qrOrderPlugin').onchange=()=>{$('qrPosSelectedPlugin').textContent=$('qrOrderPlugin').value||'Плагин не выбран'};
   $('qrOrderSave').onclick=()=>action({action:'saveSettings',serviceMode:$('qrOrderMode').value,
