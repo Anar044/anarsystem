@@ -107,6 +107,7 @@ async function init(){
 
 let sandboxEnabled=false,sandboxBusy=false,sandboxTicket='',sandboxKey='';
 function sandboxTicketKey(){return 'shqr_payriff_test:'+slug+':'+table}
+function sandboxClientKeyKey(){return 'shqr_payriff_attempt:'+slug+':'+table}
 function paymentBanner(){
   let box=$('shqrPayriffStatusBox');
   if(box)return box;
@@ -131,7 +132,10 @@ function paymentBanner(){
     if(!retry.dataset.allowed||retry.dataset.allowed!=='true')return;
     if(!confirm('Payriff подтвердил, что попытка завершилась без оплаты. Создать новую?'))return;
     sandboxTicket='';sandboxKey='';
-    try{sessionStorage.removeItem(sandboxTicketKey())}catch{}
+    try{
+      sessionStorage.removeItem(sandboxTicketKey());
+      sessionStorage.removeItem(sandboxClientKeyKey());
+    }catch{}
     const b=$('shqrPayriffButton');
     if(b){b.disabled=false;b.textContent='Оплатить через Payriff (тест)'}
     box.hidden=true;
@@ -140,15 +144,29 @@ function paymentBanner(){
   return box;
 }
 async function checkSandboxPayment(){
-  if(!sandboxTicket)return;
+  if(!sandboxTicket&&!sandboxKey)return;
   const box=paymentBanner();box.hidden=false;
   const text=$('shqrPayriffStatusText');
-  text.textContent='Проверяем у Payriff, был ли платёж успешно проведён…';
+  text.textContent='Проверяем предыдущую попытку без создания новой оплаты…';
   try{
-    const response=await fetch('/api/qr-menu/payment-checkout?ticket='+encodeURIComponent(sandboxTicket),
+    const url=new URL('/api/qr-menu/payment-checkout',location.origin);
+    if(sandboxKey){
+      url.searchParams.set('id',slug);
+      url.searchParams.set('table',table);
+      url.searchParams.set('clientKey',sandboxKey);
+    }else url.searchParams.set('ticket',sandboxTicket);
+    const response=await fetch(url.href,
       {cache:'no-store',headers:{Accept:'application/json'}});
     const json=await response.json().catch(()=>({}));
     if(!response.ok||!json.success)throw Error(json.message||'Проверка оплаты недоступна');
+    if(json.found===false){
+      text.textContent='Платёжная попытка не найдена. Обратитесь к администрации для сверки.';
+      return;
+    }
+    if(json.ticket&&!sandboxTicket){
+      sandboxTicket=json.ticket;
+      try{sessionStorage.setItem(sandboxTicketKey(),sandboxTicket)}catch{}
+    }
     const p=json.payment;
     const retry=$('shqrPayriffRetry');
     if(retry){
@@ -188,11 +206,23 @@ async function submitSandboxPayment(){
   try{
     const note=$('qroGuestNote')?.value.trim()||'';
     if(!sandboxKey)sandboxKey=crypto.randomUUID();
+    // Preserve the same clientKey across refreshes and network failures.
+    // This allows checking the original RRN instead of charging twice.
+    try{sessionStorage.setItem(sandboxClientKeyKey(),sandboxKey)}catch{}
     const r=await fetch('/api/qr-menu/payment-checkout',{
       method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
       body:JSON.stringify({id:slug,table,items,note,clientKey:sandboxKey})});
     const res=await r.json().catch(()=>({}));
-    if(!r.ok||!res.success)throw Error(res.message||'Не удалось открыть тестовый платёж');
+    if(!r.ok||!res.success){
+      if(res.ticket){
+        sandboxTicket=res.ticket;
+        try{sessionStorage.setItem(sandboxTicketKey(),sandboxTicket)}catch{}
+      }
+      const error=new Error(res.message||'Не удалось открыть тестовый платёж');
+      error.uncertain=Boolean(res.ticket||res.code?.includes('UNKNOWN')||
+        res.code?.includes('UNCONFIRMED')||res.code?.includes('PAYRIFF_'));
+      throw error;
+    }
     const u=new URL(res.paymentUrl);
     if(u.protocol!=='https:'||!(u.hostname==='pay.payriff.com'||u.hostname.endsWith('.payriff.com')))
       throw Error('Неверный адрес страницы оплаты');
@@ -200,8 +230,17 @@ async function submitSandboxPayment(){
     try{sessionStorage.setItem(sandboxTicketKey(),sandboxTicket)}catch{}
     location.assign(u.href);
   }catch(e){
-    alert(e.message||String(e));
-    if(btn){btn.disabled=false;btn.textContent='Оплатить через Payriff (тест)'}
+    // Do not reset the button after a potentially created Payriff order.
+    if(e?.uncertain||sandboxTicket||sandboxKey){
+      paymentBanner();
+      $('shqrPayriffStatusText').textContent=(e.message||'Связь с Payriff не подтверждена')+
+        '. Проверьте предыдущую попытку, не платите повторно.';
+      if(btn){btn.disabled=true;btn.textContent='Проверить предыдущую оплату'}
+      await checkSandboxPayment();
+    }else{
+      alert(e.message||String(e));
+      if(btn){btn.disabled=false;btn.textContent='Оплатить через Payriff (тест)'}
+    }
   }finally{sandboxBusy=false}
 }
 function explainSandboxAvailability(message){
@@ -227,8 +266,9 @@ async function initSandboxPayment(){
   try{
     const fromReturn=params.get('qrPaymentTicket');
     sandboxTicket=fromReturn||sessionStorage.getItem(sandboxTicketKey())||'';
+    sandboxKey=sessionStorage.getItem(sandboxClientKeyKey())||'';
   }catch{}
-  if(sandboxTicket){paymentBanner();checkSandboxPayment()}
+  if(sandboxTicket||sandboxKey){paymentBanner();checkSandboxPayment()}
   try{
     const res=await fetch('/api/qr-menu/payment-checkout?id='+encodeURIComponent(slug)+
       '&table='+encodeURIComponent(table),{cache:'no-store'});
