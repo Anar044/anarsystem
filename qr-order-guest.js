@@ -124,7 +124,19 @@ function paymentBanner(){
   const hide=document.createElement('button');hide.type='button';hide.textContent='Свернуть';
   hide.style.cssText='background:#2c4640;color:white;border:1px solid #8db9a4;border-radius:8px;padding:9px 13px';
   hide.onclick=()=>{box.hidden=true};
-  actions.append(check,hide);box.append(text,actions);document.body.append(box);
+  const retry=document.createElement('button');
+  retry.type='button';retry.id='shqrPayriffRetry';retry.hidden=true;
+  retry.textContent='Новая попытка';retry.style.cssText='background:#36434d;color:white;border:1px solid #92a4a8;border-radius:8px;padding:9px 13px';
+  retry.onclick=()=>{
+    if(!retry.dataset.allowed||retry.dataset.allowed!=='true')return;
+    if(!confirm('Payriff подтвердил, что попытка завершилась без оплаты. Создать новую?'))return;
+    sandboxTicket='';sandboxKey='';
+    try{sessionStorage.removeItem(sandboxTicketKey())}catch{}
+    const b=$('shqrPayriffButton');
+    if(b){b.disabled=false;b.textContent='Оплатить через Payriff (тест)'}
+    box.hidden=true;
+  };
+  actions.append(check,retry,hide);box.append(text,actions);document.body.append(box);
   return box;
 }
 async function checkSandboxPayment(){
@@ -138,6 +150,11 @@ async function checkSandboxPayment(){
     const json=await response.json().catch(()=>({}));
     if(!response.ok||!json.success)throw Error(json.message||'Проверка оплаты недоступна');
     const p=json.payment;
+    const retry=$('shqrPayriffRetry');
+    if(retry){
+      retry.hidden=p.state!=='FAILED';
+      retry.dataset.allowed=String(p.state==='FAILED');
+    }
     text.textContent=p.paidVerified
       ?'✓ Тестовая оплата '+p.amountAZN+' AZN подтверждена. Кассовый заказ НЕ создан, кухонная печать выключена.'
       :p.notice+' · '+p.amountAZN+' AZN. Кассовый заказ не создавался.';
