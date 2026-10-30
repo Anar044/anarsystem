@@ -237,7 +237,8 @@ test('In-app test POS setup never exposes secrets and preserves protected worksp
   assert.doesNotMatch(adminApi,/ingressToken:\s*env\.PLUGIN_INGEST_TOKEN/);
   assert.match(adminApi,/adminContext\(request,env\)/);
   assert.match(adminApi,/restaurant_id=\?1 AND plugin_id=\?2/);
-  assert.match(admin,/\$\('qrOrderEnabled'\)\.disabled=!state\.settings\.posBridgeReady/);
+  assert.match(admin,/\$\('qrOrderEnabled'\)\.disabled=\(sharedTest&&/);
+  assert.match(admin,/!state\.settings\.posBridgeReady/);
   assert.match(admin,/\$\('qrPosRestaurantId'\)\.textContent/);
   assert.match(admin,/\$\('qrOrderCheckConnection'\)\.onclick=reload/);
 });
