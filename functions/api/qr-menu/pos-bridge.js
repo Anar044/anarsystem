@@ -41,6 +41,11 @@ export async function onRequestPost({request,env}){
     if(!isSharedD1Test(env)&&action==='hello'&&body.canCreateOrder===true)
       throw fail('QR_ONLINE_PAYMENT_NOT_READY',
         'Создание и печать QR-заказов запрещены до подтверждённой онлайн-оплаты',409);
+    // A stale POS worker is also forbidden to confirm creation/printing
+    // of previously unpaid jobs. Fiscal reconciliation remains separate.
+    if(!isSharedD1Test(env)&&['ackCreated','ackKitchen'].includes(action))
+      throw fail('QR_ONLINE_PAYMENT_NOT_READY',
+        'Создание и кухонная печать без подтверждённой оплаты запрещены',409);
     if(isSharedD1Test(env)&&action==='hello'&&
         (body.canCreateOrder!==false||body.canAcknowledgeFiscal!==false||
          body.canPrintKitchen!==false))
