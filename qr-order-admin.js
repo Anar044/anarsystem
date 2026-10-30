@@ -93,13 +93,16 @@ async function loadPaymentSettings(){
     $('qrPaymentMerchantId').value=cfg.canManage?cfg.merchantId:'';
     $('qrPaymentSecret').value='';
     $('qrPaymentEnvironment').value='development';
-    const allowed=Boolean(cfg.canManage);
+    const allowed=Boolean(cfg.canManage&&cfg.encryptionReady);
     paymentEditable(allowed);
-    $('qrPaymentDisconnect').disabled=!allowed||!cfg.configured||paymentBusy;
+    $('qrPaymentDisconnect').disabled=!cfg.canManage||!cfg.configured||paymentBusy;
+    $('qrPaymentSave').disabled=!allowed||paymentBusy;
     $('qrPaymentVerification').textContent=cfg.configured
       ?'Ключ зашифрован · связь с Payriff ещё не проверена · заказы выключены'
       :'Сначала подключите Payriff · заказы и оплата выключены';
-    if(!allowed)paymentMessage('Изменять платёжные ключи может только владелец организации.');
+    if(!cfg.canManage)paymentMessage('Изменять платёжные ключи может только владелец организации.');
+    else if(!cfg.encryptionReady)paymentMessage(
+      'Защищённое хранилище сервера не настроено. Администратор платформы должен один раз настроить ключ шифрования.',true);
     else paymentMessage('');
   }catch(e){
     msg.textContent='· Проверка недоступна';
@@ -126,10 +129,9 @@ async function savePaymentSettings(){
   }catch(e){
     secret.value='';
     paymentMessage('Не удалось сохранить Payriff: '+(e.message||'ошибка сервера'),true);
-  }finally{paymentBusy=false;
-    // Refresh access without reloading whole page or dismissing QR cards.
-    if(state?.restaurantId===paymentLoadedRestaurant)
-      paymentEditable(true);
+  }finally{
+    paymentBusy=false;
+    if(state?.restaurantId===paymentLoadedRestaurant)await loadPaymentSettings();
   }
 }
 async function disconnectPaymentSettings(){
@@ -141,7 +143,10 @@ async function disconnectPaymentSettings(){
     await loadPaymentSettings();
     paymentMessage('✓ '+(result.notice||'Payriff отключён.'));
   }catch(e){paymentMessage('Не удалось отключить: '+(e.message||'ошибка'),true)}
-  finally{paymentBusy=false;if(state?.restaurantId===paymentLoadedRestaurant)paymentEditable(true)}
+  finally{
+    paymentBusy=false;
+    if(state?.restaurantId===paymentLoadedRestaurant)await loadPaymentSettings();
+  }
 }
 async function loadRegisters(){
   const select=$('qrOrderPlugin'),hint=$('qrPosListStatus');
