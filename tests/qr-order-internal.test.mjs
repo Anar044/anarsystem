@@ -182,8 +182,13 @@ test('Opening a QR checkout does not create D1 tables or write before payment',a
   const broken=await getter({request,env:{DB:{prepare(){throw Error('D1 storage issue')}}}});
   assert.equal(broken.status,503);
   const err=await broken.json();
-  assert.equal(err.code,'QR_PAYMENT_READINESS_ERROR');
+  assert.equal(err.code,'QR_PAYMENT_MENU_BINDING_UNAVAILABLE');
   assert.doesNotMatch(err.message,/D1 storage issue/);
+  assert.match(err.message,/MENU_BINDING/);
+  assert.match(sandboxPayment,/QR_PAYMENT_.*_UNAVAILABLE/);
+  assert.match(sandboxPayment,/readOnlyStep\('PROVIDER_SETTINGS'/);
+  assert.match(sandboxPayment,/readOnlyStep\('TABLE_SETTINGS'/);
+  assert.match(sandboxPayment,/readOnlyStep\('TABLE_LOOKUP'/);
 });
 test('Payriff development checkout verifies purchase, amount and currency before paid',async()=>{
   const gateway=payriffGateway.replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
