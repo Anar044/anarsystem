@@ -49,6 +49,8 @@ export async function onRequestPost({request,env}){
     // Browser may never choose the tenant or POS scope.
     if(body.workspaceId!==undefined||body.restaurantId!==undefined||body.ownerId!==undefined)
       throw fail('PAYMENT_SCOPE_FORGED','Контекст ресторана определяется только сервером',403);
+    if(clean(body.expectedRestaurantId,128)!==scope.restaurantId)
+      throw fail('PAYMENT_RESTAURANT_CHANGED','Ресторан изменился во время сохранения. Обновите страницу и повторите.',409);
     const action=clean(body.action,30),at=new Date().toISOString();
     await ensurePaymentSettings(env.DB);
     const existing=await fetchPaymentSettings(env.DB,scope);
