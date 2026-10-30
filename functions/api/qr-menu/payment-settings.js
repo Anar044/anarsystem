@@ -1,4 +1,5 @@
 import {adminContext,response,bad,fail,clean} from './_lib/orders.js';
+import {hasPermission} from '../access/_lib/access-control.js';
 import {
   ensurePaymentSettings,paymentSettingsScope,fetchPaymentSettings,
   encryptPaymentSecret,decryptPaymentSecret,safePaymentSettings
@@ -6,7 +7,10 @@ import {
 
 const error=e=>bad(e?.status||500,e?.code||'PAYMENT_SETTINGS_ERROR',
   e?.status?e.message:'Не удалось обработать настройки Payriff');
-const isManager=ctx=>ctx?.state?.access?.isOwner===true;
+// Owners and authorised organization administrators may configure payments
+// only inside the restaurant scope resolved by adminContext.
+const isManager=ctx=>ctx?.state?.access?.isOwner===true||
+  hasPermission(ctx?.state?.access,'settings.manage');
 const validateMerchant=v=>{
   const s=clean(v,100);
   if(!/^[A-Za-z0-9][A-Za-z0-9._-]{3,79}$/.test(s))
@@ -37,7 +41,7 @@ export async function onRequestPost({request,env}){
     const ctx=await adminContext(request,env);
     if(!isManager(ctx))
       throw fail('PAYMENT_CONFIG_OWNER_REQUIRED',
-        'Платёжные реквизиты может менять только владелец организации',403);
+        'Платёжные реквизиты может менять только владелец или администратор с правом настройки',403);
     const scope=paymentSettingsScope(ctx);
     if(!String(request.headers.get('Content-Type')||'').toLowerCase().includes('application/json'))
       throw fail('PAYMENT_JSON_REQUIRED','Требуется JSON',415);
