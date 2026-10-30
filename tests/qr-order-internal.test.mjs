@@ -23,6 +23,7 @@ const sandboxPayment=read('functions/api/qr-menu/payment-checkout.js');
 const payriffGateway=read('functions/api/qr-menu/_lib/payriff-checkout.js');
 const paymentCallback=read('functions/api/qr-menu/payment-callback.js');
 const paymentAttempts=read('functions/api/qr-menu/payment-attempts.js');
+const paymentConnectivity=read('functions/api/qr-menu/payment-connectivity.js');
 const reference=read('qr-menu-reference-v2.js');
 const shell=read('app-shell.js');
 const modules=[core,publicApi,adminApi,bridge];
@@ -370,7 +371,80 @@ test('Payriff UNKNOWN reconciliation exposes provider error instead of hiding it
   assert.doesNotMatch(JSON.stringify(body),/server-side-secret|encrypted/);
   assert.match(admin,/paymentAttemptResults\.set\(attempt.id/);
   assert.match(admin,/await loadPaymentAttempts\(\)/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-attempt-reconcile3/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-payriff-network1/);
+});
+test('Cloudflare to Payriff diagnostic only GETs a synthetic RRN, is owner-scoped and never reveals secret',async()=>{
+  const src=paymentConnectivity
+    .replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
+    .replace(/\bexport\s+(?=async|function|const)/g,'');
+  const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
+  const output=(body,status=200)=>new Response(JSON.stringify(body),{status});
+  let allowed=true,requests=[];
+  const get=new Function('adminContext','response','bad','fail',
+    'paymentSettingsScope','fetchPaymentSettings','decryptPaymentSecret',
+    'hasPermission','fetch',src+';return onRequestGet;')(
+    async()=>({restaurantId:'r1',state:{access:{isOwner:allowed,workspace:{id:'w1'}}}}),
+    output,(status,code,message)=>output({success:false,code,message},status),fail,
+    ctx=>({restaurantId:ctx.restaurantId,workspaceId:'w1'}),
+    async(_db,scope)=>{
+      assert.deepEqual(scope,{restaurantId:'r1',workspaceId:'w1'});
+      return {environment:'development',secret_encrypted:'some-cipher'};
+    },
+    async()=> 'not-a-real-merchant-secret-12345',()=>false,
+    async(url,options)=>{
+      requests.push({url,method:options.method,headers:options.headers});
+      return {status:404};
+    }
+  );
+  const target='https://'+testPreview+'/api/qr-menu/payment-connectivity';
+  const testRequest=new Request(target,{method:'GET'});
+  let res=await get({request:testRequest,env:{DB:{}}});
+  assert.equal(res.status,200);
+  let answer=await res.json();
+  assert.equal(answer.reachedHttp,true);
+  assert.equal(answer.httpStatus,404);
+  assert.equal(requests.length,1);
+  assert.equal(requests[0].method,'GET');
+  assert.match(requests[0].url,/api\.payriff\.com\/api\/v3\/orders\/00000000.*\/rrn/);
+  assert.equal(requests[0].headers.Authorization,'not-a-real-merchant-secret-12345');
+  assert.doesNotMatch(JSON.stringify(answer),/not-a-real-merchant-secret-12345|some-cipher/);
+  allowed=false;
+  res=await get({request:testRequest,env:{DB:{}}});
+  assert.equal(res.status,403);
+  assert.equal(requests.length,1);
+  res=await get({request:new Request('https://smarthoreca.pages.dev/api/qr-menu/payment-connectivity'),env:{DB:{}}});
+  assert.equal(res.status,403);
+  assert.equal(requests.length,1);
+  assert.match(admin,/checkPayriffConnectivity/);
+  assert.match(admin,/\$\('qrPayriffConnectivityCheck'\)\.onclick=checkPayriffConnectivity/);
+  assert.match(managementPage,/id="qrPayriffConnectivityStatus"/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-payriff-network1/);
+  assert.doesNotMatch(paymentConnectivity,/method:'POST'|INSERT INTO|UPDATE qr_payment_intents/);
+});
+test('Payriff network probe distinguishes a fetch transport failure from an HTTP refusal',async()=>{
+  const src=paymentConnectivity
+    .replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
+    .replace(/\bexport\s+(?=async|function|const)/g,'');
+  const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
+  const output=(body,status=200)=>new Response(JSON.stringify(body),{status});
+  const get=new Function('adminContext','response','bad','fail',
+    'paymentSettingsScope','fetchPaymentSettings','decryptPaymentSecret',
+    'hasPermission','fetch',src+';return onRequestGet;')(
+    async()=>({restaurantId:'r1',state:{access:{isOwner:true,workspace:{id:'w1'}}}}),
+    output,(status,code,message)=>output({success:false,code,message},status),fail,
+    ctx=>({restaurantId:ctx.restaurantId,workspaceId:'w1'}),
+    async()=>({environment:'development',secret_encrypted:'ciphertext'}),
+    async()=> 'secret-never-in-response',()=>false,
+    async()=>{const e=new TypeError('TLS problem with credential secret-never-in-response');
+      e.cause={code:'ECONNRESET'};throw e}
+  );
+  const res=await get({request:new Request('https://'+testPreview+'/api/qr-menu/payment-connectivity'),env:{DB:{}}});
+  assert.equal(res.status,200);
+  const result=await res.json();
+  assert.equal(result.reachedHttp,false);
+  assert.equal(result.kind,'FETCH_TYPE_ERROR');
+  assert.equal(result.causeCode,'ECONNRESET');
+  assert.doesNotMatch(JSON.stringify(result),/secret-never-in-response|TLS problem/);
 });
 test('Payriff previous-attempt history is scoped and never creates a new charge',()=>{
   assert.match(paymentAttempts,/adminContext\(request,env\)/);
