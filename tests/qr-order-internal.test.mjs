@@ -322,3 +322,47 @@ test('QR orders button stays in protected workspace instead of falling back to D
   assert.match(persistentWorkspace,/route\.href==='\/qr-order-admin\.html'&&normalized\.href==='\/qr-menu\.html'/);
   assert.match(managementPage,/href="\/qr-menu\.html"/);
 });
+
+test('Unpublished QR menu shows actionable next step, never leaves a fake loading state',()=>{
+  assert.match(managementPage,/id="qrOrderPrerequisite" hidden/);
+  assert.match(managementPage,/id="qrOrderOpenEditor"/);
+  assert.match(managementPage,/id="qrOrderRetry"/);
+  const start=admin.indexOf("const status=(v,id='qrOrderError')");
+  const end=admin.indexOf('async function loadRegisters()',start);
+  assert.ok(start>0&&end>start,'Prerequisite state functions are present');
+  const nodes=new Map();
+  const node=id=>{
+    if(!nodes.has(id))nodes.set(id,{
+      textContent:'Загрузка…',hidden:true,checked:true,disabled:false,
+      replaceChildren(...value){this.items=value}
+    });
+    return nodes.get(id);
+  };
+  const document={
+    getElementById:node,
+    createElement:tag=>({tag,value:'',textContent:''})
+  };
+  const {showPrerequisite}=new Function('document',
+    "const $=id=>document.getElementById(id);let state={settings:{orderingEnabled:true}};\n"+
+    admin.slice(start,end)+"\nreturn{showPrerequisite};"
+  )(document);
+  showPrerequisite({code:'QR_MENU_NOT_PUBLISHED',message:'Сначала опубликуйте QR-меню выбранного ресторана'});
+  assert.equal(node('qrOrderPrerequisite').hidden,false);
+  assert.equal(node('qrOrderOpenEditor').hidden,false);
+  assert.match(node('qrOrderPrerequisiteTitle').textContent,/опубликуйте QR-меню/);
+  assert.match(node('qrOrderPrerequisiteMessage').textContent,/тестовом ресторане/);
+  assert.equal(node('qrOrderEnabled').checked,false);
+  assert.equal(node('qrOrderEnabled').disabled,true);
+  assert.equal(node('qrOrderSave').disabled,true);
+  assert.equal(node('qrAddTable').disabled,true);
+  assert.equal(node('qrOrderPlugin').disabled,true);
+  assert.equal(node('qrPosRestaurantName').textContent,'Меню не опубликовано');
+  assert.equal(node('qrPosServerState').textContent,'Нет данных');
+  assert.equal(node('qrPosConnectionState').textContent,'Не проверено');
+  assert.equal(node('qrOrderError').textContent,'');
+  showPrerequisite({code:'QR_ORDER_DB_UNAVAILABLE',message:'База D1 не подключена'});
+  assert.equal(node('qrOrderOpenEditor').hidden,true);
+  assert.equal(node('qrPosRestaurantName').textContent,'Не удалось загрузить');
+  assert.match(node('qrOrderError').textContent,/База D1 не подключена/);
+  assert.equal(node('qrOrderSave').disabled,true);
+});
