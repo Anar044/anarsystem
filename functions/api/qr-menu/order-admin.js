@@ -5,6 +5,9 @@ const error=e=>bad(e.status||500,e.code||'QR_ADMIN_ERROR',e.status?e.message:'Н
 export async function onRequestOptions(){return new Response(null,{status:204,headers:{Allow:'GET,POST,OPTIONS'}})}
 export async function onRequestGet({request,env}){
   try{
+    if(action==='saveSettings'&&body.orderingEnabled===true)
+      throw fail('QR_ONLINE_PAYMENT_NOT_READY',
+        'Нельзя включить QR-заказы до серверного подтверждения онлайн-оплаты Payriff',409);
     await ensureOrders(env.DB);
     const ctx=await adminContext(request,env);
     const [cfg,tables,orders]=await Promise.all([
