@@ -146,6 +146,45 @@ test('Payriff API refuses foreign restaurant, external origin, non-owner and pro
   assert.equal(res.status,200);
   assert.doesNotMatch(await res.text(),/test-secret-example-123456|encrypted-not-plaintext/);
 });
+test('Opening a QR checkout does not create D1 tables or write before payment',async()=>{
+  const source=sandboxPayment
+    .replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
+    .replace(/\bexport\s+(?=async|function|const)/g,'');
+  const respond=(payload,status=200)=>new Response(JSON.stringify(payload),{
+    status,headers:{'Content-Type':'application/json'}
+  });
+  const getter=new Function('publishedMenu','settings','validateTable',
+    'fetchPaymentSettings','response','bad','fail','clean',
+    source+';return onRequestGet;')(
+    async()=>({id:'menu1',organization_id:'restaurant1'}),
+    async()=>({owner_id:'owner1',restaurant_id:'restaurant1',menu_id:'menu1',service_mode:'TABLE'}),
+    async()=>({id:'table1',table_label:'Бар - Стол 1'}),
+    async()=>({enabled:1,environment:'development',
+      merchant_id:'ES9990000',secret_encrypted:'ciphertext'}),
+    respond,(status,code,message)=>respond({success:false,code,message},status),
+    failed,cleanValue);
+  let queryCount=0;
+  const env={DB:{prepare(sql){
+    queryCount++;
+    assert.doesNotMatch(sql,/^\s*(CREATE|INSERT|UPDATE|DELETE|ALTER)\b/i);
+    if(sql.includes('qr_payment_menu_bindings'))
+      return {bind:()=>({first:async()=>({
+        workspace_id:'workspace1',restaurant_id:'restaurant1',owner_id:'owner1'})})};
+    throw Error('Unexpected read query');
+  }}};
+  const request=new Request('https://'+testPreview+'/api/qr-menu/payment-checkout?id=slug&table=table-key');
+  const result=await getter({request,env});
+  assert.equal(result.status,200);
+  const body=await result.json();
+  assert.equal(body.testCheckoutEnabled,true);
+  assert.equal(body.tableLabel,'Бар - Стол 1');
+  assert.equal(queryCount,1);
+  const broken=await getter({request,env:{DB:{prepare(){throw Error('D1 storage issue')}}}});
+  assert.equal(broken.status,503);
+  const err=await broken.json();
+  assert.equal(err.code,'QR_PAYMENT_READINESS_ERROR');
+  assert.doesNotMatch(err.message,/D1 storage issue/);
+});
 test('Payriff development checkout verifies purchase, amount and currency before paid',async()=>{
   const gateway=payriffGateway.replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
     .replace(/\bexport\s+(?=async|function|const)/g,'');
