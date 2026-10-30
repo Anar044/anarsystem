@@ -64,15 +64,84 @@ function registerOption(value,label){
   const option=document.createElement('option');option.value=value;option.textContent=label;
   return option;
 }
-async function loadPayriffTestStatus(){
-  const hint=$('qrPayriffTestStatus');
-  if(!hint)return;
+
+let paymentBusy=false, paymentLoadedRestaurant='';
+function paymentMessage(message,isError=false){
+  const target=$('qrPaymentFeedback');
+  if(!target)return;
+  target.textContent=message||'';
+  target.style.color=isError?'#ffb0a6':'#94e1bb';
+}
+function paymentEditable(allowed){
+  for(const id of ['qrPaymentMerchantId','qrPaymentSecret','qrPaymentEnvironment','qrPaymentSave']){
+    const item=$(id);if(item)item.disabled=!allowed||paymentBusy;
+  }
+}
+async function loadPaymentSettings(){
+  const msg=$('qrPaymentSummary');
+  if(!msg||!state)return;
+  const restaurant=state.restaurantId;
+  paymentLoadedRestaurant=restaurant;
+  msg.textContent='· Проверяем настройки';
   try{
-    const p=await api(null,'/api/qr-menu/payriff-test-status');
-    hint.textContent=p.configured
-      ?'Payriff Development: ключи доступны серверу. Оплата и передача на кассу пока выключены.'
-      :'Payriff Development: тестовые ключи или привязка ресторана/Preview ещё не настроены.';
-  }catch(e){hint.textContent='Payriff Development: проверка настроек недоступна.'}
+    const cfg=await api(null,'/api/qr-menu/payment-settings');
+    if(!state||cfg.restaurantId!==state.restaurantId||cfg.restaurantId!==restaurant)return;
+    msg.textContent=cfg.configured?'· Payriff сохранён':'· Не подключён';
+    $('qrPaymentContext').textContent='Ресторан: '+(state.menuName||cfg.restaurantId)+
+      ' · среда: '+(cfg.environment==='development'?'Development':'Production')+
+      (cfg.configured?' · Merchant '+cfg.merchantMasked:' · ключей нет');
+    $('qrPaymentMerchantId').value=cfg.canManage?cfg.merchantId:'';
+    $('qrPaymentSecret').value='';
+    $('qrPaymentEnvironment').value='development';
+    const allowed=Boolean(cfg.canManage);
+    paymentEditable(allowed);
+    $('qrPaymentDisconnect').disabled=!allowed||!cfg.configured||paymentBusy;
+    $('qrPaymentVerification').textContent=cfg.configured
+      ?'Ключ зашифрован · связь с Payriff ещё не проверена · заказы выключены'
+      :'Сначала подключите Payriff · заказы и оплата выключены';
+    if(!allowed)paymentMessage('Изменять платёжные ключи может только владелец организации.');
+    else paymentMessage('');
+  }catch(e){
+    msg.textContent='· Проверка недоступна';
+    paymentEditable(false);
+    $('qrPaymentDisconnect').disabled=true;
+    paymentMessage('Не удалось получить настройки Payriff: '+(e.message||'проверьте связь'),true);
+  }
+}
+async function savePaymentSettings(){
+  if(paymentBusy||!state||state.restaurantId!==paymentLoadedRestaurant)return;
+  const secret=$('qrPaymentSecret');
+  const merchant=$('qrPaymentMerchantId').value.trim();
+  const environment=$('qrPaymentEnvironment').value;
+  if(!merchant){paymentMessage('Укажи Merchant ID из Payriff Applications.',true);return}
+  paymentBusy=true;paymentEditable(false);$('qrPaymentDisconnect').disabled=true;
+  paymentMessage('Сохраняем платёжные настройки…');
+  try{
+    const result=await api({action:'save',merchantId:merchant,
+      secretKey:secret.value,environment},'/api/qr-menu/payment-settings');
+    secret.value='';
+    paymentMessage(result.notice||'Payriff сохранён.');
+    await loadPaymentSettings();
+    paymentMessage('✓ Payriff сохранён для этого ресторана. Реальные платежи ещё не активированы.');
+  }catch(e){
+    secret.value='';
+    paymentMessage('Не удалось сохранить Payriff: '+(e.message||'ошибка сервера'),true);
+  }finally{paymentBusy=false;
+    // Refresh access without reloading whole page or dismissing QR cards.
+    if(state?.restaurantId===paymentLoadedRestaurant)
+      paymentEditable(true);
+  }
+}
+async function disconnectPaymentSettings(){
+  if(paymentBusy||!state||state.restaurantId!==paymentLoadedRestaurant)return;
+  if(!confirm('Отключить Payriff для выбранного ресторана? Ключ будет удалён.'))return;
+  paymentBusy=true;paymentEditable(false);
+  try{
+    const result=await api({action:'disconnect',confirm:true},'/api/qr-menu/payment-settings');
+    await loadPaymentSettings();
+    paymentMessage('✓ '+(result.notice||'Payriff отключён.'));
+  }catch(e){paymentMessage('Не удалось отключить: '+(e.message||'ошибка'),true)}
+  finally{paymentBusy=false;if(state?.restaurantId===paymentLoadedRestaurant)paymentEditable(true)}
 }
 async function loadRegisters(){
   const select=$('qrOrderPlugin'),hint=$('qrPosListStatus');
@@ -397,11 +466,13 @@ async function reload(){
     }
     renderTables();renderOrders();renderPosCatalog();
     await loadRegisters();
-    await loadPayriffTestStatus();
+    await loadPaymentSettings();
   }catch(e){if(sequence===reloadSequence)showPrerequisite(e)}
 }
 function bind(){
   $('qrOrderReload').onclick=reload;
+  $('qrPaymentSave').onclick=savePaymentSettings;
+  $('qrPaymentDisconnect').onclick=disconnectPaymentSettings;
   $('qrOrderCheckConnection').onclick=reload;
   $('qrOrderRetry').onclick=reload;
   $('qrTableRefresh').onclick=reload;
