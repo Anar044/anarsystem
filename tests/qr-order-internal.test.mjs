@@ -17,8 +17,8 @@ const registryHelper=read('functions/api/qr-menu/_lib/pos-registers.js');
 const registryEndpoint=read('functions/api/qr-menu/pos-registers.js');
 const tablePolicy=read('functions/api/qr-menu/_lib/table-sync-policy.js');
 const ingestion=read('functions/api/plugin/_lib/ingest-auth.js');
-const payriffTest=read('functions/api/qr-menu/_lib/payriff-test.js');
-const payriffStatus=read('functions/api/qr-menu/payriff-test-status.js');
+const paymentProvider=read('functions/api/qr-menu/_lib/payment-provider-settings.js');
+const paymentEndpoint=read('functions/api/qr-menu/payment-settings.js');
 const reference=read('qr-menu-reference-v2.js');
 const shell=read('app-shell.js');
 const modules=[core,publicApi,adminApi,bridge];
@@ -44,46 +44,47 @@ function getCore(){
   return new Function(source+';return {priceBasket,validateTable,publicState};')();
 }
 
-test('Payriff Development credentials are strictly scoped to Preview restaurant and host',()=>{
-  const source=payriffTest.replace(/\bexport\s+(?=async|function|const)/g,'');
-  const {payriffTestConfig}=new Function(source+';return {payriffTestConfig};')();
-  const request=new Request('https://'+testPreview+'/api/qr-menu/payriff-test-status');
-  const cfg={
-    PAYRIFF_TEST_MODE:'development',
-    PAYRIFF_TEST_MERCHANT_ID:'ES100001',
-    PAYRIFF_TEST_SECRET_KEY:'dummy-test-secret',
-    PAYRIFF_TEST_RESTAURANT_ID:testRestaurant,
-    PAYRIFF_TEST_HOST:testPreview
-  };
-  const good=payriffTestConfig(cfg,request,testRestaurant);
-  assert.equal(good.scoped,true);
-  assert.equal(good.configured,true);
-  assert.equal(payriffTestConfig(cfg,request,'another-restaurant').configured,false);
-  assert.equal(payriffTestConfig(cfg,new Request('https://smarthoreca.pages.dev/'),testRestaurant).configured,false);
-  assert.equal(payriffTestConfig({...cfg,PAYRIFF_TEST_MODE:'production'},request,testRestaurant).configured,false);
-  assert.equal(payriffTestConfig({...cfg,PAYRIFF_TEST_SECRET_KEY:''},request,testRestaurant).configured,false);
-  assert.doesNotMatch(payriffStatus,/secretKey\s*:/);
+test('Payriff credentials are encrypted with workspace/restaurant AAD and a server-only root',async()=>{
+  const source=paymentProvider.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
+  const {encryptPaymentSecret,decryptPaymentSecret,safePaymentSettings,paymentSettingsScope}=
+    new Function('SMART_HORECA_STATE_ENCRYPTION_ENV',source+
+      ';return{encryptPaymentSecret,decryptPaymentSecret,safePaymentSettings,paymentSettingsScope};')(
+      'SMART_HORECA_STATE_ENCRYPTION_KEY');
+  const env={SMART_HORECA_STATE_ENCRYPTION_KEY:'test-only-platform-master-encryption-secret'};
+  const args={workspaceId:'w-1',restaurantId:'r-1',environment:'development',secret:'test-payriff-secret-000'};
+  const encrypted=await encryptPaymentSecret(env,args);
+  assert.doesNotMatch(encrypted,/test-payriff-secret-000/);
+  assert.equal(await decryptPaymentSecret(env,{...args,envelope:encrypted}),args.secret);
+  await assert.rejects(decryptPaymentSecret(env,{...args,workspaceId:'w-2',envelope:encrypted}));
+  await assert.rejects(decryptPaymentSecret(env,{...args,restaurantId:'r-2',envelope:encrypted}));
+  await assert.rejects(decryptPaymentSecret(env,{...args,environment:'production',envelope:encrypted}));
+  await assert.rejects(decryptPaymentSecret({SMART_HORECA_STATE_ENCRYPTION_KEY:'different-platform-key-12345678'},{
+    ...args,envelope:encrypted}));
+  await assert.rejects(encryptPaymentSecret({},args),e=>e.code==='PAYMENT_ENCRYPTION_UNAVAILABLE');
+  const safe=safePaymentSettings({merchant_id:'ES1095709',secret_encrypted:encrypted},false);
+  assert.equal(safe.configured,true);
+  assert.equal(safe.merchantId,'');
+  assert.doesNotMatch(JSON.stringify(safe),/test-payriff-secret-000/);
+  assert.equal(paymentSettingsScope({
+    restaurantId:'r-1',state:{access:{workspace:{id:'w-1'}}}
+  }).workspaceId,'w-1');
 });
-test('Payriff payment status verifier rejects preauthorization, wrong merchant, currency, amounts and references',()=>{
-  const source=payriffTest.replace(/\bexport\s+(?=async|function|const)/g,'');
-  const {verifyPaidPayriffOrder}=new Function(source+';return {verifyPaidPayriffOrder};')();
-  const expected={orderId:'e89b0d48-6e5f-4d3c-aa73-1ab92c97b806',
-    amountMinor:1500,currency:'AZN',merchantId:'ES100001',providerOrderBound:true};
-  const response={code:'00000',payload:{orderId:expected.orderId,
-    paymentStatus:'APPROVED',operationType:'PURCHASE',currencyType:'AZN',
-    merchantId:'ES100001',amount:15,paidAmount:15}};
-  assert.equal(verifyPaidPayriffOrder(response,expected).verified,true);
-  const rejected=[
-    {...response,payload:{...response.payload,paymentStatus:'PREAUTH_APPROVED'}},
-    {...response,payload:{...response.payload,paidAmount:14}},
-    {...response,payload:{...response.payload,amount:14}},
-    {...response,payload:{...response.payload,currencyType:'USD'}},
-    {...response,payload:{...response.payload,merchantId:'ES999999'}},
-    {...response,payload:{...response.payload,orderId:'another-id'}},
-    {...response,payload:{...response.payload,operationType:'PRE_AUTH'}}
-  ];
-  for(const invalid of rejected)assert.equal(verifyPaidPayriffOrder(invalid,expected).verified,false);
-  assert.equal(verifyPaidPayriffOrder(response,{...expected,providerOrderBound:false}).verified,false);
+test('Payriff setup is restricted to owner, tenant, Development and same origin',()=>{
+  assert.match(paymentEndpoint,/ctx\?\.state\?\.access\?\.isOwner===true/);
+  assert.match(paymentEndpoint,/PAYMENT_CONFIG_OWNER_REQUIRED/);
+  assert.match(paymentEndpoint,/PAYMENT_SCOPE_FORGED/);
+  assert.match(paymentEndpoint,/PAYMENT_PRODUCTION_LOCKED/);
+  assert.match(paymentEndpoint,/PAYMENT_ORIGIN_MISMATCH/);
+  assert.match(paymentEndpoint,/secretKey/);
+  assert.match(paymentEndpoint,/encryptPaymentSecret/);
+  assert.match(paymentEndpoint,/safePaymentSettings\(row,isManager\(ctx\)\)/);
+  assert.match(paymentProvider,/PRIMARY KEY\(workspace_id,restaurant_id,provider\)/);
+  assert.match(paymentProvider,/name:'HKDF'/);
+  assert.match(managementPage,/id="qrPaymentPanel"/);
+  for(const id of ['qrPaymentMerchantId','qrPaymentSecret','qrPaymentSave','qrPaymentDisconnect',
+    'qrPaymentContext','qrPaymentSummary'])assert.match(managementPage,new RegExp('id="'+id+'"'));
+  assert.match(admin,/loadPaymentSettings/);
+  assert.doesNotMatch(admin,/loadPayriffTestStatus/);
 });
 test('All new QR order APIs and client scripts are syntactically valid',()=>{
   for(const source of modules)assert.doesNotThrow(()=>compile(source));
@@ -414,8 +415,8 @@ test('QR orders button stays in protected workspace instead of falling back to D
 });
 
 test('Unpublished QR menu shows actionable next step, never leaves a fake loading state',()=>{
-  assert.match(managementPage,/id="qrPayriffTestStatus"/);
-  assert.match(admin,/loadPayriffTestStatus/);
+  assert.match(managementPage,/id="qrPaymentPanel"/);
+  assert.match(admin,/loadPaymentSettings/);
   assert.match(managementPage,/id="qrOrderPrerequisite" hidden/);
   assert.match(managementPage,/id="qrOrderOpenEditor"/);
   assert.match(managementPage,/id="qrOrderRetry"/);
@@ -669,7 +670,7 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-payriff-readiness1/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-payriff-manager1/);
 });
 
 test('QR management offers independently scrollable desktop panels and a mobile layout',()=>{
