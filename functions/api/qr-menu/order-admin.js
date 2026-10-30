@@ -46,6 +46,9 @@ export async function onRequestGet({request,env}){
         posBridgeConnected:bridgeConnected,posBridgeReady:bridgeReady,
         posBridgeLastSeen:bridgeConnected?posStatus.last_seen_at:null,
         backendSetup:{
+          // An explicit infrastructure confirmation; never a claim that the
+          // binding was independently verified by the browser.
+          testD1ConfirmationRecorded:String(env.QR_TEST_D1_ISOLATED||'')==='confirmed',
           bridgeTokenConfigured:Boolean(clean(env.QR_POS_BRIDGE_TOKEN)),
           ingressTokenConfigured:Boolean(clean(env.PLUGIN_INGEST_TOKEN)),
           rateSecretConfigured:Boolean(clean(env.QR_ORDER_RATE_SECRET))
@@ -116,6 +119,11 @@ export async function onRequestPost({request,env}){
       return response({success:true,notice:enabled?'Приём тестовых QR-заказов включён: POS-мост подтвердил полную готовность.':'Приём заказов выключен.'});
     }
     if(action==='syncPosTables'){
+      const hostname=new URL(request.url).hostname.toLowerCase();
+      if(String(env.QR_TEST_D1_ISOLATED||'')!=='confirmed'||
+          hostname==='smarthoreca.pages.dev'||hostname==='web.smarthoreca.az')
+        throw fail('QR_TEST_DB_UNCONFIRMED',
+          'Автоматический импорт столов запрещён до подтверждения отдельной тестовой D1',409);
       // Only data previously signed by a registered plugin belonging to this
       // restaurant may be imported. Browser cannot choose a different plugin.
       const pluginId=clean(existing?.pos_plugin_id,100);
