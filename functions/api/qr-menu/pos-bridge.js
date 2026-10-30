@@ -1,5 +1,5 @@
 import {ensureOrders,response,bad,fail,clean} from './_lib/orders.js';
-import {verifyPluginIngress} from '../plugin/_lib/ingest-auth.js';
+import {verifyPluginIngress,verifyRegisteredQrPos} from '../plugin/_lib/ingest-auth.js';
 import {requireTableSyncScope,isSharedD1Test} from './_lib/table-sync-policy.js';
 
 const error=e=>bad(e.status||500,e.code||'QR_POS_BRIDGE_FAILED',e.status?e.message:'Ошибка обмена с кассой');
@@ -13,10 +13,11 @@ async function authorize(request,env,body){
   const hash=async value=>new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)));
   const a=await hash(secret),b=await hash(supplied);
   if(!a.every((v,i)=>v===b[i]))throw fail('QR_BRIDGE_FORBIDDEN','Неверный ключ QR POS Bridge',401);
-  // QR uses a dedicated preview-only ingress secret. Never accept the
-  // global PLUGIN_INGEST_TOKEN as a fallback for this endpoint.
-  await verifyPluginIngress(request,env,{pluginId,departmentId},
-    env.QR_POS_INGRESS_TOKEN||'');
+  // Legacy/full mode retains the existing dual-token ingress check.
+  // In shared-test mode, the exact preview-host and restaurant/plugin pair
+  // are allowlisted separately; then the existing registry is verified.
+  if(!isSharedD1Test(env))
+    await verifyPluginIngress(request,env,{pluginId,departmentId});
   return {pluginId,departmentId};
 }
 export async function onRequestOptions(){return new Response(null,{status:204})}
@@ -40,6 +41,8 @@ export async function onRequestPost({request,env}){
          body.canPrintKitchen!==false))
       throw fail('QR_SHARED_D1_DIAGNOSTICS_ONLY',
         'На общей D1 разрешена только диагностика без заказов и печати',409);
+    if(isSharedD1Test(env))
+      await verifyRegisteredQrPos(env,identity);
     await ensureOrders(env.DB);
     const t=iso();
     if(action==='hello'){
