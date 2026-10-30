@@ -295,7 +295,7 @@ test('Cashier picker is a select backed by server-validated POS registry, not fr
 
 
 test('QR orders button stays in protected workspace instead of falling back to Dashboard',()=>{
-  assert.match(menu,/href="\/qr-order-admin\.html"[^>]*>🧾 QR-заказы и столы<\/a>/);
+  assert.match(editor,/href="\/qr-order-admin\.html"[^>]*>🧾 QR-заказы и столы<\/a>/);
   assert.match(siteAccess,/'qr-menu\.html':\['qr\.manage'\]/);
   assert.match(siteAccess,/'qr-order-admin\.html':\['qr\.manage'\]/);
   const start=persistentWorkspace.indexOf('  function canonicalPagePath(path){');
