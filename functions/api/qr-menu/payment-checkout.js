@@ -86,9 +86,7 @@ export async function onRequestGet({request,env}){
           AND (last_checked_at='' OR last_checked_at<?3)
         RETURNING id`).bind(now(),intent.id,new Date(Date.now()-10000).toISOString()).first();
       if(!reserved)return response({success:true,payment:publicIntent(intent)});
-      const menu=await publishedMenu(env.DB,intent.menu_id).catch(()=>null);
-      // No public menu lookup via ID fallback; payment intent retains its
-      // original immutable workspace/restaurant, used for key selection.
+      // Retain immutable intent scope even if the published menu changes.
       const cfg=await fetchPaymentSettings(env.DB,{workspaceId:intent.workspace_id,
         restaurantId:intent.restaurant_id});
       if(!cfg||cfg.merchant_id!==intent.merchant_id||cfg.environment!=='development')
@@ -97,8 +95,10 @@ export async function onRequestGet({request,env}){
         restaurantId:intent.restaurant_id,environment:'development',
         envelope:cfg.secret_encrypted});
       const data=await readPayriffPayment({secret,orderId:intent.provider_order_id});
-      const outcome=classifyPayriffPayment(data,{
-        orderId:intent.provider_order_id,amountMinor:intent.total_minor});
+      const outcome=data.merchantId&&String(data.merchantId)!==intent.merchant_id
+        ?'MISMATCH'
+        :classifyPayriffPayment(data,{
+          orderId:intent.provider_order_id,amountMinor:intent.total_minor});
       if(outcome==='MISMATCH')
         throw fail('PAYMENT_RECONCILIATION_REQUIRED','Payriff вернул несовпадающие реквизиты. Требуется сверка',409);
       if(outcome!=='PENDING'){
@@ -129,7 +129,14 @@ export async function onRequestPost({request,env}){
     if(!checkoutAllowed(request))throw fail('PAYRIFF_DEVELOPMENT_ONLY','Платежи разрешены только в тестовом Preview',409);
     if(!String(request.headers.get('Content-Type')||'').includes('application/json'))
       throw fail('PAYMENT_JSON_REQUIRED','Ожидается JSON',415);
-    const body=await request.json().catch(()=>null);
+    const originHeader=request.headers.get('Origin');
+    if(originHeader&&originHeader!==new URL(request.url).origin)
+      throw fail('PAYMENT_ORIGIN_INVALID','Запрос из другого сайта запрещён',403);
+    if(Number(request.headers.get('Content-Length')||0)>12000)
+      throw fail('PAYMENT_BODY_TOO_LARGE','Слишком большой запрос',413);
+    const raw=await request.text();
+    if(raw.length>12000)throw fail('PAYMENT_BODY_TOO_LARGE','Слишком большой запрос',413);
+    const body=JSON.parse(raw||'null');
     if(!body||typeof body!=='object'||Array.isArray(body))
       throw fail('PAYMENT_BODY_INVALID','Некорректный платёж',400);
     const clientKey=clean(body.clientKey,50);
