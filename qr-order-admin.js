@@ -106,12 +106,25 @@ async function loadPaymentSettings(){
       ?'Тестовая оплата Payriff разрешена · касса и печать кухни выключены'
       :cfg.configured?'Ключ сохранён · тестовая оплата выключена · касса выключена'
       :'Сначала подключите Payriff · заказы и оплата выключены';
+    const previewStatus=$('qrTestCheckoutReadiness');
+    if(previewStatus){
+      previewStatus.textContent=cfg.guestCheckoutReady
+        ?'✓ Гостевая тестовая оплата готова. Сканируй новый QR-код ниже; он открывает Preview.'
+        :cfg.checkoutEnabled&&!cfg.testQrScopeReady
+          ?'ВНИМАНИЕ: тестовая оплата включена, но меню не привязано к текущему ресторану или организации. Проверьте QR-меню и сохраните режим кассы.'
+          :cfg.checkoutEnabled
+            ?'ВНИМАНИЕ: тестовая оплата доступна только на Preview-домене '+cfg.testQrHost
+            :'Тестовая оплата выключена. Сначала включите её в настройках Payriff.';
+      previewStatus.style.color=cfg.guestCheckoutReady?'#85ecc0':'#ffd29b';
+    }
     if(!cfg.canManage)paymentMessage('Изменять Payriff может владелец или администратор организации с правом управления настройками.');
     else if(!cfg.encryptionReady)paymentMessage(
       'Защищённое хранилище сервера не настроено. Администратор платформы должен один раз настроить ключ шифрования.',true);
     else paymentMessage('');
   }catch(e){
     msg.textContent='· Проверка недоступна';
+    if($('qrTestCheckoutReadiness'))$('qrTestCheckoutReadiness').textContent=
+      'Не удалось проверить гостевую тестовую ссылку. Проверьте подключение и повторите.';
     paymentEditable(false);
     $('qrPaymentDisconnect').disabled=true;
     $('qrPaymentToggleTest').disabled=true;
