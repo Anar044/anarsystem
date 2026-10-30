@@ -25,13 +25,26 @@ async function context(request,env){
 export async function onRequestGet({request,env}){
   try{
     const {scope}=await context(request,env);
+    // A missing table means no local payment-intent store was initialised.
+    // Do not create D1 tables as a side effect of viewing payment history.
+    const table=await env.DB.prepare(`SELECT name FROM sqlite_master
+      WHERE type='table' AND name='qr_payment_intents' LIMIT 1`).first();
+    if(!table)return response({success:true,storageReady:false,attempts:[],
+      notice:'Журнал платёжных попыток в этом окружении ещё не создан. Это не доказывает отсутствия операции у Payriff: проверьте Transactions в Payriff до новой попытки.'});
     const rows=await env.DB.prepare(`SELECT id,created_at,table_label,total_minor,
       state,provider_order_id,last_checked_at FROM qr_payment_intents
       WHERE workspace_id=?1 AND restaurant_id=?2
       ORDER BY created_at DESC LIMIT 25`)
       .bind(scope.workspaceId,scope.restaurantId).all();
-    return response({success:true,attempts:(rows.results||[]).map(safe)});
-  }catch(e){return err(e)}
+    const attempts=(rows.results||[]).map(safe);
+    return response({success:true,storageReady:true,attempts,
+      notice:attempts.length
+        ?'Найдены платёжные попытки для выбранного ресторана.'
+        :'В журнале этого ресторана нет записей. Если вы уже пробовали оплатить, проверьте Transactions в Payriff перед новой попыткой.'});
+  }catch(e){
+    if(!e?.status)console.error('[QR Pay] history lookup failed',{type:e?.name||'Error'});
+    return err(e);
+  }
 }
 export async function onRequestPost({request,env}){
   try{
