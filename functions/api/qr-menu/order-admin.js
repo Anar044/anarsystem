@@ -263,7 +263,7 @@ export async function onRequestPost({request,env}){
         SET state='AWAITING_POS',last_error='',lease_until='',updated_at=?1
         WHERE id=?2 AND owner_id=?3 AND restaurant_id=?4
           AND state='POS_FAILED' AND last_error='POS_VALIDATION_FAILED'
-          AND pos_order_id='' AND payment_state='UNPAID'
+          AND pos_order_id='' AND payment_state='PAID_ONLINE' AND payment_method='PAYRIFF'
         RETURNING id`)
         .bind(now,id,ctx.ownerId,ctx.restaurantId).first();
       if(!changed)
