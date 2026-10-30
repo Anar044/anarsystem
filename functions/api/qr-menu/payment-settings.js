@@ -54,6 +54,14 @@ export async function onRequestPost({request,env}){
     const action=clean(body.action,30),at=new Date().toISOString();
     await ensurePaymentSettings(env.DB);
     const existing=await fetchPaymentSettings(env.DB,scope);
+    // A published QR menu is bound to exactly one workspace, regardless of
+    // duplicate restaurant names or IDs in other organisations.
+    const bound=await env.DB.prepare(`SELECT workspace_id,restaurant_id
+      FROM qr_payment_menu_bindings WHERE menu_id=?1 LIMIT 1`)
+      .bind(ctx.menu.id).first();
+    if(bound&&(bound.workspace_id!==scope.workspaceId||
+       bound.restaurant_id!==scope.restaurantId))
+      throw fail('PAYMENT_MENU_ALREADY_BOUND','QR-меню уже закреплено за другой организацией',409);
     if(action==='disconnect'){
       if(body.confirm!==true)throw fail('PAYMENT_CONFIRM_REQUIRED','Подтвердите отключение провайдера',400);
       await env.DB.batch([
@@ -89,6 +97,10 @@ export async function onRequestPost({request,env}){
       cipher=existing.secret_encrypted;
     }
     await env.DB.batch([
+      env.DB.prepare(`INSERT OR IGNORE INTO qr_payment_menu_bindings
+        (menu_id,workspace_id,restaurant_id,owner_id,created_at)
+        VALUES(?1,?2,?3,?4,?5)`)
+        .bind(ctx.menu.id,scope.workspaceId,scope.restaurantId,ctx.ownerId,at),
       env.DB.prepare(`INSERT INTO qr_payment_provider_settings
         (workspace_id,restaurant_id,provider,environment,merchant_id,secret_encrypted,enabled,created_at,updated_at)
         VALUES(?1,?2,'PAYRIFF',?3,?4,?5,0,?6,?6)
