@@ -173,11 +173,11 @@ test('Diagnostic HTTPS hello cannot receive or dispatch POS orders',async()=>{
   const invalid=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
   const source=bridge.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
   const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
-    'requireTableSyncScope','isSharedD1Test',
+    'requireTableSyncScope','isSharedD1Test','verifyRegisteredQrPos',
     source+';return{onRequestPost};')(
     async()=>{},json,(status,code,message)=>json({success:false,code,message},status),
     invalid,(v,n=180)=>String(v??'').trim().slice(0,n),async()=>({verified:true}),
-    requireTableSyncScope,isSharedD1Test
+    requireTableSyncScope,isSharedD1Test,async()=>({verified:true})
   );
   const env={QR_POS_BRIDGE_TOKEN:'test-secret',DB:mockedDB};
   async function send(action,options={},secret='test-secret'){
@@ -406,13 +406,13 @@ test('Read-only POS tablesSnapshot authenticates, scopes and stores valid halls'
   const err=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
   let verified=0;
   const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
-    'requireTableSyncScope','isSharedD1Test',
+    'requireTableSyncScope','isSharedD1Test','verifyRegisteredQrPos',
     source+';return{onRequestPost};')(
     async()=>{},(v,status=200)=>new Response(JSON.stringify(v),{status}),
     (status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status}),
     err,(v,n=180)=>String(v??'').trim().slice(0,n),
     async()=>{verified++;return{verified:true}},
-    requireTableSyncScope,isSharedD1Test
+    requireTableSyncScope,isSharedD1Test,async()=>{verified++;return{verified:true}}
   );
   const env={QR_POS_BRIDGE_TOKEN:'secret',...sharedConfig,DB:db};
   const send=async data=>{
@@ -512,11 +512,12 @@ test('Shared D1 table upload requires preview host and exact test restaurant and
   const source=bridge.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
   let schemaAttempts=0;
   const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
-    'requireTableSyncScope','isSharedD1Test',source+';return{onRequestPost};')(
+    'requireTableSyncScope','isSharedD1Test','verifyRegisteredQrPos',source+';return{onRequestPost};')(
     async()=>{schemaAttempts++},
     (v,status=200)=>new Response(JSON.stringify(v),{status}),
     (status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status}),
-    failed,cleanValue,async()=>({verified:true}),requireTableSyncScope,isSharedD1Test
+    failed,cleanValue,async()=>({verified:true}),requireTableSyncScope,isSharedD1Test,
+    async()=>({verified:true})
   );
   const identity={pluginId:testPlugin,departmentId:testRestaurant};
   async function post(host,env,action='tablesSnapshot',overrides={}){
@@ -552,7 +553,7 @@ test('Shared D1 table upload requires preview host and exact test restaurant and
 test('Shared D1 test POS cannot enable ordering or call POS pull',async()=>{
   const source=bridge.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
   const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
-    'requireTableSyncScope','isSharedD1Test',source+';return{onRequestPost};')(
+    'requireTableSyncScope','isSharedD1Test','verifyRegisteredQrPos',source+';return{onRequestPost};')(
     async()=>{},
     (v,status=200)=>new Response(JSON.stringify(v),{status}),
     (status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status}),
