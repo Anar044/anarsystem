@@ -43,11 +43,17 @@ async function fetchRegistry(departmentId,env){
   }finally{clearTimeout(timer)}
 }
 
-export async function verifyPluginIngress(request,env,{pluginId,departmentId}={}){
-  const expected=clean(env?.PLUGIN_INGEST_TOKEN);
+// Existing API callers retain PLUGIN_INGEST_TOKEN. QR Bridge passes its own
+// server-only secret as the fourth argument, so a test till does not need the
+// global plugin ingestion credential or affect other plugin connections.
+export async function verifyPluginIngress(request,env,{pluginId,departmentId}={},dedicatedToken=null){
+  const dedicated=dedicatedToken!==null;
+  const expected=clean(dedicated?dedicatedToken:env?.PLUGIN_INGEST_TOKEN);
   if(!expected){
-    const e=new Error("PLUGIN_INGEST_TOKEN не настроен.");
-    e.status=503;e.code="PLUGIN_INGEST_TOKEN_NOT_CONFIGURED";throw e;
+    const e=new Error(dedicated?"QR_POS_INGRESS_TOKEN не настроен.":"PLUGIN_INGEST_TOKEN не настроен.");
+    e.status=503;
+    e.code=dedicated?"QR_POS_INGRESS_TOKEN_NOT_CONFIGURED":"PLUGIN_INGEST_TOKEN_NOT_CONFIGURED";
+    throw e;
   }
   const supplied=suppliedToken(request);
   if(!(await sameSecret(supplied,expected))){
