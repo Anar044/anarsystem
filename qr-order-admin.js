@@ -120,8 +120,8 @@ function renderPosCatalog(){
     return;
   }
   const cfg=state.settings.backendSetup||{};
-  if(!cfg.testD1ConfirmationRecorded){
-    hint.textContent='Импорт столов заблокирован: администратор инфраструктуры ещё не подтвердил, что preview использует отдельную тестовую D1. Рабочую базу использовать нельзя.';
+  if(!cfg.tableSyncAllowed){
+    hint.textContent='Синхронизация пока недоступна: разрешите только этот тестовый ресторан и кассу в настройках QR Bridge. Отдельная D1 не требуется.';
     return;
   }
   const snapshot=state.posTableCatalog||{};
@@ -258,8 +258,9 @@ async function reload(){
         ?'✓ Касса подключена. Режим диагностики: заказы и печать отключены.'
         :'POS-мост не подключён. Настройте HTTPS API и проверьте авторизацию.';
     const cfg=state.settings.backendSetup||{};
-    const hasConfig=Boolean(cfg.bridgeTokenConfigured&&cfg.ingressTokenConfigured&&cfg.rateSecretConfigured);
-    const isolated=cfg.testD1ConfirmationRecorded===true;
+    const hasConfig=Boolean(cfg.bridgeTokenConfigured&&cfg.ingressTokenConfigured);
+    const tableAllowed=cfg.tableSyncAllowed===true;
+    const sharedTest=cfg.tableSyncMode==='shared-test';
     $('qrPosRestaurantName').textContent=state.menuName||'Ресторан не определён';
     $('qrPosRestaurantId').textContent='ID подразделения: '+(state.restaurantId||'не определён');
     $('qrPosSelectedPlugin').textContent=state.settings.posPluginId||'Плагин не выбран';
@@ -271,34 +272,35 @@ async function reload(){
     $('qrPosLastSeen').textContent=state.settings.posBridgeLastSeen
       ?'Последний подтверждённый hello: '+new Date(state.settings.posBridgeLastSeen).toLocaleString('ru-RU')
       :'Данных о недавнем подключении нет';
-    $('qrPosServerState').textContent=!isolated
-      ?'Тестовая D1 не подтверждена — импорт столов заблокирован'
-      :hasConfig?'Параметры Bridge заданы; изоляция D1 подтверждена администратором'
-      :'Требуется настройка ключей QR Bridge';
+    $('qrPosServerState').textContent=!tableAllowed
+      ?'Синхронизация столов не разрешена для этой тестовой кассы'
+      :!hasConfig?'Требуется настройка ключей QR Bridge'
+      :sharedTest?'Общая D1 — тестовая касса разрешена; заказы выключены'
+      :'Тестовая касса разрешена; заказы выключены';
     const missing=[
       !cfg.bridgeTokenConfigured?'QR_POS_BRIDGE_TOKEN':null,
-      !cfg.ingressTokenConfigured?'PLUGIN_INGEST_TOKEN':null,
-      !cfg.rateSecretConfigured?'QR_ORDER_RATE_SECRET':null
+      !cfg.ingressTokenConfigured?'PLUGIN_INGEST_TOKEN':null
     ].filter(Boolean);
-    $('qrPosServerHint').textContent=!isolated
-      ?'Сверьте D1 binding preview с production в Cloudflare. После независимой проверки администратор устанавливает только в preview QR_TEST_D1_ISOLATED=confirmed.'
+    $('qrPosServerHint').textContent=!tableAllowed
+      ?'Нужны серверные разрешения QR_TABLE_SYNC_MODE=shared-test и точные ID тестового ресторана, плагина и preview-хоста.'
       :missing.length
-        ?'Отсутствуют: '+missing.join(', ')+'. Настраиваются администратором инфраструктуры, не в браузере.'
-        :'Состояние ключей показано без их значений. Подтверждение D1 — заявление администратора, не автоматическая проверка.';
+        ?'Отсутствуют: '+missing.join(', ')+'. Значения задаются только на сервере.'
+        :'Ключи не показываются. Импорт ограничен выбранным тестовым рестораном и кассой.';
     $('qrPosNextStep').textContent=!state.settings.posPluginId
-      ?'Шаг 1: укажите ID тестового плагина и сохраните настройки с выключенными заказами.'
-      :!isolated
-        ?'Шаг 2: подтвердите отдельную D1 для preview в Cloudflare. Пока это не сделано, синхронизация столов запрещена.'
+      ?'Шаг 1: выберите и сохраните тестовую кассу, не включая гостевые заказы.'
+      :!tableAllowed
+        ?'Шаг 2: разрешите именно эту пару ресторан/касса на preview в общей D1.'
         :!hasConfig
-          ?'Шаг 3: настройте недостающие секреты на сервере. Они не должны попадать в браузер.'
-        :!state.settings.posBridgeConnected
-          ?'Шаг 3: настройте HTTPS URL и ключи в защищённом файле тестового POS-плагина, затем проверьте связь.'
-          :!state.settings.posBridgeReady
-            ?'Связь проверена. Касса в безопасном диагностическом режиме: для тестовых заказов потребуется отдельное разрешение на кассе.'
-            :'Касса подтвердила готовность. Только на тестовом стенде можно разрешить один пробный заказ.';
-    $('qrOrderEnabled').disabled=!state.settings.posBridgeReady&&!state.settings.orderingEnabled;
-    $('qrOrderSafety').textContent=state.settings.posBridgeReady
-      ?'Перед включением убедитесь, что выбран тестовый ресторан, а принтер направлен на тестовую кухню.'
+          ?'Шаг 3: настройте ключи QR Bridge на сервере и тестовой кассе.'
+          :!state.settings.posBridgeConnected
+            ?'Шаг 4: настройте диагностическое HTTPS-подключение на тестовой кассе.'
+            :'Связь проверена. Приём заказов остаётся выключенным; можно импортировать столы по залам.';
+    $('qrOrderEnabled').disabled=(sharedTest&&!state.settings.orderingEnabled)||
+      (!state.settings.posBridgeReady&&!state.settings.orderingEnabled);
+    $('qrOrderSafety').textContent=sharedTest
+      ?'На общей D1 сейчас разрешено только чтение столов из кассы. Приём QR-заказов и кухонная печать выключены.'
+      :state.settings.posBridgeReady
+        ?'Перед включением убедитесь, что выбран тестовый ресторан, а принтер направлен на тестовую кухню.'
       :state.settings.orderingEnabled
         ?'Касса недоступна. Приём новых заказов блокируется сервером; снимите галочку, чтобы полностью отключить режим.'
         :'Нельзя включить приём: касса пока не подтвердила все функции (создание, печать кухни и фискальный ответ).';
