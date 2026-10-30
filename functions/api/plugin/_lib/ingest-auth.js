@@ -43,17 +43,11 @@ async function fetchRegistry(departmentId,env){
   }finally{clearTimeout(timer)}
 }
 
-// Existing API callers retain PLUGIN_INGEST_TOKEN. QR Bridge passes its own
-// server-only secret as the fourth argument, so a test till does not need the
-// global plugin ingestion credential or affect other plugin connections.
-export async function verifyPluginIngress(request,env,{pluginId,departmentId}={},dedicatedToken=null){
-  const dedicated=dedicatedToken!==null;
-  const expected=clean(dedicated?dedicatedToken:env?.PLUGIN_INGEST_TOKEN);
+export async function verifyPluginIngress(request,env,{pluginId,departmentId}={}){
+  const expected=clean(env?.PLUGIN_INGEST_TOKEN);
   if(!expected){
-    const e=new Error(dedicated?"QR_POS_INGRESS_TOKEN не настроен.":"PLUGIN_INGEST_TOKEN не настроен.");
-    e.status=503;
-    e.code=dedicated?"QR_POS_INGRESS_TOKEN_NOT_CONFIGURED":"PLUGIN_INGEST_TOKEN_NOT_CONFIGURED";
-    throw e;
+    const e=new Error("PLUGIN_INGEST_TOKEN не настроен.");
+    e.status=503;e.code="PLUGIN_INGEST_TOKEN_NOT_CONFIGURED";throw e;
   }
   const supplied=suppliedToken(request);
   if(!(await sameSecret(supplied,expected))){
@@ -74,6 +68,33 @@ export async function verifyPluginIngress(request,env,{pluginId,departmentId}={}
   const match=rows.some(row=>clean(row?.pluginId)===pid&&clean(row?.departmentId)===did);
   if(!match){
     const e=new Error("Plugin не зарегистрирован за указанным departmentId.");
+    e.status=403;e.code="PLUGIN_DEPARTMENT_MISMATCH";throw e;
+  }
+  return{verified:true,pluginId:pid,departmentId:did};
+}
+
+/**
+ * QR-only identity validation. MUST be called only after the QR bridge token
+ * has been authenticated and the exact test POS scope/host checked.
+ * Unlike the general ingest endpoint, it never reads or exposes the old
+ * PLUGIN_INGEST_TOKEN. A single preview QR secret is sufficient for this
+ * expressly allowlisted diagnostic table synchronization.
+ */
+export async function verifyRegisteredQrPos(env,{pluginId,departmentId}={}){
+  const pid=clean(pluginId),did=clean(departmentId);
+  if(!pid||!did){
+    const e=new Error("pluginId и departmentId обязательны для проверки.");
+    e.status=400;e.code="PLUGIN_IDENTITY_REQUIRED";throw e;
+  }
+  let rows;
+  try{rows=await fetchRegistry(did,env);}
+  catch(_error){
+    const e=new Error("Недоступен реестр касс Smart Horeca.");
+    e.status=502;e.code="PLUGIN_REGISTRY_UNAVAILABLE";throw e;
+  }
+  const found=rows.some(row=>clean(row?.pluginId)===pid&&clean(row?.departmentId)===did);
+  if(!found){
+    const e=new Error("Плагин не зарегистрирован за указанным рестораном.");
     e.status=403;e.code="PLUGIN_DEPARTMENT_MISMATCH";throw e;
   }
   return{verified:true,pluginId:pid,departmentId:did};
