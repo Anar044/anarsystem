@@ -28,6 +28,13 @@
 .qro-chip{display:inline-flex;padding:4px 7px;border:1px solid #3e5264;border-radius:7px;font-size:11px;white-space:nowrap}
 .qro-warning{background:#2a2115;border:1px solid #70532e;padding:13px 15px;border-radius:11px;color:#ffe0b2}
 .qro-warning strong{color:#ffd19a}
+.qro-prerequisite{margin-top:15px;padding:17px 20px;display:grid;gap:9px}
+.qro-prerequisite[hidden]{display:none!important}
+.qro-prerequisite h2{margin:0;color:#ffdcab}
+.qro-prerequisite p{margin:0;color:#f1d8b8}
+.qro-prerequisite .qro-actions{margin-top:3px}
+.qro-prerequisite .qro-btn{display:inline-flex;text-decoration:none;align-items:center;min-height:38px}
+.qro-status[role="alert"]:not(:empty){color:#ffcfb6;font-weight:600}
 .qro-qr-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:13px;margin-top:15px}
 .qro-qr-card{border:1px solid #334357;border-radius:13px;padding:12px;background:#0d1620;overflow:hidden}
 .qro-qr-card .qro-qr{width:136px;height:136px;display:grid;place-items:center;background:white;padding:7px;margin:8px auto;border-radius:8px}
@@ -43,6 +50,11 @@
 <h1>Управление QR-заказами</h1>
 <p>Внутренняя логика Smart Horeca: каждый стол имеет собственный QR; в фастфуде используется один QR. Продукты и суммы сверяются с опубликованным меню на сервере.</p>
 <div class="qro-warning"><strong>Тестовое подключение.</strong> QR-заказы доступны только после проверки кассы и отдельного разрешения. Пока подключение диагностическое, Smart Horeca ничего не создаёт в iikoFront и не печатает на кухне. Онлайн-оплата не подключена.</div>
+<section class="qro-warning qro-prerequisite" id="qrOrderPrerequisite" hidden aria-live="polite" aria-labelledby="qrOrderPrerequisiteTitle">
+  <h2 id="qrOrderPrerequisiteTitle">QR-меню ещё не опубликовано</h2>
+  <p id="qrOrderPrerequisiteMessage">Опубликуйте QR-меню выбранного тестового ресторана. Только после этого здесь будут доступны кассы, столы и журнал заказов.</p>
+  <div class="qro-actions"><a class="qro-btn primary" href="/qr-menu.html" id="qrOrderOpenEditor">Перейти в редактор QR Menu</a><button class="qro-btn" type="button" id="qrOrderRetry">Проверить повторно</button></div>
+</section>
 <section class="qro-panel" aria-labelledby="qrPosSetupHeading">
   <div class="qro-actions" style="justify-content:space-between">
     <h2 id="qrPosSetupHeading" style="margin:0">Подключение кассы из Smart Horeca</h2>
@@ -116,6 +128,6 @@
 <script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script>
 <script src="/documents-nav.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script src="/qr-order-admin.js?v=20261030-register1"></script>
+<script src="/qr-order-admin.js?v=20261030-unpublished1"></script>
 <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script><script src="/sh-i18n.js"></script>
 </body></html>
