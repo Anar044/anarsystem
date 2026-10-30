@@ -19,6 +19,9 @@ const tablePolicy=read('functions/api/qr-menu/_lib/table-sync-policy.js');
 const ingestion=read('functions/api/plugin/_lib/ingest-auth.js');
 const paymentProvider=read('functions/api/qr-menu/_lib/payment-provider-settings.js');
 const paymentEndpoint=read('functions/api/qr-menu/payment-settings.js');
+const sandboxPayment=read('functions/api/qr-menu/payment-checkout.js');
+const payriffGateway=read('functions/api/qr-menu/_lib/payriff-checkout.js');
+const paymentCallback=read('functions/api/qr-menu/payment-callback.js');
 const reference=read('qr-menu-reference-v2.js');
 const shell=read('app-shell.js');
 const modules=[core,publicApi,adminApi,bridge];
@@ -137,6 +140,66 @@ test('Payriff API refuses foreign restaurant, external origin, non-owner and pro
   assert.equal(res.status,200);
   assert.doesNotMatch(await res.text(),/test-secret-example-123456|encrypted-not-plaintext/);
 });
+test('Payriff development checkout verifies purchase, amount and currency before paid',async()=>{
+  const gateway=payriffGateway.replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
+    .replace(/\bexport\s+(?=async|function|const)/g,'');
+  const fail=(code,message,status=400)=>Object.assign(new Error(message),{status,code});
+  const {createPayriffCheckout,classifyPayriffPayment}=new Function('fail',gateway+
+    ';return {createPayriffCheckout,classifyPayriffPayment};')(fail);
+  const ref='aa000000-1111-4222-8333-cccccccccccc';
+  const orderId='aabbccdd-1111-4222-8333-cccccccccccc';
+  let sent=null;
+  const good=await createPayriffCheckout({secret:'test-secret',amountMinor:1500,reference:ref,
+    callbackUrl:'https://preview.example/callback',redirectUrl:'https://preview.example/return',
+    fetcher:async(url,options)=>{
+      sent={url,options};
+      return {ok:true,json:async()=>({code:'00000',payload:{
+        orderId,paymentUrl:'https://pay.payriff.com/redirect/fake'}})};
+    }});
+  assert.equal(good.orderId,orderId);
+  assert.match(sent.url,/\/api\/v3\/orders$/);
+  assert.equal(sent.options.headers.Authorization,'test-secret');
+  const posted=JSON.parse(sent.options.body);
+  assert.equal(posted.amount,15);
+  assert.equal(posted.currency,'AZN');
+  assert.equal(posted.operation,'PURCHASE');
+  assert.equal(posted.requestRRN,ref);
+  assert.equal(posted.callbackUrl,'https://preview.example/callback');
+  assert.equal(classifyPayriffPayment({
+    orderId,amount:15,paidAmount:15,currencyType:'AZN',operationType:'PURCHASE',
+    paymentStatus:'APPROVED'},{orderId,amountMinor:1500}),'PAID_VERIFIED');
+  for(const wrong of [
+    {paymentStatus:'PREAUTH_APPROVED'},
+    {operationType:'PRE_AUTH'},
+    {amount:14},
+    {paidAmount:14},
+    {currencyType:'USD'},
+    {orderId:'unrelated'}]){
+    assert.notEqual(classifyPayriffPayment({
+      orderId,amount:15,paidAmount:15,currencyType:'AZN',operationType:'PURCHASE',
+      paymentStatus:'APPROVED',...wrong},{orderId,amountMinor:1500}),'PAID_VERIFIED');
+  }
+  await assert.rejects(createPayriffCheckout({secret:'test',amountMinor:1500,reference:ref,
+    fetcher:async()=>({ok:true,json:async()=>({code:'00000',
+      payload:{orderId,paymentUrl:'https://evil.example/steal'}})})}));
+});
+test('Sandbox payment requires preview, scoped restaurant and owner activation, never POS',()=>{
+  assert.match(sandboxPayment,/feature-qr-order-internal-co\.smarthoreca\.pages\.dev/);
+  assert.match(sandboxPayment,/cfg\.enabled!==1/);
+  assert.match(sandboxPayment,/qr_payment_menu_bindings/);
+  assert.match(sandboxPayment,/qr_payment_provider_settings/);
+  assert.match(sandboxPayment,/UNIQUE\(workspace_id,restaurant_id,menu_id,client_key\)/);
+  assert.match(sandboxPayment,/createPayriffCheckout/);
+  assert.match(sandboxPayment,/readPayriffPayment/);
+  assert.match(sandboxPayment,/state='PAID_VERIFIED'|PAID_VERIFIED/);
+  assert.match(paymentEndpoint,/action==='setTestCheckout'/);
+  assert.match(paymentEndpoint,/PAYRIFF_TEST_PREVIEW_ONLY/);
+  assert.match(admin,/toggleTestCheckout/);
+  assert.match(managementPage,/qrPaymentToggleTest/);
+  assert.match(guest,/submitSandboxPayment/);
+  assert.match(guest,/sessionStorage\.setItem\(sandboxTicketKey\(\),sandboxTicket\)/);
+  assert.match(paymentCallback,/verified:false/);
+});
 test('All new QR order APIs and client scripts are syntactically valid',()=>{
   for(const source of modules)assert.doesNotThrow(()=>compile(source));
   assert.doesNotThrow(()=>new Function(guest));
@@ -188,7 +251,15 @@ test('Public route is anti-replay, disabled by default and payment cannot be for
   assert.match(publicApi,/paymentMethod:'PAYRIFF',onlinePaymentEnabled:false/);
   assert.match(publicApi,/throw fail\('QR_ONLINE_PAYMENT_NOT_READY'/);
   assert.doesNotMatch(publicApi,/UPDATE qr_guest_orders.*state='CLOSED'/);
-  assert.doesNotMatch(guest,/payriff|startPayment|cardNumber/i);
+  assert.doesNotMatch(guest,/cardNumber|cardCVV|cardExpiry/);
+  assert.match(sandboxPayment,/paidVerified/);
+  assert.match(sandboxPayment,/No public menu lookup|loadScope/);
+  assert.match(sandboxPayment,/qr_payment_intents/);
+  assert.match(sandboxPayment,/state='CREATING'/);
+  assert.match(sandboxPayment,/state='UNKNOWN'/);
+  assert.match(sandboxPayment,/orderSettings.owner_id!==binding.owner_id/);
+  assert.doesNotMatch(sandboxPayment,/INSERT INTO qr_guest_orders|ackCreated|ackKitchen/);
+  assert.doesNotMatch(paymentCallback,/UPDATE\s+qr_payment_intents|qr_guest_orders/);
 });
 test('Payment-first guard rejects guest orders and setup even without the shared-test flag',async()=>{
   const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
