@@ -30,13 +30,24 @@ async function requestPayriff(secret,url,{method='GET',body,reference,fetcher=fe
       throw fail('PAYRIFF_UNEXPECTED_REDIRECT',
         'Payriff перенаправил API-запрос (HTTP '+r.status+'). Нужна проверка адреса API; повторную оплату не создавайте.',502);
     }
-    if(!r.ok){
-      // Safe diagnostics: never log the auth header or the response body.
-      console.error('[QR Pay] gateway HTTP error',{method,httpStatus:r.status});
-      throw fail('PAYRIFF_HTTP_'+r.status,
-        'Payriff вернул HTTP '+r.status+'. Проверьте приложение и ключи в настройках QR Pay.',502);
-    }
+    // Read the provider's structured error code even for HTTP 4xx/5xx.
+    // Only allow well-formed code/responseId; never expose raw error JSON,
+    // which might include request parameters or merchant details.
     const result=await r.json().catch(()=>null);
+    if(!r.ok){
+      const providerCode=/^[A-Za-z0-9_-]{2,25}$/.test(String(result?.code||''))
+        ?String(result.code).toUpperCase():null;
+      const responseId=/^[A-Za-z0-9_-]{1,80}$/.test(String(result?.responseId||''))
+        ?String(result.responseId):null;
+      console.warn('[QR Pay] gateway HTTP error',{
+        method,httpStatus:r.status,providerCode,responseId
+      });
+      throw fail('PAYRIFF_HTTP_'+r.status+(providerCode?'_CODE_'+providerCode:''),
+        'Payriff вернул HTTP '+r.status+
+        (providerCode?', код '+providerCode:'')+
+        (responseId?', responseId '+responseId:'')+
+        '. Это не подтверждает отсутствие операции; проверьте Transactions.',502);
+    }
     if(!result||typeof result!=='object')
       throw fail('PAYRIFF_RESPONSE_INVALID',
         'Payriff не вернул читаемый ответ. Проверьте предыдущую попытку.',502);
