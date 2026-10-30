@@ -35,6 +35,7 @@
     'hr-timesheet.html':['hr.timesheet.view'],
     'hr-calendar.html':['hr.schedules.view'],
     'qr-menu.html':['qr.manage'],
+    'qr-order-admin.html':['qr.manage'],
     'audit-log.html':['audit.view'],
     'settings.html':['settings.view'],
     'site-users.html':['access.manage']
