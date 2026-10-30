@@ -17,12 +17,19 @@ async function requestPayriff(secret,url,{method='GET',body,reference,fetcher=fe
   const kill=setTimeout(()=>controller.abort(),45000);
   try{
     const r=await fetcher(url,{
-      method,signal:controller.signal,redirect:'error',
+      // Inspect 3xx rather than classifying a redirect as a network error.
+      // Never follow a redirect with merchant credentials.
+      method,signal:controller.signal,redirect:'manual',
       headers:{Authorization:secret,Accept:'application/json',
         ...(body?{'Content-Type':'application/json'}:{}),
         ...(reference?{'X-REQUEST-RRN':reference}:{})},
       ...(body?{body:JSON.stringify(body)}:{})
     });
+    if(r.status>=300&&r.status<400){
+      console.warn('[QR Pay] gateway unexpected redirect',{method,httpStatus:r.status});
+      throw fail('PAYRIFF_UNEXPECTED_REDIRECT',
+        'Payriff перенаправил API-запрос (HTTP '+r.status+'). Нужна проверка адреса API; повторную оплату не создавайте.',502);
+    }
     if(!r.ok){
       // Safe diagnostics: never log the auth header or the response body.
       console.error('[QR Pay] gateway HTTP error',{method,httpStatus:r.status});
@@ -43,10 +50,22 @@ async function requestPayriff(secret,url,{method='GET',body,reference,fetcher=fe
     return result.payload;
   }catch(e){
     if(e?.status)throw e;
-    console.error('[QR Pay] gateway transport uncertain',
-      {method,type:e?.name||'Error'});
-    throw fail('PAYRIFF_NETWORK_UNKNOWN',
-      'Нет ответа Payriff (возможен тайм-аут). Не запускайте новый платёж до проверки предыдущего.',503);
+    const timeout=controller.signal.aborted||e?.name==='AbortError';
+    const kind=timeout?'PAYRIFF_TIMEOUT':'PAYRIFF_CONNECT_FAILED';
+    // Only log a restricted machine-readable cause code. Raw exception
+    // messages may contain addresses or sensitive request parameters.
+    const knownCauses=new Set(['ENOTFOUND','EAI_AGAIN','ECONNRESET','ECONNREFUSED',
+      'ETIMEDOUT','UND_ERR_CONNECT_TIMEOUT','UND_ERR_SOCKET',
+      'CERT_HAS_EXPIRED','UNABLE_TO_VERIFY_LEAF_SIGNATURE']);
+    const rawCode=String(e?.cause?.code||'');
+    console.error('[QR Pay] gateway transport uncertain',{
+      method,kind,errorType:e?.name||'Error',
+      causeCode:knownCauses.has(rawCode)?rawCode:null
+    });
+    throw fail(kind,
+      timeout
+        ?'Истекло время ожидания Payriff. Не создавайте повторную оплату до сверки.'
+        :'Не удалось установить соединение с Payriff. Проверьте серверную связь; предыдущую оплату не повторяйте.',503);
   }finally{clearTimeout(kill)}
 }
 export async function createPayriffCheckout({secret,amountMinor,reference,callbackUrl,redirectUrl,fetcher=fetch}){
