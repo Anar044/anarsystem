@@ -11,6 +11,8 @@ const admin=read('qr-order-admin.js');
 const menu=read('menu.html');
 const editor=read('qr-menu.html');
 const managementPage=read('qr-order-admin.html');
+const persistentWorkspace=read('persistent-workspace.js');
+const siteAccess=read('site-access.js');
 const registryHelper=read('functions/api/qr-menu/_lib/pos-registers.js');
 const registryEndpoint=read('functions/api/qr-menu/pos-registers.js');
 const reference=read('qr-menu-reference-v2.js');
@@ -289,4 +291,34 @@ test('Cashier picker is a select backed by server-validated POS registry, not fr
   assert.match(registryEndpoint,/registeredPosRegisters\(env,ctx\.restaurantId\)/);
   assert.match(adminApi,/QR_POS_NOT_IN_RESTAURANT/);
   assert.match(adminApi,/registeredPosRegisters\(env,ctx\.restaurantId\)/);
+});
+
+
+test('QR orders button stays in protected workspace instead of falling back to Dashboard',()=>{
+  assert.match(menu,/href="\/qr-order-admin\.html"[^>]*>🧾 QR-заказы и столы<\/a>/);
+  assert.match(siteAccess,/'qr-menu\.html':\['qr\.manage'\]/);
+  assert.match(siteAccess,/'qr-order-admin\.html':\['qr\.manage'\]/);
+  const start=persistentWorkspace.indexOf('  function canonicalPagePath(path){');
+  const end=persistentWorkspace.indexOf('  function permitted(route){',start);
+  assert.ok(start>0&&end>start,'Route resolver source exists');
+  const resolver=persistentWorkspace.slice(start,end);
+  const resolve=new Function('location','document','PROCUREMENT','INTERNAL',
+    resolver+';return resolvePilotRoute;')(
+    {origin:'https://feature-qr-order-internal-co.smarthoreca.pages.dev'},
+    {querySelector:()=>null},Object.freeze({}),[]
+  );
+  for(const path of ['/qr-order-admin','/qr-order-admin.html']){
+    const route=resolve(path);
+    assert.deepEqual(route,{
+      href:'/qr-order-admin.html',
+      label:'QR-заказы и столы',
+      permissions:['qr.manage']
+    });
+    assert.notEqual(route.href,'/dashboard.html');
+  }
+  assert.equal(resolve('/qr-order-admin.html?invite=attacker'),null);
+  assert.equal(resolve('/qr-order-admin.html#unexpected'),null);
+  assert.equal(resolve('https://other.example/qr-order-admin.html'),null);
+  assert.match(persistentWorkspace,/route\.href==='\/qr-order-admin\.html'&&normalized\.href==='\/qr-menu\.html'/);
+  assert.match(managementPage,/href="\/qr-menu\.html"/);
 });
