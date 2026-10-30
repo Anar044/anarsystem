@@ -366,3 +366,116 @@ test('Unpublished QR menu shows actionable next step, never leaves a fake loadin
   assert.match(node('qrOrderError').textContent,/База D1 не подключена/);
   assert.equal(node('qrOrderSave').disabled,true);
 });
+
+test('Read-only POS tablesSnapshot authenticates, scopes and stores valid halls',async()=>{
+  const source=bridge.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
+  const saved=[];
+  const db={prepare:sql=>({bind:(...args)=>({run:async()=>{saved.push({sql,args});return{success:true}}})})};
+  const payload={action:'tablesSnapshot',
+    pluginId:'0638669c-67e2-4f14-be2d-567404352a7c',
+    departmentId:'28a38f52-9b1b-01a7-019f-8455da3a0010',
+    tables:[
+      {posTableId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',sectionId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      sectionName:'Зал',name:'Стол 1',number:1,isActive:true},
+      {posTableId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',sectionId:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      sectionName:'Терраса',name:'Стол 1',number:1,isActive:true}
+    ]
+  };
+  const err=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
+  let verified=0;
+  const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
+    source+';return{onRequestPost};')(
+    async()=>{},(v,status=200)=>new Response(JSON.stringify(v),{status}),
+    (status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status}),
+    err,(v,n=180)=>String(v??'').trim().slice(0,n),
+    async()=>{verified++;return{verified:true}}
+  );
+  const env={QR_POS_BRIDGE_TOKEN:'secret',DB:db};
+  const send=async data=>{
+    const req=new Request('https://test.example/api/qr-menu/pos-bridge',{method:'POST',
+      headers:{'X-QR-Bridge-Token':'secret'},body:JSON.stringify(data)});
+    const res=await onRequestPost({request:req,env});return{status:res.status,body:await res.json()};
+  };
+  const ok=await send(payload);
+  assert.equal(ok.status,200);assert.equal(ok.body.tableCount,2);
+  assert.equal(verified,1);
+  assert.equal(saved.length,1);
+  assert.equal(saved[0].args[0],payload.departmentId);
+  assert.equal(saved[0].args[1],payload.pluginId);
+  assert.equal(JSON.parse(saved[0].args[3]).length,2);
+  const duplicate=await send({...payload,tables:[payload.tables[0],payload.tables[0]]});
+  assert.equal(duplicate.status,400);
+  assert.equal(duplicate.body.code,'POS_TABLE_CATALOG_INVALID');
+  assert.equal(saved.length,1);
+  const wrongId=await send({...payload,tables:[{...payload.tables[0],sectionId:'evil'}]});
+  assert.equal(wrongId.status,400);
+  assert.equal(saved.length,1);
+});
+test('QR table importer only accepts a fresh authenticated POS catalog and keeps old QR keys',async()=>{
+  const source=adminApi.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
+  const restaurantId='28a38f52-9b1b-01a7-019f-8455da3a0010',
+    pluginId='0638669c-67e2-4f14-be2d-567404352a7c',
+    existingPosId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    newPosId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    stranger='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  const sectionId='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const catalog=[
+    {posTableId:existingPosId,sectionId,sectionName:'Основной зал',name:'Стол 1',number:1,isActive:true},
+    {posTableId:newPosId,sectionId,sectionName:'Терраса',name:'Стол 2',number:2,isActive:true}
+  ];
+  const rows=[{id:'original-qr-id',table_label:'Старый стол',pos_table_id:existingPosId,table_key:'permanent-token'}];
+  const batched=[];
+  const db={
+    prepare(sql){return{bind:(...params)=>({
+      first:async()=>sql.includes('qr_pos_table_snapshots')?{
+        tables_json:JSON.stringify(catalog),last_seen_at:new Date().toISOString()
+      }:null,
+      all:async()=>({results:rows}),
+      run:async()=>({success:true})
+    }),__sql:sql}},
+    async batch(statements){batched.push(statements);return []}
+  };
+  const err=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
+  const {onRequestPost}=new Function('ensureOrders','adminContext','settings','registeredPosRegisters','response','bad','fail','clean','token','eventStmt',
+    source+';return{onRequestPost};')(
+    async()=>{},async()=>({ownerId:'owner',restaurantId,menu:{id:'menu'}}),
+    async()=>({owner_id:'owner',restaurant_id:restaurantId,pos_plugin_id:pluginId,service_mode:'TABLE'}),
+    async()=>[],(v,status=200)=>new Response(JSON.stringify(v),{status}),
+    (status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status}),
+    err,(v,n=180)=>String(v??'').trim().slice(0,n),()=> 'new-qr-token',()=>({})
+  );
+  const send=async ids=>{
+    const request=new Request('https://test.example/api/qr-menu/order-admin',
+      {method:'POST',body:JSON.stringify({action:'syncPosTables',posTableIds:ids})});
+    const res=await onRequestPost({request,env:{DB:db}});
+    return{status:res.status,body:await res.json()};
+  };
+  const forged=await send([stranger]);
+  assert.equal(forged.status,409);
+  assert.equal(forged.body.code,'QR_TABLE_SELECTION_INVALID');
+  assert.equal(batched.length,0);
+  const valid=await send([existingPosId,newPosId]);
+  assert.equal(valid.status,200);
+  assert.equal(valid.body.created,1);
+  assert.equal(valid.body.linked,1);
+  assert.equal(batched.length,1);
+  assert.equal(batched[0].length,2);
+  // Existing row is updated only with its section metadata. Its table_key
+  // and printed QR remain untouched and it is not deleted/recreated.
+  const writeSql=batched[0].map(x=>x.__sql||'');
+  assert.match(writeSql[0],/UPDATE qr_order_tables/);
+  assert.doesNotMatch(writeSql[0],/table_key|DELETE/);
+  assert.match(writeSql[1],/INSERT INTO qr_order_tables/);
+});
+test('QR page offers grouped automatic POS table import and manual fallback',()=>{
+  assert.match(managementPage,/id="qrPosCatalogGroups"/);
+  assert.match(managementPage,/id="qrTableImport"/);
+  assert.match(managementPage,/id="qrTableRefresh"/);
+  assert.match(managementPage,/id="qrTableManual"/);
+  assert.match(admin,/function renderPosCatalog/);
+  assert.match(admin,/action:'syncPosTables'/);
+  assert.match(adminApi,/action==='syncPosTables'/);
+  assert.match(adminApi,/qr_pos_table_snapshots/);
+  assert.match(core,/CREATE TABLE IF NOT EXISTS qr_pos_table_snapshots/);
+  assert.match(core,/ADD COLUMN section_name/);
+});
