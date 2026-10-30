@@ -42,7 +42,37 @@
 <div class="qro-actions"><a href="/qr-menu.html">← Редактор QR Menu</a><button class="qro-btn" id="qrOrderReload">↻ Обновить</button></div>
 <h1>Управление QR-заказами</h1>
 <p>Внутренняя логика Smart Horeca: каждый стол имеет собственный QR; в фастфуде используется один QR. Продукты и суммы сверяются с опубликованным меню на сервере.</p>
-<div class="qro-warning"><strong>Подготовка POS-интеграции.</strong> Заказы можно регистрировать в Smart Horeca. Передача на кассу заработает только после расширения установленного плагина. Онлайн-оплата и автоматическое фискальное закрытие здесь не включены.</div>
+<div class="qro-warning"><strong>Тестовое подключение.</strong> QR-заказы доступны только после проверки кассы и отдельного разрешения. Пока подключение диагностическое, Smart Horeca ничего не создаёт в iikoFront и не печатает на кухне. Онлайн-оплата не подключена.</div>
+<section class="qro-panel" aria-labelledby="qrPosSetupHeading">
+  <div class="qro-actions" style="justify-content:space-between">
+    <h2 id="qrPosSetupHeading" style="margin:0">Подключение кассы из Smart Horeca</h2>
+    <button type="button" class="qro-btn" id="qrOrderCheckConnection">Проверить связь</button>
+  </div>
+  <p>Работаем с выбранным рестораном Smart Horeca. Отдельный сайт для настройки кассы не нужен; серверные секреты остаются вне браузера. Для первых заказов используйте только тестовую кассу и тестовую базу.</p>
+  <div class="qro-panels">
+    <div>
+      <div class="qro-field">Выбранный ресторан
+        <strong id="qrPosRestaurantName">Загрузка…</strong>
+        <small id="qrPosRestaurantId"></small>
+      </div>
+      <div class="qro-field">Кассовый плагин
+        <strong id="qrPosSelectedPlugin">Не указан</strong>
+        <small>Укажите зарегистрированный ID кассы ниже и нажмите «Сохранить режим» с выключенным приёмом заказов.</small>
+      </div>
+    </div>
+    <div>
+      <div class="qro-field">Проверка связи
+        <strong id="qrPosConnectionState" role="status">Ещё не проверено</strong>
+        <small id="qrPosLastSeen"></small>
+      </div>
+      <div class="qro-field">Серверная конфигурация
+        <strong id="qrPosServerState">Проверяем…</strong>
+        <small id="qrPosServerHint">Ключи не отображаются и не передаются в браузер.</small>
+      </div>
+    </div>
+  </div>
+  <p class="qro-muted" id="qrPosNextStep">Сначала выберите тестовое предприятие и подключённую тестовую кассу.</p>
+</section>
 <div id="qrOrderError" class="qro-status" role="alert"></div>
 <div class="qro-panels">
 <div>
@@ -53,6 +83,7 @@
 <input id="qrOrderPlugin" placeholder="ID подключённого плагина" autocomplete="off">
 <small>Не вводите его наугад: нужно зарегистрированное устройство из вашей кассовой сети.</small><small id="qrPosBridgeReady">POS-мост ещё не проверен</small></div>
 <label class="qro-actions" style="font-size:12px"><input id="qrOrderEnabled" type="checkbox"> Разрешить гостям оформлять QR-заказы</label>
+<small id="qrOrderSafety">Доступно только после подтверждения готовности кассы к приёму заказов и печати кухни.</small>
 <p>Оплата сейчас только на кассе; включение сбора QR-заказов не доказывает создание заказа в POS.</p>
 <div class="qro-actions"><button class="qro-btn primary" id="qrOrderSave">Сохранить режим</button></div>
 <div class="qro-status" id="qrOrderSaveStatus"></div>
@@ -81,6 +112,6 @@
 <script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script>
 <script src="/documents-nav.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script src="/qr-order-admin.js?v=20261029-internal1"></script>
+<script src="/qr-order-admin.js?v=20261030-setup1"></script>
 <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script><script src="/sh-i18n.js"></script>
 </body></html>
