@@ -17,6 +17,8 @@ const registryHelper=read('functions/api/qr-menu/_lib/pos-registers.js');
 const registryEndpoint=read('functions/api/qr-menu/pos-registers.js');
 const tablePolicy=read('functions/api/qr-menu/_lib/table-sync-policy.js');
 const ingestion=read('functions/api/plugin/_lib/ingest-auth.js');
+const payriffTest=read('functions/api/qr-menu/_lib/payriff-test.js');
+const payriffStatus=read('functions/api/qr-menu/payriff-test-status.js');
 const reference=read('qr-menu-reference-v2.js');
 const shell=read('app-shell.js');
 const modules=[core,publicApi,adminApi,bridge];
@@ -41,6 +43,48 @@ function getCore(){
   const source=core.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
   return new Function(source+';return {priceBasket,validateTable,publicState};')();
 }
+
+test('Payriff Development credentials are strictly scoped to Preview restaurant and host',()=>{
+  const source=payriffTest.replace(/\\bexport\\s+(?=async|function|const)/g,'');
+  const {payriffTestConfig}=new Function(source+';return {payriffTestConfig};')();
+  const request=new Request('https://'+testPreview+'/api/qr-menu/payriff-test-status');
+  const cfg={
+    PAYRIFF_TEST_MODE:'development',
+    PAYRIFF_TEST_MERCHANT_ID:'ES100001',
+    PAYRIFF_TEST_SECRET_KEY:'dummy-test-secret',
+    PAYRIFF_TEST_RESTAURANT_ID:testRestaurant,
+    PAYRIFF_TEST_HOST:testPreview
+  };
+  const good=payriffTestConfig(cfg,request,testRestaurant);
+  assert.equal(good.scoped,true);
+  assert.equal(good.configured,true);
+  assert.equal(payriffTestConfig(cfg,request,'another-restaurant').configured,false);
+  assert.equal(payriffTestConfig(cfg,new Request('https://smarthoreca.pages.dev/'),testRestaurant).configured,false);
+  assert.equal(payriffTestConfig({...cfg,PAYRIFF_TEST_MODE:'production'},request,testRestaurant).configured,false);
+  assert.equal(payriffTestConfig({...cfg,PAYRIFF_TEST_SECRET_KEY:''},request,testRestaurant).configured,false);
+  assert.doesNotMatch(payriffStatus,/secretKey\s*:/);
+});
+test('Payriff payment status verifier rejects preauthorization, wrong merchant, currency, amounts and references',()=>{
+  const source=payriffTest.replace(/\\bexport\\s+(?=async|function|const)/g,'');
+  const {verifyPaidPayriffOrder}=new Function(source+';return {verifyPaidPayriffOrder};')();
+  const expected={orderId:'e89b0d48-6e5f-4d3c-aa73-1ab92c97b806',
+    amountMinor:1500,currency:'AZN',merchantId:'ES100001',providerOrderBound:true};
+  const response={code:'00000',payload:{orderId:expected.orderId,
+    paymentStatus:'APPROVED',operationType:'PURCHASE',currencyType:'AZN',
+    merchantId:'ES100001',amount:15,paidAmount:15}};
+  assert.equal(verifyPaidPayriffOrder(response,expected).verified,true);
+  const rejected=[
+    {...response,payload:{...response.payload,paymentStatus:'PREAUTH_APPROVED'}},
+    {...response,payload:{...response.payload,paidAmount:14}},
+    {...response,payload:{...response.payload,amount:14}},
+    {...response,payload:{...response.payload,currencyType:'USD'}},
+    {...response,payload:{...response.payload,merchantId:'ES999999'}},
+    {...response,payload:{...response.payload,orderId:'another-id'}},
+    {...response,payload:{...response.payload,operationType:'PRE_AUTH'}}
+  ];
+  for(const invalid of rejected)assert.equal(verifyPaidPayriffOrder(invalid,expected).verified,false);
+  assert.equal(verifyPaidPayriffOrder(response,{...expected,providerOrderBound:false}).verified,false);
+});
 test('All new QR order APIs and client scripts are syntactically valid',()=>{
   for(const source of modules)assert.doesNotThrow(()=>compile(source));
   assert.doesNotThrow(()=>new Function(guest));
