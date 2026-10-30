@@ -372,16 +372,24 @@ function renderTables(){
     const name=document.createElement('strong');name.textContent=t.table_label;
     const badge=document.createElement('span');badge.className='qro-muted';
     badge.textContent=t.active?'Активен':'Выключен';head.append(name,badge);
+    // Production QR codes opened on smarthoreca.pages.dev do not run
+    // the Preview-only Payriff sandbox. Do not label them as test QR.
+    const previewHost='feature-qr-order-internal-co.smarthoreca.pages.dev';
+    let qrHost='';try{qrHost=new URL(t.url).hostname.toLowerCase()}catch(_){}
+    const isPreviewQr=qrHost===previewHost&&location.hostname===previewHost;
     const code=document.createElement('div');code.className='qro-qr';
-    if(t.active)qr(code,t.url);else code.textContent='Отключён';
+    if(t.active&&isPreviewQr)qr(code,t.url);
+    else code.textContent=t.active?'Тестовый QR недоступен':'Отключён';
     const link=document.createElement('a');link.href=t.url;link.target='_blank';link.rel='noopener';
-    link.textContent='Открыть меню';
+    link.textContent=isPreviewQr?'Открыть тестовое меню':'Открыть меню';
     const input=document.createElement('input');input.value=t.pos_table_id||'';
     input.placeholder='ID стола в POS';input.title='ID стола в POS';input.setAttribute('aria-label','ID POS: '+t.table_label);
     const btn=(label,handler,cls='')=>{const b=document.createElement('button');
       b.type='button';b.className='qro-btn '+cls;b.textContent=label;b.onclick=handler;return b;};
     const primary=document.createElement('div');primary.className='qro-qr-primary';
-    primary.append(link,btn('Копировать',()=>copy(t.url)));
+    const copyButton=btn(isPreviewQr?'Копировать тестовую ссылку':'Копировать',()=>copy(t.url));
+    copyButton.disabled=!isPreviewQr;
+    primary.append(link,copyButton);
     const more=document.createElement('details');more.className='qro-qr-more';
     const summary=document.createElement('summary');summary.textContent='Управление столом';
     const actions=document.createElement('div');actions.className='qro-actions';
@@ -389,7 +397,10 @@ function renderTables(){
       btn(t.active?'Выключить':'Включить',()=>action({action:'setTableActive',tableId:t.id,active:!t.active})),
       btn('Новый QR',()=>{if(confirm('Старый QR-код стола перестанет действовать. Продолжить?'))
         action({action:'rotateTable',tableId:t.id})},'danger'));
-    more.append(summary,actions);card.append(head,code,primary,more);container.append(card);
+    more.append(summary,actions);
+    const hostHint=document.createElement('small');hostHint.className='qro-muted';
+    hostHint.textContent=isPreviewQr?'ТЕСТ · Preview':'Проверить адрес QR';
+    card.append(head,hostHint,code,primary,more);container.append(card);
   }
   if(!all.length)container.textContent='Сначала добавьте столы из кассы.';
   else if(!shown.length)container.textContent='По выбранному фильтру столы не найдены.';
