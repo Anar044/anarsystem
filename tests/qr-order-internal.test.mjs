@@ -115,7 +115,7 @@ test('Payriff API refuses foreign restaurant, external origin, non-owner and pro
       merchantMasked:row?.merchant_id?'••••'+row.merchant_id.slice(-4):'',checkoutEnabled:false})
   );
   const env={SMART_HORECA_STATE_ENCRYPTION_KEY:'test-encryption-key-sufficient-length',
-    DB:{prepare:()=>({bind:()=>({})}),batch:async()=>{writes++}}};
+    DB:{prepare:()=>({bind:()=>({first:async()=>null})}),batch:async()=>{writes++}}};
   const call=(body,origin='https://preview.example')=>onRequestPost({env,request:
     new Request('https://preview.example/api/qr-menu/payment-settings',{method:'POST',
       headers:{'Content-Type':'application/json','Origin':origin},
