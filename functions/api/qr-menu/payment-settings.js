@@ -26,7 +26,9 @@ export async function onRequestGet({request,env}){
     await ensurePaymentSettings(env.DB);
     const row=await fetchPaymentSettings(env.DB,scope);
     return response({success:true,restaurantId:scope.restaurantId,
-      workspaceId:scope.workspaceId,...safePaymentSettings(row,isManager(ctx))});
+      workspaceId:scope.workspaceId,
+      encryptionReady:String(env.SMART_HORECA_STATE_ENCRYPTION_KEY||'').trim().length>=24,
+      ...safePaymentSettings(row,isManager(ctx))});
   }catch(e){return error(e)}
 }
 export async function onRequestPost({request,env}){
