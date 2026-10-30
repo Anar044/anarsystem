@@ -484,10 +484,10 @@ test('QR page offers grouped automatic POS table import and manual fallback',()=
 test('POS table sync is blocked without explicit preview DB isolation confirmation',async()=>{
   const source=bridge.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
   const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
-  let writes=0;
+  let writes=0, schemaAttempts=0;
   const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
     source+';return{onRequestPost};')(
-    async()=>{},
+    async()=>{schemaAttempts++},
     (value,status=200)=>new Response(JSON.stringify(value),{status}),
     (status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status}),
     fail,(v,n=180)=>String(v??'').trim().slice(0,n),async()=>({verified:true})
@@ -508,10 +508,12 @@ test('POS table sync is blocked without explicit preview DB isolation confirmati
   assert.equal(unconfirmed.status,409);
   assert.equal(unconfirmed.body.code,'QR_TEST_DB_UNCONFIRMED');
   assert.equal(writes,0);
+  assert.equal(schemaAttempts,0);
   const production=await send('smarthoreca.pages.dev','confirmed');
   assert.equal(production.status,409);
   assert.equal(production.body.code,'QR_TEST_DB_UNCONFIRMED');
   assert.equal(writes,0);
+  assert.equal(schemaAttempts,0);
   assert.match(adminApi,/QR_TEST_D1_ISOLATED/);
   assert.match(admin,/cfg.testD1ConfirmationRecorded/);
 });
