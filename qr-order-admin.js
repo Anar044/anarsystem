@@ -89,8 +89,46 @@ async function reload(){
     $('qrPosBridgeReady').textContent=state.settings.posBridgeReady
       ?'✓ Касса подключена: приём заказов и печать кухни разрешены (5 минут)'
       :state.settings.posBridgeConnected
-        ?'✓ Касса подключена к тестовому QR API. Режим диагностики: заказы и печать отключены.'
-        :'POS-мост не подключён. Настройте тестовый HTTPS API и проверьте авторизацию.';
+        ?'✓ Касса подключена. Режим диагностики: заказы и печать отключены.'
+        :'POS-мост не подключён. Настройте HTTPS API и проверьте авторизацию.';
+    const cfg=state.settings.backendSetup||{};
+    const hasConfig=Boolean(cfg.bridgeTokenConfigured&&cfg.ingressTokenConfigured&&cfg.rateSecretConfigured);
+    $('qrPosRestaurantName').textContent=state.menuName||'Ресторан не определён';
+    $('qrPosRestaurantId').textContent='ID подразделения: '+(state.restaurantId||'не определён');
+    $('qrPosSelectedPlugin').textContent=state.settings.posPluginId||'Плагин не выбран';
+    $('qrPosConnectionState').textContent=state.settings.posBridgeReady
+      ?'Готов к тестовым заказам и кухонной печати'
+      :state.settings.posBridgeConnected
+        ?'Подключён — безопасная диагностика'
+        :'Не подключён или не подтверждал связь последние 5 минут';
+    $('qrPosLastSeen').textContent=state.settings.posBridgeLastSeen
+      ?'Последний подтверждённый hello: '+new Date(state.settings.posBridgeLastSeen).toLocaleString('ru-RU')
+      :'Данных о недавнем подключении нет';
+    $('qrPosServerState').textContent=hasConfig?'Все серверные параметры настроены'
+      :'Требуется настройка серверных параметров';
+    const missing=[
+      !cfg.bridgeTokenConfigured?'QR_POS_BRIDGE_TOKEN':null,
+      !cfg.ingressTokenConfigured?'PLUGIN_INGEST_TOKEN':null,
+      !cfg.rateSecretConfigured?'QR_ORDER_RATE_SECRET':null
+    ].filter(Boolean);
+    $('qrPosServerHint').textContent=missing.length
+      ?'Отсутствуют: '+missing.join(', ')+'. Настраиваются администратором инфраструктуры, не в браузере.'
+      :'Ключи хранятся на сервере; здесь отображается только факт настройки.';
+    $('qrPosNextStep').textContent=!state.settings.posPluginId
+      ?'Шаг 1: укажите ID тестового плагина и сохраните настройки с выключенными заказами.'
+      :!hasConfig
+        ?'Шаг 2: настройте недостающие секреты на сервере. Они не должны попадать в браузер.'
+        :!state.settings.posBridgeConnected
+          ?'Шаг 3: настройте HTTPS URL и ключи в защищённом файле тестового POS-плагина, затем проверьте связь.'
+          :!state.settings.posBridgeReady
+            ?'Связь проверена. Касса в безопасном диагностическом режиме: для тестовых заказов потребуется отдельное разрешение на кассе.'
+            :'Касса подтвердила готовность. Только на тестовом стенде можно разрешить один пробный заказ.';
+    $('qrOrderEnabled').disabled=!state.settings.posBridgeReady&&!state.settings.orderingEnabled;
+    $('qrOrderSafety').textContent=state.settings.posBridgeReady
+      ?'Перед включением убедитесь, что выбран тестовый ресторан, а принтер направлен на тестовую кухню.'
+      :state.settings.orderingEnabled
+        ?'Касса недоступна. Приём новых заказов блокируется сервером; снимите галочку, чтобы полностью отключить режим.'
+        :'Нельзя включить приём: касса пока не подтвердила все функции (создание, печать кухни и фискальный ответ).';
     const global=$('qrOrderGlobalLink');global.replaceChildren();
     const a=document.createElement('a');a.href=state.menuUrl;a.target='_blank';a.rel='noopener';a.textContent=state.menuUrl;global.append(a);
     if(state.settings.serviceMode==='FAST_FOOD'){
@@ -104,6 +142,7 @@ async function reload(){
 }
 function bind(){
   $('qrOrderReload').onclick=reload;
+  $('qrOrderCheckConnection').onclick=reload;
   $('qrOrderSave').onclick=()=>action({action:'saveSettings',serviceMode:$('qrOrderMode').value,
     orderingEnabled:$('qrOrderEnabled').checked,posPluginId:$('qrOrderPlugin').value.trim()});
   $('qrAddTable').onclick=()=>action({action:'addTable',label:$('qrTableName').value.trim(),posTableId:$('qrPosTable').value.trim()});
