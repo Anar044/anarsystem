@@ -235,7 +235,7 @@ test('Payriff development checkout verifies purchase, amount and currency before
 });
 test('Sandbox payment requires preview, scoped restaurant and owner activation, never POS',()=>{
   assert.match(sandboxPayment,/feature-qr-order-internal-co\.smarthoreca\.pages\.dev/);
-  assert.match(sandboxPayment,/cfg\.enabled!==1/);
+  assert.match(sandboxPayment,/Number\(cfg\.enabled\)!==1/);
   assert.match(sandboxPayment,/qr_payment_menu_bindings/);
   assert.match(sandboxPayment,/qr_payment_provider_settings/);
   assert.match(sandboxPayment,/UNIQUE\(workspace_id,restaurant_id,menu_id,client_key\)/);
