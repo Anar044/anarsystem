@@ -105,9 +105,11 @@ async function init(){
   }catch(e){console.warn('[QR order mode] unavailable',e?.message||e)}
 }
 
-let sandboxEnabled=false,sandboxBusy=false,sandboxTicket='',sandboxKey='';
-function sandboxTicketKey(){return 'shqr_payriff_test:'+slug+':'+table}
-function sandboxClientKeyKey(){return 'shqr_payriff_attempt:'+slug+':'+table}
+let sandboxEnabled=false,sandboxBusy=false,sandboxTicket='',sandboxKey='',sandboxMode='DEVELOPMENT';
+const isRealCharge=()=>sandboxMode==='LIVE_PREVIEW_001';
+const paymentButtonText=()=>isRealCharge()?'Оплатить 0,01 AZN настоящей картой':'Оплатить через Payriff (Development)';
+function sandboxTicketKey(){return 'shqr_payriff_'+sandboxMode+':'+slug+':'+table}
+function sandboxClientKeyKey(){return 'shqr_payriff_attempt_'+sandboxMode+':'+slug+':'+table}
 function paymentBanner(){
   let box=$('shqrPayriffStatusBox');
   if(box)return box;
@@ -137,7 +139,7 @@ function paymentBanner(){
       sessionStorage.removeItem(sandboxClientKeyKey());
     }catch{}
     const b=$('shqrPayriffButton');
-    if(b){b.disabled=false;b.textContent='Оплатить через Payriff (тест)'}
+    if(b){b.disabled=false;b.textContent=paymentButtonText()}
     box.hidden=true;
   };
   actions.append(check,retry,hide);box.append(text,actions);document.body.append(box);
@@ -174,7 +176,7 @@ async function checkSandboxPayment(){
       retry.dataset.allowed=String(p.state==='FAILED');
     }
     text.textContent=p.paidVerified
-      ?'✓ Тестовая оплата '+p.amountAZN+' AZN подтверждена. Кассовый заказ НЕ создан, кухонная печать выключена.'
+      ?'✓ Оплата '+p.amountAZN+' AZN подтверждена Payriff. Кассовый заказ НЕ создан, кухонная печать выключена.'
       :p.notice+' · '+p.amountAZN+' AZN. Кассовый заказ не создавался.';
   }catch(e){
     text.textContent='Не удалось подтвердить платёж: '+e.message+
@@ -188,21 +190,26 @@ function setupSandboxPayment(){
   const btn=document.createElement('button');
   btn.id='shqrPayriffButton';btn.className='qro-submit';btn.type='button';
   btn.style.cssText='background:#21ad7b;color:#fff;width:100%;border:0;border-radius:12px;padding:14px;font-weight:800;margin-top:12px';
-  btn.textContent='Оплатить через Payriff (тест)';
-  btn.disabled=Boolean(sandboxTicket);
+  btn.textContent=paymentButtonText();
+  btn.disabled=Boolean(sandboxTicket||sandboxKey);
   btn.onclick=submitSandboxPayment;
   const note=basket.querySelector('.shqr-basket-note');
-  if(note)note.textContent='Тестовый Payriff Development. До подтверждённой оплаты касса и кухня не получают заказ.';
+  if(note)note.textContent=isRealCharge()
+    ?'НАСТОЯЩИЙ платёж через действующий Payriff Online — 0,01 AZN. Деньги будут списаны с карты после подтверждения. Кассовый заказ и кухня пока не включены.'
+    :'Payriff Development. Заказы на кассу пока не отправляются.';
   const hint=document.createElement('div');hint.style.cssText='font:12px system-ui;color:#697b70;margin-top:7px';
-  hint.textContent='Только тестовая оплата · никаких заказов и кухонной печати.';
+  hint.textContent=isRealCharge()
+    ?'Реальное списание 0,01 AZN · не нажимайте повторно при ошибке'
+    :'Development · создание кассового заказа и кухонная печать выключены.';
   basket.append(btn,hint);
 }
 async function submitSandboxPayment(){
   if(!sandboxEnabled||sandboxBusy||sandboxTicket)return;
   const items=snapshot();
   if(!items.length){alert('Сначала добавьте блюда в корзину');return}
+  if(isRealCharge()&&!confirm('С карты будет РЕАЛЬНО списано 0,01 AZN через Payriff Online. Подтвердить переход к оплате?'))return;
   sandboxBusy=true;
-  const btn=$('shqrPayriffButton');if(btn){btn.disabled=true;btn.textContent='Готовим тестовую оплату…'}
+  const btn=$('shqrPayriffButton');if(btn){btn.disabled=true;btn.textContent=isRealCharge()?'Создаём платёж 0,01 AZN…':'Готовим оплату…'}
   try{
     const note=$('qroGuestNote')?.value.trim()||'';
     if(!sandboxKey)sandboxKey=crypto.randomUUID();
@@ -239,7 +246,7 @@ async function submitSandboxPayment(){
       await checkSandboxPayment();
     }else{
       alert(e.message||String(e));
-      if(btn){btn.disabled=false;btn.textContent='Оплатить через Payriff (тест)'}
+      if(btn){btn.disabled=false;btn.textContent=paymentButtonText()}
     }
   }finally{sandboxBusy=false}
 }
@@ -264,16 +271,17 @@ function explainSandboxAvailability(message){
 async function initSandboxPayment(){
   if(!slug)return;
   try{
-    const fromReturn=params.get('qrPaymentTicket');
-    sandboxTicket=fromReturn||sessionStorage.getItem(sandboxTicketKey())||'';
-    sandboxKey=sessionStorage.getItem(sandboxClientKeyKey())||'';
-  }catch{}
-  if(sandboxTicket||sandboxKey){paymentBanner();checkSandboxPayment()}
-  try{
     const res=await fetch('/api/qr-menu/payment-checkout?id='+encodeURIComponent(slug)+
       '&table='+encodeURIComponent(table),{cache:'no-store'});
     const json=await res.json().catch(()=>({}));
     sandboxEnabled=Boolean(res.ok&&json.testCheckoutEnabled);
+    sandboxMode=json.checkoutMode==='LIVE_PREVIEW_001'?'LIVE_PREVIEW_001':'DEVELOPMENT';
+    try{
+      const fromReturn=params.get('qrPaymentTicket');
+      sandboxTicket=fromReturn||sessionStorage.getItem(sandboxTicketKey())||'';
+      sandboxKey=sessionStorage.getItem(sandboxClientKeyKey())||'';
+    }catch{}
+    if(sandboxTicket||sandboxKey){paymentBanner();checkSandboxPayment()}
     if(!sandboxEnabled){
       explainSandboxAvailability(res.ok
         ?'Тестовая оплата для этого QR пока недоступна. Проверьте, что QR выпущен на Preview и Payriff включён для данного ресторана.'
