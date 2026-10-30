@@ -97,7 +97,7 @@ export function safePaymentSettings(row,canManage){
     merchantId:canManage?(row?.merchant_id||''):'',
     merchantMasked:row?.merchant_id?'••••'+String(row.merchant_id).slice(-4):'',
     updatedAt:row?.updated_at||null,
-    canManage:Boolean(canManage),checkoutEnabled:false,
+    canManage:Boolean(canManage),checkoutEnabled:row?.enabled===1||row?.enabled===true,
     verification:'NOT_VERIFIED',
     settlementManagedBy:'PAYRIFF_DASHBOARD'
   };
