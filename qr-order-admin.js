@@ -249,17 +249,27 @@ async function loadPaymentSettings(){
       (cfg.configured?' · Merchant '+cfg.merchantMasked:' · ключей нет');
     $('qrPaymentMerchantId').value=cfg.canManage?cfg.merchantId:'';
     $('qrPaymentSecret').value='';
-    $('qrPaymentEnvironment').value='development';
+    $('qrPaymentEnvironment').value=cfg.environment==='production'?'production':'development';
     const allowed=Boolean(cfg.canManage&&cfg.encryptionReady);
     paymentEditable(allowed);
     $('qrPaymentDisconnect').disabled=!cfg.canManage||!cfg.configured||paymentBusy;
     $('qrPaymentSave').disabled=!allowed||paymentBusy;
     const toggle=$('qrPaymentToggleTest');
-    toggle.disabled=!cfg.canManage||!cfg.encryptionReady||!cfg.configured||paymentBusy;
+    toggle.disabled=!cfg.canManage||!cfg.encryptionReady||!cfg.configured||paymentBusy||cfg.livePreviewEnabled;
     toggle.textContent=cfg.checkoutEnabled?'Выключить тестовую оплату':'Включить тестовую оплату';
+    const live=$('qrPaymentToggleLive');
+    live.disabled=!cfg.canManage||!cfg.encryptionReady||!cfg.configured||paymentBusy;
+    live.dataset.enabled=String(Boolean(cfg.livePreviewEnabled));
+    live.dataset.merchant=cfg.merchantId||'';
+    live.textContent=cfg.livePreviewEnabled
+      ?'Отключить реальную оплату 0,01 AZN'
+      :'Включить реальную оплату 0,01 AZN';
     toggle.dataset.enabled=String(Boolean(cfg.checkoutEnabled));
-    if(cfg.checkoutEnabled)msg.textContent='· Тестовая оплата включена';
-    $('qrPaymentVerification').textContent=cfg.checkoutEnabled
+    if(cfg.livePreviewEnabled)msg.textContent='· РЕАЛЬНОЕ СПИСАНИЕ 0,01 AZN ВКЛЮЧЕНО';
+    else if(cfg.checkoutEnabled)msg.textContent='· Оплата Development включена';
+    $('qrPaymentVerification').textContent=cfg.livePreviewEnabled
+      ?'РЕАЛЬНАЯ оплата 0,01 AZN через Online Payriff · создание POS-заказа и печать пока выключены'
+      :cfg.checkoutEnabled
       ?'Тестовая оплата Payriff разрешена · касса и печать кухни выключены'
       :cfg.configured?'Ключ сохранён · тестовая оплата выключена · касса выключена'
       :'Сначала подключите Payriff · заказы и оплата выключены';
@@ -285,6 +295,7 @@ async function loadPaymentSettings(){
     paymentEditable(false);
     $('qrPaymentDisconnect').disabled=true;
     $('qrPaymentToggleTest').disabled=true;
+    $('qrPaymentToggleLive').disabled=true;
     paymentMessage('Не удалось получить настройки Payriff: '+(e.message||'проверьте связь'),true);
   }
 }
@@ -304,6 +315,26 @@ async function toggleTestCheckout(){
       expectedRestaurantId:paymentLoadedRestaurant},'/api/qr-menu/payment-settings');
     paymentMessage(result.notice||'Режим оплаты обновлён');
   }catch(e){paymentMessage('Не удалось изменить тестовый режим: '+e.message,true)}
+  finally{paymentBusy=false;await loadPaymentSettings()}
+}
+async function toggleRealOneKopek(){
+  const btn=$('qrPaymentToggleLive');
+  if(paymentBusy||!state||state.restaurantId!==paymentLoadedRestaurant||btn.disabled)return;
+  const enabled=btn.dataset.enabled!=='true';
+  const merchantId=btn.dataset.merchant;
+  if(enabled&&!confirm(
+    'РЕАЛЬНЫЙ ПЛАТЁЖ: вы подключаете существующее Payriff-приложение '+merchantId+
+    ' со статусом ONLINE. С вашей карты будут реально списаны 0,01 AZN '+
+    'при подтверждении оплаты гостем. Операция может появиться в Transactions Payriff. '+
+    'На тестовую кассу и кухню заказ пока НЕ отправляется. Включить?'))return;
+  paymentBusy=true;btn.disabled=true;
+  paymentMessage(enabled?'Включаем реальную оплату 0,01 AZN…':'Отключаем реальную оплату…');
+  try{
+    const result=await api({action:'setLivePreview',enabled,
+      confirmRealCharge:enabled,expectedMerchantId:merchantId,
+      expectedRestaurantId:paymentLoadedRestaurant},'/api/qr-menu/payment-settings');
+    paymentMessage(result.notice||'Настройка обновлена');
+  }catch(e){paymentMessage('Не удалось переключить реальные платежи: '+(e.message||'ошибка'),true)}
   finally{paymentBusy=false;await loadPaymentSettings()}
 }
 async function savePaymentSettings(){
@@ -693,6 +724,7 @@ function bind(){
   $('qrPaymentSave').onclick=savePaymentSettings;
   $('qrPaymentDisconnect').onclick=disconnectPaymentSettings;
   $('qrPaymentToggleTest').onclick=toggleTestCheckout;
+  $('qrPaymentToggleLive').onclick=toggleRealOneKopek;
   $('qrPayriffAttemptsRefresh').onclick=loadPaymentAttempts;
   $('qrPayriffConnectivityCheck').onclick=checkPayriffConnectivity;
   $('qrPaymentAttemptsPanel').ontoggle=()=>{
