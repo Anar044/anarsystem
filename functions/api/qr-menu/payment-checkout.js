@@ -67,7 +67,11 @@ async function loadScope(db,menu){
     WHERE b.menu_id=?1 AND b.restaurant_id=?2 LIMIT 1`)
     .bind(menu.id,menu.organization_id).first());
   if(!binding)return null;
-  const cfg=await readOnlyStep('PROVIDER_SETTINGS',()=>fetchPaymentSettings(db,binding));
+  // D1 rows expose snake_case. fetchPaymentSettings accepts camelCase.
+  // Passing the raw binding object would bind undefined parameters in D1.
+  const cfg=await readOnlyStep('PROVIDER_SETTINGS',()=>fetchPaymentSettings(db,{
+    workspaceId:binding.workspace_id,restaurantId:binding.restaurant_id
+  }));
   if(!cfg||cfg.environment!=='development'||Number(cfg.enabled)!==1||
       !cfg.merchant_id||!cfg.secret_encrypted)return null;
   const orderSettings=await readOnlyStep('TABLE_SETTINGS',()=>settings(db,menu.id));
