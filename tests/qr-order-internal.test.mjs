@@ -114,6 +114,7 @@ test('Payriff API refuses foreign restaurant, external origin, non-owner and pro
   const {onRequestGet,onRequestPost}=new Function('adminContext','response','bad','fail','clean','hasPermission',
     'ensurePaymentSettings','paymentSettingsScope','fetchPaymentSettings',
     'encryptPaymentSecret','decryptPaymentSecret','safePaymentSettings',
+    'ensureCheckoutPolicy','fetchCheckoutPolicy','isLivePreview',
     src+';return {onRequestGet,onRequestPost};')(
     adminContext,json,(status,code,message)=>json({success:false,code,message},status),
     fail,(v,n=180)=>String(v??'').trim().slice(0,n),
@@ -123,7 +124,8 @@ test('Payriff API refuses foreign restaurant, external origin, non-owner and pro
     async(_env,args)=>{encrypted='encrypted-not-plaintext';merchantId='ES1095709';return encrypted},
     async()=>{throw Error('Should not decrypt new credential')},
     (row,canManage)=>({configured:!!row,canManage,merchantId:canManage?row?.merchant_id||'':'',
-      merchantMasked:row?.merchant_id?'••••'+row.merchant_id.slice(-4):'',checkoutEnabled:false})
+      merchantMasked:row?.merchant_id?'••••'+row.merchant_id.slice(-4):'',checkoutEnabled:false}),
+    async()=>{},async()=>null,row=>Number(row?.live_preview_enabled)===1
   );
   const env={SMART_HORECA_STATE_ENCRYPTION_KEY:'test-encryption-key-sufficient-length',
     DB:{prepare:()=>({bind:()=>({first:async()=>null})}),batch:async()=>{writes++}}};
@@ -164,7 +166,7 @@ test('Opening a QR checkout does not create D1 tables or write before payment',a
   });
   let capturedPaymentScope=null;
   const getter=new Function('publishedMenu','settings','validateTable',
-    'fetchPaymentSettings','response','bad','fail','clean',
+    'fetchPaymentSettings','response','bad','fail','clean','fetchCheckoutPolicy','isLivePreview',
     source+';return onRequestGet;')(
     async()=>({id:'menu1',organization_id:'restaurant1'}),
     async()=>({owner_id:'owner1',restaurant_id:'restaurant1',menu_id:'menu1',service_mode:'TABLE'}),
@@ -177,7 +179,7 @@ test('Opening a QR checkout does not create D1 tables or write before payment',a
         merchant_id:'ES9990000',secret_encrypted:'ciphertext'};
     },
     respond,(status,code,message)=>respond({success:false,code,message},status),
-    failed,cleanValue);
+    failed,cleanValue,async()=>null,row=>Number(row?.live_preview_enabled)===1);
   let queryCount=0;
   const env={DB:{prepare(sql){
     queryCount++;
@@ -207,6 +209,20 @@ test('Opening a QR checkout does not create D1 tables or write before payment',a
   assert.match(sandboxPayment,/readOnlyStep\('PROVIDER_SETTINGS'/);
   assert.match(sandboxPayment,/readOnlyStep\('TABLE_SETTINGS'/);
   assert.match(sandboxPayment,/readOnlyStep\('TABLE_LOOKUP'/);
+});
+test('Payriff legacy encrypted Online merchant can enable real 0.01 AZN only with explicit owner confirmation',()=>{
+  assert.match(paymentEndpoint,/action==='setLivePreview'/);
+  assert.match(paymentEndpoint,/confirmRealCharge!==true/);
+  assert.match(paymentEndpoint,/expectedMerchantId!==existing.merchant_id/);
+  assert.match(paymentEndpoint,/live_preview_enabled=excluded.live_preview_enabled/);
+  assert.match(paymentEndpoint,/max_live_minor=1/);
+  assert.match(managementPage,/id="qrPaymentToggleLive"/);
+  assert.match(admin,/toggleRealOneKopek/);
+  assert.match(guest,/LIVE_PREVIEW_001/);
+  assert.match(guest,/С карты будет РЕАЛЬНО списано 0,01 AZN/);
+  assert.match(sandboxPayment,/basket.totalMinor!==1/);
+  assert.match(sandboxPayment,/checkoutMode:'LIVE_PREVIEW_001'/);
+  assert.doesNotMatch(sandboxPayment,/INSERT INTO qr_guest_orders|ackCreated|ackKitchen/);
 });
 test('Payriff development checkout verifies purchase, amount and currency before paid',async()=>{
   const gateway=payriffGateway.replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
@@ -392,7 +408,7 @@ test('Payriff UNKNOWN reconciliation exposes provider error instead of hiding it
   assert.doesNotMatch(JSON.stringify(body),/server-side-secret|encrypted/);
   assert.match(admin,/paymentAttemptResults\.set\(attempt.id/);
   assert.match(admin,/await loadPaymentAttempts\(\)/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-app-status-warning1/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-live001-1/);
 });
 test('Cloudflare to Payriff diagnostic only GETs a synthetic RRN, is owner-scoped and never reveals secret',async()=>{
   const src=paymentConnectivity
@@ -439,7 +455,7 @@ test('Cloudflare to Payriff diagnostic only GETs a synthetic RRN, is owner-scope
   assert.match(admin,/checkPayriffConnectivity/);
   assert.match(admin,/\$\('qrPayriffConnectivityCheck'\)\.onclick=checkPayriffConnectivity/);
   assert.match(managementPage,/id="qrPayriffConnectivityStatus"/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-app-status-warning1/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-live001-1/);
   assert.doesNotMatch(paymentConnectivity,/method:'POST'|INSERT INTO|UPDATE qr_payment_intents/);
 });
 test('Payriff network probe distinguishes a fetch transport failure from an HTTP refusal',async()=>{
@@ -494,7 +510,8 @@ test('Payriff previous-attempt history is scoped and never creates a new charge'
 });
 test('Sandbox payment requires preview, scoped restaurant and owner activation, never POS',()=>{
   assert.match(sandboxPayment,/feature-qr-order-internal-co\.smarthoreca\.pages\.dev/);
-  assert.match(sandboxPayment,/Number\(cfg\.enabled\)!==1/);
+  assert.match(sandboxPayment,/Number\(cfg\.enabled\)===1/);
+  assert.match(sandboxPayment,/LIVE_PREVIEW_001/);
   assert.match(sandboxPayment,/qr_payment_menu_bindings/);
   assert.match(sandboxPayment,/qr_payment_provider_settings/);
   assert.match(sandboxPayment,/UNIQUE\(workspace_id,restaurant_id,menu_id,client_key\)/);
@@ -1115,7 +1132,7 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-app-status-warning1/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-live001-1/);
 });
 
 test('QR management offers independently scrollable desktop panels and a mobile layout',()=>{
