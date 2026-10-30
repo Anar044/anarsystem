@@ -112,6 +112,8 @@ test('Payment-first guard rejects guest orders and setup even without the shared
   assert.match(adminApi,/if\(action==='saveSettings'&&body.orderingEnabled===true\)/);
   assert.match(bridge,/WHERE o.restaurant_id=\?3 AND o.payment_state='PAID_ONLINE'/);
   assert.match(bridge,/AND o.payment_method='PAYRIFF'/);
+  assert.match(bridge,/\['ackCreated','ackKitchen'\]\.includes\(action\)/);
+  assert.match(adminApi,/QR_ONLINE_PAYMENT_NOT_READY/);
   assert.match(bridge,/Без подтверждённой оплаты заказ не передаётся на кассу и кухню/);
 });
 test('POS bridge requires dual secret and known plugin, uses an idempotent lease',()=>{
@@ -162,7 +164,7 @@ test('Physical kitchen printing cannot be acknowledged by an arbitrary guest req
 test('Cashier can retry only a known pre-creation validation failure',()=>{
   assert.match(adminApi,/action==='retryValidationFailure'/);
   assert.match(adminApi,/last_error='POS_VALIDATION_FAILED'/);
-  assert.match(adminApi,/pos_order_id='' AND payment_state='UNPAID'/);
+  assert.match(adminApi,/pos_order_id='' AND payment_state='PAID_ONLINE' AND payment_method='PAYRIFF'/);
   assert.match(adminApi,/QR_RETRY_UNSAFE/);
   assert.match(adminApi,/owner_id=\?3 AND restaurant_id=\?4/);
   assert.match(admin,/o\.last_error==='POS_VALIDATION_FAILED'/);
