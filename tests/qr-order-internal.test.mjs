@@ -202,6 +202,12 @@ test('Sandbox payment requires preview, scoped restaurant and owner activation, 
   assert.match(paymentEndpoint,/PAYRIFF_TEST_PREVIEW_ONLY/);
   assert.match(admin,/toggleTestCheckout/);
   assert.match(managementPage,/qrPaymentToggleTest/);
+  assert.match(managementPage,/qrPaymentQrOriginWarning/);
+  assert.match(admin,/isPreviewQr/);
+  assert.match(admin,/Копировать тестовую ссылку/);
+  assert.match(guest,/explainSandboxAvailability/);
+  assert.match(guest,/shqrPayriffAvailability/);
+  assert.match(menu,/qr-order-guest\.js\?v=20261030-preview-host3/);
   assert.match(guest,/submitSandboxPayment/);
   assert.match(guest,/sessionStorage\.setItem\(sandboxTicketKey\(\),sandboxTicket\)/);
   assert.match(paymentCallback,/verified:false/);
