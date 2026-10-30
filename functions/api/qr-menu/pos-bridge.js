@@ -1,5 +1,6 @@
 import {ensureOrders,response,bad,fail,clean} from './_lib/orders.js';
 import {verifyPluginIngress} from '../plugin/_lib/ingest-auth.js';
+import {requireTableSyncScope,isSharedD1Test} from './_lib/table-sync-policy.js';
 
 const error=e=>bad(e.status||500,e.code||'QR_POS_BRIDGE_FAILED',e.status?e.message:'Ошибка обмена с кассой');
 const iso=()=>new Date().toISOString();
@@ -22,15 +23,20 @@ export async function onRequestPost({request,env}){
     if(!body||typeof body!=='object'||Array.isArray(body))throw fail('BAD_BODY','Неверный запрос');
     const identity=await authorize(request,env,body);
     const action=clean(body.action,32);
-    // Gate BEFORE schema creation: ensureOrders may write D1 even for a
-    // diagnostic request. No POS table data may touch an unverified database.
-    if(action==='tablesSnapshot'){
-      const hostname=new URL(request.url).hostname.toLowerCase();
-      if(String(env.QR_TEST_D1_ISOLATED||'')!=='confirmed'||
-          hostname==='smarthoreca.pages.dev'||hostname==='web.smarthoreca.az')
-        throw fail('QR_TEST_DB_UNCONFIRMED',
-          'Сначала подтвердите отдельную тестовую D1 в preview. Импорт столов заблокирован.',409);
-    }
+    // Shared D1: only one allowlisted test plugin/restaurant can update table
+    // snapshots. Reject BEFORE ensureOrders may create or migrate D1 schema.
+    if(action==='tablesSnapshot'||(isSharedD1Test(env)&&action==='hello'))
+      requireTableSyncScope(request,env,identity);
+    // Table synchronization on the shared DB is read-only in the POS. Orders
+    // are never available even if a test till accidentally enables its flags.
+    if(isSharedD1Test(env)&&action!=='hello'&&action!=='tablesSnapshot')
+      throw fail('QR_SHARED_D1_ORDERS_DISABLED',
+        'Создание QR-заказов в режиме общей тестовой D1 выключено',409);
+    if(isSharedD1Test(env)&&action==='hello'&&
+        (body.canCreateOrder!==false||body.canAcknowledgeFiscal!==false||
+         body.canPrintKitchen!==false))
+      throw fail('QR_SHARED_D1_DIAGNOSTICS_ONLY',
+        'На общей D1 разрешена только диагностика без заказов и печати',409);
     await ensureOrders(env.DB);
     const t=iso();
     if(action==='hello'){
