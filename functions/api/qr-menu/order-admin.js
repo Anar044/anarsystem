@@ -68,11 +68,19 @@ export async function onRequestGet({request,env}){
 }
 export async function onRequestPost({request,env}){
   try{
-    await ensureOrders(env.DB);
-    const ctx=await adminContext(request,env);
     const body=await request.json().catch(()=>null);
     if(!body||typeof body!=='object'||Array.isArray(body))throw fail('BAD_REQUEST','Некорректный запрос');
     const action=clean(body.action,40);
+    // Reject before ensureOrders, which may create D1 schema tables.
+    if(action==='syncPosTables'){
+      const hostname=new URL(request.url).hostname.toLowerCase();
+      if(String(env.QR_TEST_D1_ISOLATED||'')!=='confirmed'||
+          hostname==='smarthoreca.pages.dev'||hostname==='web.smarthoreca.az')
+        throw fail('QR_TEST_DB_UNCONFIRMED',
+          'Автоматический импорт столов запрещён до подтверждения отдельной тестовой D1',409);
+    }
+    await ensureOrders(env.DB);
+    const ctx=await adminContext(request,env);
     const existing=await settings(env.DB,ctx.menu.id);
     if(existing&&(existing.owner_id!==ctx.ownerId||existing.restaurant_id!==ctx.restaurantId))
       throw fail('CROSS_WORKSPACE_FORBIDDEN','QR Menu принадлежит другому рабочему пространству',403);
@@ -119,11 +127,6 @@ export async function onRequestPost({request,env}){
       return response({success:true,notice:enabled?'Приём тестовых QR-заказов включён: POS-мост подтвердил полную готовность.':'Приём заказов выключен.'});
     }
     if(action==='syncPosTables'){
-      const hostname=new URL(request.url).hostname.toLowerCase();
-      if(String(env.QR_TEST_D1_ISOLATED||'')!=='confirmed'||
-          hostname==='smarthoreca.pages.dev'||hostname==='web.smarthoreca.az')
-        throw fail('QR_TEST_DB_UNCONFIRMED',
-          'Автоматический импорт столов запрещён до подтверждения отдельной тестовой D1',409);
       // Only data previously signed by a registered plugin belonging to this
       // restaurant may be imported. Browser cannot choose a different plugin.
       const pluginId=clean(existing?.pos_plugin_id,100);
