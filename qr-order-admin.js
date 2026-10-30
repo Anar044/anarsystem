@@ -115,16 +115,35 @@ async function checkGuestCheckout(){
 }
 async function loadPaymentAttempts(){
   const message=$('qrPayriffAttemptsMessage'),table=$('qrPayriffAttemptsRows');
-  if(!message||!table||!state)return;
-  const expected=state.restaurantId;
-  message.textContent='Читаем историю тестовых попыток…';
+  if(!message||!table)return;
   table.replaceChildren();
+  if(!state){
+    message.textContent='Сначала загрузите ресторан. История платёжных попыток ещё не запрашивалась.';
+    return;
+  }
+  const expected=state.restaurantId;
+  message.textContent='Проверяем сохранённые попытки выбранного ресторана (без создания платежа)…';
+  const refresh=$('qrPayriffAttemptsRefresh');
+  if(refresh)refresh.disabled=true;
   try{
     const result=await api(null,'/api/qr-menu/payment-attempts');
-    if(!state||state.restaurantId!==expected)return;
+    if(!state||state.restaurantId!==expected){
+      message.textContent='Ресторан был изменён. Нажмите «Обновить попытки» для нового ресторана.';
+      return;
+    }
     const items=Array.isArray(result.attempts)?result.attempts:[];
-    if(!items.length){message.textContent='Платёжных попыток пока нет.';return}
-    message.textContent='Последние '+items.length+' попыток. Кнопка «Проверить» только читает Payriff — не создаёт платёж.';
+    if(!result.storageReady){
+      message.textContent=result.notice||'Журнал попыток в Preview ещё не создан. Проверьте Transactions в Payriff до повторной оплаты.';
+      message.style.color='#ffd29b';
+      return;
+    }
+    if(!items.length){
+      message.textContent=result.notice||'В Smart Horeca нет сохранённых попыток для этого ресторана. Проверьте Payriff перед повторной оплатой.';
+      message.style.color='#ffd29b';
+      return;
+    }
+    message.style.color='#89ddb7';
+    message.textContent='Найдено '+items.length+' записей для выбранного ресторана. «Проверить» не создаёт повторную оплату.';
     for(const attempt of items){
       const tr=document.createElement('tr');
       const cell=s=>{const td=document.createElement('td');td.textContent=String(s||'—');tr.append(td);return td};
@@ -150,7 +169,14 @@ async function loadPaymentAttempts(){
       };
       td.append(button);tr.append(td);table.append(tr);
     }
-  }catch(e){message.textContent='История платежей недоступна: '+(e.message||'ошибка')}
+  }catch(e){
+    message.style.color='#ffd29b';
+    message.textContent='Не удалось загрузить историю ('+(e.code||'HTTP_ERROR')+'): '+
+      (e.message||'ошибка соединения')+
+      '. Не создавайте новую оплату до сверки первой попытки в Payriff.';
+  }finally{
+    if(refresh)refresh.disabled=false;
+  }
 }
 async function loadPaymentSettings(){
   const msg=$('qrPaymentSummary');
@@ -601,6 +627,7 @@ async function reload(){
     renderTables();renderOrders();renderPosCatalog();
     await loadRegisters();
     await loadPaymentSettings();
+    if($('qrPaymentAttemptsPanel')?.open)await loadPaymentAttempts();
   }catch(e){if(sequence===reloadSequence)showPrerequisite(e)}
 }
 function bind(){
