@@ -207,6 +207,11 @@ test('Sandbox payment requires preview, scoped restaurant and owner activation, 
   assert.match(admin,/Копировать тестовую ссылку/);
   assert.match(guest,/explainSandboxAvailability/);
   assert.match(guest,/shqrPayriffAvailability/);
+  assert.match(managementPage,/qrTestCheckoutReadiness/);
+  assert.match(admin,/cfg\.guestCheckoutReady/);
+  assert.match(paymentEndpoint,/guestCheckoutReady/);
+  assert.match(paymentEndpoint,/testQrScopeReady/);
+  assert.match(paymentEndpoint,/binding\.workspace_id===scope\.workspaceId/);
   assert.match(menu,/qr-order-guest\.js\?v=20261030-preview-host3/);
   assert.match(guest,/submitSandboxPayment/);
   assert.match(guest,/sessionStorage\.setItem\(sandboxTicketKey\(\),sandboxTicket\)/);
@@ -804,7 +809,7 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-payment-qr-host3/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-payment-qr-readiness4/);
 });
 
 test('QR management offers independently scrollable desktop panels and a mobile layout',()=>{
