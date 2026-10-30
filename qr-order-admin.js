@@ -168,7 +168,7 @@ function renderPosCatalog(){
   const update=()=>{
     importBtn.disabled=!host.querySelector('input[type="checkbox"]:checked');
   };
-  host.addEventListener('change',update,{once:false});
+  host.onchange=update;
   update();
 }
 function renderTables(){
