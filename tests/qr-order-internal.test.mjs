@@ -264,6 +264,56 @@ test('Payriff development checkout verifies purchase, amount and currency before
   assert.match(guest,/sandboxClientKeyKey/);
   assert.match(guest,/sessionStorage\.setItem\(sandboxClientKeyKey\(\),sandboxKey\)/);
 });
+test('Payment attempts history distinguishes empty D1 store from zero rows, without modifying DB',async()=>{
+  const source=paymentAttempts
+    .replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
+    .replace(/\bexport\s+(?=async|function|const)/g,'');
+  const mockCtx=async()=>({
+    restaurantId:'r1',
+    state:{access:{isOwner:true,workspace:{id:'w1'}}}
+  });
+  const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
+  const output=(value,status=200)=>new Response(JSON.stringify(value),{status});
+  const handle=new Function('adminContext','hasPermission','paymentSettingsScope',
+    'response','bad','fail',source+';return onRequestGet;')(
+    mockCtx,()=>false,ctx=>({workspaceId:'w1',restaurantId:ctx.restaurantId}),
+    output,(status,code,message)=>output({success:false,code,message},status),fail);
+  let queries=[];
+  const env={
+    DB:{prepare(sql){
+      queries.push(sql);
+      assert.doesNotMatch(sql,/^\s*(CREATE|INSERT|UPDATE|DELETE|ALTER)/i);
+      if(sql.includes('sqlite_master'))return {first:async()=>null};
+      throw Error('Unexpected SQL query');
+    }}
+  };
+  let res=await handle({request:new Request('https://preview.example/'),env});
+  assert.equal(res.status,200);
+  let body=await res.json();
+  assert.equal(body.storageReady,false);
+  assert.deepEqual(body.attempts,[]);
+  assert.match(body.notice,/Transactions/);
+  assert.equal(queries.length,1);
+  queries=[];
+  const empty={
+    DB:{prepare(sql){
+      queries.push(sql);
+      if(sql.includes('sqlite_master'))return {first:async()=>({name:'qr_payment_intents'})};
+      if(sql.includes('FROM qr_payment_intents'))return {bind:(w,r)=>{
+        assert.equal(w,'w1');assert.equal(r,'r1');
+        return {all:async()=>({results:[]})};
+      }};
+      throw Error('Unexpected read query');
+    }}
+  };
+  res=await handle({request:new Request('https://preview.example/'),env:empty});
+  assert.equal(res.status,200);
+  body=await res.json();
+  assert.equal(body.storageReady,true);
+  assert.deepEqual(body.attempts,[]);
+  assert.match(body.notice,/нет записей/);
+  assert.equal(queries.length,2);
+});
 test('Payriff previous-attempt history is scoped and never creates a new charge',()=>{
   assert.match(paymentAttempts,/adminContext\(request,env\)/);
   assert.match(paymentAttempts,/hasPermission\(ctx\?\.state\?\.access,'settings.manage'\)/);
@@ -271,6 +321,13 @@ test('Payriff previous-attempt history is scoped and never creates a new charge'
   assert.match(paymentAttempts,/body.expectedRestaurantId!==scope.restaurantId/);
   assert.match(paymentAttempts,/readPayriffByReference/);
   assert.match(paymentAttempts,/last_checked_at/);
+  assert.match(paymentAttempts,/sqlite_master/);
+  assert.match(paymentAttempts,/storageReady:false/);
+  assert.match(paymentAttempts,/storageReady:true/);
+  assert.match(admin,/if\(!result.storageReady\)/);
+  assert.match(admin,/if\(!items.length\)/);
+  assert.match(admin,/if\(\$\('qrPaymentAttemptsPanel'\)\?\.open\)await loadPaymentAttempts\(\)/);
+  assert.match(managementPage,/id="qrPayriffAttemptsMessage"/);
   assert.match(paymentAttempts,/PAID_VERIFIED/);
   assert.doesNotMatch(paymentAttempts,/createPayriffCheckout|POST \/api\/v3\/orders/);
   assert.match(managementPage,/id="qrPaymentAttemptsPanel"/);
@@ -902,7 +959,7 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-rrn-reconcile1/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-attempt-history2/);
 });
 
 test('QR management offers independently scrollable desktop panels and a mobile layout',()=>{
