@@ -225,9 +225,17 @@ async function submitSandboxPayment(){
         sandboxTicket=res.ticket;
         try{sessionStorage.setItem(sandboxTicketKey(),sandboxTicket)}catch{}
       }
-      const error=new Error(res.message||'Не удалось открыть тестовый платёж');
-      error.uncertain=Boolean(res.ticket||res.code?.includes('UNKNOWN')||
-        res.code?.includes('UNCONFIRMED')||res.code?.includes('PAYRIFF_'));
+      const error=new Error(res.message||'Не удалось открыть платёж');
+      // A price-validation rejection occurs BEFORE creating an intent.
+      // Release the client key so the basket can be corrected safely.
+      if(res.code==='PAYRIFF_LIVE_AMOUNT_LIMIT'){
+        sandboxKey='';
+        try{sessionStorage.removeItem(sandboxClientKeyKey())}catch{}
+        error.uncertain=false;
+      }else{
+        // Never retry on an unknown server/provider result.
+        error.uncertain=true;
+      }
       throw error;
     }
     const u=new URL(res.paymentUrl);
