@@ -261,7 +261,7 @@ test('In-app test POS setup never exposes secrets and preserves protected worksp
   assert.doesNotMatch(adminApi,/ingressToken:\s*env\.PLUGIN_INGEST_TOKEN/);
   assert.match(adminApi,/adminContext\(request,env\)/);
   assert.match(adminApi,/restaurant_id=\?1 AND plugin_id=\?2/);
-  assert.match(admin,/\$\('qrOrderEnabled'\)\.disabled=\(sharedTest&&/);
+  assert.match(admin,/\$\('qrOrderEnabled'\)\.disabled=true/);
   assert.match(admin,/!state\.settings\.posBridgeReady/);
   assert.match(admin,/\$\('qrPosRestaurantId'\)\.textContent/);
   assert.match(admin,/\$\('qrOrderCheckConnection'\)\.onclick=reload/);
@@ -623,7 +623,7 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-compact-workspace1/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-payment-first1/);
 });
 
 test('QR management offers independently scrollable desktop panels and a mobile layout',()=>{
