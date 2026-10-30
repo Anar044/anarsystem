@@ -4,8 +4,21 @@ import {publishedMenu,settings,validateTable,priceBasket,sha,token,response,bad,
 import {ensurePaymentSettings,fetchPaymentSettings,decryptPaymentSecret} from './_lib/payment-provider-settings.js';
 import {createPayriffCheckout,readPayriffPayment,classifyPayriffPayment} from './_lib/payriff-checkout.js';
 
-const error=e=>bad(e.status||500,e.code||'QR_PAYMENT_FAILED',
-  e.status?e.message:'Платёж временно недоступен. Не оплачивайте повторно до сверки.');
+const error=(e,stage='request')=>{
+  // Never expose SQL, credentials, or stack traces to an unauthenticated guest.
+  // A stable error code gives an actionable diagnostic in Cloudflare logs.
+  if(!e?.status){
+    console.error('[QR Pay] '+stage+' failed',{
+      code:e?.code||'UNEXPECTED',type:e?.name||'Error'
+    });
+    const id=stage==='availability'?'QR_PAYMENT_READINESS_ERROR':'QR_PAYMENT_INTERNAL_ERROR';
+    return bad(503,id,
+      stage==='availability'
+        ?'Не удалось проверить готовность Payriff для этого QR. Сообщите администрации код '+id
+        :'Не удалось проверить платёж. Не выполняйте повторную оплату до сверки.');
+  }
+  return bad(e.status,e.code||'QR_PAYMENT_FAILED',e.message);
+};
 const preview='feature-qr-order-internal-co.smarthoreca.pages.dev';
 const checkoutAllowed=request=>new URL(request.url).hostname===preview;
 const goodKey=x=>/^[a-f0-9-]{32,40}$/i.test(x);
@@ -34,7 +47,8 @@ async function ensureIntents(db){
   )`).run();
 }
 async function loadScope(db,menu){
-  await ensurePaymentSettings(db);
+  // Read-only guest status. Settings tables are created when the owner saves
+  // Payriff in the admin panel, not by every guest scanning a QR.
   const binding=await db.prepare(`SELECT b.workspace_id,b.restaurant_id,b.owner_id
     FROM qr_payment_menu_bindings b
     JOIN qr_payment_provider_settings p
@@ -65,7 +79,9 @@ function publicIntent(intent){
 export async function onRequestGet({request,env}){
   try{
     if(!checkoutAllowed(request))throw fail('PAYRIFF_DEVELOPMENT_ONLY','Только тестовая среда',409);
-    await ensureIntents(env.DB);
+    // Opening a guest menu must not run CREATE TABLE/INDEX on D1. Those
+    // objects are prepared by payment creation; GET is strictly read-only
+    // until checking an already-issued provider transaction.
     const url=new URL(request.url),ticket=clean(url.searchParams.get('ticket'),140);
     if(ticket){
       if(!/^[a-f0-9]{64}$/.test(ticket))
@@ -122,7 +138,7 @@ export async function onRequestGet({request,env}){
     return response({success:true,testCheckoutEnabled:Boolean(scope),
       tableLabel,provider:'PAYRIFF',environment:'development',
       ordersEnabled:false,notice:'Тестовая оплата без создания заказа и кухонной печати'});
-  }catch(e){return error(e)}
+  }catch(e){return error(e,'availability')}
 }
 export async function onRequestPost({request,env}){
   try{
