@@ -121,7 +121,8 @@ async function savePaymentSettings(){
   paymentMessage('Сохраняем платёжные настройки…');
   try{
     const result=await api({action:'save',merchantId:merchant,
-      secretKey:secret.value,environment},'/api/qr-menu/payment-settings');
+      secretKey:secret.value,environment,expectedRestaurantId:paymentLoadedRestaurant},
+      '/api/qr-menu/payment-settings');
     secret.value='';
     paymentMessage(result.notice||'Payriff сохранён.');
     await loadPaymentSettings();
@@ -139,7 +140,8 @@ async function disconnectPaymentSettings(){
   if(!confirm('Отключить Payriff для выбранного ресторана? Ключ будет удалён.'))return;
   paymentBusy=true;paymentEditable(false);
   try{
-    const result=await api({action:'disconnect',confirm:true},'/api/qr-menu/payment-settings');
+    const result=await api({action:'disconnect',confirm:true,
+      expectedRestaurantId:paymentLoadedRestaurant},'/api/qr-menu/payment-settings');
     await loadPaymentSettings();
     paymentMessage('✓ '+(result.notice||'Payriff отключён.'));
   }catch(e){paymentMessage('Не удалось отключить: '+(e.message||'ошибка'),true)}
