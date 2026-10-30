@@ -28,7 +28,9 @@ export async function onRequestGet({request,env}){
     const configured=await settings(env.DB,menu.id);
     const mode=configured?.service_mode||'TABLE';
     const bridgeReady=!isSharedD1Test(env)&&await isPosReady(env.DB,configured);
-    const enabled=!isSharedD1Test(env)&&Boolean(configured?.ordering_enabled)&&bridgeReady;
+    // Payment-first policy: online ordering stays disabled until Payriff
+    // settlement is verified by the server, never by the browser.
+    const enabled=false;
     let table=null,tableValid=false;
     if(enabled){
       try{table=await validateTable(env.DB,configured,url.searchParams.get('table'));tableValid=true}
@@ -37,8 +39,8 @@ export async function onRequestGet({request,env}){
     return response({success:true,orderingEnabled:enabled&&tableValid,
       mode,tableLabel:tableValid?table?.table_label||'':'',
       posBridgeConfigured:Boolean(configured?.pos_plugin_id),posBridgeReady:bridgeReady,
-      paymentMethod:'PAY_AT_POS',onlinePaymentEnabled:false,
-      hint:!enabled?'QR-заказы временно недоступны: касса не подтвердила готовность':!tableValid?'Нужен действующий QR-код стола':'Заказ будет направлен в Smart Horeca, оплата — на кассе'});
+      paymentMethod:'PAYRIFF',onlinePaymentEnabled:false,
+      hint:'Выбор блюд доступен. Отправка заказа откроется после подключения подтверждённой онлайн-оплаты.'});
   }catch(e){return reply(e)}
 }
 export async function onRequestPost({request,env}){
@@ -46,6 +48,10 @@ export async function onRequestPost({request,env}){
     if(isSharedD1Test(env))
       throw fail('QR_SHARED_D1_ORDERS_DISABLED',
         'На общей D1 сейчас разрешена только синхронизация столов без приёма заказов',409);
+    // Fail closed: never create a POS job until an authoritative,
+    // captured Payriff payment is verified server-side.
+    throw fail('QR_ONLINE_PAYMENT_NOT_READY',
+      'QR-заказы не принимаются до интеграции подтверждённой онлайн-оплаты',409);
     await ensureOrders(env.DB);
     const body=await request.json().catch(()=>null);
     if(!body||typeof body!=='object'||Array.isArray(body))throw fail('BAD_REQUEST','Некорректный заказ');
