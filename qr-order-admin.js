@@ -113,6 +113,45 @@ async function checkGuestCheckout(){
     hint.style.color='#ffd29b';
   }finally{btn.disabled=false}
 }
+async function loadPaymentAttempts(){
+  const message=$('qrPayriffAttemptsMessage'),table=$('qrPayriffAttemptsRows');
+  if(!message||!table||!state)return;
+  const expected=state.restaurantId;
+  message.textContent='Читаем историю тестовых попыток…';
+  table.replaceChildren();
+  try{
+    const result=await api(null,'/api/qr-menu/payment-attempts');
+    if(!state||state.restaurantId!==expected)return;
+    const items=Array.isArray(result.attempts)?result.attempts:[];
+    if(!items.length){message.textContent='Платёжных попыток пока нет.';return}
+    message.textContent='Последние '+items.length+' попыток. Кнопка «Проверить» только читает Payriff — не создаёт платёж.';
+    for(const attempt of items){
+      const tr=document.createElement('tr');
+      const cell=s=>{const td=document.createElement('td');td.textContent=String(s||'—');tr.append(td);return td};
+      cell(new Date(attempt.createdAt).toLocaleString('ru-RU'));
+      cell(attempt.table);cell(attempt.amountAZN+' AZN');
+      const status=cell(attempt.state);
+      status.style.color=attempt.state==='PAID_VERIFIED'?'#86e3bb':attempt.state==='UNKNOWN'?'#ffd29b':'';
+      const td=document.createElement('td'),button=document.createElement('button');
+      button.className='qro-btn';button.type='button';button.textContent='Проверить';
+      button.disabled=['PAID_VERIFIED','FAILED'].includes(attempt.state);
+      button.onclick=async()=>{
+        button.disabled=true;message.textContent='Сверяем существующую попытку через Payriff (без повторного списания)…';
+        try{
+          const result=await api({action:'reconcile',intentId:attempt.id,
+            expectedRestaurantId:expected},'/api/qr-menu/payment-attempts');
+          message.textContent=result.notice||'Проверка завершена.';
+          await loadPaymentAttempts();
+        }catch(e){
+          message.textContent='Проверка не завершилась: '+(e.message||'ошибка сервера')+
+            '. Не создавайте вторую оплату до сверки.';
+          button.disabled=false;
+        }
+      };
+      td.append(button);tr.append(td);table.append(tr);
+    }
+  }catch(e){message.textContent='История платежей недоступна: '+(e.message||'ошибка')}
+}
 async function loadPaymentSettings(){
   const msg=$('qrPaymentSummary');
   if(!msg||!state)return;
@@ -569,6 +608,10 @@ function bind(){
   $('qrPaymentSave').onclick=savePaymentSettings;
   $('qrPaymentDisconnect').onclick=disconnectPaymentSettings;
   $('qrPaymentToggleTest').onclick=toggleTestCheckout;
+  $('qrPayriffAttemptsRefresh').onclick=loadPaymentAttempts;
+  $('qrPaymentAttemptsPanel').ontoggle=()=>{
+    if($('qrPaymentAttemptsPanel').open)loadPaymentAttempts();
+  };
   $('qrGuestPayCheck').onclick=checkGuestCheckout;
   $('qrOrderCheckConnection').onclick=reload;
   $('qrOrderRetry').onclick=reload;
