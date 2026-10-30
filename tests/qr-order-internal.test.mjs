@@ -45,7 +45,7 @@ function getCore(){
 }
 
 test('Payriff Development credentials are strictly scoped to Preview restaurant and host',()=>{
-  const source=payriffTest.replace(/\\bexport\\s+(?=async|function|const)/g,'');
+  const source=payriffTest.replace(/\bexport\s+(?=async|function|const)/g,'');
   const {payriffTestConfig}=new Function(source+';return {payriffTestConfig};')();
   const request=new Request('https://'+testPreview+'/api/qr-menu/payriff-test-status');
   const cfg={
@@ -65,7 +65,7 @@ test('Payriff Development credentials are strictly scoped to Preview restaurant 
   assert.doesNotMatch(payriffStatus,/secretKey\s*:/);
 });
 test('Payriff payment status verifier rejects preauthorization, wrong merchant, currency, amounts and references',()=>{
-  const source=payriffTest.replace(/\\bexport\\s+(?=async|function|const)/g,'');
+  const source=payriffTest.replace(/\bexport\s+(?=async|function|const)/g,'');
   const {verifyPaidPayriffOrder}=new Function(source+';return {verifyPaidPayriffOrder};')();
   const expected={orderId:'e89b0d48-6e5f-4d3c-aa73-1ab92c97b806',
     amountMinor:1500,currency:'AZN',merchantId:'ES100001',providerOrderBound:true};
