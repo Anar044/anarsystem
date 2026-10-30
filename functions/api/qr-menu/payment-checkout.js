@@ -94,7 +94,7 @@ function publicIntent(intent){
     paidVerified:intent.state==='PAID_VERIFIED',
     posOrderCreated:false,kitchenPrinted:false,
     notice:intent.state==='PAID_VERIFIED'
-      ?'Тестовая оплата подтверждена Payriff. Создание заказа на кассе пока отключено.'
+      ?'Оплата подтверждена Payriff. Создание заказа на кассе пока отключено.'
       :intent.state==='CHECKOUT'?'Ожидаем оплату Payriff'
       :intent.state==='FAILED'?'Payriff подтвердил отказ или отмену.'
       :intent.state==='UNKNOWN'
