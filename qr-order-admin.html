@@ -199,7 +199,13 @@
   <details id="qrPaymentAttemptsPanel" class="qro-pay-settlement">
     <summary style="cursor:pointer;font-weight:700">Предыдущие тестовые платежи Payriff</summary>
     <p class="qro-muted">Проверка существующей попытки не создаёт новую оплату. Используй её при тайм-ауте или сообщении «Нет подтверждения от Payriff».</p>
-    <button type="button" id="qrPayriffAttemptsRefresh" class="qro-btn">Обновить попытки</button>
+    <div class="qro-actions">
+      <button type="button" id="qrPayriffAttemptsRefresh" class="qro-btn">Обновить попытки</button>
+      <button type="button" id="qrPayriffConnectivityCheck" class="qro-btn">Проверить связь сервера с Payriff</button>
+    </div>
+    <div id="qrPayriffConnectivityStatus" class="qro-status" role="status" aria-live="polite">
+      Эта проверка только запрашивает тестовый несуществующий RRN, не создавая платёж и не меняя прежние операции.
+    </div>
     <div id="qrPayriffAttemptsMessage" class="qro-status" role="status" style="margin:9px 0;padding:8px 10px;background:#182a37;border:1px solid #335067;border-radius:8px;color:#f0d49c">Нажмите «Обновить попытки», чтобы проверить сохранённые операции. Это не создаёт новую оплату.</div>
     <div class="qro-scroll" style="max-height:260px;overflow:auto">
       <table class="qro-table"><thead><tr><th>Время</th><th>Стол</th><th>Сумма</th><th>Статус</th><th>Проверка</th></tr></thead>
@@ -270,6 +276,6 @@
 <script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script>
 <script src="/documents-nav.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script src="/qr-order-admin.js?v=20261031-attempt-reconcile3"></script>
+<script src="/qr-order-admin.js?v=20261031-payriff-network1"></script>
 <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script><script src="/sh-i18n.js"></script>
 </body></html>
