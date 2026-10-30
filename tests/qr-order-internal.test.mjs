@@ -289,7 +289,7 @@ test('Sandbox payment requires preview, scoped restaurant and owner activation, 
   assert.match(paymentEndpoint,/guestCheckoutReady/);
   assert.match(paymentEndpoint,/testQrScopeReady/);
   assert.match(paymentEndpoint,/binding\.workspace_id===scope\.workspaceId/);
-  assert.match(menu,/qr-order-guest\.js\?v=20261030-preview-host3/);
+  assert.match(menu,/qr-order-guest\.js\?v=20261031-payriff-rrn-safe1/);
   assert.match(guest,/submitSandboxPayment/);
   assert.match(guest,/sessionStorage\.setItem\(sandboxTicketKey\(\),sandboxTicket\)/);
   assert.match(paymentCallback,/verified:false/);
