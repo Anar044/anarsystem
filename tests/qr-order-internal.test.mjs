@@ -16,6 +16,7 @@ const siteAccess=read('site-access.js');
 const registryHelper=read('functions/api/qr-menu/_lib/pos-registers.js');
 const registryEndpoint=read('functions/api/qr-menu/pos-registers.js');
 const tablePolicy=read('functions/api/qr-menu/_lib/table-sync-policy.js');
+const ingestion=read('functions/api/plugin/_lib/ingest-auth.js');
 const reference=read('qr-menu-reference-v2.js');
 const shell=read('app-shell.js');
 const modules=[core,publicApi,adminApi,bridge];
@@ -600,4 +601,31 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
   assert.match(managementPage,/qr-order-admin\.js\?v=20261030-shared-d1-save2/);
+});
+
+test('One-key QR preview bridge verifies registered POS while never requiring or replacing global ingress token',async()=>{
+  const plugin='0638669c-67e2-4f14-be2d-567404352a7c';
+  const department='28a38f52-9b1b-01a7-019f-8455da3a0010';
+  let lookupUrl='',lookupCount=0;
+  const src=ingestion.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
+  const {verifyRegisteredQrPos}=new Function('pluginBackendUrl','pluginBackendHeaders','fetch',
+    src+';return{verifyRegisteredQrPos};')(
+    (env,path)=>'https://registry.example'+path,
+    (env,headers)=>headers,
+    async(url)=>{lookupUrl=url;lookupCount++;return{ok:true,json:async()=>({
+      plugins:[{pluginId:plugin,departmentId:department}]
+    })};}
+  );
+  const confirmed=await verifyRegisteredQrPos({},{pluginId:plugin,departmentId:department});
+  assert.equal(confirmed.verified,true);
+  assert.equal(confirmed.pluginId,plugin);
+  assert.equal(new URL(lookupUrl).searchParams.get('departmentIds'),department);
+  assert.equal(lookupCount,1);
+  await assert.rejects(verifyRegisteredQrPos({},{pluginId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    departmentId:department}),e=>e.code==='PLUGIN_DEPARTMENT_MISMATCH'&&e.status===403);
+  assert.match(ingestion,/export async function verifyPluginIngress/);
+  assert.match(ingestion,/const expected=clean\(env\?\.PLUGIN_INGEST_TOKEN\)/);
+  assert.match(bridge,/verifyRegisteredQrPos\(env,identity\)/);
+  assert.match(bridge,/if\(!isSharedD1Test\(env\)\)/);
+  assert.match(adminApi,/singleKeyDiagnosticMode:isSharedD1Test\(env\)/);
 });
