@@ -69,12 +69,14 @@ export async function onRequestPost({request,env}){
     if(!cfg||cfg.environment!=='development'||cfg.merchant_id!==intent.merchant_id)
       throw fail('PAYRIFF_CONFIG_CHANGED','Ключи приложения изменены. Сверьте операцию в Payriff вручную',409);
     const expires=new Date(Date.now()-15000).toISOString();
+    const checkedAt=new Date().toISOString();
     const claimed=await env.DB.prepare(`UPDATE qr_payment_intents SET last_checked_at=?1
       WHERE id=?2 AND workspace_id=?3 AND restaurant_id=?4
         AND (last_checked_at='' OR last_checked_at<?5)
       RETURNING id`)
-      .bind(new Date().toISOString(),intent.id,scope.workspaceId,scope.restaurantId,expires).first();
+      .bind(checkedAt,intent.id,scope.workspaceId,scope.restaurantId,expires).first();
     if(!claimed)throw fail('PAYRIFF_CHECK_TOO_SOON','Проверка уже запущена. Повторите позже',429);
+    intent.last_checked_at=checkedAt;
     const secret=await decryptPaymentSecret(env,{...scope,environment:'development',
       envelope:cfg.secret_encrypted});
     let info;
@@ -83,9 +85,15 @@ export async function onRequestPost({request,env}){
         ?await readPayriffPayment({secret,orderId:intent.provider_order_id})
         :await readPayriffByReference({secret,reference:intent.id});
     }catch(e){
-      console.warn('[QR Pay] admin reconciling uncertain',{kind:e?.code||'NETWORK'});
+      // A failed GET /orders/{RRN}/rrn is NOT evidence that the payment
+      // failed or never existed. Return a safe, precise lookup code.
+      const lookupCode=/^PAYRIFF_[A-Z0-9_]{1,55}$/.test(String(e?.code||''))
+        ?e.code:'PAYRIFF_STATUS_UNAVAILABLE';
+      console.warn('[QR Pay] admin reconciliation unresolved',{kind:lookupCode});
       return response({success:true,attempt:safe(intent),
-        notice:'Payriff не подтвердил статус. Повторную оплату не создавайте. Проверьте Transactions в Payriff.'});
+        reconciliation:{outcome:'UNCONFIRMED',code:lookupCode,checkedAt},
+        notice:'Статус не подтверждён Payriff ('+lookupCode+
+          '). Это не означает отказ или отсутствие платежа. Проверьте Transactions в Payriff; не создавайте вторую оплату.'});
     }
     const providerOrderId=String(info?.orderId||'');
     const consistent=UUID.test(providerOrderId)&&
@@ -107,6 +115,8 @@ export async function onRequestPost({request,env}){
       intent.state=status;intent.provider_order_id=providerOrderId;
     }
     return response({success:true,attempt:safe(intent),
+      reconciliation:{outcome:status,code:status==='PENDING'
+        ?'PAYRIFF_PENDING':'PAYRIFF_'+status,checkedAt},
       notice:status==='PAID_VERIFIED'
         ?'Оплата подтверждена Payriff. Заказ на кассу не отправлялся.'
         :status==='FAILED'?'Payriff подтвердил отказ/отмену.'
