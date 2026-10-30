@@ -73,6 +73,8 @@ test('Payriff setup is restricted to owner, tenant, Development and same origin'
   assert.match(paymentEndpoint,/ctx\?\.state\?\.access\?\.isOwner===true/);
   assert.match(paymentEndpoint,/PAYMENT_CONFIG_OWNER_REQUIRED/);
   assert.match(paymentEndpoint,/PAYMENT_SCOPE_FORGED/);
+  assert.match(paymentEndpoint,/PAYMENT_RESTAURANT_CHANGED/);
+  assert.match(admin,/expectedRestaurantId:paymentLoadedRestaurant/);
   assert.match(paymentEndpoint,/PAYMENT_PRODUCTION_LOCKED/);
   assert.match(paymentEndpoint,/PAYMENT_ORIGIN_MISMATCH/);
   assert.match(paymentEndpoint,/secretKey/);
@@ -85,6 +87,55 @@ test('Payriff setup is restricted to owner, tenant, Development and same origin'
     'qrPaymentContext','qrPaymentSummary'])assert.match(managementPage,new RegExp('id="'+id+'"'));
   assert.match(admin,/loadPaymentSettings/);
   assert.doesNotMatch(admin,/loadPayriffTestStatus/);
+});
+test('Payriff API refuses foreign restaurant, external origin, non-owner and production writes',async()=>{
+  const src=paymentEndpoint.replace(/^import .*;\s*$/gm,'')
+    .replace(/\bexport\s+(?=async|function|const)/g,'');
+  const json=(body,status=200)=>new Response(JSON.stringify(body),{status});
+  const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
+  let owner=true, writes=0, encrypted='', merchantId='';
+  const adminContext=async()=>({
+    restaurantId:'r-1',
+    state:{access:{isOwner:owner,workspace:{id:'w-1'}},user:{id:'user-1'}}
+  });
+  const {onRequestGet,onRequestPost}=new Function('adminContext','response','bad','fail','clean',
+    'ensurePaymentSettings','paymentSettingsScope','fetchPaymentSettings',
+    'encryptPaymentSecret','decryptPaymentSecret','safePaymentSettings',
+    src+';return {onRequestGet,onRequestPost};')(
+    adminContext,json,(status,code,message)=>json({success:false,code,message},status),
+    fail,(v,n=180)=>String(v??'').trim().slice(0,n),async()=>{},
+    ctx=>({workspaceId:ctx.state.access.workspace.id,restaurantId:ctx.restaurantId}),
+    async()=>encrypted?{merchant_id:merchantId,secret_encrypted:encrypted,environment:'development'}:null,
+    async(_env,args)=>{encrypted='encrypted-not-plaintext';merchantId='ES1095709';return encrypted},
+    async()=>{throw Error('Should not decrypt new credential')},
+    (row,canManage)=>({configured:!!row,canManage,merchantId:canManage?row?.merchant_id||'':'',
+      merchantMasked:row?.merchant_id?'••••'+row.merchant_id.slice(-4):'',checkoutEnabled:false})
+  );
+  const env={SMART_HORECA_STATE_ENCRYPTION_KEY:'test-encryption-key-sufficient-length',
+    DB:{batch:async()=>{writes++}}};
+  const call=(body,origin='https://preview.example')=>onRequestPost({env,request:
+    new Request('https://preview.example/api/qr-menu/payment-settings',{method:'POST',
+      headers:{'Content-Type':'application/json','Origin':origin},
+      body:JSON.stringify(body)})});
+  const body={action:'save',expectedRestaurantId:'r-1',environment:'development',
+    merchantId:'ES1095709',secretKey:'test-secret-example-123456'};
+  let res=await call({...body,expectedRestaurantId:'another-restaurant'});
+  assert.equal(res.status,409);assert.equal(writes,0);
+  res=await call({...body,restaurantId:'another-restaurant'});
+  assert.equal(res.status,403);assert.equal(writes,0);
+  res=await call(body,'https://attacker.example');
+  assert.equal(res.status,403);assert.equal(writes,0);
+  owner=false;res=await call(body);
+  assert.equal(res.status,403);assert.equal(writes,0);
+  owner=true;res=await call({...body,environment:'production'});
+  assert.equal(res.status,409);assert.equal(writes,0);
+  res=await call(body);
+  assert.equal(res.status,200);assert.equal(writes,1);
+  const output=await res.text();
+  assert.doesNotMatch(output,/test-secret-example-123456|encrypted-not-plaintext/);
+  res=await onRequestGet({request:new Request('https://preview.example/api/qr-menu/payment-settings'),env});
+  assert.equal(res.status,200);
+  assert.doesNotMatch(await res.text(),/test-secret-example-123456|encrypted-not-plaintext/);
 });
 test('All new QR order APIs and client scripts are syntactically valid',()=>{
   for(const source of modules)assert.doesNotThrow(()=>compile(source));
