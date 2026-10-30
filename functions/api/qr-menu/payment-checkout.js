@@ -2,7 +2,7 @@
 // Public URLs are scoped through a published menu + immutable workspace binding.
 import {publishedMenu,settings,validateTable,priceBasket,sha,token,response,bad,fail,clean} from './_lib/orders.js';
 import {ensurePaymentSettings,fetchPaymentSettings,decryptPaymentSecret} from './_lib/payment-provider-settings.js';
-import {createPayriffCheckout,readPayriffPayment,classifyPayriffPayment} from './_lib/payriff-checkout.js';
+import {createPayriffCheckout,readPayriffPayment,readPayriffByReference,classifyPayriffPayment} from './_lib/payriff-checkout.js';
 
 const error=(e,stage='request')=>{
   // Never expose SQL, credentials, or stack traces to an unauthenticated guest.
@@ -87,8 +87,10 @@ function publicIntent(intent){
     notice:intent.state==='PAID_VERIFIED'
       ?'Тестовая оплата подтверждена Payriff. Создание заказа на кассе пока отключено.'
       :intent.state==='CHECKOUT'?'Ожидаем оплату Payriff'
-      :intent.state==='FAILED'?'Оплата не подтверждена'
-      :'Проверяем статус платежа'};
+      :intent.state==='FAILED'?'Payriff подтвердил отказ или отмену.'
+      :intent.state==='UNKNOWN'
+        ?'Результат Payriff неизвестен. Проверьте эту попытку; не платите повторно.'
+        :'Проверяем статус платежа'};
 }
 export async function onRequestGet({request,env}){
   try{
@@ -150,6 +152,55 @@ export async function onRequestGet({request,env}){
       const table=await readOnlyStep('TABLE_LOOKUP',()=>
         validateTable(env.DB,scope.orderSettings,url.searchParams.get('table')));
       tableLabel=table.table_label||'';
+      const clientKey=clean(url.searchParams.get('clientKey'),50);
+      if(clientKey){
+        if(!goodKey(clientKey))throw fail('PAYMENT_CLIENT_KEY_INVALID','Неверный ключ попытки',400);
+        const saved=await env.DB.prepare(`SELECT * FROM qr_payment_intents
+          WHERE workspace_id=?1 AND restaurant_id=?2 AND menu_id=?3
+            AND table_id=?4 AND client_key=?5 LIMIT 1`)
+          .bind(scope.workspace_id,scope.restaurant_id,menu.id,table.id,clientKey).first();
+        if(!saved)return response({success:true,found:false,
+          testCheckoutEnabled:true,tableLabel});
+        if(saved.state==='UNKNOWN'&&saved.provider_order_id===null){
+          // If create timed out, locate the order by the original request RRN
+          // without posting another payment. Never silently retry a charge.
+          const previous=Date.parse(saved.last_checked_at||'');
+          if(!Number.isFinite(previous)||Date.now()-previous>=20000){
+            const claim=await env.DB.prepare(`UPDATE qr_payment_intents
+              SET last_checked_at=?1 WHERE id=?2 AND state='UNKNOWN'
+                AND provider_order_id IS NULL
+                AND (last_checked_at='' OR last_checked_at<?3) RETURNING id`)
+              .bind(now(),saved.id,new Date(Date.now()-20000).toISOString()).first();
+            if(claim){
+              try{
+                const secret=await decryptPaymentSecret(env,{
+                  workspaceId:scope.workspace_id,restaurantId:scope.restaurant_id,
+                  environment:'development',envelope:scope.cfg.secret_encrypted});
+                const data=await readPayriffByReference({secret,reference:saved.id});
+                const match=(!data?.merchantId||String(data.merchantId)===saved.merchant_id)
+                  &&data?.currencyType==='AZN'
+                  &&data?.operationType==='PURCHASE';
+                const outcome=match?classifyPayriffPayment(data,{
+                  orderId:String(data?.orderId||''),amountMinor:saved.total_minor}):'MISMATCH';
+                if(outcome==='PAID_VERIFIED'||outcome==='FAILED'){
+                  await env.DB.prepare(`UPDATE qr_payment_intents SET state=?1,
+                    provider_order_id=?2,updated_at=?3
+                    WHERE id=?4 AND state='UNKNOWN' AND provider_order_id IS NULL`)
+                    .bind(outcome,String(data.orderId),now(),saved.id).run();
+                  saved.state=outcome;
+                }
+              }catch(e){
+                // Absence of a provider response is NOT evidence of no payment.
+                console.warn('[QR Pay] unknown intent reconciliation pending',{
+                  kind:e?.code||'PROVIDER_UNREACHABLE'
+                });
+              }
+            }
+          }
+        }
+        return response({success:true,found:true,ticket:saved.receipt_token,
+          payment:publicIntent(saved)});
+      }
     }
     return response({success:true,testCheckoutEnabled:Boolean(scope),
       tableLabel,provider:'PAYRIFF',environment:'development',
@@ -242,9 +293,18 @@ export async function onRequestPost({request,env}){
           tableLabel:table.table_label,
           notice:'Откройте тестовую оплату Payriff. Касса и печать отключены.'}},201);
     }catch(e){
-      await env.DB.prepare(`UPDATE qr_payment_intents SET state='UNKNOWN',
-        updated_at=?1 WHERE id=?2 AND state='CREATING'`).bind(now(),id).run();
-      throw e;
+      try{
+        await env.DB.prepare(`UPDATE qr_payment_intents SET state='UNKNOWN',
+          updated_at=?1 WHERE id=?2 AND state='CREATING'`).bind(now(),id).run();
+      }catch(dbError){
+        console.error('[QR Pay] uncertain payment intent persistence',{kind:dbError?.name||'Error'});
+      }
+      // Return the opaque ticket so guests can reconcile this same attempt,
+      // instead of creating a second payment when Payriff is unreachable.
+      return response({success:false,code:e?.code||'PAYRIFF_UNCONFIRMED',
+        message:e?.message||'Неизвестен результат Payriff; проверьте предыдущую попытку.',
+        ticket:receipt,payment:publicIntent({...{total_minor:basket.totalMinor,
+          table_label:table.table_label},state:'UNKNOWN'})},e?.status||503);
     }
   }catch(e){return error(e)}
 }
