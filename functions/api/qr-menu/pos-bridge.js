@@ -47,6 +47,14 @@ export async function onRequestPost({request,env}){
       return response({success:true,contractVersion:1,accepted:true,orderingReady:canCreate});
     }
     if(action==='tablesSnapshot'){
+      // Only a separately verified preview D1 may store POS table snapshots.
+      // Runtime flag is an operator attestation, not proof of DB isolation:
+      // Cloudflare binding must be independently checked before enabling it.
+      const hostname=new URL(request.url).hostname.toLowerCase();
+      if(String(env.QR_TEST_D1_ISOLATED||'')!=='confirmed'||
+          hostname==='smarthoreca.pages.dev'||hostname==='web.smarthoreca.az')
+        throw fail('QR_TEST_DB_UNCONFIRMED',
+          'Сначала подтвердите отдельную тестовую D1 в preview. Импорт столов заблокирован.',409);
       // Read-only POS catalog available even during the diagnostic hello mode:
       // uploading table names/IDs never authorizes a POS order or kitchen print.
       const list=body.tables;
