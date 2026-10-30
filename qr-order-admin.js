@@ -293,8 +293,10 @@ async function toggleTestCheckout(){
   if(paymentBusy||!state||state.restaurantId!==paymentLoadedRestaurant||toggle.disabled)return;
   const newValue=toggle.dataset.enabled!=='true';
   if(newValue&&!confirm(
-    'Разрешить только ТЕСТОВЫЕ платежи Payriff Development для этого ресторана?'+
-    ' Оплата не создаст заказ в iikoFront и не отправит блюда на кухню.'))return;
+    'Подтвердите, что в Payriff → Applications у этого Merchant ID статус именно DEVELOPMENT, '+
+    'а не ONLINE. Режим Development в Smart Horeca не меняет статус приложения у Payriff! '+
+    'Проверьте соответствие Secret Key. Реальные деньги могут списаться, если подключено ONLINE-приложение. '+
+    'Уверены, что это отдельные тестовые реквизиты?'))return;
   paymentBusy=true;toggle.disabled=true;
   paymentMessage('Изменяем тестовый режим оплаты…');
   try{
