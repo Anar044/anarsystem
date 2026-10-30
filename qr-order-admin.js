@@ -320,7 +320,12 @@ function renderPosCatalog(){
   }
   const snapshot=state.posTableCatalog||{};
   if(!snapshot.available){
-    hint.textContent='Нет свежего списка столов. Проверьте подключение тестовой кассы и обновите каталог.';
+    const importedCount=(state.tables||[]).filter(t=>t.active).length;
+    const timestamp=Date.parse(snapshot.lastSeenAt||'');
+    const last=Number.isFinite(timestamp)?new Date(timestamp).toLocaleString('ru-RU'):'неизвестно';
+    hint.textContent='Свежий каталог кассы недоступен (синхронизация старше 15 минут). '+
+      'Последнее обновление: '+last+'. Уже выдано '+importedCount+
+      ' QR-кодов — они сохранены. Проверьте QR Bridge на кассе, затем обновите список.';
     return;
   }
   const tables=Array.isArray(snapshot.tables)?snapshot.tables:[];
