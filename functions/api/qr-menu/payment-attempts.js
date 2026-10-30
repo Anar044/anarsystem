@@ -91,12 +91,21 @@ export async function onRequestPost({request,env}){
         ?e.code:'PAYRIFF_STATUS_UNAVAILABLE';
       const responseId=/^[A-Za-z0-9_-]{1,80}$/.test(String(e?.providerResponseId||''))
         ?String(e.providerResponseId):null;
+      const providerRejected=lookupCode==='PAYRIFF_HTTP_400_CODE_01000';
       console.warn('[QR Pay] admin reconciliation unresolved',{kind:lookupCode,responseId});
-      return response({success:true,attempt:safe(intent),
-        reconciliation:{outcome:'UNCONFIRMED',code:lookupCode,checkedAt,responseId},
-        notice:'Статус не подтверждён Payriff ('+lookupCode+
+      const notice=providerRejected
+        ?'Payriff отклонил ЗАПРОС ПРОВЕРКИ (HTTP 400, код 01000). '+
+          'Возможны ограничения приложения/ключа или отсутствие RRN у старой попытки. '+
+          'Это НЕ означает отмену оплаты. Проверьте статус приложения и соответствие ключей в Payriff Applications, '+
+          'обе операции в Transactions и сообщите поддержке responseId '+
+          (responseId||'(не предоставлен)')+'. Повторный платёж не создавайте.'
+        :'Статус не подтверждён Payriff ('+lookupCode+
           (responseId?', responseId '+responseId:'')+
-          '). Это не означает отказ или отсутствие платежа. Проверьте Transactions в Payriff; не создавайте вторую оплату.'});
+          '). Это не означает отказ или отсутствие платежа. Проверьте Transactions в Payriff; не создавайте вторую оплату.';
+      return response({success:true,attempt:safe(intent),
+        reconciliation:{outcome:'UNCONFIRMED',code:lookupCode,checkedAt,responseId,
+          providerRequestRejected:providerRejected},
+        notice});
     }
     const providerOrderId=String(info?.orderId||'');
     const consistent=UUID.test(providerOrderId)&&
