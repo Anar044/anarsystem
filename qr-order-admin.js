@@ -64,6 +64,16 @@ function registerOption(value,label){
   const option=document.createElement('option');option.value=value;option.textContent=label;
   return option;
 }
+async function loadPayriffTestStatus(){
+  const hint=$('qrPayriffTestStatus');
+  if(!hint)return;
+  try{
+    const p=await api(null,'/api/qr-menu/payriff-test-status');
+    hint.textContent=p.configured
+      ?'Payriff Development: ключи доступны серверу. Оплата и передача на кассу пока выключены.'
+      :'Payriff Development: тестовые ключи или привязка ресторана/Preview ещё не настроены.';
+  }catch(e){hint.textContent='Payriff Development: проверка настроек недоступна.'}
+}
 async function loadRegisters(){
   const select=$('qrOrderPlugin'),hint=$('qrPosListStatus');
   if(!select||!state)return;
@@ -387,6 +397,7 @@ async function reload(){
     }
     renderTables();renderOrders();renderPosCatalog();
     await loadRegisters();
+    await loadPayriffTestStatus();
   }catch(e){if(sequence===reloadSequence)showPrerequisite(e)}
 }
 function bind(){
