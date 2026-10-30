@@ -62,6 +62,7 @@ export async function onRequestGet({request,env}){
           tableSyncAllowed,
           bridgeTokenConfigured:Boolean(clean(env.QR_POS_BRIDGE_TOKEN)),
           ingressTokenConfigured:Boolean(clean(env.PLUGIN_INGEST_TOKEN)),
+          singleKeyDiagnosticMode:isSharedD1Test(env),
           rateSecretConfigured:Boolean(clean(env.QR_ORDER_RATE_SECRET))
         },
         onlinePaymentEnabled:false},
