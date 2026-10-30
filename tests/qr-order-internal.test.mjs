@@ -74,6 +74,13 @@ test('Payriff credentials are encrypted with workspace/restaurant AAD and a serv
     restaurantId:'r-1',state:{access:{workspace:{id:'w-1'}}}
   }).workspaceId,'w-1');
 });
+test('QR Pay warns owners to check provider application status, not merely the UI mode',()=>{
+  assert.match(managementPage,/qrPayriffProviderModeWarning/);
+  assert.match(managementPage,/НЕ переводит/);
+  assert.match(managementPage,/статус Development/);
+  assert.match(admin,/а не ONLINE/);
+  assert.match(admin,/Реальные деньги могут списаться/);
+});
 test('Payriff setup is restricted to owner, tenant, Development and same origin',()=>{
   assert.match(paymentEndpoint,/ctx\?\.state\?\.access\?\.isOwner===true/);
   assert.match(paymentEndpoint,/PAYMENT_CONFIG_OWNER_REQUIRED/);
