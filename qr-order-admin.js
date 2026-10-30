@@ -97,8 +97,14 @@ async function loadPaymentSettings(){
     paymentEditable(allowed);
     $('qrPaymentDisconnect').disabled=!cfg.canManage||!cfg.configured||paymentBusy;
     $('qrPaymentSave').disabled=!allowed||paymentBusy;
-    $('qrPaymentVerification').textContent=cfg.configured
-      ?'Ключ зашифрован · связь с Payriff ещё не проверена · заказы выключены'
+    const toggle=$('qrPaymentToggleTest');
+    toggle.disabled=!cfg.canManage||!cfg.encryptionReady||!cfg.configured||paymentBusy;
+    toggle.textContent=cfg.checkoutEnabled?'Выключить тестовую оплату':'Включить тестовую оплату';
+    toggle.dataset.enabled=String(Boolean(cfg.checkoutEnabled));
+    if(cfg.checkoutEnabled)msg.textContent='· Тестовая оплата включена';
+    $('qrPaymentVerification').textContent=cfg.checkoutEnabled
+      ?'Тестовая оплата Payriff разрешена · касса и печать кухни выключены'
+      :cfg.configured?'Ключ сохранён · тестовая оплата выключена · касса выключена'
       :'Сначала подключите Payriff · заказы и оплата выключены';
     if(!cfg.canManage)paymentMessage('Изменять платёжные ключи может только владелец организации.');
     else if(!cfg.encryptionReady)paymentMessage(
@@ -108,8 +114,25 @@ async function loadPaymentSettings(){
     msg.textContent='· Проверка недоступна';
     paymentEditable(false);
     $('qrPaymentDisconnect').disabled=true;
+    $('qrPaymentToggleTest').disabled=true;
     paymentMessage('Не удалось получить настройки Payriff: '+(e.message||'проверьте связь'),true);
   }
+}
+async function toggleTestCheckout(){
+  const toggle=$('qrPaymentToggleTest');
+  if(paymentBusy||!state||state.restaurantId!==paymentLoadedRestaurant||toggle.disabled)return;
+  const newValue=toggle.dataset.enabled!=='true';
+  if(newValue&&!confirm(
+    'Разрешить только ТЕСТОВЫЕ платежи Payriff Development для этого ресторана?'+
+    ' Оплата не создаст заказ в iikoFront и не отправит блюда на кухню.'))return;
+  paymentBusy=true;toggle.disabled=true;
+  paymentMessage('Изменяем тестовый режим оплаты…');
+  try{
+    const result=await api({action:'setTestCheckout',enabled:newValue,
+      expectedRestaurantId:paymentLoadedRestaurant},'/api/qr-menu/payment-settings');
+    paymentMessage(result.notice||'Режим оплаты обновлён');
+  }catch(e){paymentMessage('Не удалось изменить тестовый режим: '+e.message,true)}
+  finally{paymentBusy=false;await loadPaymentSettings()}
 }
 async function savePaymentSettings(){
   if(paymentBusy||!state||state.restaurantId!==paymentLoadedRestaurant)return;
@@ -480,6 +503,7 @@ function bind(){
   $('qrOrderReload').onclick=reload;
   $('qrPaymentSave').onclick=savePaymentSettings;
   $('qrPaymentDisconnect').onclick=disconnectPaymentSettings;
+  $('qrPaymentToggleTest').onclick=toggleTestCheckout;
   $('qrOrderCheckConnection').onclick=reload;
   $('qrOrderRetry').onclick=reload;
   $('qrTableRefresh').onclick=reload;
