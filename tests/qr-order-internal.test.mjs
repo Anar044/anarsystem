@@ -591,3 +591,12 @@ test('Shared D1 test POS cannot enable ordering or call POS pull',async()=>{
   assert.equal(res.status,409);
   assert.equal((await res.json()).code,'QR_SHARED_D1_ORDERS_DISABLED');
 });
+
+test('QR cashier settings save has explicit feedback and stale client JS cannot mask it',()=>{
+  assert.match(admin,/status\('Сохраняем настройки…','qrOrderSaveStatus'\)/);
+  assert.match(admin,/Настройки сохранены\. Касса привязана к выбранному ресторану/);
+  assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
+  assert.match(admin,/Не удалось сохранить:/);
+  assert.match(admin,/Ранее сохранённая привязка не удалена/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-shared-d1-save2/);
+});
