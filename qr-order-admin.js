@@ -119,6 +119,11 @@ function renderPosCatalog(){
     hint.textContent='Сначала выберите кассу ресторана и нажмите «Сохранить режим».';
     return;
   }
+  const cfg=state.settings.backendSetup||{};
+  if(!cfg.testD1ConfirmationRecorded){
+    hint.textContent='Импорт столов заблокирован: администратор инфраструктуры ещё не подтвердил, что preview использует отдельную тестовую D1. Рабочую базу использовать нельзя.';
+    return;
+  }
   const snapshot=state.posTableCatalog||{};
   if(!snapshot.available){
     hint.textContent='Нет свежего списка столов от кассы. Установите QR Bridge с поддержкой столов, включите безопасную диагностику и проверьте подключение.';
@@ -254,6 +259,7 @@ async function reload(){
         :'POS-мост не подключён. Настройте HTTPS API и проверьте авторизацию.';
     const cfg=state.settings.backendSetup||{};
     const hasConfig=Boolean(cfg.bridgeTokenConfigured&&cfg.ingressTokenConfigured&&cfg.rateSecretConfigured);
+    const isolated=cfg.testD1ConfirmationRecorded===true;
     $('qrPosRestaurantName').textContent=state.menuName||'Ресторан не определён';
     $('qrPosRestaurantId').textContent='ID подразделения: '+(state.restaurantId||'не определён');
     $('qrPosSelectedPlugin').textContent=state.settings.posPluginId||'Плагин не выбран';
@@ -265,20 +271,26 @@ async function reload(){
     $('qrPosLastSeen').textContent=state.settings.posBridgeLastSeen
       ?'Последний подтверждённый hello: '+new Date(state.settings.posBridgeLastSeen).toLocaleString('ru-RU')
       :'Данных о недавнем подключении нет';
-    $('qrPosServerState').textContent=hasConfig?'Все серверные параметры настроены'
-      :'Требуется настройка серверных параметров';
+    $('qrPosServerState').textContent=!isolated
+      ?'Тестовая D1 не подтверждена — импорт столов заблокирован'
+      :hasConfig?'Параметры Bridge заданы; изоляция D1 подтверждена администратором'
+      :'Требуется настройка ключей QR Bridge';
     const missing=[
       !cfg.bridgeTokenConfigured?'QR_POS_BRIDGE_TOKEN':null,
       !cfg.ingressTokenConfigured?'PLUGIN_INGEST_TOKEN':null,
       !cfg.rateSecretConfigured?'QR_ORDER_RATE_SECRET':null
     ].filter(Boolean);
-    $('qrPosServerHint').textContent=missing.length
-      ?'Отсутствуют: '+missing.join(', ')+'. Настраиваются администратором инфраструктуры, не в браузере.'
-      :'Ключи хранятся на сервере; здесь отображается только факт настройки.';
+    $('qrPosServerHint').textContent=!isolated
+      ?'Сверьте D1 binding preview с production в Cloudflare. После независимой проверки администратор устанавливает только в preview QR_TEST_D1_ISOLATED=confirmed.'
+      :missing.length
+        ?'Отсутствуют: '+missing.join(', ')+'. Настраиваются администратором инфраструктуры, не в браузере.'
+        :'Состояние ключей показано без их значений. Подтверждение D1 — заявление администратора, не автоматическая проверка.';
     $('qrPosNextStep').textContent=!state.settings.posPluginId
       ?'Шаг 1: укажите ID тестового плагина и сохраните настройки с выключенными заказами.'
-      :!hasConfig
-        ?'Шаг 2: настройте недостающие секреты на сервере. Они не должны попадать в браузер.'
+      :!isolated
+        ?'Шаг 2: подтвердите отдельную D1 для preview в Cloudflare. Пока это не сделано, синхронизация столов запрещена.'
+        :!hasConfig
+          ?'Шаг 3: настройте недостающие секреты на сервере. Они не должны попадать в браузер.'
         :!state.settings.posBridgeConnected
           ?'Шаг 3: настройте HTTPS URL и ключи в защищённом файле тестового POS-плагина, затем проверьте связь.'
           :!state.settings.posBridgeReady
