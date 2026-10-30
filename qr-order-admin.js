@@ -1,7 +1,7 @@
 (()=>{
 'use strict';
 const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let state=null,busy=false;
+let state=null,busy=false,reloadSequence=0;
 async function api(body,path='/api/qr-menu/order-admin'){
   const auth=await window.SHAuth?.createClient?.();
   const session=await auth?.auth.getSession();
@@ -11,10 +11,48 @@ async function api(body,path='/api/qr-menu/order-admin'){
     Authorization:'Bearer '+key,Accept:'application/json',...(body?{'Content-Type':'application/json'}:{})
   },...(body?{body:JSON.stringify(body)}:{})});
   const j=await r.json().catch(()=>({}));
-  if(!r.ok||!j.success)throw Error(j.message||'HTTP '+r.status);
+  if(!r.ok||!j.success){const error=new Error(j.message||'HTTP '+r.status);error.code=j.code||'';error.status=r.status;throw error;}
   return j;
 }
 const status=(v,id='qrOrderError')=>{$(id).textContent=v||''};
+const editableIds=['qrOrderMode','qrOrderPlugin','qrPosListReload','qrOrderSave',
+  'qrTableName','qrPosTable','qrAddTable'];
+function allowEditing(allowed){
+  for(const id of editableIds){const el=$(id);if(el)el.disabled=!allowed;}
+}
+function showPrerequisite(error){
+  const needsMenu=error?.code==='QR_MENU_NOT_PUBLISHED';
+  $('qrOrderPrerequisite').hidden=false;
+  $('qrOrderPrerequisiteTitle').textContent=needsMenu
+    ?'Сначала опубликуйте QR-меню'
+    :'Не удалось загрузить настройки QR-заказов';
+  $('qrOrderPrerequisiteMessage').textContent=needsMenu
+    ?'Для выбранного ресторана пока нет опубликованного QR-меню. В тестовом ресторане откройте редактор, проверьте блюда и нажмите «Опубликовать меню». Затем вернитесь сюда и нажмите «Проверить повторно».'
+    :'Настройки кассы и столов недоступны: '+(error?.message||'не удалось получить ответ сервера')+'. Проверьте подключение и повторите попытку.';
+  $('qrOrderOpenEditor').hidden=!needsMenu;
+  state=null;
+  allowEditing(false);
+  $('qrOrderEnabled').checked=false;
+  $('qrOrderEnabled').disabled=true;
+  $('qrPosRestaurantName').textContent=needsMenu?'Меню не опубликовано':'Не удалось загрузить';
+  $('qrPosRestaurantId').textContent='';
+  $('qrPosSelectedPlugin').textContent='Недоступен';
+  $('qrPosConnectionState').textContent='Не проверено';
+  $('qrPosLastSeen').textContent='';
+  $('qrPosServerState').textContent='Нет данных';
+  $('qrPosServerHint').textContent='Секреты не отображаются в браузере.';
+  $('qrPosNextStep').textContent=needsMenu
+    ?'Шаг 1: опубликуйте меню тестового ресторана. Приём заказов остаётся выключен.'
+    :'Настройка кассы приостановлена до восстановления ответа API.';
+  $('qrOrderSafety').textContent='Приём заказов выключен: настройки ещё не загружены.';
+  $('qrPosBridgeReady').textContent='Проверка кассы пока недоступна.';
+  $('qrPosListStatus').textContent=needsMenu?'Опубликуйте меню для начала настройки кассы.':'Реестр касс пока недоступен.';
+  $('qrOrderPlugin').replaceChildren(registerOption('','— Нет данных —'));
+  $('qrOrderGlobalLink').replaceChildren();
+  $('qrOrderTables').replaceChildren();
+  $('qrOrderRows').replaceChildren();
+  status(needsMenu?'':(error?.message||'Не удалось загрузить QR-заказы.'));
+}
 
 function registerOption(value,label){
   const option=document.createElement('option');option.value=value;option.textContent=label;
@@ -123,7 +161,14 @@ function renderOrders(){
   if(!host.children.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=5;td.textContent='Заказов пока нет';tr.append(td);host.append(tr)}
 }
 async function reload(){
-  try{state=await api();$('qrOrderError').textContent='';
+  const sequence=++reloadSequence;
+  try{
+    const loaded=await api();
+    if(sequence!==reloadSequence)return;
+    state=loaded;
+    $('qrOrderPrerequisite').hidden=true;
+    allowEditing(true);
+    $('qrOrderError').textContent='';
     $('qrOrderMode').value=state.settings.serviceMode;
     $('qrOrderEnabled').checked=state.settings.orderingEnabled;
     $('qrOrderPlugin').replaceChildren(registerOption(state.settings.posPluginId||'',state.settings.posPluginId||'— Выберите кассу —'));
@@ -180,11 +225,12 @@ async function reload(){
     }
     renderTables();renderOrders();
     await loadRegisters();
-  }catch(e){status(e.message||String(e))}
+  }catch(e){if(sequence===reloadSequence)showPrerequisite(e)}
 }
 function bind(){
   $('qrOrderReload').onclick=reload;
   $('qrOrderCheckConnection').onclick=reload;
+  $('qrOrderRetry').onclick=reload;
   $('qrPosListReload').onclick=loadRegisters;
   $('qrOrderPlugin').onchange=()=>{$('qrPosSelectedPlugin').textContent=$('qrOrderPlugin').value||'Плагин не выбран'};
   $('qrOrderSave').onclick=()=>action({action:'saveSettings',serviceMode:$('qrOrderMode').value,
