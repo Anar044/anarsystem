@@ -314,6 +314,64 @@ test('Payment attempts history distinguishes empty D1 store from zero rows, with
   assert.match(body.notice,/нет записей/);
   assert.equal(queries.length,2);
 });
+test('Payriff UNKNOWN reconciliation exposes provider error instead of hiding it behind history reload',async()=>{
+  const src=paymentAttempts
+    .replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
+    .replace(/\bexport\s+(?=async|function|const)/g,'');
+  const failed=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
+  const output=(body,status=200)=>new Response(JSON.stringify(body),{status});
+  const id='11111111-2222-4333-8444-555555555555';
+  const attempt={id,state:'UNKNOWN',restaurant_id:'restaurant1',
+    workspace_id:'workspace1',merchant_id:'ES1093754',
+    provider_order_id:null,created_at:'2026-10-31T01:04:38Z',
+    table_label:'Бар - Стол 1',total_minor:1,last_checked_at:'',};
+  const queries=[],lookups=[];
+  const db={prepare(sql){
+    queries.push(sql);
+    if(sql.includes('SELECT * FROM qr_payment_intents'))return {bind:()=>({first:async()=>({...attempt})})};
+    if(sql.includes('UPDATE qr_payment_intents SET last_checked_at'))return {
+      bind:()=>({first:async()=>({id})})};
+    throw Error('Unexpected database operation: '+sql.slice(0,60));
+  }};
+  const onRequestPost=new Function('adminContext','response','bad','fail',
+    'paymentSettingsScope','fetchPaymentSettings','decryptPaymentSecret',
+    'readPayriffByReference','readPayriffPayment','classifyPayriffPayment',
+    'hasPermission',src+';return onRequestPost;')(
+    async()=>({restaurantId:'restaurant1',state:{
+      access:{isOwner:true,workspace:{id:'workspace1'}}}}),
+    output,(status,code,message)=>output({success:false,code,message},status),
+    failed,ctx=>({workspaceId:'workspace1',restaurantId:ctx.restaurantId}),
+    async()=>({environment:'development',merchant_id:'ES1093754',secret_encrypted:'encrypted'}),
+    async()=> 'server-side-secret',
+    async opts=>{lookups.push({reference:opts.reference});
+      throw failed('PAYRIFF_HTTP_404','Payriff returned HTTP 404',502);
+    },
+    async()=>{throw Error('Must use RRN for UNKNOWN');},
+    ()=>{throw Error('Must not classify unconfirmed payment');},
+    ()=>false
+  );
+  const res=await onRequestPost({env:{DB:db},
+    request:new Request('https://preview.example/api/qr-menu/payment-attempts',{
+      method:'POST',headers:{'Origin':'https://preview.example',
+        'Content-Type':'application/json'},
+      body:JSON.stringify({action:'reconcile',intentId:id,
+        expectedRestaurantId:'restaurant1'})
+    })});
+  assert.equal(res.status,200);
+  const body=await res.json();
+  assert.equal(body.success,true);
+  assert.equal(body.attempt.state,'UNKNOWN');
+  assert.equal(body.reconciliation.outcome,'UNCONFIRMED');
+  assert.equal(body.reconciliation.code,'PAYRIFF_HTTP_404');
+  assert.match(body.notice,/PAYRIFF_HTTP_404/);
+  assert.ok(body.reconciliation.checkedAt);
+  assert.deepEqual(lookups,[{reference:id}]);
+  assert.equal(queries.filter(s=>s.includes('UPDATE')).length,1);
+  assert.doesNotMatch(JSON.stringify(body),/server-side-secret|encrypted/);
+  assert.match(admin,/paymentAttemptResults\.set\(attempt.id/);
+  assert.match(admin,/await loadPaymentAttempts\(\)/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-attempt-reconcile3/);
+});
 test('Payriff previous-attempt history is scoped and never creates a new charge',()=>{
   assert.match(paymentAttempts,/adminContext\(request,env\)/);
   assert.match(paymentAttempts,/hasPermission\(ctx\?\.state\?\.access,'settings.manage'\)/);
@@ -959,7 +1017,7 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-attempt-history2/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-attempt-reconcile3/);
 });
 
 test('QR management offers independently scrollable desktop panels and a mobile layout',()=>{
