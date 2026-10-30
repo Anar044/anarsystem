@@ -326,7 +326,7 @@ async function reload(){
     $('qrOrderEnabled').checked=state.settings.orderingEnabled;
     $('qrOrderPlugin').replaceChildren(registerOption(state.settings.posPluginId||'',state.settings.posPluginId||'— Выберите кассу —'));
     $('qrPosBridgeReady').textContent=state.settings.posBridgeReady
-      ?'✓ Касса подключена: приём заказов и печать кухни разрешены (5 минут)'
+      ?'✓ Касса подключена; создание QR-заказов заблокировано до онлайн-оплаты'
       :state.settings.posBridgeConnected
         ?'✓ Касса подключена. Режим диагностики: заказы и печать отключены.'
         :'POS-мост не подключён. Настройте HTTPS API и проверьте авторизацию.';
@@ -339,7 +339,7 @@ async function reload(){
     $('qrPosRestaurantId').textContent='ID подразделения: '+(state.restaurantId||'не определён');
     $('qrPosSelectedPlugin').textContent=state.settings.posPluginId||'Плагин не выбран';
     $('qrPosConnectionState').textContent=state.settings.posBridgeReady
-      ?'Готов к тестовым заказам и кухонной печати'
+      ?'Касса подключена; QR-заказы заблокированы до подтверждённой онлайн-оплаты'
       :state.settings.posBridgeConnected
         ?'Подключён — безопасная диагностика'
         :'Не подключён или не подтверждал связь последние 5 минут';
@@ -372,15 +372,11 @@ async function reload(){
           :!state.settings.posBridgeConnected
             ?'Шаг 4: настройте диагностическое HTTPS-подключение на тестовой кассе.'
             :'Связь проверена. Приём заказов остаётся выключенным; можно импортировать столы по залам.';
-    $('qrOrderEnabled').disabled=(sharedTest&&!state.settings.orderingEnabled)||
-      (!state.settings.posBridgeReady&&!state.settings.orderingEnabled);
-    $('qrOrderSafety').textContent=sharedTest
-      ?'На общей D1 сейчас разрешено только чтение столов из кассы. Приём QR-заказов и кухонная печать выключены.'
-      :state.settings.posBridgeReady
-        ?'Перед включением убедитесь, что выбран тестовый ресторан, а принтер направлен на тестовую кухню.'
-      :state.settings.orderingEnabled
-        ?'Касса недоступна. Приём новых заказов блокируется сервером; снимите галочку, чтобы полностью отключить режим.'
-        :'Нельзя включить приём: касса пока не подтвердила все функции (создание, печать кухни и фискальный ответ).';
+    // Payment-first checkout is not connected. Keep the old setting
+    // visibly off even if an earlier staging row said ordering_enabled=1.
+    $('qrOrderEnabled').checked=false;
+    $('qrOrderEnabled').disabled=true;
+    $('qrOrderSafety').textContent='Приём QR-заказов запрещён до подтверждённой онлайн-оплаты Payriff. Пока доступны меню, залы, столы и QR-коды.';
     const global=$('qrOrderGlobalLink');global.replaceChildren();
     const a=document.createElement('a');a.href=state.menuUrl;a.target='_blank';a.rel='noopener';a.textContent=state.menuUrl;global.append(a);
     if(state.settings.serviceMode==='FAST_FOOD'){
