@@ -37,6 +37,11 @@ export async function ensureOrders(db){
       active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
       PRIMARY KEY(menu_id,id),UNIQUE(menu_id,table_key),UNIQUE(menu_id,table_label)
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS qr_pos_table_snapshots (
+      restaurant_id TEXT NOT NULL,plugin_id TEXT NOT NULL,table_count INTEGER NOT NULL,
+      tables_json TEXT NOT NULL,last_seen_at TEXT NOT NULL,
+      PRIMARY KEY(restaurant_id,plugin_id)
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS qr_guest_orders (
       id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,menu_id TEXT NOT NULL,restaurant_id TEXT NOT NULL,
       public_slug TEXT NOT NULL,client_key TEXT NOT NULL,request_digest TEXT NOT NULL,
@@ -77,6 +82,9 @@ export async function ensureOrders(db){
       await db.prepare("ALTER TABLE qr_guest_orders ADD COLUMN kitchen_status TEXT NOT NULL DEFAULT 'NOT_SENT'").run();
     if(!orderColumns.has('kitchen_updated_at'))
       await db.prepare("ALTER TABLE qr_guest_orders ADD COLUMN kitchen_updated_at TEXT NOT NULL DEFAULT ''").run();
+    const tableColumns=await columns('qr_order_tables');
+    if(!tableColumns.has('section_name'))
+      await db.prepare("ALTER TABLE qr_order_tables ADD COLUMN section_name TEXT NOT NULL DEFAULT ''").run();
     const bridgeColumns=await columns('qr_pos_bridge_capabilities');
     if(!bridgeColumns.has('can_print_kitchen'))
       await db.prepare("ALTER TABLE qr_pos_bridge_capabilities ADD COLUMN can_print_kitchen INTEGER NOT NULL DEFAULT 0").run();
