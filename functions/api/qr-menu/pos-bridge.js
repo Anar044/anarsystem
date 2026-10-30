@@ -13,7 +13,10 @@ async function authorize(request,env,body){
   const hash=async value=>new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)));
   const a=await hash(secret),b=await hash(supplied);
   if(!a.every((v,i)=>v===b[i]))throw fail('QR_BRIDGE_FORBIDDEN','Неверный ключ QR POS Bridge',401);
-  await verifyPluginIngress(request,env,{pluginId,departmentId});
+  // QR uses a dedicated preview-only ingress secret. Never accept the
+  // global PLUGIN_INGEST_TOKEN as a fallback for this endpoint.
+  await verifyPluginIngress(request,env,{pluginId,departmentId},
+    env.QR_POS_INGRESS_TOKEN||'');
   return {pluginId,departmentId};
 }
 export async function onRequestOptions(){return new Response(null,{status:204})}
