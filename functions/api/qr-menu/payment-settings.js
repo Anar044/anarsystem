@@ -4,6 +4,7 @@ import {
   ensurePaymentSettings,paymentSettingsScope,fetchPaymentSettings,
   encryptPaymentSecret,decryptPaymentSecret,safePaymentSettings
 } from './_lib/payment-provider-settings.js';
+import {ensureCheckoutPolicy,fetchCheckoutPolicy,isLivePreview} from './_lib/checkout-policy.js';
 
 const error=e=>bad(e?.status||500,e?.code||'PAYMENT_SETTINGS_ERROR',
   e?.status?e.message:'Не удалось обработать настройки Payriff');
@@ -28,7 +29,11 @@ export async function onRequestGet({request,env}){
     const ctx=await adminContext(request,env);
     const scope=paymentSettingsScope(ctx);
     await ensurePaymentSettings(env.DB);
-    const row=await fetchPaymentSettings(env.DB,scope);
+    await ensureCheckoutPolicy(env.DB);
+    const [row,policy]=await Promise.all([
+      fetchPaymentSettings(env.DB,scope),fetchCheckoutPolicy(env.DB,scope)
+    ]);
+    const livePreviewEnabled=isLivePreview(policy);
     // Diagnostic reflects the exact same immutable restaurant/menu binding
     // that guest checkout requires. 'Enabled' alone is not checkout readiness.
     const [binding,qrMode]=await Promise.all([
@@ -45,10 +50,11 @@ export async function onRequestGet({request,env}){
       qrMode.restaurant_id===scope.restaurantId);
     const previewReady=new URL(request.url).hostname===
       'feature-qr-order-internal-co.smarthoreca.pages.dev';
-    const guestCheckoutReady=Boolean(row?.enabled===1&&
-      row.environment==='development'&&row.secret_encrypted&&scopeReady&&previewReady);
+    const guestCheckoutReady=Boolean(row?.secret_encrypted&&scopeReady&&previewReady&&
+      (livePreviewEnabled||(Number(row.enabled)===1&&row.environment==='development')));
     return response({success:true,restaurantId:scope.restaurantId,
       workspaceId:scope.workspaceId,guestCheckoutReady,
+      livePreviewEnabled,livePreviewLimitAZN:'0.01',
       testQrHost:'feature-qr-order-internal-co.smarthoreca.pages.dev',
       testQrScopeReady:scopeReady,
       encryptionReady:String(env.SMART_HORECA_STATE_ENCRYPTION_KEY||'').trim().length>=24,
@@ -77,6 +83,7 @@ export async function onRequestPost({request,env}){
       throw fail('PAYMENT_RESTAURANT_CHANGED','Ресторан изменился во время сохранения. Обновите страницу и повторите.',409);
     const action=clean(body.action,30),at=new Date().toISOString();
     await ensurePaymentSettings(env.DB);
+    await ensureCheckoutPolicy(env.DB);
     const existing=await fetchPaymentSettings(env.DB,scope);
     // A published QR menu is bound to exactly one workspace, regardless of
     // duplicate restaurant names or IDs in other organisations.
@@ -86,7 +93,47 @@ export async function onRequestPost({request,env}){
     if(bound&&(bound.workspace_id!==scope.workspaceId||
        bound.restaurant_id!==scope.restaurantId))
       throw fail('PAYMENT_MENU_ALREADY_BOUND','QR-меню уже закреплено за другой организацией',409);
+    if(action==='setLivePreview'){
+      if(new URL(request.url).hostname!==
+        'feature-qr-order-internal-co.smarthoreca.pages.dev')
+        throw fail('PAYRIFF_LIVE_PREVIEW_ONLY','Тест действующей картой разрешён только в изолированном Preview',403);
+      if(!existing?.secret_encrypted||!existing?.merchant_id)
+        throw fail('PAYRIFF_NOT_CONFIGURED','Сначала подключите существующее приложение Payriff',409);
+      if(body.expectedMerchantId!==existing.merchant_id)
+        throw fail('PAYRIFF_MERCHANT_CHANGED','Merchant ID изменился. Обновите настройки.',409);
+      if(body.enabled===true&&body.confirmRealCharge!==true)
+        throw fail('PAYRIFF_REAL_CHARGE_CONFIRM_REQUIRED',
+          'Подтвердите реальное списание 0,01 AZN через действующее приложение Payriff',400);
+      // Keep the existing secret and encryption AAD intact. The old
+      // environment column is the key-storage context, NOT Payriff status.
+      await decryptPaymentSecret(env,{...scope,environment:existing.environment,
+        envelope:existing.secret_encrypted});
+      const enabled=body.enabled===true?1:0;
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO qr_payment_checkout_policy
+          (workspace_id,restaurant_id,provider,live_preview_enabled,max_live_minor,updated_at,updated_by)
+          VALUES(?1,?2,'PAYRIFF',?3,1,?4,?5)
+          ON CONFLICT(workspace_id,restaurant_id,provider) DO UPDATE SET
+            live_preview_enabled=excluded.live_preview_enabled,max_live_minor=1,
+            updated_at=excluded.updated_at,updated_by=excluded.updated_by`)
+          .bind(scope.workspaceId,scope.restaurantId,enabled,at,ctx.state.user.id),
+        env.DB.prepare(`UPDATE qr_payment_provider_settings SET enabled=0,updated_at=?1
+          WHERE workspace_id=?2 AND restaurant_id=?3 AND provider='PAYRIFF'`)
+          .bind(at,scope.workspaceId,scope.restaurantId),
+        env.DB.prepare(`INSERT INTO qr_payment_provider_audit
+          (id,workspace_id,restaurant_id,actor_user_id,action,created_at)
+          VALUES(?1,?2,?3,?4,?5,?6)`)
+          .bind(crypto.randomUUID(),scope.workspaceId,scope.restaurantId,ctx.state.user.id,
+            enabled?'LIVE_PREVIEW_001_ENABLED':'LIVE_PREVIEW_001_DISABLED',at)
+      ]);
+      return response({success:true,livePreviewEnabled:Boolean(enabled),
+        notice:enabled
+          ?'Разрешена реальная онлайн-оплата РОВНО 0,01 AZN на Preview. Действующая карта и реальное списание; касса/кухня пока заблокированы.'
+          :'Реальная онлайн-оплата на Preview отключена; история сохраняется.'});
+    }
     if(action==='setTestCheckout'){
+      if(isLivePreview(await fetchCheckoutPolicy(env.DB,scope))&&body.enabled===true)
+        throw fail('PAYRIFF_LIVE_PREVIEW_ACTIVE','Сначала отключите реальную оплату 0,01 AZN',409);
       if(!existing?.secret_encrypted||!existing?.merchant_id||
           existing.environment!=='development')
         throw fail('PAYRIFF_NOT_CONFIGURED','Сначала сохраните тестовые ключи Payriff',409);
@@ -114,6 +161,9 @@ export async function onRequestPost({request,env}){
     if(action==='disconnect'){
       if(body.confirm!==true)throw fail('PAYMENT_CONFIRM_REQUIRED','Подтвердите отключение провайдера',400);
       await env.DB.batch([
+        env.DB.prepare(`DELETE FROM qr_payment_checkout_policy
+          WHERE workspace_id=?1 AND restaurant_id=?2 AND provider='PAYRIFF'`)
+          .bind(scope.workspaceId,scope.restaurantId),
         env.DB.prepare(`DELETE FROM qr_payment_provider_settings
           WHERE workspace_id=?1 AND restaurant_id=?2 AND provider='PAYRIFF'`)
           .bind(scope.workspaceId,scope.restaurantId),
@@ -146,6 +196,12 @@ export async function onRequestPost({request,env}){
       cipher=existing.secret_encrypted;
     }
     await env.DB.batch([
+      env.DB.prepare(`INSERT INTO qr_payment_checkout_policy
+        (workspace_id,restaurant_id,provider,live_preview_enabled,max_live_minor,updated_at,updated_by)
+        VALUES(?1,?2,'PAYRIFF',0,1,?3,?4)
+        ON CONFLICT(workspace_id,restaurant_id,provider) DO UPDATE SET
+          live_preview_enabled=0,updated_at=excluded.updated_at,updated_by=excluded.updated_by`)
+        .bind(scope.workspaceId,scope.restaurantId,at,ctx.state.user.id),
       env.DB.prepare(`INSERT OR IGNORE INTO qr_payment_menu_bindings
         (menu_id,workspace_id,restaurant_id,owner_id,created_at)
         VALUES(?1,?2,?3,?4,?5)`)
