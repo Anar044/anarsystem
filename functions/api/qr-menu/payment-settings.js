@@ -29,8 +29,28 @@ export async function onRequestGet({request,env}){
     const scope=paymentSettingsScope(ctx);
     await ensurePaymentSettings(env.DB);
     const row=await fetchPaymentSettings(env.DB,scope);
+    // Diagnostic reflects the exact same immutable restaurant/menu binding
+    // that guest checkout requires. 'Enabled' alone is not checkout readiness.
+    const [binding,qrMode]=await Promise.all([
+      env.DB.prepare(`SELECT workspace_id,restaurant_id,owner_id FROM qr_payment_menu_bindings
+        WHERE menu_id=?1 LIMIT 1`).bind(ctx.menu.id).first(),
+      env.DB.prepare(`SELECT owner_id,restaurant_id,service_mode FROM qr_order_settings
+        WHERE menu_id=?1 LIMIT 1`).bind(ctx.menu.id).first()
+    ]);
+    const scopeReady=Boolean(binding&&qrMode&&
+      binding.workspace_id===scope.workspaceId&&
+      binding.restaurant_id===scope.restaurantId&&
+      binding.owner_id===ctx.ownerId&&
+      qrMode.owner_id===ctx.ownerId&&
+      qrMode.restaurant_id===scope.restaurantId);
+    const previewReady=new URL(request.url).hostname===
+      'feature-qr-order-internal-co.smarthoreca.pages.dev';
+    const guestCheckoutReady=Boolean(row?.enabled===1&&
+      row.environment==='development'&&row.secret_encrypted&&scopeReady&&previewReady);
     return response({success:true,restaurantId:scope.restaurantId,
-      workspaceId:scope.workspaceId,
+      workspaceId:scope.workspaceId,guestCheckoutReady,
+      testQrHost:'feature-qr-order-internal-co.smarthoreca.pages.dev',
+      testQrScopeReady:scopeReady,
       encryptionReady:String(env.SMART_HORECA_STATE_ENCRYPTION_KEY||'').trim().length>=24,
       ...safePaymentSettings(row,isManager(ctx))});
   }catch(e){return error(e)}
