@@ -89,9 +89,30 @@ test('Public route is anti-replay, disabled by default and payment cannot be for
   assert.match(bridge,/action==='hello'/);
   assert.match(publicApi,/priceBasket\(env.DB,menu.id,body.items\)/);
   assert.match(publicApi,/INSERT OR IGNORE INTO qr_guest_orders/);
-  assert.match(publicApi,/paymentMethod:'PAY_AT_POS'/);
+  assert.match(publicApi,/paymentMethod:'PAYRIFF',onlinePaymentEnabled:false/);
+  assert.match(publicApi,/throw fail\('QR_ONLINE_PAYMENT_NOT_READY'/);
   assert.doesNotMatch(publicApi,/UPDATE qr_guest_orders.*state='CLOSED'/);
   assert.doesNotMatch(guest,/payriff|startPayment|cardNumber/i);
+});
+test('Payment-first guard rejects guest orders and setup even without the shared-test flag',async()=>{
+  const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
+  const bad=(status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status});
+  const src=publicApi.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
+  const {onRequestPost}=new Function('isSharedD1Test','fail','bad',src+';return {onRequestPost};')(
+    ()=>false,fail,bad);
+  const req=new Request('https://qr-preview.example/api/qr-menu/guest-orders',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+      id:'some-menu',items:[{productId:'test',qty:1}],clientKey:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    })
+  });
+  const env={DB:{prepare:()=>{throw Error('No D1 writes allowed before payment')}}};
+  const res=await onRequestPost({request:req,env});
+  assert.equal(res.status,409);
+  assert.equal((await res.json()).code,'QR_ONLINE_PAYMENT_NOT_READY');
+  assert.match(adminApi,/if\(action==='saveSettings'&&body.orderingEnabled===true\)/);
+  assert.match(bridge,/WHERE o.restaurant_id=\?3 AND o.payment_state='PAID_ONLINE'/);
+  assert.match(bridge,/AND o.payment_method='PAYRIFF'/);
+  assert.match(bridge,/Без подтверждённой оплаты заказ не передаётся на кассу и кухню/);
 });
 test('POS bridge requires dual secret and known plugin, uses an idempotent lease',()=>{
   assert.match(bridge,/QR_POS_BRIDGE_TOKEN/);
@@ -204,13 +225,13 @@ test('Diagnostic HTTPS hello cannot receive or dispatch POS orders',async()=>{
     contractVersion:1,canCreateOrder:true,canAcknowledgeFiscal:true,canPrintKitchen:false
   });
   assert.equal(inconsistent.status,409);
-  assert.equal(inconsistent.body.code,'QR_BRIDGE_VERSION_UNSUPPORTED');
+  assert.equal(inconsistent.body.code,'QR_ONLINE_PAYMENT_NOT_READY');
   const full=await send('hello',{
     contractVersion:1,canCreateOrder:true,canAcknowledgeFiscal:true,canPrintKitchen:true
   });
-  assert.equal(full.status,200);
-  assert.equal(full.body.orderingReady,true);
-  assert.equal(mockedDB.cap.can_create_order,1);
+  assert.equal(full.status,409);
+  assert.equal(full.body.code,'QR_ONLINE_PAYMENT_NOT_READY');
+  assert.equal(mockedDB.cap.can_create_order,0);
   const wrongSecret=await send('hello',{
     contractVersion:1,canCreateOrder:false,canAcknowledgeFiscal:false,canPrintKitchen:false
   },'wrong-secret');
