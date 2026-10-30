@@ -8,7 +8,7 @@ export async function onRequestGet({request,env}){
     const ctx=await adminContext(request,env);
     const [cfg,tables,orders]=await Promise.all([
       settings(env.DB,ctx.menu.id),
-      env.DB.prepare(`SELECT id,table_label,table_key,pos_table_id,active FROM qr_order_tables
+      env.DB.prepare(`SELECT id,table_label,table_key,pos_table_id,section_name,active FROM qr_order_tables
         WHERE menu_id=?1 ORDER BY table_label COLLATE NOCASE LIMIT 250`).bind(ctx.menu.id).all(),
       env.DB.prepare(`SELECT id,service_mode,table_label,state,payment_state,items_json,total_minor,
         currency,created_at,updated_at,pos_order_number,pos_receipt_number,last_error,guest_note,kitchen_status
