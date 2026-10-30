@@ -62,6 +62,31 @@ export async function onRequestPost({request,env}){
     if(bound&&(bound.workspace_id!==scope.workspaceId||
        bound.restaurant_id!==scope.restaurantId))
       throw fail('PAYMENT_MENU_ALREADY_BOUND','QR-меню уже закреплено за другой организацией',409);
+    if(action==='setTestCheckout'){
+      if(!existing?.secret_encrypted||!existing?.merchant_id||
+          existing.environment!=='development')
+        throw fail('PAYRIFF_NOT_CONFIGURED','Сначала сохраните тестовые ключи Payriff',409);
+      await decryptPaymentSecret(env,{...scope,environment:'development',
+        envelope:existing.secret_encrypted});
+      const enabled=body.enabled===true?1:0;
+      if(!['feature-qr-order-internal-co.smarthoreca.pages.dev'].includes(
+        new URL(request.url).hostname))
+        throw fail('PAYRIFF_TEST_PREVIEW_ONLY',
+          'Тестовые платежи доступны только в выделенной Preview-ветке',409);
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE qr_payment_provider_settings SET enabled=?1,updated_at=?2
+          WHERE workspace_id=?3 AND restaurant_id=?4 AND provider='PAYRIFF'
+            AND environment='development'`)
+          .bind(enabled,at,scope.workspaceId,scope.restaurantId),
+        env.DB.prepare(`INSERT INTO qr_payment_provider_audit
+          (id,workspace_id,restaurant_id,actor_user_id,action,created_at)
+          VALUES(?1,?2,?3,?4,?5,?6)`)
+          .bind(crypto.randomUUID(),scope.workspaceId,scope.restaurantId,
+            ctx.state.user.id,enabled?'TEST_CHECKOUT_ENABLED':'TEST_CHECKOUT_DISABLED',at)
+      ]);
+      return response({success:true,checkoutEnabled:Boolean(enabled),
+        notice:enabled?'Тестовая оплата Payriff включена только для выбранного ресторана. Касса и печать заблокированы.':'Тестовая оплата выключена. Ранее созданные платежи можно сверить.'});
+    }
     if(action==='disconnect'){
       if(body.confirm!==true)throw fail('PAYMENT_CONFIRM_REQUIRED','Подтвердите отключение провайдера',400);
       await env.DB.batch([
