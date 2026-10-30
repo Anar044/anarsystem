@@ -222,7 +222,8 @@ test('Payriff development checkout verifies purchase, amount and currency before
   assert.equal(posted.amount,15);
   assert.equal(posted.currency,'AZN');
   assert.equal(posted.operation,'PURCHASE');
-  assert.equal(posted.requestRRN,ref);
+  assert.equal(sent.options.headers['X-REQUEST-RRN'],ref);
+  assert.equal(posted.requestRRN,undefined);
   assert.equal(posted.callbackUrl,'https://preview.example/callback');
   assert.equal(classifyPayriffPayment({
     orderId,amount:15,paidAmount:15,currencyType:'AZN',operationType:'PURCHASE',
@@ -241,6 +242,26 @@ test('Payriff development checkout verifies purchase, amount and currency before
   await assert.rejects(createPayriffCheckout({secret:'test',amountMinor:1500,reference:ref,
     fetcher:async()=>({ok:true,json:async()=>({code:'00000',
       payload:{orderId,paymentUrl:'https://evil.example/steal'}})})}));
+  const {readPayriffByReference}=new Function('fail',gateway+
+    ';return {readPayriffByReference};')(fail);
+  let method='';
+  await readPayriffByReference({secret:'test-secret',reference:ref,fetcher:async(url,opts)=>{
+    assert.equal(url,'https://api.payriff.com/api/v3/orders/'+ref+'/rrn');
+    method=opts.method;
+    return {ok:true,json:async()=>({code:'00000',payload:{orderId}})};
+  }});
+  assert.equal(method,'GET');
+  await assert.rejects(createPayriffCheckout({secret:'test',amountMinor:1500,reference:ref,
+    fetcher:async()=>{throw new Error('network disconnected')}}),
+    e=>e.code==='PAYRIFF_NETWORK_UNKNOWN');
+  await assert.rejects(createPayriffCheckout({secret:'test',amountMinor:1500,reference:ref,
+    fetcher:async()=>({ok:true,json:async()=>({code:'15400',responseId:'abc'})})}),
+    e=>e.code==='PAYRIFF_REJECTED_15400');
+  assert.match(sandboxPayment,/readPayriffByReference/);
+  assert.match(sandboxPayment,/last_checked_at/);
+  assert.match(sandboxPayment,/ticket:receipt/);
+  assert.match(guest,/sandboxClientKeyKey/);
+  assert.match(guest,/sessionStorage\.setItem\(sandboxClientKeyKey\(\),sandboxKey\)/);
 });
 test('Sandbox payment requires preview, scoped restaurant and owner activation, never POS',()=>{
   assert.match(sandboxPayment,/feature-qr-order-internal-co\.smarthoreca\.pages\.dev/);
