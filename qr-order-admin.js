@@ -93,14 +93,34 @@ async function loadRegisters(){
     select.replaceChildren(registerOption('','— Нет связи с реестром —'));
     if(saved)select.append(registerOption(saved,'Сохранённый плагин · '+saved));
     select.value=saved;
-    hint.textContent=err.message||'Не удалось загрузить реестр касс';
+    hint.textContent='Не удалось обновить список касс. Ранее сохранённая привязка не удалена. '+
+      (err.message||'Проверьте связь с сервером Smart Horeca.');
     $('qrPosSelectedPlugin').textContent=saved||'Плагин не выбран';
   }
 }
 async function action(data){
   if(busy)return;
-  busy=true;try{await api(data);await reload()}catch(e){status(e.message||String(e))}
-  finally{busy=false}
+  busy=true;
+  const isSettingsSave=data?.action==='saveSettings';
+  if(isSettingsSave)status('Сохраняем настройки…','qrOrderSaveStatus');
+  try{
+    const result=await api(data);
+    await reload();
+    if(isSettingsSave){
+      const persisted=state?.settings?.posPluginId===data.posPluginId&&
+        state?.settings?.serviceMode===data.serviceMode&&
+        state?.settings?.orderingEnabled===data.orderingEnabled;
+      status(persisted
+        ?'✓ Настройки сохранены. Касса привязана к выбранному ресторану.'
+        :'✓ Сервер принял настройки. Проверьте выбранную кассу после обновления данных.',
+        'qrOrderSaveStatus');
+    }else if(result?.notice){
+      status(result.notice);
+    }
+  }catch(e){
+    if(isSettingsSave)status('Не удалось сохранить: '+(e.message||String(e)),'qrOrderSaveStatus');
+    else status(e.message||String(e));
+  }finally{busy=false}
 }
 function qr(box,url){
   if(window.QRCode){
