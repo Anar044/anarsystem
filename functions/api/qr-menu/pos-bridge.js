@@ -36,6 +36,11 @@ export async function onRequestPost({request,env}){
     if(isSharedD1Test(env)&&action!=='hello'&&action!=='tablesSnapshot')
       throw fail('QR_SHARED_D1_ORDERS_DISABLED',
         'Создание QR-заказов в режиме общей тестовой D1 выключено',409);
+    // Only diagnostic hello can be accepted until secure online payments
+    // are integrated. No full POS capability must be advertised.
+    if(!isSharedD1Test(env)&&action==='hello'&&body.canCreateOrder===true)
+      throw fail('QR_ONLINE_PAYMENT_NOT_READY',
+        'Создание и печать QR-заказов запрещены до подтверждённой онлайн-оплаты',409);
     if(isSharedD1Test(env)&&action==='hello'&&
         (body.canCreateOrder!==false||body.canAcknowledgeFiscal!==false||
          body.canPrintKitchen!==false))
@@ -108,6 +113,10 @@ export async function onRequestPost({request,env}){
           Number(caps.can_ack_fiscal)!==1||Number(caps.can_print_kitchen)!==1||
           !Number.isFinite(seen)||seen>Date.now()||Date.now()-seen>=5*60000)
         throw fail('QR_POS_NOT_READY','Касса работает в режиме диагностики или не подтверждала готовность',409);
+      // Fail closed: never dispatch a paid-required order before Payriff
+      // is verified. Revisit the full job contract when payment is live.
+      throw fail('QR_ONLINE_PAYMENT_NOT_READY',
+        'Без подтверждённой оплаты заказ не передаётся на кассу и кухню',409);
       const nextLease=new Date(Date.now()+90000).toISOString();
       // Atomic leasing: two tills cannot both claim the same order.
       // pluginId is pinned to the currently configured plugin AND to the order when set.
@@ -115,8 +124,8 @@ export async function onRequestPost({request,env}){
         SET state='LEASED',lease_until=?1,updated_at=?2,pos_plugin_id=?4
         WHERE id=(
           SELECT o.id FROM qr_guest_orders o JOIN qr_order_settings s ON s.menu_id=o.menu_id
-          WHERE o.restaurant_id=?3 AND o.payment_state='UNPAID'
-            AND o.payment_method='PAY_AT_POS'
+          WHERE o.restaurant_id=?3 AND o.payment_state='PAID_ONLINE'
+            AND o.payment_method='PAYRIFF'
             AND s.pos_plugin_id=?4
             AND (o.pos_plugin_id='' OR o.pos_plugin_id=?4)
             AND (o.state='AWAITING_POS' OR (o.state='LEASED' AND o.lease_until<?2))
@@ -134,8 +143,8 @@ export async function onRequestPost({request,env}){
         items:JSON.parse(item.items_json),
         totalMinor:item.total_minor,currency:item.currency,
         guestNote:item.guest_note,
-        paymentMethod:'PAY_AT_POS',
-        onlinePaid:false,rrn:null,
+        paymentMethod:'PAYRIFF',
+        onlinePaid:true,rrn:null,
         leaseUntil:nextLease
       },notice:'Создайте заказ идемпотентно по externalOrderId; не проводите внешнюю онлайн-оплату.'});
     }
