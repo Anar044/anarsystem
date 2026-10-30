@@ -89,7 +89,7 @@ test('Payriff setup is restricted to owner, tenant, Development and same origin'
   assert.doesNotMatch(admin,/loadPayriffTestStatus/);
 });
 test('Payriff API refuses foreign restaurant, external origin, non-owner and production writes',async()=>{
-  const src=paymentEndpoint.replace(/^import .*;\s*$/gm,'')
+  const src=paymentEndpoint.replace(/^import[\s\S]*?from\s+['\"][^'\"]+['\"];\s*$/gm,'')
     .replace(/\bexport\s+(?=async|function|const)/g,'');
   const json=(body,status=200)=>new Response(JSON.stringify(body),{status});
   const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
