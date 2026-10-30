@@ -2,6 +2,7 @@
 'use strict';
 const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let state=null,busy=false,reloadSequence=0;
+let selectedPosTables=new Set(),catalogScope="",expandedSections=null;
 async function api(body,path='/api/qr-menu/order-admin'){
   const auth=await window.SHAuth?.createClient?.();
   const session=await auth?.auth.getSession();
@@ -52,6 +53,8 @@ function showPrerequisite(error){
   $('qrOrderTables').replaceChildren();
   $('qrOrderRows').replaceChildren();
   $('qrPosCatalogGroups').replaceChildren();
+  $('qrQrCount').textContent='0 столов';
+  $('qrCatalogSelectionSummary').textContent='Выбрано: 0';
   $('qrPosCatalogStatus').textContent='Ожидаем подключения кассы…';
   $('qrTableImport').disabled=true;
   status(needsMenu?'':(error?.message||'Не удалось загрузить QR-заказы.'));
@@ -131,9 +134,22 @@ async function copy(value){
   try{await navigator.clipboard.writeText(value);status('Ссылка скопирована','qrOrderSaveStatus')}
   catch{status('Не удалось скопировать ссылку','qrOrderSaveStatus')}
 }
+
+function updateCatalogSelection(){
+  const host=$('qrPosCatalogGroups');
+  const selected=[...host.querySelectorAll('input[type="checkbox"]:checked:not(:disabled)')];
+  selectedPosTables=new Set(selected.map(x=>String(x.dataset.posTableId).toLowerCase()));
+  $('qrTableImport').disabled=!selected.length;
+  $('qrCatalogSelectionSummary').textContent='Выбрано: '+selected.length;
+  $('qrTableSelectAll').disabled=!host.querySelector('input[type="checkbox"]:not(:disabled)');
+  $('qrTableSelectNone').disabled=!selected.length;
+}
 function renderPosCatalog(){
   const host=$('qrPosCatalogGroups'),hint=$('qrPosCatalogStatus'),importBtn=$('qrTableImport');
   host.replaceChildren();importBtn.disabled=true;
+  $('qrCatalogSelectionSummary').textContent='Выбрано: 0';
+  $('qrTableSelectAll').disabled=true;
+  $('qrTableSelectNone').disabled=true;
   if(!state||state.settings.serviceMode!=='TABLE')return;
   if(!state.settings.posPluginId){
     hint.textContent='Сначала выберите кассу ресторана и нажмите «Сохранить режим».';
@@ -141,38 +157,59 @@ function renderPosCatalog(){
   }
   const cfg=state.settings.backendSetup||{};
   if(!cfg.tableSyncAllowed){
-    hint.textContent='Синхронизация пока недоступна: разрешите только этот тестовый ресторан и кассу в настройках QR Bridge. Отдельная D1 не требуется.';
+    hint.textContent='Синхронизация пока недоступна для этой тестовой кассы. Отдельная D1 не требуется.';
     return;
   }
   const snapshot=state.posTableCatalog||{};
   if(!snapshot.available){
-    hint.textContent='Нет свежего списка столов от кассы. Установите QR Bridge с поддержкой столов, включите безопасную диагностику и проверьте подключение.';
+    hint.textContent='Нет свежего списка столов. Проверьте подключение тестовой кассы и обновите каталог.';
     return;
   }
   const tables=Array.isArray(snapshot.tables)?snapshot.tables:[];
+  const scope=state.restaurantId+'|'+state.settings.posPluginId;
+  if(scope!==catalogScope){
+    catalogScope=scope;selectedPosTables.clear();expandedSections=null;
+  }
   const imported=new Set((state.tables||[]).map(t=>String(t.pos_table_id||'').toLowerCase()));
   const grouped=new Map();
   for(const t of tables){
-    const section=String(t.sectionName||'Зал');
-    const id=String(t.sectionId||'');
-    const key=id||section;
-    if(!grouped.has(key))grouped.set(key,{section,tables:[]});
+    const section=String(t.sectionName||'Без указанного зала');
+    const key=String(t.sectionId||section);
+    if(!grouped.has(key))grouped.set(key,{key,section,tables:[]});
     grouped.get(key).tables.push(t);
   }
   const countExisting=tables.filter(t=>imported.has(String(t.posTableId).toLowerCase())).length;
-  hint.textContent='Касса передала '+tables.length+' столов · уже добавлено '+countExisting+
-    ' · обновлено '+new Date(snapshot.lastSeenAt).toLocaleString('ru-RU')+
-    '. Выберите столы, затем нажмите «Добавить выбранные столы».';
+  hint.textContent='Получено: '+tables.length+' · QR уже готов: '+countExisting+
+    ' · обновлено: '+new Date(snapshot.lastSeenAt).toLocaleString('ru-RU')+'.';
   if(!tables.length){
     host.textContent='На выбранной кассе нет столов. Проверьте настройки залов в POS.';
     return;
   }
-  for(const {section,tables:sectionTables} of [...grouped.values()].sort((a,b)=>
-    a.section.localeCompare(b.section,'ru'))){
-    const group=document.createElement('section');group.className='qro-catalog-group';
-    const head=document.createElement('div');head.className='qro-catalog-heading';
-    head.textContent=section+' · '+sectionTables.length;
-    group.append(head);
+  const sections=[...grouped.values()].sort((a,b)=>a.section.localeCompare(b.section,'ru'));
+  if(expandedSections===null)expandedSections=new Set(sections.length?[sections[0].key]:[]);
+  const availableIds=new Set(tables.filter(t=>t.isActive&&!imported.has(String(t.posTableId).toLowerCase()))
+    .map(t=>String(t.posTableId).toLowerCase()));
+  selectedPosTables=new Set([...selectedPosTables].filter(id=>availableIds.has(id)));
+  for(const {key,section,tables:sectionTables} of sections){
+    const group=document.createElement('details');group.className='qro-catalog-group';
+    group.open=expandedSections.has(key);
+    group.addEventListener('toggle',()=>{
+      if(group.open)expandedSections.add(key);else expandedSections.delete(key);
+    });
+    const head=document.createElement('summary');head.className='qro-catalog-heading';
+    const name=document.createElement('strong');name.textContent=section;
+    const count=document.createElement('small');
+    const readyCount=sectionTables.filter(t=>imported.has(String(t.posTableId).toLowerCase())).length;
+    count.textContent=sectionTables.length+' столов · QR готов: '+readyCount;
+    head.append(name,count);group.append(head);
+    const sectionActions=document.createElement('div');sectionActions.className='qro-section-actions';
+    const selectSection=document.createElement('button');selectSection.type='button';
+    selectSection.className='qro-section-action';selectSection.textContent='Выбрать доступные в этом зале';
+    selectSection.addEventListener('click',()=>{
+      group.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(el=>el.checked=true);
+      updateCatalogSelection();
+    });
+    sectionActions.append(selectSection);group.append(sectionActions);
     const items=document.createElement('div');items.className='qro-catalog-items';
     for(const table of sectionTables.sort((a,b)=>a.number-b.number||
         a.name.localeCompare(b.name,'ru'))){
@@ -180,57 +217,73 @@ function renderPosCatalog(){
       const checkbox=document.createElement('input');checkbox.type='checkbox';
       checkbox.dataset.posTableId=table.posTableId;
       const linked=imported.has(String(table.posTableId).toLowerCase());
-      checkbox.checked=table.isActive&&!linked;
-      checkbox.disabled=!table.isActive;
-      const name=document.createElement('span');name.textContent=table.name||'Стол '+table.number;
+      checkbox.disabled=!table.isActive||linked;
+      checkbox.checked=!checkbox.disabled&&selectedPosTables.has(String(table.posTableId).toLowerCase());
+      const text=document.createElement('span');text.textContent=table.name||'Стол '+table.number;
       const note=document.createElement('small');
       note.textContent=!table.isActive?'Неактивен':linked?'QR готов':'Новый';
-      label.append(checkbox,name,note);
-      items.append(label);
+      label.append(checkbox,text,note);items.append(label);
     }
     group.append(items);host.append(group);
   }
-  const update=()=>{
-    importBtn.disabled=!host.querySelector('input[type="checkbox"]:checked');
-  };
-  host.onchange=update;
-  update();
+  host.onchange=updateCatalogSelection;
+  updateCatalogSelection();
 }
 function renderTables(){
   const container=$('qrOrderTables');container.replaceChildren();
   $('qrTablePanel').hidden=state.settings.serviceMode!=='TABLE';
-  let currentSection=null;
-  for(const t of [...(state.tables||[])].sort((a,b)=>
+  $('qrQrPanel').hidden=state.settings.serviceMode!=='TABLE';
+  const all=[...(state.tables||[])].sort((a,b)=>
     String(a.section_name||'').localeCompare(String(b.section_name||''),'ru')||
-    String(a.table_label).localeCompare(String(b.table_label),'ru'))){
+    String(a.table_label).localeCompare(String(b.table_label),'ru'));
+  const select=$('qrQrSectionFilter'),previous=select.value;
+  const sections=[...new Set(all.map(t=>String(t.section_name||'Без указанного зала')))]
+    .sort((a,b)=>a.localeCompare(b,'ru'));
+  select.replaceChildren();
+  const allOption=document.createElement('option');allOption.value='';allOption.textContent='Все залы';select.append(allOption);
+  for(const section of sections){
+    const option=document.createElement('option');option.value=section;option.textContent=section;
+    select.append(option);
+  }
+  select.value=sections.includes(previous)?previous:'';
+  const query=$('qrQrSearch').value.trim().toLocaleLowerCase('ru');
+  const shown=all.filter(t=>(!select.value||String(t.section_name||'Без указанного зала')===select.value)&&
+    (!query||String(t.table_label||'').toLocaleLowerCase('ru').includes(query)));
+  $('qrQrCount').textContent='Показано: '+shown.length+' из '+all.length;
+  let currentSection=null;
+  for(const t of shown){
     const section=String(t.section_name||'Без указанного зала');
     if(section!==currentSection){
       currentSection=section;
-      const sectionTitle=document.createElement('h3');
-      sectionTitle.className='qro-section-title';
-      sectionTitle.style.gridColumn='1/-1';
-      sectionTitle.textContent=section;
-      container.append(sectionTitle);
+      const title=document.createElement('h3');title.className='qro-section-title';
+      title.textContent=section;container.append(title);
     }
     const card=document.createElement('article');card.className='qro-qr-card';
+    const head=document.createElement('div');head.className='qro-qr-card-head';
     const name=document.createElement('strong');name.textContent=t.table_label;
-    const badge=document.createElement('div');badge.className='qro-muted';
-    badge.textContent=t.active?'Активен':'Выключен';
+    const badge=document.createElement('span');badge.className='qro-muted';
+    badge.textContent=t.active?'Активен':'Выключен';head.append(name,badge);
     const code=document.createElement('div');code.className='qro-qr';
     if(t.active)qr(code,t.url);else code.textContent='Отключён';
-    const url=document.createElement('a');url.href=t.url;url.target='_blank';url.rel='noopener';url.textContent='Открыть меню';
-    const input=document.createElement('input');input.value=t.pos_table_id||'';input.placeholder='ID стола в POS';input.title='ID стола в POS';
-    const actions=document.createElement('div');actions.className='qro-actions';actions.style.marginTop='10px';
-    const btn=(text,handler,cls='')=>{const b=document.createElement('button');b.type='button';b.className='qro-btn '+cls;b.textContent=text;b.onclick=handler;return b};
-    actions.append(
-      btn('Копировать',()=>copy(t.url)),
-      btn('Сохранить POS ID',()=>action({action:'setPosTable',tableId:t.id,posTableId:input.value.trim()})),
+    const link=document.createElement('a');link.href=t.url;link.target='_blank';link.rel='noopener';
+    link.textContent='Открыть меню';
+    const input=document.createElement('input');input.value=t.pos_table_id||'';
+    input.placeholder='ID стола в POS';input.title='ID стола в POS';input.setAttribute('aria-label','ID POS: '+t.table_label);
+    const btn=(label,handler,cls='')=>{const b=document.createElement('button');
+      b.type='button';b.className='qro-btn '+cls;b.textContent=label;b.onclick=handler;return b;};
+    const primary=document.createElement('div');primary.className='qro-qr-primary';
+    primary.append(link,btn('Копировать',()=>copy(t.url)));
+    const more=document.createElement('details');more.className='qro-qr-more';
+    const summary=document.createElement('summary');summary.textContent='Управление столом';
+    const actions=document.createElement('div');actions.className='qro-actions';
+    actions.append(input,btn('Сохранить POS ID',()=>action({action:'setPosTable',tableId:t.id,posTableId:input.value.trim()})),
       btn(t.active?'Выключить':'Включить',()=>action({action:'setTableActive',tableId:t.id,active:!t.active})),
-      btn('Новый QR',()=>{if(confirm('Старый QR-код стола перестанет действовать. Продолжить?'))action({action:'rotateTable',tableId:t.id})},'danger')
-    );
-    card.append(name,badge,code,url,input,actions);container.append(card);
+      btn('Новый QR',()=>{if(confirm('Старый QR-код стола перестанет действовать. Продолжить?'))
+        action({action:'rotateTable',tableId:t.id})},'danger'));
+    more.append(summary,actions);card.append(head,code,primary,more);container.append(card);
   }
-  if(!state.tables?.length)container.textContent='Добавьте стол и распечатайте его QR-код.';
+  if(!all.length)container.textContent='Сначала добавьте столы из кассы.';
+  else if(!shown.length)container.textContent='По выбранному фильтру столы не найдены.';
 }
 function renderOrders(){
   const labels={AWAITING_POS:'Ожидает кассу',LEASED:'Передаётся',POS_OPEN:'Создан на кассе',POS_FAILED:'Ошибка передачи',CLOSED:'Фискально закрыт',CANCELLED:'Отменён'};
@@ -309,6 +362,7 @@ async function reload(){
         :cfg.singleKeyDiagnosticMode
           ?'Для тестовой синхронизации нужен только QR_POS_BRIDGE_TOKEN. Старый PLUGIN_INGEST_TOKEN менять и копировать не нужно.'
           :'Ключи не показываются. Импорт ограничен выбранным тестовым рестораном и кассой.';
+    $('qrSetupSummary').textContent=state.settings.posBridgeReady?'· Касса готова':state.settings.posBridgeConnected?'· Диагностика активна':'· Нет подтверждённой связи';
     $('qrPosNextStep').textContent=!state.settings.posPluginId
       ?'Шаг 1: выберите и сохраните тестовую кассу, не включая гостевые заказы.'
       :!tableAllowed
@@ -344,6 +398,18 @@ function bind(){
   $('qrOrderCheckConnection').onclick=reload;
   $('qrOrderRetry').onclick=reload;
   $('qrTableRefresh').onclick=reload;
+  $('qrTableSelectAll').onclick=()=>{
+    $('qrPosCatalogGroups').querySelectorAll('input[type="checkbox"]:not(:disabled)')
+      .forEach(input=>input.checked=true);
+    updateCatalogSelection();
+  };
+  $('qrTableSelectNone').onclick=()=>{
+    $('qrPosCatalogGroups').querySelectorAll('input[type="checkbox"]')
+      .forEach(input=>input.checked=false);
+    updateCatalogSelection();
+  };
+  $('qrQrSectionFilter').onchange=renderTables;
+  $('qrQrSearch').oninput=renderTables;
   $('qrTableImport').onclick=()=>{
     const selected=[...$('qrPosCatalogGroups').querySelectorAll('input[type="checkbox"]:checked')]
       .map(x=>x.dataset.posTableId);
