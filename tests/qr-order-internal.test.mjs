@@ -15,10 +15,27 @@ const persistentWorkspace=read('persistent-workspace.js');
 const siteAccess=read('site-access.js');
 const registryHelper=read('functions/api/qr-menu/_lib/pos-registers.js');
 const registryEndpoint=read('functions/api/qr-menu/pos-registers.js');
+const tablePolicy=read('functions/api/qr-menu/_lib/table-sync-policy.js');
 const reference=read('qr-menu-reference-v2.js');
 const shell=read('app-shell.js');
 const modules=[core,publicApi,adminApi,bridge];
 const compile=s=>new Function(s.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,''));
+const cleanValue=(v,n=180)=>String(v??'').trim().slice(0,n);
+const failed=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
+const {requireTableSyncScope,isSharedD1Test}=new Function('fail','clean',
+  tablePolicy.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'')+
+  ';return{requireTableSyncScope,isSharedD1Test};'
+)(failed,cleanValue);
+const testRestaurant='28a38f52-9b1b-01a7-019f-8455da3a0010';
+const testPlugin='0638669c-67e2-4f14-be2d-567404352a7c';
+const testPreview='feature-qr-order-internal-co.smarthoreca.pages.dev';
+const sharedConfig={
+  QR_TABLE_SYNC_MODE:'shared-test',
+  QR_TABLE_SYNC_PREVIEW_HOST:testPreview,
+  QR_TABLE_SYNC_DEPARTMENT_ID:testRestaurant,
+  QR_TABLE_SYNC_PLUGIN_ID:testPlugin
+};
+
 function getCore(){
   const source=core.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
   return new Function(source+';return {priceBasket,validateTable,publicState};')();
@@ -156,9 +173,11 @@ test('Diagnostic HTTPS hello cannot receive or dispatch POS orders',async()=>{
   const invalid=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
   const source=bridge.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
   const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
+    'requireTableSyncScope','isSharedD1Test',
     source+';return{onRequestPost};')(
     async()=>{},json,(status,code,message)=>json({success:false,code,message},status),
-    invalid,(v,n=180)=>String(v??'').trim().slice(0,n),async()=>({verified:true})
+    invalid,(v,n=180)=>String(v??'').trim().slice(0,n),async()=>({verified:true}),
+    requireTableSyncScope,isSharedD1Test
   );
   const env={QR_POS_BRIDGE_TOKEN:'test-secret',DB:mockedDB};
   async function send(action,options={},secret='test-secret'){
@@ -261,6 +280,7 @@ test('QR settings POST rejects a cashier not registered in the selected restaura
   const json=(value,status=200)=>new Response(JSON.stringify(value),{status});
   const {onRequestPost}=new Function(
     'ensureOrders','adminContext','settings','registeredPosRegisters','response','bad','fail','clean','token','eventStmt',
+    'requireTableSyncScope','isSharedD1Test',
     source+';return{onRequestPost};'
   )(
     async()=>{},
@@ -268,9 +288,10 @@ test('QR settings POST rejects a cashier not registered in the selected restaura
     async()=>null,
     async()=>{lookups++;return[{pluginId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'}]},
     json,(status,code,message)=>json({success:false,code,message},status),
-    fail,(x,n=180)=>String(x??'').trim().slice(0,n),()=>'token',()=>({})
+    fail,(x,n=180)=>String(x??'').trim().slice(0,n),()=>'token',()=>({}),
+    requireTableSyncScope,isSharedD1Test
   );
-  const request=new Request('https://test.example/api/qr-menu/order-admin',{method:'POST',body:JSON.stringify({
+  const request=new Request('https://feature-qr-order-internal-co.smarthoreca.pages.dev/api/qr-menu/order-admin',{method:'POST',body:JSON.stringify({
     action:'saveSettings',serviceMode:'TABLE',posPluginId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     orderingEnabled:false
   })});
@@ -384,15 +405,17 @@ test('Read-only POS tablesSnapshot authenticates, scopes and stores valid halls'
   const err=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
   let verified=0;
   const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
+    'requireTableSyncScope','isSharedD1Test',
     source+';return{onRequestPost};')(
     async()=>{},(v,status=200)=>new Response(JSON.stringify(v),{status}),
     (status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status}),
     err,(v,n=180)=>String(v??'').trim().slice(0,n),
-    async()=>{verified++;return{verified:true}}
+    async()=>{verified++;return{verified:true}},
+    requireTableSyncScope,isSharedD1Test
   );
-  const env={QR_POS_BRIDGE_TOKEN:'secret',QR_TEST_D1_ISOLATED:'confirmed',DB:db};
+  const env={QR_POS_BRIDGE_TOKEN:'secret',...sharedConfig,DB:db};
   const send=async data=>{
-    const req=new Request('https://test.example/api/qr-menu/pos-bridge',{method:'POST',
+    const req=new Request('https://feature-qr-order-internal-co.smarthoreca.pages.dev/api/qr-menu/pos-bridge',{method:'POST',
       headers:{'X-QR-Bridge-Token':'secret'},body:JSON.stringify(data)});
     const res=await onRequestPost({request:req,env});return{status:res.status,body:await res.json()};
   };
@@ -438,17 +461,19 @@ test('QR table importer only accepts a fresh authenticated POS catalog and keeps
   };
   const err=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
   const {onRequestPost}=new Function('ensureOrders','adminContext','settings','registeredPosRegisters','response','bad','fail','clean','token','eventStmt',
+    'requireTableSyncScope','isSharedD1Test',
     source+';return{onRequestPost};')(
     async()=>{},async()=>({ownerId:'owner',restaurantId,menu:{id:'menu'}}),
     async()=>({owner_id:'owner',restaurant_id:restaurantId,pos_plugin_id:pluginId,service_mode:'TABLE'}),
     async()=>[],(v,status=200)=>new Response(JSON.stringify(v),{status}),
     (status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status}),
-    err,(v,n=180)=>String(v??'').trim().slice(0,n),()=> 'new-qr-token',()=>({})
+    err,(v,n=180)=>String(v??'').trim().slice(0,n),()=> 'new-qr-token',()=>({}),
+    requireTableSyncScope,isSharedD1Test
   );
   const send=async ids=>{
-    const request=new Request('https://test.example/api/qr-menu/order-admin',
+    const request=new Request('https://feature-qr-order-internal-co.smarthoreca.pages.dev/api/qr-menu/order-admin',
       {method:'POST',body:JSON.stringify({action:'syncPosTables',posTableIds:ids})});
-    const res=await onRequestPost({request,env:{DB:db,QR_TEST_D1_ISOLATED:'confirmed'}});
+    const res=await onRequestPost({request,env:{DB:db,...sharedConfig}});
     return{status:res.status,body:await res.json()};
   };
   const forged=await send([stranger]);
@@ -486,11 +511,13 @@ test('POS table sync is blocked without explicit preview DB isolation confirmati
   const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
   let writes=0, schemaAttempts=0;
   const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
+    'requireTableSyncScope','isSharedD1Test',
     source+';return{onRequestPost};')(
     async()=>{schemaAttempts++},
     (value,status=200)=>new Response(JSON.stringify(value),{status}),
     (status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status}),
-    fail,(v,n=180)=>String(v??'').trim().slice(0,n),async()=>({verified:true})
+    fail,(v,n=180)=>String(v??'').trim().slice(0,n),async()=>({verified:true}),
+    requireTableSyncScope,isSharedD1Test
   );
   const payload={action:'tablesSnapshot',pluginId:'0638669c-67e2-4f14-be2d-567404352a7c',
     departmentId:'28a38f52-9b1b-01a7-019f-8455da3a0010',tables:[]};
