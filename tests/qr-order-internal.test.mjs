@@ -262,7 +262,7 @@ test('In-app test POS setup never exposes secrets and preserves protected worksp
   assert.match(adminApi,/adminContext\(request,env\)/);
   assert.match(adminApi,/restaurant_id=\?1 AND plugin_id=\?2/);
   assert.match(admin,/\$\('qrOrderEnabled'\)\.disabled=true/);
-  assert.match(admin,/!state\.settings\.posBridgeReady/);
+  assert.match(admin,/Приём QR-заказов запрещён до подтверждённой онлайн-оплаты Payriff/);
   assert.match(admin,/\$\('qrPosRestaurantId'\)\.textContent/);
   assert.match(admin,/\$\('qrOrderCheckConnection'\)\.onclick=reload/);
 });
