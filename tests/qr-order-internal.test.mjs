@@ -414,6 +414,8 @@ test('QR orders button stays in protected workspace instead of falling back to D
 });
 
 test('Unpublished QR menu shows actionable next step, never leaves a fake loading state',()=>{
+  assert.match(managementPage,/id="qrPayriffTestStatus"/);
+  assert.match(admin,/loadPayriffTestStatus/);
   assert.match(managementPage,/id="qrOrderPrerequisite" hidden/);
   assert.match(managementPage,/id="qrOrderOpenEditor"/);
   assert.match(managementPage,/id="qrOrderRetry"/);
@@ -667,7 +669,7 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-payment-first1/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-payriff-readiness1/);
 });
 
 test('QR management offers independently scrollable desktop panels and a mobile layout',()=>{
