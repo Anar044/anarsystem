@@ -226,7 +226,7 @@ test('Admin explicitly distinguishes diagnostic connection from POS readiness',(
 });
 
 test('In-app test POS setup never exposes secrets and preserves protected workspace scope',()=>{
-  assert.match(managementPage,/Подключение кассы из Smart Horeca/);
+  assert.match(managementPage,/Подключение кассы и диагностика/);
   assert.match(managementPage,/id="qrPosConnectionState"/);
   assert.match(managementPage,/id="qrPosServerState"/);
   assert.match(managementPage,/id="qrOrderCheckConnection"/);
