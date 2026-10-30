@@ -65,6 +65,12 @@ export async function ensurePaymentSettings(db){
     enabled INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
     PRIMARY KEY(workspace_id,restaurant_id,provider)
   )`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS qr_payment_menu_bindings (
+    menu_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,restaurant_id TEXT NOT NULL,
+    owner_id TEXT NOT NULL,created_at TEXT NOT NULL
+  )`).run();
+  await db.prepare(`CREATE INDEX IF NOT EXISTS idx_qr_payment_menu_scope
+    ON qr_payment_menu_bindings(workspace_id,restaurant_id)`).run();
   await db.prepare(`CREATE TABLE IF NOT EXISTS qr_payment_provider_audit (
     id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL,restaurant_id TEXT NOT NULL,
     actor_user_id TEXT NOT NULL,action TEXT NOT NULL,created_at TEXT NOT NULL
