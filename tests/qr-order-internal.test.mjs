@@ -22,6 +22,7 @@ const paymentEndpoint=read('functions/api/qr-menu/payment-settings.js');
 const sandboxPayment=read('functions/api/qr-menu/payment-checkout.js');
 const payriffGateway=read('functions/api/qr-menu/_lib/payriff-checkout.js');
 const paymentCallback=read('functions/api/qr-menu/payment-callback.js');
+const paymentAttempts=read('functions/api/qr-menu/payment-attempts.js');
 const reference=read('qr-menu-reference-v2.js');
 const shell=read('app-shell.js');
 const modules=[core,publicApi,adminApi,bridge];
@@ -262,6 +263,21 @@ test('Payriff development checkout verifies purchase, amount and currency before
   assert.match(sandboxPayment,/ticket:receipt/);
   assert.match(guest,/sandboxClientKeyKey/);
   assert.match(guest,/sessionStorage\.setItem\(sandboxClientKeyKey\(\),sandboxKey\)/);
+});
+test('Payriff previous-attempt history is scoped and never creates a new charge',()=>{
+  assert.match(paymentAttempts,/adminContext\(request,env\)/);
+  assert.match(paymentAttempts,/hasPermission\(ctx\?\.state\?\.access,'settings.manage'\)/);
+  assert.match(paymentAttempts,/WHERE workspace_id=\?1 AND restaurant_id=\?2/);
+  assert.match(paymentAttempts,/body.expectedRestaurantId!==scope.restaurantId/);
+  assert.match(paymentAttempts,/readPayriffByReference/);
+  assert.match(paymentAttempts,/last_checked_at/);
+  assert.match(paymentAttempts,/PAID_VERIFIED/);
+  assert.doesNotMatch(paymentAttempts,/createPayriffCheckout|POST \/api\/v3\/orders/);
+  assert.match(managementPage,/id="qrPaymentAttemptsPanel"/);
+  assert.match(admin,/loadPaymentAttempts/);
+  assert.match(admin,/action:'reconcile'/);
+  assert.match(guest,/sessionStorage\.setItem\(sandboxClientKeyKey\(\),sandboxKey\)/);
+  assert.match(sandboxPayment,/UPDATE qr_payment_intents SET state='UNKNOWN'/);
 });
 test('Sandbox payment requires preview, scoped restaurant and owner activation, never POS',()=>{
   assert.match(sandboxPayment,/feature-qr-order-internal-co\.smarthoreca\.pages\.dev/);
@@ -886,7 +902,7 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261030-readonly-guest-check5/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-rrn-reconcile1/);
 });
 
 test('QR management offers independently scrollable desktop panels and a mobile layout',()=>{
