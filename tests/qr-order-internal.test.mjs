@@ -75,6 +75,7 @@ test('Payriff credentials are encrypted with workspace/restaurant AAD and a serv
 test('Payriff setup is restricted to owner, tenant, Development and same origin',()=>{
   assert.match(paymentEndpoint,/ctx\?\.state\?\.access\?\.isOwner===true/);
   assert.match(paymentEndpoint,/PAYMENT_CONFIG_OWNER_REQUIRED/);
+  assert.match(paymentEndpoint,/hasPermission\(ctx\?\.state\?\.access,'settings.manage'\)/);
   assert.match(paymentEndpoint,/PAYMENT_SCOPE_FORGED/);
   assert.match(paymentEndpoint,/PAYMENT_RESTAURANT_CHANGED/);
   assert.match(admin,/expectedRestaurantId:paymentLoadedRestaurant/);
@@ -96,17 +97,18 @@ test('Payriff API refuses foreign restaurant, external origin, non-owner and pro
     .replace(/\bexport\s+(?=async|function|const)/g,'');
   const json=(body,status=200)=>new Response(JSON.stringify(body),{status});
   const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
-  let owner=true, writes=0, encrypted='', merchantId='';
+  let owner=true, adminPermissions=[], writes=0, encrypted='', merchantId='';
   const adminContext=async()=>({
     restaurantId:'r-1',menu:{id:'m-1'},ownerId:'u-1',
-    state:{access:{isOwner:owner,workspace:{id:'w-1'}},user:{id:'user-1'}}
+    state:{access:{isOwner:owner,permissions:adminPermissions,workspace:{id:'w-1'}},user:{id:'user-1'}}
   });
-  const {onRequestGet,onRequestPost}=new Function('adminContext','response','bad','fail','clean',
+  const {onRequestGet,onRequestPost}=new Function('adminContext','response','bad','fail','clean','hasPermission',
     'ensurePaymentSettings','paymentSettingsScope','fetchPaymentSettings',
     'encryptPaymentSecret','decryptPaymentSecret','safePaymentSettings',
     src+';return {onRequestGet,onRequestPost};')(
     adminContext,json,(status,code,message)=>json({success:false,code,message},status),
-    fail,(v,n=180)=>String(v??'').trim().slice(0,n),async()=>{},
+    fail,(v,n=180)=>String(v??'').trim().slice(0,n),
+    (access,permission)=>(access?.permissions||[]).includes(permission),async()=>{},
     ctx=>({workspaceId:ctx.state.access.workspace.id,restaurantId:ctx.restaurantId}),
     async()=>encrypted?{merchant_id:merchantId,secret_encrypted:encrypted,environment:'development'}:null,
     async(_env,args)=>{encrypted='encrypted-not-plaintext';merchantId='ES1095709';return encrypted},
@@ -130,6 +132,10 @@ test('Payriff API refuses foreign restaurant, external origin, non-owner and pro
   assert.equal(res.status,403);assert.equal(writes,0);
   owner=false;res=await call(body);
   assert.equal(res.status,403);assert.equal(writes,0);
+  adminPermissions=['settings.manage'];
+  res=await call({...body,expectedRestaurantId:'another-restaurant'});
+  assert.equal(res.status,409);assert.equal(writes,0);
+  adminPermissions=[];
   owner=true;res=await call({...body,environment:'production'});
   assert.equal(res.status,409);assert.equal(writes,0);
   res=await call(body);
