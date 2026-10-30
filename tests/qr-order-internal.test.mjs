@@ -153,14 +153,20 @@ test('Opening a QR checkout does not create D1 tables or write before payment',a
   const respond=(payload,status=200)=>new Response(JSON.stringify(payload),{
     status,headers:{'Content-Type':'application/json'}
   });
+  let capturedPaymentScope=null;
   const getter=new Function('publishedMenu','settings','validateTable',
     'fetchPaymentSettings','response','bad','fail','clean',
     source+';return onRequestGet;')(
     async()=>({id:'menu1',organization_id:'restaurant1'}),
     async()=>({owner_id:'owner1',restaurant_id:'restaurant1',menu_id:'menu1',service_mode:'TABLE'}),
     async()=>({id:'table1',table_label:'Бар - Стол 1'}),
-    async()=>({enabled:1,environment:'development',
-      merchant_id:'ES9990000',secret_encrypted:'ciphertext'}),
+    async(_db,scope)=>{
+      capturedPaymentScope=scope;
+      if(!scope.workspaceId||!scope.restaurantId)
+        throw Error('D1 bind received undefined restaurant/workspace ID');
+      return {enabled:1,environment:'development',
+        merchant_id:'ES9990000',secret_encrypted:'ciphertext'};
+    },
     respond,(status,code,message)=>respond({success:false,code,message},status),
     failed,cleanValue);
   let queryCount=0;
@@ -177,6 +183,9 @@ test('Opening a QR checkout does not create D1 tables or write before payment',a
   assert.equal(result.status,200);
   const body=await result.json();
   assert.equal(body.testCheckoutEnabled,true);
+  assert.deepEqual(capturedPaymentScope,{
+    workspaceId:'workspace1',restaurantId:'restaurant1'
+  });
   assert.equal(body.tableLabel,'Бар - Стол 1');
   assert.equal(queryCount,1);
   const broken=await getter({request,env:{DB:{prepare(){throw Error('D1 storage issue')}}}});
