@@ -506,41 +506,87 @@ test('QR page offers grouped automatic POS table import and manual fallback',()=
   assert.match(core,/ADD COLUMN section_name/);
 });
 
-test('POS table sync is blocked without explicit preview DB isolation confirmation',async()=>{
+
+test('Shared D1 table upload requires preview host and exact test restaurant and plugin',async()=>{
   const source=bridge.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
-  const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
-  let writes=0, schemaAttempts=0;
+  let schemaAttempts=0;
   const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
-    'requireTableSyncScope','isSharedD1Test',
-    source+';return{onRequestPost};')(
+    'requireTableSyncScope','isSharedD1Test',source+';return{onRequestPost};')(
     async()=>{schemaAttempts++},
-    (value,status=200)=>new Response(JSON.stringify(value),{status}),
+    (v,status=200)=>new Response(JSON.stringify(v),{status}),
     (status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status}),
-    fail,(v,n=180)=>String(v??'').trim().slice(0,n),async()=>({verified:true}),
-    requireTableSyncScope,isSharedD1Test
+    failed,cleanValue,async()=>({verified:true}),requireTableSyncScope,isSharedD1Test
   );
-  const payload={action:'tablesSnapshot',pluginId:'0638669c-67e2-4f14-be2d-567404352a7c',
-    departmentId:'28a38f52-9b1b-01a7-019f-8455da3a0010',tables:[]};
-  async function send(hostname,confirmed){
-    const request=new Request('https://'+hostname+'/api/qr-menu/pos-bridge',{
+  const identity={pluginId:testPlugin,departmentId:testRestaurant};
+  async function post(host,env,action='tablesSnapshot',overrides={}){
+    const request=new Request('https://'+host+'/api/qr-menu/pos-bridge',{
       method:'POST',headers:{'X-QR-Bridge-Token':'secret'},
-      body:JSON.stringify(payload)
+      body:JSON.stringify({...identity,action,tables:[],...overrides})
     });
-    const env={QR_POS_BRIDGE_TOKEN:'secret',QR_TEST_D1_ISOLATED:confirmed,
-      DB:{prepare(){writes++;throw new Error('D1 write must not be attempted')}}};
-    const res=await onRequestPost({request,env});
+    const res=await onRequestPost({request,env:{
+      QR_POS_BRIDGE_TOKEN:'secret',...env,DB:{
+        prepare(){throw new Error('Unexpected database write during blocked operation')}
+      }
+    }});
     return{status:res.status,body:await res.json()};
   }
-  const unconfirmed=await send('feature-qr-order-internal-co.smarthoreca.pages.dev','');
-  assert.equal(unconfirmed.status,409);
-  assert.equal(unconfirmed.body.code,'QR_TEST_DB_UNCONFIRMED');
-  assert.equal(writes,0);
+  const noConfig=await post(testPreview,{});
+  assert.equal(noConfig.status,403);
+  assert.equal(noConfig.body.code,'QR_TABLE_SYNC_HOST_FORBIDDEN');
+  const otherHost=await post('smarthoreca.pages.dev',sharedConfig);
+  assert.equal(otherHost.status,403);
+  assert.equal(otherHost.body.code,'QR_TABLE_SYNC_HOST_FORBIDDEN');
+  const foreignRestaurant=await post(testPreview,sharedConfig,'tablesSnapshot',{
+    departmentId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  });
+  assert.equal(foreignRestaurant.status,403);
+  assert.equal(foreignRestaurant.body.code,'QR_TABLE_SYNC_TEST_SCOPE_FORBIDDEN');
+  const foreignPlugin=await post(testPreview,sharedConfig,'tablesSnapshot',{
+    pluginId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  });
+  assert.equal(foreignPlugin.status,403);
+  assert.equal(foreignPlugin.body.code,'QR_TABLE_SYNC_TEST_SCOPE_FORBIDDEN');
   assert.equal(schemaAttempts,0);
-  const production=await send('smarthoreca.pages.dev','confirmed');
-  assert.equal(production.status,409);
-  assert.equal(production.body.code,'QR_TEST_DB_UNCONFIRMED');
-  assert.equal(writes,0);
-  assert.equal(schemaAttempts,0);
-  assert.match(adminApi,/QR_TEST_D1_ISOLATED/);
-  assert.match(admin,/cfg.testD1ConfirmationRecorded/);
+});
+test('Shared D1 test POS cannot enable ordering or call POS pull',async()=>{
+  const source=bridge.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
+  const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
+    'requireTableSyncScope','isSharedD1Test',source+';return{onRequestPost};')(
+    async()=>{},
+    (v,status=200)=>new Response(JSON.stringify(v),{status}),
+    (status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status}),
+    failed,cleanValue,async()=>({verified:true}),requireTableSyncScope,isSharedD1Test
+  );
+  const base={pluginId:testPlugin,departmentId:testRestaurant};
+  async function send(body){
+    const request=new Request('https://'+testPreview+'/api/qr-menu/pos-bridge',{
+      method:'POST',headers:{'X-QR-Bridge-Token':'secret'},body:JSON.stringify({...base,...body})
+    });
+    const res=await onRequestPost({request,env:{
+      ...sharedConfig,QR_POS_BRIDGE_TOKEN:'secret',DB:{
+        prepare(){throw new Error('Blocked operations cannot reach D1')}
+      }
+    }});
+    return{status:res.status,body:await res.json()};
+  }
+  const pull=await send({action:'pull'});
+  assert.equal(pull.status,409);
+  assert.equal(pull.body.code,'QR_SHARED_D1_ORDERS_DISABLED');
+  const fullHello=await send({action:'hello',contractVersion:1,
+    canCreateOrder:true,canAcknowledgeFiscal:true,canPrintKitchen:true});
+  assert.equal(fullHello.status,409);
+  assert.equal(fullHello.body.code,'QR_SHARED_D1_DIAGNOSTICS_ONLY');
+  const created=await send({action:'ackCreated',externalOrderId:'fake'});
+  assert.equal(created.status,409);
+  const guestSource=publicApi.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
+  const {onRequestPost:guestPost}=new Function('isSharedD1Test','fail','bad',
+    guestSource+';return{onRequestPost};')(
+      isSharedD1Test,failed,(status,code,message)=>
+        new Response(JSON.stringify({success:false,code,message}),{status})
+    );
+  const res=await guestPost({request:new Request('https://'+testPreview+'/api/qr-menu/guest-orders',{
+    method:'POST',body:'{}'
+  }),env:sharedConfig});
+  assert.equal(res.status,409);
+  assert.equal((await res.json()).code,'QR_SHARED_D1_ORDERS_DISABLED');
 });
