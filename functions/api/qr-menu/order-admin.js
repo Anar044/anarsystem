@@ -5,9 +5,6 @@ const error=e=>bad(e.status||500,e.code||'QR_ADMIN_ERROR',e.status?e.message:'Н
 export async function onRequestOptions(){return new Response(null,{status:204,headers:{Allow:'GET,POST,OPTIONS'}})}
 export async function onRequestGet({request,env}){
   try{
-    if(action==='saveSettings'&&body.orderingEnabled===true)
-      throw fail('QR_ONLINE_PAYMENT_NOT_READY',
-        'Нельзя включить QR-заказы до серверного подтверждения онлайн-оплаты Payriff',409);
     await ensureOrders(env.DB);
     const ctx=await adminContext(request,env);
     const [cfg,tables,orders]=await Promise.all([
@@ -96,6 +93,9 @@ export async function onRequestPost({request,env}){
     if(existing&&(existing.owner_id!==ctx.ownerId||existing.restaurant_id!==ctx.restaurantId))
       throw fail('CROSS_WORKSPACE_FORBIDDEN','QR Menu принадлежит другому рабочему пространству',403);
     const now=new Date().toISOString();
+    if(action==='saveSettings'&&body.orderingEnabled===true)
+      throw fail('QR_ONLINE_PAYMENT_NOT_READY',
+        'Нельзя включить QR-заказы до серверного подтверждения онлайн-оплаты Payriff',409);
     if(action==='saveSettings'){
       const mode=clean(body.serviceMode,30),pluginId=clean(body.posPluginId,100);
       if(!['TABLE','FAST_FOOD'].includes(mode))throw fail('BAD_MODE','Выберите режим столов или фастфуд');
