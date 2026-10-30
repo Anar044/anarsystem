@@ -255,7 +255,10 @@ test('Payriff development checkout verifies purchase, amount and currency before
   assert.equal(method,'GET');
   await assert.rejects(createPayriffCheckout({secret:'test',amountMinor:1500,reference:ref,
     fetcher:async()=>{throw new Error('network disconnected')}}),
-    e=>e.code==='PAYRIFF_NETWORK_UNKNOWN');
+    e=>e.code==='PAYRIFF_CONNECT_FAILED');
+  await assert.rejects(createPayriffCheckout({secret:'test',amountMinor:1500,reference:ref,
+    fetcher:async()=>({ok:false,status:302})}),
+    e=>e.code==='PAYRIFF_UNEXPECTED_REDIRECT');
   await assert.rejects(createPayriffCheckout({secret:'test',amountMinor:1500,reference:ref,
     fetcher:async()=>({ok:true,json:async()=>({code:'15400',responseId:'abc'})})}),
     e=>e.code==='PAYRIFF_REJECTED_15400');
