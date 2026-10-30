@@ -178,8 +178,9 @@
     <strong>Важно для безопасности оплаты:</strong> выбор Development в Smart Horeca НЕ переводит
     приложение Payriff в тестовый режим. В Payriff → Applications проверьте,
     что именно указанный Merchant ID имеет статус Development и Secret Key принадлежит ему.
-    Если у приложения статус Online, отключите тестовую оплату до настройки отдельного
-    Development-приложения. Иначе тест может обратиться к действующему эквайрингу.
+    При статусе Online можно включить отдельный ограниченный режим реальной оплаты
+    0,01 AZN на тестовом сайте. Это настоящее списание через действующий Merchant ID,
+    а не виртуальная операция. Подключать другой Payriff Merchant не требуется.
   </div>
   <div class="qro-pay-grid">
     <label class="qro-field">Платёжный провайдер
@@ -196,9 +197,11 @@
     </label>
   </div>
   <p class="qro-muted">Secret Key сохраняется на сервере в зашифрованном виде и никогда не показывается повторно. При изменении только других полей его можно оставить пустым.</p>
+  <p class="qro-muted">Поле Development — историческая метка сохранения ключа. Статус Online задаёт Payriff, а не Smart Horeca. Реальная оплата разрешается отдельной кнопкой ниже и только на 0,01 AZN.</p>
   <div class="qro-actions">
     <button id="qrPaymentSave" class="qro-btn primary" type="button" disabled>Сохранить Payriff</button>
     <button id="qrPaymentToggleTest" class="qro-btn" type="button" disabled>Включить тестовую оплату</button>
+    <button id="qrPaymentToggleLive" class="qro-btn" type="button" disabled>Включить реальную оплату 0,01 AZN</button>
     <button id="qrPaymentDisconnect" class="qro-btn danger" type="button" disabled>Отключить провайдера</button>
     <span class="qro-muted" id="qrPaymentVerification">Проверка реального платежа пока не активирована</span>
   </div>
@@ -283,6 +286,6 @@
 <script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script>
 <script src="/documents-nav.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script src="/qr-order-admin.js?v=20261031-app-status-warning1"></script>
+<script src="/qr-order-admin.js?v=20261031-live001-1"></script>
 <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script><script src="/sh-i18n.js"></script>
 </body></html>
