@@ -25,9 +25,7 @@ QR_TABLE_SYNC_PLUGIN_ID=0638669c-67e2-4f14-be2d-567404352a7c
 
 Это серверные настройки; не создавайте их на Production. Старый флаг `QR_TEST_D1_ISOLATED` **не требуется** в режиме `shared-test`.
 
-Два независимых защищённых секрета по-прежнему нужны для QR HTTPS API, **только в Preview**:
-- `PLUGIN_INGEST_TOKEN` (тот же, что `QrPosBridge.PluginIngressToken` на тестовой кассе);
-- `QR_POS_BRIDGE_TOKEN` (тот же, что `QrPosBridge.BridgeToken` на тестовой кассе).
+Для **тестового режима shared-test** требуется только **один** новый секрет `QR_POS_BRIDGE_TOKEN` в Preview. Его значение должно совпадать с `QrPosBridge.BridgeToken` на тестовой кассе. Существующий глобальный `PLUGIN_INGEST_TOKEN` остаётся неизменным и **не нужен** для настройки этого тестового моста. Сервер дополнительно проверяет принадлежность `PluginId` / `DepartmentId` через существующий реестр и разрешает ровно одну тестовую кассу на указанном preview-хосте. Другие режимы подключения по-прежнему имеют отдельную авторизацию.
 
 `QR_ORDER_RATE_SECRET` понадобится позже для гостевых заказов; для импорта столов в `shared-test` он не нужен. Если реестр плагинов не отвечает, проверьте доступность backend `/api/plugin/data` (не подменяйте это URL существующим `/plugin-websocket`).
 
@@ -45,13 +43,12 @@ QR_TABLE_SYNC_PLUGIN_ID=0638669c-67e2-4f14-be2d-567404352a7c
   "AllowOrderCreation": false,
   "AllowKitchenPrint": false,
   "Url": "https://feature-qr-order-internal-co.smarthoreca.pages.dev/api/qr-menu/pos-bridge",
-  "PluginIngressToken": "СЕКРЕТ_ИЗ_PREVIEW_PLUGIN_INGEST_TOKEN",
   "BridgeToken": "СЕКРЕТ_ИЗ_PREVIEW_QR_POS_BRIDGE_TOKEN",
   "PollSeconds": 10
 }
 ```
 
-Это фрагмент JSON, а не самостоятельный `smarthoreca.json`. `OperatorPin` не нужен, потому что новые заказы и кухонная печать выключены.
+Это фрагмент JSON, а не самостоятельный `smarthoreca.json`. `OperatorPin` и `PluginIngressToken` не нужны в безопасном режиме `shared-test`, потому что создание заказов и печать кухни выключены. Для установки требуется обновлённая сборка плагина с поддержкой одного QR-токена. В уже существующем файле не изменяйте `PluginId` и `SocketAuthSecret`.
 
 В логах ожидать:
 ```text
