@@ -262,6 +262,16 @@ test('Payriff development checkout verifies purchase, amount and currency before
   await assert.rejects(createPayriffCheckout({secret:'test',amountMinor:1500,reference:ref,
     fetcher:async()=>({ok:true,json:async()=>({code:'15400',responseId:'abc'})})}),
     e=>e.code==='PAYRIFF_REJECTED_15400');
+  await assert.rejects(createPayriffCheckout({secret:'test',amountMinor:1500,reference:ref,
+    fetcher:async()=>({ok:false,status:400,json:async()=>({
+      code:'15400',responseId:'support123',message:'UNSAFE-MERCHANT-SECRET'
+    })})}),e=>e.code==='PAYRIFF_HTTP_400_CODE_15400'
+      &&e.providerResponseId==='support123'
+      &&!e.message.includes('UNSAFE-MERCHANT-SECRET'));
+  await assert.rejects(createPayriffCheckout({secret:'test',amountMinor:1500,reference:ref,
+    fetcher:async()=>({ok:false,status:400,json:async()=>({
+      code:'15400',responseId:'unsafe text here',message:'UNSAFE-MERCHANT-SECRET'
+    })})}),e=>e.code==='PAYRIFF_HTTP_400_CODE_15400'&&e.providerResponseId===null);
   assert.match(sandboxPayment,/readPayriffByReference/);
   assert.match(sandboxPayment,/last_checked_at/);
   assert.match(sandboxPayment,/ticket:receipt/);
@@ -368,6 +378,7 @@ test('Payriff UNKNOWN reconciliation exposes provider error instead of hiding it
   assert.equal(body.reconciliation.outcome,'UNCONFIRMED');
   assert.equal(body.reconciliation.code,'PAYRIFF_HTTP_404');
   assert.match(body.notice,/PAYRIFF_HTTP_404/);
+  assert.equal(body.reconciliation.responseId,null);
   assert.ok(body.reconciliation.checkedAt);
   assert.deepEqual(lookups,[{reference:id}]);
   assert.equal(queries.filter(s=>s.includes('UPDATE')).length,1);
