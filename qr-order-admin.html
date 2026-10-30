@@ -57,7 +57,7 @@
       </div>
       <div class="qro-field">Кассовый плагин
         <strong id="qrPosSelectedPlugin">Не указан</strong>
-        <small>Укажите зарегистрированный ID кассы ниже и нажмите «Сохранить режим» с выключенным приёмом заказов.</small>
+        <small>Выберите зарегистрированную кассу ниже и нажмите «Сохранить режим» с выключенным приёмом заказов.</small>
       </div>
     </div>
     <div>
@@ -79,9 +79,13 @@
 <section class="qro-panel">
 <h2>Режим работы</h2><div class="qro-field">Обслуживание
 <select id="qrOrderMode"><option value="TABLE">Ресторан — QR каждого стола</option><option value="FAST_FOOD">Фастфуд — один общий QR</option></select></div>
-<div class="qro-field">ID плагина кассы
-<input id="qrOrderPlugin" placeholder="ID подключённого плагина" autocomplete="off">
-<small>Не вводите его наугад: нужно зарегистрированное устройство из вашей кассовой сети.</small><small id="qrPosBridgeReady">POS-мост ещё не проверен</small></div>
+<div class="qro-field">Касса выбранного ресторана
+<div class="qro-actions" style="flex-wrap:nowrap">
+<select id="qrOrderPlugin" aria-label="Выберите кассу"><option value="">Загружаем подключённые кассы…</option></select>
+<button type="button" class="qro-btn" id="qrPosListReload" title="Обновить список касс">↻</button>
+</div>
+<small id="qrPosListStatus" role="status">Подключённые кассы загружаются из сервера Smart Horeca.</small>
+<small id="qrPosBridgeReady">POS-мост ещё не проверен</small></div>
 <label class="qro-actions" style="font-size:12px"><input id="qrOrderEnabled" type="checkbox"> Разрешить гостям оформлять QR-заказы</label>
 <small id="qrOrderSafety">Доступно только после подтверждения готовности кассы к приёму заказов и печати кухни.</small>
 <p>Оплата сейчас только на кассе; включение сбора QR-заказов не доказывает создание заказа в POS.</p>
@@ -112,6 +116,6 @@
 <script src="/mobile-responsive.js?v=20261009-role-aware-v2"></script>
 <script src="/documents-nav.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script src="/qr-order-admin.js?v=20261030-setup1"></script>
+<script src="/qr-order-admin.js?v=20261030-register1"></script>
 <script src="/sh-i18n-catalog.js?v=20261012-ui-i18n-all-v1"></script><script src="/sh-i18n.js"></script>
 </body></html>
