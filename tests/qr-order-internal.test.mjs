@@ -390,7 +390,7 @@ test('Read-only POS tablesSnapshot authenticates, scopes and stores valid halls'
     err,(v,n=180)=>String(v??'').trim().slice(0,n),
     async()=>{verified++;return{verified:true}}
   );
-  const env={QR_POS_BRIDGE_TOKEN:'secret',DB:db};
+  const env={QR_POS_BRIDGE_TOKEN:'secret',QR_TEST_D1_ISOLATED:'confirmed',DB:db};
   const send=async data=>{
     const req=new Request('https://test.example/api/qr-menu/pos-bridge',{method:'POST',
       headers:{'X-QR-Bridge-Token':'secret'},body:JSON.stringify(data)});
@@ -448,7 +448,7 @@ test('QR table importer only accepts a fresh authenticated POS catalog and keeps
   const send=async ids=>{
     const request=new Request('https://test.example/api/qr-menu/order-admin',
       {method:'POST',body:JSON.stringify({action:'syncPosTables',posTableIds:ids})});
-    const res=await onRequestPost({request,env:{DB:db}});
+    const res=await onRequestPost({request,env:{DB:db,QR_TEST_D1_ISOLATED:'confirmed'}});
     return{status:res.status,body:await res.json()};
   };
   const forged=await send([stranger]);
@@ -479,4 +479,39 @@ test('QR page offers grouped automatic POS table import and manual fallback',()=
   assert.match(adminApi,/qr_pos_table_snapshots/);
   assert.match(core,/CREATE TABLE IF NOT EXISTS qr_pos_table_snapshots/);
   assert.match(core,/ADD COLUMN section_name/);
+});
+
+test('POS table sync is blocked without explicit preview DB isolation confirmation',async()=>{
+  const source=bridge.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
+  const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
+  let writes=0;
+  const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
+    source+';return{onRequestPost};')(
+    async()=>{},
+    (value,status=200)=>new Response(JSON.stringify(value),{status}),
+    (status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status}),
+    fail,(v,n=180)=>String(v??'').trim().slice(0,n),async()=>({verified:true})
+  );
+  const payload={action:'tablesSnapshot',pluginId:'0638669c-67e2-4f14-be2d-567404352a7c',
+    departmentId:'28a38f52-9b1b-01a7-019f-8455da3a0010',tables:[]};
+  async function send(hostname,confirmed){
+    const request=new Request('https://'+hostname+'/api/qr-menu/pos-bridge',{
+      method:'POST',headers:{'X-QR-Bridge-Token':'secret'},
+      body:JSON.stringify(payload)
+    });
+    const env={QR_POS_BRIDGE_TOKEN:'secret',QR_TEST_D1_ISOLATED:confirmed,
+      DB:{prepare(){writes++;throw new Error('D1 write must not be attempted')}}};
+    const res=await onRequestPost({request,env});
+    return{status:res.status,body:await res.json()};
+  }
+  const unconfirmed=await send('feature-qr-order-internal-co.smarthoreca.pages.dev','');
+  assert.equal(unconfirmed.status,409);
+  assert.equal(unconfirmed.body.code,'QR_TEST_DB_UNCONFIRMED');
+  assert.equal(writes,0);
+  const production=await send('smarthoreca.pages.dev','confirmed');
+  assert.equal(production.status,409);
+  assert.equal(production.body.code,'QR_TEST_DB_UNCONFIRMED');
+  assert.equal(writes,0);
+  assert.match(adminApi,/QR_TEST_D1_ISOLATED/);
+  assert.match(admin,/cfg.testD1ConfirmationRecorded/);
 });
