@@ -28,6 +28,15 @@ export async function onRequestGet({request,env}){
       lastSeen<=Date.now()&&Date.now()-lastSeen<5*60*1000);
     const bridgeReady=bridgeConnected&&Number(posStatus.can_create_order)===1&&
       Number(posStatus.can_ack_fiscal)===1&&Number(posStatus.can_print_kitchen)===1;
+    const snapshot=cfg?.pos_plugin_id
+      ?await env.DB.prepare(`SELECT table_count,tables_json,last_seen_at
+        FROM qr_pos_table_snapshots WHERE restaurant_id=?1 AND plugin_id=?2 LIMIT 1`)
+        .bind(ctx.restaurantId,cfg.pos_plugin_id).first()
+      :null;
+    const snapshotTime=Date.parse(snapshot?.last_seen_at||'');
+    const catalogFresh=Boolean(snapshot&&Number.isFinite(snapshotTime)&&
+      snapshotTime<=Date.now()&&Date.now()-snapshotTime<15*60*1000);
+    const catalogTables=catalogFresh?JSON.parse(snapshot.tables_json||'[]'):[];
     const origin=new URL(request.url).origin;
     const url=origin+'/menu.html?id='+encodeURIComponent(ctx.menu.public_slug);
     return response({success:true,restaurantId:ctx.restaurantId,menuName:ctx.menu.restaurant_name,
@@ -42,6 +51,12 @@ export async function onRequestGet({request,env}){
           rateSecretConfigured:Boolean(clean(env.QR_ORDER_RATE_SECRET))
         },
         onlinePaymentEnabled:false},
+      posTableCatalog:{
+        available:catalogFresh,
+        lastSeenAt:snapshot?.last_seen_at||null,
+        count:catalogFresh?catalogTables.length:0,
+        tables:catalogTables
+      },
       tables:(tables.results||[]).map(t=>({...t,active:Boolean(t.active),
         url:url+'&table='+encodeURIComponent(t.table_key)})),
       orders:(orders.results||[]).map(o=>({...o,items:JSON.parse(o.items_json||'[]'),items_json:undefined,
@@ -99,6 +114,87 @@ export async function onRequestPost({request,env}){
           updated_at=excluded.updated_at`)
         .bind(ctx.ownerId,ctx.menu.id,ctx.restaurantId,mode,enabled,pluginId,now).run();
       return response({success:true,notice:enabled?'Приём тестовых QR-заказов включён: POS-мост подтвердил полную готовность.':'Приём заказов выключен.'});
+    }
+    if(action==='syncPosTables'){
+      // Only data previously signed by a registered plugin belonging to this
+      // restaurant may be imported. Browser cannot choose a different plugin.
+      const pluginId=clean(existing?.pos_plugin_id,100);
+      if(!pluginId)throw fail('QR_POS_SELECT_REQUIRED','Сначала выберите и сохраните кассу',409);
+      if(existing?.service_mode!=='TABLE')
+        throw fail('QR_TABLE_MODE_REQUIRED','Переключите QR-заказы в режим ресторана',409);
+      const snap=await env.DB.prepare(`SELECT tables_json,last_seen_at FROM qr_pos_table_snapshots
+        WHERE restaurant_id=?1 AND plugin_id=?2 LIMIT 1`)
+        .bind(ctx.restaurantId,pluginId).first();
+      const stamped=Date.parse(snap?.last_seen_at||'');
+      if(!snap||!Number.isFinite(stamped)||stamped>Date.now()||
+          Date.now()-stamped>=15*60000)
+        throw fail('QR_POS_TABLES_UNAVAILABLE','Нет свежего списка столов с выбранной кассы. Проверьте QR Bridge.',409);
+      const catalog=JSON.parse(snap.tables_json||'[]');
+      const requested=body.posTableIds;
+      if(!Array.isArray(requested)||requested.length<1||requested.length>250)
+        throw fail('QR_TABLE_SELECTION_INVALID','Выберите от 1 до 250 столов',400);
+      const want=new Set(requested.map(x=>clean(x,100).toLowerCase()));
+      if(want.size!==requested.length)
+        throw fail('QR_TABLE_SELECTION_INVALID','В списке есть повторяющиеся столы',400);
+      const selected=catalog.filter(x=>want.has(clean(x.posTableId,100).toLowerCase())&&x.isActive===true);
+      if(selected.length!==want.size)
+        throw fail('QR_TABLE_SELECTION_INVALID','Некоторые столы неактивны или отсутствуют на выбранной кассе',409);
+      const rows=(await env.DB.prepare(`SELECT id,table_label,pos_table_id FROM qr_order_tables
+        WHERE menu_id=?1 AND owner_id=?2 LIMIT 260`).bind(ctx.menu.id,ctx.ownerId).all()).results||[];
+      if(rows.length>250||rows.length+selected.filter(x=>
+        !rows.some(y=>clean(y.pos_table_id,100).toLowerCase()===x.posTableId.toLowerCase())).length>250)
+        throw fail('QR_TABLE_COUNT_LIMIT','Превышен лимит 250 QR-столов в одном меню',409);
+      const idToRow=new Map();
+      const labels=new Set();
+      for(const row of rows){
+        const key=clean(row.pos_table_id,100).toLowerCase();
+        if(key){
+          if(idToRow.has(key))
+            throw fail('QR_POS_TABLE_DUPLICATE','В QR Menu уже есть дублирующиеся привязки POS-стола',409);
+          idToRow.set(key,row);
+        }
+        labels.add(String(row.table_label).toLowerCase());
+      }
+      const sanitize=value=>clean(value,70).replace(/[^\p{L}\p{N} ._\-№]/gu,' ')
+        .replace(/\s+/g,' ').trim();
+      const changes=[];
+      let created=0,linked=0;
+      for(const table of selected){
+        const id=table.posTableId.toLowerCase();
+        const current=idToRow.get(id);
+        const section=sanitize(table.sectionName).slice(0,70)||'Зал';
+        const name=sanitize(table.name).slice(0,70)||('Стол '+table.number);
+        let label=(section+' - '+name).slice(0,48).trim();
+        if(!/^[\p{L}\p{N} ._\-№]{1,48}$/u.test(label))
+          throw fail('QR_TABLE_LABEL_INVALID','На кассе некорректное название стола',409);
+        if(current){
+          linked++;
+          // Keep its human-readable label and, crucially, its permanent QR
+          // token. Section may be updated without affecting printed QR codes.
+          changes.push(env.DB.prepare(`UPDATE qr_order_tables
+            SET section_name=?1,updated_at=?2
+            WHERE menu_id=?3 AND owner_id=?4 AND id=?5`)
+            .bind(section,now,ctx.menu.id,ctx.ownerId,current.id));
+        }else{
+          if(labels.has(label.toLowerCase())){
+            label=(label.slice(0,37).trim()+'-'+id.slice(0,8)).slice(0,48);
+          }
+          if(labels.has(label.toLowerCase()))
+            throw fail('QR_TABLE_LABEL_CONFLICT','Обнаружены одинаковые названия POS-столов',409);
+          labels.add(label.toLowerCase());
+          created++;
+          changes.push(env.DB.prepare(`INSERT INTO qr_order_tables
+            (owner_id,menu_id,id,table_label,table_key,pos_table_id,
+             active,created_at,updated_at,section_name)
+            VALUES(?1,?2,?3,?4,?5,?6,1,?7,?7,?8)`)
+            .bind(ctx.ownerId,ctx.menu.id,crypto.randomUUID(),label,token(),table.posTableId,now,section));
+        }
+      }
+      // D1 batch is transactional. A conflict must never leave a half-import.
+      if(changes.length)await env.DB.batch(changes);
+      return response({success:true,created,linked,total:selected.length,
+        notice:'Синхронизировано столов: '+selected.length+'. Новых: '+created+
+          '. Существующие QR-коды сохранены.'});
     }
     if(action==='addTable'){
       const name=clean(body.label,48),posId=clean(body.posTableId,120);
