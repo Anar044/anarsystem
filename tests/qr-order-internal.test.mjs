@@ -567,7 +567,9 @@ test('Payriff return uses a visible page and verifies the existing ticket, never
   assert.match(r.headers.get('location'),/qrPaymentTicket=/);
   assert.equal(r.headers.get('Cache-Control'),'no-store');
   assert.equal(r.headers.get('Referrer-Policy'),'no-referrer');
-  assert.doesNotMatch(paymentCallback,/UPDATE\s+qr_payment_intents/);
+  assert.match(paymentCallback,/request\.headers\.get\('Accept'\)\?\.includes\('text\/html'\)/);
+  assert.match(paymentReturn,/shqr_return_ticket:/);
+  assert.doesNotMatch(paymentCallback,/INSERT INTO qr_guest_orders|createPayriffCheckout/);
 });
 test('Payriff webhook is untrusted and can only reconcile an existing paid order',async()=>{
   const src=paymentCallback.replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
