@@ -22,6 +22,7 @@ const paymentEndpoint=read('functions/api/qr-menu/payment-settings.js');
 const sandboxPayment=read('functions/api/qr-menu/payment-checkout.js');
 const payriffGateway=read('functions/api/qr-menu/_lib/payriff-checkout.js');
 const paymentCallback=read('functions/api/qr-menu/payment-callback.js');
+const paymentReturn=read('qr-payment-return.html');
 const paymentAttempts=read('functions/api/qr-menu/payment-attempts.js');
 const paymentConnectivity=read('functions/api/qr-menu/payment-connectivity.js');
 const reference=read('qr-menu-reference-v2.js');
@@ -535,10 +536,35 @@ test('Sandbox payment requires preview, scoped restaurant and owner activation, 
   assert.match(paymentEndpoint,/guestCheckoutReady/);
   assert.match(paymentEndpoint,/testQrScopeReady/);
   assert.match(paymentEndpoint,/binding\.workspace_id===scope\.workspaceId/);
-  assert.match(menu,/qr-order-guest\.js\?v=20261031-real001-2/);
+  assert.match(menu,/qr-order-guest\.js\?v=20261031-payment-return3/);
   assert.match(guest,/submitSandboxPayment/);
   assert.match(guest,/sessionStorage\.setItem\(sandboxTicketKey\(\),sandboxTicket\)/);
   assert.match(paymentCallback,/verified:false/);
+});
+test('Payriff return uses a visible page and verifies the existing ticket, never a new charge',async()=>{
+  assert.match(sandboxPayment,/qr-payment-return\.html\?id=/);
+  assert.match(sandboxPayment,/qrPaymentTicket=/);
+  assert.match(sandboxPayment,/payment-callback\?qrPaymentTicket=/);
+  assert.match(paymentReturn,/Проверяем оплату/);
+  assert.match(paymentReturn,/fetch\('\/api\/qr-menu\/payment-checkout\?ticket=/);
+  assert.match(paymentReturn,/paidVerified/);
+  assert.match(paymentReturn,/Не оплачивайте повторно/);
+  assert.doesNotMatch(paymentReturn,/method:\s*['"]POST['"]|location\.assign\(.*payriff/);
+  // Regression: previously the client-key path returned a stale CHECKOUT
+  // without ever calling Payriff's authoritative order lookup.
+  assert.match(guest,/if\(sandboxTicket\)url\.searchParams\.set\('ticket',sandboxTicket\)/);
+  const src=paymentCallback.replace(/\bexport\s+(?=async|function|const)/g,'');
+  const get=new Function(src+';return onRequestGet;')();
+  const opaque='a'.repeat(64);
+  const request=new Request('https://qr-preview.example/api/qr-menu/payment-callback?qrPaymentTicket='+
+    opaque+'&id=menu-1&table=bar-1');
+  const r=await get({request});
+  assert.equal(r.status,303);
+  assert.match(r.headers.get('location'),/qr-payment-return\.html/);
+  assert.match(r.headers.get('location'),/qrPaymentTicket=/);
+  assert.equal(r.headers.get('Cache-Control'),'no-store');
+  assert.equal(r.headers.get('Referrer-Policy'),'no-referrer');
+  assert.doesNotMatch(paymentCallback,/UPDATE\s+qr_payment_intents/);
 });
 test('All new QR order APIs and client scripts are syntactically valid',()=>{
   for(const source of modules)assert.doesNotThrow(()=>compile(source));
