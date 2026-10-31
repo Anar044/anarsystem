@@ -524,6 +524,7 @@ test('Payriff refund reuses the original POS transaction without a second provid
   const state={refund:null,providerCalls:0};
   const db={prepare(sql){
     return {
+      run:async()=>({success:true}), // CREATE TABLE, no bind parameters
       bind:(...params)=>({
         first:async()=>{
           if(sql.includes('FROM qr_guest_orders o'))
