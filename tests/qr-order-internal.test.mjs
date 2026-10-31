@@ -533,7 +533,7 @@ test('One verified Payriff intent creates at most one tenant-scoped queued POS o
         if(sql.includes('SELECT * FROM qr_payment_intents')){
           calls.query++;return params[0]===intentId?intent:null;
         }
-        if(sql.includes('SELECT id,pos_table_id,active FROM qr_order_tables'))
+        if(sql.includes('FROM qr_order_tables'))
           return {id:tableId,pos_table_id:posId,active:1};
         if(sql.includes('SELECT can_create_order'))
           return {can_create_order:1,last_seen_at:new Date().toISOString()};
