@@ -122,7 +122,43 @@ export async function onRequestPost({request,env}){
       if(!caps||Number(caps.can_create_order)!==1||
           !Number.isFinite(seen)||seen>Date.now()||Date.now()-seen>=5*60000)
         throw fail('QR_POS_NOT_READY','Касса работает в режиме диагностики или не подтверждала готовность',409);
-      // Every individual job must have a verified Payriff intent in D1.
+      // The POS poll itself reconciles the queue. One verified payment makes
+      // at most ONE order through the unique payment_intent_id index; no owner
+      // button and no guest request can create an unpaid or duplicate order.
+      // auto_enabled_at excludes all payments from before POS activation.
+      await env.DB.prepare(`INSERT OR IGNORE INTO qr_guest_orders(
+        id,owner_id,menu_id,restaurant_id,public_slug,client_key,request_digest,
+        receipt_token,table_id,table_label,pos_table_id,service_mode,items_json,
+        total_minor,currency,guest_note,state,payment_state,payment_method,
+        payment_intent_id,pos_plugin_id,created_at,updated_at)
+        SELECT ?1,s.owner_id,pi.menu_id,pi.restaurant_id,m.public_slug,
+          pi.client_key,pi.basket_digest,pi.receipt_token,
+          pi.table_id,pi.table_label,pi.pos_table_id,s.service_mode,pi.items_json,
+          pi.total_minor,'AZN',pi.guest_note,'AWAITING_POS','PAID_ONLINE','PAYRIFF',
+          pi.id,?2,?3,?3
+        FROM qr_payment_intents pi
+        JOIN qr_order_settings s ON s.menu_id=pi.menu_id
+          AND s.restaurant_id=pi.restaurant_id
+        JOIN qr_menus m ON m.id=pi.menu_id
+          AND m.organization_id=pi.restaurant_id AND m.is_published=1
+        JOIN qr_payment_checkout_policy cp ON cp.restaurant_id=pi.restaurant_id
+          AND cp.workspace_id=pi.workspace_id AND cp.provider='PAYRIFF'
+          AND cp.live_preview_enabled=1
+        LEFT JOIN qr_order_tables tbl ON tbl.id=pi.table_id
+          AND tbl.menu_id=pi.menu_id
+        WHERE pi.restaurant_id=?4 AND s.pos_plugin_id=?2
+          AND s.ordering_enabled=1 AND s.auto_enabled_at<>''
+          AND pi.created_at>=s.auto_enabled_at
+          AND pi.state='PAID_VERIFIED' AND pi.provider_order_id IS NOT NULL
+          AND pi.total_minor=1 AND pi.currency='AZN'
+          AND ((s.service_mode='TABLE' AND tbl.active=1
+                 AND tbl.pos_table_id=pi.pos_table_id AND pi.pos_table_id<>'')
+               OR (s.service_mode='FAST_FOOD' AND pi.table_id=''))
+          AND NOT EXISTS(SELECT 1 FROM qr_guest_orders o
+            WHERE o.payment_intent_id=pi.id)
+        ORDER BY pi.created_at ASC LIMIT 1`)
+        .bind(crypto.randomUUID(),identity.pluginId,t,identity.departmentId).run();
+      // Every leased job MUST still independently join a PAID_VERIFIED intent.
       const nextLease=new Date(Date.now()+90000).toISOString();
       // Atomic leasing: two tills cannot both claim the same order.
       // pluginId is pinned to the currently configured plugin AND to the order when set.
