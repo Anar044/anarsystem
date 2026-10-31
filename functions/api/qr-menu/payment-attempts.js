@@ -37,6 +37,27 @@ export async function onRequestGet({request,env}){
       ORDER BY created_at DESC LIMIT 25`)
       .bind(scope.workspaceId,scope.restaurantId).all();
     const attempts=(rows.results||[]).map(safe);
+    // Refund details are read-only and still restricted to the authenticated
+    // restaurant scope; they do not trigger or retry a bank refund.
+    const refundsTable=await env.DB.prepare(`SELECT name FROM sqlite_master
+      WHERE type='table' AND name='qr_payriff_refunds' LIMIT 1`).first();
+    if(refundsTable){
+      const refunds=await env.DB.prepare(`SELECT r.intent_id,
+        COALESCE(SUM(CASE WHEN r.state='ACCEPTED' THEN r.amount_minor ELSE 0 END),0) AS accepted_minor,
+        COALESCE(SUM(CASE WHEN r.state='UNKNOWN' THEN 1 ELSE 0 END),0) AS unknown_count
+        FROM qr_payriff_refunds r JOIN qr_payment_intents p ON p.id=r.intent_id
+        WHERE p.workspace_id=?1 AND p.restaurant_id=?2
+        GROUP BY r.intent_id`)
+        .bind(scope.workspaceId,scope.restaurantId).all();
+      const byId=new Map((refunds.results||[]).map(x=>[x.intent_id,x]));
+      for(const item of attempts){
+        const summary=byId.get(item.id);
+        if(summary)item.refund={
+          acceptedAZN:(Number(summary.accepted_minor||0)/100).toFixed(2),
+          needsReconciliation:Number(summary.unknown_count||0)>0
+        };
+      }
+    }
     return response({success:true,storageReady:true,attempts,
       notice:attempts.length
         ?'Найдены платёжные попытки для выбранного ресторана.'
