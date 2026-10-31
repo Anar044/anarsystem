@@ -413,7 +413,7 @@ test('Payriff UNKNOWN reconciliation exposes provider error instead of hiding it
   assert.doesNotMatch(JSON.stringify(body),/server-side-secret|encrypted/);
   assert.match(admin,/paymentAttemptResults\.set\(attempt.id/);
   assert.match(admin,/await loadPaymentAttempts\(\)/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-auto-refund5/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-auto-refund6/);
 });
 test('Cloudflare to Payriff diagnostic only GETs a synthetic RRN, is owner-scoped and never reveals secret',async()=>{
   const src=paymentConnectivity
@@ -460,7 +460,7 @@ test('Cloudflare to Payriff diagnostic only GETs a synthetic RRN, is owner-scope
   assert.match(admin,/checkPayriffConnectivity/);
   assert.match(admin,/\$\('qrPayriffConnectivityCheck'\)\.onclick=checkPayriffConnectivity/);
   assert.match(managementPage,/id="qrPayriffConnectivityStatus"/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-auto-refund5/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-auto-refund6/);
   assert.doesNotMatch(paymentConnectivity,/method:'POST'|INSERT INTO|UPDATE qr_payment_intents/);
 });
 test('Payriff network probe distinguishes a fetch transport failure from an HTTP refusal',async()=>{
@@ -1414,7 +1414,7 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-auto-refund5/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-auto-refund6/);
 });
 
 test('QR management offers independently scrollable desktop panels and a mobile layout',()=>{
