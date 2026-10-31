@@ -28,6 +28,7 @@ export async function ensureOrders(db){
     db.prepare(`CREATE TABLE IF NOT EXISTS qr_order_settings (
       owner_id TEXT NOT NULL,menu_id TEXT NOT NULL,restaurant_id TEXT NOT NULL,
       service_mode TEXT NOT NULL DEFAULT 'TABLE',ordering_enabled INTEGER NOT NULL DEFAULT 0,
+      auto_enabled_at TEXT NOT NULL DEFAULT '',
       pos_plugin_id TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
       PRIMARY KEY(menu_id),CHECK(service_mode IN ('TABLE','FAST_FOOD'))
     )`),
@@ -78,6 +79,9 @@ export async function ensureOrders(db){
     // Safe additive migration for staging D1 databases created by an earlier draft.
     const columns=async table=>new Set(((await db.prepare('PRAGMA table_info('+table+')').all()).results||[])
       .map(row=>String(row.name)));
+    const settingsColumns=await columns('qr_order_settings');
+    if(!settingsColumns.has('auto_enabled_at'))
+      await db.prepare("ALTER TABLE qr_order_settings ADD COLUMN auto_enabled_at TEXT NOT NULL DEFAULT ''").run();
     const orderColumns=await columns('qr_guest_orders');
     if(!orderColumns.has('payment_intent_id'))
       await db.prepare("ALTER TABLE qr_guest_orders ADD COLUMN payment_intent_id TEXT NOT NULL DEFAULT ''").run();
@@ -125,7 +129,8 @@ export async function publishedMenu(db,slug){
   return menu;
 }
 export async function settings(db,menuId){
-  return db.prepare(`SELECT owner_id,menu_id,restaurant_id,service_mode,ordering_enabled,pos_plugin_id
+  return db.prepare(`SELECT owner_id,menu_id,restaurant_id,service_mode,ordering_enabled,
+    auto_enabled_at,pos_plugin_id
     FROM qr_order_settings WHERE menu_id=?1 LIMIT 1`).bind(menuId).first();
 }
 export async function validateTable(db,settingsRow,tableKey){
