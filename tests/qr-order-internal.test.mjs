@@ -339,7 +339,8 @@ test('Payment attempts history distinguishes empty D1 store from zero rows, with
   const empty={
     DB:{prepare(sql){
       queries.push(sql);
-      if(sql.includes('sqlite_master'))return {first:async()=>({name:'qr_payment_intents'})};
+      if(sql.includes('sqlite_master'))return {first:async()=>(
+        sql.includes('qr_payriff_refunds')?null:{name:'qr_payment_intents'})};
       if(sql.includes('FROM qr_payment_intents'))return {bind:(w,r)=>{
         assert.equal(w,'w1');assert.equal(r,'r1');
         return {all:async()=>({results:[]})};
@@ -353,7 +354,7 @@ test('Payment attempts history distinguishes empty D1 store from zero rows, with
   assert.equal(body.storageReady,true);
   assert.deepEqual(body.attempts,[]);
   assert.match(body.notice,/нет записей/);
-  assert.equal(queries.length,2);
+  assert.equal(queries.length,3);
 });
 test('Payriff UNKNOWN reconciliation exposes provider error instead of hiding it behind history reload',async()=>{
   const src=paymentAttempts
