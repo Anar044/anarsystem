@@ -60,7 +60,14 @@ export async function onRequestPost({request,env}){
           (body.canPrintKitchen===true&&!canCreate))
         throw fail('QR_BRIDGE_VERSION_UNSUPPORTED',
           'Плагин должен подтвердить безопасный POS-контракт v1, без фискального подтверждения Payriff',409);
-      const allowed=canCreate?1:0,canPrint=canCreate&&body.canPrintKitchen===true?1:0;
+      // External Payriff tender is not yet booked/fiscalized in iikoFront.
+      // Permit creating the uniquely paid test order but do NOT release
+      // any physical kitchen print until that separate accounting contract
+      // has been verified.
+      if(body.canPrintKitchen===true)
+        throw fail('QR_KITCHEN_PREPAYMENT_ACCOUNTING_PENDING',
+          'Кухонная печать пока заблокирована: сначала нужна корректная регистрация Payriff как внешней оплаты в iikoFront',409);
+      const allowed=canCreate?1:0,canPrint=0;
       await env.DB.prepare(`INSERT INTO qr_pos_bridge_capabilities(
         restaurant_id,plugin_id,contract_version,can_create_order,can_ack_fiscal,can_print_kitchen,last_seen_at)
         VALUES(?1,?2,1,?3,0,?4,?5)
@@ -209,6 +216,11 @@ export async function onRequestPost({request,env}){
       return response({success:true,orderState:'POS_FAILED'});
     }
     if(action==='ackKitchen'){
+      // Do not acknowledge physical printing while no external prepayment
+      // mapping has been approved for this POS. A forged acknowledgement
+      // must not make the owner believe kitchen printed.
+      throw fail('QR_KITCHEN_PREPAYMENT_ACCOUNTING_PENDING',
+        'Печать кухни отключена до проверки внешней оплаты Payriff в iikoFront',409);
       const id=clean(body.externalOrderId,100),posId=clean(body.posOrderId,128);
       const status=clean(body.kitchenStatus,32);
       if(!id||!posId||!['PRINTED','CHECK_REQUIRED'].includes(status))
