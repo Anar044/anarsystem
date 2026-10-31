@@ -557,7 +557,7 @@ test('One verified Payriff intent creates at most one tenant-scoped queued POS o
       confirmCreate:true,expectedRestaurantId:restaurant})
   });
   let res=await onRequestPost({request:req(),env:{DB:db}});
-  assert.equal(res.status,200);let body=await res.json();
+  assert.equal(res.status,200,await res.clone().text());let body=await res.json();
   assert.equal(body.duplicate,false);
   assert.equal(body.order.state,'AWAITING_POS');
   assert.equal(calls.inserts,1);
