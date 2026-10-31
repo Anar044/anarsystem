@@ -101,6 +101,19 @@ function publicIntent(intent){
         ?'Результат Payriff неизвестен. Проверьте эту попытку; не платите повторно.'
         :'Проверяем статус платежа'};
 }
+// Public receipt data is scoped by the same unguessable 64-hex ticket as
+// Payriff payment status. Never expose POS order IDs or staff data.
+async function fulfillmentForTicket(db,intent){
+  if(intent.state!=='PAID_VERIFIED')return null;
+  try{
+    const row=await db.prepare(`SELECT state,kitchen_status,pos_order_number
+      FROM qr_guest_orders WHERE payment_intent_id=?1
+      AND restaurant_id=?2 AND menu_id=?3 LIMIT 1`)
+      .bind(intent.id,intent.restaurant_id,intent.menu_id).first();
+    return row?{state:row.state,kitchenStatus:row.kitchen_status||'NOT_SENT',
+      posOrderNumber:row.pos_order_number||''}:null;
+  }catch{return null}
+}
 export async function onRequestGet({request,env}){
   try{
     if(!checkoutAllowed(request))throw fail('PAYRIFF_DEVELOPMENT_ONLY','Только тестовая среда',409);
@@ -116,7 +129,8 @@ export async function onRequestGet({request,env}){
       if(!intent)throw fail('PAYMENT_NOT_FOUND','Платёж не найден',404);
       // Never allow a browser to mark a payment paid by sending its own state.
       if(['PAID_VERIFIED','FAILED'].includes(intent.state))
-        return response({success:true,payment:publicIntent(intent)});
+        return response({success:true,payment:publicIntent(intent),
+          fulfillment:await fulfillmentForTicket(env.DB,intent)});
       if(intent.state!=='CHECKOUT'||!intent.provider_order_id)
         return response({success:true,payment:publicIntent(intent)});
       const checked=Date.parse(intent.last_checked_at||'');
@@ -151,7 +165,8 @@ export async function onRequestGet({request,env}){
           .bind(crypto.randomUUID(),intent.id,outcome,now()).run();
         intent.state=outcome;
       }
-      return response({success:true,payment:publicIntent(intent)});
+      return response({success:true,payment:publicIntent(intent),
+        fulfillment:await fulfillmentForTicket(env.DB,intent)});
     }
     const menu=await readOnlyStep('PUBLISHED_MENU',()=>
       publishedMenu(env.DB,url.searchParams.get('id')));
