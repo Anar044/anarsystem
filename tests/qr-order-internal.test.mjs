@@ -530,10 +530,6 @@ test('Payriff refund reuses the original POS transaction without a second provid
           if(sql.includes('FROM qr_guest_orders o'))
             return params[1]==='restaurant1'&&params[2]==='plugin1'?item:null;
           if(sql.includes('SELECT * FROM qr_payriff_refunds'))return state.refund;
-          if(sql.includes('COALESCE(SUM(amount_minor)'))return {
-            reserved_minor:state.refund?state.refund.amount_minor:0,
-            unknown_count:state.refund?.state==='UNKNOWN'?1:0
-          };
           if(sql.includes('INSERT OR IGNORE INTO qr_payriff_refunds')){
             if(state.refund)return null;
             state.refund={id:params[0],intent_id:params[1],
@@ -541,6 +537,10 @@ test('Payriff refund reuses the original POS transaction without a second provid
               amount_minor:params[5],state:'UNKNOWN'};
             return {id:state.refund.id};
           }
+          if(sql.includes('COALESCE(SUM(amount_minor)'))return {
+            reserved_minor:state.refund?state.refund.amount_minor:0,
+            unknown_count:state.refund?.state==='UNKNOWN'?1:0
+          };
           if(sql.includes('UPDATE qr_payriff_refunds')){
             state.refund.state='ACCEPTED';return{id:state.refund.id};
           }
