@@ -512,7 +512,7 @@ test('One verified Payriff intent creates at most one tenant-scoped queued POS o
   const json=(value,status=200)=>new Response(JSON.stringify(value),{status});
   const {onRequestPost}=new Function('adminContext','ensureOrders','settings',
     'response','bad','fail','clean','paymentSettingsScope',
-    'fetchCheckoutPolicy','isLivePreview','requireTableSyncScope',
+    'fetchCheckoutPolicy','isLivePreview','requireTableSyncScope','crypto',
     source+';return {onRequestPost};')(
       async()=>ctx,async()=>{},
       async()=>cfg,json,(status,code,message)=>json({success:false,code,message},status),
@@ -523,7 +523,8 @@ test('One verified Payriff intent creates at most one tenant-scoped queued POS o
         assert.equal(new URL(request.url).hostname,testPreview);
         assert.equal(identity.departmentId,restaurant);
         assert.equal(identity.pluginId,plugin);
-      });
+      },
+      {randomUUID:()=> 'ffffffff-ffff-4fff-8fff-ffffffffffff'});
   const db={prepare(sql){
     return {bind:(...params)=>({
       first:async()=>{
