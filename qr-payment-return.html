@@ -35,10 +35,11 @@ a{background:transparent;color:#a6f0d3;border:1px solid #618d86}
   const safeTicket=/^[a-f0-9]{64}$/.test(ticket)?ticket:'';
   // Keep a valid ticket available if the user refreshes the page, without
   // requiring a cart or a functioning menu app.
+  const storeKey='shqr_return_ticket:'+id+':'+table;
   let known=safeTicket;
   try{
-    if(known)sessionStorage.setItem('shqr_return_ticket',known);
-    else known=sessionStorage.getItem('shqr_return_ticket')||'';
+    if(known)sessionStorage.setItem(storeKey,known);
+    else known=sessionStorage.getItem(storeKey)||'';
   }catch{}
   if(!/^[a-f0-9]{64}$/.test(known)){
     title.textContent='Нужна проверка оплаты';
@@ -63,7 +64,6 @@ a{background:transparent;color:#a6f0d3;border:1px solid #618d86}
       if(payment.paidVerified&&payment.state==='PAID_VERIFIED'){
         title.textContent='Оплата подтверждена';
         status.textContent='Payriff подтвердил получение '+payment.amountAZN+' AZN. Деньги уже списаны. Повторно платить не нужно. Кассовый заказ и кухонная печать пока выключены.';
-        try{sessionStorage.removeItem('shqr_return_ticket')}catch{}
         verify.textContent='Оплата подтверждена';return true;
       }
       if(payment.state==='FAILED'){
