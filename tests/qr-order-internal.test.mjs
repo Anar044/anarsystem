@@ -581,7 +581,10 @@ test('One verified Payriff intent creates at most one tenant-scoped queued POS o
   assert.match(bridge,/pi\.provider_order_id IS NOT NULL/);
   assert.match(bridge,/paymentReference:paid\.provider_order_id/);
   assert.match(core,/idx_qr_one_order_per_paid_intent/);
-  assert.match(admin,/queueVerified/);
+  // The UI must never require a second manual dispatch click.
+  assert.doesNotMatch(admin,/queueVerified|Передать оплаченный заказ на кассу/);
+  assert.match(bridge,/INSERT OR IGNORE INTO qr_guest_orders/);
+  assert.match(bridge,/pi.created_at>=s.auto_enabled_at/);
   assert.doesNotMatch(paidOrderQueue,/createPayriffCheckout|fetch\s*\(/);
 });
 test('Payriff previous-attempt history is scoped and never creates a new charge',()=>{
