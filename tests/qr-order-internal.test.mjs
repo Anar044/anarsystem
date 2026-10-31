@@ -539,7 +539,8 @@ test('Sandbox payment requires preview, scoped restaurant and owner activation, 
   assert.match(menu,/qr-order-guest\.js\?v=20261031-payment-return3/);
   assert.match(guest,/submitSandboxPayment/);
   assert.match(guest,/sessionStorage\.setItem\(sandboxTicketKey\(\),sandboxTicket\)/);
-  assert.match(paymentCallback,/verified:false/);
+  assert.match(paymentCallback,/readPayriffPayment/);
+  assert.match(paymentCallback,/classifyPayriffPayment/);
 });
 test('Payriff return uses a visible page and verifies the existing ticket, never a new charge',async()=>{
   assert.match(sandboxPayment,/qr-payment-return\.html\?id=/);
@@ -565,6 +566,49 @@ test('Payriff return uses a visible page and verifies the existing ticket, never
   assert.equal(r.headers.get('Cache-Control'),'no-store');
   assert.equal(r.headers.get('Referrer-Policy'),'no-referrer');
   assert.doesNotMatch(paymentCallback,/UPDATE\s+qr_payment_intents/);
+});
+test('Payriff webhook is untrusted and can only reconcile an existing paid order',async()=>{
+  const src=paymentCallback.replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
+    .replace(/\bexport\s+(?=async|function|const)/g,'');
+  const calls={lookups:0,updates:0,provider:0},ticket='b'.repeat(64);
+  const intent={
+    id:'11111111-2222-4333-8444-555555555555',
+    receipt_token:ticket,state:'CHECKOUT',provider_order_id:'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    merchant_id:'ES1093754',workspace_id:'w1',restaurant_id:'r1',total_minor:1
+  };
+  const post=new Function('fetchPaymentSettings','decryptPaymentSecret',
+    'readPayriffPayment','classifyPayriffPayment',src+';return onRequestPost;')(
+    async()=>({merchant_id:'ES1093754',environment:'development',secret_encrypted:'server-cipher'}),
+    async()=> 'server-secret',
+    async({secret,orderId})=>{calls.provider++;
+      assert.equal(secret,'server-secret');
+      assert.equal(orderId,intent.provider_order_id);
+      return {orderId,amount:0.01,currencyType:'AZN',operationType:'PURCHASE',paymentStatus:'APPROVED'};
+    },
+    (data,{orderId,amountMinor})=>{
+      assert.equal(data.orderId,orderId);assert.equal(amountMinor,1);
+      return data.paymentStatus==='APPROVED'?'PAID_VERIFIED':'PENDING';
+    }
+  );
+  const env={DB:{prepare(sql){
+    if(sql.includes('SELECT * FROM qr_payment_intents'))return {bind:secret=>{
+      assert.equal(secret,ticket);return {first:async()=>{calls.lookups++;return intent;}};
+    }};
+    if(sql.includes('UPDATE qr_payment_intents'))return {bind:(state)=>{
+      assert.equal(state,'PAID_VERIFIED');
+      return {run:async()=>{calls.updates++;return{meta:{changes:1}}}};
+    }};
+    throw Error('Unexpected SQL');
+  }}};
+  let r=await post({request:new Request('https://preview.example/api/qr-menu/payment-callback'),env});
+  assert.equal((await r.json()).verified,false);
+  assert.equal(calls.provider,0);
+  r=await post({request:new Request('https://preview.example/api/qr-menu/payment-callback?qrPaymentTicket='+
+    ticket,{method:'POST'}),env});
+  assert.equal((await r.json()).verified,true);
+  assert.equal(calls.provider,1);
+  assert.equal(calls.updates,1);
+  assert.doesNotMatch(paymentCallback,/createPayriffCheckout|INSERT INTO qr_guest_orders/);
 });
 test('All new QR order APIs and client scripts are syntactically valid',()=>{
   for(const source of modules)assert.doesNotThrow(()=>compile(source));
@@ -625,7 +669,8 @@ test('Public route is anti-replay, disabled by default and payment cannot be for
   assert.match(sandboxPayment,/state='UNKNOWN'/);
   assert.match(sandboxPayment,/orderSettings.owner_id!==binding.owner_id/);
   assert.doesNotMatch(sandboxPayment,/INSERT INTO qr_guest_orders|ackCreated|ackKitchen/);
-  assert.doesNotMatch(paymentCallback,/UPDATE\s+qr_payment_intents|qr_guest_orders/);
+  assert.match(paymentCallback,/UPDATE qr_payment_intents/);
+  assert.doesNotMatch(paymentCallback,/INSERT INTO qr_guest_orders|createPayriffCheckout/);
 });
 test('Payment-first guard rejects guest orders and setup even without the shared-test flag',async()=>{
   const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
