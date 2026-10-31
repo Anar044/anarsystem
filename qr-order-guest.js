@@ -119,7 +119,7 @@ function paymentBanner(){
     'margin:auto;padding:14px 16px;background:#102d26;color:#fff;border:1px solid #49d2a2;'+
     'border-radius:14px;box-shadow:0 12px 32px #0007;font:14px system-ui';
   const text=document.createElement('div');text.id='shqrPayriffStatusText';
-  text.textContent='Тестовая оплата Payriff: проверяем состояние…';
+  text.textContent='Проверяем подтверждение платежа напрямую через Payriff…';
   const actions=document.createElement('div');actions.style.cssText='display:flex;flex-wrap:wrap;gap:8px;margin-top:9px';
   const check=document.createElement('button');check.type='button';check.id='shqrPayriffCheck';
   check.textContent='Проверить оплату';check.style.cssText='background:#43d19a;color:#063426;border:0;border-radius:8px;padding:9px 13px;font-weight:700';
@@ -152,11 +152,14 @@ async function checkSandboxPayment(){
   text.textContent='Проверяем предыдущую попытку без создания новой оплаты…';
   try{
     const url=new URL('/api/qr-menu/payment-checkout',location.origin);
-    if(sandboxKey){
+    // A known Payriff order MUST be checked by its ticket. Checking only
+    // clientKey reads D1's stale CHECKOUT state without querying Payriff.
+    if(sandboxTicket)url.searchParams.set('ticket',sandboxTicket);
+    else{
       url.searchParams.set('id',slug);
       url.searchParams.set('table',table);
       url.searchParams.set('clientKey',sandboxKey);
-    }else url.searchParams.set('ticket',sandboxTicket);
+    }
     const response=await fetch(url.href,
       {cache:'no-store',headers:{Accept:'application/json'}});
     const json=await response.json().catch(()=>({}));
