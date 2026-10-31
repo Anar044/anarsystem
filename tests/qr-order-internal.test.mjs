@@ -554,7 +554,9 @@ test('Payriff return uses a visible page and verifies the existing ticket, never
   // Regression: previously the client-key path returned a stale CHECKOUT
   // without ever calling Payriff's authoritative order lookup.
   assert.match(guest,/if\(sandboxTicket\)url\.searchParams\.set\('ticket',sandboxTicket\)/);
-  const src=paymentCallback.replace(/\bexport\s+(?=async|function|const)/g,'');
+  const src=paymentCallback
+    .replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
+    .replace(/\bexport\s+(?=async|function|const)/g,'');
   const get=new Function(src+';return onRequestGet;')();
   const opaque='a'.repeat(64);
   const request=new Request('https://qr-preview.example/api/qr-menu/payment-callback?qrPaymentTicket='+
