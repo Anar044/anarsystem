@@ -72,10 +72,9 @@ async function eligible(request,env,id,{requireReady=false}={}){
       .bind(ctx.restaurantId,cfg.pos_plugin_id).first();
     const age=Date.now()-Date.parse(cap?.last_seen_at||'');
     if(!cap||Number(cap.can_create_order)!==1||
-        Number(cap.can_ack_fiscal)!==1||Number(cap.can_print_kitchen)!==1||
         !Number.isFinite(age)||age<0||age>=300000)
       throw fail('QR_PAID_QUEUE_PLUGIN_NOT_READY',
-        'Плагин не подтвердил готовность создавать оплаченные заказы и печатать кухню',409);
+        'Плагин не подтвердил готовность создавать оплаченные заказы. Кухонная печать включается отдельно.',409);
   }
   return {ctx,cfg,intent};
 }
