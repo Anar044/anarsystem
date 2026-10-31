@@ -1165,7 +1165,8 @@ test('Shared D1 POS allows only an allowlisted plugin and blocks pull without re
     async()=>{},
     (v,status=200)=>new Response(JSON.stringify(v),{status}),
     (status,code,message)=>new Response(JSON.stringify({success:false,code,message}),{status}),
-    failed,cleanValue,async()=>({verified:true}),requireTableSyncScope,isSharedD1Test
+    failed,cleanValue,async()=>({verified:true}),requireTableSyncScope,isSharedD1Test,
+    async()=>({verified:true})
   );
   const base={pluginId:testPlugin,departmentId:testRestaurant};
   async function send(body){
