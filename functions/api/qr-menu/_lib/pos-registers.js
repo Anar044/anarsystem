@@ -54,7 +54,16 @@ export async function registeredPosRegisters(env,restaurantId){
     }
     return [...found.values()].sort((a,b)=>Number(b.online)-Number(a.online)||
       a.name.localeCompare(b.name,'ru'));
-  }catch(_error){
+  }catch(error){
+    // Diagnose the upstream failure in server-only logs. Never log the URL,
+    // upstream response body, request headers, access tokens or restaurant data.
+    const reason = /^Registry HTTP ([0-9]{3})$/.exec(String(error?.message||''))?.[1];
+    const kind = reason ? 'UPSTREAM_HTTP_'+reason
+      : error?.name==='AbortError' ? 'UPSTREAM_TIMEOUT'
+      : error?.name==='SyntaxError' ? 'UPSTREAM_INVALID_JSON'
+      : error?.message==='Registry rejected request' ? 'UPSTREAM_REJECTED'
+      : 'UPSTREAM_FETCH_FAILED';
+    console.error('QR_POS_REGISTER_LOOKUP_FAILED',kind,String(error?.name||'unknown').slice(0,40));
     // No raw backend details (URL, credentials or response) reach the client.
     throw fail('QR_PLUGIN_REGISTRY_UNAVAILABLE',
       'Не удалось получить кассы выбранного ресторана. Проверьте связь Smart Horeca с сервером.',502);
