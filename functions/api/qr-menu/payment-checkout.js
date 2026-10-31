@@ -293,12 +293,18 @@ export async function onRequestPost({request,env}){
       restaurantId:scope.restaurant_id,environment:scope.cfg.environment,
       envelope:scope.cfg.secret_encrypted});
     const origin=new URL(request.url).origin;
-    const ret=origin+'/menu.html?id='+encodeURIComponent(menu.public_slug)+
+    // A dedicated static receipt is rendered BEFORE any API request or menu JS.
+    // White screens in a third-party return flow cannot hide the result panel.
+    const ret=origin+'/qr-payment-return.html?id='+encodeURIComponent(menu.public_slug)+
       '&table='+encodeURIComponent(body.table||'')+'&qrPaymentTicket='+receipt;
     try{
       const created=await createPayriffCheckout({
         secret,amountMinor:basket.totalMinor,reference:id,
-        callbackUrl:origin+'/api/qr-menu/payment-callback',
+        // Payriff variants may navigate the customer via callbackUrl.
+        // GET redirects to the same safe receipt, POST is notification only.
+        callbackUrl:origin+'/api/qr-menu/payment-callback?qrPaymentTicket='+receipt+
+          '&id='+encodeURIComponent(menu.public_slug)+
+          '&table='+encodeURIComponent(body.table||''),
         redirectUrl:ret
       });
       await env.DB.prepare(`UPDATE qr_payment_intents SET state='CHECKOUT',
