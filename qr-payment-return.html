@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0d1d29">
+<title>Smart Horeca · Проверка оплаты</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0d1d29;color:#eaf5f5;min-height:100dvh;font-family:system-ui,-apple-system,Arial,sans-serif;display:grid;place-items:center;padding:18px}
+main{width:min(480px,100%);background:#162d38;border:1px solid #365767;border-radius:20px;padding:25px;box-shadow:0 16px 54px #0006}
+.brand{font-size:12px;letter-spacing:1.7px;color:#7fdbb9;text-transform:uppercase;font-weight:700}
+h1{font-size:25px;margin:14px 0 12px}p{font-size:15px;line-height:1.6;color:#d2e1e5}
+#status{background:#203f4a;padding:15px;border-radius:12px;min-height:56px}
+button,a{font:inherit;font-weight:700;cursor:pointer;border-radius:10px;padding:12px 14px;display:inline-flex;justify-content:center;align-items:center;text-decoration:none}
+button{background:#25b185;color:#081e1b;border:0}button:disabled{opacity:.55}
+a{background:transparent;color:#a6f0d3;border:1px solid #618d86}
+.actions{display:grid;gap:10px;margin-top:18px}small{display:block;color:#a7c5c7;margin-top:20px;line-height:1.5}
+</style></head><body>
+<main><div class="brand">Smart Horeca · QR Pay</div>
+<h1 id="title">Проверяем оплату</h1>
+<p id="status" role="status" aria-live="polite">Платёжная страница закрылась. Проверяем результат на сервере Payriff. Не оплачивайте повторно.</p>
+<div class="actions"><button type="button" id="verify">Проверить оплату</button>
+<a id="back" href="/menu.html">Вернуться к меню</a></div>
+<small>Мы не считаем переход обратно подтверждением оплаты. Статус определяется только ответом Payriff, полученным сервером Smart Horeca. Кассовая печать пока не подключена.</small>
+</main>
+<script>
+(()=>{
+  'use strict';
+  const p=new URLSearchParams(location.search),ticket=p.get('qrPaymentTicket')||'';
+  const id=p.get('id')||'',table=p.get('table')||'';
+  const title=document.getElementById('title'),status=document.getElementById('status');
+  const verify=document.getElementById('verify'),back=document.getElementById('back');
+  const backUrl=new URL('/menu.html',location.origin);
+  if(id)backUrl.searchParams.set('id',id);
+  if(table)backUrl.searchParams.set('table',table);
+  back.href=backUrl.pathname+backUrl.search;
+  const safeTicket=/^[a-f0-9]{64}$/.test(ticket)?ticket:'';
+  // Keep a valid ticket available if the user refreshes the page, without
+  // requiring a cart or a functioning menu app.
+  let known=safeTicket;
+  try{
+    if(known)sessionStorage.setItem('shqr_return_ticket',known);
+    else known=sessionStorage.getItem('shqr_return_ticket')||'';
+  }catch{}
+  if(!/^[a-f0-9]{64}$/.test(known)){
+    title.textContent='Нужна проверка оплаты';
+    status.textContent='Не найден идентификатор платежа. Проверьте операцию в Smart Horeca → QR Pay → Предыдущие платежи. Не оплачивайте повторно.';
+    verify.disabled=true;
+    return;
+  }
+  // Avoid leaving the bearer ticket in a browser history screenshot.
+  try{history.replaceState(null,'',backUrl.pathname.replace('/menu.html','/qr-payment-return.html')+backUrl.search)}catch{}
+  let inFlight=false;
+  async function check(){
+    if(inFlight)return false;
+    inFlight=true;verify.disabled=true;
+    status.textContent='Запрашиваем подтверждение у Payriff. Повторного списания нет…';
+    try{
+      const r=await fetch('/api/qr-menu/payment-checkout?ticket='+encodeURIComponent(known),{
+        headers:{Accept:'application/json'},cache:'no-store'
+      });
+      const data=await r.json().catch(()=>({}));
+      if(!r.ok||!data.success)throw Error(data.message||'Сервер не ответил');
+      const payment=data.payment||{};
+      if(payment.paidVerified&&payment.state==='PAID_VERIFIED'){
+        title.textContent='Оплата подтверждена';
+        status.textContent='Payriff подтвердил получение '+payment.amountAZN+' AZN. Деньги уже списаны. Повторно платить не нужно. Кассовый заказ и кухонная печать пока выключены.';
+        try{sessionStorage.removeItem('shqr_return_ticket')}catch{}
+        verify.textContent='Оплата подтверждена';return true;
+      }
+      if(payment.state==='FAILED'){
+        title.textContent='Оплата не подтверждена';
+        status.textContent='Payriff сообщил о завершении платежа без подтверждения оплаты. Перед новой попыткой проверьте списания по карте.';
+        verify.textContent='Проверить статус снова';return true;
+      }
+      title.textContent='Ожидаем подтверждение';
+      status.textContent='Статус Smart Horeca: '+(payment.state||'неизвестно')+
+        '. Банк мог списать деньги, но сервер ещё не подтвердил транзакцию. Не оплачивайте повторно.';
+      return false;
+    }catch(e){
+      title.textContent='Нужна сверка оплаты';
+      status.textContent='Пока не удалось подтвердить операцию в Payriff: '+
+        String(e.message||'ошибка')+'. Если деньги списались, не оплачивайте повторно. Обратитесь к администратору ресторана.';
+      return false;
+    }finally{inFlight=false;verify.disabled=false}
+  }
+  verify.addEventListener('click',()=>{void check()});
+  void (async()=>{
+    // Only read existing payment; bounded follow-up for eventual bank updates.
+    for(let attempt=0;attempt<5;attempt++){
+      const done=await check();if(done)break;
+      if(attempt<4)await new Promise(resolve=>setTimeout(resolve,3000));
+    }
+  })();
+})();
+</script></body></html>
