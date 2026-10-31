@@ -488,7 +488,9 @@ test('Payriff network probe distinguishes a fetch transport failure from an HTTP
 });
 test('One verified Payriff intent creates at most one tenant-scoped queued POS order',async()=>{
   const source=paidOrderQueue.replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
-    .replace(/\bexport\s+(?=async|function|const)/g,'');
+    .replace(/\bexport\s+(?=async|function|const)/g,'')
+    .replace(/const error=e=>bad\([\s\S]*?;\nconst preview=/,
+      "const error=e=>{throw e};\nconst preview=");
   const restaurant='28a38f52-9b1b-01a7-019f-8455da3a0010';
   const plugin='0638669c-67e2-4f14-be2d-567404352a7c';
   const intentId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
