@@ -88,7 +88,15 @@ export async function verifyRegisteredQrPos(env,{pluginId,departmentId}={}){
   }
   let rows;
   try{rows=await fetchRegistry(did,env);}
-  catch(_error){
+  catch(error){
+    // Server-only, redacted diagnostics. Do not log backend URLs, token values
+    // or response bodies from the registry.
+    const status = /^Plugin registry HTTP ([0-9]{3})$/.exec(String(error?.message||''))?.[1];
+    const kind = status ? 'UPSTREAM_HTTP_'+status
+      : error?.name==='AbortError' ? 'UPSTREAM_TIMEOUT'
+      : error?.name==='SyntaxError' ? 'UPSTREAM_INVALID_JSON'
+      : 'UPSTREAM_FETCH_FAILED';
+    console.error('QR_POS_IDENTITY_REGISTRY_FAILED',kind,String(error?.name||'unknown').slice(0,40));
     const e=new Error("Недоступен реестр касс Smart Horeca.");
     e.status=502;e.code="PLUGIN_REGISTRY_UNAVAILABLE";throw e;
   }
