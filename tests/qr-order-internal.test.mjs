@@ -24,6 +24,8 @@ const payriffGateway=read('functions/api/qr-menu/_lib/payriff-checkout.js');
 const paymentCallback=read('functions/api/qr-menu/payment-callback.js');
 const paymentReturn=read('qr-payment-return.html');
 const paymentAttempts=read('functions/api/qr-menu/payment-attempts.js');
+const paidOrderQueue=read('functions/api/qr-menu/paid-order-queue.js');
+const checkoutPolicy=read('functions/api/qr-menu/_lib/checkout-policy.js');
 const paymentConnectivity=read('functions/api/qr-menu/payment-connectivity.js');
 const reference=read('qr-menu-reference-v2.js');
 const shell=read('app-shell.js');
@@ -483,6 +485,103 @@ test('Payriff network probe distinguishes a fetch transport failure from an HTTP
   assert.equal(result.kind,'FETCH_TYPE_ERROR');
   assert.equal(result.causeCode,'ECONNRESET');
   assert.doesNotMatch(JSON.stringify(result),/secret-never-in-response|TLS problem/);
+});
+test('One verified Payriff intent creates at most one tenant-scoped queued POS order',async()=>{
+  const source=paidOrderQueue.replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
+    .replace(/\bexport\s+(?=async|function|const)/g,'');
+  const restaurant='28a38f52-9b1b-01a7-019f-8455da3a0010';
+  const plugin='0638669c-67e2-4f14-be2d-567404352a7c';
+  const intentId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const tableId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const posId='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const productId='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const intent={id:intentId,receipt_token:'e'.repeat(64),workspace_id:'workspace1',
+    restaurant_id:restaurant,menu_id:'menu1',client_key:'client1',
+    basket_digest:'digest',table_id:tableId,table_label:'Бар - Стол 1',
+    pos_table_id:posId,items_json:JSON.stringify([{productId,qty:1,
+      unitMinor:1,lineMinor:1}]),guest_note:'',total_minor:1,
+    provider_order_id:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    state:'PAID_VERIFIED',currency:'AZN'};
+  const cfg={owner_id:'owner1',restaurant_id:restaurant,
+    pos_plugin_id:plugin,service_mode:'TABLE',ordering_enabled:1};
+  const calls={inserts:0,events:0,query:0,policy:0};let stored=null;
+  const ctx={ownerId:'owner1',restaurantId:restaurant,
+    menu:{id:'menu1',public_slug:'menu-demo'},
+    state:{access:{isOwner:true}}};
+  const fail=(code,message,status=400)=>Object.assign(new Error(message),{code,status});
+  const json=(value,status=200)=>new Response(JSON.stringify(value),{status});
+  const {onRequestPost}=new Function('adminContext','ensureOrders','settings',
+    'response','bad','fail','clean','paymentSettingsScope',
+    'fetchCheckoutPolicy','isLivePreview','requireTableSyncScope',
+    source+';return {onRequestPost};')(
+      async()=>ctx,async()=>{},
+      async()=>cfg,json,(status,code,message)=>json({success:false,code,message},status),
+      fail,(v,n=180)=>String(v??'').slice(0,n),
+      ()=>({workspaceId:'workspace1',restaurantId:restaurant}),
+      async()=>({live_preview_enabled:1}),row=>Number(row?.live_preview_enabled)===1,
+      (request,env,identity)=>{
+        assert.equal(new URL(request.url).hostname,testPreview);
+        assert.equal(identity.departmentId,restaurant);
+        assert.equal(identity.pluginId,plugin);
+      });
+  const db={prepare(sql){
+    return {bind:(...params)=>({
+      first:async()=>{
+        if(sql.includes('SELECT * FROM qr_payment_intents')){
+          calls.query++;return params[0]===intentId?intent:null;
+        }
+        if(sql.includes('SELECT id,pos_table_id,active FROM qr_order_tables'))
+          return {id:tableId,pos_table_id:posId,active:1};
+        if(sql.includes('SELECT can_create_order'))
+          return {can_create_order:1,last_seen_at:new Date().toISOString()};
+        if(sql.includes('INSERT OR IGNORE INTO qr_guest_orders')){
+          if(stored)return null;
+          calls.inserts++;
+          stored={id:params[0],state:'AWAITING_POS',total_minor:1,
+            payment_state:'PAID_ONLINE',payment_method:'PAYRIFF'};
+          return {id:stored.id};
+        }
+        if(sql.includes('SELECT * FROM qr_guest_orders'))
+          return stored;
+        throw Error('Unexpected SQL first: '+sql.slice(0,75));
+      },
+      run:async()=>{
+        if(sql.includes('INSERT INTO qr_order_events')){calls.events++;return{success:true}};
+        throw Error('Unexpected SQL run');
+      }
+    })};
+  }};
+  const req=()=>new Request('https://'+testPreview+'/api/qr-menu/paid-order-queue',{
+    method:'POST',headers:{Origin:'https://'+testPreview,'Content-Type':'application/json'},
+    body:JSON.stringify({action:'queueVerified',intentId,
+      confirmCreate:true,expectedRestaurantId:restaurant})
+  });
+  let res=await onRequestPost({request:req(),env:{DB:db}});
+  assert.equal(res.status,200);let body=await res.json();
+  assert.equal(body.duplicate,false);
+  assert.equal(body.order.state,'AWAITING_POS');
+  assert.equal(calls.inserts,1);
+  res=await onRequestPost({request:req(),env:{DB:db}});
+  body=await res.json();
+  assert.equal(res.status,200);assert.equal(body.duplicate,true);
+  assert.equal(calls.inserts,1);assert.equal(calls.events,1);
+  intent.state='UNKNOWN';stored=null;
+  res=await onRequestPost({request:req(),env:{DB:db}});
+  body=await res.json();assert.equal(res.status,409);
+  assert.equal(body.code,'QR_PAID_QUEUE_NOT_VERIFIED');
+  assert.equal(calls.inserts,1);
+  intent.state='PAID_VERIFIED';
+  ctx.state.access.isOwner=false;
+  res=await onRequestPost({request:req(),env:{DB:db}});
+  body=await res.json();assert.equal(res.status,403);
+  assert.equal(body.code,'QR_PAID_QUEUE_OWNER_ONLY');
+  assert.equal(calls.inserts,1);
+  assert.match(bridge,/pi\.state='PAID_VERIFIED'/);
+  assert.match(bridge,/pi\.provider_order_id IS NOT NULL/);
+  assert.match(bridge,/paymentReference:paid\.provider_order_id/);
+  assert.match(core,/idx_qr_one_order_per_paid_intent/);
+  assert.match(admin,/queueVerified/);
+  assert.doesNotMatch(paidOrderQueue,/createPayriffCheckout|fetch\s*\(/);
 });
 test('Payriff previous-attempt history is scoped and never creates a new charge',()=>{
   assert.match(paymentAttempts,/adminContext\(request,env\)/);
