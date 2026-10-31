@@ -411,7 +411,7 @@ test('Payriff UNKNOWN reconciliation exposes provider error instead of hiding it
   assert.doesNotMatch(JSON.stringify(body),/server-side-secret|encrypted/);
   assert.match(admin,/paymentAttemptResults\.set\(attempt.id/);
   assert.match(admin,/await loadPaymentAttempts\(\)/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-live001-3/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-paid-pos-ready4/);
 });
 test('Cloudflare to Payriff diagnostic only GETs a synthetic RRN, is owner-scoped and never reveals secret',async()=>{
   const src=paymentConnectivity
@@ -458,7 +458,7 @@ test('Cloudflare to Payriff diagnostic only GETs a synthetic RRN, is owner-scope
   assert.match(admin,/checkPayriffConnectivity/);
   assert.match(admin,/\$\('qrPayriffConnectivityCheck'\)\.onclick=checkPayriffConnectivity/);
   assert.match(managementPage,/id="qrPayriffConnectivityStatus"/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-live001-3/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-paid-pos-ready4/);
   assert.doesNotMatch(paymentConnectivity,/method:'POST'|INSERT INTO|UPDATE qr_payment_intents/);
 });
 test('Payriff network probe distinguishes a fetch transport failure from an HTTP refusal',async()=>{
@@ -488,9 +488,7 @@ test('Payriff network probe distinguishes a fetch transport failure from an HTTP
 });
 test('One verified Payriff intent creates at most one tenant-scoped queued POS order',async()=>{
   const source=paidOrderQueue.replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
-    .replace(/\bexport\s+(?=async|function|const)/g,'')
-    .replace(/const error=e=>bad\([\s\S]*?;\nconst preview=/,
-      "const error=e=>{throw e};\nconst preview=");
+    .replace(/\bexport\s+(?=async|function|const)/g,'');
   const restaurant='28a38f52-9b1b-01a7-019f-8455da3a0010';
   const plugin='0638669c-67e2-4f14-be2d-567404352a7c';
   const intentId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -1316,7 +1314,7 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-live001-3/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-paid-pos-ready4/);
 });
 
 test('QR management offers independently scrollable desktop panels and a mobile layout',()=>{
