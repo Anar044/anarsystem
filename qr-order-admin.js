@@ -17,7 +17,7 @@ async function api(body,path='/api/qr-menu/order-admin'){
   return j;
 }
 const status=(v,id='qrOrderError')=>{$(id).textContent=v||''};
-const editableIds=['qrOrderMode','qrOrderPlugin','qrPosListReload','qrOrderSave',
+const editableIds=['qrOrderMode','qrOrderPlugin','qrPosListReload','qrOrderSave','qrOrderEnabled',
   'qrTableName','qrPosTable','qrAddTable'];
 function allowEditing(allowed){
   for(const id of editableIds){const el=$(id);if(el)el.disabled=!allowed;}
@@ -701,7 +701,7 @@ async function reload(){
     $('qrOrderEnabled').checked=state.settings.orderingEnabled;
     $('qrOrderPlugin').replaceChildren(registerOption(state.settings.posPluginId||'',state.settings.posPluginId||'— Выберите кассу —'));
     $('qrPosBridgeReady').textContent=state.settings.posBridgeReady
-      ?'✓ Касса подключена; создание QR-заказов заблокировано до онлайн-оплаты'
+      ?'✓ Касса подтвердила готовность создавать предоплаченные QR-заказы'
       :state.settings.posBridgeConnected
         ?'✓ Касса подключена. Режим диагностики: заказы и печать отключены.'
         :'POS-мост не подключён. Настройте HTTPS API и проверьте авторизацию.';
@@ -714,7 +714,7 @@ async function reload(){
     $('qrPosRestaurantId').textContent='ID подразделения: '+(state.restaurantId||'не определён');
     $('qrPosSelectedPlugin').textContent=state.settings.posPluginId||'Плагин не выбран';
     $('qrPosConnectionState').textContent=state.settings.posBridgeReady
-      ?'Касса подключена; QR-заказы заблокированы до подтверждённой онлайн-оплаты'
+      ?'Подключена — готова к созданию подтверждённых Payriff-заказов'
       :state.settings.posBridgeConnected
         ?'Подключён — безопасная диагностика'
         :'Не подключён или не подтверждал связь последние 5 минут';
