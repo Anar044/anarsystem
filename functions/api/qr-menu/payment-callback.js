@@ -1,9 +1,46 @@
-// Untrusted notifications from Payriff. They are never evidence of payment.
-// Guests/admin can only progress via server-to-server GET with stored merchant key.
-export async function onRequestPost(){
-  return new Response(JSON.stringify({accepted:true,verified:false}),{
-    status:202,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}
-  });
+// A Payriff callback is a HINT, never proof of payment. Verify the existing
+// provider order directly using this restaurant's stored merchant secret.
+import {fetchPaymentSettings,decryptPaymentSecret} from './_lib/payment-provider-settings.js';
+import {readPayriffPayment,classifyPayriffPayment} from './_lib/payriff-checkout.js';
+
+const ack=(verified=false)=>new Response(JSON.stringify({accepted:true,verified}),{
+  status:202,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}
+});
+export async function onRequestPost({request,env}){
+  try{
+    const url=new URL(request.url);
+    // This secret is only assigned in the creation of a scoped payment intent.
+    // Never use a callback-supplied orderId, merchantId, amount or status.
+    const ticket=url.searchParams.get('qrPaymentTicket')||'';
+    if(!/^[a-f0-9]{64}$/.test(ticket))return ack();
+    const intent=await env.DB.prepare(`SELECT * FROM qr_payment_intents
+      WHERE receipt_token=?1 LIMIT 1`).bind(ticket).first();
+    if(!intent||intent.state!=='CHECKOUT'||!intent.provider_order_id)return ack();
+    const cfg=await fetchPaymentSettings(env.DB,{
+      workspaceId:intent.workspace_id,restaurantId:intent.restaurant_id});
+    if(!cfg||cfg.merchant_id!==intent.merchant_id)return ack();
+    const secret=await decryptPaymentSecret(env,{
+      workspaceId:intent.workspace_id,restaurantId:intent.restaurant_id,
+      environment:cfg.environment,envelope:cfg.secret_encrypted});
+    const info=await readPayriffPayment({secret,orderId:intent.provider_order_id});
+    if(info?.merchantId&&String(info.merchantId)!==intent.merchant_id)return ack();
+    const result=classifyPayriffPayment(info,{
+      orderId:intent.provider_order_id,amountMinor:intent.total_minor});
+    if(result!=='PAID_VERIFIED'&&result!=='FAILED')return ack();
+    // Atomic state transition. Duplicate callbacks cannot mark duplicate sales,
+    // create a POS order, or generate a second debit.
+    const updated=await env.DB.prepare(`UPDATE qr_payment_intents
+      SET state=?1,updated_at=?2 WHERE id=?3 AND state='CHECKOUT'
+        AND provider_order_id=?4`)
+      .bind(result,new Date().toISOString(),intent.id,intent.provider_order_id).run();
+    return ack(Boolean(updated?.meta?.changes));
+  }catch(e){
+    console.warn('[QR Pay] callback reconciliation postponed',{
+      kind:e?.code||'VERIFY_UNAVAILABLE'
+    });
+    // A later guest/admin read can re-check the original order.
+    return ack();
+  }
 }
 // Some hosted-checkout flows navigate a browser to the configured
 // callbackUrl (GET). An empty 405 page looks like a blank checkout screen.
