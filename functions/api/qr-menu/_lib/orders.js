@@ -52,6 +52,7 @@ export async function ensureOrders(db){
       guest_note TEXT NOT NULL DEFAULT '',origin_hash TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'AWAITING_POS',
       kitchen_status TEXT NOT NULL DEFAULT 'NOT_SENT',kitchen_updated_at TEXT NOT NULL DEFAULT '',
       payment_state TEXT NOT NULL DEFAULT 'UNPAID',payment_method TEXT NOT NULL DEFAULT 'PAY_AT_POS',
+      payment_intent_id TEXT NOT NULL DEFAULT '',
       pos_plugin_id TEXT NOT NULL DEFAULT '',pos_order_id TEXT NOT NULL DEFAULT '',
       pos_order_number TEXT NOT NULL DEFAULT '',
       pos_receipt_number TEXT NOT NULL DEFAULT '',fiscal_reference TEXT NOT NULL DEFAULT '',
@@ -78,6 +79,11 @@ export async function ensureOrders(db){
     const columns=async table=>new Set(((await db.prepare('PRAGMA table_info('+table+')').all()).results||[])
       .map(row=>String(row.name)));
     const orderColumns=await columns('qr_guest_orders');
+    if(!orderColumns.has('payment_intent_id'))
+      await db.prepare("ALTER TABLE qr_guest_orders ADD COLUMN payment_intent_id TEXT NOT NULL DEFAULT ''").run();
+    // A partial unique index allows legacy PAY_AT_POS rows (empty value) while
+    // ensuring a Payriff intent never creates two POS orders.
+    await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_qr_one_order_per_paid_intent ON qr_guest_orders(payment_intent_id) WHERE payment_intent_id<>''").run();
     if(!orderColumns.has('kitchen_status'))
       await db.prepare("ALTER TABLE qr_guest_orders ADD COLUMN kitchen_status TEXT NOT NULL DEFAULT 'NOT_SENT'").run();
     if(!orderColumns.has('kitchen_updated_at'))
