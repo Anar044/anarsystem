@@ -1,6 +1,7 @@
 import {ensureOrders,response,bad,fail,clean} from './_lib/orders.js';
 import {verifyPluginIngress,verifyRegisteredQrPos} from '../plugin/_lib/ingest-auth.js';
 import {requireTableSyncScope,isSharedD1Test} from './_lib/table-sync-policy.js';
+import {requestPosPayriffRefund} from './_lib/payriff-refund.js';
 
 const error=e=>bad(e.status||500,e.code||'QR_POS_BRIDGE_FAILED',e.status?e.message:'Ошибка обмена с кассой');
 const iso=()=>new Date().toISOString();
@@ -30,7 +31,7 @@ export async function onRequestPost({request,env}){
     // Shared D1 is allowed only on an exact Preview host, restaurant and
     // registered plugin pair; no other tenant may exchange POS orders.
     requireTableSyncScope(request,env,identity);
-    if(!['hello','tablesSnapshot','pull','ackCreated','ackFailed','ackKitchen','ackFiscal'].includes(action))
+    if(!['hello','tablesSnapshot','pull','ackCreated','ackFailed','ackKitchen','ackFiscal','refundPayment'].includes(action))
       throw fail('QR_POS_UNKNOWN_ACTION','Неизвестная операция POS Bridge',400);
     if(action==='hello'&&body.canCreateOrder===true){
       const paidMode=await env.DB.prepare(`SELECT c.restaurant_id
@@ -60,14 +61,10 @@ export async function onRequestPost({request,env}){
           (body.canPrintKitchen===true&&!canCreate))
         throw fail('QR_BRIDGE_VERSION_UNSUPPORTED',
           'Плагин должен подтвердить безопасный POS-контракт v1, без фискального подтверждения Payriff',409);
-      // External Payriff tender is not yet booked/fiscalized in iikoFront.
-      // Permit creating the uniquely paid test order but do NOT release
-      // any physical kitchen print until that separate accounting contract
-      // has been verified.
-      if(body.canPrintKitchen===true)
-        throw fail('QR_KITCHEN_PREPAYMENT_ACCOUNTING_PENDING',
-          'Кухонная печать пока заблокирована: сначала нужна корректная регистрация Payriff как внешней оплаты в iikoFront',409);
-      const allowed=canCreate?1:0,canPrint=0;
+      // Print rights require the POS plugin to have its own payment adapter
+      // and the local operator's independent kitchen-print opt-in.
+      const allowed=canCreate?1:0,
+        canPrint=canCreate&&body.canPrintKitchen===true?1:0;
       await env.DB.prepare(`INSERT INTO qr_pos_bridge_capabilities(
         restaurant_id,plugin_id,contract_version,can_create_order,can_ack_fiscal,can_print_kitchen,last_seen_at)
         VALUES(?1,?2,1,?3,0,?4,?5)
@@ -252,11 +249,6 @@ export async function onRequestPost({request,env}){
       return response({success:true,orderState:'POS_FAILED'});
     }
     if(action==='ackKitchen'){
-      // Do not acknowledge physical printing while no external prepayment
-      // mapping has been approved for this POS. A forged acknowledgement
-      // must not make the owner believe kitchen printed.
-      throw fail('QR_KITCHEN_PREPAYMENT_ACCOUNTING_PENDING',
-        'Печать кухни отключена до проверки внешней оплаты Payriff в iikoFront',409);
       const id=clean(body.externalOrderId,100),posId=clean(body.posOrderId,128);
       const status=clean(body.kitchenStatus,32);
       if(!id||!posId||!['PRINTED','CHECK_REQUIRED'].includes(status))
@@ -266,6 +258,11 @@ export async function onRequestPost({request,env}){
         .bind(id,identity.departmentId,identity.pluginId).first();
       if(!prev||prev.pos_order_id!==posId)
         throw fail('KITCHEN_ORDER_MISMATCH','Чужой заказ или неверный ID кассы',403);
+      const cap=await env.DB.prepare(`SELECT can_print_kitchen,last_seen_at
+        FROM qr_pos_bridge_capabilities WHERE restaurant_id=?1 AND plugin_id=?2 LIMIT 1`)
+        .bind(identity.departmentId,identity.pluginId).first();
+      if(Number(cap?.can_print_kitchen)!==1)
+        throw fail('QR_KITCHEN_NOT_ENABLED','Кухонная печать не разрешена на этой кассе',409);
       if(!['POS_OPEN','CLOSED'].includes(prev.state))
         throw fail('KITCHEN_POS_NOT_CREATED','Сначала подтвердите создание заказа на кассе',409);
       if(prev.kitchen_status===status)return response({success:true,duplicate:true,kitchenStatus:status});
@@ -282,6 +279,13 @@ export async function onRequestPost({request,env}){
         VALUES(?1,?2,?3,'KITCHEN_STATUS','PLUGIN',?4,?5)`)
         .bind(crypto.randomUUID(),id,prev.owner_id,JSON.stringify({kitchenStatus:status}),t).run();
       return response({success:true,kitchenStatus:status});
+    }
+    if(action==='refundPayment'){
+      // Only the authenticated POS Bridge can request a Payriff refund,
+      // and only against an existing verified online payment for its own
+      // restaurant, plugin and exact POS order. No client-facing refund API.
+      const result=await requestPosPayriffRefund(env,identity,body);
+      return response(result);
     }
     if(action==='ackFiscalized'){
       const id=clean(body.externalOrderId,100),
