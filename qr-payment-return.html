@@ -63,8 +63,22 @@ a{background:transparent;color:#a6f0d3;border:1px solid #618d86}
       const payment=data.payment||{};
       if(payment.paidVerified&&payment.state==='PAID_VERIFIED'){
         title.textContent='Оплата подтверждена';
-        status.textContent='Payriff подтвердил получение '+payment.amountAZN+' AZN. Деньги уже списаны. Повторно платить не нужно. Кассовый заказ и кухонная печать пока выключены.';
-        verify.textContent='Оплата подтверждена';return true;
+        const fulfillment=data.fulfillment||null;
+        const statusLabel=!fulfillment
+          ?'Платёж подтверждён. Ожидаем автоматическую передачу на кассу.'
+          :fulfillment.kitchenStatus==='PRINTED'
+            ?'Заказ принят на кухню.'
+            :fulfillment.state==='CLOSED'
+              ?'Заказ закрыт на кассе.'
+              :fulfillment.state==='POS_OPEN'
+                ?'Заказ создан на кассе; готовим на кухню.'
+                :'Передаём заказ на кассу.';
+        status.textContent='Payriff подтвердил оплату '+payment.amountAZN+' AZN. '+
+          'Повторно платить не нужно. '+statusLabel;
+        verify.textContent='Обновить статус заказа';
+        // Keep polling while POS fulfillment is in progress, but never POST.
+        return Boolean(fulfillment&&(fulfillment.kitchenStatus==='PRINTED'||
+          fulfillment.state==='CLOSED'));
       }
       if(payment.state==='FAILED'){
         title.textContent='Оплата не подтверждена';
