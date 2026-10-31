@@ -691,12 +691,12 @@ test('Payment-first guard rejects guest orders and setup even without the shared
   const res=await onRequestPost({request:req,env});
   assert.equal(res.status,409);
   assert.equal((await res.json()).code,'QR_ONLINE_PAYMENT_NOT_READY');
-  assert.match(adminApi,/if\(action==='saveSettings'&&body.orderingEnabled===true\)/);
+  assert.match(adminApi,/isLivePreview\(policy\)/);
   assert.match(bridge,/WHERE o.restaurant_id=\?3 AND o.payment_state='PAID_ONLINE'/);
   assert.match(bridge,/AND o.payment_method='PAYRIFF'/);
-  assert.match(bridge,/\['ackCreated','ackKitchen'\]\.includes\(action\)/);
-  assert.match(adminApi,/QR_ONLINE_PAYMENT_NOT_READY/);
-  assert.match(bridge,/Без подтверждённой оплаты заказ не передаётся на кассу и кухню/);
+  assert.match(bridge,/QR_POS_UNPAID_ACK_FORBIDDEN/);
+  assert.match(adminApi,/QR_PAID_MODE_DISABLED/);
+  assert.match(bridge,/pi\.state='PAID_VERIFIED'/);
 });
 test('POS bridge requires dual secret and known plugin, uses an idempotent lease',()=>{
   assert.match(bridge,/QR_POS_BRIDGE_TOKEN/);
@@ -728,9 +728,9 @@ test('Kitchen dispatch is separate from POS creation and real fiscal closure',()
   assert.match(bridge,/prev\.pos_order_id!==posId/);
   assert.match(bridge,/prev\.kitchen_status!=='NOT_SENT'/);
   assert.match(bridge,/kitchen_status='NOT_SENT'/);
-  assert.match(bridge,/body\.canPrintKitchen!==canCreate/);
+  assert.match(bridge,/body\.canPrintKitchen===true&&!canCreate/);
   assert.match(publicApi,/can_print_kitchen=1/);
-  assert.match(adminApi,/can_print_kitchen=1/);
+  assert.match(adminApi,/kitchenPrintReady:kitchenReady/);
   assert.match(guest,/order\.kitchenStatus==='PRINTED'/);
   assert.match(admin,/kitchen_status==='CHECK_REQUIRED'/);
 });
@@ -766,7 +766,7 @@ test('Diagnostic HTTPS hello cannot receive or dispatch POS orders',async()=>{
   const mockedDB={cap:null,writes:[],prepare(sql){
     return{bind:(...params)=>({
       run:async()=>{this.writes.push({sql,params});if(sql.includes('INSERT INTO qr_pos_bridge_capabilities'))this.cap={
-        can_create_order:params[2],can_ack_fiscal:params[2],can_print_kitchen:params[2],last_seen_at:params[3]
+        can_create_order:params[2],can_ack_fiscal:0,can_print_kitchen:params[3],last_seen_at:params[4]
       };return{success:true}},
       first:async()=>{
         if(sql.includes('SELECT can_create_order,can_ack_fiscal,can_print_kitchen,last_seen_at'))
@@ -785,11 +785,11 @@ test('Diagnostic HTTPS hello cannot receive or dispatch POS orders',async()=>{
     invalid,(v,n=180)=>String(v??'').trim().slice(0,n),async()=>({verified:true}),
     requireTableSyncScope,isSharedD1Test,async()=>({verified:true})
   );
-  const env={QR_POS_BRIDGE_TOKEN:'test-secret',DB:mockedDB};
+  const env={QR_POS_BRIDGE_TOKEN:'test-secret',...sharedConfig,DB:mockedDB};
   async function send(action,options={},secret='test-secret'){
-    const request=new Request('https://qr-staging.example/api/qr-menu/pos-bridge',{
+    const request=new Request('https://'+testPreview+'/api/qr-menu/pos-bridge',{
       method:'POST',headers:{'Content-Type':'application/json','X-QR-Bridge-Token':secret},
-      body:JSON.stringify({action,pluginId:'test-plugin',departmentId:'test-department',...options})
+      body:JSON.stringify({action,pluginId:testPlugin,departmentId:testRestaurant,...options})
     });
     const res=await onRequestPost({request,env});
     return{status:res.status,body:await res.json()};
@@ -809,12 +809,12 @@ test('Diagnostic HTTPS hello cannot receive or dispatch POS orders',async()=>{
     contractVersion:1,canCreateOrder:true,canAcknowledgeFiscal:true,canPrintKitchen:false
   });
   assert.equal(inconsistent.status,409);
-  assert.equal(inconsistent.body.code,'QR_ONLINE_PAYMENT_NOT_READY');
+  assert.equal(inconsistent.body.code,'QR_PAID_MODE_DISABLED');
   const full=await send('hello',{
     contractVersion:1,canCreateOrder:true,canAcknowledgeFiscal:true,canPrintKitchen:true
   });
   assert.equal(full.status,409);
-  assert.equal(full.body.code,'QR_ONLINE_PAYMENT_NOT_READY');
+  assert.equal(full.body.code,'QR_PAID_MODE_DISABLED');
   assert.equal(mockedDB.cap.can_create_order,0);
   const wrongSecret=await send('hello',{
     contractVersion:1,canCreateOrder:false,canAcknowledgeFiscal:false,canPrintKitchen:false
@@ -1158,7 +1158,7 @@ test('Shared D1 table upload requires preview host and exact test restaurant and
   assert.equal(foreignPlugin.body.code,'QR_TABLE_SYNC_TEST_SCOPE_FORBIDDEN');
   assert.equal(schemaAttempts,0);
 });
-test('Shared D1 test POS cannot enable ordering or call POS pull',async()=>{
+test('Shared D1 POS allows only an allowlisted plugin and blocks pull without readiness',async()=>{
   const source=bridge.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
   const {onRequestPost}=new Function('ensureOrders','response','bad','fail','clean','verifyPluginIngress',
     'requireTableSyncScope','isSharedD1Test','verifyRegisteredQrPos',source+';return{onRequestPost};')(
@@ -1174,20 +1174,26 @@ test('Shared D1 test POS cannot enable ordering or call POS pull',async()=>{
     });
     const res=await onRequestPost({request,env:{
       ...sharedConfig,QR_POS_BRIDGE_TOKEN:'secret',DB:{
-        prepare(){throw new Error('Blocked operations cannot reach D1')}
+        prepare(sql){
+          if(sql.includes('FROM qr_pos_bridge_capabilities')||
+              sql.includes('FROM qr_payment_checkout_policy'))
+            return{bind:()=>({first:async()=>null})};
+          throw new Error('Unexpected database access for unready POS');
+        }
       }
     }});
     return{status:res.status,body:await res.json()};
   }
   const pull=await send({action:'pull'});
   assert.equal(pull.status,409);
-  assert.equal(pull.body.code,'QR_SHARED_D1_ORDERS_DISABLED');
+  assert.equal(pull.body.code,'QR_POS_NOT_READY');
   const fullHello=await send({action:'hello',contractVersion:1,
     canCreateOrder:true,canAcknowledgeFiscal:true,canPrintKitchen:true});
   assert.equal(fullHello.status,409);
-  assert.equal(fullHello.body.code,'QR_SHARED_D1_DIAGNOSTICS_ONLY');
+  assert.equal(fullHello.body.code,'QR_PAID_MODE_DISABLED');
   const created=await send({action:'ackCreated',externalOrderId:'fake'});
-  assert.equal(created.status,409);
+  assert.equal(created.status,400);
+  assert.equal(created.body.code,'POS_ACK_REQUIRED');
   const guestSource=publicApi.replace(/^import .*;\s*$/gm,'').replace(/\bexport\s+(?=async|function|const)/g,'');
   const {onRequestPost:guestPost}=new Function('isSharedD1Test','fail','bad',
     guestSource+';return{onRequestPost};')(
@@ -1255,6 +1261,6 @@ test('One-key QR preview bridge verifies registered POS while never requiring or
   assert.match(ingestion,/export async function verifyPluginIngress/);
   assert.match(ingestion,/const expected=clean\(env\?\.PLUGIN_INGEST_TOKEN\)/);
   assert.match(bridge,/verifyRegisteredQrPos\(env,identity\)/);
-  assert.match(bridge,/if\(!isSharedD1Test\(env\)\)/);
+  assert.match(bridge,/requireTableSyncScope\(request,env,identity\)/);
   assert.match(adminApi,/singleKeyDiagnosticMode:isSharedD1Test\(env\)/);
 });
