@@ -132,15 +132,24 @@ export async function onRequestPost({request,env}){
           throw fail('POS_BRIDGE_NOT_READY',
             'Тестовый плагин не подтвердил создание предоплаченных заказов за последние 5 минут',409);
       }
+      // Once auto ordering is switched on, only transactions created AFTER
+      // this activation can flow automatically into iikoFront. Historical
+      // paid/UNKNOWN payments must never appear unexpectedly in a POS.
       await env.DB.prepare(`INSERT INTO qr_order_settings
-        (owner_id,menu_id,restaurant_id,service_mode,ordering_enabled,pos_plugin_id,created_at,updated_at)
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?7)
+        (owner_id,menu_id,restaurant_id,service_mode,ordering_enabled,
+          auto_enabled_at,pos_plugin_id,created_at,updated_at)
+        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8)
         ON CONFLICT(menu_id) DO UPDATE SET service_mode=excluded.service_mode,
+          auto_enabled_at=CASE
+            WHEN excluded.ordering_enabled=0 THEN ''
+            WHEN qr_order_settings.ordering_enabled=0 THEN excluded.auto_enabled_at
+            ELSE qr_order_settings.auto_enabled_at END,
           ordering_enabled=excluded.ordering_enabled,pos_plugin_id=excluded.pos_plugin_id,
           updated_at=excluded.updated_at`)
-        .bind(ctx.ownerId,ctx.menu.id,ctx.restaurantId,mode,enabled,pluginId,now).run();
+        .bind(ctx.ownerId,ctx.menu.id,ctx.restaurantId,mode,enabled,
+          enabled?now:'',pluginId,now).run();
       return response({success:true,notice:enabled?
-        'Подтверждена готовность POS Bridge. Передача оплаты на кассу доступна только после отдельного подтверждения владельца для каждого PAID_VERIFIED. Кухонная печать включается отдельно.':
+        'Автоматическая передача подтверждённых Payriff-оплат включена. Предыдущие платежи не отправляются повторно.':
         'Передача QR-заказов на кассу выключена.'});
     }
     if(action==='syncPosTables'){
