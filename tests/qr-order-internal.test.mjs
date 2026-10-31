@@ -24,6 +24,7 @@ const payriffGateway=read('functions/api/qr-menu/_lib/payriff-checkout.js');
 const paymentCallback=read('functions/api/qr-menu/payment-callback.js');
 const paymentReturn=read('qr-payment-return.html');
 const paymentAttempts=read('functions/api/qr-menu/payment-attempts.js');
+const payriffRefund=read('functions/api/qr-menu/_lib/payriff-refund.js');
 const paidOrderQueue=read('functions/api/qr-menu/paid-order-queue.js');
 const checkoutPolicy=read('functions/api/qr-menu/_lib/checkout-policy.js');
 const paymentConnectivity=read('functions/api/qr-menu/payment-connectivity.js');
@@ -411,7 +412,7 @@ test('Payriff UNKNOWN reconciliation exposes provider error instead of hiding it
   assert.doesNotMatch(JSON.stringify(body),/server-side-secret|encrypted/);
   assert.match(admin,/paymentAttemptResults\.set\(attempt.id/);
   assert.match(admin,/await loadPaymentAttempts\(\)/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-paid-pos-ready4/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-auto-refund5/);
 });
 test('Cloudflare to Payriff diagnostic only GETs a synthetic RRN, is owner-scoped and never reveals secret',async()=>{
   const src=paymentConnectivity
@@ -458,7 +459,7 @@ test('Cloudflare to Payriff diagnostic only GETs a synthetic RRN, is owner-scope
   assert.match(admin,/checkPayriffConnectivity/);
   assert.match(admin,/\$\('qrPayriffConnectivityCheck'\)\.onclick=checkPayriffConnectivity/);
   assert.match(managementPage,/id="qrPayriffConnectivityStatus"/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-paid-pos-ready4/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-auto-refund5/);
   assert.doesNotMatch(paymentConnectivity,/method:'POST'|INSERT INTO|UPDATE qr_payment_intents/);
 });
 test('Payriff network probe distinguishes a fetch transport failure from an HTTP refusal',async()=>{
@@ -485,6 +486,101 @@ test('Payriff network probe distinguishes a fetch transport failure from an HTTP
   assert.equal(result.kind,'FETCH_TYPE_ERROR');
   assert.equal(result.causeCode,'ECONNRESET');
   assert.doesNotMatch(JSON.stringify(result),/secret-never-in-response|TLS problem/);
+});
+test('Automatic paid queue has activation cutoff and POS-driven refund is tenant-scoped at-most-once',async()=>{
+  assert.match(core,/auto_enabled_at/);
+  assert.match(adminApi,/auto_enabled_at=CASE/);
+  assert.match(bridge,/INSERT OR IGNORE INTO qr_guest_orders/);
+  assert.match(bridge,/pi.created_at>=s.auto_enabled_at/);
+  assert.match(bridge,/pi.state='PAID_VERIFIED'/);
+  assert.match(bridge,/pi.provider_order_id IS NOT NULL/);
+  assert.match(bridge,/pi.total_minor=1/);
+  assert.match(bridge,/requestPosPayriffRefund\(env,identity,body\)/);
+  assert.match(bridge,/action==='ackClosed'/);
+  assert.match(bridge,/action==='ackKitchen'/);
+  assert.doesNotMatch(admin,/Передать оплаченный заказ на кассу|queueVerified/);
+  assert.match(payriffRefund,/CREATE TABLE IF NOT EXISTS qr_payriff_refunds/);
+  assert.match(payriffRefund,/UNIQUE\(intent_id,transaction_id\)/);
+  assert.match(payriffRefund,/state='UNKNOWN'/);
+  assert.match(payriffRefund,/api\/v3\/refund/);
+  assert.match(payriffRefund,/X-REQUEST-RRN/);
+  assert.doesNotMatch(payriffRefund,/Promise\.all\(.*refund/);
+});
+test('Payriff refund reuses the original POS transaction without a second provider POST',async()=>{
+  const source=payriffRefund
+    .replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
+    .replace(/\bexport\s+(?=async|function|const)/g,'');
+  const fail=(code,message,status=400)=>Object.assign(new Error(message),{status,code});
+  const item={
+    id:'11111111-2222-4333-8444-555555555555',menu_id:'menu1',
+    restaurant_id:'restaurant1',payment_intent_id:'intent1',payment_state:'PAID_ONLINE',
+    payment_method:'PAYRIFF',total_minor:1,pos_order_id:'22222222-3333-4444-8555-666666666666',
+    provider_order_id:'33333333-4444-4555-8666-777777777777',
+    paid_state:'PAID_VERIFIED',workspace_id:'workspace1',
+    merchant_id:'ES1093754',paid_minor:1
+  };
+  const tx='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const state={refund:null,providerCalls:0};
+  const db={prepare(sql){
+    return {
+      bind:(...params)=>({
+        first:async()=>{
+          if(sql.includes('FROM qr_guest_orders o'))
+            return params[1]==='restaurant1'&&params[2]==='plugin1'?item:null;
+          if(sql.includes('SELECT * FROM qr_payriff_refunds'))return state.refund;
+          if(sql.includes('COALESCE(SUM(amount_minor)'))return {
+            reserved_minor:state.refund?state.refund.amount_minor:0,
+            unknown_count:state.refund?.state==='UNKNOWN'?1:0
+          };
+          if(sql.includes('INSERT OR IGNORE INTO qr_payriff_refunds')){
+            if(state.refund)return null;
+            state.refund={id:params[0],intent_id:params[1],
+              external_order_id:params[2],transaction_id:params[4],
+              amount_minor:params[5],state:'UNKNOWN'};
+            return {id:state.refund.id};
+          }
+          if(sql.includes('UPDATE qr_payriff_refunds')){
+            state.refund.state='ACCEPTED';return{id:state.refund.id};
+          }
+          throw Error('Unexpected refund query: '+sql.slice(0,100));
+        },
+        run:async()=>({success:true})
+      })
+    };
+  }};
+  const crypto={randomUUID:()=> 'ffffffff-ffff-4fff-8fff-ffffffffffff'};
+  const invoke=new Function('fail','fetchPaymentSettings','decryptPaymentSecret','fetch','crypto',
+    source+';return requestPosPayriffRefund;')(
+    fail,async()=>({merchant_id:'ES1093754',
+      secret_encrypted:'encrypted',environment:'development'}),
+    async()=> 'server-only-secret',
+    async(url,options)=>{
+      state.providerCalls++;
+      assert.equal(options.method,'POST');
+      assert.equal(url,'https://api.payriff.com/api/v3/refund');
+      assert.equal(options.headers['X-REQUEST-RRN'],tx);
+      assert.equal(options.headers.Authorization,'server-only-secret');
+      assert.deepEqual(JSON.parse(options.body),{
+        orderId:item.provider_order_id,amount:0.01,
+        refundReason:'iikoFront QR payment return '+tx
+      });
+      return {ok:true,status:200,json:async()=>({code:'00000',responseId:'success123'})};
+    },crypto
+  );
+  const args={externalOrderId:item.id,posOrderId:item.pos_order_id,
+    transactionId:tx,amountMinor:1};
+  const identity={departmentId:'restaurant1',pluginId:'plugin1'};
+  let one=await invoke({DB:db},identity,args);
+  assert.equal(one.refundAccepted,true);
+  assert.equal(state.providerCalls,1);
+  const duplicate=await invoke({DB:db},identity,args);
+  assert.equal(duplicate.duplicate,true);
+  assert.equal(state.providerCalls,1);
+  await assert.rejects(invoke({DB:db},identity,{...args,amountMinor:2}),
+    e=>e.code==='QR_REFUND_REPLAY_MISMATCH');
+  await assert.rejects(invoke({DB:db},{...identity,departmentId:'other'},args),
+    e=>e.code==='QR_REFUND_PAYMENT_UNVERIFIED');
+  assert.equal(state.providerCalls,1);
 });
 test('One verified Payriff intent creates at most one tenant-scoped queued POS order',async()=>{
   const source=paidOrderQueue.replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm,'')
@@ -1317,7 +1413,7 @@ test('QR cashier settings save has explicit feedback and stale client JS cannot 
   assert.match(admin,/Сервер принял настройки\. Проверьте выбранную кассу/);
   assert.match(admin,/Не удалось сохранить:/);
   assert.match(admin,/Ранее сохранённая привязка не удалена/);
-  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-paid-pos-ready4/);
+  assert.match(managementPage,/qr-order-admin\.js\?v=20261031-auto-refund5/);
 });
 
 test('QR management offers independently scrollable desktop panels and a mobile layout',()=>{
