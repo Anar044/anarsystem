@@ -31,7 +31,7 @@ export async function onRequestPost({request,env}){
     // Shared D1 is allowed only on an exact Preview host, restaurant and
     // registered plugin pair; no other tenant may exchange POS orders.
     requireTableSyncScope(request,env,identity);
-    if(!['hello','tablesSnapshot','pull','ackCreated','ackFailed','ackKitchen','ackFiscal','refundPayment'].includes(action))
+    if(!['hello','tablesSnapshot','pull','ackCreated','ackFailed','ackKitchen','ackClosed','ackFiscal','refundPayment'].includes(action))
       throw fail('QR_POS_UNKNOWN_ACTION','Неизвестная операция POS Bridge',400);
     if(action==='hello'&&body.canCreateOrder===true){
       const paidMode=await env.DB.prepare(`SELECT c.restaurant_id
@@ -279,6 +279,27 @@ export async function onRequestPost({request,env}){
         VALUES(?1,?2,?3,'KITCHEN_STATUS','PLUGIN',?4,?5)`)
         .bind(crypto.randomUUID(),id,prev.owner_id,JSON.stringify({kitchenStatus:status}),t).run();
       return response({success:true,kitchenStatus:status});
+    }
+    if(action==='ackClosed'){
+      const id=clean(body.externalOrderId,100),posId=clean(body.posOrderId,128);
+      if(!id||!posId)throw fail('QR_POS_CLOSE_ACK_INVALID','Недействительный номер закрытого заказа',400);
+      const order=await env.DB.prepare(`SELECT o.id,o.state,o.pos_order_id,o.payment_intent_id,
+        o.menu_id,o.restaurant_id,o.payment_state,o.payment_method,pi.state AS paid_state
+        FROM qr_guest_orders o JOIN qr_payment_intents pi ON pi.id=o.payment_intent_id
+        WHERE o.id=?1 AND o.restaurant_id=?2 AND o.pos_plugin_id=?3 LIMIT 1`)
+        .bind(id,identity.departmentId,identity.pluginId).first();
+      if(!order||order.pos_order_id!==posId||order.payment_method!=='PAYRIFF'||
+          order.payment_state!=='PAID_ONLINE'||order.paid_state!=='PAID_VERIFIED')
+        throw fail('QR_POS_CLOSE_NOT_PAID','Можно закрыть только свой оплаченный заказ',409);
+      if(order.state==='CLOSED')return response({success:true,duplicate:true,orderState:'CLOSED'});
+      if(order.state!=='POS_OPEN')throw fail('QR_POS_CLOSE_NOT_OPEN','Кассовый заказ ещё не открыт',409);
+      const saved=await env.DB.prepare(`UPDATE qr_guest_orders
+        SET state='CLOSED',updated_at=?1
+        WHERE id=?2 AND restaurant_id=?3 AND pos_plugin_id=?4
+          AND state='POS_OPEN' AND pos_order_id=?5 RETURNING id`)
+        .bind(t,id,identity.departmentId,identity.pluginId,posId).first();
+      if(!saved)throw fail('QR_POS_CLOSE_RACE','Статус изменился во время закрытия',409);
+      return response({success:true,orderState:'CLOSED'});
     }
     if(action==='refundPayment'){
       // Only the authenticated POS Bridge can request a Payriff refund,
