@@ -27,30 +27,24 @@ export async function onRequestPost({request,env}){
     if(!body||typeof body!=='object'||Array.isArray(body))throw fail('BAD_BODY','Неверный запрос');
     const identity=await authorize(request,env,body);
     const action=clean(body.action,32);
-    // Shared D1: only one allowlisted test plugin/restaurant can update table
-    // snapshots. Reject BEFORE ensureOrders may create or migrate D1 schema.
-    if(action==='tablesSnapshot'||(isSharedD1Test(env)&&action==='hello'))
-      requireTableSyncScope(request,env,identity);
-    // Table synchronization on the shared DB is read-only in the POS. Orders
-    // are never available even if a test till accidentally enables its flags.
-    if(isSharedD1Test(env)&&action!=='hello'&&action!=='tablesSnapshot')
-      throw fail('QR_SHARED_D1_ORDERS_DISABLED',
-        'Создание QR-заказов в режиме общей тестовой D1 выключено',409);
-    // Only diagnostic hello can be accepted until secure online payments
-    // are integrated. No full POS capability must be advertised.
-    if(!isSharedD1Test(env)&&action==='hello'&&body.canCreateOrder===true)
-      throw fail('QR_ONLINE_PAYMENT_NOT_READY',
-        'Создание и печать QR-заказов запрещены до подтверждённой онлайн-оплаты',409);
-    // A stale POS worker is also forbidden to confirm creation/printing
-    // of previously unpaid jobs. Fiscal reconciliation remains separate.
-    if(!isSharedD1Test(env)&&['ackCreated','ackKitchen'].includes(action))
-      throw fail('QR_ONLINE_PAYMENT_NOT_READY',
-        'Создание и кухонная печать без подтверждённой оплаты запрещены',409);
-    if(isSharedD1Test(env)&&action==='hello'&&
-        (body.canCreateOrder!==false||body.canAcknowledgeFiscal!==false||
-         body.canPrintKitchen!==false))
-      throw fail('QR_SHARED_D1_DIAGNOSTICS_ONLY',
-        'На общей D1 разрешена только диагностика без заказов и печати',409);
+    // Shared D1 is allowed only on an exact Preview host, restaurant and
+    // registered plugin pair; no other tenant may exchange POS orders.
+    requireTableSyncScope(request,env,identity);
+    if(!['hello','tablesSnapshot','pull','ackCreated','ackFailed','ackKitchen','ackFiscal'].includes(action))
+      throw fail('QR_POS_UNKNOWN_ACTION','Неизвестная операция POS Bridge',400);
+    if(action==='hello'&&body.canCreateOrder===true){
+      const paidMode=await env.DB.prepare(`SELECT c.restaurant_id
+        FROM qr_payment_checkout_policy c
+        JOIN qr_payment_menu_bindings b
+          ON b.workspace_id=c.workspace_id AND b.restaurant_id=c.restaurant_id
+        JOIN qr_order_settings s
+          ON s.menu_id=b.menu_id AND s.restaurant_id=c.restaurant_id
+        WHERE c.restaurant_id=?1 AND s.pos_plugin_id=?2
+          AND c.provider='PAYRIFF' AND c.live_preview_enabled=1 LIMIT 1`)
+        .bind(identity.departmentId,identity.pluginId).first();
+      if(!paidMode)throw fail('QR_PAID_MODE_DISABLED',
+        'Режим реальной оплаты Payriff не включён владельцем этого ресторана',409);
+    }
     if(isSharedD1Test(env))
       await verifyRegisteredQrPos(env,identity);
     await ensureOrders(env.DB);
@@ -62,20 +56,24 @@ export async function onRequestPost({request,env}){
       if(body.contractVersion!==1||typeof body.canCreateOrder!=='boolean'||
           typeof body.canAcknowledgeFiscal!=='boolean'||
           typeof body.canPrintKitchen!=='boolean'||
-          body.canAcknowledgeFiscal!==canCreate||body.canPrintKitchen!==canCreate)
-        throw fail('QR_BRIDGE_VERSION_UNSUPPORTED','Плагин должен подтвердить контракт версии 1 и допустимые функции',409);
-      const allowed=canCreate?1:0;
+          body.canAcknowledgeFiscal!==false||
+          (body.canPrintKitchen===true&&!canCreate))
+        throw fail('QR_BRIDGE_VERSION_UNSUPPORTED',
+          'Плагин должен подтвердить безопасный POS-контракт v1, без фискального подтверждения Payriff',409);
+      const allowed=canCreate?1:0,canPrint=canCreate&&body.canPrintKitchen===true?1:0;
       await env.DB.prepare(`INSERT INTO qr_pos_bridge_capabilities(
         restaurant_id,plugin_id,contract_version,can_create_order,can_ack_fiscal,can_print_kitchen,last_seen_at)
-        VALUES(?1,?2,1,?3,?3,?3,?4)
+        VALUES(?1,?2,1,?3,0,?4,?5)
         ON CONFLICT(restaurant_id,plugin_id) DO UPDATE SET
         contract_version=excluded.contract_version,
         can_create_order=excluded.can_create_order,
         can_ack_fiscal=excluded.can_ack_fiscal,
         can_print_kitchen=excluded.can_print_kitchen,
         last_seen_at=excluded.last_seen_at`)
-        .bind(identity.departmentId,identity.pluginId,allowed,t).run();
-      return response({success:true,contractVersion:1,accepted:true,orderingReady:canCreate});
+        .bind(identity.departmentId,identity.pluginId,allowed,canPrint,t).run();
+      return response({success:true,contractVersion:1,accepted:true,
+        orderingReady:canCreate,canPrintKitchen:Boolean(canPrint),
+        fiscalReady:false});
     }
     if(action==='tablesSnapshot'){
       // Read-only POS catalog available even during the diagnostic hello mode:
@@ -115,22 +113,27 @@ export async function onRequestPost({request,env}){
         .bind(identity.departmentId,identity.pluginId).first();
       const seen=Date.parse(caps?.last_seen_at||'');
       if(!caps||Number(caps.can_create_order)!==1||
-          Number(caps.can_ack_fiscal)!==1||Number(caps.can_print_kitchen)!==1||
           !Number.isFinite(seen)||seen>Date.now()||Date.now()-seen>=5*60000)
         throw fail('QR_POS_NOT_READY','Касса работает в режиме диагностики или не подтверждала готовность',409);
-      // Fail closed: never dispatch a paid-required order before Payriff
-      // is verified. Revisit the full job contract when payment is live.
-      throw fail('QR_ONLINE_PAYMENT_NOT_READY',
-        'Без подтверждённой оплаты заказ не передаётся на кассу и кухню',409);
+      // Every individual job must have a verified Payriff intent in D1.
       const nextLease=new Date(Date.now()+90000).toISOString();
       // Atomic leasing: two tills cannot both claim the same order.
       // pluginId is pinned to the currently configured plugin AND to the order when set.
       const item=await env.DB.prepare(`UPDATE qr_guest_orders
         SET state='LEASED',lease_until=?1,updated_at=?2,pos_plugin_id=?4
         WHERE id=(
-          SELECT o.id FROM qr_guest_orders o JOIN qr_order_settings s ON s.menu_id=o.menu_id
+          SELECT o.id FROM qr_guest_orders o
+          JOIN qr_order_settings s ON s.menu_id=o.menu_id
+          JOIN qr_payment_intents pi ON pi.id=o.payment_intent_id
+            AND pi.menu_id=o.menu_id AND pi.restaurant_id=o.restaurant_id
+            AND pi.total_minor=o.total_minor AND pi.state='PAID_VERIFIED'
+            AND pi.provider_order_id IS NOT NULL
+          JOIN qr_payment_checkout_policy cp ON cp.workspace_id=pi.workspace_id
+            AND cp.restaurant_id=pi.restaurant_id AND cp.provider='PAYRIFF'
+            AND cp.live_preview_enabled=1
           WHERE o.restaurant_id=?3 AND o.payment_state='PAID_ONLINE'
-            AND o.payment_method='PAYRIFF'
+            AND o.payment_method='PAYRIFF' AND o.payment_intent_id<>''
+            AND o.total_minor=1 AND s.ordering_enabled=1
             AND s.pos_plugin_id=?4
             AND (o.pos_plugin_id='' OR o.pos_plugin_id=?4)
             AND (o.state='AWAITING_POS' OR (o.state='LEASED' AND o.lease_until<?2))
@@ -139,6 +142,13 @@ export async function onRequestPost({request,env}){
         AND (state='AWAITING_POS' OR (state='LEASED' AND lease_until<?2))
         RETURNING *`).bind(nextLease,t,identity.departmentId,identity.pluginId).first();
       if(!item)return response({success:true,job:null});
+      const paid=await env.DB.prepare(`SELECT provider_order_id
+        FROM qr_payment_intents WHERE id=?1 AND menu_id=?2
+        AND restaurant_id=?3 AND state='PAID_VERIFIED' AND total_minor=?4
+        AND provider_order_id IS NOT NULL LIMIT 1`)
+        .bind(item.payment_intent_id,item.menu_id,item.restaurant_id,item.total_minor).first();
+      if(!paid?.provider_order_id)throw fail('QR_PAYMENT_PROOF_LOST',
+        'Доказательство оплаты недоступно. Требуется ручная сверка',409);
       await env.DB.prepare(`INSERT INTO qr_order_events(id,order_id,owner_id,event_type,actor,details_json,created_at)
         VALUES(?1,?2,?3,'POS_LEASED','PLUGIN',?4,?5)`)
         .bind(crypto.randomUUID(),item.id,item.owner_id,JSON.stringify({pluginId:identity.pluginId}),t).run();
@@ -149,7 +159,7 @@ export async function onRequestPost({request,env}){
         totalMinor:item.total_minor,currency:item.currency,
         guestNote:item.guest_note,
         paymentMethod:'PAYRIFF',
-        onlinePaid:true,rrn:null,
+        onlinePaid:true,paymentReference:paid.provider_order_id,rrn:null,
         leaseUntil:nextLease
       },notice:'Создайте заказ идемпотентно по externalOrderId; не проводите внешнюю онлайн-оплату.'});
     }
@@ -161,6 +171,15 @@ export async function onRequestPost({request,env}){
         AND pos_plugin_id=?3 LIMIT 1`)
         .bind(id,identity.departmentId,identity.pluginId).first();
       if(!order)throw fail('QR_JOB_NOT_FOUND','Заказ не принадлежит данной кассе',404);
+      if(order.payment_state!=='PAID_ONLINE'||order.payment_method!=='PAYRIFF'||
+          !order.payment_intent_id)
+        throw fail('QR_POS_UNPAID_ACK_FORBIDDEN','Нельзя подтверждать неоплаченный QR-заказ',409);
+      const paidOrder=await env.DB.prepare(`SELECT id FROM qr_payment_intents
+        WHERE id=?1 AND restaurant_id=?2 AND menu_id=?3
+          AND state='PAID_VERIFIED' AND provider_order_id IS NOT NULL LIMIT 1`)
+        .bind(order.payment_intent_id,order.restaurant_id,order.menu_id).first();
+      if(!paidOrder)throw fail('QR_POS_PAYMENT_PROOF_MISSING',
+        'Оплата не подтверждена Payriff для этого кассового заказа',409);
       if(order.state==='POS_OPEN'&&order.pos_order_id===posId)return response({success:true,duplicate:true});
       if(order.state!=='LEASED')throw fail('QR_JOB_STATE_CONFLICT','Заказ не находится в обработке POS',409);
       const result=await env.DB.prepare(`UPDATE qr_guest_orders SET state='POS_OPEN',
