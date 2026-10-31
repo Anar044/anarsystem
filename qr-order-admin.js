@@ -180,6 +180,15 @@ async function loadPaymentAttempts(){
       cell(attempt.table);cell(attempt.amountAZN+' AZN');
       const status=cell(attempt.state);
       status.style.color=attempt.state==='PAID_VERIFIED'?'#86e3bb':attempt.state==='UNKNOWN'?'#ffd29b':'';
+      if(attempt.refund){
+        const refund=document.createElement('div');
+        refund.style.cssText='margin-top:5px;font-size:11px;line-height:1.5';
+        refund.style.color=attempt.refund.needsReconciliation?'#ffd29b':'#86e3bb';
+        refund.textContent=attempt.refund.needsReconciliation
+          ?'Возврат требует сверки в Payriff — повторно не отправлять'
+          :'Payriff принял возврат '+attempt.refund.acceptedAZN+' AZN';
+        status.append(refund);
+      }
       const last=paymentAttemptResults.get(attempt.id);
       if(last){
         const feedback=document.createElement('div');
