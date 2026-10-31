@@ -72,3 +72,38 @@ export async function verifyPluginIngress(request,env,{pluginId,departmentId}={}
   }
   return{verified:true,pluginId:pid,departmentId:did};
 }
+
+/**
+ * QR-only identity validation. MUST be called only after the QR bridge token
+ * has been authenticated and the exact test POS scope/host checked.
+ * Unlike the general ingest endpoint, it never reads or exposes the old
+ * PLUGIN_INGEST_TOKEN. A single preview QR secret is sufficient for this
+ * expressly allowlisted diagnostic table synchronization.
+ */
+export async function verifyRegisteredQrPos(env,{pluginId,departmentId}={}){
+  const pid=clean(pluginId),did=clean(departmentId);
+  if(!pid||!did){
+    const e=new Error("pluginId и departmentId обязательны для проверки.");
+    e.status=400;e.code="PLUGIN_IDENTITY_REQUIRED";throw e;
+  }
+  let rows;
+  try{rows=await fetchRegistry(did,env);}
+  catch(error){
+    // Server-only, redacted diagnostics. Do not log backend URLs, token values
+    // or response bodies from the registry.
+    const status = /^Plugin registry HTTP ([0-9]{3})$/.exec(String(error?.message||''))?.[1];
+    const kind = status ? 'UPSTREAM_HTTP_'+status
+      : error?.name==='AbortError' ? 'UPSTREAM_TIMEOUT'
+      : error?.name==='SyntaxError' ? 'UPSTREAM_INVALID_JSON'
+      : 'UPSTREAM_FETCH_FAILED';
+    console.error('QR_POS_IDENTITY_REGISTRY_FAILED',kind,String(error?.name||'unknown').slice(0,40));
+    const e=new Error("Недоступен реестр касс Smart Horeca.");
+    e.status=502;e.code="PLUGIN_REGISTRY_UNAVAILABLE";throw e;
+  }
+  const found=rows.some(row=>clean(row?.pluginId)===pid&&clean(row?.departmentId)===did);
+  if(!found){
+    const e=new Error("Плагин не зарегистрирован за указанным рестораном.");
+    e.status=403;e.code="PLUGIN_DEPARTMENT_MISMATCH";throw e;
+  }
+  return{verified:true,pluginId:pid,departmentId:did};
+}

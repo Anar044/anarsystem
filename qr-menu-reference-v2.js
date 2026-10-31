@@ -193,5 +193,12 @@
   }
   function onDishClose(){active=null;qty=1}
   window.SHQRReference={onLoaded,onDishOpen,onDishClose};
+  // Read-only basket snapshot consumed by the separate, opt-in ordering module.
+  // This reference-video visual layer remains read-only and free of network calls.
+  window.SHQRReference.getSelectedItems=()=>[...selected.values()]
+    .map(({item,qty})=>({dishId:String(item.id),qty}));
+  // Used only after a real QR order is stored, to prevent ordering the same basket twice.
+  window.SHQRReference.clearSelectedItems=()=>{selected.clear();paintBasket();paintDock()};
+
   document.addEventListener("keydown",e=>{if(e.key==="Escape")showBasket(false)});
 })();

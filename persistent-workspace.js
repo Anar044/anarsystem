@@ -90,6 +90,13 @@
     if(path==='/index.html'||path==='/dashboard.html'){
       return{href:'/dashboard.html',label:'Dashboard',permissions:['dashboard.view']};
     }
+    // QR Orders is a protected child of QR Menu, not a separate sidebar item.
+    // Without an explicit route, opening it redirects to the default Dashboard.
+    // Require the SAME qr.manage permission as the parent editor.
+    if(path==='/qr-order-admin.html'){
+      if(url.search||url.hash)return null;
+      return{href:'/qr-order-admin.html',label:'QR-заказы и столы',permissions:['qr.manage']};
+    }
     if(path==='/procurement.html'){
       const view=url.searchParams.get('view')||'catalog';
       if(!Object.prototype.hasOwnProperty.call(PROCUREMENT,view))return null;
@@ -264,7 +271,8 @@
     for(const link of nav.querySelectorAll('a[href]')){
       const normalized=resolvePilotRoute(link.getAttribute('href'));
       // Leave original access-controlled visibility unchanged.
-      const active=!!normalized&&normalized.href===route.href;
+      const active=!!normalized&&(normalized.href===route.href
+        ||(route.href==='/qr-order-admin.html'&&normalized.href==='/qr-menu.html'));
       link.classList.toggle('active',active);
       if(active)selectedGroup=link.closest('.documents-nav-group,.reports-nav-group');
     }
