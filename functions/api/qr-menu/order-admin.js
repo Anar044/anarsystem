@@ -1,6 +1,8 @@
 import {ensureOrders,adminContext,settings,token,response,bad,fail,clean,eventStmt} from './_lib/orders.js';
 import {registeredPosRegisters} from './_lib/pos-registers.js';
 import {requireTableSyncScope,isSharedD1Test} from './_lib/table-sync-policy.js';
+import {fetchCheckoutPolicy,isLivePreview} from './_lib/checkout-policy.js';
+import {paymentSettingsScope} from './_lib/payment-provider-settings.js';
 const error=e=>bad(e.status||500,e.code||'QR_ADMIN_ERROR',e.status?e.message:'Не удалось обработать запрос');
 export async function onRequestOptions(){return new Response(null,{status:204,headers:{Allow:'GET,POST,OPTIONS'}})}
 export async function onRequestGet({request,env}){
@@ -27,8 +29,8 @@ export async function onRequestGet({request,env}){
     const lastSeen=Date.parse(posStatus?.last_seen_at||'');
     const bridgeConnected=Boolean(posStatus&&Number.isFinite(lastSeen)&&
       lastSeen<=Date.now()&&Date.now()-lastSeen<5*60*1000);
-    const bridgeReady=bridgeConnected&&Number(posStatus.can_create_order)===1&&
-      Number(posStatus.can_ack_fiscal)===1&&Number(posStatus.can_print_kitchen)===1;
+    const bridgeReady=bridgeConnected&&Number(posStatus.can_create_order)===1;
+    const kitchenReady=bridgeReady&&Number(posStatus.can_print_kitchen)===1;
     const snapshot=cfg?.pos_plugin_id
       ?await env.DB.prepare(`SELECT table_count,tables_json,last_seen_at
         FROM qr_pos_table_snapshots WHERE restaurant_id=?1 AND plugin_id=?2 LIMIT 1`)
@@ -54,6 +56,7 @@ export async function onRequestGet({request,env}){
       settings:{serviceMode:cfg?.service_mode||'TABLE',
         orderingEnabled:Boolean(cfg?.ordering_enabled),posPluginId:cfg?.pos_plugin_id||'',
         posBridgeConnected:bridgeConnected,posBridgeReady:bridgeReady,
+        kitchenPrintReady:kitchenReady,
         posBridgeLastSeen:bridgeConnected?posStatus.last_seen_at:null,
         backendSetup:{
           // An explicit infrastructure confirmation; never a claim that the
@@ -83,19 +86,12 @@ export async function onRequestPost({request,env}){
     const body=await request.json().catch(()=>null);
     if(!body||typeof body!=='object'||Array.isArray(body))throw fail('BAD_REQUEST','Некорректный запрос');
     const action=clean(body.action,40);
-    // Never allow order activation in the shared-D1 table-test mode.
-    if(isSharedD1Test(env)&&action==='saveSettings'&&body.orderingEnabled===true)
-      throw fail('QR_SHARED_D1_ORDERS_DISABLED',
-        'На общей D1 сейчас разрешена синхронизация столов, но не QR-заказы',409);
     await ensureOrders(env.DB);
     const ctx=await adminContext(request,env);
     const existing=await settings(env.DB,ctx.menu.id);
     if(existing&&(existing.owner_id!==ctx.ownerId||existing.restaurant_id!==ctx.restaurantId))
       throw fail('CROSS_WORKSPACE_FORBIDDEN','QR Menu принадлежит другому рабочему пространству',403);
     const now=new Date().toISOString();
-    if(action==='saveSettings'&&body.orderingEnabled===true)
-      throw fail('QR_ONLINE_PAYMENT_NOT_READY',
-        'Нельзя включить QR-заказы до серверного подтверждения онлайн-оплаты Payriff',409);
     if(action==='saveSettings'){
       const mode=clean(body.serviceMode,30),pluginId=clean(body.posPluginId,100);
       if(!['TABLE','FAST_FOOD'].includes(mode))throw fail('BAD_MODE','Выберите режим столов или фастфуд');
@@ -115,18 +111,26 @@ export async function onRequestPost({request,env}){
         if(outstanding)throw fail('PLUGIN_CHANGE_LOCKED','Нельзя менять кассовый плагин при незавершённых заказах',409);
       }
       const enabled=body.orderingEnabled===true?1:0;
-      if(enabled&&!clean(env.QR_ORDER_RATE_SECRET))
-        throw fail('QR_RATE_NOT_CONFIGURED','Перед включением заказов настройте QR_ORDER_RATE_SECRET в Cloudflare Pages',409);
       if(enabled){
-        if(!clean(env.QR_POS_BRIDGE_TOKEN)||!clean(env.PLUGIN_INGEST_TOKEN)||!pluginId)
-          throw fail('POS_BRIDGE_NOT_CONFIGURED','Не настроены POS Bridge и ID кассового плагина',409);
+        if(ctx.state?.access?.isOwner!==true)
+          throw fail('QR_OWNER_REQUIRED','Включать кассовые QR-заказы может только владелец',403);
+        requireTableSyncScope(request,env,{
+          departmentId:ctx.restaurantId,pluginId
+        });
+        if(!clean(env.QR_POS_BRIDGE_TOKEN)||!pluginId)
+          throw fail('POS_BRIDGE_NOT_CONFIGURED','Не настроен QR Bridge или не выбрана касса',409);
+        const policy=await fetchCheckoutPolicy(env.DB,paymentSettingsScope(ctx));
+        if(!isLivePreview(policy))
+          throw fail('QR_PAID_MODE_DISABLED',
+            'Перед включением кассовых QR-заказов нужна реальная оплата 0,01 AZN через Payriff',409);
         const ready=await env.DB.prepare(`SELECT last_seen_at FROM qr_pos_bridge_capabilities
           WHERE restaurant_id=?1 AND plugin_id=?2 AND contract_version=1
-            AND can_create_order=1 AND can_ack_fiscal=1 AND can_print_kitchen=1 LIMIT 1`)
+            AND can_create_order=1 LIMIT 1`)
           .bind(ctx.restaurantId,pluginId).first();
         const recent=Date.parse(ready?.last_seen_at||'');
         if(!Number.isFinite(recent)||recent>Date.now()||Date.now()-recent>=5*60000)
-          throw fail('POS_BRIDGE_NOT_READY','Кассовый плагин не подтвердил поддержку QR-заказов за последние 5 минут',409);
+          throw fail('POS_BRIDGE_NOT_READY',
+            'Тестовый плагин не подтвердил создание предоплаченных заказов за последние 5 минут',409);
       }
       await env.DB.prepare(`INSERT INTO qr_order_settings
         (owner_id,menu_id,restaurant_id,service_mode,ordering_enabled,pos_plugin_id,created_at,updated_at)
@@ -135,7 +139,9 @@ export async function onRequestPost({request,env}){
           ordering_enabled=excluded.ordering_enabled,pos_plugin_id=excluded.pos_plugin_id,
           updated_at=excluded.updated_at`)
         .bind(ctx.ownerId,ctx.menu.id,ctx.restaurantId,mode,enabled,pluginId,now).run();
-      return response({success:true,notice:enabled?'Приём тестовых QR-заказов включён: POS-мост подтвердил полную готовность.':'Приём заказов выключен.'});
+      return response({success:true,notice:enabled?
+        'Подтверждена готовность POS Bridge. Передача оплаты на кассу доступна только после отдельного подтверждения владельца для каждого PAID_VERIFIED. Кухонная печать включается отдельно.':
+        'Передача QR-заказов на кассу выключена.'});
     }
     if(action==='syncPosTables'){
       requireTableSyncScope(request,env,{
