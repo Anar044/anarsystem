@@ -223,7 +223,53 @@ async function loadPaymentAttempts(){
           message.textContent=summary;
         }
       };
-      td.append(button);tr.append(td);table.append(tr);
+      td.append(button);
+      if(attempt.state==='PAID_VERIFIED'&&attempt.providerOrderKnown){
+        const queueBtn=document.createElement('button');
+        queueBtn.className='qro-btn';
+        queueBtn.type='button';
+        queueBtn.textContent='Передать оплаченный заказ на кассу';
+        queueBtn.style.cssText='margin-top:6px;display:block;max-width:230px;white-space:normal';
+        queueBtn.onclick=async()=>{
+          if(!state||state.restaurantId!==expected)return;
+          queueBtn.disabled=true;
+          const prefix='Передача '+attempt.amountAZN+' AZN, '+attempt.table+': ';
+          try{
+            const prepared=await api(null,'/api/qr-menu/paid-order-queue?intentId='+
+              encodeURIComponent(attempt.id));
+            if(!state||state.restaurantId!==expected)return;
+            if(prepared.alreadyQueued){
+              const summary=prefix+'уже связан с заказом '+(prepared.order?.id||'')+
+                ' ('+(prepared.order?.state||'')+'). Новый заказ не создавался.';
+              paymentAttemptResults.set(attempt.id,{ok:true,summary});
+              message.textContent=summary;
+              await loadPaymentAttempts();
+              return;
+            }
+            if(!confirm('Платёж '+attempt.amountAZN+' AZN уже подтверждён Payriff. '+
+              'Создать ОДИН заказ на тестовой кассе для '+attempt.table+
+              '? Нового списания не будет. Печать кухни включается отдельно.'))return;
+            const queued=await api({action:'queueVerified',intentId:attempt.id,
+              expectedRestaurantId:expected,confirmCreate:true},
+              '/api/qr-menu/paid-order-queue');
+            if(!state||state.restaurantId!==expected)return;
+            const summary=prefix+(queued.notice||'Заказ подготовлен')+
+              ' · '+(queued.order?.state||'');
+            paymentAttemptResults.set(attempt.id,{ok:true,summary});
+            await loadPaymentAttempts();
+            message.style.color='#8fe2bc';message.textContent=summary;
+          }catch(e){
+            if(!state||state.restaurantId!==expected)return;
+            const summary=prefix+'не выполнена ('+(e.code||'QR_POS_NOT_READY')+'): '+
+              (e.message||'Ошибка кассы')+'. Повторной оплаты не требуется.';
+            paymentAttemptResults.set(attempt.id,{ok:false,summary});
+            await loadPaymentAttempts();
+            message.style.color='#ffd29b';message.textContent=summary;
+          }finally{queueBtn.disabled=false}
+        };
+        td.append(queueBtn);
+      }
+      tr.append(td);table.append(tr);
     }
   }catch(e){
     message.style.color='#ffd29b';
